@@ -1,6 +1,7 @@
 import logging
 import os
 import threading
+from dataclasses import replace
 import time
 from copy import deepcopy
 from typing import Dict, List, Optional, Tuple, Union, TYPE_CHECKING, Literal
@@ -11,8 +12,12 @@ import matplotlib.patches as patches
 
 from fibsem import utils
 from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
-from fibsem.fm.calibration import run_autofocus
-from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov, order_tiles
+from fibsem.fm.calibration import run_autofocus, run_coarse_fine_autofocus
+from fibsem.imaging.tiling.geometry import (
+    TilePosition,
+    compute_tile_grid_from_fov,
+    order_tiles,
+)
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import (
     AutoFocusMode,
@@ -40,7 +45,18 @@ def acquire_channels(
         channel_settings = [channel_settings]  # Ensure settings is a list
 
     images: List[FluorescenceImage] = []
-    for channel in channel_settings:
+    for i, channel in enumerate(channel_settings):
+        # Same payload shape `acquire_z_stack` emits, minus the z fields. Without it a
+        # multi-channel acquisition was silent, so anything watching progress within a
+        # tile had nothing to show unless a z-stack happened to be enabled.
+        microscope.acquisition_progress_signal.emit({
+            "state": "acquiring",
+            "task": "channels",
+            "channel": channel.name,
+            "channel_index": i + 1,
+            "total_channels": len(channel_settings),
+        })
+
         # Check for cancellation before each channel
         if stop_event and stop_event.is_set():
             logging.info("Multi-channel acquisition cancelled")
@@ -332,17 +348,21 @@ def acquire_at_positions(
 def run_tileset_autofocus(
     microscope: 'FibsemMicroscope',
     channel_settings: Optional[ChannelSettings],
-    z_parameters: Optional[ZParameters],
-    method: str = "tenengrad",
+    autofocus_settings: AutoFocusSettings,
     stop_event: Optional[threading.Event] = None,
 ) -> bool:
     """Run autofocus during tileset acquisition with error handling and logging.
 
+    A thin wrapper over `run_coarse_fine_autofocus` -- the same sweep the live
+    auto-focus button runs -- so a tileset focuses exactly the way focusing by hand
+    does. It used to iterate passes itself, which made it a second implementation of
+    a loop that already existed and could drift from it.
+
     Args:
         microscope: The FIBSEM microscope instance
         channel_settings: Channel settings for autofocus
-        z_parameters: Z parameters for autofocus range
-        method: Autofocus method to use (default: 'tenengrad')
+        autofocus_settings: Sweep passes, method and channel. Every enabled pass runs,
+            each centred on where the previous one left the objective.
         stop_event: Threading event to check for cancellation (optional)
 
     Returns:
@@ -354,11 +374,10 @@ def run_tileset_autofocus(
         )
         return False
     try:
-        result = run_autofocus(
+        result = run_coarse_fine_autofocus(
             microscope=microscope.fm,
+            autofocus_settings=autofocus_settings,
             channel_settings=channel_settings,
-            z_parameters=z_parameters,
-            method=method,
             stop_event=stop_event,
         )
         if result is None:
@@ -368,6 +387,35 @@ def run_tileset_autofocus(
     except Exception as e:
         logging.warning(f"Auto-focus failed: {e}")
         return False
+
+
+PREVIEW_MAX_DIMENSION = 2048
+"""Long-edge size of the live mosaic preview, in pixels.
+
+A full-resolution fluorescence mosaic is multi-channel 16-bit -- a 5x5 of 1024px tiles
+is ~88 MB -- and the whole canvas is pushed through a Qt signal on every tile. The
+preview is decimated to this so watching a run stays cheap; the final stitch is
+untouched and full resolution.
+"""
+
+
+def _to_channel_planes(data: np.ndarray, n_channels: int) -> np.ndarray:
+    """Normalise tile data to (C, Y, X), projecting z the way the final stitch does.
+
+    Tiles arrive as 2D (Y, X), 3D (either (C, Y, X) or (Z, Y, X)) or 4D (C, Z, Y, X).
+    The 3D case is genuinely ambiguous from the shape alone, so it is resolved against
+    the channel count -- a single channel with a z-stack is (Z, Y, X) and gets
+    projected, several channels without one is (C, Y, X) and does not.
+    """
+    if data.ndim == 2:
+        return data[np.newaxis]
+    if data.ndim == 4:
+        return np.max(data, axis=1)
+    if data.ndim == 3:
+        if n_channels > 1 and data.shape[0] == n_channels:
+            return data
+        return np.max(data, axis=0)[np.newaxis]
+    raise ValueError(f"Unsupported tile data dimensions: {data.ndim}")
 
 
 class FMTiledAcquisitionRunner:
@@ -521,7 +569,7 @@ class FMTiledAcquisitionRunner:
 
         time_estimates = estimate_tileset_acquisition_time(
             self.channel_settings, (self._rows, self._cols), self.zparams,
-            self._autofocus_mode,
+            self._autofocus_mode, tile_mask=self._tile_mask,
         )
         self._total_estimated_time = time_estimates["total_time"]
         self._acquisition_start_time = time.time()
@@ -564,10 +612,18 @@ class FMTiledAcquisitionRunner:
             f"{len(enabled_passes)} enabled pass(es)"
         )
 
-        self._autofocus_method = self.autofocus_settings.method.value
-        # Per-tile / per-row autofocus uses the final (narrowest) enabled pass.
-        # NOTE: a wider initial pass should only be used once, before acquisition.
-        self._autofocus_zparams = ZParameters.from_focus_pass(enabled_passes[-1])
+        # The once-before-acquisition focus runs every enabled pass, coarse to fine:
+        # each sweep centres on where the previous one left the objective, which is
+        # the entire point of configuring more than one. Per-row and per-tile focus
+        # runs only the narrowest -- they refine an already-good position, and paying
+        # for a wide sweep at every tile would dominate the acquisition.
+        #
+        # Previously *all* modes used the narrowest pass alone, so a configured coarse
+        # pass was silently ignored even for the case it exists for.
+        self._autofocus_full = replace(self.autofocus_settings, passes=enabled_passes)
+        self._autofocus_fine = replace(
+            self.autofocus_settings, passes=[enabled_passes[-1]]
+        )
 
     def _compute_grid(self) -> None:
         """Lay the grid out once and project every tile to an absolute position.
@@ -614,6 +670,8 @@ class FMTiledAcquisitionRunner:
             for tile in self._grid
         }
 
+        self._init_preview_canvas()
+
         first = self._ordered[0]
         self._emit({"state": "moving", "task": "tileset"})
         self._emit({
@@ -628,6 +686,58 @@ class FMTiledAcquisitionRunner:
             "estimated_remaining_time": self._total_estimated_time,
         })
 
+    def _init_preview_canvas(self) -> None:
+        """Allocate the live mosaic that tiles are painted into as they arrive.
+
+        The beam tiler does the same thing (`TiledAcquisitionRunner._canvas`) and emits
+        the whole canvas with each tile, leaving the widget to simply redisplay it. The
+        difference here is size: a full-resolution fluorescence mosaic is multi-channel
+        and 16-bit, so a 5x5 would be ~88 MB pushed through a Qt signal per tile. The
+        preview is therefore decimated to `PREVIEW_MAX_DIMENSION` on its long edge --
+        enough to watch the mosaic fill in, and the real stitch still happens at full
+        resolution when the run finishes.
+        """
+        # Taken from the grid rather than recomputed, so the preview cannot drift from
+        # where `stitch_tileset` will actually paint these tiles.
+        full_w = max(t.canvas_x for t in self._grid) + self._image_width
+        full_h = max(t.canvas_y for t in self._grid) + self._image_height
+
+        self._preview_stride = max(
+            1, int(np.ceil(max(full_w, full_h) / PREVIEW_MAX_DIMENSION))
+        )
+        self._preview_canvas = np.zeros(
+            (len(self.channel_settings),
+             int(np.ceil(full_h / self._preview_stride)),
+             int(np.ceil(full_w / self._preview_stride))),
+            dtype=np.uint16,
+        )
+        logging.debug(
+            f"Live preview canvas: {self._preview_canvas.shape} "
+            f"(stride {self._preview_stride}, full {full_h}x{full_w})"
+        )
+
+    def _paint_preview(self, tile: TilePosition, image: FluorescenceImage) -> None:
+        """Paint one acquired tile into the live preview mosaic.
+
+        Best effort: a preview that cannot be built is not a reason to fail an
+        acquisition that is otherwise fine, so this never raises into the tile loop.
+        """
+        try:
+            stride = self._preview_stride
+            data = _to_channel_planes(image.data, len(self.channel_settings))
+            if data.shape[0] != self._preview_canvas.shape[0]:
+                data = data[: self._preview_canvas.shape[0]]
+
+            thumb = data[:, ::stride, ::stride]
+            y0 = tile.canvas_y // stride
+            x0 = tile.canvas_x // stride
+            h = min(thumb.shape[1], self._preview_canvas.shape[1] - y0)
+            w = min(thumb.shape[2], self._preview_canvas.shape[2] - x0)
+            if h > 0 and w > 0:
+                self._preview_canvas[:, y0:y0 + h, x0:x0 + w] = thumb[:, :h, :w]
+        except Exception as e:  # pragma: no cover - preview is never load-bearing
+            logging.debug(f"Could not paint tile ({tile.row}, {tile.col}) into preview: {e}")
+
     def _autofocus_if_mode(self, mode: AutoFocusMode) -> None:
         """Run autofocus when the configured mode matches.
 
@@ -637,11 +747,13 @@ class FMTiledAcquisitionRunner:
         if self._autofocus_mode != mode:
             return
 
+        settings = (
+            self._autofocus_full if mode is AutoFocusMode.ONCE else self._autofocus_fine
+        )
         if not run_tileset_autofocus(
             self.microscope,
             self._autofocus_channel,
-            self._autofocus_zparams,
-            method=self._autofocus_method,
+            settings,
             stop_event=self.stop_event,
         ):
             raise OperationCancelledError(
@@ -666,8 +778,11 @@ class FMTiledAcquisitionRunner:
                 prev_row = tile.row
                 self._autofocus_if_mode(AutoFocusMode.EACH_ROW)
 
-            self.tileset[tile.row][tile.col] = self._acquire_tile(tile.row, tile.col)
+            image = self._acquire_tile(tile.row, tile.col)
+            self.tileset[tile.row][tile.col] = image
             self._n_acquired += 1
+            self._paint_preview(tile, image)
+            self._emit_preview(tile)
 
             if tile is not self._ordered[-1]:
                 self._emit({"state": "moving", "task": "tileset"})
@@ -747,6 +862,31 @@ class FMTiledAcquisitionRunner:
 
     def _emit(self, payload: dict) -> None:
         self.microscope.fm.acquisition_progress_signal.emit(payload)
+
+    def _emit_preview(self, tile: TilePosition) -> None:
+        """Publish the mosaic-so-far, so a viewer can watch it fill in.
+
+        Keyed `image`, matching what `TiledAcquisitionRunner` emits and what
+        `FibsemMinimapWidget.handle_tile_acquisition_progress` already reads, so a
+        consumer of one reads the other. The whole canvas goes out rather than the
+        single tile: the receiver then needs no state of its own and simply redisplays
+        what it is given, which is also what makes a late subscriber correct.
+
+        A *copy* goes out, unlike the beam tiler, which emits its live canvas directly.
+        The acquisition runs on a worker thread, so the signal is queued and the slot
+        runs later on the GUI thread -- by which time the shared array has been painted
+        into again. Sending the buffer itself is a read/write race for the sake of the
+        one thing that does not need to be fast: at ~10 MB against a tile exposure, the
+        copy does not show.
+        """
+        self._emit({
+            "state": "tile", "task": "tileset",
+            "row": tile.row, "col": tile.col,
+            "total_rows": self._rows, "total_cols": self._cols,
+            "current": self._n_acquired, "total": len(self._ordered),
+            "image": self._preview_canvas.copy(),
+            "preview_stride": self._preview_stride,
+        })
 
     def _emit_tile_progress(self, row: int, col: int) -> None:
         # Counted by visits, not by grid index. `row * cols + col` assumed a full

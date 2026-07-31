@@ -217,13 +217,21 @@ class ValueComboBox(QComboBox):
             self.set_value(value)
 
     def _format_item(self, item) -> str:
-        """Render an item for display, using the unit/format_fn given at construction."""
+        """Render an item for display, using the unit/format_fn given at construction.
+
+        An explicit `format_fn` wins over every built-in rule. It used to be consulted
+        last, so a caller that supplied one still got the default rendering for numbers
+        and enums -- silently, since nothing errors when a label is merely wrong. Three
+        call sites were affected: two mode combo boxes showed `EACH_ROW` in place of
+        the label they asked for, and emission wavelengths rendered as `550.0` rather
+        than the `550 nm` their formatter produces.
+        """
+        if self._format_fn is not None:
+            return self._format_fn(item)
         if isinstance(item, (float, int)):
             return format_value(val=item, unit=self._unit, precision=self._decimals)
         if isinstance(item, Enum):
             return item.name
-        if self._format_fn is not None:
-            return self._format_fn(item)
         return str(item)
 
     def add_value(self, item) -> None:

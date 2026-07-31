@@ -1563,3 +1563,191 @@ def test_stitching_demands_to_be_told_where_the_mosaic_is():
     """
     with pytest.raises(TypeError, match="centre_position"):
         stitch_tileset([[Mock(spec=FluorescenceImage)]], 0.1)
+
+
+# ── live mosaic preview ──────────────────────────────────────────────────
+#
+# The runner owns the mosaic-so-far and publishes it with every tile, the way
+# `TiledAcquisitionRunner` does for the beam side, so a viewer stays stateless and
+# simply redisplays what it is handed. It is decimated because a full-resolution
+# multi-channel 16-bit mosaic is tens of megabytes per emission.
+
+
+def _preview_frames(microscope, rows, cols, mask=None, channels=1):
+    frames = []
+    microscope.fm.acquisition_progress_signal.connect(
+        lambda d: frames.append(d) if d.get("state") == "tile" else None
+    )
+    channel_settings = [
+        ChannelSettings(name=f"CH{i}", exposure_time=0.001) for i in range(channels)
+    ]
+    acquisition.FMTiledAcquisitionRunner(
+        microscope=microscope,
+        channel_settings=channel_settings,
+        overview_parameters=OverviewParameters(
+            rows=rows, cols=cols, overlap=0.1, tile_mask=mask
+        ),
+    ).run()
+    return frames
+
+
+def test_a_preview_frame_is_published_for_every_acquired_tile(fm_microscope):
+    mask = [[(i == 1 or j == 1) for j in range(3)] for i in range(3)]
+
+    frames = _preview_frames(fm_microscope, 3, 3, mask=mask)
+
+    assert len(frames) == 5  # the plus, not the grid
+    assert [f["current"] for f in frames] == [1, 2, 3, 4, 5]
+    assert {f["total"] for f in frames} == {5}
+
+
+def test_the_preview_fills_in_as_tiles_land(fm_microscope):
+    """The point of the preview: it has to actually change between tiles."""
+    frames = _preview_frames(fm_microscope, 2, 2)
+
+    coverage = [int((f["image"] > 0).sum()) for f in frames]
+    assert all(b > a for a, b in zip(coverage, coverage[1:])), coverage
+
+
+def test_each_preview_frame_is_its_own_array(fm_microscope):
+    """Emitting the live buffer would be a read/write race across threads.
+
+    The acquisition runs on a worker thread and the signal is queued, so the slot runs
+    on the GUI thread after the buffer has been painted into again. The beam tiler
+    emits its canvas directly; this one copies.
+    """
+    frames = _preview_frames(fm_microscope, 2, 2)
+
+    first = frames[0]["image"]
+    assert not any(first is f["image"] for f in frames[1:])
+    # and the first frame still shows one tile, not the finished mosaic
+    assert (first > 0).sum() < (frames[-1]["image"] > 0).sum()
+
+
+def test_the_preview_is_decimated(fm_microscope):
+    frames = _preview_frames(fm_microscope, 5, 5)
+
+    image = frames[-1]["image"]
+    assert max(image.shape[-2:]) <= acquisition.PREVIEW_MAX_DIMENSION
+    assert frames[-1]["preview_stride"] > 1
+
+
+def test_the_preview_leaves_skipped_tiles_blank(fm_microscope):
+    """Placement follows the same grid the stitch uses, holes included."""
+    mask = [[(i == 1 and j == 1) for j in range(3)] for i in range(3)]
+
+    frames = _preview_frames(fm_microscope, 3, 3, mask=mask)
+
+    image = frames[-1]["image"][0]
+    h, w = image.shape
+    assert not image[: h // 4, : w // 4].any(), "top-left corner was never acquired"
+    assert image[h // 3: 2 * h // 3, w // 3: 2 * w // 3].any(), "the centre tile was"
+
+
+def test_the_preview_has_one_plane_per_channel(fm_microscope):
+    frames = _preview_frames(fm_microscope, 2, 2, channels=2)
+
+    assert frames[-1]["image"].shape[0] == 2
+
+
+@pytest.mark.parametrize(
+    ("shape", "n_channels", "expected"),
+    [
+        ((8, 8), 1, (1, 8, 8)),            # plain 2D
+        ((3, 8, 8), 1, (1, 8, 8)),         # single channel z-stack -> projected
+        ((3, 8, 8), 3, (3, 8, 8)),         # three channels, no z -> kept
+        ((2, 4, 8, 8), 2, (2, 8, 8)),      # channels + z -> projected
+    ],
+    ids=["2d", "single-channel-zstack", "multi-channel", "channels-and-z"],
+)
+def test_tile_data_is_normalised_to_channel_planes(shape, n_channels, expected):
+    """The 3D case is ambiguous from the shape alone and is resolved by channel count."""
+    data = np.arange(np.prod(shape), dtype=np.uint16).reshape(shape)
+
+    assert acquisition._to_channel_planes(data, n_channels).shape == expected
+
+
+# ── autofocus passes and progress ────────────────────────────────────────
+
+
+def _sweep_settings():
+    from fibsem.autofunctions.autofocus import FocusSweepPass
+
+    return AutoFocusSettings(passes=[
+        FocusSweepPass(search_range=20e-6, step_size=5e-6),   # coarse: 5 positions
+        FocusSweepPass(search_range=6e-6, step_size=1e-6),    # fine:   7 positions
+    ])
+
+
+def _autofocus_payloads(microscope, monkeypatch, mode):
+    _record_tile_positions(microscope, monkeypatch)
+    seen = []
+    microscope.fm.acquisition_progress_signal.connect(
+        lambda d: seen.append(d) if d.get("task") == "autofocus" else None
+    )
+    acquisition.FMTiledAcquisitionRunner(
+        microscope=microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+        overview_parameters=OverviewParameters(rows=2, cols=2, overlap=0.1,
+                                               autofocus_mode=mode),
+        autofocus_settings=_sweep_settings(),
+    ).run()
+    return seen
+
+
+def test_focusing_once_runs_every_enabled_pass(fm_microscope, monkeypatch):
+    """Coarse then fine, which is the whole reason to configure more than one pass.
+
+    Every mode used to take the narrowest pass alone, so a configured coarse sweep was
+    silently ignored -- including in the one case it exists for.
+    """
+    seen = _autofocus_payloads(fm_microscope, monkeypatch, AutoFocusMode.ONCE)
+
+    passes = sorted({(d["pass_index"], d["total_passes"], d["total_zlevels"])
+                     for d in seen})
+    assert passes == [(1, 2, 5), (2, 2, 7)]
+
+
+def test_per_tile_focusing_runs_only_the_narrowest_pass(fm_microscope, monkeypatch):
+    """It refines an already-good position; a wide sweep at every tile would dominate."""
+    seen = _autofocus_payloads(fm_microscope, monkeypatch, AutoFocusMode.EACH_TILE)
+
+    assert sorted({(d["pass_index"], d["total_passes"]) for d in seen}) == [(1, 1)]
+    assert {d["total_zlevels"] for d in seen} == {7}          # the fine pass
+    assert len([d for d in seen if d["zlevel"] == 1]) == 4    # once per tile
+
+
+def test_the_sweep_reports_progress_per_position(fm_microscope, monkeypatch):
+    """Otherwise the bars freeze for the length of the sweep, which on per-tile
+    focusing is most of the run."""
+    seen = _autofocus_payloads(fm_microscope, monkeypatch, AutoFocusMode.ONCE)
+
+    assert [d["zlevel"] for d in seen if d["pass_index"] == 1] == [1, 2, 3, 4, 5]
+    assert all(d["channel"] == "DAPI" for d in seen)
+
+
+def test_a_cancelled_sweep_does_not_start_the_next_pass(fm_microscope, monkeypatch):
+    _record_tile_positions(fm_microscope, monkeypatch)
+    stop_event = threading.Event()
+    seen = []
+    fm_microscope.fm.acquisition_progress_signal.connect(
+        lambda d: seen.append(d) if d.get("task") == "autofocus" else None
+    )
+
+    def cancel_during_the_first_pass(*args, **kwargs):
+        stop_event.set()
+        return Mock(spec=FluorescenceImage)
+
+    monkeypatch.setattr(fm_microscope.fm, "acquire_image", cancel_during_the_first_pass)
+
+    with pytest.raises(OperationCancelledError):
+        acquisition.FMTiledAcquisitionRunner(
+            microscope=fm_microscope,
+            channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+            overview_parameters=OverviewParameters(rows=2, cols=2, overlap=0.1,
+                                                   autofocus_mode=AutoFocusMode.ONCE),
+            autofocus_settings=_sweep_settings(),
+            stop_event=stop_event,
+        ).run()
+
+    assert {d["pass_index"] for d in seen} == {1}, "the second pass must not start"
