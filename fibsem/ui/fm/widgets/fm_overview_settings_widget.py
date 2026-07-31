@@ -27,8 +27,15 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import constants
-from fibsem.fm.structures import AutoFocusMode, OverviewParameters, ZParameters
+from fibsem.fm.structures import (
+    AutoFocusMode,
+    AutoFocusSettings,
+    ChannelSettings,
+    OverviewParameters,
+    ZParameters,
+)
 from fibsem.structures import TileOrderStrategy
+from fibsem.ui.fm.widgets.autofocus_widget import AutofocusWidget
 from fibsem.ui.fm.widgets.tile_mask_widget import TileMaskWidget
 from fibsem.ui.fm.widgets.z_parameters_widget import ZParametersWidget
 from fibsem.ui.utils import install_wheel_blocker
@@ -68,7 +75,7 @@ class FMOverviewSettingsWidget(QWidget):
     def __init__(
         self,
         parameters: Optional[OverviewParameters] = None,
-        channel_names: Optional[List[str]] = None,
+        channel_settings: Optional[List[ChannelSettings]] = None,
         z_parameters: Optional[ZParameters] = None,
         parent: Optional[QWidget] = None,
     ):
@@ -77,8 +84,12 @@ class FMOverviewSettingsWidget(QWidget):
         # Owned here rather than by the parent, so every overview setting sits in one
         # widget and their order is this widget's to decide.
         self.z_widget = ZParametersWidget(z_parameters or ZParameters())
+        # The sweep itself -- method, channel, and the coarse/fine passes -- is already
+        # a solved widget backed by `AutoFocusSettings`. Only *when* to run it is an
+        # overview concern, so that is all this widget adds.
+        self.autofocus_widget = AutofocusWidget(list(channel_settings or []))
+        self.autofocus_widget.set_pass_editing_enabled(True)
         self._init_ui()
-        self.set_channel_names(channel_names or [])
         if parameters is not None:
             self.parameters = parameters
         self._refresh_derived()
@@ -122,13 +133,11 @@ class FMOverviewSettingsWidget(QWidget):
             items=list(AutoFocusMode),
             format_fn=lambda m: AUTOFOCUS_LABELS.get(m, m.name),
         )
-        self.combo_autofocus_channel = ValueComboBox()
 
         # The app's spinboxes carry -/+ buttons, which eat most of a narrow field and
         # leave the value clipped ("0" for an overlap of 0.10). Give them a floor.
         for widget in (self.spin_rows, self.spin_cols, self.spin_overlap,
-                       self.combo_tile_order, self.combo_autofocus_mode,
-                       self.combo_autofocus_channel):
+                       self.combo_tile_order, self.combo_autofocus_mode):
             widget.setMinimumWidth(SPINBOX_MIN_WIDTH)
             widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         for widget in (self.spin_rows, self.spin_cols, self.spin_overlap):
@@ -148,9 +157,13 @@ class FMOverviewSettingsWidget(QWidget):
         grid_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
         grid_form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         grid_form.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.label_total_fov = QLabel("—")
+        self.label_total_fov.setStyleSheet(MUTED)
+
         grid_form.addRow("Rows × Columns", size_row)
         grid_form.addRow("Overlap", self.spin_overlap)
         grid_form.addRow("Tile order", self.combo_tile_order)
+        grid_form.addRow("Total FOV", self.label_total_fov)
         grid_box = QGroupBox("Grid")
         grid_box.setLayout(grid_form)
 
@@ -160,13 +173,20 @@ class FMOverviewSettingsWidget(QWidget):
         mask_box = QGroupBox("Tiles to acquire")
         mask_box.setLayout(mask_layout)
 
+        # "When to focus" is the overview's own setting; everything below it -- method,
+        # channel, and the sweep passes -- belongs to the sweep and is delegated.
         focus_form = QFormLayout()
         focus_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
         focus_form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         focus_form.addRow("Auto-focus", self.combo_autofocus_mode)
-        focus_form.addRow("Focus channel", self.combo_autofocus_channel)
+
+        focus_layout = QVBoxLayout()
+        focus_layout.setContentsMargins(6, 6, 6, 6)
+        focus_layout.setSpacing(6)
+        focus_layout.addLayout(focus_form)
+        focus_layout.addWidget(self.autofocus_widget)
         focus_box = QGroupBox("Focus")
-        focus_box.setLayout(focus_form)
+        focus_box.setLayout(focus_layout)
 
         # The checkbox is the z-stack's enable, so it lives with what it enables --
         # and the parameters grey out when it is off, instead of staying live and
@@ -197,7 +217,7 @@ class FMOverviewSettingsWidget(QWidget):
         self.combo_tile_order.currentIndexChanged.connect(self._on_tile_order_changed)
         self.check_zstack.stateChanged.connect(self._on_zstack_toggled)
         self.combo_autofocus_mode.currentIndexChanged.connect(self._on_autofocus_changed)
-        self.combo_autofocus_channel.currentIndexChanged.connect(self._on_any_change)
+        self.autofocus_widget.settings_changed.connect(self._on_any_change)
         self.tile_mask.changed.connect(self._on_any_change)
 
         self._on_autofocus_changed()
@@ -219,7 +239,7 @@ class FMOverviewSettingsWidget(QWidget):
 
     def _on_autofocus_changed(self) -> None:
         mode = self.combo_autofocus_mode.value()
-        self.combo_autofocus_channel.setEnabled(mode is not AutoFocusMode.NONE)
+        self.autofocus_widget.setEnabled(mode is not AutoFocusMode.NONE)
         self._warn_if_spiral_conflicts()
         self._on_any_change()
 
@@ -244,20 +264,49 @@ class FMOverviewSettingsWidget(QWidget):
         self._tile_fov = (fov_x, fov_y)
         self._refresh_derived()
 
+    def total_fov(self) -> Optional[tuple]:
+        """Width and height of the whole mosaic in metres, or None if the tile FOV
+        has not been supplied.
+
+        The grid always spans the full rectangle regardless of the mask: skipped tiles
+        keep their place, so the area covered is a property of rows/cols/overlap alone.
+        """
+        if self._tile_fov is None:
+            return None
+        fov_x, fov_y = self._tile_fov
+        overlap = self.spin_overlap.value()
+        return (
+            ((self.spin_cols.value() - 1) * (1 - overlap) + 1) * fov_x,
+            ((self.spin_rows.value() - 1) * (1 - overlap) + 1) * fov_y,
+        )
+
     def _refresh_derived(self) -> None:
         rows, cols = self.spin_rows.value(), self.spin_cols.value()
-        overlap = self.spin_overlap.value()
         n_enabled = self.tile_mask.n_enabled
 
+        total = self.total_fov()
+        self.label_total_fov.setText(
+            "—" if total is None
+            else f"{total[0] * constants.SI_TO_MICRO:.0f} × "
+                 f"{total[1] * constants.SI_TO_MICRO:.0f} µm"
+        )
+
         parts = [f"{n_enabled} of {rows * cols} tiles"]
-        if self._tile_fov is not None:
-            fov_x, fov_y = self._tile_fov
-            width = ((cols - 1) * (1 - overlap) + 1) * fov_x * constants.SI_TO_MICRO
-            height = ((rows - 1) * (1 - overlap) + 1) * fov_y * constants.SI_TO_MICRO
-            parts.append(f"{width:.0f} × {height:.0f} µm")
         if getattr(self, "_spiral_conflict", False):
             parts.append("per-row focus becomes per-tile for a spiral")
+        if self._focus_without_passes():
+            parts.append("auto-focus is on but every sweep pass is disabled")
         self.label_summary.setText(" · ".join(parts))
+
+    def _focus_without_passes(self) -> bool:
+        """Focusing scheduled, but nothing for it to sweep.
+
+        `AutoFocusSettings.enabled` is False when every pass is unticked, so the run
+        would schedule focusing and then do nothing -- two controls that each look set
+        correctly, contradicting each other.
+        """
+        settings = self.autofocus_settings
+        return settings is not None and not settings.enabled
 
     # ── value ────────────────────────────────────────────────────────────
 
@@ -270,9 +319,26 @@ class FMOverviewSettingsWidget(QWidget):
             self.combo_autofocus_channel.set_value(current)
         self.combo_autofocus_channel.blockSignals(False)
 
+    def set_channel_settings(self, channels: List[ChannelSettings]) -> None:
+        """Keep the focus-channel choices in step with the channels being acquired."""
+        self.autofocus_widget.update_channels(list(channels))
+
     @property
     def autofocus_channel_name(self) -> Optional[str]:
-        return self.combo_autofocus_channel.value()
+        channel = self.autofocus_widget.get_selected_channel()
+        return channel.name if channel is not None else None
+
+    @property
+    def autofocus_settings(self) -> Optional[AutoFocusSettings]:
+        """The sweep to run, or None when autofocus is off.
+
+        None rather than settings-behind-a-disabled-control, matching how the
+        acquisition already reads `autofocus_settings=None`: one place decides whether
+        focusing happens, and it is the mode.
+        """
+        if self.combo_autofocus_mode.value() is AutoFocusMode.NONE:
+            return None
+        return self.autofocus_widget.get_autofocus_settings()
 
     @property
     def z_parameters(self) -> Optional[ZParameters]:

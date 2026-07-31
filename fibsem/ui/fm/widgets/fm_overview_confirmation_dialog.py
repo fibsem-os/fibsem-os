@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import (
 from fibsem import constants
 from fibsem.fm.structures import (
     AutoFocusMode,
+    AutoFocusSettings,
     ChannelSettings,
     OverviewParameters,
     ZParameters,
@@ -81,6 +82,7 @@ class FMOverviewConfirmationDialog(QDialog):
         channel_settings: List[ChannelSettings],
         zparams: Optional[ZParameters] = None,
         tile_fov: Optional[tuple] = None,
+        autofocus_settings: Optional[AutoFocusSettings] = None,
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
@@ -88,6 +90,7 @@ class FMOverviewConfirmationDialog(QDialog):
         self.channel_settings = channel_settings
         self.zparams = zparams if parameters.use_zstack else None
         self.tile_fov = tile_fov
+        self.autofocus_settings = autofocus_settings
 
         self.setWindowTitle("Start Overview Acquisition")
         self.setMinimumWidth(430)
@@ -119,6 +122,37 @@ class FMOverviewConfirmationDialog(QDialog):
             bits.append("sparse")
         return " · ".join(bits)
 
+    def _sweep_rows(self) -> List[tuple]:
+        """How the sweep is configured, now that it is configurable.
+
+        Reports only the enabled passes, and says so plainly when there are none --
+        that combination schedules focusing that then does nothing, and it looks
+        correct from either control alone.
+        """
+        if self.autofocus_settings is None:
+            return []
+
+        rows = [("Focus method", self.autofocus_settings.method.value.title())]
+        if self.autofocus_settings.channel_name:
+            rows.append(("Focus channel", self.autofocus_settings.channel_name))
+
+        enabled = [p for p in self.autofocus_settings.passes if p.enabled]
+        if not enabled:
+            rows.append(("Sweep", "no passes enabled — nothing will be focused"))
+        else:
+            # `search_range` is the total span, not a half-width -- positions cover
+            # +/- range/2 -- so it is reported as a span rather than as +/-.
+            rows.append((
+                "Sweep",
+                "  ·  ".join(
+                    f"{p.search_range * constants.SI_TO_MICRO:.0f} µm span, "
+                    f"{p.step_size * constants.SI_TO_MICRO:.1f} µm steps "
+                    f"({p.n_steps} images)"
+                    for p in enabled
+                ),
+            ))
+        return rows
+
     def _rows(self) -> List[tuple]:
         """Label/value pairs for the detail block."""
         p = self.parameters
@@ -143,6 +177,7 @@ class FMOverviewConfirmationDialog(QDialog):
                 # leaving the user to find it in the log afterwards.
                 note = "  → per tile, for a spiral"
             detail.append(("Auto-focus", f"{mode}{note}"))
+            detail.extend(self._sweep_rows())
 
         detail.append(("Images", f"{estimate['total_images']:,}"))
         detail.append((

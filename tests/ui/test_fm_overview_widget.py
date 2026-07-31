@@ -106,7 +106,7 @@ def test_the_mask_property_hands_back_a_copy(qapp):
 
 def test_settings_round_trip_every_field(qapp):
     """The widget's output is what the acquisition consumes, verbatim."""
-    widget = FMOverviewSettingsWidget(channel_names=["GFP", "RFP"])
+    widget = FMOverviewSettingsWidget(channel_settings=[ChannelSettings(name="GFP"), ChannelSettings(name="RFP")])
     parameters = OverviewParameters(
         rows=5, cols=5, overlap=0.15, use_zstack=True,
         autofocus_mode=AutoFocusMode.EACH_TILE,
@@ -130,14 +130,17 @@ def test_changing_the_grid_size_resizes_the_mask(qapp):
     assert widget.tile_mask.grid._cols == 6
 
 
-def test_the_focus_channel_is_only_offered_when_focusing(qapp):
-    widget = FMOverviewSettingsWidget(channel_names=["GFP"])
+def test_the_sweep_controls_are_only_live_when_focusing(qapp):
+    """Mode is the single switch: it greys the sweep out *and* decides what is returned."""
+    widget = FMOverviewSettingsWidget(channel_settings=[ChannelSettings(name="GFP")])
 
     widget.combo_autofocus_mode.set_value(AutoFocusMode.NONE)
-    assert not widget.combo_autofocus_channel.isEnabled()
+    assert not widget.autofocus_widget.isEnabled()
+    assert widget.autofocus_settings is None
 
     widget.combo_autofocus_mode.set_value(AutoFocusMode.ONCE)
-    assert widget.combo_autofocus_channel.isEnabled()
+    assert widget.autofocus_widget.isEnabled()
+    assert widget.autofocus_settings is not None
 
 
 def test_a_spiral_with_per_row_focus_says_what_will_actually_happen(qapp):
@@ -152,15 +155,50 @@ def test_a_spiral_with_per_row_focus_says_what_will_actually_happen(qapp):
     assert "per-tile" not in widget.label_summary.text()
 
 
-def test_the_summary_reports_the_selection_and_the_area(qapp):
+def test_the_summary_reports_the_selection(qapp):
+    widget = FMOverviewSettingsWidget()
+    widget.parameters = OverviewParameters(rows=3, cols=3, tile_mask=plus_mask(3))
+
+    assert "5 of 9 tiles" in widget.label_summary.text()
+
+
+@pytest.mark.parametrize(
+    ("rows", "cols", "overlap", "expected"),
+    [
+        (3, 3, 0.0, "300 × 300 µm"),
+        (3, 3, 0.1, "280 × 280 µm"),   # (n-1) steps of 90 µm, plus one whole tile
+        (2, 5, 0.0, "500 × 200 µm"),   # width from columns, height from rows
+        (1, 1, 0.5, "100 × 100 µm"),   # a single tile is its own field of view
+    ],
+)
+def test_the_grid_reports_the_total_field_of_view(qapp, rows, cols, overlap, expected):
+    """Area covered comes from rows/cols/overlap alone -- a mask does not shrink it,
+    because skipped tiles keep their place in the grid."""
     widget = FMOverviewSettingsWidget()
     widget.set_tile_fov(100e-6, 100e-6)
-    widget.parameters = OverviewParameters(rows=3, cols=3, overlap=0.0,
-                                           tile_mask=plus_mask(3))
 
-    text = widget.label_summary.text()
-    assert "5 of 9 tiles" in text
-    assert "300 × 300 µm" in text
+    widget.parameters = OverviewParameters(rows=rows, cols=cols, overlap=overlap)
+    assert widget.label_total_fov.text() == expected
+
+    widget.tile_mask.grid.set_all(False)
+    assert widget.label_total_fov.text() == expected
+
+
+def test_the_total_field_of_view_is_unknown_until_the_camera_is_known(qapp):
+    assert FMOverviewSettingsWidget().label_total_fov.text() == "—"
+
+
+def test_focusing_with_every_pass_disabled_is_called_out(qapp):
+    """Two controls that each look right, contradicting each other: the run would
+    schedule focusing and then sweep nothing."""
+    widget = FMOverviewSettingsWidget(channel_settings=[ChannelSettings(name="GFP")])
+    widget.combo_autofocus_mode.set_value(AutoFocusMode.ONCE)
+
+    for sweep_pass in widget.autofocus_widget.autofocus_settings.passes:
+        sweep_pass.enabled = False
+    widget._refresh_derived()
+
+    assert "every sweep pass is disabled" in widget.label_summary.text()
 
 
 # ── confirmation dialog ──────────────────────────────────────────────────

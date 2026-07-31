@@ -107,7 +107,7 @@ class FMOverviewWidget(QWidget):
         # Every overview setting lives in one widget, z-stack included, so their order
         # is decided in one place rather than split across two.
         self.settings_widget = FMOverviewSettingsWidget(
-            channel_names=[ch.name for ch in channels]
+            channel_settings=channels
         )
 
         controls = QWidget()
@@ -207,7 +207,7 @@ class FMOverviewWidget(QWidget):
             logging.debug(f"Could not read the camera field of view: {e}")
 
     def _on_channels_changed(self, channels: List[ChannelSettings]) -> None:
-        self.settings_widget.set_channel_names([ch.name for ch in channels])
+        self.settings_widget.set_channel_settings(channels)
         self._on_settings_changed()
 
     def _on_enabled_changed(self, channels: List[ChannelSettings]) -> None:
@@ -246,23 +246,22 @@ class FMOverviewWidget(QWidget):
             return
 
         zparams = self.settings_widget.z_parameters
+        # Method, channel and sweep passes all come from the settings panel now,
+        # rather than being defaulted with only the channel filled in. Resolved before
+        # the dialog, because the dialog reports what will run.
+        autofocus_settings = self.settings_widget.autofocus_settings
 
         dialog = FMOverviewConfirmationDialog(
             parameters=parameters,
             channel_settings=channels,
             zparams=zparams,
             tile_fov=self.settings_widget._tile_fov,
+            autofocus_settings=autofocus_settings,
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
             logging.info("Overview acquisition cancelled before starting")
             return
-
-        autofocus_settings = None
-        if parameters.autofocus_mode is not AutoFocusMode.NONE:
-            autofocus_settings = AutoFocusSettings(
-                channel_name=self.settings_widget.autofocus_channel_name
-            )
 
         self._stop_event.clear()
         self._set_running(True)
