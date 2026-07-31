@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from enum import Enum
 from typing import Any, List, Optional, Tuple, Union
@@ -823,20 +823,11 @@ class FluorescenceImage:
         first_metadata = ch_images[0].metadata
         z_positions = [img.metadata.channels[0].objective_position for img in ch_images]
 
-        # Create new metadata with z-positions
-        md = FluorescenceImageMetadata(
-            acquisition_date=first_metadata.acquisition_date,
-            pixel_size_x=first_metadata.pixel_size_x,
-            pixel_size_y=first_metadata.pixel_size_y,
-            pixel_size_z=first_metadata.pixel_size_z,
-            resolution=first_metadata.resolution,
-            channels=first_metadata.channels,
-            z_positions=z_positions,
-            stage_position=first_metadata.stage_position,
-            filename=first_metadata.filename,
-            description=first_metadata.description,
-            system_info=first_metadata.system_info,
-        )
+        # Carry the first plane's metadata over and change only what stacking changes.
+        # Listing the fields to copy instead means every field added to the dataclass
+        # later has to be remembered here too -- which is how `geometry` came to be
+        # silently dropped from every z-stacked and multi-channel acquisition.
+        md = replace(first_metadata, z_positions=z_positions)
 
         return FluorescenceImage(data=arrs, metadata=md)
 
@@ -875,19 +866,8 @@ class FluorescenceImage:
         for img in images:
             channels.extend(img.metadata.channels)
 
-        mds = FluorescenceImageMetadata(
-            acquisition_date=first_img.metadata.acquisition_date,
-            pixel_size_x=first_img.metadata.pixel_size_x,
-            pixel_size_y=first_img.metadata.pixel_size_y,
-            pixel_size_z=first_img.metadata.pixel_size_z,
-            resolution=first_img.metadata.resolution,
-            channels=channels,
-            z_positions=first_img.metadata.z_positions,
-            stage_position=first_img.metadata.stage_position,
-            filename=first_img.metadata.filename,
-            description=first_img.metadata.description,
-            system_info=first_img.metadata.system_info,
-        )
+        # As above: copy and override, so a new metadata field cannot go missing here.
+        mds = replace(first_img.metadata, channels=channels)
 
         return FluorescenceImage(data=stacked_data, metadata=mds)
 
