@@ -33,7 +33,6 @@ from fibsem.fm.structures import (
     ChannelSettings,
     FluorescenceImage,
     OverviewParameters,
-    ZParameters,
 )
 from fibsem.microscope import FibsemMicroscope
 from fibsem.ui import stylesheets
@@ -43,7 +42,6 @@ from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
     format_duration,
 )
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
-from fibsem.ui.fm.widgets.z_parameters_widget import ZParametersWidget
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 
@@ -106,7 +104,8 @@ class FMOverviewWidget(QWidget):
         self.canvas = FMCanvasWidget()
 
         self.channel_widget = ChannelListWidget(self.fm, channels)
-        self.z_widget = ZParametersWidget(ZParameters())
+        # Every overview setting lives in one widget, z-stack included, so their order
+        # is decided in one place rather than split across two.
         self.settings_widget = FMOverviewSettingsWidget(
             channel_names=[ch.name for ch in channels]
         )
@@ -116,7 +115,6 @@ class FMOverviewWidget(QWidget):
         controls_layout.setContentsMargins(8, 8, 8, 8)
         controls_layout.setSpacing(10)
         controls_layout.addWidget(self._section("Channels", self.channel_widget))
-        controls_layout.addWidget(self._section("Z-Stack", self.z_widget))
         controls_layout.addWidget(self.settings_widget)
         controls_layout.addStretch()
 
@@ -247,7 +245,7 @@ class FMOverviewWidget(QWidget):
             self.status.setText("No channels enabled.")
             return
 
-        zparams = self.z_widget._z_parameters if parameters.use_zstack else None
+        zparams = self.settings_widget.z_parameters
 
         dialog = FMOverviewConfirmationDialog(
             parameters=parameters,
@@ -321,7 +319,6 @@ class FMOverviewWidget(QWidget):
         self.button_cancel.setEnabled(running)
         self.settings_widget.setEnabled(not running)
         self.channel_widget.setEnabled(not running)
-        self.z_widget.setEnabled(not running)
         self.progress.setVisible(running)
         if running:
             self.progress.setValue(0)

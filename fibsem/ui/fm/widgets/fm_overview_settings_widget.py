@@ -12,22 +12,25 @@ matter:
 
 from typing import List, Optional
 
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
+    QSizePolicy,
     QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
 from fibsem import constants
-from fibsem.fm.structures import AutoFocusMode, OverviewParameters
+from fibsem.fm.structures import AutoFocusMode, OverviewParameters, ZParameters
 from fibsem.structures import TileOrderStrategy
 from fibsem.ui.fm.widgets.tile_mask_widget import TileMaskWidget
+from fibsem.ui.fm.widgets.z_parameters_widget import ZParametersWidget
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import ValueComboBox
 
@@ -41,10 +44,20 @@ AUTOFOCUS_LABELS = {
 }
 
 TILE_ORDER_LABELS = {
-    TileOrderStrategy.TYPEWRITER: "Typewriter (rows left to right)",
-    TileOrderStrategy.SERPENTINE: "Serpentine (alternating rows)",
-    TileOrderStrategy.SPIRAL: "Spiral (outward from centre)",
+    TileOrderStrategy.TYPEWRITER: "Typewriter",
+    TileOrderStrategy.SERPENTINE: "Serpentine",
+    TileOrderStrategy.SPIRAL: "Spiral",
 }
+
+TILE_ORDER_TOOLTIPS = {
+    TileOrderStrategy.TYPEWRITER: "Every row runs left to right.",
+    TileOrderStrategy.SERPENTINE: "Rows alternate direction, so the stage does not "
+                                  "travel back across the grid between them.",
+    TileOrderStrategy.SPIRAL: "Outward from the centre tile, so the tiles nearest "
+                              "the starting position are acquired first.",
+}
+
+SPINBOX_MIN_WIDTH = 92
 
 
 class FMOverviewSettingsWidget(QWidget):
@@ -56,10 +69,14 @@ class FMOverviewSettingsWidget(QWidget):
         self,
         parameters: Optional[OverviewParameters] = None,
         channel_names: Optional[List[str]] = None,
+        z_parameters: Optional[ZParameters] = None,
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
         self._tile_fov: Optional[tuple] = None   # (fov_x, fov_y) metres, set externally
+        # Owned here rather than by the parent, so every overview setting sits in one
+        # widget and their order is this widget's to decide.
+        self.z_widget = ZParametersWidget(z_parameters or ZParameters())
         self._init_ui()
         self.set_channel_names(channel_names or [])
         if parameters is not None:
@@ -87,6 +104,17 @@ class FMOverviewSettingsWidget(QWidget):
             items=list(TileOrderStrategy),
             format_fn=lambda s: TILE_ORDER_LABELS.get(s, s.value.title()),
         )
+        # What each strategy does belongs in a tooltip, not in the label -- the label
+        # is read on every glance and the explanation once.
+        for index in range(self.combo_tile_order.count()):
+            strategy = self.combo_tile_order.itemData(index)
+            self.combo_tile_order.setItemData(
+                index, TILE_ORDER_TOOLTIPS.get(strategy, ""), Qt.ToolTipRole
+            )
+        self.combo_tile_order.setToolTip(
+            "\n".join(f"{TILE_ORDER_LABELS[s]} — {TILE_ORDER_TOOLTIPS[s]}"
+                      for s in TileOrderStrategy)
+        )
 
         self.check_zstack = QCheckBox("Acquire a z-stack at each tile")
 
@@ -96,12 +124,31 @@ class FMOverviewSettingsWidget(QWidget):
         )
         self.combo_autofocus_channel = ValueComboBox()
 
+        # The app's spinboxes carry -/+ buttons, which eat most of a narrow field and
+        # leave the value clipped ("0" for an overlap of 0.10). Give them a floor.
+        for widget in (self.spin_rows, self.spin_cols, self.spin_overlap,
+                       self.combo_tile_order, self.combo_autofocus_mode,
+                       self.combo_autofocus_channel):
+            widget.setMinimumWidth(SPINBOX_MIN_WIDTH)
+            widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         for widget in (self.spin_rows, self.spin_cols, self.spin_overlap):
             install_wheel_blocker(widget)
 
+        # Rows and columns read as one setting and are always adjusted together, so
+        # they share a line -- which is also what gives each of them room.
+        size_row = QHBoxLayout()
+        size_row.setSpacing(6)
+        size_row.addWidget(self.spin_rows)
+        times = QLabel("×")
+        times.setStyleSheet(MUTED)
+        size_row.addWidget(times)
+        size_row.addWidget(self.spin_cols)
+
         grid_form = QFormLayout()
-        grid_form.addRow("Rows", self.spin_rows)
-        grid_form.addRow("Columns", self.spin_cols)
+        grid_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        grid_form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        grid_form.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
+        grid_form.addRow("Rows × Columns", size_row)
         grid_form.addRow("Overlap", self.spin_overlap)
         grid_form.addRow("Tile order", self.combo_tile_order)
         grid_box = QGroupBox("Grid")
@@ -114,11 +161,23 @@ class FMOverviewSettingsWidget(QWidget):
         mask_box.setLayout(mask_layout)
 
         focus_form = QFormLayout()
-        focus_form.addRow(self.check_zstack)
+        focus_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        focus_form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         focus_form.addRow("Auto-focus", self.combo_autofocus_mode)
         focus_form.addRow("Focus channel", self.combo_autofocus_channel)
         focus_box = QGroupBox("Focus")
         focus_box.setLayout(focus_form)
+
+        # The checkbox is the z-stack's enable, so it lives with what it enables --
+        # and the parameters grey out when it is off, instead of staying live and
+        # implying they apply.
+        zstack_layout = QVBoxLayout()
+        zstack_layout.setContentsMargins(6, 6, 6, 6)
+        zstack_layout.setSpacing(4)
+        zstack_layout.addWidget(self.check_zstack)
+        zstack_layout.addWidget(self.z_widget)
+        self.zstack_box = QGroupBox("Z-Stack")
+        self.zstack_box.setLayout(zstack_layout)
 
         self.label_summary = QLabel()
         self.label_summary.setStyleSheet(MUTED)
@@ -126,23 +185,29 @@ class FMOverviewSettingsWidget(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(focus_box)
+        layout.addWidget(self.zstack_box)
         layout.addWidget(grid_box)
         layout.addWidget(mask_box, stretch=1)
-        layout.addWidget(focus_box)
         layout.addWidget(self.label_summary)
 
         self.spin_rows.valueChanged.connect(self._on_grid_size_changed)
         self.spin_cols.valueChanged.connect(self._on_grid_size_changed)
         self.spin_overlap.valueChanged.connect(self._on_any_change)
         self.combo_tile_order.currentIndexChanged.connect(self._on_tile_order_changed)
-        self.check_zstack.stateChanged.connect(self._on_any_change)
+        self.check_zstack.stateChanged.connect(self._on_zstack_toggled)
         self.combo_autofocus_mode.currentIndexChanged.connect(self._on_autofocus_changed)
         self.combo_autofocus_channel.currentIndexChanged.connect(self._on_any_change)
         self.tile_mask.changed.connect(self._on_any_change)
 
         self._on_autofocus_changed()
+        self._on_zstack_toggled()
 
     # ── reactions ────────────────────────────────────────────────────────
+
+    def _on_zstack_toggled(self) -> None:
+        self.z_widget.setEnabled(self.check_zstack.isChecked())
+        self._on_any_change()
 
     def _on_grid_size_changed(self) -> None:
         self.tile_mask.set_grid_size(self.spin_rows.value(), self.spin_cols.value())
@@ -210,6 +275,18 @@ class FMOverviewSettingsWidget(QWidget):
         return self.combo_autofocus_channel.value()
 
     @property
+    def z_parameters(self) -> Optional[ZParameters]:
+        """The z-stack settings, or None when z-stacking is off.
+
+        None rather than the values behind a disabled checkbox: the acquisition takes
+        `zparams=None` to mean "no z-stack", so this hands back exactly what it wants
+        and there is no second place deciding whether the setting applies.
+        """
+        if not self.check_zstack.isChecked():
+            return None
+        return self.z_widget.z_parameters
+
+    @property
     def parameters(self) -> OverviewParameters:
         return OverviewParameters(
             rows=self.spin_rows.value(),
@@ -241,4 +318,8 @@ class FMOverviewSettingsWidget(QWidget):
                            self.combo_tile_order, self.check_zstack,
                            self.combo_autofocus_mode, self.tile_mask):
                 widget.blockSignals(False)
+        # Both, because the setter blocked the signals that normally trigger them --
+        # otherwise loading a z-stacked configuration leaves the z-parameters greyed
+        # out while the checkbox says they apply.
         self._on_autofocus_changed()
+        self._on_zstack_toggled()
