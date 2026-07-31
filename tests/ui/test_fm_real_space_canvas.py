@@ -251,3 +251,72 @@ def test_a_reduced_composite_is_still_placed_at_full_size():
     assert extent[2] - extent[3] == pytest.approx(1024)
     # and the canvas frame is still the acquired scale, which overlays measure against
     assert w.canvas.reference_pixel_size == pytest.approx(PIXEL_SIZE)
+
+
+# ── a channel that goes away ──────────────────────────────────────────────
+#
+# `_upsert_layer` only ever adds, which is right for the live path -- channels arrive a
+# frame at a time. It is wrong the moment a *set* of channels shrinks: the layer left
+# behind still holds the previous image's pixels, and those get blended into the next
+# one and then recorded as its own.
+
+
+def _place(widget, key, names, centre=(0.0, 0.0)):
+    """Composite one overview from a named set of channels."""
+    widget.set_composite_key(key)
+    widget.set_placement(centre)
+    widget.retain_channels(names)
+    for name in names:
+        widget.set_channel(name, _plane(), "green")
+
+
+def test_a_dropped_channel_does_not_bleed_into_the_next_overview():
+    """The bug this exists for: a two-channel overview followed by a one-channel one
+    drew the second with the first's second channel."""
+    widget = _widget()
+    _place(widget, "first", ["Channel-01", "Channel-02"])
+    stale = next(l for l in widget.layers if l.name == "Channel-02").data
+
+    _place(widget, "second", ["Channel-01"], centre=(300e-6, 0.0))
+
+    assert "Channel-02" not in widget._held["second"]
+    assert not any(
+        plane is stale for plane in widget._held["second"].values()
+    ), "the second overview was composited from the first's pixels"
+
+
+def test_the_earlier_overview_keeps_the_channel_it_was_acquired_with():
+    """Dropping the control outright would be the opposite error: `_restyle_others`
+    only draws channels that still have one, so the first overview would silently lose
+    a colour the moment a narrower overview was acquired beside it."""
+    widget = _widget()
+    _place(widget, "first", ["Channel-01", "Channel-02"])
+
+    _place(widget, "second", ["Channel-01"], centre=(300e-6, 0.0))
+
+    assert sorted(widget._held["first"]) == ["Channel-01", "Channel-02"]
+    assert [layer.name for layer in widget.layers] == ["Channel-01", "Channel-02"]
+    dropped = next(l for l in widget.layers if l.name == "Channel-02")
+    assert dropped.data is None, "the control stays; the stale pixels do not"
+
+
+def test_a_channel_nothing_displays_is_dropped_entirely():
+    widget = _widget()
+    _place(widget, "first", ["Channel-01", "Channel-02"])
+    widget.clear_overviews()
+
+    _place(widget, "second", ["Channel-01"])
+
+    assert [layer.name for layer in widget.layers] == ["Channel-01"]
+
+
+def test_the_single_image_canvas_drops_a_channel_outright():
+    """One image at a time, so a channel it does not have is a channel nothing has."""
+    widget = FMCanvasWidget()
+    widget.set_pixel_size(PIXEL_SIZE)
+    widget.set_channel("Channel-01", _plane(), "green")
+    widget.set_channel("Channel-02", _plane(), "red")
+
+    widget.retain_channels(["Channel-01"])
+
+    assert [layer.name for layer in widget.layers] == ["Channel-01"]

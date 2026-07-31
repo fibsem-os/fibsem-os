@@ -962,7 +962,12 @@ class FMOverviewWidget(QWidget):
             stride = payload.get("preview_stride", 1) or 1
             self.canvas.set_pixel_size(self.fm.camera.pixel_size[0] * stride)
 
-            for channel, plane in zip(self.channels, planes):
+            # This run's channels, and only these. `set_channel` upserts, so a channel
+            # switched off since the last run would otherwise keep its layer -- still
+            # holding the previous overview's pixels -- and be blended into this one.
+            channels = self.channels
+            self.canvas.retain_channels([channel.name for channel in channels])
+            for channel, plane in zip(channels, planes):
                 self.canvas.set_channel(channel.name, plane, channel.color)
         except Exception as e:
             logging.debug(f"Could not display the overview preview: {e}")
