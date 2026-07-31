@@ -177,6 +177,10 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
     canvas_double_clicked = pyqtSignal(float, float, object)  # left double-click (x, y) px, mods
     canvas_right_clicked = pyqtSignal(float, float, object)  # right single-click (x, y) px, mods
     canvas_scrolled = pyqtSignal(float, float, int, object)  # (x, y) px, dir +1/-1, mods
+    # Where the cursor is, in canvas coordinates, or (None, None) once it leaves the
+    # axes -- so a readout can blank rather than freeze on the last point it saw.
+    # Typed `object` for exactly that: pyqtSignal(float, float) cannot carry None.
+    cursor_moved = pyqtSignal(object, object)
 
     def __init__(self, parent=None):
         self._fig = Figure(facecolor=_BG)
@@ -259,6 +263,9 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self.mpl_connect("button_release_event", self._on_release)
         self.mpl_connect("scroll_event", self._on_scroll)
         self.mpl_connect("resize_event", lambda _: self.draw_idle())
+        # A motion event with `inaxes` unset covers most exits, but a fast flick off
+        # the widget can skip one and leave a readout showing a stale point.
+        self.mpl_connect("figure_leave_event", lambda _: self.cursor_moved.emit(None, None))
 
         # Overlay buttons (parented to self; repositioned in resizeEvent)
         self._overlay_buttons: List[QPushButton] = []
@@ -999,6 +1006,12 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         )
 
     def _on_motion(self, event):
+        # Before every early return below: a readout of where the cursor is should not
+        # go quiet because a pan happens to be in progress or an overlay owns the drag.
+        if event.inaxes is self._ax and event.xdata is not None:
+            self.cursor_moved.emit(event.xdata, event.ydata)
+        else:
+            self.cursor_moved.emit(None, None)
         # Overlay in drag mode — cancel any pending pan
         if self._overlay_consuming_event:
             self._pan_start = None
