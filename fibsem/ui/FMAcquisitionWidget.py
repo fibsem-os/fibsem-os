@@ -1568,6 +1568,7 @@ class FMAcquisitionWidget(QWidget):
         progress_total = progress.get("total", None)
         channel_name = progress.get("channel", None)
         progress_state = progress.get("state", None)
+        progress_task = progress.get("task", None)
 
         if progress_state == "moving":
             self.progressText.setText("Moving stage...")
@@ -1580,7 +1581,14 @@ class FMAcquisitionWidget(QWidget):
             self.progressBar_current_acquisition.setFormat("")
 
         # set progress message
-        if channel_name is not None:
+        if progress_task == "autofocus":
+            # Handled before the channel branch, not inside it: a sweep with no channel
+            # reports an empty name, which used to render "Acquiring  (1/1)..." and now
+            # would leave the previous message sitting there instead.
+            self.progressText.setText(
+                f"Focusing on {channel_name}..." if channel_name else "Focusing..."
+            )
+        elif channel_name:
             channel_index = progress.get("channel_index", 1)
             total_channels = progress.get("total_channels", 1)
             msg = f"Acquiring {channel_name} ({channel_index}/{total_channels})..."
@@ -1594,9 +1602,18 @@ class FMAcquisitionWidget(QWidget):
                 else 0
             )
             self.progressBar_current_acquisition.setValue(percentage_zlevel)
-            self.progressBar_current_acquisition.setFormat(
-                f"Z-level {progress_zlevels}/{progress_total_zlevels}"
-            )
+            if progress_task == "autofocus":
+                # A focus sweep steps the objective through a search range. Calling
+                # those positions "Z-level" names the z-stack, which is not running --
+                # and says which pass, so a coarse sweep followed by a fine one does
+                # not look like the same bar inexplicably starting over.
+                total_passes = progress.get("total_passes", 1)
+                which = (f" · pass {progress.get('pass_index', 1)}/{total_passes}"
+                         if total_passes > 1 else "")
+                label = f"Focus {progress_zlevels}/{progress_total_zlevels}{which}"
+            else:
+                label = f"Z-level {progress_zlevels}/{progress_total_zlevels}"
+            self.progressBar_current_acquisition.setFormat(label)
 
         # set total acquisition task progress
         if progress_current is not None and progress_total is not None:
