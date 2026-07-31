@@ -241,6 +241,32 @@ class FMOverviewSettingsWidget(QWidget):
         self.z_widget.setEnabled(self.check_zstack.isChecked())
         self._on_any_change()
 
+    def set_grid_size(self, rows: int, cols: int) -> None:
+        """Set both grid dimensions as a single change.
+
+        Setting the two spin boxes one after the other emits `changed` twice and
+        passes through a size nobody asked for -- the new row count against the old
+        column count. That is invisible when a spin box is nudged by hand, but an edge
+        drag on the canvas does it on every motion event.
+
+        Follows the `parameters` setter: block, apply, resize the mask explicitly
+        because its handler is blocked with it, then notify once.
+        """
+        if (rows, cols) == (self.spin_rows.value(), self.spin_cols.value()):
+            return
+
+        for widget in (self.spin_rows, self.spin_cols, self.tile_mask):
+            widget.blockSignals(True)
+        try:
+            self.spin_rows.setValue(rows)
+            self.spin_cols.setValue(cols)
+            self.tile_mask.set_grid_size(rows, cols)
+        finally:
+            for widget in (self.spin_rows, self.spin_cols, self.tile_mask):
+                widget.blockSignals(False)
+
+        self._on_any_change()
+
     def _on_grid_size_changed(self) -> None:
         self.tile_mask.set_grid_size(self.spin_rows.value(), self.spin_cols.value())
         self._on_any_change()

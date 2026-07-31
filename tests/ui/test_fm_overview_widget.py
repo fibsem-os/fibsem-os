@@ -683,3 +683,45 @@ def test_clearing_the_positions_clears_the_markers(qapp, overview_widget):
     qapp.processEvents()
 
     assert widget.position_overlay._points == []
+
+
+def test_setting_both_grid_dimensions_notifies_once(qapp):
+    """Nudging the two spin boxes emits four times -- twice each, since resizing the
+    mask emits again -- and passes through a grid size nobody asked for (new rows,
+    old columns). Invisible by hand; an edge drag on the canvas does it per motion
+    event, refreshing the overlay repeatedly against a size that was never requested."""
+    widget = FMOverviewSettingsWidget()
+    seen = []
+    widget.changed.connect(
+        lambda: seen.append((widget.spin_rows.value(), widget.spin_cols.value()))
+    )
+
+    widget.set_grid_size(2, 7)
+
+    assert seen == [(2, 7)]
+    assert (widget.tile_mask.grid._rows, widget.tile_mask.grid._cols) == (2, 7)
+
+
+def test_setting_the_same_grid_size_is_a_no_op(qapp):
+    widget = FMOverviewSettingsWidget()
+    rows, cols = widget.spin_rows.value(), widget.spin_cols.value()
+    seen = []
+    widget.changed.connect(lambda: seen.append(1))
+
+    widget.set_grid_size(rows, cols)
+
+    assert seen == []
+
+
+def test_a_canvas_resize_goes_through_the_settings_widget(qapp, overview_widget):
+    """The canvas is a view: a drag asks for a size, it does not hold one."""
+    widget = overview_widget
+    widget.settings_widget.set_grid_size(3, 3)
+    qapp.processEvents()
+
+    widget.tile_grid_overlay.grid_resize_requested.emit(4, 6)
+    qapp.processEvents()
+
+    assert widget.settings_widget.parameters.rows == 4
+    assert widget.settings_widget.parameters.cols == 6
+    assert len(widget.tile_grid_overlay._tiles) == 24

@@ -436,11 +436,10 @@ class FMOverviewWidget(QWidget):
         Writes to the settings widget, which owns rows and columns, for the same reason
         a tile click does: the canvas is a view of that state, not a second copy.
         """
-        settings = self.settings_widget
-        if (rows, cols) == (settings.spin_rows.value(), settings.spin_cols.value()):
-            return
-        settings.spin_rows.setValue(rows)
-        settings.spin_cols.setValue(cols)
+        # One call rather than two spin boxes: a drag emits on every motion event, and
+        # setting them separately would refresh twice per step and pass through a grid
+        # size that was never requested.
+        self.settings_widget.set_grid_size(rows, cols)
 
     def _on_tile_toggled(self, row: int, col: int, enabled: bool) -> None:
         """A tile was clicked on the canvas.
