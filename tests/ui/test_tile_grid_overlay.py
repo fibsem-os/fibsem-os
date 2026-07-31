@@ -451,3 +451,17 @@ def test_a_hidden_grid_shows_no_resize_cursor(qapp):
     overlay._update_cursor(_event(overlay, right, overlay._img_h / 2))
 
     assert overlay._cursor_set is False
+
+
+def test_a_drag_survives_the_grid_being_cleared_underneath_it(qapp):
+    """`_refresh_tile_grid` clears the grid when the camera geometry cannot be read,
+    which can happen between two motion events of a drag. The row and column counts
+    are derived from the tiles, so an empty grid raised on `max()` -- and an exception
+    escaping a handler can take the app down (FIB-329)."""
+    overlay, _ = build(3, 3, overlap=OVERLAP)
+    right, _ = _edges(overlay)
+    overlay._on_press(_event(overlay, right, overlay._img_h / 2))
+
+    overlay.clear()
+
+    overlay._on_drag(_event(overlay, right + WIDTH, overlay._img_h / 2))

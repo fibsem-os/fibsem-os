@@ -454,6 +454,11 @@ class TileGridOverlay(QObject, CanvasOverlay):
             return
         if event.xdata is None or event.ydata is None:
             return
+        if not self._tiles:
+            # The grid can be cleared mid-drag -- `_refresh_tile_grid` does exactly
+            # that if the camera geometry cannot be read -- and the row/column counts
+            # below are derived from the tiles, so this would raise on an empty max().
+            return
 
         horizontal, vertical = self._resize_axes
         tile_h, tile_w = self._tile_shape
