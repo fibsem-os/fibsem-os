@@ -917,3 +917,57 @@ def test_stage_metadata_is_dropped_when_the_geometry_is_unknown(qapp, overview_w
         assert widget.stage_overlay._specs == []
     finally:
         widget._live_geometry = original
+
+
+def test_the_current_position_marker_follows_the_stage(qapp, overview_widget):
+    """Drawn separately from the canvas's red origin marker: the origin explains why
+    everything sits where it does, this yellow one is what you steer by. They coincide
+    until the stage moves, then diverge."""
+    from fibsem.structures import FibsemStagePosition
+
+    widget = overview_widget
+    widget.canvas.clear_overviews()
+    widget._origin = None
+    widget._refresh_current_position()
+    qapp.processEvents()
+    at_origin = list(widget.current_position_overlay._points)
+
+    tilt = widget.microscope.get_stage_position().t
+    widget.microscope.move_stage_absolute(
+        FibsemStagePosition(x=150e-6, y=-60e-6, z=0.0, r=0.0, t=tilt)
+    )
+    qapp.processEvents()
+
+    moved = widget.current_position_overlay._points
+    assert moved != at_origin, "the marker did not follow the stage"
+
+    # the canvas's own origin marker stays put, which is the point of having both
+    origin_marker = widget.canvas.canvas._crosshair_artists[0].get_data()
+    assert (origin_marker[0][0], origin_marker[1][0]) == (0.0, 0.0)
+
+
+def test_the_marker_lands_where_an_image_acquired_there_is_placed(qapp, overview_widget):
+    """The marker and the image reach the canvas by different routes — one through
+    set_points, the other through add_image — so agreeing is worth checking. If they
+    ever diverge, the canvas is telling two stories about the same stage position."""
+    from fibsem.structures import FibsemStagePosition
+
+    widget = overview_widget
+    widget.canvas.clear_overviews()
+    widget.set_image(widget.microscope.fm.acquire_image(ChannelSettings(name="Channel-01")))
+    qapp.processEvents()
+
+    tilt = widget.microscope.get_stage_position().t
+    widget.microscope.move_stage_absolute(
+        FibsemStagePosition(x=150e-6, y=-60e-6, z=0.0, r=0.0, t=tilt)
+    )
+    qapp.processEvents()
+    marker = widget.current_position_overlay._points[0]
+
+    widget.set_image(widget.microscope.fm.acquire_image(ChannelSettings(name="Channel-01")))
+    qapp.processEvents()
+
+    placed = widget.canvas.canvas._placed[max(widget.canvas.canvas.placed_keys)]
+    xmin, xmax, ymax, ymin = placed.extent
+    assert marker[0] == pytest.approx((xmin + xmax) / 2)
+    assert marker[1] == pytest.approx((ymin + ymax) / 2)

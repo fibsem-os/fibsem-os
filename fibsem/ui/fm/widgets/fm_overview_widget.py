@@ -92,6 +92,15 @@ PREVIEW_KEY = "fm-preview"
 # Radius of the specimen grid, for the boundary circle. Matches the minimap's.
 GRID_RADIUS_M = 1000e-6
 
+# Yellow for "you are here", against the red grid origin and the amber of saved
+# positions -- three markers that must not be mistaken for each other.
+CURRENT_POSITION_COLOUR = "#ffee58"
+# Cyan for positions a user saved, against the yellow of where the stage is.
+SAVED_POSITION_COLOUR = "#26c6da"
+# Muted, because the holder slots are structural context like the limits rather
+# than something anyone marked -- and they would otherwise read as saved positions.
+SLOT_COLOUR = "#90a4ae"
+
 
 class FMOverviewWidget(QWidget):
     """Configure, run and view a fluorescence overview acquisition."""
@@ -105,6 +114,9 @@ class FMOverviewWidget(QWidget):
     # different thread"). Re-emitting as a Qt signal gets it queued onto the GUI
     # thread, because this widget lives there.
     _progress_received = pyqtSignal(dict)
+    # Same hop for stage moves: `stage_position_changed` is a psygnal, so it fires
+    # on whichever thread moved the stage -- a worker, during an acquisition.
+    _stage_moved = pyqtSignal(object)
 
     def __init__(
         self,
@@ -138,6 +150,9 @@ class FMOverviewWidget(QWidget):
 
         self._progress_received.connect(self._apply_progress)
         self.fm.acquisition_progress_signal.connect(self._on_progress)
+        self._stage_moved.connect(lambda _: self._refresh_current_position())
+        self.microscope.stage_position_changed.connect(self._stage_moved.emit)
+        self._refresh_current_position()
 
     def _default_channels(self) -> List[ChannelSettings]:
         """The saved FM configuration if there is one, otherwise a single channel."""
@@ -187,7 +202,17 @@ class FMOverviewWidget(QWidget):
         self.stage_overlay = MinimapShapesOverlay(zorder=4.0, crosshair_half_px=24)
         self.canvas.canvas.add_overlay(self.stage_overlay)
 
-        self.position_overlay = PointsOverlay(color="#ffb300", marker="o", size=7)
+        # Where the stage is now. Distinct from the red origin marker the canvas
+        # draws: the origin explains why everything sits where it does, this is what
+        # you steer by. They coincide until the stage moves, then diverge.
+        self.current_position_overlay = PointsOverlay(
+            color=CURRENT_POSITION_COLOUR, marker="+", size=13
+        )
+        self.canvas.canvas.add_overlay(self.current_position_overlay)
+
+        self.position_overlay = PointsOverlay(
+            color=SAVED_POSITION_COLOUR, marker="o", size=7
+        )
         self.canvas.canvas.add_overlay(self.position_overlay)
 
         # The list alone shows only name/excitation/emission, with no way to set the
@@ -600,11 +625,26 @@ class FMOverviewWidget(QWidget):
                 logging.debug(f"Cannot place slot {position.name!r}: {e}")
                 continue
             specs.append(ShapeSpec(
-                kind="crosshair", cx=point[0], cy=point[1], color="cyan",
+                kind="crosshair", cx=point[0], cy=point[1], color=SLOT_COLOUR,
                 label=position.name or "",
             ))
 
         self.stage_overlay.set_shapes(specs)
+
+    def _refresh_current_position(self) -> None:
+        """Mark where the stage is now."""
+        project = self._stage_to_canvas()
+        position = self._current_stage_position()
+        if project is None or position is None:
+            self.current_position_overlay.set_points([])
+            return
+        try:
+            point = project(position)
+        except Exception as e:
+            logging.debug(f"Could not mark the current stage position: {e}")
+            self.current_position_overlay.set_points([])
+            return
+        self.current_position_overlay.set_points([point], labels=[""])
 
     def _live_geometry(self):
         """(geometry, pixel_size, shape) from the microscope.

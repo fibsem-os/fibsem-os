@@ -42,6 +42,9 @@ _logger = logging.getLogger(__name__)
 
 _DEFAULT_BACKGROUND = "#000000"  # empty space reads as "nothing acquired here"
 _ORIGIN_MARKER_SIZE = 11  # points; fixed on screen, so zoom-independent
+# Red, matching the grid boundary this marks the centre of. The current stage
+# position is the yellow one -- the pair have to stay distinguishable.
+_ORIGIN_MARKER_COLOUR = "#ff5252"
 
 # Pixels kept per placed image. Every artist is redrawn in full on each pan/zoom, so a
 # redraw costs the *total* stored pixels — 100 tiles kept at 1024 px square take ~2.7 s,
@@ -476,7 +479,7 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         (marker,) = self._ax.plot(
             [0.0], [0.0],
             marker="+", markersize=_ORIGIN_MARKER_SIZE, markeredgewidth=1.0,
-            color="yellow", alpha=0.8, linestyle="None", zorder=7,
+            color=_ORIGIN_MARKER_COLOUR, alpha=0.8, linestyle="None", zorder=7,
         )
         self._crosshair_artists = [marker]
 
