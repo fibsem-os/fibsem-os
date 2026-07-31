@@ -34,6 +34,7 @@ class PointsOverlay(CanvasOverlay):
         self._marker = marker
         self._size = size
         self._label_prefix = label_prefix
+        self._labels: Optional[List[str]] = None
         self._ax = None
         self._canvas = None
         self._artists: list = []
@@ -52,8 +53,19 @@ class PointsOverlay(CanvasOverlay):
         if width > 0:
             self._draw()
 
-    def set_points(self, points: List[Tuple[float, float]]) -> None:
+    def set_points(
+        self,
+        points: List[Tuple[float, float]],
+        labels: Optional[List[str]] = None,
+    ) -> None:
+        """Replace the points, optionally labelling each one.
+
+        `labels` takes precedence over `label_prefix`: positions that carry their own
+        names (lamellae, saved positions) should show those rather than an index into
+        whatever order they happened to arrive in.
+        """
         self._points = list(points)
+        self._labels = list(labels) if labels is not None else None
         self._remove_artists()
         self._draw()
         if self._canvas is not None:
@@ -85,9 +97,14 @@ class PointsOverlay(CanvasOverlay):
                 zorder=8,
             )
             self._artists.append(line)
-            if self._label_prefix:
+            label = None
+            if self._labels is not None and i <= len(self._labels):
+                label = self._labels[i - 1]
+            elif self._label_prefix:
+                label = f"{self._label_prefix}{i}"
+            if label:
                 ann = self._ax.annotate(
-                    f"{self._label_prefix}{i}",
+                    label,
                     xy=(x, y),
                     xytext=(6, 4),
                     textcoords="offset points",

@@ -532,3 +532,154 @@ def test_collapsed_panels_do_not_stretch(qapp):
 
     heights = {p.height() for p in panels}
     assert len(heights) == 1, f"collapsed panels differ in height: {heights}"
+
+
+# ── tile grid overlay wiring ─────────────────────────────────────────────
+
+
+@pytest.fixture(scope="module")
+def overview_widget(qapp):
+    """A real widget against the Demo microscope, for the canvas/settings wiring."""
+    from fibsem.ui.fm.overview_app import build_microscope
+    from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
+
+    microscope = build_microscope()
+    widget = FMOverviewWidget(microscope)
+    widget.resize(1200, 800)
+    widget.show()
+    widget.canvas.set_fm_image(
+        microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
+    )
+    qapp.processEvents()
+    widget._refresh_tile_grid()
+    qapp.processEvents()
+    return widget
+
+
+def test_clicking_a_tile_updates_the_mask_the_settings_widget_owns(qapp, overview_widget):
+    """One mask, two views. The overlay must not keep its own copy -- a click routes
+    through the settings widget, and the redraw follows from that."""
+    widget = overview_widget
+    widget.settings_widget.tile_mask.mask = None
+    qapp.processEvents()
+
+    overlay = widget.tile_grid_overlay
+    tile = next(t for t in overlay._tiles if (t.row, t.col) == (0, 0))
+    x, y, tw, th = overlay._rect_for(tile)
+    overlay._on_canvas_clicked(x + tw / 2, y + th / 2, None)
+    qapp.processEvents()
+
+    assert widget.settings_widget.tile_mask.mask[0][0] is False
+    assert widget.settings_widget.tile_mask.n_enabled == 8
+    # and the overlay redrew from the widget's mask, rather than mutating its own
+    assert next(
+        t for t in overlay._tiles if (t.row, t.col) == (0, 0)
+    ).enabled is False
+
+
+def test_clicking_the_same_tile_twice_returns_it(qapp, overview_widget):
+    widget = overview_widget
+    widget.settings_widget.tile_mask.mask = None
+    qapp.processEvents()
+
+    overlay = widget.tile_grid_overlay
+    tile = next(t for t in overlay._tiles if (t.row, t.col) == (2, 1))
+    x, y, tw, th = overlay._rect_for(tile)
+
+    for _ in range(2):
+        overlay._on_canvas_clicked(x + tw / 2, y + th / 2, None)
+        qapp.processEvents()
+
+    assert widget.settings_widget.tile_mask.n_enabled == 9
+
+
+def test_resizing_the_grid_redraws_the_overlay(qapp, overview_widget):
+    widget = overview_widget
+    widget.settings_widget.tile_mask.mask = None
+    widget.settings_widget.spin_rows.setValue(5)
+    widget.settings_widget.spin_cols.setValue(4)
+    qapp.processEvents()
+
+    assert len(widget.tile_grid_overlay._tiles) == 20
+    assert len(widget.tile_grid_overlay._artists) == 20
+
+    widget.settings_widget.spin_rows.setValue(3)
+    widget.settings_widget.spin_cols.setValue(3)
+    qapp.processEvents()
+
+    assert len(widget.tile_grid_overlay._tiles) == 9
+
+
+# ── position overlay ─────────────────────────────────────────────────────
+
+
+def _offset(base, dx=0.0, dy=0.0, name=""):
+    from fibsem.structures import FibsemStagePosition
+
+    position = FibsemStagePosition(
+        x=base.x + dx, y=base.y + dy, z=base.z, r=base.r, t=base.t
+    )
+    position.name = name
+    return position
+
+
+def test_positions_are_marked_where_they_are(qapp, overview_widget):
+    widget = overview_widget
+    image = widget.microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
+    widget.set_image(image)
+    base = image.metadata.stage_position
+    pixel_size = image.metadata.pixel_size_x
+    height, width = image.data.shape[-2:]
+
+    widget.set_positions([_offset(base, name="here"),
+                          _offset(base, dx=20e-6, name="right")])
+    qapp.processEvents()
+
+    points = widget.position_overlay._points
+    assert points[0] == pytest.approx((width / 2, height / 2))
+    assert points[1] == pytest.approx((width / 2 + 20e-6 / pixel_size, height / 2))
+    assert widget.position_overlay._labels == ["here", "right"]
+
+
+def test_positions_outside_the_image_are_still_marked(qapp, overview_widget):
+    """The canvas is zoomed out past the image for the tile grid, so a position beyond
+    the field of view is visible and must not be pulled to the border."""
+    widget = overview_widget
+    image = widget.microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
+    widget.set_image(image)
+    base = image.metadata.stage_position
+    width = image.data.shape[-1]
+
+    widget.set_positions([_offset(base, dx=300e-6, name="far")])
+    qapp.processEvents()
+
+    assert widget.position_overlay._points[0][0] > width
+
+
+def test_an_image_without_geometry_marks_nothing_rather_than_guessing(qapp, overview_widget):
+    """Older images cannot be projected onto. Better an empty overlay than markers in
+    plausible-looking wrong places."""
+    widget = overview_widget
+    image = widget.microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
+    base = image.metadata.stage_position
+    image.metadata.geometry = None
+    widget.set_image(image)
+
+    widget.set_positions([_offset(base, name="unknowable")])
+    qapp.processEvents()
+
+    assert widget.position_overlay._points == []
+
+
+def test_clearing_the_positions_clears_the_markers(qapp, overview_widget):
+    widget = overview_widget
+    image = widget.microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
+    widget.set_image(image)
+    widget.set_positions([_offset(image.metadata.stage_position, name="one")])
+    qapp.processEvents()
+    assert widget.position_overlay._points
+
+    widget.set_positions([])
+    qapp.processEvents()
+
+    assert widget.position_overlay._points == []
