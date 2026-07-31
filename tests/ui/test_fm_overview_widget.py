@@ -537,6 +537,25 @@ def test_collapsed_panels_do_not_stretch(qapp):
 # ── tile grid overlay wiring ─────────────────────────────────────────────
 
 
+def _mouse(overlay, x, y, px=0.0, py=0.0, button=1):
+    """A matplotlib mouse event over the overlay's axes.
+
+    `px`/`py` are screen pixels: the overlay measures drag distance in them, so a
+    click and a drag differ only in whether these change between press and release.
+    """
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        button=button, inaxes=overlay._ax, xdata=x, ydata=y, x=px, y=py
+    )
+
+
+def _click(overlay, x, y):
+    """Press and release at one point -- the gesture that toggles a tile."""
+    overlay._on_press(_mouse(overlay, x, y))
+    overlay._on_release(_mouse(overlay, x, y))
+
+
 @pytest.fixture(scope="module")
 def overview_widget(qapp):
     """A real widget against the Demo microscope, for the canvas/settings wiring."""
@@ -566,7 +585,7 @@ def test_clicking_a_tile_updates_the_mask_the_settings_widget_owns(qapp, overvie
     overlay = widget.tile_grid_overlay
     tile = next(t for t in overlay._tiles if (t.row, t.col) == (0, 0))
     x, y, tw, th = overlay._rect_for(tile)
-    overlay._on_canvas_clicked(x + tw / 2, y + th / 2, None)
+    _click(overlay, x + tw / 2, y + th / 2)
     qapp.processEvents()
 
     assert widget.settings_widget.tile_mask.mask[0][0] is False
@@ -587,7 +606,7 @@ def test_clicking_the_same_tile_twice_returns_it(qapp, overview_widget):
     x, y, tw, th = overlay._rect_for(tile)
 
     for _ in range(2):
-        overlay._on_canvas_clicked(x + tw / 2, y + th / 2, None)
+        _click(overlay, x + tw / 2, y + th / 2)
         qapp.processEvents()
 
     assert widget.settings_widget.tile_mask.n_enabled == 9
@@ -971,3 +990,265 @@ def test_the_marker_lands_where_an_image_acquired_there_is_placed(qapp, overview
     xmin, xmax, ymax, ymin = placed.extent
     assert marker[0] == pytest.approx((xmin + xmax) / 2)
     assert marker[1] == pytest.approx((ymin + ymax) / 2)
+
+
+# ── canvas interaction ───────────────────────────────────────────────────
+
+
+class _SynchronousWorker:
+    """Stands in for FunctionWorker so a test can see the outcome, not a thread."""
+
+    def __init__(self, fn, *args, **kwargs):
+        self.fn, self.args, self.kwargs = fn, args, kwargs
+
+    def start(self):
+        self.fn(*self.args, **self.kwargs)
+
+    def is_alive(self):
+        return False
+
+
+@pytest.fixture
+def interactive_widget(qapp, overview_widget):
+    """`overview_widget` with the interaction state reset, and restored afterwards.
+
+    The widget is module-scoped, so a target left behind by one test would silently
+    re-centre every grid the next one drew.
+    """
+    from fibsem.structures import FibsemStagePosition
+
+    widget = overview_widget
+    start = widget.microscope.get_stage_position()
+    widget.clear_target()
+    qapp.processEvents()
+    yield widget
+    widget.clear_target()
+    widget.microscope.move_stage_absolute(
+        FibsemStagePosition(x=start.x, y=start.y, z=start.z, r=start.r, t=start.t)
+    )
+    qapp.processEvents()
+
+
+def test_a_canvas_point_resolves_to_the_position_it_was_drawn_from(interactive_widget):
+    """The two projections have to be exact inverses, not merely close. Everything on
+    this canvas is placed by the forward one and clicked through the backward one, so
+    any gap between them is the distance between what you point at and what you get."""
+    from fibsem.structures import FibsemStagePosition
+
+    widget = interactive_widget
+    project = widget._stage_to_canvas()
+    unproject = widget._canvas_to_stage()
+    base = widget._current_stage_position()
+
+    for dx, dy in [(0.0, 0.0), (120e-6, 0.0), (0.0, -85e-6), (-250e-6, 375e-6)]:
+        marked = FibsemStagePosition(
+            x=base.x + dx, y=base.y + dy, z=base.z, r=base.r, t=base.t,
+            coordinate_system=base.coordinate_system,
+        )
+        resolved = unproject(*project(marked))
+
+        assert resolved.x == pytest.approx(marked.x, abs=1e-12)
+        assert resolved.y == pytest.approx(marked.y, abs=1e-12)
+
+
+def test_double_clicking_moves_the_stage_to_that_point(qapp, interactive_widget, monkeypatch):
+    from fibsem.ui.fm.widgets import fm_overview_widget as module
+
+    widget = interactive_widget
+    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    project = widget._stage_to_canvas()
+    before = widget._current_stage_position()
+    point = project(before)
+
+    widget._on_canvas_double_clicked(point[0] + 1200.0, point[1] - 500.0, None)
+    qapp.processEvents()
+
+    after = widget.microscope.get_stage_position()
+    assert (after.x, after.y) != (before.x, before.y), "the stage did not move"
+    # and it landed under the click, which is the only claim the gesture makes
+    assert project(after) == pytest.approx((point[0] + 1200.0, point[1] - 500.0), abs=1e-6)
+
+
+def test_the_marker_follows_the_stage_after_a_double_click(qapp, interactive_widget, monkeypatch):
+    """The move is confirmed by re-reading the stage rather than assumed, so the marker
+    shows where the instrument went rather than where it was asked to go."""
+    from fibsem.ui.fm.widgets import fm_overview_widget as module
+
+    widget = interactive_widget
+    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    before = list(widget.current_position_overlay._points)
+
+    widget._on_canvas_double_clicked(1500.0, 900.0, None)
+    qapp.processEvents()
+
+    assert widget.current_position_overlay._points != before
+
+
+def test_the_stage_cannot_be_driven_during_an_acquisition(qapp, interactive_widget, monkeypatch):
+    from fibsem.ui.fm.widgets import fm_overview_widget as module
+
+    widget = interactive_widget
+    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    before = widget.microscope.get_stage_position()
+
+    class _Running:
+        def is_alive(self):
+            return True
+
+    widget._worker = _Running()
+    try:
+        widget._on_canvas_double_clicked(1500.0, 900.0, None)
+        qapp.processEvents()
+    finally:
+        widget._worker = None
+
+    after = widget.microscope.get_stage_position()
+    assert (after.x, after.y) == (before.x, before.y)
+
+
+def test_a_point_outside_the_stage_limits_is_refused(qapp, interactive_widget, monkeypatch):
+    """A click can land anywhere on a real-space canvas, including well past where the
+    stage can physically go. Asking for it is how a stage ends up against its stop."""
+    from fibsem.ui.fm.widgets import fm_overview_widget as module
+
+    widget = interactive_widget
+    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    before = widget.microscope.get_stage_position()
+    limits = getattr(widget.microscope._stage, "limits", None)
+    if not limits:
+        pytest.skip("this stage declares no limits")
+
+    # far outside any plausible envelope: 1 m of travel at 100 nm/px
+    widget._on_canvas_double_clicked(1e7, 1e7, None)
+    qapp.processEvents()
+
+    after = widget.microscope.get_stage_position()
+    assert (after.x, after.y) == (before.x, before.y)
+
+
+def test_dragging_the_grid_sets_a_target_without_moving_the_stage(qapp, interactive_widget):
+    """Planning a run and driving the instrument are separate acts. A drag is
+    exploratory -- you push the grid around to see what it would cover."""
+    widget = interactive_widget
+    before = widget.microscope.get_stage_position()
+    anchor = widget.tile_grid_overlay._anchor()
+
+    widget._on_grid_move(anchor[0] + 800.0, anchor[1] - 300.0)
+    qapp.processEvents()
+
+    after = widget.microscope.get_stage_position()
+    assert (after.x, after.y) == (before.x, before.y)
+    assert widget._target is not None
+    assert widget.tile_grid_overlay._anchor() == pytest.approx(
+        (anchor[0] + 800.0, anchor[1] - 300.0)
+    )
+
+
+def test_the_planned_grid_is_centred_where_the_run_will_be(qapp, interactive_widget):
+    """The grid is a preview of an acquisition, so it has to sit where the acquisition
+    would: on the target once one is set, and on the stage until then."""
+    widget = interactive_widget
+    anchor = widget.tile_grid_overlay._anchor()
+    widget._on_grid_move(anchor[0] + 800.0, anchor[1])
+    qapp.processEvents()
+
+    assert widget._grid_centre() is widget._target
+
+    widget.clear_target()
+    qapp.processEvents()
+
+    centre = widget._grid_centre()
+    stage = widget.microscope.get_stage_position()
+    assert (centre.x, centre.y) == (stage.x, stage.y)
+
+
+def test_an_untargeted_grid_follows_the_stage(qapp, interactive_widget, monkeypatch):
+    """It used to be pinned to the canvas origin -- where the stage was the first time
+    anything was drawn. Correct until the stage moved, and then quietly not."""
+    from fibsem.ui.fm.widgets import fm_overview_widget as module
+
+    widget = interactive_widget
+    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    before = widget.tile_grid_overlay._anchor()
+
+    widget._on_canvas_double_clicked(before[0] + 1500.0, before[1], None)
+    qapp.processEvents()
+
+    assert widget.tile_grid_overlay._anchor()[0] == pytest.approx(before[0] + 1500.0, abs=1.0)
+
+
+def test_a_targeted_grid_stays_put_when_the_stage_moves(qapp, interactive_widget, monkeypatch):
+    from fibsem.ui.fm.widgets import fm_overview_widget as module
+
+    widget = interactive_widget
+    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    anchor = widget.tile_grid_overlay._anchor()
+    widget._on_grid_move(anchor[0] + 800.0, anchor[1])
+    qapp.processEvents()
+    targeted = widget.tile_grid_overlay._anchor()
+
+    widget._on_canvas_double_clicked(anchor[0] - 1500.0, anchor[1], None)
+    qapp.processEvents()
+
+    assert widget.tile_grid_overlay._anchor() == pytest.approx(targeted)
+
+
+def test_centring_the_grid_is_only_offered_once_it_is_off_centre(qapp, interactive_widget):
+    """The way back from a drag. A control that is always live invites a click that
+    does nothing, and one that is never live strands the state it set."""
+    widget = interactive_widget
+    assert widget.tile_grid_panel.button_centre.isEnabled() is False
+
+    anchor = widget.tile_grid_overlay._anchor()
+    widget._on_grid_move(anchor[0] + 800.0, anchor[1])
+    qapp.processEvents()
+    assert widget.tile_grid_panel.button_centre.isEnabled() is True
+
+    widget.tile_grid_panel.button_centre.click()
+    qapp.processEvents()
+    assert widget.tile_grid_panel.button_centre.isEnabled() is False
+    assert widget.tile_grid_overlay._anchor() == pytest.approx(anchor)
+
+
+def test_the_target_reaches_the_acquisition(qapp, interactive_widget, monkeypatch):
+    """The drag is only worth anything if the run is actually centred there."""
+    from fibsem.ui.fm.widgets import fm_overview_widget as module
+
+    widget = interactive_widget
+    recorded = {}
+
+    class _RecordingRunner:
+        def __init__(self, **kwargs):
+            recorded.update(kwargs)
+
+    monkeypatch.setattr(module, "FMTiledAcquisitionRunner", _RecordingRunner)
+    monkeypatch.setattr(module, "FunctionWorker", lambda *a, **k: _SynchronousWorker(lambda: None))
+    monkeypatch.setattr(
+        module.FMOverviewConfirmationDialog, "exec_", lambda self: module.QDialog.Accepted
+    )
+    anchor = widget.tile_grid_overlay._anchor()
+    widget._on_grid_move(anchor[0] + 800.0, anchor[1])
+    qapp.processEvents()
+
+    widget.acquire()
+    qapp.processEvents()
+    widget._set_running(False)
+
+    assert recorded["centre_position"] is widget._target
+
+
+def test_the_cursor_readout_names_the_position_under_it(qapp, interactive_widget):
+    """A canvas you have to click to get a coordinate out of cannot be used to decide
+    whether to click."""
+    widget = interactive_widget
+    unproject = widget._canvas_to_stage()
+    under = unproject(1500.0, -900.0)
+
+    widget._on_cursor_moved(1500.0, -900.0)
+
+    text = widget.cursor_readout.text()
+    assert f"{under.x * 1e6:.1f}" in text
+    assert f"{under.y * 1e6:.1f}" in text
+
+    widget._on_cursor_moved(None, None)
+    assert widget.cursor_readout.text() == "", "the readout must not freeze off-canvas"

@@ -25,6 +25,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem import constants
 from fibsem.fm.acquisition import FMTiledAcquisitionRunner, stitch_tileset
 from fibsem.fm.structures import (
     AutoFocusMode,
@@ -34,8 +35,8 @@ from fibsem.fm.structures import (
     OverviewParameters,
 )
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import FibsemStagePosition
-from fibsem.ui import stylesheets
+from fibsem.structures import FibsemStagePosition, Point
+from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.fm.widgets.fm_multi_channel_widget import FluorescenceMultiChannelWidget
 from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
     FMOverviewConfirmationDialog,
@@ -43,7 +44,7 @@ from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
 from fibsem.ui.fm.widgets.tile_grid_options_panel import TileGridOptionsPanel
 from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.fm.reprojection import project_stage_position
+from fibsem.fm.reprojection import project_image_point, project_stage_position
 from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
     MinimapShapesOverlay,
@@ -101,6 +102,10 @@ SAVED_POSITION_COLOUR = "#26c6da"
 # than something anyone marked -- and they would otherwise read as saved positions.
 SLOT_COLOUR = "#90a4ae"
 
+# Wide enough for millimetre-scale coordinates without the row re-laying out as the
+# cursor moves -- a readout that shoves the buttons sideways is worse than none.
+CURSOR_READOUT_WIDTH = 210
+
 
 class FMOverviewWidget(QWidget):
     """Configure, run and view a fluorescence overview acquisition."""
@@ -143,6 +148,15 @@ class FMOverviewWidget(QWidget):
         self._positions: List[FibsemStagePosition] = []
         self._grid_footprint: Optional[tuple] = None
         self._enabled_channels: Optional[List[ChannelSettings]] = None
+        # Where the stage is, as far as anyone has told us. Cached rather than polled
+        # per use so that everything drawn from it -- the marker, the planned grid --
+        # agrees by construction instead of because two callers happened to poll
+        # together. See `_current_stage_position` for why polling is the odd one out.
+        self._stage_position: Optional[FibsemStagePosition] = None
+        # Where the next overview will be centred, once a user has dragged the grid
+        # somewhere. None means "wherever the stage is", which is what the runner does
+        # by default -- so an untouched grid describes exactly what would be acquired.
+        self._target: Optional[FibsemStagePosition] = None
 
         self._init_ui(channel_settings or self._default_channels())
         self._sync_tile_fov()
@@ -150,7 +164,7 @@ class FMOverviewWidget(QWidget):
 
         self._progress_received.connect(self._apply_progress)
         self.fm.acquisition_progress_signal.connect(self._on_progress)
-        self._stage_moved.connect(lambda _: self._refresh_current_position())
+        self._stage_moved.connect(self._on_stage_moved)
         self.microscope.stage_position_changed.connect(self._stage_moved.emit)
         self._refresh_current_position()
 
@@ -193,6 +207,7 @@ class FMOverviewWidget(QWidget):
         self.tile_grid_panel.fill_alpha_changed.connect(
             self.tile_grid_overlay.set_fill_alpha
         )
+        self.tile_grid_panel.centre_requested.connect(self.clear_target)
 
         # Stage positions -- the current pose, lamellae, anything a host hands over --
         # projected onto whatever image is displayed. Non-interactive: this shows where
@@ -262,6 +277,18 @@ class FMOverviewWidget(QWidget):
         self.status = QLabel("")
         self.status.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
 
+        # Where a double-click would take the stage, read off continuously rather than
+        # on demand: the canvas is a map, and a map you have to click to get a
+        # coordinate out of cannot be used to decide whether to click.
+        self.cursor_readout = QLabel("")
+        self.cursor_readout.setFixedWidth(CURSOR_READOUT_WIDTH)
+        self.cursor_readout.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        # Monospaced so the digits sit still while the cursor moves. A proportional
+        # font makes the whole readout shuffle on every pixel of travel.
+        self.cursor_readout.setStyleSheet(
+            f"color: {TEXT_MUTED}; font-size: 11px; font-family: monospace;"
+        )
+
         self.button_acquire = QPushButton("Acquire Overview")
         self.button_acquire.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
         self.button_acquire.setMinimumHeight(30)
@@ -289,6 +316,7 @@ class FMOverviewWidget(QWidget):
         status_layout.setContentsMargins(8, 4, 8, 8)
         status_layout.setSpacing(10)
         status_layout.addWidget(self.status, stretch=1)
+        status_layout.addWidget(self.cursor_readout)
         status_layout.addWidget(bars)
         status_layout.addWidget(self.button_cancel)
         status_layout.addWidget(self.button_acquire)
@@ -304,6 +332,9 @@ class FMOverviewWidget(QWidget):
         self.settings_widget.changed.connect(self._on_settings_changed)
         self.tile_grid_overlay.tile_toggled.connect(self._on_tile_toggled)
         self.tile_grid_overlay.grid_resize_requested.connect(self._on_grid_resize)
+        self.tile_grid_overlay.grid_move_requested.connect(self._on_grid_move)
+        self.canvas.canvas.canvas_double_clicked.connect(self._on_canvas_double_clicked)
+        self.canvas.canvas.cursor_moved.connect(self._on_cursor_moved)
 
     def _section(self, title: str, widget: QWidget) -> QWidget:
         return TitledPanel(title, content=widget)
@@ -363,7 +394,25 @@ class FMOverviewWidget(QWidget):
         fov = self.settings_widget.label_total_fov.text()
         if fov and fov != "—":
             summary = f"{summary}\n{fov}"
+        # Said in words as well as drawn, because a grid sitting away from the stage
+        # marker is only obvious while both are on screen -- zoom into the grid and
+        # the one thing that would tell you it is offset scrolls out of view.
+        offset = self._target_offset()
+        if offset is not None:
+            summary = (
+                f"{summary}\nOffset {offset[0] * constants.SI_TO_MICRO:+.0f}, "
+                f"{offset[1] * constants.SI_TO_MICRO:+.0f} µm from the stage"
+            )
         self.tile_grid_panel.set_summary(summary)
+
+    def _target_offset(self) -> Optional[Tuple[float, float]]:
+        """How far the target sits from the stage, in metres, or None if not set."""
+        if self._target is None:
+            return None
+        position = self._current_stage_position()
+        if position is None:
+            return None
+        return (self._target.x - position.x, self._target.y - position.y)
 
     def _refresh_tile_grid(self) -> None:
         """Redraw the planned grid on the canvas.
@@ -401,9 +450,11 @@ class FMOverviewWidget(QWidget):
         # to be drawn in rather than arbitrary units. No-op once an image has landed --
         # by then the image has set it, and changing it would move what is already drawn.
         self.canvas.canvas.set_reference_pixel_size(pixel_size)
-        # Centred on the origin: the tileset is planned around a stage position, not
-        # around whatever happens to be displayed.
-        self.tile_grid_overlay.set_anchor(self.canvas.canvas.metres_to_canvas(0.0, 0.0))
+        # Centred on the position the run will be centred on -- a dragged target, or
+        # the stage itself -- not on whatever happens to be displayed. It used to be
+        # pinned to the canvas origin, which is where the stage was the *first* time
+        # anything was drawn: correct until the stage moved, and then quietly not.
+        self.tile_grid_overlay.set_anchor(self._grid_anchor())
 
         # No `display_pixel_size`: the overlay reads it from the canvas at draw time.
         # Pinning it here would freeze the scale at whatever was displayed when the
@@ -516,6 +567,24 @@ class FMOverviewWidget(QWidget):
             logging.debug(f"Could not place the image in stage space: {e}")
             return (0.0, 0.0)
 
+    def _offset_from_origin(
+        self, position: FibsemStagePosition
+    ) -> Tuple[float, float]:
+        """Where a stage position sits relative to the canvas origin, in metres.
+
+        The live-position counterpart of :meth:`_offset_of`, which answers the same
+        question for an image out of its own metadata -- and has to, since an image may
+        have been acquired under a configuration the instrument is no longer in.
+        """
+        project = self._stage_to_canvas()
+        if project is None:
+            return (0.0, 0.0)
+        try:
+            return self.canvas.canvas.canvas_to_metres(*project(position))
+        except Exception as e:
+            logging.debug(f"Could not place {position} in the canvas frame: {e}")
+            return (0.0, 0.0)
+
     def set_positions(self, positions: List[FibsemStagePosition]) -> None:
         """Stage positions to mark on the overview, e.g. saved lamella positions.
 
@@ -576,6 +645,36 @@ class FMOverviewWidget(QWidget):
             )
 
         return project
+
+    def _canvas_to_stage(self):
+        """A function mapping canvas coordinates to a stage position, or None.
+
+        The inverse of :meth:`_stage_to_canvas`, and deliberately its mirror image:
+        same origin, same live geometry, same scale. `project_image_point` is the exact
+        inverse of the `project_stage_position` used to draw, sharing its sign terms,
+        so a click on a marker resolves to the position that marker was drawn from
+        rather than to somewhere plausibly near it.
+        """
+        geometry, pixel_size, shape = self._live_geometry()
+        if geometry is None or not pixel_size:
+            return None
+
+        origin = self._origin or self._current_stage_position()
+        if origin is None:
+            return None
+        self._origin = origin
+
+        def unproject(x: float, y: float) -> FibsemStagePosition:
+            # Canvas -> metres from the origin -> pixels of a hypothetical image
+            # acquired there, which is the frame `project_image_point` inverts from.
+            offset_x, offset_y = self.canvas.canvas.canvas_to_metres(x, y)
+            point = Point(
+                x=shape[1] / 2 + offset_x / pixel_size,
+                y=shape[0] / 2 + offset_y / pixel_size,
+            )
+            return project_image_point(point, origin, pixel_size, shape, geometry)
+
+        return unproject
 
     def _refresh_stage_metadata(self) -> None:
         """Draw where the sample and the stage can physically go.
@@ -670,11 +769,46 @@ class FMOverviewWidget(QWidget):
             return None, None, None
 
     def _current_stage_position(self) -> Optional[FibsemStagePosition]:
-        try:
-            return self.microscope.get_stage_position()
-        except Exception as e:
-            logging.debug(f"Could not read the stage position: {e}")
-            return None
+        """Where the stage is, polling the microscope only when nothing has said yet.
+
+        `stage_position_changed` fires from *inside* `get_stage_position`, so it means
+        "a poll found it had moved" rather than "the stage moved". Polling here on
+        every use would therefore add a round trip per keystroke on a spin box without
+        making the answer any fresher than the last poll anyone did -- so this reads
+        what the signal delivered, and everything drawn from the stage position stays
+        in agreement instead of drifting between callers who polled at different
+        moments.
+        """
+        if self._stage_position is None:
+            try:
+                self._stage_position = self.microscope.get_stage_position()
+            except Exception as e:
+                logging.debug(f"Could not read the stage position: {e}")
+        return self._stage_position
+
+    def _grid_centre(self) -> Optional[FibsemStagePosition]:
+        """The stage position the next overview will be centred on.
+
+        A target if one has been set by dragging the grid, otherwise wherever the
+        stage is -- which is what the runner falls back to, so the drawn grid and the
+        acquisition agree without either having to be told about the other.
+        """
+        return self._target or self._current_stage_position()
+
+    def _grid_anchor(self) -> Tuple[float, float]:
+        """Where on the canvas the planned grid is centred.
+
+        Falls back to the canvas origin when the centre cannot be projected, which
+        draws the grid in the middle of the frame rather than not at all.
+        """
+        project = self._stage_to_canvas()
+        centre = self._grid_centre()
+        if project is not None and centre is not None:
+            try:
+                return project(centre)
+            except Exception as e:
+                logging.debug(f"Could not place the planned grid: {e}")
+        return self.canvas.canvas.metres_to_canvas(0.0, 0.0)
 
     def _canvas_length(self, metres: float) -> float:
         """A length in metres as a length in canvas pixels."""
@@ -698,6 +832,135 @@ class FMOverviewWidget(QWidget):
             labels.append(position.name or "")
 
         self.position_overlay.set_points(points, labels=labels)
+
+    # ── canvas interaction ───────────────────────────────────────────────
+
+    def _on_stage_moved(self, position: FibsemStagePosition) -> None:
+        """A poll found the stage somewhere new.
+
+        The position comes from the signal rather than a fresh read: it is the value
+        the poll that raised the signal saw, so taking it costs nothing and cannot
+        disagree with what prompted the update.
+        """
+        self._stage_position = position
+        self._refresh_current_position()
+        # The grid follows the stage only when it is not pinned to a target and not
+        # mid-run. During a run the stage visits every tile in turn, and a grid that
+        # followed would crawl across the canvas describing nothing.
+        if self._target is None and not self.is_acquiring:
+            self._refresh_tile_grid()
+
+    def _on_canvas_double_clicked(self, x: float, y: float, modifiers=None) -> None:
+        """Move the stage to the double-clicked point.
+
+        Double-click rather than a single click, matching the minimap and the
+        coincidence viewer: a single click is how the canvas is explored, and a stage
+        that moved on every stray click would be unusable.
+        """
+        if self.is_acquiring:
+            notification_service.show_toast(
+                "Cannot move the stage during an acquisition.", "warning"
+            )
+            return
+        if not self.fm.has_valid_orientation():
+            notification_service.show_toast(
+                f"Stage must be in a valid FM orientation to move via the overview "
+                f"(currently {self.microscope.get_stage_orientation()}).",
+                "warning",
+            )
+            return
+
+        unproject = self._canvas_to_stage()
+        if unproject is None:
+            return
+        try:
+            target = unproject(x, y)
+        except Exception as e:
+            logging.debug(f"Could not resolve the clicked position: {e}")
+            return
+
+        limits = getattr(self.microscope._stage, "limits", None)
+        if limits and not target.is_within_limits(limits, axes=["x", "y"]):
+            notification_service.show_toast(
+                "That position is outside the stage limits.", "warning"
+            )
+            return
+
+        self.status.setText(f"Moving to {self._describe(target)}…")
+        worker = FunctionWorker(self._move_worker, target)
+        worker.start()
+
+    def _move_worker(self, target: FibsemStagePosition) -> None:
+        """Runs off the GUI thread. Only signals may cross back."""
+        try:
+            self.microscope.safe_absolute_stage_movement(target)
+        except Exception as e:
+            logging.error(f"Could not move the stage: {e}", exc_info=True)
+        # Publishes the new position through `stage_position_changed`, which is what
+        # re-marks it -- rather than assuming the stage arrived exactly where it was
+        # asked to, which on a real instrument it does not.
+        try:
+            self.microscope.get_stage_position()
+        except Exception as e:
+            logging.debug(f"Could not confirm the stage position after moving: {e}")
+
+    def _on_grid_move(self, x: float, y: float) -> None:
+        """The grid was dragged: plan the next overview around the point it landed on.
+
+        Deliberately does *not* move the stage. Setting up a run and driving the
+        instrument are separate acts, and a drag is exploratory -- you push the grid
+        around to see what it would cover. The stage goes there when the acquisition
+        does.
+        """
+        unproject = self._canvas_to_stage()
+        if unproject is None:
+            return
+        try:
+            self._target = unproject(x, y)
+        except Exception as e:
+            logging.debug(f"Could not resolve the dragged grid position: {e}")
+            return
+        self.tile_grid_panel.set_centre_enabled(True)
+        self._refresh_tile_grid()
+        self._update_grid_summary()
+
+    def clear_target(self) -> None:
+        """Plan the next overview around the stage position again."""
+        if self._target is None:
+            return
+        self._target = None
+        self.tile_grid_panel.set_centre_enabled(False)
+        self._refresh_tile_grid()
+        self._update_grid_summary()
+
+    def _on_cursor_moved(self, x: Optional[float], y: Optional[float]) -> None:
+        """Report the stage position under the cursor, or blank once it leaves."""
+        if x is None or y is None:
+            self.cursor_readout.setText("")
+            return
+        unproject = self._canvas_to_stage()
+        if unproject is None:
+            self.cursor_readout.setText("")
+            return
+        try:
+            self.cursor_readout.setText(self._describe(unproject(x, y)))
+        except Exception as e:
+            logging.debug(f"Could not resolve the cursor position: {e}")
+            self.cursor_readout.setText("")
+
+    @staticmethod
+    def _describe(position: FibsemStagePosition) -> str:
+        """A stage position as microns, for a readout.
+
+        z included because it is not decoration: on an offset mount a sideways move in
+        the image carries a real z component, and a readout that hid it would make the
+        focal-plane change invisible.
+        """
+        return (
+            f"x {position.x * constants.SI_TO_MICRO:.1f}  "
+            f"y {position.y * constants.SI_TO_MICRO:.1f}  "
+            f"z {position.z * constants.SI_TO_MICRO:.1f} µm"
+        )
 
     def _on_grid_resize(self, rows: int, cols: int) -> None:
         """An edge of the grid was dragged.
@@ -788,6 +1051,10 @@ class FMOverviewWidget(QWidget):
             zparams=zparams,
             autofocus_settings=autofocus_settings,
             stop_event=self._stop_event,
+            # None means "where the stage is", which the runner resolves itself. The
+            # stage still returns to where it started afterwards -- the target is the
+            # grid's centre, not a new home.
+            centre_position=self._target,
         )
         self._worker = FunctionWorker(self._acquire_worker)
         self._worker.start()
@@ -802,7 +1069,7 @@ class FMOverviewWidget(QWidget):
             mosaic = stitch_tileset(
                 runner.tileset,
                 runner.overview_parameters.overlap,
-                centre_position=runner._initial_position,
+                centre_position=runner.centre_position,
                 objective_position=runner._initial_objective_position,
             )
             self._mosaic = mosaic
@@ -952,9 +1219,14 @@ class FMOverviewWidget(QWidget):
             # Its own key, so the in-progress preview neither replaces a finished
             # overview nor survives as one: it is swapped for the real stitch at the end.
             self.canvas.set_composite_key(PREVIEW_KEY)
-            # The preview mosaic spans the whole planned grid, which is centred on the
-            # position the run started from -- the canvas origin.
-            self.canvas.set_placement((0.0, 0.0))
+            # The preview mosaic spans the whole planned grid, so it goes wherever the
+            # grid's centre is. Read off the runner rather than recomputed: the runner
+            # resolved "wherever the stage is" to a concrete position when it started,
+            # and the stage has been moving from tile to tile ever since.
+            centre = getattr(self._runner, "centre_position", None)
+            self.canvas.set_placement(
+                self._offset_from_origin(centre) if centre is not None else (0.0, 0.0)
+            )
             # The preview is decimated to keep it a sane size, so its pixels are
             # `preview_stride` times coarser than a tile's. Placement is by pixel size,
             # so saying so is all that is needed: coarser pixels over the same count
