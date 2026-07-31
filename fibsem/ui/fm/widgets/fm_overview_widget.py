@@ -376,11 +376,8 @@ class FMOverviewWidget(QWidget):
             tiles, (height, width), pixel_size, overlap=parameters.overlap
         )
 
-        # Frame the planned area, so an empty canvas shows where the run will go rather
-        # than nothing at all, and so clicks land in a meaningful coordinate frame.
         span_x = parameters.cols * fov[0] * (1 - parameters.overlap) + fov[0]
         span_y = parameters.rows * fov[1] * (1 - parameters.overlap) + fov[1]
-        self.canvas.set_world_extent(span_x, span_y)
 
         # Refit only when the grid's footprint actually changes. Toggling a tile also
         # comes through here, and refitting on that threw away whatever zoom and pan
@@ -392,6 +389,12 @@ class FMOverviewWidget(QWidget):
         changed = footprint != self._grid_footprint
         self._grid_footprint = footprint
         if changed and not self.tile_grid_overlay.is_resizing:
+            # Frame the planned area, so an empty canvas shows where the run will go
+            # rather than nothing at all, and so clicks land in a meaningful frame.
+            # Behind the same guard as the refit below, and for the same reason: a tile
+            # toggle comes through here too, and re-framing on one threw away the
+            # user's zoom -- which is what made clicking a tile look like zooming.
+            self.canvas.set_world_extent(span_x, span_y)
             self.tile_grid_overlay.fit_view()
 
     def _toggle_tile_grid_panel(self) -> None:

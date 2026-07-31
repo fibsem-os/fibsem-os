@@ -281,12 +281,20 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         include them. Pass None to go back to fitting the content alone.
         """
         if width is None:
-            self._world_extent_m = None
+            updated = None
         else:
             height = width if height is None else height
             if width <= 0 or height <= 0:
                 raise ValueError(f"world extent must be positive, got {width}x{height}")
-            self._world_extent_m = (width, height, centre[0], centre[1])
+            updated = (width, height, centre[0], centre[1])
+
+        if updated == self._world_extent_m:
+            # Idempotent: re-declaring the same working area is not a change, and
+            # refitting anyway would throw away the user's zoom every time a caller
+            # restated it — which one doing so on each settings change duly did.
+            return
+
+        self._world_extent_m = updated
         self._fitted_extent = None  # force a refit against the new framing
         self._after_content_change()
 
