@@ -12,12 +12,15 @@ alignment logic can drop down to this overlay when it rebases.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from PyQt5.QtCore import pyqtSignal
 
 from fibsem.structures import FibsemRectangle
 from fibsem.ui.widgets.canvas.overlays.rect_overlay import RectOverlay
+
+if TYPE_CHECKING:
+    from fibsem.ui.widgets.canvas.canvas_base import ContentRect
 
 _ALIGNMENT_COLOUR = "limegreen"
 
@@ -53,38 +56,43 @@ class AlignmentAreaOverlay(RectOverlay):
 
     # ── overlay protocol ──────────────────────────────────────────────────
 
-    def on_image_changed(self, width: int, height: int) -> None:
+    def on_content_changed(self, rect: "ContentRect") -> None:
         # super() rebuilds the artists (fresh + visible); re-position then re-apply
         # the desired visibility, otherwise a new image un-hides a cleared overlay.
-        super().on_image_changed(width, height)
-        if self._norm_area is not None and self._img_w:
+        super().on_content_changed(rect)
+        if self._norm_area is not None and not rect.is_empty:
             self.set_area(self._norm_area)
         self._apply_visibility()
 
     # ── public API ────────────────────────────────────────────────────────
 
     def set_area(self, reduced_area: FibsemRectangle) -> None:
-        """Position the rectangle from a normalized ``FibsemRectangle``."""
+        """Position the rectangle from a normalized ``FibsemRectangle``.
+
+        A reduced area is defined as fractions *of an image*, so unlike the other
+        overlays this one stays image-relative: it is meaningful only on a canvas whose
+        content is a single frame, not on one showing many images in stage space.
+        """
         self._norm_area = reduced_area
-        if self._img_w is None or self._img_h is None:
+        if self._rect is None or self._rect.is_empty:
             return
         self.set_rect(
-            reduced_area.left * self._img_w,
-            reduced_area.top * self._img_h,
-            reduced_area.width * self._img_w,
-            reduced_area.height * self._img_h,
+            self._rect.x0 + reduced_area.left * self._rect.width,
+            self._rect.y0 + reduced_area.top * self._rect.height,
+            reduced_area.width * self._rect.width,
+            reduced_area.height * self._rect.height,
         )
 
     def get_area(self) -> FibsemRectangle:
         """Return the current rectangle as a normalized ``FibsemRectangle``."""
-        if self._img_w is None or self._img_h is None:
+        if self._rect is None or self._rect.is_empty:
             return FibsemRectangle()
         d = self.get_rect()
         return FibsemRectangle(
-            left=d["x0"] / self._img_w,
-            top=d["y0"] / self._img_h,
-            width=d["width"] / self._img_w,
-            height=d["height"] / self._img_h,
+            left=(d["x0"] - self._rect.x0) / self._rect.width,
+            top=(d["y0"] - self._rect.y0) / self._rect.height,
+            width=d["width"] / self._rect.width,
+            height=d["height"] / self._rect.height,
         )
 
     def set_visible(self, visible: bool) -> None:

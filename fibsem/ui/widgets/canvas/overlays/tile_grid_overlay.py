@@ -26,6 +26,7 @@ from fibsem.imaging.tiling.geometry import TilePosition
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
+    from fibsem.ui.widgets.canvas.canvas_base import ContentRect
     from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 
 # Magenta rather than the app's blue: this is drawn over fluorescence data, which is
@@ -74,8 +75,7 @@ class TileGridOverlay(QObject, CanvasOverlay):
         self._ax = None
         self._canvas: Optional["FibsemImageCanvas"] = None
         self._artists: list = []
-        self._img_w: int = 0
-        self._img_h: int = 0
+        self._rect: Optional["ContentRect"] = None  # canvas content bounds
         self._previous_margin: Optional[float] = None
         self._cids: List[int] = []
         self._resize_axes: Optional[Tuple[bool, bool]] = None  # (horizontal, vertical)
@@ -112,9 +112,18 @@ class TileGridOverlay(QObject, CanvasOverlay):
         self._ax = None
         self._canvas = None
 
-    def on_image_changed(self, width: int, height: int) -> None:
-        self._img_w, self._img_h = width, height
+    def on_content_changed(self, rect: "ContentRect") -> None:
+        self._rect = rect
         self._redraw()
+
+    def _content(self) -> Optional["ContentRect"]:
+        """Content bounds, or None if the canvas has not reported usable ones yet.
+
+        The grid is centred on the content — today the displayed image, and under a
+        real-space canvas the region the tiles are planned around.
+        """
+        rect = self._rect
+        return None if rect is None or rect.is_empty else rect
 
     # ── content ──────────────────────────────────────────────────────────
 
@@ -191,17 +200,18 @@ class TileGridOverlay(QObject, CanvasOverlay):
         view the outer tiles are off-screen -- and an outer tile that cannot be seen
         cannot be clicked.
         """
-        if self._canvas is None or not self._tiles or self._img_w <= 0:
+        rect = self._content()
+        if self._canvas is None or not self._tiles or rect is None:
             return
 
         span_w, span_h = self._extent()
         if span_w <= 0 or span_h <= 0:
             return
 
-        # `set_view_margin` is a fraction of the *image* size per side.
+        # `set_view_margin` is a fraction of the *content* size per side.
         margin = max(
-            (span_w / self._img_w - 1.0) / 2.0,
-            (span_h / self._img_h - 1.0) / 2.0,
+            (span_w / rect.width - 1.0) / 2.0,
+            (span_h / rect.height - 1.0) / 2.0,
             0.0,
         )
         if self._previous_margin is None:
@@ -243,10 +253,14 @@ class TileGridOverlay(QObject, CanvasOverlay):
         scale = self._scale()
         span_w, span_h = self._extent()
 
-        # The grid is centred on the image centre, matching the runner: it measures
+        # The grid is centred on the content centre, matching the runner: it measures
         # from the top-left tile and shifts so the grid straddles the start position.
-        origin_x = self._img_w / 2 - span_w / 2
-        origin_y = self._img_h / 2 - span_h / 2
+        # Callers guard on _content(); the (0, 0) fallback keeps this total.
+        rect = self._content()
+        cx = rect.cx if rect is not None else 0.0
+        cy = rect.cy if rect is not None else 0.0
+        origin_x = cx - span_w / 2
+        origin_y = cy - span_h / 2
 
         return (
             origin_x + tile.canvas_x * scale,
@@ -257,7 +271,7 @@ class TileGridOverlay(QObject, CanvasOverlay):
 
     def _redraw(self) -> None:
         self._remove_artists()
-        if self._ax is None or not self._tiles or self._img_w <= 0 or not self._visible:
+        if self._ax is None or not self._tiles or self._content() is None or not self._visible:
             # Still repaint: removing the artists takes them out of the axes, but the
             # canvas keeps showing the last render until it is asked to redraw -- so
             # returning early here left a hidden grid on screen.
@@ -336,12 +350,13 @@ class TileGridOverlay(QObject, CanvasOverlay):
         boolean because the hover cursor has to name a *corner* -- top-left and
         top-right want opposite diagonals -- and "on both axes" cannot distinguish them.
         """
-        if not self._tiles or self._tile_shape[1] <= 0 or self._img_w <= 0:
+        rect = self._content()
+        if not self._tiles or self._tile_shape[1] <= 0 or rect is None:
             return 0, 0
 
         span_w, span_h = self._extent()
-        left = self._img_w / 2 - span_w / 2
-        top = self._img_h / 2 - span_h / 2
+        left = rect.cx - span_w / 2
+        top = rect.cy - span_h / 2
         # Proportional to a tile rather than a fixed pixel count, so the grab zone
         # stays usable at any zoom without querying the transform.
         tolerance = self._tile_shape[1] * self._scale() * EDGE_GRAB_FRACTION
@@ -454,7 +469,8 @@ class TileGridOverlay(QObject, CanvasOverlay):
             return
         if event.xdata is None or event.ydata is None:
             return
-        if not self._tiles:
+        rect = self._content()
+        if not self._tiles or rect is None:
             # The grid can be cleared mid-drag -- `_refresh_tile_grid` does exactly
             # that if the camera geometry cannot be read -- and the row/column counts
             # below are derived from the tiles, so this would raise on an empty max().
@@ -468,11 +484,11 @@ class TileGridOverlay(QObject, CanvasOverlay):
 
         if horizontal:
             cols = self._count_for(
-                abs(event.xdata - self._img_w / 2), tile_w * scale
+                abs(event.xdata - rect.cx), tile_w * scale
             )
         if vertical:
             rows = self._count_for(
-                abs(event.ydata - self._img_h / 2), tile_h * scale
+                abs(event.ydata - rect.cy), tile_h * scale
             )
 
         self.grid_resize_requested.emit(rows, cols)

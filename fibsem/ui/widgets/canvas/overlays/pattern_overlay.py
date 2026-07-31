@@ -14,6 +14,7 @@ from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from fibsem.ui.widgets.canvas.canvas_base import ContentRect
     from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 
 _logger = logging.getLogger(__name__)
@@ -47,9 +48,9 @@ class PatternOverlay(CanvasOverlay):
         self._ax = None
         self._canvas = None
 
-    def on_image_changed(self, width: int, height: int) -> None:
+    def on_content_changed(self, rect: "ContentRect") -> None:
         self._remove_artists()
-        if width > 0:
+        if not rect.is_empty:
             self._draw()
 
     def set_patterns(self, patterns) -> None:
@@ -150,9 +151,9 @@ class ScanDirectionArrowOverlay(CanvasOverlay):
         self._ax = None
         self._canvas = None
 
-    def on_image_changed(self, width: int, _height: int) -> None:
+    def on_content_changed(self, rect: "ContentRect") -> None:
         self._remove_artist()
-        if width > 0 and self._params is not None:
+        if not rect.is_empty and self._params is not None:
             self._draw()
 
     def set_arrow(self, cx: float, cy: float, h_px: float, scan_direction: str) -> None:

@@ -27,6 +27,7 @@ from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from fibsem.ui.widgets.canvas.canvas_base import ContentRect
     from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 
 _logger = logging.getLogger(__name__)
@@ -59,7 +60,7 @@ class MinimapShapesOverlay(CanvasOverlay):
 
     Call :meth:`set_shapes` to (re)draw, :meth:`set_visible` to toggle, :meth:`clear`
     to hide. Specs are cached so the overlay redraws itself after an image swap
-    (``on_image_changed``).
+    (``on_content_changed``).
     """
 
     def __init__(
@@ -89,10 +90,10 @@ class MinimapShapesOverlay(CanvasOverlay):
         self._ax = None
         self._canvas = None
 
-    def on_image_changed(self, width: int, height: int) -> None:
-        # ax was cleared + a new image drawn → re-create artists from cached specs
+    def on_content_changed(self, rect: "ContentRect") -> None:
+        # ax was cleared + new content drawn → re-create artists from cached specs
         self._remove_artists()
-        if width > 0 and self._specs and self._visible:
+        if not rect.is_empty and self._specs and self._visible:
             self._draw()
 
     # ── public API ────────────────────────────────────────────────────────

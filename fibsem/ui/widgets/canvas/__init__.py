@@ -31,7 +31,7 @@ from fibsem.ui.widgets.canvas.canvas_state import (
     SceneModel,
 )
 from fibsem.ui.widgets.canvas.fm_composite import FMLayer, composite_fm_layers
-from fibsem.ui.widgets.canvas.canvas_base import FibsemCanvasBase
+from fibsem.ui.widgets.canvas.canvas_base import ContentRect, FibsemCanvasBase
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.canvas.quad_view import (
@@ -43,6 +43,7 @@ from fibsem.ui.widgets.canvas.quad_view import (
 __all__ = [
     # canvas_base
     "FibsemCanvasBase",
+    "ContentRect",
     # image_canvas
     "FibsemImageCanvas",
     # fm_canvas
