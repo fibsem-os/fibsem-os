@@ -18,7 +18,6 @@ from PyQt5.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
-    QProgressBar,
     QPushButton,
     QScrollArea,
     QSplitter,
@@ -39,13 +38,40 @@ from fibsem.ui import stylesheets
 from fibsem.ui.fm.widgets.fm_multi_channel_widget import FluorescenceMultiChannelWidget
 from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
     FMOverviewConfirmationDialog,
-    format_duration,
 )
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
 from fibsem.ui.qt.threading import FunctionWorker
+from fibsem.ui.widgets.progress_widget import (
+    FibsemProgressWidget,
+    ProgressUpdate,
+)
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 
 TEXT_MUTED = "#868e93"
+PROGRESS_WIDTH = 260
+PROGRESS_HEIGHT = 22
+PROGRESS_FONT_PX = 10
+
+
+def progress_slot(progress: FibsemProgressWidget) -> QWidget:
+    """A fixed-size holder that keeps its space whether the bar is showing or not.
+
+    `FibsemProgressWidget.reset()` hides itself, which in a plain layout collapses the
+    row and shifts everything beside it -- so a bar going away at the end of a run
+    would drag the buttons across. Reserving the space decouples them.
+    """
+    # Via a stylesheet on the holder rather than `setFont`, which does not reach the
+    # bar, and rather than touching the widget's private `_bar`. The bar's own sheet
+    # sets no font-size, so this applies without disturbing the chunk colouring it
+    # relies on to tell finished from failed.
+    progress.setStyleSheet(f"QProgressBar {{ font-size: {PROGRESS_FONT_PX}px; }}")
+
+    slot = QWidget()
+    slot.setFixedSize(PROGRESS_WIDTH, PROGRESS_HEIGHT)
+    layout = QHBoxLayout(slot)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.addWidget(progress)
+    return slot
 
 
 class FMOverviewWidget(QWidget):
@@ -136,12 +162,11 @@ class FMOverviewWidget(QWidget):
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 0)
 
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 100)
-        self.progress.setTextVisible(True)
-        self.progress.setFormat("")
-        self.progress.setFixedHeight(18)
-        self.progress.hide()
+        # Two bars: across the grid, and within the tile being acquired. Both are
+        # `FibsemProgressWidget`, which distinguishes finished from failed -- a failed
+        # run used to paint the same full green bar as a successful one.
+        self.progress_tiles = FibsemProgressWidget()
+        self.progress_tile_detail = FibsemProgressWidget()
 
         self.status = QLabel("")
         self.status.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
@@ -157,18 +182,31 @@ class FMOverviewWidget(QWidget):
         self.button_cancel.clicked.connect(self.cancel)
         self.button_cancel.setEnabled(False)
 
-        actions = QHBoxLayout()
-        actions.setContentsMargins(8, 0, 8, 8)
-        actions.addWidget(self.status, stretch=1)
-        actions.addWidget(self.button_cancel)
-        actions.addWidget(self.button_acquire)
+        # One row: status, both bars, then the actions. The bars sit in fixed slots, so
+        # the buttons hold their position whatever the bars are doing.
+        # The two bars are one readout and sit tight together; the gap that matters is
+        # the one separating them from the buttons.
+        bars = QWidget()
+        bars_layout = QHBoxLayout(bars)
+        bars_layout.setContentsMargins(0, 0, 0, 0)
+        bars_layout.setSpacing(3)
+        bars_layout.addWidget(progress_slot(self.progress_tiles))
+        bars_layout.addWidget(progress_slot(self.progress_tile_detail))
+
+        self.status_row = QWidget()
+        status_layout = QHBoxLayout(self.status_row)
+        status_layout.setContentsMargins(8, 4, 8, 8)
+        status_layout.setSpacing(10)
+        status_layout.addWidget(self.status, stretch=1)
+        status_layout.addWidget(bars)
+        status_layout.addWidget(self.button_cancel)
+        status_layout.addWidget(self.button_acquire)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
         layout.addWidget(splitter, stretch=1)
-        layout.addWidget(self.progress)
-        layout.addLayout(actions)
+        layout.addWidget(self.status_row)
 
         self.channel_widget.settings_changed.connect(self._on_channels_changed)
         self.channel_widget.enabled_changed.connect(self._on_enabled_changed)
@@ -321,10 +359,12 @@ class FMOverviewWidget(QWidget):
         self.button_cancel.setEnabled(running)
         self.settings_widget.setEnabled(not running)
         self.channel_widget.setEnabled(not running)
-        self.progress.setVisible(running)
         if running:
-            self.progress.setValue(0)
-            self.progress.setFormat("Starting…")
+            # Left empty rather than shown as indeterminate, which would paint a full
+            # bar before a single tile had been acquired.
+            self.progress_tiles.reset()
+            self.progress_tile_detail.reset()
+            self.status.setText("Starting…")
 
     # ── progress ─────────────────────────────────────────────────────────
 
@@ -333,20 +373,76 @@ class FMOverviewWidget(QWidget):
         self._progress_received.emit(payload)
 
     def _apply_progress(self, payload: dict) -> None:
-        """Runs on the GUI thread, queued via `_progress_received`."""
+        """Runs on the GUI thread, queued via `_progress_received`.
+
+        One signal carries both scales -- the tileset runner's and, from inside each
+        tile, `acquire_z_stack`/`acquire_channels` -- so `task` decides which bar a
+        payload belongs to. Anything else is ignored rather than shown twice.
+        """
         state = payload.get("state")
 
-        if state == "tile":
-            self._show_preview(payload)
-            current, total = payload.get("current", 0), payload.get("total", 1)
-            self.progress.setValue(int(current / max(1, total) * 100))
-            remaining = payload.get("estimated_remaining_time")
-            suffix = f" · {format_duration(remaining)} left" if remaining else ""
-            self.progress.setFormat(f"Tile {current}/{total}{suffix}")
-        elif state == "moving":
-            self.progress.setFormat("Moving stage…")
-        elif state in ("overview-finished", "overview-cancelled", "overview-failed"):
+        if state in ("overview-finished", "overview-cancelled", "overview-failed"):
             self._finish(state, payload.get("error"))
+            return
+
+        task = payload.get("task")
+        if task == "tileset":
+            self._apply_tile_progress(payload, state)
+        elif task in ("z-stack", "channels"):
+            self.progress_tile_detail.update_progress(self._tile_detail_update(payload))
+
+    def _apply_tile_progress(self, payload: dict, state: Optional[str]) -> None:
+        if state == "moving":
+            # Deliberately not `indeterminate`: that paints a *full* bar with a
+            # spinner, so every stage move looked like the run had just completed.
+            # The bar keeps the last tile count -- which is still true between tiles --
+            # and the transient state goes to the status label instead.
+            self.status.setText("Moving stage…")
+            return
+
+        self.status.setText("")
+
+        if state == "tile":
+            # Deliberately does *not* clear the within-tile bar. It used to, which made
+            # it vanish and reappear at every tile boundary -- a flicker for the whole
+            # run. The next tile's first payload overwrites it a moment later anyway.
+            self._show_preview(payload)
+
+        current, total = payload.get("current", 0), payload.get("total", 1)
+        remaining = payload.get("estimated_remaining_time")
+        # The widget renders the count itself, so the message says what is being
+        # counted and nothing more -- otherwise it reads "Tile 4/9 — 4/9".
+        message = "Tiles"
+        if remaining:
+            self.progress_tiles.update_progress(ProgressUpdate.combined(
+                current=current, total=total,
+                remaining_seconds=remaining,
+                total_seconds=payload.get("estimated_total_time", 0.0),
+                message=message,
+            ))
+        else:
+            self.progress_tiles.update_progress(
+                ProgressUpdate.numeric(current=current, total=total, message=message)
+            )
+
+    def _tile_detail_update(self, payload: dict) -> ProgressUpdate:
+        """Progress within the tile currently being acquired.
+
+        A z-stack counts planes and a plain multi-channel acquisition counts channels,
+        so the same bar reads sensibly either way rather than sitting empty whenever
+        z-stacking happens to be off.
+        """
+        channel = payload.get("channel", "")
+        zlevel, total_z = payload.get("zlevel"), payload.get("total_zlevels")
+        if zlevel and total_z:
+            return ProgressUpdate.numeric(
+                current=zlevel, total=total_z, message=f"{channel} z-stack"
+            )
+        index = payload.get("channel_index", 1)
+        total = payload.get("total_channels", 1)
+        return ProgressUpdate.numeric(
+            current=index, total=total, message=f"{channel} channels"
+        )
 
     def _show_preview(self, payload: dict) -> None:
         """Paint the mosaic-so-far onto the canvas.
@@ -370,16 +466,24 @@ class FMOverviewWidget(QWidget):
     def _finish(self, state: str, error: Optional[str]) -> None:
         self._set_running(False)
         self._worker = None
+        self.progress_tile_detail.reset()
 
         if state == "overview-finished" and self._mosaic is not None:
             # Swap the decimated preview for the real thing.
             self.canvas.set_fm_image(self._mosaic)
             shape = self._mosaic.data.shape
             self.status.setText(f"Overview acquired — {shape[-1]} × {shape[-2]} px")
+            self.progress_tiles.update_progress(ProgressUpdate.done())
         elif state == "overview-cancelled":
             self.status.setText("Cancelled. Tiles acquired so far are still shown.")
+            self.progress_tiles.reset()
         else:
             self.status.setText(f"Failed: {error}" if error else "Failed.")
+            # Failed, not done: the widget paints these differently, and a failure
+            # showing a full green bar reads as success in everything but the text.
+            self.progress_tiles.update_progress(
+                ProgressUpdate.failed(error or "Acquisition failed")
+            )
 
     # ── lifecycle ────────────────────────────────────────────────────────
 

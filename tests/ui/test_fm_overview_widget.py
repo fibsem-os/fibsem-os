@@ -28,8 +28,10 @@ from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
     format_duration,
 )
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
+from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget, progress_slot
 from fibsem.ui.fm.widgets.tile_mask_widget import TileMaskWidget
 from fibsem.ui.widgets.custom_widgets import ValueComboBox
+from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 
 
 @pytest.fixture(scope="module")
@@ -264,3 +266,183 @@ def test_an_explicit_format_fn_beats_the_built_in_rendering(qapp):
 
 def test_without_a_format_fn_the_built_in_rendering_still_applies(qapp):
     assert ValueComboBox(items=list(AutoFocusMode)).itemText(0) == "NONE"
+
+
+# ── progress bars ────────────────────────────────────────────────────────
+#
+# One signal carries both scales: the tileset runner's tile counter, and -- from
+# inside each tile -- `acquire_z_stack` / `acquire_channels`. `task` decides which
+# bar a payload drives, so a payload must never move both.
+
+
+class _Router:
+    """The routing half of FMOverviewWidget, without needing a microscope."""
+
+    def __init__(self):
+        self.progress_tiles = FibsemProgressWidget()
+        self.progress_tile_detail = FibsemProgressWidget()
+        self.status = QLabel()
+
+    _apply_progress = FMOverviewWidget._apply_progress
+    _apply_tile_progress = FMOverviewWidget._apply_tile_progress
+    _tile_detail_update = FMOverviewWidget._tile_detail_update
+
+    def _show_preview(self, payload):
+        pass
+
+    def _finish(self, state, error):
+        self.finished = (state, error)
+
+
+def _bar(widget):
+    return widget._bar
+
+
+def test_a_tileset_payload_moves_only_the_tile_bar(qapp):
+    router = _Router()
+
+    router._apply_progress({
+        "state": "acquiring", "task": "tileset", "current": 4, "total": 9,
+    })
+
+    # value/maximum directly, not a percentage -- the widget counts items.
+    assert (_bar(router.progress_tiles).value(),
+            _bar(router.progress_tiles).maximum()) == (4, 9)
+    assert not router.progress_tile_detail.isVisible()
+
+
+def test_a_zstack_payload_moves_only_the_detail_bar(qapp):
+    router = _Router()
+
+    router._apply_progress({
+        "state": "acquiring", "task": "z-stack", "channel": "GFP",
+        "zlevel": 7, "total_zlevels": 21,
+    })
+
+    assert "z-stack" in _bar(router.progress_tile_detail).format()
+    assert (_bar(router.progress_tile_detail).value(),
+            _bar(router.progress_tile_detail).maximum()) == (7, 21)
+    assert not router.progress_tiles.isVisible()
+
+
+def test_a_channels_payload_drives_the_detail_bar_too(qapp):
+    """Without this the second bar is dead on every run that is not z-stacked."""
+    router = _Router()
+
+    router._apply_progress({
+        "state": "acquiring", "task": "channels", "channel": "RFP",
+        "channel_index": 2, "total_channels": 3,
+    })
+
+    assert "RFP" in _bar(router.progress_tile_detail).format()
+    assert (_bar(router.progress_tile_detail).value(),
+            _bar(router.progress_tile_detail).maximum()) == (2, 3)
+
+
+def test_a_completed_tile_leaves_the_detail_bar_alone(qapp):
+    """It used to reset here, so the bar vanished and returned at every tile boundary
+    -- a flicker for the length of the run. The next tile overwrites it a moment later
+    anyway, so the stale count is never seen."""
+    router = _Router()
+    router._apply_progress({
+        "state": "acquiring", "task": "z-stack", "channel": "GFP",
+        "zlevel": 21, "total_zlevels": 21,
+    })
+
+    router._apply_progress({
+        "state": "tile", "task": "tileset", "current": 1, "total": 9,
+    })
+
+    assert router.progress_tile_detail.isVisible()
+
+
+def test_an_unknown_task_moves_nothing(qapp):
+    router = _Router()
+
+    router._apply_progress({"state": "acquiring", "task": "something-else"})
+
+    assert not router.progress_tiles.isVisible()
+    assert not router.progress_tile_detail.isVisible()
+
+
+def test_the_estimate_is_shown_when_the_payload_carries_one(qapp):
+    router = _Router()
+
+    router._apply_progress({
+        "state": "acquiring", "task": "tileset", "current": 2, "total": 9,
+        "estimated_remaining_time": 134.0, "estimated_total_time": 180.0,
+    })
+
+    assert "remaining" in _bar(router.progress_tiles).format()
+
+
+def test_a_stage_move_does_not_fill_the_bar(qapp):
+    """`indeterminate` paints a *full* bar, so every move read as "finished".
+
+    The count stays put -- it is still true between tiles -- and the transient state
+    goes to the status label.
+    """
+    router = _Router()
+    router._apply_progress({
+        "state": "acquiring", "task": "tileset", "current": 3, "total": 9,
+    })
+
+    router._apply_progress({"state": "moving", "task": "tileset"})
+
+    assert (_bar(router.progress_tiles).value(),
+            _bar(router.progress_tiles).maximum()) == (3, 9)
+    assert router.status.text() == "Moving stage…"
+
+
+# ── layout stability ─────────────────────────────────────────────────────
+
+
+def test_a_reset_bar_keeps_its_space(qapp):
+    """The bars must not jitter each other.
+
+    `FibsemProgressWidget.reset()` hides itself, so in a plain row the neighbouring
+    bar would shift every time a tile finished. Each sits in a fixed slot instead.
+    """
+    from PyQt5.QtWidgets import QHBoxLayout, QWidget
+
+    left, right = FibsemProgressWidget(), FibsemProgressWidget()
+    row = QWidget()
+    layout = QHBoxLayout(row)
+    layout.addWidget(progress_slot(left))
+    layout.addWidget(progress_slot(right))
+    row.resize(600, 40)
+    row.show()
+    qapp.processEvents()
+
+    left.update_progress(ProgressUpdate.numeric(1, 2, "working"))
+    right.update_progress(ProgressUpdate.numeric(1, 2, "working"))
+    qapp.processEvents()
+    before = left.parentWidget().geometry()
+
+    right.reset()
+    qapp.processEvents()
+
+    assert left.parentWidget().geometry() == before
+
+
+def test_the_bar_text_is_smaller_than_the_default(qapp):
+    """Pinned because `setFont` on the holder silently does not reach the bar, so the
+    obvious way to do this looks right and changes nothing."""
+    from PyQt5.QtGui import QFontMetrics
+
+    plain, shrunk = FibsemProgressWidget(), FibsemProgressWidget()
+    slot = progress_slot(shrunk)  # noqa: F841 - keeps the holder alive
+
+    sample = "Tiles — 4/9 · 74s remaining"
+    assert (QFontMetrics(shrunk._bar.font()).width(sample)
+            < QFontMetrics(plain._bar.font()).width(sample))
+
+
+def test_shrinking_the_text_keeps_the_failed_colouring(qapp):
+    """The chunk stylesheet is what distinguishes a failed run from a finished one."""
+    progress = FibsemProgressWidget()
+    slot = progress_slot(progress)  # noqa: F841
+
+    progress.update_progress(ProgressUpdate.failed("nope"))
+
+    assert "#99121F" in progress._bar.styleSheet()

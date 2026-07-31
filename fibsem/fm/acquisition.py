@@ -44,7 +44,18 @@ def acquire_channels(
         channel_settings = [channel_settings]  # Ensure settings is a list
 
     images: List[FluorescenceImage] = []
-    for channel in channel_settings:
+    for i, channel in enumerate(channel_settings):
+        # Same payload shape `acquire_z_stack` emits, minus the z fields. Without it a
+        # multi-channel acquisition was silent, so anything watching progress within a
+        # tile had nothing to show unless a z-stack happened to be enabled.
+        microscope.acquisition_progress_signal.emit({
+            "state": "acquiring",
+            "task": "channels",
+            "channel": channel.name,
+            "channel_index": i + 1,
+            "total_channels": len(channel_settings),
+        })
+
         # Check for cancellation before each channel
         if stop_event and stop_event.is_set():
             logging.info("Multi-channel acquisition cancelled")
