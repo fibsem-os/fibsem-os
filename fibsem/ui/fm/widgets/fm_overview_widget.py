@@ -388,7 +388,7 @@ class FMOverviewWidget(QWidget):
         task = payload.get("task")
         if task == "tileset":
             self._apply_tile_progress(payload, state)
-        elif task in ("z-stack", "channels"):
+        elif task in ("z-stack", "channels", "autofocus"):
             self.progress_tile_detail.update_progress(self._tile_detail_update(payload))
 
     def _apply_tile_progress(self, payload: dict, state: Optional[str]) -> None:
@@ -435,6 +435,15 @@ class FMOverviewWidget(QWidget):
         channel = payload.get("channel", "")
         zlevel, total_z = payload.get("zlevel"), payload.get("total_zlevels")
         if zlevel and total_z:
+            if payload.get("task") == "autofocus":
+                # Say which pass, so a coarse sweep followed by a fine one does not
+                # look like the same bar inexplicably starting over.
+                total_passes = payload.get("total_passes", 1)
+                which = (f" {payload.get('pass_index', 1)}/{total_passes}"
+                         if total_passes > 1 else "")
+                return ProgressUpdate.numeric(
+                    current=zlevel, total=total_z, message=f"{channel} focus{which}"
+                )
             return ProgressUpdate.numeric(
                 current=zlevel, total=total_z, message=f"{channel} z-stack"
             )

@@ -1665,3 +1665,89 @@ def test_tile_data_is_normalised_to_channel_planes(shape, n_channels, expected):
     data = np.arange(np.prod(shape), dtype=np.uint16).reshape(shape)
 
     assert acquisition._to_channel_planes(data, n_channels).shape == expected
+
+
+# ── autofocus passes and progress ────────────────────────────────────────
+
+
+def _sweep_settings():
+    from fibsem.autofunctions.autofocus import FocusSweepPass
+
+    return AutoFocusSettings(passes=[
+        FocusSweepPass(search_range=20e-6, step_size=5e-6),   # coarse: 5 positions
+        FocusSweepPass(search_range=6e-6, step_size=1e-6),    # fine:   7 positions
+    ])
+
+
+def _autofocus_payloads(microscope, monkeypatch, mode):
+    _record_tile_positions(microscope, monkeypatch)
+    seen = []
+    microscope.fm.acquisition_progress_signal.connect(
+        lambda d: seen.append(d) if d.get("task") == "autofocus" else None
+    )
+    acquisition.FMTiledAcquisitionRunner(
+        microscope=microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+        overview_parameters=OverviewParameters(rows=2, cols=2, overlap=0.1,
+                                               autofocus_mode=mode),
+        autofocus_settings=_sweep_settings(),
+    ).run()
+    return seen
+
+
+def test_focusing_once_runs_every_enabled_pass(fm_microscope, monkeypatch):
+    """Coarse then fine, which is the whole reason to configure more than one pass.
+
+    Every mode used to take the narrowest pass alone, so a configured coarse sweep was
+    silently ignored -- including in the one case it exists for.
+    """
+    seen = _autofocus_payloads(fm_microscope, monkeypatch, AutoFocusMode.ONCE)
+
+    passes = sorted({(d["pass_index"], d["total_passes"], d["total_zlevels"])
+                     for d in seen})
+    assert passes == [(1, 2, 5), (2, 2, 7)]
+
+
+def test_per_tile_focusing_runs_only_the_narrowest_pass(fm_microscope, monkeypatch):
+    """It refines an already-good position; a wide sweep at every tile would dominate."""
+    seen = _autofocus_payloads(fm_microscope, monkeypatch, AutoFocusMode.EACH_TILE)
+
+    assert sorted({(d["pass_index"], d["total_passes"]) for d in seen}) == [(1, 1)]
+    assert {d["total_zlevels"] for d in seen} == {7}          # the fine pass
+    assert len([d for d in seen if d["zlevel"] == 1]) == 4    # once per tile
+
+
+def test_the_sweep_reports_progress_per_position(fm_microscope, monkeypatch):
+    """Otherwise the bars freeze for the length of the sweep, which on per-tile
+    focusing is most of the run."""
+    seen = _autofocus_payloads(fm_microscope, monkeypatch, AutoFocusMode.ONCE)
+
+    assert [d["zlevel"] for d in seen if d["pass_index"] == 1] == [1, 2, 3, 4, 5]
+    assert all(d["channel"] == "DAPI" for d in seen)
+
+
+def test_a_cancelled_sweep_does_not_start_the_next_pass(fm_microscope, monkeypatch):
+    _record_tile_positions(fm_microscope, monkeypatch)
+    stop_event = threading.Event()
+    seen = []
+    fm_microscope.fm.acquisition_progress_signal.connect(
+        lambda d: seen.append(d) if d.get("task") == "autofocus" else None
+    )
+
+    def cancel_during_the_first_pass(*args, **kwargs):
+        stop_event.set()
+        return Mock(spec=FluorescenceImage)
+
+    monkeypatch.setattr(fm_microscope.fm, "acquire_image", cancel_during_the_first_pass)
+
+    with pytest.raises(OperationCancelledError):
+        acquisition.FMTiledAcquisitionRunner(
+            microscope=fm_microscope,
+            channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+            overview_parameters=OverviewParameters(rows=2, cols=2, overlap=0.1,
+                                                   autofocus_mode=AutoFocusMode.ONCE),
+            autofocus_settings=_sweep_settings(),
+            stop_event=stop_event,
+        ).run()
+
+    assert {d["pass_index"] for d in seen} == {1}, "the second pass must not start"

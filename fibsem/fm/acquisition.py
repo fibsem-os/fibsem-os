@@ -1,6 +1,7 @@
 import logging
 import os
 import threading
+from dataclasses import replace
 import time
 from copy import deepcopy
 from typing import Dict, List, Optional, Tuple, Union, TYPE_CHECKING, Literal
@@ -11,7 +12,7 @@ import matplotlib.patches as patches
 
 from fibsem import utils
 from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
-from fibsem.fm.calibration import run_autofocus
+from fibsem.fm.calibration import run_autofocus, run_coarse_fine_autofocus
 from fibsem.imaging.tiling.geometry import (
     TilePosition,
     compute_tile_grid_from_fov,
@@ -347,17 +348,21 @@ def acquire_at_positions(
 def run_tileset_autofocus(
     microscope: 'FibsemMicroscope',
     channel_settings: Optional[ChannelSettings],
-    z_parameters: Optional[ZParameters],
-    method: str = "tenengrad",
+    autofocus_settings: AutoFocusSettings,
     stop_event: Optional[threading.Event] = None,
 ) -> bool:
     """Run autofocus during tileset acquisition with error handling and logging.
 
+    A thin wrapper over `run_coarse_fine_autofocus` -- the same sweep the live
+    auto-focus button runs -- so a tileset focuses exactly the way focusing by hand
+    does. It used to iterate passes itself, which made it a second implementation of
+    a loop that already existed and could drift from it.
+
     Args:
         microscope: The FIBSEM microscope instance
         channel_settings: Channel settings for autofocus
-        z_parameters: Z parameters for autofocus range
-        method: Autofocus method to use (default: 'tenengrad')
+        autofocus_settings: Sweep passes, method and channel. Every enabled pass runs,
+            each centred on where the previous one left the objective.
         stop_event: Threading event to check for cancellation (optional)
 
     Returns:
@@ -369,11 +374,10 @@ def run_tileset_autofocus(
         )
         return False
     try:
-        result = run_autofocus(
+        result = run_coarse_fine_autofocus(
             microscope=microscope.fm,
+            autofocus_settings=autofocus_settings,
             channel_settings=channel_settings,
-            z_parameters=z_parameters,
-            method=method,
             stop_event=stop_event,
         )
         if result is None:
@@ -608,10 +612,18 @@ class FMTiledAcquisitionRunner:
             f"{len(enabled_passes)} enabled pass(es)"
         )
 
-        self._autofocus_method = self.autofocus_settings.method.value
-        # Per-tile / per-row autofocus uses the final (narrowest) enabled pass.
-        # NOTE: a wider initial pass should only be used once, before acquisition.
-        self._autofocus_zparams = ZParameters.from_focus_pass(enabled_passes[-1])
+        # The once-before-acquisition focus runs every enabled pass, coarse to fine:
+        # each sweep centres on where the previous one left the objective, which is
+        # the entire point of configuring more than one. Per-row and per-tile focus
+        # runs only the narrowest -- they refine an already-good position, and paying
+        # for a wide sweep at every tile would dominate the acquisition.
+        #
+        # Previously *all* modes used the narrowest pass alone, so a configured coarse
+        # pass was silently ignored even for the case it exists for.
+        self._autofocus_full = replace(self.autofocus_settings, passes=enabled_passes)
+        self._autofocus_fine = replace(
+            self.autofocus_settings, passes=[enabled_passes[-1]]
+        )
 
     def _compute_grid(self) -> None:
         """Lay the grid out once and project every tile to an absolute position.
@@ -735,11 +747,13 @@ class FMTiledAcquisitionRunner:
         if self._autofocus_mode != mode:
             return
 
+        settings = (
+            self._autofocus_full if mode is AutoFocusMode.ONCE else self._autofocus_fine
+        )
         if not run_tileset_autofocus(
             self.microscope,
             self._autofocus_channel,
-            self._autofocus_zparams,
-            method=self._autofocus_method,
+            settings,
             stop_event=self.stop_event,
         ):
             raise OperationCancelledError(
