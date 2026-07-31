@@ -57,7 +57,7 @@ ui = [
     "pyqt5>=5.15.9",
     "pyqt5-qt5 == 5.15.2 ; platform_system == 'Windows'",
     "matplotlib_scalebar>=0.8.1",
-    "qtawesome>=1.3.0", # bundled Material Design Icons font (offline icon rendering); >=1.3.0 for Spin.start/stop
+    "qtawesome>=1.4.0", # bundled Material Design Icons font (offline icon rendering); >=1.4.0 guards Spin.start/stop before first paint
 ]
 odemis = ["pylibtiff", "shapely"]
 
