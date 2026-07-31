@@ -223,3 +223,31 @@ if __name__ == "__main__":
                 failed += 1
                 print(f"FAIL {name}: {e}")
     print("all passed" if not failed else f"{failed} failed")
+
+
+def test_the_composite_is_blended_at_display_resolution():
+    """Blending a full mosaic computes ~99% of a result the canvas then throws away —
+    153 ms per layer change for a 1x5 overview against ~3 ms reduced, and it is the
+    layer sliders that fire it continuously."""
+    w = _widget()
+    big = np.zeros((1024, 4712), dtype=np.uint8)
+    w.set_composite_key("ov")
+    w.set_channel("GFP", big, "green")
+
+    stored = w.canvas._placed["ov"].artist.get_array()
+    assert max(stored.shape[:2]) <= w.canvas._display_max_px
+
+
+def test_a_reduced_composite_is_still_placed_at_full_size():
+    """The reduction must be spent on the placement, not lost: blending smaller must not
+    draw the mosaic smaller."""
+    w = _widget()
+    big = np.zeros((1024, 4712), dtype=np.uint8)
+    w.set_composite_key("ov")
+    w.set_channel("GFP", big, "green")
+
+    extent = w.canvas._placed["ov"].extent
+    assert extent[1] - extent[0] == pytest.approx(4712)
+    assert extent[2] - extent[3] == pytest.approx(1024)
+    # and the canvas frame is still the acquired scale, which overlays measure against
+    assert w.canvas.reference_pixel_size == pytest.approx(PIXEL_SIZE)

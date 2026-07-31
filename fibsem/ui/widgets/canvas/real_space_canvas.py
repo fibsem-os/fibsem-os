@@ -151,6 +151,7 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         key: Optional[str] = None,
         cmap: str = "gray",
         zorder: Optional[float] = None,
+        covers: Optional[Tuple[float, float]] = None,
     ) -> str:
         """Place *data* centred on *centre* (metres), at *pixel_size* metres/px.
 
@@ -162,6 +163,13 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         earlier one where they overlap. Pass *zorder* when that is the wrong answer —
         a coarse overview belongs *under* the detailed tiles acquired over it,
         regardless of which arrived first.
+
+        The ground an image covers is normally its shape times *pixel_size*. Pass
+        *covers* as ``(width, height)`` in metres when the array is a *reduced*
+        representation of something larger — a decimated preview, or a composite blended
+        at display resolution — so it is placed at the size it represents rather than
+        the size it is stored at. *pixel_size* then describes the source, and still
+        decides how this image sorts against others by detail.
         """
         data = np.asarray(data)
         _require_displayable(data)
@@ -181,7 +189,7 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         if existing is not None:
             self._remove_artist(existing)
 
-        extent = self._extent_for(data.shape, centre, pixel_size)
+        extent = self._extent_for(data.shape, centre, pixel_size, covers)
         shown = _downsample(data, self._display_max_px)
         kw = {} if zorder is None else {"zorder": zorder}
         artist = self._ax.imshow(
@@ -423,9 +431,19 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         shape: Tuple[int, ...],
         centre: Tuple[float, float],
         pixel_size: float,
+        covers: Optional[Tuple[float, float]] = None,
     ) -> Tuple[float, float, float, float]:
-        """Where an image of *shape* centred on *centre* (metres) lands, in canvas px."""
+        """Where an image of *shape* centred on *centre* (metres) lands, in canvas px.
+
+        *covers* overrides the ground derived from shape x pixel size, for an array that
+        is a reduced representation of something larger.
+        """
         ref = self._reference_pixel_size or pixel_size
+        if covers is not None:
+            half_w = covers[0] / ref / 2.0
+            half_h = covers[1] / ref / 2.0
+            cx, cy = centre[0] / ref, centre[1] / ref
+            return (cx - half_w, cx + half_w, cy + half_h, cy - half_h)
         height, width = shape[0], shape[1]
         scale = pixel_size / ref  # canvas pixels per image pixel
         half_w = width * scale / 2.0

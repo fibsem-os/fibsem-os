@@ -585,3 +585,24 @@ if __name__ == "__main__":
                 failed += 1
                 print(f"FAIL {name}: {e}")
     print("all passed" if not failed else f"{failed} failed")
+
+
+def test_covers_places_a_reduced_array_at_the_size_it_represents():
+    """An array can be a reduced stand-in for something larger — a decimated preview, or
+    a composite blended at display resolution. Inferring the ground from shape x pixel
+    size then places it at a fraction of its size."""
+    c = _canvas()
+    c.set_reference_pixel_size(PIXEL_SIZE)
+    reduced = _img(100, 100)  # stands in for a 1000x1000 acquisition
+    c.add_image(reduced, centre=(0.0, 0.0), pixel_size=PIXEL_SIZE,
+                covers=(1000 * PIXEL_SIZE, 1000 * PIXEL_SIZE))
+    xmin, xmax, ymax, ymin = c._content_extent()
+    assert xmax - xmin == pytest.approx(1000)
+    assert ymax - ymin == pytest.approx(1000)
+
+
+def test_without_covers_the_ground_still_comes_from_shape_and_pixel_size():
+    c = _canvas()
+    c.add_image(_img(100, 100), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE)
+    xmin, xmax, _, _ = c._content_extent()
+    assert xmax - xmin == pytest.approx(100)
