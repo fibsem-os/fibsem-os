@@ -8,6 +8,7 @@ from fibsem import utils
 from fibsem.cancellation import OperationCancelledError
 from fibsem.fm import acquisition
 from fibsem.fm.acquisition import (
+    FMTiledAcquisitionRunner,
     acquire_and_stitch_tileset,
     acquire_at_positions,
     acquire_channels,
@@ -1751,3 +1752,87 @@ def test_a_cancelled_sweep_does_not_start_the_next_pass(fm_microscope, monkeypat
         ).run()
 
     assert {d["pass_index"] for d in seen} == {1}, "the second pass must not start"
+
+
+# ── acquiring somewhere other than under the stage ───────────────────────
+#
+# The grid's centre and the position the run returns to used to be one value. They are
+# not the same thing: an overview can be planned over a neighbouring square while the
+# stage stays where it is, and the stage still has to come home afterwards.
+
+
+def _offset_from(position, dx, dy):
+    from copy import deepcopy
+
+    moved = deepcopy(position)
+    moved.x += dx
+    moved.y += dy
+    return moved
+
+
+def test_the_grid_is_laid_out_around_the_requested_centre(fm_microscope):
+    start = fm_microscope.get_stage_position()
+    centre = _offset_from(start, 400e-6, -250e-6)
+
+    runner = FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+        overview_parameters=OverviewParameters(rows=3, cols=3, overlap=0.1),
+        centre_position=centre,
+    )
+    runner.run()
+
+    middle = runner._tile_stage_positions[(1, 1)]
+    assert middle.x == pytest.approx(centre.x, abs=1e-12)
+    assert middle.y == pytest.approx(centre.y, abs=1e-12)
+
+
+def test_the_stage_still_returns_to_where_it_started(fm_microscope):
+    """The centre is where the grid goes, not a new home for the stage. Conflating the
+    two would leave the instrument somewhere the user never asked to be."""
+    start = fm_microscope.get_stage_position()
+
+    runner = FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+        overview_parameters=OverviewParameters(rows=2, cols=2, overlap=0.1),
+        centre_position=_offset_from(start, 400e-6, -250e-6),
+    )
+    runner.run()
+
+    ended = fm_microscope.get_stage_position()
+    assert ended.x == pytest.approx(start.x, abs=1e-9)
+    assert ended.y == pytest.approx(start.y, abs=1e-9)
+
+
+def test_the_mosaic_reports_the_requested_centre(fm_microscope):
+    """A mosaic acquired over there has to say it is over there, or every position
+    later read off it lands back where the stage happened to be."""
+    start = fm_microscope.get_stage_position()
+    centre = _offset_from(start, 400e-6, -250e-6)
+
+    mosaic = FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+        overview_parameters=OverviewParameters(rows=2, cols=2, overlap=0.1),
+        centre_position=centre,
+    ).run_and_stitch()
+
+    assert mosaic.metadata.stage_position.x == pytest.approx(centre.x, abs=1e-12)
+    assert mosaic.metadata.stage_position.y == pytest.approx(centre.y, abs=1e-12)
+
+
+def test_without_a_centre_the_run_uses_the_stage(fm_microscope):
+    """The default has to keep working: an overview is normally of what you are
+    looking at, and `centre_position` is resolved rather than left as None."""
+    start = fm_microscope.get_stage_position()
+
+    runner = FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+        overview_parameters=OverviewParameters(rows=1, cols=1, overlap=0.1),
+    )
+    runner.run()
+
+    assert runner.centre_position.x == pytest.approx(start.x, abs=1e-12)
+    assert runner.centre_position.y == pytest.approx(start.y, abs=1e-12)

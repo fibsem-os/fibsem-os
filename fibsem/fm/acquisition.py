@@ -443,6 +443,7 @@ class FMTiledAcquisitionRunner:
         autofocus_settings: Optional[AutoFocusSettings] = None,
         save_directory: Optional[str] = None,
         stop_event: Optional[threading.Event] = None,
+        centre_position: Optional[FibsemStagePosition] = None,
     ):
         self.microscope = microscope
         self.channel_settings = channel_settings
@@ -451,6 +452,12 @@ class FMTiledAcquisitionRunner:
         self.autofocus_settings = autofocus_settings
         self.save_directory = save_directory
         self.stop_event = stop_event
+        # Where the grid is centred. Distinct from where the run started: those were
+        # one value until an overview could be planned somewhere other than under the
+        # stage, and conflating them meant the stage was also restored to the target.
+        # Resolved to the starting position in `_setup` when not given, so it always
+        # names the actual centre once a run has begun.
+        self.centre_position = centre_position
 
         # Sized in _setup once the grid is known, and written by index. Every cell that
         # was not reached -- skipped by the mask, or not yet visited when a cancel came
@@ -492,14 +499,14 @@ class FMTiledAcquisitionRunner:
 
         The mosaic is an ordinary fluorescence image that happens to be large, and it
         reports where it is from what the run captured rather than from what the
-        stitcher can infer: the grid is centred on the starting stage position, and
-        every tile is taken at the starting objective position.
+        stitcher can infer: the grid is centred on `centre_position`, and every tile is
+        taken at the starting objective position.
         """
         self.run()
         return stitch_tileset(
             self.tileset,
             self.overview_parameters.overlap,
-            centre_position=self._initial_position,
+            centre_position=self.centre_position,
             objective_position=self._initial_objective_position,
         )
 
@@ -554,9 +561,13 @@ class FMTiledAcquisitionRunner:
             f"{n_enabled}/{self._rows * self._cols} tiles enabled"
         )
 
-        # Captured for the restore in _restore(), and as the grid's centre.
+        # Captured for the restore in _restore(). The grid's centre defaults to it --
+        # an overview is normally taken of what you are looking at -- but a caller can
+        # name somewhere else, and then the stage still comes back here afterwards.
         self._initial_position = microscope.get_stage_position()
         self._initial_objective_position = microscope.fm.objective.position
+        if self.centre_position is None:
+            self.centre_position = self._initial_position
 
         pixel_size_x, pixel_size_y = microscope.fm.camera.pixel_size
         self._image_width, self._image_height = microscope.fm.camera.resolution
@@ -656,8 +667,8 @@ class FMTiledAcquisitionRunner:
         if not self._ordered:
             raise ValueError("Tile mask disables every tile; nothing to acquire.")
 
-        # The grid measures from its top-left tile; shift so it is centred on where
-        # the stage already is. Same convention as TiledAcquisitionRunner.
+        # The grid measures from its top-left tile; shift so it straddles the centre.
+        # Same convention as TiledAcquisitionRunner.
         grid_offset_x = (self._cols - 1) * self._step_x / 2
         grid_offset_y = (self._rows - 1) * self._step_y / 2
 
@@ -665,7 +676,7 @@ class FMTiledAcquisitionRunner:
             (tile.row, tile.col): self.microscope.project_fm_stable_move(
                 dx=tile.dx - grid_offset_x,
                 dy=tile.dy + grid_offset_y,
-                base_position=self._initial_position,
+                base_position=self.centre_position,
             )
             for tile in self._grid
         }
