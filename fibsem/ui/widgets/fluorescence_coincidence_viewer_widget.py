@@ -1049,6 +1049,11 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 self._apply_fm_configuration(fm_config)
             if milling_config is not None and self.milling_viewer_widget is not None:
                 self.milling_viewer_widget.set_config(milling_config)
+                # Config → controls, the load direction. Without this the status bar
+                # keeps the previous supervision mode and drop threshold while the
+                # loaded config holds different ones, and the toggle would then push
+                # the stale values back over what was just loaded.
+                self._seed_controls_from_strategy()
         except Exception as e:
             logging.error(f"Failed to apply coincidence configuration: {e}")
             QMessageBox.warning(self, "Load Configuration", f"Failed to apply:\n{e}")
@@ -1779,14 +1784,17 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             strategy.intensity_stats_signal.connect(self._on_intensity_stats)
 
     def _seed_controls_from_strategy(self) -> None:
-        """Mirror the first active strategy's config into the status-bar controls.
+        """Mirror the first strategy's config into the status-bar controls.
 
-        Keeps ``strategy.config`` authoritative: the status bar reflects the value
-        set in the strategy section rather than overwriting it with its own default.
+        Config → controls happens on load; controls → config happens on edit
+        (:meth:`_coincidence_strategies`). Those are the only two directions, so this no
+        longer fights the operator: by the time a mill starts the config already holds
+        whatever the buttons show, and seeding is a no-op rather than a revert.
         """
-        if not self._active_strategies:
+        strategies = self._coincidence_strategies() or self._active_strategies
+        if not strategies:
             return
-        config = self._active_strategies[0].config
+        config = strategies[0].config
         self._supervised = bool(config.supervised)
         self._update_supervised_button()
         self.spin_drop_threshold.blockSignals(True)
@@ -1834,15 +1842,45 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if self._is_milling_active:
             self._set_border_state("supervised" if supervised else "automated")
 
+    def _coincidence_strategies(self) -> list:
+        """Every coincidence strategy on the stages a run would actually use.
+
+        Not ``self._active_strategies``: that is only populated by
+        ``_connect_coincidence_strategies``, which runs *inside* ``_run_milling``. Before
+        the first mill of a session it is empty, so every write through it was silently
+        discarded — and then ``_seed_controls_from_strategy`` seeded the button back from
+        the untouched config, reverting the operator's choice without a word (FIB-443).
+
+        The stage list widget holds the live ``FibsemMillingStage`` objects (``get_stages``
+        returns the rows' own stages, not copies), so writing to their strategies is what
+        makes a status-bar control stick.
+        """
+        from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
+
+        if self.milling_viewer_widget is None:
+            return []
+        try:
+            stages = (
+                self.milling_viewer_widget.config_widget.milling_stages_widget.get_stages()
+            )
+        except Exception:
+            logging.exception("Could not read milling stages for strategy update")
+            return []
+        return [
+            stage.strategy
+            for stage in stages
+            if isinstance(stage.strategy, CoincidenceMillingStrategy)
+        ]
+
     def _on_supervised_toggled(self, supervised: bool) -> None:
-        """Apply the supervision preference to any active strategies (live)."""
-        for strategy in self._active_strategies:
+        """Apply the supervision preference to the strategies a run will use."""
+        for strategy in self._coincidence_strategies():
             strategy.config.supervised = supervised
 
     def _on_drop_threshold_changed(self, pct: int) -> None:
-        """Apply the drop-fraction threshold to any active strategies (live)."""
+        """Apply the drop-fraction threshold to the strategies a run will use."""
         drop_fraction = pct / 100.0
-        for strategy in self._active_strategies:
+        for strategy in self._coincidence_strategies():
             strategy.config.intensity_drop_fraction = drop_fraction
 
     def _toggle_fm_acquisition(self):

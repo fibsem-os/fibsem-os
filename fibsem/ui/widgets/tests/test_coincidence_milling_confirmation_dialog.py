@@ -218,6 +218,104 @@ def test_run_milling_uses_this_dialog():
     assert "pformat" not in source, "raw config dump is back"
 
 
+# --- FIB-443: the toggle must survive to the run ------------------------------
+
+
+class _FakeStageList:
+    """Stands in for MillingStageListWidget: holds the live stage objects that
+    `get_stages()` hands out by reference, which is what makes a write stick."""
+
+    def __init__(self, stages):
+        self._stages = stages
+
+    def get_stages(self):
+        return self._stages
+
+
+class _FakeConfigWidget:
+    def __init__(self, stages):
+        self.milling_stages_widget = _FakeStageList(stages)
+
+
+class _FakeMillingWidget:
+    def __init__(self, stages):
+        self.config_widget = _FakeConfigWidget(stages)
+
+
+def _viewer_with(stages):
+    """A bare viewer instance with just the attributes these methods touch —
+    constructing the real widget needs a microscope and an experiment."""
+    from fibsem.ui.widgets.fluorescence_coincidence_viewer_widget import (
+        FluorescenceCoincidenceViewerWidget as Viewer,
+    )
+
+    viewer = Viewer.__new__(Viewer)
+    viewer.milling_viewer_widget = _FakeMillingWidget(stages)
+    viewer._active_strategies = []  # as it is before the first mill of a session
+    return viewer
+
+
+def test_supervision_toggle_reaches_the_run_before_the_first_mill():
+    """The operator sequence from FIB-443: toggle to automated, then start milling.
+
+    _active_strategies is empty until _connect_coincidence_strategies runs inside
+    _run_milling, so a toggle that only wrote through it was discarded — and the
+    failure was in the unsafe direction, since supervised is the mode where the drop
+    trigger stops nothing.
+    """
+    from fibsem.ui.widgets.fluorescence_coincidence_viewer_widget import (
+        FluorescenceCoincidenceViewerWidget as Viewer,
+    )
+
+    stages = [_stage("Rough", 1e-9, supervised=True), _stage("Polish", 60e-12, supervised=True)]
+    viewer = _viewer_with(stages)
+
+    Viewer._on_supervised_toggled(viewer, False)
+
+    assert [s.strategy.config.supervised for s in stages] == [False, False], (
+        "toggle did not reach the strategies a run would use"
+    )
+
+
+def test_drop_threshold_reaches_the_run_before_the_first_mill():
+    """Same root cause, same fix — the sibling control was equally inert."""
+    from fibsem.ui.widgets.fluorescence_coincidence_viewer_widget import (
+        FluorescenceCoincidenceViewerWidget as Viewer,
+    )
+
+    stages = [_stage("Polish", 60e-12, intensity_drop_fraction=0.20)]
+    viewer = _viewer_with(stages)
+
+    Viewer._on_drop_threshold_changed(viewer, 35)
+
+    assert stages[0].strategy.config.intensity_drop_fraction == 0.35
+
+
+def test_seeding_no_longer_reverts_a_toggle():
+    """_seed_controls_from_strategy runs when a mill starts. It must now read back what
+    the button already wrote, not the stale config value that used to overwrite it."""
+    from fibsem.ui.widgets.fluorescence_coincidence_viewer_widget import (
+        FluorescenceCoincidenceViewerWidget as Viewer,
+    )
+
+    stages = [_stage("Polish", 60e-12, supervised=True)]
+    viewer = _viewer_with(stages)
+    Viewer._on_supervised_toggled(viewer, False)
+
+    # stand in for the button/spinbox the real seed would drive
+    viewer._supervised = False
+    viewer._update_supervised_button = lambda: None
+
+    class _Spin:
+        def blockSignals(self, _): pass
+        def setValue(self, _): pass
+
+    viewer.spin_drop_threshold = _Spin()
+    Viewer._seed_controls_from_strategy(viewer)
+
+    assert viewer._supervised is False, "seeding reverted the operator's toggle"
+
+
 def _main() -> int:
     failures = 0
     for name, fn in sorted(globals().items()):
