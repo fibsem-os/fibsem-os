@@ -375,12 +375,26 @@ class TaskManager:
                      error_message: Optional[str] = None,
                      task_duration: Optional[float] = None,
                      skip_reason: Optional[str] = None) -> None:
-        """Emit workflow_update_signal with standard status dict."""
+        """Emit workflow_update_signal with the standard status dict.
+
+        This stream and the hook stream describe the same lifecycle from two different
+        brackets — the manager brackets the task *call*, the task brackets its own
+        *execution* — and they are deliberately not merged. Hooks run user-configurable
+        code synchronously on the worker thread and HookManager.fire swallows what it
+        raises; the UI needs neither of those properties. See FIB-464.
+
+        What the two must agree on is vocabulary: the item is item_name here as it is in
+        HookContext. The matrix fields below have no hook counterpart and stay — they are
+        timeline positioning, not lifecycle facts.
+        """
         if self.parent_ui is None:
             return
 
         status_dict = {
             "task_name": task_name,
+            "item_name": lamella.name,
+            # Deprecated alias for item_name, kept for consumers outside this repo.
+            # Drop alongside the HookContext shims after v0.6.
             "lamella_name": lamella.name,
             "status": status,
             "timestamp": time.time(),
