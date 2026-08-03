@@ -132,6 +132,31 @@ def test_notification_hook_unknown_placeholder_does_not_drop_message():
     assert received == ["MillTrench on {itemname}"]
 
 
+def test_notification_hook_renders_skip_reason():
+    received = []
+    hook = NotificationHook(
+        name="skip",
+        events=[HookEvent.TASK_SKIPPED],
+        message_template="Skipped {task_name} on {item_name}: {skip_reason}",
+        _notify=lambda msg, typ: received.append(msg),
+    )
+    hook.run(_ctx(event=HookEvent.TASK_SKIPPED, skip_reason="missing_prereqs"))
+    assert received == ["Skipped MillTrench on Lamella-1: missing_prereqs"]
+
+
+def test_skip_reason_renders_empty_when_absent():
+    """Every other event leaves skip_reason unset; the placeholder must not print None."""
+    received = []
+    hook = NotificationHook(
+        name="skip",
+        events=[HookEvent.TASK_COMPLETED],
+        message_template="{task_name}[{skip_reason}]",
+        _notify=lambda msg, typ: received.append(msg),
+    )
+    hook.run(_ctx())
+    assert received == ["MillTrench[]"]
+
+
 def test_hook_context_lamella_name_alias_is_deprecated():
     ctx = _ctx(item_name="Lamella-7")
     with pytest.deprecated_call():

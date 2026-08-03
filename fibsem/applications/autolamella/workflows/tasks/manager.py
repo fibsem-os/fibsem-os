@@ -87,7 +87,13 @@ class TaskManager:
 
             lamella = self.experiment.get_lamella_by_name(item.lamella_name)
             if lamella is None:
+                # No lamella to build a status dict from, so this used to leave no trace
+                # anywhere — not in the log, the UI, or a hook.
+                logging.warning(
+                    f"Skipping {item.task_name}: no lamella named {item.lamella_name} in the experiment."
+                )
                 self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
+                self._fire_skipped_hook(item.task_name, item.lamella_name, "lamella_not_found")
                 continue
 
             task_names = self.queue.task_names
@@ -105,6 +111,11 @@ class TaskManager:
                     status=AutoLamellaTaskStatus.Skipped,
                     msg=msg,
                     skip_reason=skip_reason,
+                )
+                task_config = lamella.task_config.get(item.task_name)
+                self._fire_skipped_hook(
+                    item.task_name, lamella.name, skip_reason,
+                    task_type=task_config.task_type if task_config else "",
                 )
                 continue
 
@@ -152,8 +163,14 @@ class TaskManager:
         if self.microscope.fm is not None and self.microscope.fm.objective.state == "Inserted":
             self.microscope.fm.objective.retract()
 
-        self._fire_workflow_hook(HookEvent.WORKFLOW_COMPLETED)
-        update_status_ui(self.parent_ui, "", workflow_info="All tasks completed.")
+        # The loop exits when the queue drains *or* when the user presses Stop. Reporting
+        # completion for both is what made an abort look like a finished workflow.
+        if self.is_stopped:
+            self._fire_workflow_hook(HookEvent.WORKFLOW_CANCELLED)
+            update_status_ui(self.parent_ui, "", workflow_info="Workflow cancelled.")
+        else:
+            self._fire_workflow_hook(HookEvent.WORKFLOW_COMPLETED)
+            update_status_ui(self.parent_ui, "", workflow_info="All tasks completed.")
         print(self.experiment.task_history_dataframe())
 
     def build_run_summary_dataframe(self) -> pd.DataFrame:
@@ -195,6 +212,20 @@ class TaskManager:
 
     def _fire_workflow_hook(self, event: HookEvent) -> None:
         fire_event(self.hook_manager, event)
+
+    def _fire_skipped_hook(self, task_name: str, item_name: str,
+                           skip_reason: str, task_type: str = "") -> None:
+        """Fire TASK_SKIPPED. Unlike the other task events this cannot come from
+        AutoLamellaTask, because the skip is decided before any task object exists —
+        so there is no task_state to attach."""
+        fire_event(
+            self.hook_manager,
+            HookEvent.TASK_SKIPPED,
+            task_name=task_name,
+            task_type=task_type,
+            item_name=item_name,
+            skip_reason=skip_reason,
+        )
 
     # --- Internal helpers ---
 
