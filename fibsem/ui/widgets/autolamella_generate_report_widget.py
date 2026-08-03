@@ -300,7 +300,10 @@ class AutoLamellaGenerateReportWidget(QtWidgets.QDialog):
             "task_history": self.checkbox_task_history.isChecked(),
             "detection": self.checkbox_detection.isChecked(),
             "lamella_workflow": self.checkbox_lamella_workflow.isChecked(),
-            "lamella_images": self.checkbox_lamella_images.isChecked(),
+            # Must match generate_report2's key exactly -- see REPORT_SECTIONS.
+            # This was "lamella_images", which silently never matched, so the
+            # default True always won and unchecking the box did nothing. FIB-458.
+            "lamella_workflow_images": self.checkbox_lamella_images.isChecked(),
             "lamella_milling": self.checkbox_lamella_milling.isChecked(),
         }
 
