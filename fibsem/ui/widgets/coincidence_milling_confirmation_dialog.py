@@ -121,6 +121,22 @@ class CoincidenceMillingConfirmationDialog(QDialog):
                 return config
         return None
 
+    def _current_chip_text(self) -> Optional[str]:
+        """`1.0 nA`, or `60 pA – 1.0 nA` when the stages differ.
+
+        A range rather than a single figure: a task that steps down from rough to
+        polish is the normal case, and showing only the first stage's current would
+        misreport the one number an operator is most likely to be checking for.
+        """
+        currents = sorted(
+            {stage.milling.milling_current for stage in self.task_config.enabled_stages}
+        )
+        if not currents:
+            return None
+        if len(currents) == 1:
+            return _format_current(currents[0])
+        return f"{_format_current(currents[0])} – {_format_current(currents[-1])}"
+
     def _meta_line(self) -> str:
         stages = self.task_config.enabled_stages
         bits = [self.lamella_name, f"{len(stages)} stage{'s' if len(stages) != 1 else ''}"]
@@ -157,12 +173,18 @@ class CoincidenceMillingConfirmationDialog(QDialog):
         if config is not None:
             # The trigger is three settings that only mean anything together, so they
             # read as one sentence rather than three rows the user has to assemble.
-            detail.append((
-                "Drop trigger",
+            trigger = (
                 f"{config.intensity_drop_fraction:.0%} drop"
                 f" · {config.rolling_window}-frame window"
-                f" · {config.consecutive_triggers} consecutive",
-            ))
+                f" · {config.consecutive_triggers} consecutive"
+            )
+            if config.supervised:
+                # The strategy only acts on _drop_detected when NOT supervised, so in
+                # supervised mode these thresholds still drive the readout but stop
+                # nothing. Saying so here beats letting the operator infer that the
+                # mill will halt itself when it will not.
+                trigger += "  → monitoring only; you stop the mill"
+            detail.append(("Drop trigger", trigger))
             detail.append((
                 "Monitoring",
                 f"starts after {format_duration(config.warmup_duration)} warmup"
@@ -170,9 +192,9 @@ class CoincidenceMillingConfirmationDialog(QDialog):
             ))
             detail.append((
                 "Mode",
-                "supervised — pauses for confirmation"
+                "supervised — you stop the mill manually"
                 if config.supervised
-                else "unattended — runs to completion",
+                else "automated — stops itself on the drop trigger",
             ))
             saved = (
                 f"saved (every {config.save_rate_limit} frames)"
@@ -196,11 +218,25 @@ class CoincidenceMillingConfirmationDialog(QDialog):
         meta.setStyleSheet(f"color: {TEXT_STRONG}; font-size: 12px;")
         meta.setWordWrap(True)
 
+        # Counts first, then the two facts worth reading before anything else: what
+        # current is going into the sample, and whether it will stop for you. The FM
+        # dialog uses chips only for counts; these are states, but `_chip` carries no
+        # colour, so a state here reads as a fact rather than as a status light.
         chips = QHBoxLayout()
         chips.setSpacing(6)
         chips.addWidget(_chip(f"{enabled} to mill"))
         if enabled != total:
             chips.addWidget(_chip(f"{total - enabled} disabled"))
+        current_text = self._current_chip_text()
+        if current_text:
+            chips.addWidget(_chip(current_text))
+        config = self._strategy_config()
+        if config is not None:
+            # "Automated", not "Unattended" or "Unsupervised": that is what the
+            # supervision toggle a few pixels away already says (_update_supervised_button),
+            # and what the border state is called. A third word for one mode is worse
+            # than an imperfect one.
+            chips.addWidget(_chip("Supervised" if config.supervised else "Automated"))
         chips.addStretch()
 
         detail = QFrame()
