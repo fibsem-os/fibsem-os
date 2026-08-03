@@ -686,7 +686,12 @@ class FMOverviewWidget(QWidget):
         if self._origin is None or position is None or projection is None:
             return (0.0, 0.0)
         try:
-            return projection.to_plane(position, self._origin)
+            # The image's own *geometry*, but the shared *pose* -- the same base
+            # `_frame` places everything else against. Two different bases put the
+            # image and the grid describing it in different places: a stale t = 0
+            # origin against a stage at t = -180 landed them 300 um apart, mirrored
+            # in y, which is a mosaic that disagrees with the grid that planned it.
+            return projection.to_plane(position, self._posed(self._origin))
         except Exception as e:
             logging.debug(f"Could not place the image in stage space: {e}")
             return (0.0, 0.0)

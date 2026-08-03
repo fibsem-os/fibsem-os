@@ -2338,3 +2338,69 @@ def test_the_anchor_itself_does_not_move_with_the_pose(qapp):
 
     assert (widget.origin.x, widget.origin.y, widget.origin.z) == pytest.approx(anchor)
     widget.close()
+
+
+def test_an_acquired_image_lands_where_the_grid_that_planned_it_is_drawn(qapp):
+    """The invariant that ties the two halves together.
+
+    Images are placed through their own recorded geometry and the grid through the live
+    one, which is right — an image may have been taken under a configuration the
+    instrument has since left. But both must measure from the *same* base. Placing
+    images against the raw origin while the grid used the current pose put a mosaic
+    300 µm from the grid that planned it, mirrored in y.
+    """
+    import numpy as np
+
+    from fibsem.fm.structures import ChannelSettings
+    from fibsem.structures import FibsemStagePosition
+
+    microscope = _microscope_at(0.0)
+    widget = FMOverviewWidget(microscope)
+    widget._refresh_tile_grid()  # origin fixed at t = 0
+    qapp.processEvents()
+
+    microscope.move_to_microscope("FM")
+    microscope.move_stage_absolute(
+        FibsemStagePosition(x=200e-6, y=150e-6, z=0.0, r=0.0, t=np.deg2rad(-180))
+    )
+    widget._on_stage_moved(microscope.get_stage_position())
+    qapp.processEvents()
+
+    image = microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
+    image.metadata.stage_position = microscope.get_stage_position()
+
+    assert widget._offset_of(image) == pytest.approx(widget._grid_offset(), abs=1e-12)
+
+    widget.close()
+
+
+def test_the_placement_of_an_image_matches_a_widget_that_never_moved(qapp):
+    """Same equivalence as the click test, for placement: whatever the tab's history,
+    an image belongs in one place."""
+    import numpy as np
+
+    from fibsem.fm.structures import ChannelSettings
+    from fibsem.structures import FibsemStagePosition
+
+    somewhere = FibsemStagePosition(
+        x=200e-6, y=150e-6, z=0.0, r=0.0, t=np.deg2rad(-180)
+    )
+
+    stale_microscope = _microscope_at(0.0)
+    stale = FMOverviewWidget(stale_microscope)
+    stale._refresh_tile_grid()
+    stale_microscope.move_to_microscope("FM")
+    stale._on_stage_moved(stale_microscope.get_stage_position())
+
+    fresh_microscope = _microscope_at(-180.0)
+    fresh = FMOverviewWidget(fresh_microscope)
+    fresh._refresh_tile_grid()
+    qapp.processEvents()
+
+    image = fresh_microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
+    image.metadata.stage_position = somewhere
+
+    assert stale._offset_of(image) == pytest.approx(fresh._offset_of(image), abs=1e-12)
+
+    stale.close()
+    fresh.close()
