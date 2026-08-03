@@ -266,16 +266,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             lambda checked: self._on_toggle_viewer_layer_controls(checked, "overview")
         )
 
-        self.action_layer_controls_lamella = QAction("Lamella Editor", self)
-        self.action_layer_controls_lamella.setCheckable(True)
-        self.action_layer_controls_lamella.setChecked(False)
-        self.action_layer_controls_lamella.triggered.connect(
-            lambda checked: self._on_toggle_viewer_layer_controls(checked, "lamella")
-        )
-
+        # No "Lamella Editor" entry: that tab renders on the matplotlib canvas now and
+        # has no napari layer docks to show. The submenu goes entirely once the last
+        # napari viewer does.
         layer_controls_menu.addAction(self.action_layer_controls_microscope)
         layer_controls_menu.addAction(self.action_layer_controls_overview)
-        layer_controls_menu.addAction(self.action_layer_controls_lamella)
 
         view_menu.addAction(self.action_show_minimap)
 
@@ -629,11 +624,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.minimap_plot_dock.activateWindow()
 
     def _on_toggle_viewer_layer_controls(self, checked: bool, viewer_key: str):
-        """Toggle the layer list and layer controls for a specific viewer."""
+        """Toggle the layer list and layer controls for a specific viewer.
+
+        getattr, not attribute access: tabs move off napari one at a time, so a tab that
+        has already migrated never sets its viewer attribute. A dict literal would
+        dereference all three eagerly and raise AttributeError for *every* entry, not
+        just the migrated one — and an exception escaping a Qt slot aborts the process
+        under PyQt5 (FIB-329).
+        """
         viewer_map = {
-            "microscope": self.main_viewer,
-            "overview": self.minimap_viewer,
-            "lamella": self.lamella_viewer,
+            "microscope": getattr(self, "main_viewer", None),
+            "overview": getattr(self, "minimap_viewer", None),
         }
         viewer = viewer_map.get(viewer_key)
         if viewer is not None:
@@ -1307,16 +1308,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Review tab
         self.lamella_task_image_widget = LamellaTaskImageWidget()
 
-        # Protocol tab: napari viewer (left) + editor (right)
-        self.lamella_viewer = napari.Viewer(show=False, title="Lamella Editor")
-        self.lamella_viewer.window._qt_window.menuBar().hide()
-        self.lamella_viewer.window._qt_window.statusBar().hide()
-        self.lamella_viewer.window._qt_viewer.dockLayerList.setVisible(False)
-        self.lamella_viewer.window._qt_viewer.dockLayerControls.setVisible(False)
-        self.viewers.append(self.lamella_viewer)
-
+        # Protocol tab: matplotlib canvas (left) + editor (right). The editor owns its
+        # own controller, built eagerly so the splitter can embed the canvas before a
+        # microscope connects.
         self.lamella_widget = AutoLamellaProtocolEditorWidget(
-            viewer=self.lamella_viewer,
             parent=self.autolamella_ui,
         )
         self.autolamella_ui.system_widget.connected_signal.connect(
@@ -1326,7 +1321,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         protocol_splitter = QSplitter(Qt.Horizontal)
         protocol_splitter.setChildrenCollapsible(False)
-        protocol_splitter.addWidget(self.lamella_viewer.window._qt_window)
+        protocol_splitter.addWidget(self.lamella_widget.view_controller.widget)
         scroll_area = QScrollArea()
         scroll_area.setWidget(self.lamella_widget)
         scroll_area.setWidgetResizable(True)
