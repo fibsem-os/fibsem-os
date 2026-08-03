@@ -406,13 +406,28 @@ class FMOverviewWidget(QWidget):
         self.tile_grid_panel.set_summary(summary)
 
     def _target_offset(self) -> Optional[Tuple[float, float]]:
-        """How far the target sits from the stage, in metres, or None if not set."""
+        """How far the target sits from the stage, in metres, or None if not set.
+
+        Measured in the displayed plane, not by subtracting stage axes. Everything on
+        this canvas is drawn in that plane, so a readout in stage coordinates describes
+        the same gap in a frame the user cannot see: on a compustage at t = -180 it
+        reports the y offset with the sign reversed, and on a pre-tilted mount it hides
+        the z entirely -- a 100 µm step down the screen carried 70 µm of z and the
+        readout said nothing.
+        """
         if self._target is None:
             return None
+        frame = self._frame()
         position = self._current_stage_position()
-        if position is None:
+        if frame is None or position is None:
             return None
-        return (self._target.x - position.x, self._target.y - position.y)
+        try:
+            here = frame.offset(position)
+            there = frame.offset(self._target)
+        except Exception as e:
+            logging.debug(f"Could not measure the target offset: {e}")
+            return None
+        return (there[0] - here[0], there[1] - here[1])
 
     def _refresh_tile_grid(self) -> None:
         """Redraw the planned grid on the canvas.

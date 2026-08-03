@@ -1252,3 +1252,24 @@ def test_the_cursor_readout_names_the_position_under_it(qapp, interactive_widget
 
     widget._on_cursor_moved(None, None)
     assert widget.cursor_readout.text() == "", "the readout must not freeze off-canvas"
+
+
+def test_the_reported_offset_is_measured_in_the_frame_it_is_drawn_in(qapp, interactive_widget):
+    """Subtracting stage axes describes the same gap in a frame the user cannot see: on
+    a compustage at t = -180 it reports y with the sign reversed, so the panel said the
+    grid was above the stage while it was drawn below."""
+    widget = interactive_widget
+    frame = widget._frame()
+    anchor = widget.tile_grid_overlay._anchor()
+
+    widget._on_grid_move(anchor[0] + 1000.0, anchor[1] + 1000.0)
+    qapp.processEvents()
+
+    here = frame.offset(widget._current_stage_position())
+    there = frame.offset(widget._target)
+    assert widget._target_offset() == pytest.approx(
+        (there[0] - here[0], there[1] - here[1])
+    )
+    # and the sign follows the canvas: dragging down the screen reads as +y
+    assert widget._target_offset()[1] > 0
+
