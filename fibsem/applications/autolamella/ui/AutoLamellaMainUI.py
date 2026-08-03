@@ -1543,24 +1543,21 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
             task_name = status_msg.get("task_name", "Unknown Task")
             lamella_name = status_msg.get("item_name", "Unknown Lamella")
-            current_lamella_index = status_msg.get("current_lamella_index", None)
-            total_lamellae = status_msg.get("total_lamellas", None)
-            current_task_index = status_msg.get("current_task_index", None)
-            total_tasks = status_msg.get("total_tasks", None)
+            queue_position = status_msg.get("queue_position", None)
+            queue_total = status_msg.get("queue_total", None)
             error_msg = status_msg.get("error_message", None)
             timestamp = status_msg.get("timestamp", None)
             task_duration = status_msg.get("task_duration", None)
             msg = info.get("msg", "No message")
             status = status_msg.get("status", "info")
 
+            # Position in the live queue, not the launch matrix — stays correct
+            # when the queue is added to or reordered mid-run.
             txt = f"Workflow: {task_name} | {lamella_name}"
-            if current_task_index is not None and total_tasks is not None:
-                txt += f" | Task {current_task_index + 1}/{total_tasks}"
-            if current_lamella_index is not None and total_lamellae is not None:
-                txt += f" ({current_lamella_index + 1}/{total_lamellae})"
+            if queue_position is not None and queue_total is not None:
+                txt += f" | {queue_position}/{queue_total}"
 
-            if current_lamella_index is not None and total_lamellae is not None:
-                self.set_workflow_running(txt)
+            self.set_workflow_running(txt)
             timings["set_workflow_running"] = time.time() - t1
             t1 = time.time()
 

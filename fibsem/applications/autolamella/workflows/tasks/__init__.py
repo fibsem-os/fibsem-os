@@ -59,6 +59,8 @@ from fibsem.applications.autolamella.workflows.tasks.manager import (
     TaskManager,
 )
 from fibsem.applications.autolamella.workflows.tasks.queue import (
+    QueueOp,
+    QueueResult,
     TaskQueue,
     WorkItem,
 )

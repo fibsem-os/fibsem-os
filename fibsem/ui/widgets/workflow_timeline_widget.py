@@ -58,6 +58,9 @@ def _queue_status_to_step_status(s) -> "StepStatus":
         AutoLamellaTaskStatus.Failed:     StepStatus.FAILED,
         AutoLamellaTaskStatus.Skipped:    StepStatus.SKIPPED,
         AutoLamellaTaskStatus.Cancelled:  StepStatus.CANCELLED,
+        # Removed reuses the skipped look (grey, struck through) for now; it gets
+        # its own treatment when the timeline becomes queue-editable.
+        AutoLamellaTaskStatus.Removed:    StepStatus.SKIPPED,
     }.get(s, StepStatus.PENDING)  # unknown status must never crash the timeline
 
 
@@ -545,8 +548,11 @@ class WorkflowProgressWidget(QWidget):
         if total == 0:
             self._header.setText("Workflow")
             return
+        # Removed counts as resolved — otherwise the counter can never reach the
+        # total once a user pulls an item from the queue.
         done = sum(1 for i in queue_items if i.status in (
-            AutoLamellaTaskStatus.Completed, AutoLamellaTaskStatus.Skipped))
+            AutoLamellaTaskStatus.Completed, AutoLamellaTaskStatus.Skipped,
+            AutoLamellaTaskStatus.Removed))
         failed = sum(1 for i in queue_items if i.status == AutoLamellaTaskStatus.Failed)
         text = f"Workflow — {done}/{total}"
         if failed:
