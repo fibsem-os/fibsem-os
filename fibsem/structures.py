@@ -1874,9 +1874,20 @@ class FibsemUser:
 
     @staticmethod
     def from_environment() -> "FibsemUser":
+        import getpass
         import platform
         import socket
-        username = os.environ.get("USERNAME", "username")
+
+        # getpass covers every platform: USERNAME is Windows-only, so reading it
+        # directly meant Linux and macOS fell through to the literal string
+        # "username" -- wrong rather than absent, and silently so. That affects
+        # Odemis/METEOR sites, which run on Linux. See FIB-447.
+        try:
+            username = getpass.getuser()
+        except Exception:
+            # getpass raises if it cannot resolve a name (no passwd entry, no
+            # environment). Nothing here is worth failing an acquisition over.
+            username = "unknown"
 
         if platform.system() == "Windows":
             hostname = os.environ.get("COMPUTERNAME", "hostname")
@@ -1929,7 +1940,11 @@ class FibsemImageMetadata:
             settings_dict["pixel_size"] = self.pixel_size.to_dict()
         if self.microscope_state is not None:
             settings_dict["microscope_state"] = self.microscope_state.to_dict()
-            settings_dict["user"] = self.user.to_dict()
+        # Not nested under the microscope_state guard: who acquired an image is
+        # unrelated to whether the instrument's state was captured, and nesting it
+        # dropped the user silently -- from_dict defaults it back, so a reload
+        # produced a plausible empty FibsemUser rather than an error. See FIB-486.
+        settings_dict["user"] = self.user.to_dict()
         settings_dict["experiment"] = self.experiment.to_dict()
         settings_dict["system"] = self.system.to_dict() if self.system is not None else {}
 
