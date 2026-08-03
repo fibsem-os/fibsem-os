@@ -727,11 +727,14 @@ class Lamella:
     description: str = ""  # free-text note about the lamella
 
     def __post_init__(self):
-        # only make the dir, if the base path is actually set,
-        # prevents creating path on other computer..
-        if os.path.exists(os.path.dirname(self.path)):
-            os.makedirs(self.path, exist_ok=True)
-
+        # Deliberately does not create ``path``. Constructing a Lamella is not a
+        # request to write to disk, and on the load path this runs from
+        # ``from_dict`` with the as-created path out of the yaml -- before
+        # ``Experiment.load`` calls ``relocate``. Creating the directory here
+        # therefore wrote into whatever machine the experiment came from, at a
+        # path the caller never named. Directories are created where a lamella is
+        # actually created (``Experiment.add_new_lamella``) and where files are
+        # actually written (``FibsemImage.save``, ``save_thumbnail``). See FIB-420.
         if self._id is None:
             self._id = str(uuid.uuid4())
         self.task_state.lamella_id = self._id
@@ -953,6 +956,9 @@ class Lamella:
         data = image.filtered_data
         if data.ndim == 2:
             data = np.stack([data, data, data], axis=2)
+        # writes directly rather than through FibsemImage.save, so it makes its
+        # own directory -- construction no longer does (FIB-420).
+        os.makedirs(self.path, exist_ok=True)
         Image.fromarray(data.astype(np.uint8)).save(os.path.join(self.path, "thumbnail.png"))
 
     # def get_task_config_by_type(self, task_type: Type['AutoLamellaTaskConfig']) -> Dict[str, AutoLamellaTaskConfig]:

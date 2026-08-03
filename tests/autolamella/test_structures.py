@@ -460,3 +460,63 @@ def test_milling_imaging_paths_follow_a_copied_experiment(tmp_path):
     for path in imaging_paths:
         assert Path(path) == Path(lamella.path)
         assert str(src) not in str(path)
+
+
+# ── Reading an experiment does not write to disk (FIB-420) ───────────────────
+
+def test_loading_a_copy_creates_nothing_at_the_original_path(tmp_path):
+    """Loading an experiment must not write to the filesystem.
+
+    __post_init__ used to makedirs(path). On the load path it runs from
+    from_dict with the as-created path out of the yaml -- *before*
+    Experiment.load calls relocate -- so loading a copy recreated the lamella
+    directories under the original experiment, at a path the caller never named.
+
+    The two tests above rmtree the source, so between them they only cover the
+    case where the original is already gone. This is the case FIB-367's own
+    docstring calls the dangerous one: the original still exists locally.
+    """
+    import shutil
+
+    src = tmp_path / "src"
+    exp = _experiment_on_disk(src)
+    original = Path(exp.positions[0].path)
+
+    dst = tmp_path / "dst"
+    shutil.copytree(exp.path, dst / "exp")
+    shutil.rmtree(original)  # the lamella directory goes; its parent stays
+
+    Experiment.load(str(dst / "exp" / "experiment.yaml"))
+
+    assert not original.exists(), f"loading a copy recreated {original}"
+
+
+def test_constructing_a_lamella_does_not_create_its_directory(tmp_path):
+    """The same rule stated narrowly, independent of Experiment.load."""
+    path = tmp_path / "lam"
+
+    Lamella(path=path, number=1, petname="lam")
+
+    assert not path.exists()
+
+
+def test_add_new_lamella_creates_the_lamella_directory(tmp_path):
+    """Creation still makes the directory -- tasks write reference images
+    straight into it, so the creating site owns that, not __post_init__."""
+    exp = _experiment_on_disk(tmp_path / "root")
+
+    assert Path(exp.positions[0].path).is_dir()
+
+
+def test_save_thumbnail_creates_the_lamella_directory(tmp_path):
+    """save_thumbnail writes directly rather than through FibsemImage.save, so it
+    makes its own directory now that construction does not."""
+    import numpy as np
+
+    from fibsem.structures import FibsemImage
+
+    lamella = Lamella(path=tmp_path / "lam", number=1, petname="lam")
+
+    lamella.save_thumbnail(FibsemImage(data=np.zeros((8, 8), dtype=np.uint8)))
+
+    assert (Path(lamella.path) / "thumbnail.png").is_file()
