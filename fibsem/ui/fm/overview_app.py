@@ -5,6 +5,7 @@ overview UI can be exercised without launching AutoLamella.
 
     python -m fibsem.ui.fm.overview_app                 # Demo, compustage at t = -180
     python -m fibsem.ui.fm.overview_app --manufacturer Thermo --ip 10.0.0.1
+    python -m fibsem.ui.fm.overview_app --output ~/fm-overviews    # and save them
 
 The default puts the simulator in the Arctis fluorescence pose -- compustage, no
 pre-tilt, stage tilted to -180 degrees -- because that is the geometry the tile
@@ -13,6 +14,7 @@ projection is built around and the one worth exercising.
 
 import argparse
 import logging
+import os
 import sys
 from typing import Optional
 
@@ -66,6 +68,10 @@ def main(argv: Optional[list] = None) -> int:
                         help="Stage tilt in degrees for the Demo pose (default: -180)")
     parser.add_argument("--no-compustage", action="store_false", dest="compustage",
                         help="Pose the Demo microscope as an offset FM mount instead")
+    parser.add_argument("--output", default=None, metavar="DIR",
+                        help="Write acquired overviews under DIR. Each run gets its own "
+                             "subdirectory of tiles, with the stitched mosaic beside it. "
+                             "Omitted, overviews are shown but not saved.")
     args = parser.parse_args(argv)
 
     from PyQt5.QtWidgets import QApplication, QMainWindow
@@ -93,7 +99,15 @@ def main(argv: Optional[list] = None) -> int:
         f"{' · compustage' if microscope.stage_is_compustage else ''}"
         f" · t = {np.rad2deg(microscope.get_stage_position().t):.0f}°"
     )
-    window.setCentralWidget(FMOverviewWidget(microscope))
+    widget = FMOverviewWidget(microscope)
+    # Opt-in rather than defaulted to the working directory: this app is mostly run
+    # against a simulator to exercise the UI, and those runs should not leave tiles
+    # behind wherever it happened to be launched from.
+    if args.output:
+        os.makedirs(args.output, exist_ok=True)
+        widget.set_save_directory(args.output)
+        logging.info(f"Overviews will be saved under {args.output}")
+    window.setCentralWidget(widget)
     window.resize(1500, 900)
     window.show()
     return app.exec_()

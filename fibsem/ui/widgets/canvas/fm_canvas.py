@@ -578,9 +578,10 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         self._placement = (float(centre[0]), float(centre[1]))
 
     def set_world_extent(self, width: Optional[float], height: Optional[float] = None,
-                         centre: Tuple[float, float] = (0.0, 0.0)) -> None:
+                         centre: Tuple[float, float] = (0.0, 0.0),
+                         refit: bool = True) -> None:
         """Declare the working area the canvas represents — see the canvas method."""
-        self.canvas.set_world_extent(width, height, centre)
+        self.canvas.set_world_extent(width, height, centre, refit)
 
     # ── display ───────────────────────────────────────────────────────────
 

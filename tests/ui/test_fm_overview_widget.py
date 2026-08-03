@@ -34,6 +34,21 @@ from fibsem.ui.widgets.custom_widgets import ValueComboBox
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 
 
+@pytest.fixture(autouse=True)
+def _restore_fm_overview_flag():
+    """`FEATURE_FM_OVERVIEW_TAB_ENABLED` is a module global that several tests here set.
+
+    Restored around every test rather than by whoever set it: the flag has to stay on
+    for the whole of a test that uses the tab, not just while the tab is built, so the
+    setter cannot also be the restorer.
+    """
+    import fibsem.config as fibsem_cfg
+
+    previous = fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED
+    yield
+    fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED = previous
+
+
 @pytest.fixture(scope="module")
 def qapp():
     app = QApplication.instance() or QApplication([])
@@ -550,10 +565,24 @@ def _mouse(overlay, x, y, px=0.0, py=0.0, button=1):
     )
 
 
+def _end_gesture(overlay, event):
+    """Release the overlay *and* the canvas, as a real release does.
+
+    Both are connected to the same matplotlib event in the app, and it is the canvas's
+    handler that clears `_overlay_consuming_event` — the flag that suppresses panning,
+    and now refitting, for as long as an overlay owns the gesture. Releasing only the
+    overlay leaves the canvas believing a drag is still in flight, which then silently
+    disables refitting for every later test sharing the fixture.
+    """
+    overlay._on_release(event)
+    if overlay._canvas is not None:
+        overlay._canvas._on_release(event)
+
+
 def _click(overlay, x, y):
     """Press and release at one point -- the gesture that toggles a tile."""
     overlay._on_press(_mouse(overlay, x, y))
-    overlay._on_release(_mouse(overlay, x, y))
+    _end_gesture(overlay, _mouse(overlay, x, y))
 
 
 @pytest.fixture(scope="module")
@@ -860,6 +889,93 @@ def test_resizing_the_grid_does_reframe(qapp, overview_widget):
     zoomed = (tuple(ax.get_xlim()), tuple(ax.get_ylim()))
 
     widget.settings_widget.set_grid_size(5, 5)
+    qapp.processEvents()
+
+    assert (tuple(ax.get_xlim()), tuple(ax.get_ylim())) != zoomed
+
+
+def test_dragging_the_grid_leaves_the_view_alone(qapp, overview_widget):
+    """The same class of bug as a tile toggle, through a different door.
+
+    A move drag emits on every motion event, and the refresh it triggers re-declared the
+    canvas's working area — which forces a refit. Zoomed out, the very first step of a
+    drag collapsed the view onto the grid (measured: a span of 41677 down to 4168) and
+    then towed it along. The guard only knew about resize drags.
+    """
+    widget = overview_widget
+    widget.settings_widget.parameters = OverviewParameters(rows=3, cols=3, overlap=0.1)
+    qapp.processEvents()
+
+    ax = widget.canvas.canvas._ax
+    ax.set_xlim(-5000, 5000)
+    ax.set_ylim(5000, -5000)
+    zoomed = (tuple(ax.get_xlim()), tuple(ax.get_ylim()))
+
+    overlay = widget.tile_grid_overlay
+    anchor = overlay._anchor() or (0.0, 0.0)
+    # Far enough to leave the declared working area, which is what zooming out makes
+    # easy: a drag that stays inside it never tripped the old refit either, so a short
+    # one would pass against the bug it is meant to catch.
+    declared_width = widget.canvas.canvas.world_extent[0] / widget.canvas.canvas.reference_pixel_size
+    reach = declared_width  # twice the half-width that bounds the area
+
+    overlay._on_press(_mouse(overlay, anchor[0], anchor[1], px=0.0, py=0.0))
+    for step in range(1, 4):
+        # `px` has to move too: the overlay measures the drag threshold in screen
+        # pixels, so a gesture that only moves in data coordinates never starts.
+        overlay._on_drag(
+            _mouse(overlay, anchor[0] + step * reach, anchor[1], px=step * 20.0, py=0.0)
+        )
+        qapp.processEvents()
+        assert overlay.is_dragging
+        assert (tuple(ax.get_xlim()), tuple(ax.get_ylim())) == zoomed
+    _end_gesture(overlay, _mouse(overlay, anchor[0] + 3 * reach, anchor[1], px=60.0, py=0.0))
+    qapp.processEvents()
+
+    assert (tuple(ax.get_xlim()), tuple(ax.get_ylim())) == zoomed
+
+
+def test_the_working_area_still_follows_a_dragged_grid(qapp, overview_widget):
+    """Not moving the view is not the same as not tracking the grid. The working area is
+    what the zoom limiter measures against, so leaving it behind would stretch the
+    content extent across the gap and cap how far the view could zoom in — the reason it
+    was being re-declared in the first place."""
+    widget = overview_widget
+    widget.settings_widget.parameters = OverviewParameters(rows=3, cols=3, overlap=0.1)
+    qapp.processEvents()
+
+    overlay = widget.tile_grid_overlay
+    anchor = overlay._anchor() or (0.0, 0.0)
+    before = widget.canvas.canvas.world_extent
+
+    overlay._on_press(_mouse(overlay, anchor[0], anchor[1], px=0.0, py=0.0))
+    overlay._on_drag(_mouse(overlay, anchor[0] + 1200, anchor[1], px=60.0, py=0.0))
+    _end_gesture(overlay, _mouse(overlay, anchor[0] + 1200, anchor[1], px=60.0, py=0.0))
+    qapp.processEvents()
+
+    after = widget.canvas.canvas.world_extent
+    assert after is not None and before is not None
+    assert after[2] != before[2]  # centre followed the grid
+    assert (after[0], after[1]) == (before[0], before[1])  # same size, it only moved
+
+
+def test_declaring_a_working_area_without_a_refit_does_not_move_the_view(qapp, overview_widget):
+    """The canvas-level half of the fix, stated on its own: `refit=False` has to hold
+    even on an empty canvas, where `_fit_extent` falls back to the working area and so
+    *does* change when it is re-declared."""
+    widget = overview_widget
+    canvas = widget.canvas.canvas
+    ax = canvas._ax
+    ax.set_xlim(-5000, 5000)
+    ax.set_ylim(5000, -5000)
+    zoomed = (tuple(ax.get_xlim()), tuple(ax.get_ylim()))
+
+    canvas.set_world_extent(1e-3, 1e-3, (5e-4, 5e-4), refit=False)
+    qapp.processEvents()
+
+    assert (tuple(ax.get_xlim()), tuple(ax.get_ylim())) == zoomed
+
+    canvas.set_world_extent(2e-3, 2e-3, (0.0, 0.0), refit=True)
     qapp.processEvents()
 
     assert (tuple(ax.get_xlim()), tuple(ax.get_ylim())) != zoomed
@@ -1291,34 +1407,72 @@ def test_the_working_area_follows_the_grid_not_the_canvas_origin(qapp, interacti
 
 
 def test_a_move_inside_the_working_area_leaves_the_framing_alone(qapp, interactive_widget):
-    """Re-declaring the working area re-frames the view, so it must not follow every
-    move -- a double-click to somewhere 100 µm away would throw the zoom away, the same
-    failure a tile toggle used to cause."""
+    """A move must not throw away the user's zoom -- a double-click to somewhere 100 µm
+    away did, the same failure a tile toggle used to cause.
+
+    It is the *framing* that has to hold still, not the declared working area. This test
+    used to assert the latter, because re-declaring the area re-framed the view and the
+    only way to hold the view was to leave the area behind. The area now follows the
+    grid on every move -- it is what the zoom limiter measures against, so leaving it
+    behind was its own bug -- and `refit=False` is what makes that safe.
+    """
     widget = interactive_widget
-    before = widget.canvas.canvas.world_extent
-    span_px = before[0] / widget.canvas.canvas.reference_pixel_size
+    canvas = widget.canvas.canvas
+    span_px = canvas.world_extent[0] / canvas.reference_pixel_size
+    anchor = widget.tile_grid_overlay._anchor()
+    ax = canvas._ax
+    framing = (tuple(ax.get_xlim()), tuple(ax.get_ylim()))
+
+    widget._on_grid_move(anchor[0] + span_px / 4, anchor[1])
+    qapp.processEvents()
+
+    assert (tuple(ax.get_xlim()), tuple(ax.get_ylim())) == framing
+    # ...and the grid still moved, which is the point of not re-framing for it
+    assert widget.tile_grid_overlay._anchor()[0] == pytest.approx(anchor[0] + span_px / 4)
+
+
+def test_the_working_area_follows_the_grid_on_every_move(qapp, interactive_widget):
+    """Even a small one. The area is what caps how far the view can zoom in, and one
+    left behind stretches the content extent across the gap between it and the grid."""
+    widget = interactive_widget
+    canvas = widget.canvas.canvas
+    span_px = canvas.world_extent[0] / canvas.reference_pixel_size
     anchor = widget.tile_grid_overlay._anchor()
 
     widget._on_grid_move(anchor[0] + span_px / 4, anchor[1])
     qapp.processEvents()
 
-    assert widget.canvas.canvas.world_extent == before
-    # ...and the grid still moved, which is the point of not re-framing for it
-    assert widget.tile_grid_overlay._anchor()[0] == pytest.approx(anchor[0] + span_px / 4)
+    after = canvas.world_extent
+    assert (after[2], after[3]) == pytest.approx(widget._grid_offset())
 
 
-def test_a_move_clear_of_the_working_area_re_declares_it(qapp, interactive_widget):
-    widget = interactive_widget
-    before = widget.canvas.canvas.world_extent
-    span_px = before[0] / widget.canvas.canvas.reference_pixel_size
+def test_a_grid_that_jumps_clear_of_an_empty_canvas_re_frames(qapp):
+    """The one case where the view *should* follow a move: nothing has been acquired, so
+    the grid is all there is to look at, and a grid off-screen leaves the canvas blank.
+    Moving to an offset FM mount travels 48 mm and does exactly this.
+
+    Only on an empty canvas -- once an image is placed the framing is fitted to the
+    image, which a grid move does not change. Suppressed mid-drag either way, which is
+    what `test_dragging_the_grid_leaves_the_view_alone` covers.
+    """
+    widget = _fresh_widget(qapp)
+    widget._refresh_tile_grid()
+    qapp.processEvents()
+
+    canvas = widget.canvas.canvas
+    ax = canvas._ax
+    framing = (tuple(ax.get_xlim()), tuple(ax.get_ylim()))
+    span_px = canvas.world_extent[0] / canvas.reference_pixel_size
     anchor = widget.tile_grid_overlay._anchor()
 
     widget._on_grid_move(anchor[0] + 4 * span_px, anchor[1])
     qapp.processEvents()
 
-    after = widget.canvas.canvas.world_extent
-    assert after != before
+    assert (tuple(ax.get_xlim()), tuple(ax.get_ylim())) != framing
+    after = canvas.world_extent
     assert (after[2], after[3]) == pytest.approx(widget._grid_offset())
+
+    widget.close()
 
 
 # ── anchoring the frame (FIB-418) ────────────────────────────────────────
@@ -1431,3 +1585,495 @@ def test_a_dropped_widget_lets_go_of_the_stage_signal_too(qapp):
     gc.collect()
 
     assert len(microscope.stage_position_changed) == before
+
+
+# ── the host contract: saving, and being locked ──────────────────────────
+
+
+def _fresh_widget(qapp):
+    """A widget of its own, for tests that change state the module fixture shares."""
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    widget = FMOverviewWidget(build_microscope())
+    qapp.processEvents()
+    return widget
+
+
+def test_nothing_is_saved_until_a_host_says_where(qapp):
+    """The standalone default. This app is mostly run against a simulator to exercise
+    the UI, and those runs must not leave tiles wherever it was launched from."""
+    widget = _fresh_widget(qapp)
+
+    assert widget._save_directory is None
+    assert widget._claim_destination() is None
+
+    widget.close()
+
+
+def test_a_save_directory_gives_every_run_its_own_place(qapp, tmp_path):
+    """Not the experiment directory itself: tiles are named by row and column, so two
+    overviews written straight into one directory would replace each other tile by
+    tile."""
+    widget = _fresh_widget(qapp)
+    widget.set_save_directory(str(tmp_path))
+
+    first = widget._claim_destination()
+    second = widget._claim_destination()
+
+    assert first.tiles_directory != second.tiles_directory
+    assert os.path.dirname(first.tiles_directory) == str(tmp_path)
+
+    widget.close()
+
+
+def test_an_unwritable_directory_does_not_stop_the_run(qapp, tmp_path):
+    """An overview you can see is worth more than no overview at all, so a save
+    directory that cannot be prepared degrades to not saving rather than refusing."""
+    blocked = tmp_path / "file-not-a-directory"
+    blocked.write_text("")
+    widget = _fresh_widget(qapp)
+    widget.set_save_directory(str(blocked))
+
+    assert widget._claim_destination() is None
+
+    widget.close()
+
+
+def test_a_failed_save_is_not_reported_as_a_successful_one(qapp, tmp_path):
+    """Otherwise the difference only turns up later, when someone goes looking for the
+    file and it is not there."""
+    widget = _fresh_widget(qapp)
+
+    # Nothing was meant to be saved: silent.
+    widget._destination, widget._saved_path = None, None
+    assert widget._describe_save() == ("", "")
+
+    # A destination was claimed and the mosaic did not land: say so.
+    widget.set_save_directory(str(tmp_path))
+    widget._destination = widget._claim_destination()
+    widget._saved_path = None
+    assert "not saved" in widget._describe_save()[0]
+
+    # It landed, and the tooltip says where.
+    widget._saved_path = widget._destination.mosaic_path
+    suffix, tooltip = widget._describe_save()
+    assert suffix == "  ·  saved"
+    assert tooltip == widget._destination.mosaic_path
+
+    widget.close()
+
+
+def test_a_host_can_forbid_starting_work_without_touching_a_run(qapp):
+    """For a workflow that owns the instrument for a while. The canvas stays live --
+    greying out the whole widget would also stop you reading the overview you just
+    acquired, which costs the workflow nothing."""
+    widget = _fresh_widget(qapp)
+
+    widget.set_interactive(False)
+    assert not widget.button_acquire.isEnabled()
+    assert not widget.settings_widget.isEnabled()
+    assert not widget.channel_widget.isEnabled()
+    assert widget.canvas.isEnabled()
+
+    widget.set_interactive(True)
+    assert widget.button_acquire.isEnabled()
+    assert widget.settings_widget.isEnabled()
+
+    widget.close()
+
+
+def test_a_lock_arriving_mid_run_leaves_cancel_available(qapp):
+    """Otherwise a workflow starting while an overview is in flight would strand it:
+    the stage keeps moving and the only button that stops it is greyed out."""
+    widget = _fresh_widget(qapp)
+    widget._set_running(True)
+
+    widget.set_interactive(False)
+
+    assert widget.button_cancel.isEnabled()
+    assert not widget.button_acquire.isEnabled()
+
+    widget._set_running(False)
+    widget.close()
+
+
+def test_a_workflow_ending_does_not_re_enable_a_tab_that_is_still_acquiring(qapp):
+    """The two facts are independent and both have to be false before Acquire comes
+    back. Deriving the button from only one of them is how it gets stuck -- or worse,
+    lets a second acquisition start on top of the first."""
+    widget = _fresh_widget(qapp)
+    widget.set_interactive(False)
+    widget._set_running(True)
+
+    widget.set_interactive(True)
+
+    assert not widget.button_acquire.isEnabled()
+
+    widget._set_running(False)
+    assert widget.button_acquire.isEnabled()
+
+    widget.close()
+
+
+def test_an_empty_grid_still_forbids_acquiring_after_a_lock_is_lifted(qapp):
+    """The third fact. A tab unlocked with no tiles selected has nothing to acquire,
+    and the button that starts it should say so."""
+    widget = _fresh_widget(qapp)
+    widget.settings_widget.tile_mask.mask = [[False, False], [False, False]]
+    widget.settings_widget.set_grid_size(2, 2)
+    widget.settings_widget.tile_mask.mask = [[False, False], [False, False]]
+    widget._on_settings_changed()
+    assert not widget.button_acquire.isEnabled()
+
+    widget.set_interactive(False)
+    widget.set_interactive(True)
+
+    assert not widget.button_acquire.isEnabled()
+
+    widget.close()
+
+
+# ── the host side: building and retiring the tab ─────────────────────────
+
+
+class _StubHost:
+    """The tab wiring, without the AutoLamella main window.
+
+    Constructing the real window needs napari viewers, which segfault under the
+    offscreen platform -- on an unmodified `main` as well as here, so this stands in for
+    a window that cannot be built in this environment rather than papering over
+    something introduced with the tab. The methods borrowed below touch only the tab
+    widget and the two attributes set in `__init__`.
+    """
+
+    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+        AutoLamellaSingleWindowUI as _Real,
+    )
+
+    add_fm_overview_tab = _Real.add_fm_overview_tab
+    _apply_fm_overview_visibility = _Real._apply_fm_overview_visibility
+    _build_fm_overview_widget = _Real._build_fm_overview_widget
+    _teardown_fm_overview_widget = _Real._teardown_fm_overview_widget
+    _update_fm_overview_experiment = _Real._update_fm_overview_experiment
+    _set_minimap_workflow_enabled = _Real._set_minimap_workflow_enabled
+
+    def __init__(self, microscope=None, experiment=None, tab_enabled=True):
+        import fibsem.config as fibsem_cfg
+        from PyQt5.QtWidgets import QTabWidget
+
+        self.tab_widget = QTabWidget()
+        self.autolamella_ui = type(
+            "_UI", (), {"microscope": microscope, "experiment": experiment}
+        )()
+        # The tab is behind a preference that is off by default, so these tests turn it
+        # on and leave it on -- `_restore_fm_overview_flag` puts it back afterwards.
+        fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED = tab_enabled
+        self.add_fm_overview_tab()
+
+    def set_flag(self, enabled: bool):
+        """Toggle the preference and re-apply it, as the dialog does on accept."""
+        import fibsem.config as fibsem_cfg
+
+        fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED = enabled
+        self._apply_fm_overview_visibility()
+
+    @property
+    def tab_enabled(self):
+        return self.tab_widget.isTabEnabled(
+            self.tab_widget.indexOf(self._fm_overview_container)
+        )
+
+
+def _plain_microscope():
+    """A Demo microscope with no fluorescence detector attached."""
+    from fibsem import utils
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    microscope.fm = None
+    return microscope
+
+
+def test_the_fm_overview_tab_is_reserved_but_dead_without_a_microscope(qapp):
+    """The widget needs a camera at construction -- every scale on its canvas comes from
+    one -- so the tab exists from startup and fills in on connection."""
+    host = _StubHost()
+
+    assert "FM Overview" in [
+        host.tab_widget.tabText(i) for i in range(host.tab_widget.count())
+    ]
+    assert not host.tab_enabled
+    assert host.fm_overview_widget is None
+
+
+def test_the_tab_comes_alive_when_fluorescence_connects(qapp):
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    host = _StubHost()
+    host.autolamella_ui.microscope = build_microscope()
+
+    host._build_fm_overview_widget()
+
+    assert host.tab_enabled
+    assert isinstance(host.fm_overview_widget, FMOverviewWidget)
+
+    host._teardown_fm_overview_widget()
+
+
+def test_a_microscope_without_fluorescence_hides_the_tab(qapp):
+    """A system with no FM will never drive this tab, so showing it means a permanently
+    greyed-out tab with nothing to say why. Distinct from *not connected yet*, which is
+    temporary and covered below."""
+    host = _StubHost(microscope=_plain_microscope())
+
+    host._apply_fm_overview_visibility()
+
+    index = host.tab_widget.indexOf(host._fm_overview_container)
+    assert not host.tab_widget.isTabVisible(index)
+    assert host.fm_overview_widget is None
+
+
+def test_no_microscope_yet_leaves_the_tab_visible_but_disabled(qapp):
+    """The other absence. Waiting for a connection is what every other tab does, and a
+    tab that vanishes until you connect is harder to find than a dim one."""
+    host = _StubHost(microscope=None)
+
+    host._apply_fm_overview_visibility()
+
+    index = host.tab_widget.indexOf(host._fm_overview_container)
+    assert host.tab_widget.isTabVisible(index)
+    assert not host.tab_widget.isTabEnabled(index)
+    assert host.fm_overview_widget is None
+
+
+def test_connecting_a_microscope_without_fluorescence_takes_the_tab_away(qapp):
+    """Whether the system has an FM is only known once something is connected, so the
+    tab starts visible and has to be withdrawn rather than never shown."""
+    host = _StubHost(microscope=None)
+    index = host.tab_widget.indexOf(host._fm_overview_container)
+    assert host.tab_widget.isTabVisible(index)
+
+    host.autolamella_ui.microscope = _plain_microscope()
+    host._apply_fm_overview_visibility()
+
+    assert not host.tab_widget.isTabVisible(index)
+
+
+def test_a_microscope_with_fluorescence_brings_the_tab_back(qapp):
+    """And the reverse, so swapping between systems in one session settles correctly."""
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    host = _StubHost(microscope=_plain_microscope())
+    host._apply_fm_overview_visibility()
+    index = host.tab_widget.indexOf(host._fm_overview_container)
+    assert not host.tab_widget.isTabVisible(index)
+
+    host.autolamella_ui.microscope = build_microscope()
+    host._apply_fm_overview_visibility()
+
+    assert host.tab_widget.isTabVisible(index)
+    assert host.tab_widget.isTabEnabled(index)
+    assert isinstance(host.fm_overview_widget, FMOverviewWidget)
+
+    host._teardown_fm_overview_widget()
+
+
+def test_the_same_microscope_connecting_again_keeps_the_widget(qapp):
+    """Rebuilding would throw away whatever is on the canvas, and a connection signal
+    can arrive more than once for one instrument."""
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    host = _StubHost(microscope=build_microscope())
+    host._build_fm_overview_widget()
+    first = host.fm_overview_widget
+
+    host._build_fm_overview_widget()
+
+    assert host.fm_overview_widget is first
+
+    host._teardown_fm_overview_widget()
+
+
+def test_a_different_microscope_replaces_the_widget(qapp):
+    """The widget holds its microscope for life. Left alone across a reconnect it would
+    read geometry from an instrument nobody is driving -- FIB-433 is about doing this
+    without discarding the view."""
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    host = _StubHost(microscope=build_microscope())
+    host._build_fm_overview_widget()
+    first = host.fm_overview_widget
+
+    host.autolamella_ui.microscope = build_microscope()
+    host._build_fm_overview_widget()
+
+    assert host.fm_overview_widget is not first
+    assert host._fm_overview_microscope is host.autolamella_ui.microscope
+
+    host._teardown_fm_overview_widget()
+
+
+def test_retiring_the_widget_releases_the_stage_signal(qapp):
+    """The subscription belongs to the microscope and outlives the widget. A stale one
+    emits into a Qt object already torn down on the C++ side, which is a segfault rather
+    than an exception -- so a reconnect that dropped the widget without closing it would
+    take the application down on the next stage move."""
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    microscope = build_microscope()
+    before = len(microscope.stage_position_changed)
+    host = _StubHost(microscope=microscope)
+    host._build_fm_overview_widget()
+    assert len(microscope.stage_position_changed) == before + 1
+
+    host._teardown_fm_overview_widget()
+
+    assert len(microscope.stage_position_changed) == before
+    assert host.fm_overview_widget is None
+
+
+def test_disconnecting_the_microscope_retires_the_tab(qapp):
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    host = _StubHost(microscope=build_microscope())
+    host._build_fm_overview_widget()
+
+    host.autolamella_ui.microscope = None
+    host._build_fm_overview_widget()
+
+    assert host.fm_overview_widget is None
+    assert not host.tab_enabled
+
+
+def test_the_experiment_directory_reaches_the_widget(qapp, tmp_path):
+    """By setter, not by handing over the experiment: the widget knows nothing about
+    experiments, which is what lets it open standalone and be built in a test."""
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    host = _StubHost(microscope=build_microscope())
+    host._build_fm_overview_widget()
+    assert host.fm_overview_widget._save_directory is None
+
+    host.autolamella_ui.experiment = type("_Exp", (), {"path": str(tmp_path)})()
+    host._update_fm_overview_experiment()
+
+    assert host.fm_overview_widget._save_directory == str(tmp_path)
+
+    host._teardown_fm_overview_widget()
+
+
+def test_a_workflow_lock_reaches_the_fm_tab(qapp):
+    """A running workflow owns the instrument; neither overview tab should be able to
+    start competing for it."""
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    host = _StubHost(microscope=build_microscope())
+    host._build_fm_overview_widget()
+
+    host._set_minimap_workflow_enabled(False)
+    assert not host.fm_overview_widget.button_acquire.isEnabled()
+
+    host._set_minimap_workflow_enabled(True)
+    assert host.fm_overview_widget.button_acquire.isEnabled()
+
+    host._teardown_fm_overview_widget()
+
+
+def test_the_workflow_lock_survives_there_being_no_fm_tab(qapp):
+    """A system with no fluorescence detector still runs workflows."""
+    host = _StubHost(microscope=_plain_microscope())
+    host._build_fm_overview_widget()
+
+    host._set_minimap_workflow_enabled(False)  # must not raise
+
+
+def test_the_fm_overview_tab_is_behind_a_preference(qapp):
+    """Off by default, and hidden rather than absent -- which is what lets the
+    preference take effect immediately instead of at the next launch."""
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    host = _StubHost(microscope=build_microscope(), tab_enabled=False)
+    index = host.tab_widget.indexOf(host._fm_overview_container)
+
+    assert not host.tab_widget.isTabVisible(index)
+    assert host.fm_overview_widget is None
+
+
+def test_switching_the_preference_on_shows_the_tab_without_a_restart(qapp):
+    """The reason the tab is hidden rather than skipped."""
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    host = _StubHost(microscope=build_microscope(), tab_enabled=False)
+    index = host.tab_widget.indexOf(host._fm_overview_container)
+
+    host.set_flag(True)
+
+    assert host.tab_widget.isTabVisible(index)
+    assert host.tab_widget.isTabEnabled(index)
+    assert isinstance(host.fm_overview_widget, FMOverviewWidget)
+
+    host._teardown_fm_overview_widget()
+
+
+def test_switching_it_off_again_releases_the_widget(qapp):
+    """Hidden is not enough on its own: the widget subscribes to the microscope's stage
+    signal for its lifetime, so one left behind keeps working for a feature that has
+    been switched off."""
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    microscope = build_microscope()
+    before = len(microscope.stage_position_changed)
+    host = _StubHost(microscope=microscope, tab_enabled=True)
+    index = host.tab_widget.indexOf(host._fm_overview_container)
+    assert len(microscope.stage_position_changed) == before + 1
+
+    host.set_flag(False)
+
+    assert not host.tab_widget.isTabVisible(index)
+    assert host.fm_overview_widget is None
+    assert len(microscope.stage_position_changed) == before
+
+
+def test_everything_tolerates_the_tab_being_switched_off(qapp):
+    """The host calls into the tab from several places -- connection, experiment update,
+    workflow lock -- and none of them should have to know whether it exists."""
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    host = _StubHost(microscope=build_microscope(), tab_enabled=False)
+
+    host._build_fm_overview_widget()           # must not raise
+    host._update_fm_overview_experiment()      # must not raise
+    host._set_minimap_workflow_enabled(False)  # must not raise
+    host._apply_fm_overview_visibility()       # must not raise
+
+    assert getattr(host, "fm_overview_widget", None) is None
+
+
+def test_the_preference_reaches_the_config_flag():
+    """`apply_feature_flags` is what turns the stored preference into the module
+    global the UI reads, and a flag added to one without the other is silently dead."""
+    import fibsem.config as fibsem_cfg
+
+    prefs = fibsem_cfg.UserPreferences()
+    prefs.features.fm_overview_tab = True
+    previous = fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED
+    try:
+        fibsem_cfg.apply_feature_flags(prefs)
+        assert fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED is True
+
+        prefs.features.fm_overview_tab = False
+        fibsem_cfg.apply_feature_flags(prefs)
+        assert fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED is False
+    finally:
+        fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED = previous
+
+
+def test_the_preference_survives_a_round_trip_through_yaml():
+    """It is stored in user-preferences.yaml, so it has to serialise."""
+    import fibsem.config as fibsem_cfg
+
+    prefs = fibsem_cfg.UserPreferences()
+    prefs.features.fm_overview_tab = True
+
+    restored = fibsem_cfg.UserPreferences.from_dict(prefs.to_dict())
+
+    assert restored.features.fm_overview_tab is True

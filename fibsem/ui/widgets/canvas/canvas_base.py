@@ -701,7 +701,21 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         return self._content_extent()
 
     def _fit_view(self) -> None:
-        """Set the view to the fit extent expanded by ``_view_margin`` on each side."""
+        """Set the view to the fit extent expanded by ``_view_margin`` on each side.
+
+        Never while an overlay owns the gesture. Dragging something on the canvas is the
+        user manipulating a thing in the scene, not asking for the scene to be re-framed
+        — and a refit mid-drag moves the whole view out from under the pointer, which
+        reads as the view snapping onto whatever is being dragged.
+
+        Guarded here rather than only at the callers because a drag reaches the view
+        through several of them — the overlay's own margin, a re-declared working area,
+        any content change the drag provokes — and each one is a separate chance to get
+        it wrong. The flag is the canvas's own record of who owns the gesture, cleared
+        on release along with the pan it already suppresses.
+        """
+        if self._overlay_consuming_event:
+            return
         extent = self._fit_extent()
         if extent is None:
             return

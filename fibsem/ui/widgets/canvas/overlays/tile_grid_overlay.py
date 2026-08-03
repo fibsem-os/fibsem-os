@@ -224,6 +224,17 @@ class TileGridOverlay(QObject, CanvasOverlay):
         """
         return self._resize_axes is not None
 
+    @property
+    def is_dragging(self) -> bool:
+        """True while any grid gesture is in flight — a resize *or* a move.
+
+        Both emit on every motion event, so anything the host does in response has to
+        be cheap and must not move the camera. Moving was missed when this was only
+        :attr:`is_resizing`: dragging the grid re-declared the canvas's working area on
+        each step, and re-declaring refits, so the view snapped onto the grid.
+        """
+        return self._resize_axes is not None or self._move_active
+
     def fit_view(self, padding: float = 0.05) -> None:
         """Zoom out so the whole grid is visible, not just the tile at the centre.
 

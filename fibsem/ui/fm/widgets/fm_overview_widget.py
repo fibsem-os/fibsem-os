@@ -26,7 +26,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import constants
-from fibsem.fm.acquisition import FMTiledAcquisitionRunner, stitch_tileset
+from fibsem.fm.acquisition import FMTiledAcquisitionRunner, OverviewDestination
 from fibsem.fm.structures import (
     AutoFocusMode,
     AutoFocusSettings,
@@ -157,6 +157,20 @@ class FMOverviewWidget(QWidget):
         # somewhere. None means "wherever the stage is", which is what the runner does
         # by default -- so an untouched grid describes exactly what would be acquired.
         self._target: Optional[FibsemStagePosition] = None
+        # Where acquired overviews are written. None means nowhere: the widget opens
+        # standalone against a simulator as often as it runs inside an experiment, and
+        # inventing a directory for those runs would scatter files through whatever
+        # working directory it happened to be launched from. A host that has somewhere
+        # to put them says so -- see `set_save_directory`.
+        self._save_directory: Optional[str] = None
+        self._destination: Optional[OverviewDestination] = None
+        self._saved_path: Optional[str] = None
+        # Whether a run is under way, and whether a host is allowing one to be started.
+        # Two independent facts kept apart on purpose: a workflow ending must not
+        # re-enable a tab whose acquisition is still going, nor the reverse. See
+        # `_apply_enabled_state`, which is the only thing that reads them.
+        self._running = False
+        self._interactive = True
 
         self._init_ui(channel_settings or self._default_channels())
         self._sync_tile_fov()
@@ -494,23 +508,28 @@ class FMOverviewWidget(QWidget):
         span_x = parameters.cols * fov[0] * (1 - parameters.overlap) + fov[0]
         span_y = parameters.rows * fov[1] * (1 - parameters.overlap) + fov[1]
 
-        # Refit only when the grid's footprint actually changes. Toggling a tile also
-        # comes through here, and refitting on that threw away whatever zoom and pan
-        # the user had set -- so clicking a tile appeared to zoom the view.
-        # Recorded whether or not the view is refitted, so that a drag -- which
-        # suppresses the refit on every step -- does not leave the footprint looking
+        # Measured against the area as it stands, before the line below moves it.
+        left_area = self._grid_has_left_the_working_area(offset, span_x, span_y)
+
+        # Keep the declared working area on the grid, always and silently. It is what
+        # the zoom limiter measures against, so an area left behind stretches the
+        # content across the gap and caps how far the view can zoom in. `refit=False`
+        # is what makes doing this continuously safe: re-declaring used to re-frame,
+        # so dragging the grid snapped the view onto it on every motion event.
+        self.canvas.set_world_extent(span_x, span_y, offset, refit=False)
+
+        # Re-frame only for a reason the user would expect to move the view: the grid's
+        # footprint changed, or it has ended up outside what was framed (a stage move to
+        # an offset FM mount travels 48 mm). Never mid-gesture -- a drag emits on every
+        # motion event, and re-framing each time zooms the canvas out from under the
+        # cursor. Toggling a tile comes through here too, and re-framing on one threw
+        # away the user's zoom, which is what made clicking a tile look like zooming.
+        # The footprint is recorded either way, so a suppressed refit does not leave it
         # stale and jump the view on the next unrelated settings change.
         footprint = (parameters.rows, parameters.cols, parameters.overlap)
         changed = footprint != self._grid_footprint
         self._grid_footprint = footprint
-        if (changed or self._grid_has_left_the_working_area(offset, span_x, span_y)) \
-                and not self.tile_grid_overlay.is_resizing:
-            # Frame the planned area, so an empty canvas shows where the run will go
-            # rather than nothing at all, and so clicks land in a meaningful frame.
-            # Behind the same guard as the refit below, and for the same reason: a tile
-            # toggle comes through here too, and re-framing on one threw away the
-            # user's zoom -- which is what made clicking a tile look like zooming.
-            self.canvas.set_world_extent(span_x, span_y, offset)
+        if (changed or left_area) and not self.tile_grid_overlay.is_dragging:
             self.tile_grid_overlay.fit_view()
 
     def _grid_has_left_the_working_area(
@@ -636,6 +655,38 @@ class FMOverviewWidget(QWidget):
         """
         self._positions = list(positions)
         self._refresh_positions()
+
+    def set_save_directory(self, path: Optional[str]) -> None:
+        """Write acquired overviews under *path*, or None to keep them in memory only.
+
+        Each run claims its own subdirectory under this one, named for when it started,
+        so consecutive runs accumulate instead of overwriting each other -- pointing
+        straight at an experiment directory and letting the runner write `tile-00-00`
+        into it would mean every overview replaced the last.
+
+        Told rather than discovered, because this widget knows nothing about
+        experiments: it is handed a microscope, and its tests construct it that way.
+        """
+        self._save_directory = path
+
+    @property
+    def saved_path(self) -> Optional[str]:
+        """Where the last acquired overview was written, if it was."""
+        return self._saved_path
+
+    def set_interactive(self, enabled: bool) -> None:
+        """Allow or forbid starting work, without touching a run already in progress.
+
+        For a host that owns the instrument for a while -- an AutoLamella workflow --
+        and needs the tab to stop competing for it. Cancel stays live regardless, so a
+        lock arriving mid-run cannot strand an acquisition with no way to stop it.
+
+        Deliberately not `setEnabled(False)` on the whole widget: greying out the canvas
+        would also stop you *reading* the overview you just acquired, and looking at it
+        costs the workflow nothing.
+        """
+        self._interactive = enabled
+        self._apply_enabled_state()
 
     def set_origin(self, position: Optional[FibsemStagePosition]) -> None:
         """Anchor the canvas frame at *position*, or None to go back to automatic.
@@ -1006,16 +1057,35 @@ class FMOverviewWidget(QWidget):
             return
         self._refresh_tile_grid()
         self._update_grid_summary()
-        parameters = self.settings_widget.parameters
-        enabled = parameters.n_enabled_tiles > 0
-        self.button_acquire.setEnabled(enabled)
+        self._apply_enabled_state()
         # Only own the status line while it has something of its own to say. Re-enabling
         # the controls at the end of a run makes children emit `changed`, which landed
         # here and wiped the result message the moment it was set.
-        if not enabled:
+        if self.settings_widget.parameters.n_enabled_tiles == 0:
             self.status.setText("No tiles selected.")
         elif self.status.text() == "No tiles selected.":
             self.status.setText("")
+
+    def _apply_enabled_state(self) -> None:
+        """One place decides what is clickable, from three independent facts.
+
+        A run in progress, a host that has locked the tab, and a grid with nothing
+        selected each disable different things, and they overlap: a workflow finishing
+        while an overview runs must not re-enable Acquire, and a run finishing inside a
+        locked tab must not either. Two places each setting the buttons from their own
+        half of the truth is how a control gets stuck; deriving all of it from all three
+        every time is the version that cannot.
+        """
+        idle = self._interactive and not self._running
+        has_tiles = self.settings_widget.parameters.n_enabled_tiles > 0
+        self.button_acquire.setEnabled(idle and has_tiles)
+        # Cancel is deliberately not gated on `_interactive`: a host locking the tab
+        # mid-run must not take away the only way to stop the stage. Once a cancel has
+        # been asked for, the button goes and stays away -- the stop event is the record
+        # of that, so asking it beats a second flag that could disagree.
+        self.button_cancel.setEnabled(self._running and not self._stop_event.is_set())
+        self.settings_widget.setEnabled(idle)
+        self.channel_widget.setEnabled(idle)
 
     # ── acquisition ──────────────────────────────────────────────────────
 
@@ -1052,6 +1122,10 @@ class FMOverviewWidget(QWidget):
             logging.info("Overview acquisition cancelled before starting")
             return
 
+        # Claimed on the GUI thread, before the worker starts: it makes a directory, so
+        # an unwritable path is reported now rather than after the stage has moved.
+        self._destination = self._claim_destination()
+
         self._stop_event.clear()
         self._set_running(True)
         self._runner = FMTiledAcquisitionRunner(
@@ -1065,9 +1139,31 @@ class FMOverviewWidget(QWidget):
             # stage still returns to where it started afterwards -- the target is the
             # grid's centre, not a new home.
             centre_position=self._target,
+            # None when no save directory has been set -- the standalone default. The
+            # runner writes each tile as it lands, so a cancelled run keeps what it got.
+            save_directory=self._destination.tiles_directory if self._destination else None,
         )
         self._worker = FunctionWorker(self._acquire_worker)
         self._worker.start()
+
+    def _claim_destination(self) -> Optional["OverviewDestination"]:
+        """Where this run's files go, or None if nowhere.
+
+        Failing to claim one is not fatal: an overview you can see is worth more than
+        no overview at all, so the run goes ahead unsaved and says so.
+        """
+        if self._save_directory is None:
+            return None
+        try:
+            return OverviewDestination.create(self._save_directory)
+        except OSError as e:
+            logging.error(f"Cannot save into {self._save_directory}: {e}")
+            notification_service.show_toast(
+                f"Could not prepare a save directory; this overview will not be "
+                f"saved.\n{e}",
+                "warning",
+            )
+            return None
 
     def _acquire_worker(self) -> None:
         """Runs off the GUI thread. Only signals may cross back."""
@@ -1075,14 +1171,12 @@ class FMOverviewWidget(QWidget):
 
         try:
             runner = self._runner
-            runner.run()
-            mosaic = stitch_tileset(
-                runner.tileset,
-                runner.overview_parameters.overlap,
-                centre_position=runner.centre_position,
-                objective_position=runner._initial_objective_position,
-            )
+            mosaic = runner.run_and_stitch()
             self._mosaic = mosaic
+            # Saved here rather than after the signal: a consumer of `overview_acquired`
+            # may want the file, and the mosaic carries the run's name once written.
+            if self._destination is not None:
+                self._saved_path = self._destination.save_mosaic(mosaic)
             self.overview_acquired.emit(mosaic)
             self.fm.acquisition_progress_signal.emit(
                 {"state": "overview-finished", "task": "tileset"}
@@ -1103,15 +1197,16 @@ class FMOverviewWidget(QWidget):
             return
         logging.info("Cancelling overview acquisition")
         self._stop_event.set()
-        self.button_cancel.setEnabled(False)
+        self._apply_enabled_state()
         self.status.setText("Cancelling…")
 
     def _set_running(self, running: bool) -> None:
-        self.button_acquire.setEnabled(not running)
-        self.button_cancel.setEnabled(running)
-        self.settings_widget.setEnabled(not running)
-        self.channel_widget.setEnabled(not running)
+        self._running = running
+        self._apply_enabled_state()
         if running:
+            # Cleared at the start, so a run that fails to save cannot inherit the
+            # previous run's path and report itself saved.
+            self._saved_path = None
             # Left empty rather than shown as indeterminate, which would paint a full
             # bar before a single tile had been acquired.
             self.progress_tiles.reset()
@@ -1254,6 +1349,21 @@ class FMOverviewWidget(QWidget):
         except Exception as e:
             logging.debug(f"Could not display the overview preview: {e}")
 
+    def _describe_save(self) -> Tuple[str, str]:
+        """Status suffix and tooltip for whether the overview reached disk.
+
+        Silent when nothing was meant to be saved, so the standalone app does not report
+        a failure every run. When a destination *was* claimed and the mosaic did not
+        land, that is worth saying: otherwise a failed save reads exactly like a
+        successful one, and the difference only turns up when someone goes looking for
+        the file.
+        """
+        if self._saved_path:
+            return "  ·  saved", self._saved_path
+        if self._destination is not None:
+            return "  ·  not saved", "Could not be written to disk — see the log."
+        return "", ""
+
     def _finish(self, state: str, error: Optional[str]) -> None:
         self._set_running(False)
         self._worker = None
@@ -1266,7 +1376,9 @@ class FMOverviewWidget(QWidget):
             self.set_image(self._mosaic)
             self.canvas.canvas.remove_image(PREVIEW_KEY)
             shape = self._mosaic.data.shape
-            self.status.setText(f"Overview acquired — {shape[-1]} × {shape[-2]} px")
+            suffix, tooltip = self._describe_save()
+            self.status.setText(f"Overview acquired — {shape[-1]} × {shape[-2]} px{suffix}")
+            self.status.setToolTip(tooltip)
             self.progress_tiles.update_progress(ProgressUpdate.done())
         elif state == "overview-cancelled":
             self.status.setText("Cancelled. Tiles acquired so far are still shown.")

@@ -1,3 +1,4 @@
+import os
 import threading
 from unittest.mock import Mock, call, patch
 
@@ -583,21 +584,24 @@ def test_acquire_multiple_overviews(fm_microscope):
     """Test acquire_multiple_overviews function with multiple FM positions."""
     microscope = fm_microscope
 
-    # Create test positions
+    # Create test positions. Kept well inside the simulated stage limits (x +/-1 mm,
+    # y +/-0.378 mm) with room for the 2x2 grid around each: these were at y = 2, 5 and
+    # 8 mm, which no stage in the fixture can reach. That went unnoticed until the FM
+    # runner started checking, since nothing on this path looked at the limits before.
     positions = [
         FMStagePosition(
             name="Region1",
-            stage_position=FibsemStagePosition(x=0.001, y=0.002, z=0.003),
+            stage_position=FibsemStagePosition(x=0.0001, y=0.0002, z=0.003),
             objective_position=0.012,
         ),
         FMStagePosition(
             name="Region2",
-            stage_position=FibsemStagePosition(x=0.004, y=0.005, z=0.006),
+            stage_position=FibsemStagePosition(x=0.0004, y=-0.0001, z=0.006),
             objective_position=0.015,
         ),
         FMStagePosition(
             name="Region3",
-            stage_position=FibsemStagePosition(x=0.007, y=0.008, z=0.009),
+            stage_position=FibsemStagePosition(x=-0.0003, y=0.0001, z=0.009),
             objective_position=0.018,
         ),
     ]
@@ -1511,3 +1515,215 @@ def test_without_a_centre_the_run_uses_the_stage(fm_microscope):
 
     assert runner.centre_position.x == pytest.approx(start.x, abs=1e-12)
     assert runner.centre_position.y == pytest.approx(start.y, abs=1e-12)
+
+
+# ── where a run's files go ───────────────────────────────────────────────
+
+
+def test_a_destination_puts_the_mosaic_beside_its_tile_directory(tmp_path):
+    """The destination anyone opening the folder has to be able to read: one directory of
+    tiles per run, and the stitched result next to it under the same name rather than
+    buried among a hundred tiles."""
+    destination = acquisition.OverviewDestination.create(str(tmp_path))
+
+    assert os.path.isdir(destination.tiles_directory)
+    assert os.path.dirname(destination.tiles_directory) == str(tmp_path)
+    assert os.path.dirname(destination.mosaic_path) == str(tmp_path)
+    assert destination.mosaic_path == f"{destination.tiles_directory}.ome.tiff"
+    assert destination.basename in destination.mosaic_path
+
+
+def test_two_runs_do_not_overwrite_each_other(tmp_path):
+    """The reason a run gets a subdirectory instead of writing straight into the
+    experiment: tiles are named by row and column, so a second overview into the same
+    directory would replace the first tile for tile."""
+    first = acquisition.OverviewDestination.create(str(tmp_path), basename="run-a")
+    second = acquisition.OverviewDestination.create(str(tmp_path), basename="run-b")
+
+    assert first.tiles_directory != second.tiles_directory
+    assert first.mosaic_path != second.mosaic_path
+
+
+def test_the_tile_directory_is_made_before_the_run(tmp_path):
+    """Made on the way in rather than at the first tile, so an unwritable path is
+    reported before the stage moves rather than after."""
+    root = tmp_path / "not" / "there" / "yet"
+
+    destination = acquisition.OverviewDestination.create(str(root))
+
+    assert os.path.isdir(destination.tiles_directory)
+
+
+def test_a_mosaic_that_cannot_be_written_is_reported_not_raised(tmp_path):
+    """By the time this is called the acquisition is over and the mosaic is in hand.
+    Raising would discard a completed result over a filesystem problem, so the return
+    value is what says whether it landed."""
+    destination = acquisition.OverviewDestination.create(str(tmp_path))
+    mosaic = Mock()
+    mosaic.save.side_effect = OSError("read-only file system")
+
+    assert destination.save_mosaic(mosaic) is None
+
+
+def test_a_saved_mosaic_is_stamped_with_the_run_it_came_from(fm_microscope, tmp_path):
+    """So a mosaic reloaded from disk can still be tied to its tiles, which sit in a
+    directory of that name beside it."""
+    destination = acquisition.OverviewDestination.create(str(tmp_path))
+    mosaic = FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+        overview_parameters=OverviewParameters(rows=1, cols=1, overlap=0.1),
+    ).run_and_stitch()
+
+    path = destination.save_mosaic(mosaic)
+
+    assert path == destination.mosaic_path
+    assert os.path.exists(path)
+    assert mosaic.metadata.description == destination.basename
+    assert FluorescenceImage.load(path).metadata.description == destination.basename
+
+
+def test_a_cancelled_run_still_records_what_it_was_trying_to_do(fm_microscope, tmp_path):
+    """The parameters describe what was *requested*, so they are known before the first
+    tile. Written at the end instead, a cancelled run left its tiles on disk with
+    nothing saying what grid they belonged to."""
+    stop_event = threading.Event()
+    runner = FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+        overview_parameters=OverviewParameters(rows=2, cols=2, overlap=0.1),
+        save_directory=str(tmp_path),
+        stop_event=stop_event,
+    )
+    stop_event.set()
+
+    with pytest.raises(OperationCancelledError):
+        runner.run()
+
+    assert os.path.exists(os.path.join(str(tmp_path), "overview-parameters.json"))
+
+
+def test_two_runs_in_the_same_second_do_not_collide(tmp_path):
+    """The timestamp only resolves to the second, and a single-tile overview at a short
+    exposure takes far less. Sharing the name would let the second run overwrite the
+    first tile for tile, silently."""
+    first = acquisition.OverviewDestination.create(str(tmp_path), basename="overview-12-00-00")
+    second = acquisition.OverviewDestination.create(str(tmp_path), basename="overview-12-00-00")
+
+    assert first.tiles_directory != second.tiles_directory
+    assert first.mosaic_path != second.mosaic_path
+    assert os.path.isdir(first.tiles_directory)
+    assert os.path.isdir(second.tiles_directory)
+
+
+def test_a_name_whose_mosaic_survived_its_tiles_is_not_reused(tmp_path):
+    """Tile directories get cleaned up and mosaics get kept, so the directory being
+    free does not mean the name is."""
+    taken = tmp_path / "overview-12-00-00.ome.tiff"
+    taken.write_text("")
+
+    destination = acquisition.OverviewDestination.create(
+        str(tmp_path), basename="overview-12-00-00"
+    )
+
+    assert destination.mosaic_path != str(taken)
+    assert not os.path.exists(destination.mosaic_path)
+
+
+# ── stage limits ─────────────────────────────────────────────────────────
+
+
+def _narrow_limits(microscope, half_width: float):
+    """Shrink the stage limits to a box of +/- half_width about the origin."""
+    from fibsem.structures import RangeLimit
+
+    microscope._stage.limits = {
+        "x": RangeLimit(min=-half_width, max=half_width),
+        "y": RangeLimit(min=-half_width, max=half_width),
+    }
+
+
+def test_a_grid_reaching_past_the_stage_limits_is_refused(fm_microscope):
+    """The same answer the beam tiler gives, through the same helper. Rejected rather
+    than trimmed: a mosaic quietly missing the tiles the stage could not reach stitches
+    those gaps as zeros, which nothing downstream can tell from dark sample."""
+    _narrow_limits(fm_microscope, 10e-6)  # far smaller than one tile step
+
+    runner = FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+        overview_parameters=OverviewParameters(rows=3, cols=3, overlap=0.1),
+    )
+
+    with pytest.raises(ValueError, match="beyond stage limits"):
+        runner.run()
+
+
+def test_the_refusal_names_the_tiles_that_caused_it(fm_microscope):
+    """So the grid can be fixed rather than guessed at."""
+    _narrow_limits(fm_microscope, 10e-6)
+
+    runner = FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+        overview_parameters=OverviewParameters(rows=1, cols=3, overlap=0.1),
+    )
+
+    with pytest.raises(ValueError) as excinfo:
+        runner.run()
+
+    # The centre tile is reachable; the two either side are not.
+    assert "(0,0)" in str(excinfo.value)
+    assert "(0,2)" in str(excinfo.value)
+
+
+def test_nothing_moves_when_a_grid_is_refused(fm_microscope):
+    """The check runs before the tile loop, so a refused grid costs no stage time."""
+    _narrow_limits(fm_microscope, 10e-6)
+    start = fm_microscope.get_stage_position()
+
+    runner = FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+        overview_parameters=OverviewParameters(rows=3, cols=3, overlap=0.1),
+    )
+    with pytest.raises(ValueError):
+        runner.run()
+
+    after = fm_microscope.get_stage_position()
+    assert (after.x, after.y) == pytest.approx((start.x, start.y), abs=1e-12)
+    assert runner.tileset == [] or all(t is None for row in runner.tileset for t in row)
+
+
+def test_masking_off_the_unreachable_tiles_makes_a_grid_acquirable(fm_microscope):
+    """Only the tiles that will actually be visited are checked, so excluding a corner
+    that falls outside the limits is a legitimate way to bring a grid back into range."""
+    _narrow_limits(fm_microscope, 10e-6)
+
+    parameters = OverviewParameters(
+        rows=1, cols=3, overlap=0.1,
+        tile_mask=[[False, True, False]],   # keep only the reachable centre tile
+    )
+    runner = FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+        overview_parameters=parameters,
+    )
+
+    runner.run()  # must not raise
+
+    assert runner.tileset[0][1] is not None
+    assert runner.tileset[0][0] is None and runner.tileset[0][2] is None
+
+
+def test_a_grid_within_the_limits_is_untouched(fm_microscope):
+    """The check must not reject grids that were always fine."""
+    runner = FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+        overview_parameters=OverviewParameters(rows=2, cols=2, overlap=0.1),
+    )
+
+    runner.run()
+
+    assert sum(t is not None for row in runner.tileset for t in row) == 4

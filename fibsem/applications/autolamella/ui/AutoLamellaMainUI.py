@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import sys
 import time
+from typing import Optional
 
 try:
     sys.modules.pop("PySide6.QtCore")
@@ -41,6 +42,7 @@ from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, La
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI, INSTRUCTIONS
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.ui import FibsemMinimapWidget
+from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
 from fibsem.ui.qt.gc import install_main_thread_gc
 from fibsem.ui.stylesheets import (
     MILLING_PROGRESS_BAR_STYLESHEET,
@@ -517,6 +519,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_report_issue.setVisible(
             self._preferences.features.bug_report_enabled
         )
+        # Show or hide the FM Overview tab, building or dropping its widget to match
+        self._apply_fm_overview_visibility()
         # Toggle Tools -> Scripts. Hiding the menu hides the whole feature: it is the
         # only route to the manager dialog, and the dialog is the only thing that runs
         # a script. If a script is mid-run, leave it visible -- taking away the only
@@ -841,11 +845,18 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._set_minimap_workflow_enabled(True)
 
     def _set_minimap_workflow_enabled(self, enabled: bool):
-        """Enable/disable minimap acquisition and load-image buttons during workflow."""
-        if not hasattr(self, "minimap_widget"):
-            return
-        self.minimap_widget.pushButton_run_tile_collection.setEnabled(enabled)
-        self.minimap_widget.pushButton_load_image.setEnabled(enabled)
+        """Enable/disable overview acquisition in both overview tabs during a workflow.
+
+        A running workflow owns the instrument, so neither tab should be able to start
+        competing for it. The FM tab keeps its Cancel button live regardless -- see
+        `FMOverviewWidget.set_interactive` -- so a lock arriving mid-run cannot strand an
+        acquisition with no way to stop it.
+        """
+        if hasattr(self, "minimap_widget"):
+            self.minimap_widget.pushButton_run_tile_collection.setEnabled(enabled)
+            self.minimap_widget.pushButton_load_image.setEnabled(enabled)
+        if getattr(self, "fm_overview_widget", None) is not None:
+            self.fm_overview_widget.set_interactive(enabled)
 
     def _set_border_state(self, state: str):
         """Update the tab widget border to reflect current workflow state.
@@ -935,6 +946,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_microscope_connected(self):
         """Handle microscope connection and connect milling progress signal."""
+        # Before the signal wiring below, which returns early on a disconnect: the FM
+        # overview tab has to hear about that case too, to let go of the old microscope.
+        # Through the visibility path rather than straight to the builder, because
+        # whether this system has a fluorescence detector at all is only known now.
+        self._apply_fm_overview_visibility()
         if (
             self.autolamella_ui is not None
             and self.autolamella_ui.microscope is not None
@@ -1123,6 +1139,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Create the tabs for the AutoLamella UI."""
         self._create_main_tab()
         self.add_minimap_tab()
+        self.add_fm_overview_tab()
         self.add_protocol_editor_tab()
         self.add_lamella_editor_tab()
         self.add_workflow_tab()
@@ -1139,6 +1156,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
 
         self.minimap_widget.set_experiment()
+        self._update_fm_overview_experiment()
         self.task_widget.set_experiment(self.autolamella_ui.experiment)
         self.lamella_widget.set_experiment()
         experiment = self.autolamella_ui.experiment
@@ -1171,8 +1189,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             if hasattr(self, "_lamella_tab_container")
             else -1
         )
+        # The FM overview tab is enabled by the presence of a fluorescence detector, not
+        # by an experiment, so loading one must not switch it on for a system that has
+        # no FM -- it would open onto an empty container.
+        fm_overview_tab_index = (
+            self.tab_widget.indexOf(self._fm_overview_container)
+            if getattr(self, "fm_overview_widget", None) is None
+            and hasattr(self, "_fm_overview_container")
+            else -1
+        )
         for i in range(self.tab_widget.count()):
-            if i == lamella_tab_index:
+            if i in (lamella_tab_index, fm_overview_tab_index):
                 continue
             self.tab_widget.setTabEnabled(i, True)
 
@@ -1745,6 +1772,158 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # disable the tab by default
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(container), False)
+
+    def add_fm_overview_tab(self):
+        """Reserve the FM Overview tab, beside the beam one.
+
+        Behind `features.fm_overview_tab` in user preferences, off by default: the
+        rebuilt fluorescence overview UI is still being finished, and it sits beside the
+        existing Overview tab while driving the same instrument.
+
+        The tab is always created and hidden when off, rather than skipped: that makes
+        the preference take effect the moment it is changed instead of at the next
+        launch. The widget inside is still built and destroyed with the flag -- see
+        :meth:`_apply_fm_overview_visibility` -- so a hidden tab costs nothing but the
+        container.
+
+        Separate from "Overview" deliberately, not as a step toward merging them: the
+        two show different stage poses -- milling pose on the beam side, FM pose here --
+        and relating them is what the correlation workflow is for.
+
+        Only the container is made here. `FMOverviewWidget` requires a microscope with a
+        fluorescence detector at construction -- it has no meaningful empty state, since
+        every scale on its canvas comes from the camera -- and at this point there may
+        be no microscope at all. The widget is built on connection instead, by
+        :meth:`_build_fm_overview_widget`, and the tab stays disabled until then.
+        """
+        self._fm_overview_container = QWidget()
+        layout = QVBoxLayout(self._fm_overview_container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.fm_overview_widget: Optional[FMOverviewWidget] = None
+        # The microscope the current widget was built for. A reconnection hands out a
+        # new object, and the old widget would go on reading geometry from an instrument
+        # nobody is driving (FIB-433), so the identity is worth keeping.
+        self._fm_overview_microscope = None
+
+        self.tab_widget.insertTab(
+            2, self._fm_overview_container,
+            fibsem_icon("mdi:microscope", color=GRAY_ICON_COLOR), "FM Overview",
+        )
+        self.tab_widget.setTabEnabled(
+            self.tab_widget.indexOf(self._fm_overview_container), False
+        )
+        self._apply_fm_overview_visibility()
+
+    def _apply_fm_overview_visibility(self):
+        """Show or hide the FM Overview tab to match the preference, immediately.
+
+        The widget inside is built and destroyed along with the tab rather than left
+        behind hidden. It subscribes to the microscope's stage signal for its lifetime,
+        so a hidden one would go on doing work on every poll for a feature that has been
+        switched off — and would still be holding a psygnal reference to tear down later.
+
+        Two different absences, deliberately handled differently:
+
+        * **A connected microscope with no fluorescence detector** will never drive this
+          tab, so it is hidden. Leaving it visible means a permanently greyed-out tab
+          with nothing to say why, on every system without an FM.
+        * **No microscope yet** is temporary, so the tab stays visible and disabled,
+          which is what every other tab does while waiting for a connection.
+        """
+        if not hasattr(self, "_fm_overview_container"):
+            return
+        index = self.tab_widget.indexOf(self._fm_overview_container)
+        microscope = (
+            self.autolamella_ui.microscope if self.autolamella_ui is not None else None
+        )
+        has_no_fm = microscope is not None and microscope.fm is None
+        self.tab_widget.setTabVisible(
+            index, fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED and not has_no_fm
+        )
+        # Builds when the flag is on and there is an FM, tears down otherwise.
+        self._build_fm_overview_widget()
+
+    def _build_fm_overview_widget(self):
+        """Put a widget in the FM Overview tab, once there is something to drive.
+
+        Called on every connection. Rebuilds when the microscope object has changed,
+        because the widget holds its microscope for life and would otherwise be talking
+        to the previous one -- destructive of anything on the canvas, and the reason
+        FIB-433 exists to do this without throwing the view away.
+        """
+        # `connected_signal` is subscribed in `_create_main_tab`, which runs before this
+        # tab is reserved. Nothing can fire in between synchronously, but the ordering is
+        # not this method's to rely on.
+        if not hasattr(self, "_fm_overview_container"):
+            return
+
+        microscope = (
+            self.autolamella_ui.microscope if self.autolamella_ui is not None else None
+        )
+        index = self.tab_widget.indexOf(self._fm_overview_container)
+
+        if (
+            not fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED
+            or microscope is None
+            or microscope.fm is None
+        ):
+            # Switched off, or no fluorescence detector. The tab stays in place but dead
+            # rather than being removed, so the tab bar does not change shape between
+            # systems; hiding it is `_apply_fm_overview_visibility`'s job.
+            self._teardown_fm_overview_widget()
+            self.tab_widget.setTabEnabled(index, False)
+            return
+
+        if self.fm_overview_widget is not None:
+            if self._fm_overview_microscope is microscope:
+                return
+            self._teardown_fm_overview_widget()
+
+        try:
+            self.fm_overview_widget = FMOverviewWidget(microscope)
+        except Exception as e:
+            logging.error(f"Could not create the FM overview tab: {e}")
+            self.tab_widget.setTabEnabled(index, False)
+            return
+
+        self._fm_overview_microscope = microscope
+        self._fm_overview_container.layout().addWidget(self.fm_overview_widget)
+        self.tab_widget.setTabEnabled(index, True)
+        self._update_fm_overview_experiment()
+
+    def _teardown_fm_overview_widget(self):
+        """Drop the current FM overview widget, if there is one.
+
+        `close()` rather than `deleteLater()` alone: the widget's `closeEvent` is what
+        releases its psygnal subscriptions on the microscope, and those outlive the
+        widget -- a stale one left connected emits into a torn-down Qt object.
+        """
+        if self.fm_overview_widget is None:
+            return
+        try:
+            self.fm_overview_widget.close()
+        except Exception as e:
+            logging.debug(f"Error closing the FM overview widget: {e}")
+        self._fm_overview_container.layout().removeWidget(self.fm_overview_widget)
+        self.fm_overview_widget.deleteLater()
+        self.fm_overview_widget = None
+        self._fm_overview_microscope = None
+
+    def _update_fm_overview_experiment(self):
+        """Tell the FM overview tab where to save.
+
+        Told rather than handed the experiment: the widget knows nothing about
+        experiments, and keeping it that way is what lets it open standalone against a
+        simulator and be constructed in a test from a microscope alone.
+        """
+        if getattr(self, "fm_overview_widget", None) is None:
+            return
+        experiment = (
+            self.autolamella_ui.experiment if self.autolamella_ui is not None else None
+        )
+        self.fm_overview_widget.set_save_directory(
+            str(experiment.path) if experiment is not None else None
+        )
 
     def _on_notification_service(
         self, message: str, notification_type: str, temporary: bool
