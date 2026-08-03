@@ -35,7 +35,7 @@ from fibsem.fm.structures import (
     OverviewParameters,
 )
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import FibsemStagePosition, Point
+from fibsem.structures import FibsemStagePosition
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.fm.widgets.fm_multi_channel_widget import FluorescenceMultiChannelWidget
 from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
@@ -44,7 +44,6 @@ from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
 from fibsem.ui.fm.widgets.tile_grid_options_panel import TileGridOptionsPanel
 from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.fm.reprojection import project_image_point, project_stage_position
 from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
     MinimapShapesOverlay,
@@ -58,6 +57,7 @@ from fibsem.ui.widgets.progress_widget import (
     ProgressUpdate,
 )
 from fibsem.ui.widgets.canvas.fm_canvas import FMRealSpaceCanvasWidget
+from fibsem.ui.widgets.canvas.stage_frame import FMStageProjection, StageFrame
 
 TEXT_MUTED = "#868e93"
 PROGRESS_WIDTH = 260
@@ -542,27 +542,21 @@ class FMOverviewWidget(QWidget):
     def _offset_of(self, image: FluorescenceImage) -> Tuple[float, float]:
         """Where *image*'s centre sits relative to the canvas origin, in metres.
 
-        The stage-to-plane projection the canvas deliberately knows nothing about. Falls
-        back to the origin when the image cannot be projected -- acquired before the
+        Projected through the image's *own* geometry rather than the live one, which is
+        the whole reason this is not :meth:`_offset_from_origin`: an image may have been
+        acquired under a configuration the instrument is no longer in, and it has to be
+        placed as it was taken.
+
+        Falls back to the origin when it cannot be projected -- acquired before the
         geometry was recorded, or with no pose at all -- which puts it in the middle of
         the view rather than refusing to show it.
         """
         position = self._position_of(image)
-        geometry = getattr(image.metadata, "geometry", None)
-        if self._origin is None or position is None or geometry is None:
+        projection = FMStageProjection.from_image(image)
+        if self._origin is None or position is None or projection is None:
             return (0.0, 0.0)
         try:
-            pixel_size = image.metadata.pixel_size_x
-            shape = np.asarray(image.data).shape[-2:]
-            point = project_stage_position(
-                position, self._origin, pixel_size, shape, geometry
-            )
-            # project_stage_position answers in pixels of an image acquired at the
-            # origin; the canvas wants metres from it, so measure from the centre out.
-            return (
-                (point.x - shape[1] / 2) * pixel_size,
-                (point.y - shape[0] / 2) * pixel_size,
-            )
+            return projection.to_plane(position, self._origin)
         except Exception as e:
             logging.debug(f"Could not place the image in stage space: {e}")
             return (0.0, 0.0)
@@ -576,11 +570,11 @@ class FMOverviewWidget(QWidget):
         question for an image out of its own metadata -- and has to, since an image may
         have been acquired under a configuration the instrument is no longer in.
         """
-        project = self._stage_to_canvas()
-        if project is None:
+        frame = self._frame()
+        if frame is None:
             return (0.0, 0.0)
         try:
-            return self.canvas.canvas.canvas_to_metres(*project(position))
+            return frame.offset(position)
         except Exception as e:
             logging.debug(f"Could not place {position} in the canvas frame: {e}")
             return (0.0, 0.0)
@@ -594,40 +588,21 @@ class FMOverviewWidget(QWidget):
         self._positions = list(positions)
         self._refresh_positions()
 
-    def _stage_to_canvas(self):
-        """A function mapping a stage position to canvas coordinates, or None.
+    def _frame(self) -> Optional[StageFrame]:
+        """The mapping between stage space and the canvas, or None if it cannot be had.
 
-        The one place stage space meets the canvas frame. Everything drawn from a stage
-        position goes through it -- marked positions, the stage and grid limits, the
-        current pose -- so they are all in the same frame by construction rather than by
-        four callers agreeing to do the same arithmetic.
+        The one place the two meet. Everything drawn from a stage position goes through
+        it -- marked positions, the stage and grid limits, the current pose, the planned
+        grid -- and so does every click, so they share a frame by construction rather
+        than by six callers agreeing to do the same arithmetic.
 
-        Projected against the canvas origin rather than onto whichever image happens to
-        be displayed, so a marker names the same piece of sample no matter what is on
-        screen. The projection uses the *recorded* geometry rather than the live
-        microscope: after an overview is acquired the stage has moved on, and following
-        it would drift everything off the features it names. That geometry is also what
-        puts the drawing in the current stage orientation -- t = -180 for FM -- since the
-        tilt, rotation and camera flip are all folded into it.
+        Anchored on the canvas origin rather than on whichever image happens to be
+        displayed, so a marker names the same piece of sample no matter what is on
+        screen. The origin's rotation and tilt are what put the drawing in the current
+        stage orientation -- t = -180 for FM.
         """
-        # Live, always -- the displayed image contributes nothing here.
-        #
-        # `FMImageGeometry` is system configuration (camera tilt, shuttle pre-tilt, the
-        # camera flip, compustage or not), not pose: the pose enters through the origin
-        # below, as its rotation and tilt. So an image's recorded geometry and the
-        # microscope's live one agree by construction.
-        #
-        # `pixel_size` and `shape` cancel outright. `project_stage_position` answers in
-        # pixels of a hypothetical image, and the very next thing done here is convert
-        # back to metres -- verified identical across a 27,000x range of pixel sizes.
-        # They are arguments to a function that measures in pixels, not inputs to the
-        # geometry.
-        #
-        # Taking it from the displayed image instead made everything drawn from a stage
-        # position vanish the moment an overview was acquired, because acquired tiles
-        # currently lose their geometry (see the note in _live_geometry).
-        geometry, pixel_size, shape = self._live_geometry()
-        if geometry is None or not pixel_size:
+        projection = FMStageProjection.from_microscope(self.microscope)
+        if projection is None:
             return None
 
         origin = self._origin or self._current_stage_position()
@@ -635,46 +610,7 @@ class FMOverviewWidget(QWidget):
             return None
         self._origin = origin  # fix it now, so later drawing shares this frame
 
-        def project(position: FibsemStagePosition) -> Tuple[float, float]:
-            point = project_stage_position(
-                position, origin, pixel_size, shape, geometry
-            )
-            return self.canvas.canvas.metres_to_canvas(
-                (point.x - shape[1] / 2) * pixel_size,
-                (point.y - shape[0] / 2) * pixel_size,
-            )
-
-        return project
-
-    def _canvas_to_stage(self):
-        """A function mapping canvas coordinates to a stage position, or None.
-
-        The inverse of :meth:`_stage_to_canvas`, and deliberately its mirror image:
-        same origin, same live geometry, same scale. `project_image_point` is the exact
-        inverse of the `project_stage_position` used to draw, sharing its sign terms,
-        so a click on a marker resolves to the position that marker was drawn from
-        rather than to somewhere plausibly near it.
-        """
-        geometry, pixel_size, shape = self._live_geometry()
-        if geometry is None or not pixel_size:
-            return None
-
-        origin = self._origin or self._current_stage_position()
-        if origin is None:
-            return None
-        self._origin = origin
-
-        def unproject(x: float, y: float) -> FibsemStagePosition:
-            # Canvas -> metres from the origin -> pixels of a hypothetical image
-            # acquired there, which is the frame `project_image_point` inverts from.
-            offset_x, offset_y = self.canvas.canvas.canvas_to_metres(x, y)
-            point = Point(
-                x=shape[1] / 2 + offset_x / pixel_size,
-                y=shape[0] / 2 + offset_y / pixel_size,
-            )
-            return project_image_point(point, origin, pixel_size, shape, geometry)
-
-        return unproject
+        return StageFrame(self.canvas.canvas, origin, projection)
 
     def _refresh_stage_metadata(self) -> None:
         """Draw where the sample and the stage can physically go.
@@ -684,14 +620,16 @@ class FMOverviewWidget(QWidget):
         straight into the canvas frame -- on a real-space canvas there is no stitched
         image to reproject onto, so the indirection disappears.
         """
-        project = self._stage_to_canvas()
-        if project is None:
+        frame = self._frame()
+        if frame is None:
             self.stage_overlay.set_shapes([])
             return
 
         specs = []
         try:
-            centre = project(FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=0.0))
+            centre = frame.to_canvas(
+                FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=0.0)
+            )
         except Exception as e:
             logging.debug(f"Cannot place the grid centre: {e}")
             self.stage_overlay.set_shapes([])
@@ -704,13 +642,13 @@ class FMOverviewWidget(QWidget):
             # and a tilt, which keep an axis-aligned box axis-aligned.
             specs.append(ShapeSpec(
                 kind="rect", cx=centre[0], cy=centre[1], color="yellow",
-                width=self._canvas_length(limits["x"].max - limits["x"].min),
-                height=self._canvas_length(limits["y"].max - limits["y"].min),
+                width=frame.length(limits["x"].max - limits["x"].min),
+                height=frame.length(limits["y"].max - limits["y"].min),
                 label="Stage limits",
             ))
             specs.append(ShapeSpec(
                 kind="circle", cx=centre[0], cy=centre[1], color="red",
-                radius=self._canvas_length(GRID_RADIUS_M), label="Grid boundary",
+                radius=frame.length(GRID_RADIUS_M), label="Grid boundary",
             ))
 
         holder = getattr(self.microscope._stage, "holder", None)
@@ -719,7 +657,7 @@ class FMOverviewWidget(QWidget):
             if position is None:
                 continue
             try:
-                point = project(position)
+                point = frame.to_canvas(position)
             except Exception as e:
                 logging.debug(f"Cannot place slot {position.name!r}: {e}")
                 continue
@@ -732,41 +670,18 @@ class FMOverviewWidget(QWidget):
 
     def _refresh_current_position(self) -> None:
         """Mark where the stage is now."""
-        project = self._stage_to_canvas()
+        frame = self._frame()
         position = self._current_stage_position()
-        if project is None or position is None:
+        if frame is None or position is None:
             self.current_position_overlay.set_points([])
             return
         try:
-            point = project(position)
+            point = frame.to_canvas(position)
         except Exception as e:
             logging.debug(f"Could not mark the current stage position: {e}")
             self.current_position_overlay.set_points([])
             return
         self.current_position_overlay.set_points([point], labels=[""])
-
-    def _live_geometry(self):
-        """(geometry, pixel_size, shape) from the microscope.
-
-        The single source for projecting stage positions. Not read from the displayed
-        image, both because it need not be -- the geometry is configuration and the other
-        two cancel -- and because it currently *cannot* be: tiles acquired through the
-        tiled runner come back without a geometry, since the metadata constructors that
-        combine channels and z-planes rebuild it field by field and do not carry it over.
-        A stitched mosaic inherits that gap, so anything projected against the mosaic
-        disappeared. Worth fixing upstream regardless, for consumers that have no live
-        microscope to fall back on.
-        """
-        try:
-            width, height = self.fm.camera.resolution
-            return (
-                self.microscope.fm_image_geometry(),
-                self.fm.camera.pixel_size[0],
-                (height, width),
-            )
-        except Exception as e:
-            logging.debug(f"Could not read the live FM geometry: {e}")
-            return None, None, None
 
     def _current_stage_position(self) -> Optional[FibsemStagePosition]:
         """Where the stage is, polling the microscope only when nothing has said yet.
@@ -801,31 +716,26 @@ class FMOverviewWidget(QWidget):
         Falls back to the canvas origin when the centre cannot be projected, which
         draws the grid in the middle of the frame rather than not at all.
         """
-        project = self._stage_to_canvas()
+        frame = self._frame()
         centre = self._grid_centre()
-        if project is not None and centre is not None:
+        if frame is not None and centre is not None:
             try:
-                return project(centre)
+                return frame.to_canvas(centre)
             except Exception as e:
                 logging.debug(f"Could not place the planned grid: {e}")
         return self.canvas.canvas.metres_to_canvas(0.0, 0.0)
 
-    def _canvas_length(self, metres: float) -> float:
-        """A length in metres as a length in canvas pixels."""
-        reference = self.canvas.canvas.reference_pixel_size
-        return metres / reference if reference else 0.0
-
     def _refresh_positions(self) -> None:
         """Mark the stage positions in the canvas frame."""
-        project = self._stage_to_canvas()
-        if not self._positions or project is None:
+        frame = self._frame()
+        if not self._positions or frame is None:
             self.position_overlay.set_points([])
             return
 
         points, labels = [], []
         for position in self._positions:
             try:
-                points.append(project(position))
+                points.append(frame.to_canvas(position))
             except Exception as e:
                 logging.debug(f"Cannot mark {position.name!r}: {e}")
                 continue
@@ -870,11 +780,11 @@ class FMOverviewWidget(QWidget):
             )
             return
 
-        unproject = self._canvas_to_stage()
-        if unproject is None:
+        frame = self._frame()
+        if frame is None:
             return
         try:
-            target = unproject(x, y)
+            target = frame.to_stage(x, y)
         except Exception as e:
             logging.debug(f"Could not resolve the clicked position: {e}")
             return
@@ -912,11 +822,11 @@ class FMOverviewWidget(QWidget):
         around to see what it would cover. The stage goes there when the acquisition
         does.
         """
-        unproject = self._canvas_to_stage()
-        if unproject is None:
+        frame = self._frame()
+        if frame is None:
             return
         try:
-            self._target = unproject(x, y)
+            self._target = frame.to_stage(x, y)
         except Exception as e:
             logging.debug(f"Could not resolve the dragged grid position: {e}")
             return
@@ -938,12 +848,12 @@ class FMOverviewWidget(QWidget):
         if x is None or y is None:
             self.cursor_readout.setText("")
             return
-        unproject = self._canvas_to_stage()
-        if unproject is None:
+        frame = self._frame()
+        if frame is None:
             self.cursor_readout.setText("")
             return
         try:
-            self.cursor_readout.setText(self._describe(unproject(x, y)))
+            self.cursor_readout.setText(self._describe(frame.to_stage(x, y)))
         except Exception as e:
             logging.debug(f"Could not resolve the cursor position: {e}")
             self.cursor_readout.setText("")

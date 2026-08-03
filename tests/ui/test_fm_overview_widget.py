@@ -696,14 +696,14 @@ def test_an_image_without_geometry_can_still_be_marked(qapp, overview_widget):
 def test_positions_are_dropped_when_no_geometry_is_available_at_all(qapp, overview_widget):
     """Better an empty overlay than markers in plausible-looking wrong places."""
     widget = overview_widget
-    original = widget._live_geometry
-    widget._live_geometry = lambda: (None, None, None)
+    original = widget._frame
+    widget._frame = lambda: None
     try:
         widget.set_positions([_offset(widget._current_stage_position(), name="nowhere")])
         qapp.processEvents()
         assert widget.position_overlay._points == []
     finally:
-        widget._live_geometry = original
+        widget._frame = original
 
 
 def test_clearing_the_positions_clears_the_markers(qapp, overview_widget):
@@ -929,13 +929,13 @@ def test_stage_metadata_is_dropped_when_the_geometry_is_unknown(qapp, overview_w
     widget = overview_widget
     widget._displayed_image = None
     widget._origin = None
-    original = widget._live_geometry
-    widget._live_geometry = lambda: (None, None, None)
+    original = widget._frame
+    widget._frame = lambda: None
     try:
         widget._refresh_stage_metadata()
         assert widget.stage_overlay._specs == []
     finally:
-        widget._live_geometry = original
+        widget._frame = original
 
 
 def test_the_current_position_marker_follows_the_stage(qapp, overview_widget):
@@ -1036,8 +1036,7 @@ def test_a_canvas_point_resolves_to_the_position_it_was_drawn_from(interactive_w
     from fibsem.structures import FibsemStagePosition
 
     widget = interactive_widget
-    project = widget._stage_to_canvas()
-    unproject = widget._canvas_to_stage()
+    frame = widget._frame()
     base = widget._current_stage_position()
 
     for dx, dy in [(0.0, 0.0), (120e-6, 0.0), (0.0, -85e-6), (-250e-6, 375e-6)]:
@@ -1045,7 +1044,7 @@ def test_a_canvas_point_resolves_to_the_position_it_was_drawn_from(interactive_w
             x=base.x + dx, y=base.y + dy, z=base.z, r=base.r, t=base.t,
             coordinate_system=base.coordinate_system,
         )
-        resolved = unproject(*project(marked))
+        resolved = frame.to_stage(*frame.to_canvas(marked))
 
         assert resolved.x == pytest.approx(marked.x, abs=1e-12)
         assert resolved.y == pytest.approx(marked.y, abs=1e-12)
@@ -1056,9 +1055,9 @@ def test_double_clicking_moves_the_stage_to_that_point(qapp, interactive_widget,
 
     widget = interactive_widget
     monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
-    project = widget._stage_to_canvas()
+    frame = widget._frame()
     before = widget._current_stage_position()
-    point = project(before)
+    point = frame.to_canvas(before)
 
     widget._on_canvas_double_clicked(point[0] + 1200.0, point[1] - 500.0, None)
     qapp.processEvents()
@@ -1066,7 +1065,9 @@ def test_double_clicking_moves_the_stage_to_that_point(qapp, interactive_widget,
     after = widget.microscope.get_stage_position()
     assert (after.x, after.y) != (before.x, before.y), "the stage did not move"
     # and it landed under the click, which is the only claim the gesture makes
-    assert project(after) == pytest.approx((point[0] + 1200.0, point[1] - 500.0), abs=1e-6)
+    assert frame.to_canvas(after) == pytest.approx(
+        (point[0] + 1200.0, point[1] - 500.0), abs=1e-6
+    )
 
 
 def test_the_marker_follows_the_stage_after_a_double_click(qapp, interactive_widget, monkeypatch):
@@ -1241,8 +1242,7 @@ def test_the_cursor_readout_names_the_position_under_it(qapp, interactive_widget
     """A canvas you have to click to get a coordinate out of cannot be used to decide
     whether to click."""
     widget = interactive_widget
-    unproject = widget._canvas_to_stage()
-    under = unproject(1500.0, -900.0)
+    under = widget._frame().to_stage(1500.0, -900.0)
 
     widget._on_cursor_moved(1500.0, -900.0)
 
