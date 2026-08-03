@@ -187,3 +187,21 @@ def test_record_output_does_not_record_the_same_file_twice(
     assert task.lamella.task_state.outputs == {
         "final_sem": ["ref_MillTrench_final_res_01_eb.tif"]
     }
+
+
+def test_task_is_cancellation_classifies_stop_vs_failure():
+    """AutoLamellaTask._is_cancellation decides which hook event a raise produces: a user
+    Stop (cancel exc / stop event) fires task_cancelled, a real failure fires task_failed."""
+    import types
+
+    from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
+    from fibsem.cancellation import OperationCancelledError
+
+    def _isc(exc, stopped=False):
+        s = types.SimpleNamespace(task_manager=types.SimpleNamespace(is_stopped=stopped))
+        return AutoLamellaTask._is_cancellation(s, exc)
+
+    assert _isc(OperationCancelledError("x")) is True
+    assert _isc(InterruptedError("Workflow aborted by user.")) is True
+    assert _isc(ValueError("real bug")) is False
+    assert _isc(ValueError("real bug"), stopped=True) is True  # stop event set → cancelled

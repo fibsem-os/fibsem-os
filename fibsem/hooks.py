@@ -1,17 +1,19 @@
-"""Hook system for AutoLamella task lifecycle events."""
+"""Hook system for task lifecycle events.
+
+Application-agnostic on purpose: this module knows nothing about AutoLamella, Qt or the
+microscope, so any application can fire the same events. AutoLamella is the only producer
+today (see AutoLamellaTask._fire_hook and TaskManager).
+"""
 
 import logging
 import threading
 import time
+import warnings
 import yaml
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, Dict, List, Optional, Type, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
-    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from typing import Any, Callable, Dict, List, Optional, Type
 
 
 class HookEvent(str, Enum):
@@ -28,8 +30,12 @@ class HookContext:
     event: str
     task_name: str = ""
     task_type: str = ""
-    lamella_name: str = ""
-    task_state: Optional["AutoLamellaTaskState"] = None
+    # Name of the item the task ran against. Today that is always a lamella, but the
+    # hook contract stays domain-agnostic so grids (or anything else) can fire hooks.
+    item_name: str = ""
+    # Application-owned state for the run. AutoLamella passes an AutoLamellaTaskState;
+    # left untyped so this module does not depend on any one application's structures.
+    task_state: Optional[Any] = None
     error: Optional[str] = None
     timestamp: float = field(default_factory=time.time)
 
@@ -38,6 +44,50 @@ class HookContext:
         # comparisons work consistently regardless of Python version.
         if hasattr(self.event, "value"):
             self.event = self.event.value
+
+    @property
+    def lamella_name(self) -> str:
+        """Deprecated alias for item_name, kept so hooks written against the pre-rename
+        context keep working. Read-only: construct with item_name."""
+        warnings.warn(
+            "HookContext.lamella_name is deprecated, use HookContext.item_name",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.item_name
+
+
+DEFAULT_MESSAGE_TEMPLATE = "Task {task_name} {event} for {item_name}"
+
+
+def _template_fields(context: HookContext) -> Dict[str, str]:
+    """Placeholder values available to a hook message template."""
+    return {
+        "event": context.event,
+        "task_name": context.task_name,
+        "task_type": context.task_type,
+        "item_name": context.item_name,
+        "lamella_name": context.item_name,  # deprecated alias, renders pre-rename templates
+        "error": context.error or "",
+    }
+
+
+class _TemplateFieldMap(dict):
+    """Format mapping that leaves unknown placeholders untouched instead of raising.
+
+    HookManager.fire() swallows hook exceptions, so a KeyError from one bad placeholder
+    would silently drop the whole notification. Rendering `{typo}` literally makes the
+    mistake visible while the rest of the message still gets through.
+    """
+
+    def __missing__(self, key: str) -> str:
+        logging.warning(f"Hook message template references unknown field '{key}'")
+        return "{" + key + "}"
+
+
+def render_template(template: str, context: HookContext) -> str:
+    """Render a hook message template against a context."""
+    return template.format_map(_TemplateFieldMap(_template_fields(context)))
 
 
 @dataclass
@@ -73,7 +123,7 @@ class LoggingHook(Hook):
         level = getattr(logging, self.level.upper(), logging.INFO)
         logging.log(
             level,
-            f"[Hook] {context.event} | task={context.task_name} lamella={context.lamella_name} error={context.error}",
+            f"[Hook] {context.event} | task={context.task_name} item={context.item_name} error={context.error}",
         )
 
     def to_dict(self) -> dict:
@@ -93,16 +143,11 @@ class LoggingHook(Hook):
 @dataclass
 class NotificationHook(Hook):
     notification_type: str = "info"
-    message_template: str = "Task {task_name} {event} for {lamella_name}"
+    message_template: str = DEFAULT_MESSAGE_TEMPLATE
     _notify: Optional[Callable[[str, str], None]] = field(default=None, repr=False)
 
     def run(self, context: HookContext) -> None:
-        message = self.message_template.format(
-            task_name=context.task_name,
-            event=context.event,
-            lamella_name=context.lamella_name,
-            error=context.error or "",
-        )
+        message = render_template(self.message_template, context)
         if self._notify:
             self._notify(message, self.notification_type)
         else:
@@ -123,7 +168,7 @@ class NotificationHook(Hook):
             enabled=d.get("enabled", True),
             task_types=d.get("task_types", []),
             notification_type=d.get("notification_type", "info"),
-            message_template=d.get("message_template", "Task {task_name} {event} for {lamella_name}"),
+            message_template=d.get("message_template", DEFAULT_MESSAGE_TEMPLATE),
         )
 
 
@@ -169,7 +214,10 @@ class WebhookHook(Hook):
                 "event": context.event,
                 "task_name": context.task_name,
                 "task_type": context.task_type,
-                "lamella_name": context.lamella_name,
+                "item_name": context.item_name,
+                # Deprecated duplicate of item_name: the payload shipped in v0.5.1 with
+                # this key, so endpoints reading it keep working. Drop after v0.6.
+                "lamella_name": context.item_name,
                 "error": context.error,
                 "timestamp": context.timestamp,
             }
@@ -217,8 +265,10 @@ HOOK_TYPES: Dict[str, Type[Hook]] = {
 class HookManager:
     def __init__(self) -> None:
         self._hooks: List[Hook] = []
+        self._notifier: Optional[Callable[[str, str], None]] = None
 
     def register(self, hook: Hook) -> None:
+        self._apply_notifier(hook)
         self._hooks.append(hook)
 
     def fire(self, context: HookContext) -> None:
@@ -234,21 +284,28 @@ class HookManager:
             except Exception:
                 logging.exception(f"Hook '{hook.name}' failed silently")
 
-    def wire(self, parent_ui: "AutoLamellaUI") -> None:
-        """Inject runtime dependencies into hooks after loading from YAML.
+    def set_notifier(self, notify: Optional[Callable[[str, str], None]]) -> None:
+        """Supply the sink NotificationHooks deliver to, as notify(message, type).
 
-        Called after load_yaml() to attach Qt-dependent callables that cannot
-        be serialized (e.g. the _notify callable on NotificationHook).
+        Hooks loaded from YAML have no callable — it cannot be serialized — so the
+        application injects one here. It applies to hooks already registered and to
+        every hook registered afterwards, so hooks added later (e.g. from the config
+        widget) notify too instead of silently falling back to logging.
+
+        The caller owns thread-safety: hooks run on the worker thread that fired them,
+        so a Qt application should pass a signal's ``emit``. Leave unset for headless
+        runs and NotificationHook logs instead.
         """
-        if parent_ui is None:
-            return
-
-        def _notify(message: str, notification_type: str) -> None:
-            parent_ui._hook_toast_signal.emit(message, notification_type)
-
+        self._notifier = notify
         for hook in self._hooks:
-            if isinstance(hook, NotificationHook):
-                hook._notify = _notify
+            self._apply_notifier(hook)
+
+    def _apply_notifier(self, hook: Hook) -> None:
+        """Attach the notifier to a NotificationHook that does not already have one."""
+        if self._notifier is None:
+            return
+        if isinstance(hook, NotificationHook) and hook._notify is None:
+            hook._notify = self._notifier
 
     def to_dict(self) -> dict:
         return {
@@ -275,3 +332,23 @@ class HookManager:
         with open(path, "r") as f:
             d = yaml.safe_load(f) or {}
         return cls.from_dict(d)
+
+
+def fire_event(
+    hook_manager: Optional[HookManager],
+    event: str,
+    **fields: Any,
+) -> None:
+    """Fire ``event`` on ``hook_manager``, building the context from ``fields``.
+
+    A no-op when hook_manager is None, so a producer can call this unconditionally
+    instead of guarding every call site. This is the whole producer-side API: anything
+    that runs work — AutoLamella tasks today, milling or acquisition next — can emit
+    lifecycle events without importing anything else from this module.
+
+    Fires on the calling thread, so a slow hook slows the caller. HookManager.fire()
+    isolates hook exceptions, so a bad hook cannot break the producer.
+    """
+    if hook_manager is None:
+        return
+    hook_manager.fire(HookContext(event=event, **fields))
