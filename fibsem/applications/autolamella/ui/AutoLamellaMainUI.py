@@ -1542,7 +1542,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.workflow_timeline.update_from_status(status_msg)
 
             task_name = status_msg.get("task_name", "Unknown Task")
-            lamella_name = status_msg.get("lamella_name", "Unknown Lamella")
+            lamella_name = status_msg.get("item_name", "Unknown Lamella")
             current_lamella_index = status_msg.get("current_lamella_index", None)
             total_lamellae = status_msg.get("total_lamellas", None)
             current_task_index = status_msg.get("current_task_index", None)

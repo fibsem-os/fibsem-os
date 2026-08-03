@@ -467,10 +467,10 @@ class WorkflowProgressWidget(QWidget):
         elif task_status == AutoLamellaTaskStatus.Skipped:
             skip_reason = status.get("skip_reason", None)
             task_name = status.get("task_name", "")
-            lamella_name = status.get("lamella_name", "")
+            item_name = status.get("item_name", "")
             reason_str = _SKIP_REASON_LABELS.get(skip_reason, skip_reason or "Skipped")
             for i, item in enumerate(queue_items):
-                if item.lamella_name == lamella_name and item.task_name == task_name:
+                if item.lamella_name == item_name and item.task_name == task_name:
                     if 0 <= i < len(self._outer._rows):
                         self._outer._steps[i].subtitle = reason_str
                         self._outer._rows[i].refresh(self._outer._steps[i])
