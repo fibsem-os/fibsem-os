@@ -1,4 +1,6 @@
-"""LAMELLA_COMPLETED and EXPERIMENT_COMPLETED: when a unit of work is finished.
+"""ITEM_COMPLETED and EXPERIMENT_COMPLETED: when a unit of work is finished.
+
+AutoLamella's item is a lamella.
 
 Both fire on the *transition* into completeness, so a run that re-touches finished
 work stays quiet. Completion is driven through the real predicate — a workflow config
@@ -76,7 +78,7 @@ def _events(fired: List[HookContext]) -> List[str]:
 
 
 # ---------------------------------------------------------------------------
-# lamella_completed
+# item_completed (an item is a lamella here)
 # ---------------------------------------------------------------------------
 
 def test_fires_when_the_last_required_task_lands(experiment, recorder):
@@ -92,7 +94,7 @@ def test_fires_when_the_last_required_task_lands(experiment, recorder):
     lamella.task_history.append(AutoLamellaTaskState(name="MillUndercut"))
     manager._maybe_fire_lamella_completed(lamella, "MillUndercut")
 
-    assert _events(fired) == ["lamella_completed"]
+    assert _events(fired) == ["item_completed"]
     assert fired[0].item_name == lamella.name
     assert fired[0].task_name == "MillUndercut"
 
@@ -106,7 +108,7 @@ def test_fires_once_not_on_every_later_task(experiment, recorder):
     manager._maybe_fire_lamella_completed(lamella, "MillUndercut")
     manager._maybe_fire_lamella_completed(lamella, "SomeExtraTask")
 
-    assert _events(fired) == ["lamella_completed"]
+    assert _events(fired) == ["item_completed"]
 
 
 def test_a_lamella_already_finished_before_the_run_stays_quiet(experiment, recorder):

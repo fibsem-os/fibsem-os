@@ -253,8 +253,8 @@ class TaskManager:
         return bool(positions) and all(self._is_complete(p) for p in positions)
 
     def _maybe_fire_lamella_completed(self, lamella: 'Lamella', task_name: str) -> None:
-        """Fire LAMELLA_COMPLETED the first time a lamella satisfies the workflow's
-        completion predicate during this run.
+        """Fire ITEM_COMPLETED the first time a lamella satisfies the workflow's
+        completion predicate during this run. The lamella is AutoLamella's item.
 
         A lamella is the unit that gets delivered to a TEM, so this is the event
         downstream work hangs off — it lets a per-lamella artifact be produced the
@@ -265,7 +265,7 @@ class TaskManager:
         self._completed_lamella.add(lamella.name)
         fire_event(
             self.hook_manager,
-            HookEvent.LAMELLA_COMPLETED,
+            HookEvent.ITEM_COMPLETED,
             task_name=task_name,
             task_type=lamella.task_state.task_type,
             item_name=lamella.name,
@@ -275,7 +275,7 @@ class TaskManager:
     def _maybe_fire_experiment_completed(self) -> None:
         """Fire EXPERIMENT_COMPLETED once, when the last outstanding lamella finishes.
 
-        The roll-up of LAMELLA_COMPLETED: same predicate, applied to every position.
+        The roll-up of ITEM_COMPLETED: same predicate, applied to every position.
         """
         if self._experiment_was_complete or not self._all_lamella_complete():
             return
