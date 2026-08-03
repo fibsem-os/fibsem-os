@@ -245,3 +245,36 @@ def validate_tile_stage_positions(
         for tile, sp in zip(ordered, tile_stage_positions)
         if not sp.is_within_limits(limits, axes=["x", "y"])
     ]
+
+
+def raise_if_outside_stage_limits(
+    ordered: list[TilePosition],
+    tile_stage_positions: list[FibsemStagePosition],
+    limits: dict,
+) -> None:
+    """Refuse a grid the stage cannot reach, naming the tiles that put it there.
+
+    Rejected rather than trimmed. A tileset silently missing the tiles the stage ran out
+    of travel for is a mosaic that misrepresents the sample: the gaps stitch as zeros,
+    indistinguishable from dark sample, and anything downstream consuming it -- targeting,
+    correlation -- takes them for data. Better to say so before the run starts, while the
+    grid can still be moved.
+
+    Only the tiles that will actually be visited are checked: `ordered` has already had
+    the disabled ones dropped, so masking off a corner that falls outside the limits is a
+    legitimate way to make a grid acquirable.
+
+    Shared by both tilers so they refuse the same grids for the same reason -- the FM
+    runner did not check at all, which is the shape of bug this core exists to prevent.
+
+    Raises:
+        ValueError: if any tile is outside *limits*.
+    """
+    out_of_bounds = validate_tile_stage_positions(ordered, tile_stage_positions, limits)
+    if not out_of_bounds:
+        return
+    details = ", ".join(f"({r},{c})" for r, c in out_of_bounds)
+    raise ValueError(
+        f"Acquisition grid extends beyond stage limits. "
+        f"{len(out_of_bounds)} tile(s) out of bounds: {details}"
+    )

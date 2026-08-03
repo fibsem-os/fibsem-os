@@ -21,6 +21,7 @@ from fibsem.imaging.tiling.geometry import (  # noqa: E402,F401
     TilePosition,
     compute_tile_grid,
     order_tiles,
+    raise_if_outside_stage_limits,
     validate_tile_stage_positions,
 )
 from fibsem.imaging.tiling.geometry import _spiral_order  # noqa: E402,F401
@@ -250,15 +251,9 @@ class TiledAcquisitionRunner:
         for tile, sp in zip(self._ordered, self._tile_stage_positions):
             logging.info(f"Tile ({tile.row}, {tile.col}) projected: {sp.pretty}")
 
-        out_of_bounds = validate_tile_stage_positions(
+        raise_if_outside_stage_limits(
             self._ordered, self._tile_stage_positions, self.microscope._stage.limits
         )
-        if out_of_bounds:
-            details = ", ".join(f"({r},{c})" for r, c in out_of_bounds)
-            raise ValueError(
-                f"Overview acquisition grid extends beyond stage limits. "
-                f"{len(out_of_bounds)} tile(s) out of bounds: {details}"
-            )
 
         # EACH_ROW is not well-defined for SPIRAL (rows are revisited non-sequentially),
         # so promote it to EACH_TILE so focus is always fresh.

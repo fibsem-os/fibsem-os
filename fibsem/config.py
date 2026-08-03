@@ -263,6 +263,10 @@ class FeatureFlags:
     # microscope and none of its guard rails, so the menu is not offered to anyone
     # who has not asked for it (FIB-338).
     scripts_enabled: bool = False
+    # The FM Overview tab. Off while the rebuilt fluorescence overview UI is still
+    # being finished -- it sits beside the existing Overview tab and drives the same
+    # instrument, so it is offered only to people who have asked for it (FIB-432).
+    fm_overview_tab: bool = False
 
 @dataclass
 class MovementPreferences:
@@ -471,12 +475,14 @@ def apply_feature_flags(prefs: UserPreferences) -> None:
     global FEATURE_COINCIDENCE_MILLING_ENABLED
     global FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED
     global FEATURE_SCHEDULED_TASKS_ENABLED
+    global FEATURE_FM_OVERVIEW_TAB_ENABLED
     f = prefs.features
     FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = f.lamella_position_on_live_view
     FEATURE_VIEWER_MOVEMENT_EVENTS = f.viewer_movement_events
     FEATURE_COINCIDENCE_MILLING_ENABLED = f.coincidence_milling_enabled
     FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = f.sample_holder_widget
     FEATURE_SCHEDULED_TASKS_ENABLED = f.scheduled_tasks
+    FEATURE_FM_OVERVIEW_TAB_ENABLED = f.fm_overview_tab
 
     # Also update the autolamella config module which re-exports these
     try:
@@ -504,3 +510,4 @@ FEATURE_VIEWER_MOVEMENT_EVENTS = False
 FEATURE_COINCIDENCE_MILLING_ENABLED = False
 FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = False
 FEATURE_SCHEDULED_TASKS_ENABLED = False
+FEATURE_FM_OVERVIEW_TAB_ENABLED = False

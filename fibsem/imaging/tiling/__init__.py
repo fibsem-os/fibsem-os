@@ -8,6 +8,7 @@ from fibsem.imaging.tiling.geometry import (
     TilePosition,
     compute_tile_grid,
     order_tiles,
+    raise_if_outside_stage_limits,
     validate_tile_stage_positions,
 )
 from fibsem.imaging.tiling.plotting import (
@@ -33,6 +34,7 @@ __all__ = [
     "plot_stage_positions_on_image",
     "plot_tile_grid",
     "plot_tile_positions",
+    "raise_if_outside_stage_limits",
     "reproject_stage_positions_onto_image",
     "reproject_stage_positions_onto_image2",
     "validate_tile_stage_positions",

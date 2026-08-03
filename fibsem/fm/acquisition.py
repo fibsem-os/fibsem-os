@@ -1,7 +1,7 @@
 import logging
 import os
 import threading
-from dataclasses import replace
+from dataclasses import dataclass, replace
 import time
 from copy import deepcopy
 from typing import Dict, List, Optional, Tuple, Union, TYPE_CHECKING, Literal
@@ -17,6 +17,7 @@ from fibsem.imaging.tiling.geometry import (
     TilePosition,
     compute_tile_grid_from_fov,
     order_tiles,
+    raise_if_outside_stage_limits,
 )
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import (
@@ -418,6 +419,90 @@ def _to_channel_planes(data: np.ndarray, n_channels: int) -> np.ndarray:
     raise ValueError(f"Unsupported tile data dimensions: {data.ndim}")
 
 
+@dataclass(frozen=True)
+class OverviewDestination:
+    """Where one overview run's files go.
+
+    A run produces three things -- the tiles, the parameters describing them, and the
+    stitched mosaic -- and they have to land somewhere a later reader can put back
+    together. The tiles and their parameters get a directory of their own; the mosaic
+    sits beside that directory under the same name, because it is the thing anyone
+    opening the folder is actually looking for and burying it among a hundred tiles
+    would hide it.
+
+    Held as a value rather than recomputed at each call site: the tile directory is
+    chosen before the run and the mosaic path after it, so the two are minutes apart,
+    and a timestamp regenerated in between would name them differently.
+    """
+
+    basename: str
+    tiles_directory: str
+    mosaic_path: str
+
+    # Enough to step past any plausible pile-up inside one second, and low enough that a
+    # genuinely stuck loop gives up instead of spinning.
+    MAX_NAME_ATTEMPTS = 1000
+
+    @classmethod
+    def create(cls, root: str, basename: Optional[str] = None) -> "OverviewDestination":
+        """Claim a destination under *root*, making the tile directory.
+
+        The directory is made now rather than at the first tile so that a run which
+        fails immediately still leaves evidence it was attempted, and so a caller finds
+        out about an unwritable path before it moves the stage rather than after.
+
+        Raises:
+            OSError: if the directory cannot be made, or no free name was found.
+        """
+        stem = basename or f"overview-{utils.current_timestamp_v3(timeonly=True)}"
+        # The timestamp is only good to the second, and two runs can start inside one --
+        # a single-tile overview at a short exposure takes far less. Reusing the name
+        # would let the second run overwrite the first tile for tile, silently, which is
+        # the exact failure this class exists to prevent. So a taken name is stepped
+        # past: `makedirs` without `exist_ok` is what makes the check and the claim one
+        # atomic operation rather than a look-then-leap.
+        for attempt in range(1, cls.MAX_NAME_ATTEMPTS + 1):
+            candidate = stem if attempt == 1 else f"{stem}-{attempt}"
+            mosaic_path = os.path.join(root, f"{candidate}.ome.tiff")
+            tiles_directory = os.path.join(root, candidate)
+            # Both, because a run can leave a mosaic behind whose tile directory was
+            # cleaned up, and reusing that name would overwrite the mosaic instead.
+            if os.path.exists(mosaic_path):
+                continue
+            try:
+                os.makedirs(tiles_directory)
+            except FileExistsError:
+                continue
+            return cls(
+                basename=candidate,
+                tiles_directory=tiles_directory,
+                mosaic_path=mosaic_path,
+            )
+        raise OSError(
+            f"Could not find a free name for an overview under {root} after "
+            f"{cls.MAX_NAME_ATTEMPTS} attempts."
+        )
+
+    def save_mosaic(self, mosaic: FluorescenceImage) -> Optional[str]:
+        """Write the stitched mosaic, returning where it went, or None if it could not.
+
+        Failing to save is logged rather than raised: by the time this is called the
+        acquisition is over and the mosaic is in hand, so throwing would discard a
+        completed result over a filesystem problem the caller can do nothing about
+        mid-run. The return value is what tells a caller whether it landed.
+        """
+        # Stamped so a mosaic reloaded from disk still knows which run it came from --
+        # the tiles are in a directory of this name next to it.
+        mosaic.metadata.description = self.basename
+        try:
+            mosaic.save(self.mosaic_path)
+        except Exception as e:
+            logging.error(f"Failed to save the overview to {self.mosaic_path}: {e}")
+            return None
+        logging.info(f"Overview saved to: {self.mosaic_path}")
+        return self.mosaic_path
+
+
 class FMTiledAcquisitionRunner:
     """Orchestrates a fluorescence tileset acquisition as a series of discrete phases.
 
@@ -476,10 +561,13 @@ class FMTiledAcquisitionRunner:
         """
         self._setup()
         self._compute_grid()
+        # Before the loop, not after it. The parameters describe what was *requested*,
+        # so they are already known -- and writing them at the end meant a cancelled run
+        # left its tiles on disk with nothing saying what grid they belonged to.
+        self._save_parameters()
         try:
             self._autofocus_if_mode(AutoFocusMode.ONCE)
             self._run_tile_loop()
-            self._save_parameters()
         except OperationCancelledError:
             logging.info("Tileset acquisition cancelled")
             raise
@@ -680,6 +768,19 @@ class FMTiledAcquisitionRunner:
             )
             for tile in self._grid
         }
+
+        # Refuse a grid the stage cannot reach, before anything moves. The same check
+        # the beam tiler makes, through the same helper, so the two cannot come to
+        # different conclusions about the same limits. Only the tiles that will be
+        # visited: `_ordered` has the masked-off ones dropped already, so excluding a
+        # corner is a legitimate way to bring a grid back into range.
+        limits = getattr(self.microscope._stage, "limits", None)
+        if limits:
+            raise_if_outside_stage_limits(
+                self._ordered,
+                [self._tile_stage_positions[(t.row, t.col)] for t in self._ordered],
+                limits,
+            )
 
         self._init_preview_canvas()
 
@@ -1186,15 +1287,12 @@ def acquire_and_stitch_tileset(
     if not isinstance(channel_settings, list):
         channel_settings = [channel_settings]
 
-    # Create timestamp and subdirectory for tiles
-    if save_directory is not None:
-        timestamp = utils.current_timestamp_v3(timeonly=True)
-        basename = f"overview-{timestamp}"
-        tiles_directory = os.path.join(save_directory, basename)
-        os.makedirs(tiles_directory, exist_ok=True)
-    else:
-        tiles_directory = None
-    
+    destination = (
+        OverviewDestination.create(save_directory) if save_directory is not None else None
+    )
+    tiles_directory = destination.tiles_directory if destination is not None else None
+
+
     # Check if zparams is provided when z-stack is requested
     if zparams is None and overview_parameters.use_zstack:
         raise ValueError("Z-stack requested in overview parameters but no zparams provided")
@@ -1221,15 +1319,8 @@ def acquire_and_stitch_tileset(
         return None
 
     # Save overview to experiment directory
-    if save_directory is not None:
-        filepath = os.path.join(save_directory, f"{basename}.ome.tiff")
-        overview_image.metadata.description = basename
-
-        try:
-            overview_image.save(filepath)
-            logging.info(f"Overview saved to: {filepath}")
-        except Exception as e:
-            logging.error(f"Failed to save overview to {filepath}: {e}")
+    if destination is not None:
+        destination.save_mosaic(overview_image)
 
     return overview_image
 

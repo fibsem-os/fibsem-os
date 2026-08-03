@@ -278,6 +278,7 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         width: Optional[float],
         height: Optional[float] = None,
         centre: Tuple[float, float] = (0.0, 0.0),
+        refit: bool = True,
     ) -> None:
         """Always frame at least *width* x *height* metres, centred on *centre*.
 
@@ -290,6 +291,13 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
 
         A minimum, not a clip: images outside it still draw, and the view still grows to
         include them. Pass None to go back to fitting the content alone.
+
+        `refit=False` declares the area without moving the camera. The working area is
+        also what the zoom limiter measures against, so a caller may need it to keep up
+        with something that moves continuously — a planned grid being dragged — where
+        re-framing on every step would drag the view along with it. The framing is
+        recorded as already-fitted in that case, so the *next* content change does not
+        refit on account of this one either.
         """
         if width is None:
             updated = None
@@ -306,7 +314,14 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
             return
 
         self._world_extent_m = updated
-        self._fitted_extent = None  # force a refit against the new framing
+        if refit:
+            self._fitted_extent = None  # force a refit against the new framing
+        else:
+            # Adopt the new framing as though it had already been fitted. Needed even
+            # with images on screen: `_fit_extent` falls back to the working area when
+            # nothing is placed, so a bare `_after_content_change` would refit onto the
+            # new area on an empty canvas.
+            self._fitted_extent = self._fit_extent()
         self._after_content_change()
 
     @property
