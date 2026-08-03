@@ -1,4 +1,4 @@
-"""Which lifecycle hooks TaskManager fires, and when.
+"""Which lifecycle hooks TaskManager fires, and how it reports the outcome.
 
 These exercise `_run_queue` without running a real task: the queue either drains
 immediately, is stopped before it starts, or contains only items that get skipped.
@@ -9,7 +9,12 @@ from typing import List
 
 import pytest
 
-from fibsem.applications.autolamella.structures import DefectType, Experiment, Lamella
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskStatus,
+    DefectType,
+    Experiment,
+    Lamella,
+)
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import FunctionHook, HookContext, HookEvent, HookManager
 
@@ -141,3 +146,70 @@ def test_skip_fires_no_task_started_or_completed(experiment, recorder):
 
     assert "task_started" not in _events(fired)
     assert "task_completed" not in _events(fired)
+
+
+# ---------------------------------------------------------------------------
+# closing status message
+# ---------------------------------------------------------------------------
+
+def _status_messages(monkeypatch) -> List[str]:
+    """Capture the workflow_info strings the manager closes a run with."""
+    captured: List[str] = []
+    monkeypatch.setattr(
+        "fibsem.applications.autolamella.workflows.tasks.manager.update_status_ui",
+        lambda parent_ui, msg, workflow_info=None, **kw: captured.append(workflow_info),
+    )
+    return captured
+
+
+def test_a_run_that_skipped_everything_does_not_claim_completion(
+    experiment, recorder, monkeypatch, caplog
+):
+    """Every task skipped means no work happened. Reporting "All tasks completed." is
+    the same misreport as an abort claiming completion, just quieter."""
+    import logging
+
+    messages = _status_messages(monkeypatch)
+    hook_manager, _ = recorder
+    lamella = Lamella(path=experiment.path, number=1, petname="lam-1")
+    lamella.defect.state = DefectType.FAILURE
+    experiment.positions.append(lamella)
+    manager = _manager(experiment, hook_manager)
+
+    with caplog.at_level(logging.WARNING):
+        manager.run(task_names=["MillTrench"], required_lamella=[lamella.name])
+
+    assert messages[-1] == "No tasks ran: all 1 skipped."
+    # update_status_ui does not log workflow_info, so headless needs its own warning
+    assert any("all 1 were skipped" in r.message for r in caplog.records)
+
+
+def test_completion_message_counts_partial_skips(experiment, recorder):
+    hook_manager, _ = recorder
+    manager = _manager(experiment, hook_manager)
+    items = manager.queue.build_from_matrix(["MillTrench"], ["lam-1", "lam-2"])
+    manager.queue.mark_done(items[0], AutoLamellaTaskStatus.Skipped)
+    manager.queue.mark_done(items[1], AutoLamellaTaskStatus.Completed)
+
+    assert manager._completion_message() == "All tasks completed (1 skipped)."
+
+
+def test_completion_message_unchanged_when_nothing_skipped(experiment, recorder):
+    hook_manager, _ = recorder
+    manager = _manager(experiment, hook_manager)
+    items = manager.queue.build_from_matrix(["MillTrench"], ["lam-1"])
+    manager.queue.mark_done(items[0], AutoLamellaTaskStatus.Completed)
+
+    assert manager._completion_message() == "All tasks completed."
+
+
+def test_cancelled_run_keeps_its_own_message(experiment, recorder, monkeypatch):
+    """The cancelled path must not fall through to a completion message."""
+    messages = _status_messages(monkeypatch)
+    hook_manager, _ = recorder
+    manager = _manager(experiment, hook_manager)
+    manager.stop()
+
+    manager.run(task_names=["MillTrench"], required_lamella=[])
+
+    assert messages[-1] == "Workflow cancelled."

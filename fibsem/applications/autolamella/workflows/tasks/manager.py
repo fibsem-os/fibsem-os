@@ -170,7 +170,7 @@ class TaskManager:
             update_status_ui(self.parent_ui, "", workflow_info="Workflow cancelled.")
         else:
             self._fire_workflow_hook(HookEvent.WORKFLOW_COMPLETED)
-            update_status_ui(self.parent_ui, "", workflow_info="All tasks completed.")
+            update_status_ui(self.parent_ui, "", workflow_info=self._completion_message())
         print(self.experiment.task_history_dataframe())
 
     def build_run_summary_dataframe(self) -> pd.DataFrame:
@@ -212,6 +212,25 @@ class TaskManager:
 
     def _fire_workflow_hook(self, event: HookEvent) -> None:
         fire_event(self.hook_manager, event)
+
+    def _completion_message(self) -> str:
+        """Closing status line for a run that was not cancelled.
+
+        A run where everything was skipped did no work, so it must not report as a
+        completed workflow — that is the same misreport as an abort claiming
+        completion, only quieter. Warns as well as returning, because update_status_ui
+        does not log workflow_info, so a headless run would see nothing.
+        """
+        items = self.queue.items
+        if not items:
+            return "No tasks to run."
+        skipped = sum(1 for i in items if i.status is AutoLamellaTaskStatus.Skipped)
+        if skipped == len(items):
+            logging.warning(f"No tasks ran: all {skipped} were skipped.")
+            return f"No tasks ran: all {skipped} skipped."
+        if skipped:
+            return f"All tasks completed ({skipped} skipped)."
+        return "All tasks completed."
 
     def _fire_skipped_hook(self, task_name: str, item_name: str,
                            skip_reason: str, task_type: str = "") -> None:
