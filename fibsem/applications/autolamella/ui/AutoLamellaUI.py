@@ -633,7 +633,7 @@ class AutoLamellaUI(QMainWindow):
         # Assign the experiment
         self.experiment = experiment
 
-        utils.configure_logging(path=experiment.path, log_filename="logfile")
+        experiment.configure_logging()
         logging.info(f"Logging to experiment {experiment.name} at {experiment.path}")
 
         # Setup experiment connections and update UI

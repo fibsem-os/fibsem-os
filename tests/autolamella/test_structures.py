@@ -488,6 +488,34 @@ def test_create_does_not_touch_the_calling_process_logging(tmp_path):
         logging.basicConfig(handlers=[logging.NullHandler()], force=True)
 
 
+def test_configure_logging_sends_output_to_the_experiment_logfile(tmp_path):
+    """The explicit opt-in that replaces the old side effect.
+
+    A headless script gets no experiment logfile from load()/create() any more,
+    and with no handler configured Python discards anything below WARNING -- so
+    without this the output does not go somewhere else, it disappears.
+    """
+    import logging
+
+    exp = _experiment_on_disk(tmp_path / "src")
+    root = logging.getLogger()
+    saved = list(root.handlers)
+    try:
+        logfile = exp.configure_logging()
+
+        logging.info("from a standalone script")
+        for handler in root.handlers:
+            handler.flush()
+
+        assert Path(logfile) == Path(exp.path) / "logfile.log"
+        assert "from a standalone script" in Path(logfile).read_text()
+    finally:
+        for handler in list(root.handlers):
+            if handler not in saved:
+                handler.close()
+        root.handlers = saved
+
+
 def test_milling_imaging_paths_follow_a_copied_experiment(tmp_path):
     """Milling configs carry their own acquisition imaging path, copied from the
     lamella in __post_init__. Correcting `path` alone would leave acquisitions

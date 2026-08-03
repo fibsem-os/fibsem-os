@@ -24,6 +24,19 @@ for lamella in exp.positions:
 
 If a `protocol.yaml` sits next to `experiment.yaml`, it is loaded automatically into `exp.task_protocol`. That matters for two of the helpers below — see [Gotchas](#gotchas).
 
+### Logging
+
+Loading an experiment does not touch your script's logging, so `logging.info(...)` goes wherever your script already sends it — and if you have not set that up, Python discards anything below `WARNING`. Ask for the experiment's logfile explicitly if you want your output alongside the run:
+
+```python
+exp = Experiment.load("/path/to/my-experiment/experiment.yaml")
+exp.configure_logging()          # now logging.info(...) lands in the experiment folder
+
+logging.info("this shows up in <experiment>/logfile.log")
+```
+
+This reconfigures the root logger for the whole process, so a script that already logs somewhere will stop. Read-only scripts are usually better off leaving it alone — writing into the logfile of a run that may still be going mixes your lines into its record.
+
 ## What you get
 
 On the experiment:
@@ -229,7 +242,7 @@ What you return decides how it is shown:
 | a `Path` | toast, and the containing folder opens |
 | `None` | a "finished" toast |
 
-`ctx.log("...")` writes to the log file, tagged with the script name so the lines stay attributable afterwards. Plain `logging.info(...)` works too and goes to the same place, just untagged.
+`ctx.log("...")` writes to the log file, tagged with the script name so the lines stay attributable afterwards. Plain `logging.info(...)` works too and goes to the same place, just untagged. Both land in the open experiment's logfile because the app is already logging there — a script run standalone has to ask for that itself, see [Logging](#logging).
 
 ### Flags
 

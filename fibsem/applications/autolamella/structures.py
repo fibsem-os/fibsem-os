@@ -41,6 +41,7 @@ from fibsem.structures import (
     Point,
     ReferenceImageParameters,
 )
+from fibsem.utils import configure_logging as _configure_logging
 from fibsem.utils import format_duration
 
 if TYPE_CHECKING:
@@ -1339,6 +1340,28 @@ class Experiment:
         logging.info(f"Created new experiment {experiment.name} at {experiment.path}")
 
         return experiment
+
+    def configure_logging(self) -> str:
+        """Send this process's log output to the experiment's logfile.
+
+        Note this reconfigures the *root* logger: it is process-global, not
+        scoped to this experiment, and it replaces whatever handlers were set up
+        before. Two consequences worth knowing before calling it:
+
+        * a process that logs elsewhere stops doing so
+        * a second call points logging at the second experiment
+
+        ``load`` and ``create`` deliberately do not call this. Reading an
+        experiment must not reach into the caller's logging -- the load dialog
+        reads one on every click to preview it -- so the callers that do want it
+        say so. The app calls this when it adopts an experiment; a headless
+        script that wants its output in the experiment folder calls it after
+        loading or creating one. See FIB-421.
+
+        Returns:
+            The path of the logfile being written to.
+        """
+        return _configure_logging(path=self.path, log_filename="logfile")
 
     def save_protocol(self) -> None:
         """Save the task protocol to disk in the experiment directory."""
