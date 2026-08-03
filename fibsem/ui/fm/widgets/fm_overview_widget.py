@@ -637,6 +637,39 @@ class FMOverviewWidget(QWidget):
         self._positions = list(positions)
         self._refresh_positions()
 
+    def set_origin(self, position: Optional[FibsemStagePosition]) -> None:
+        """Anchor the canvas frame at *position*, or None to go back to automatic.
+
+        The origin decides only where canvas zero sits -- everything is drawn relative
+        to it, so any stage position serves. Left alone it is fixed to wherever the
+        stage was the first time anything was drawn, which is right for a widget opened
+        where the work is and wrong for one that should always describe the same place:
+        an FM canvas anchored at the offset mount while a FIB/SEM canvas is anchored at
+        the column, 48 mm away, each correctly framed (FIB-418).
+
+        Raises:
+            ValueError: if anything has been placed. Images are positioned relative to
+                the origin as it stood when they were added, so re-anchoring afterwards
+                would leave every one of them describing a position it was never
+                acquired at. Clear them first if that is really what you want --
+                silently reprojecting them would be a different feature.
+        """
+        placed = self.canvas.placed_overviews()
+        if placed:
+            raise ValueError(
+                f"Cannot re-anchor the canvas: {len(placed)} image(s) are already "
+                f"placed against the current origin. Call clear_overviews() first."
+            )
+        self._origin = position
+        self._refresh_current_position()
+        self._refresh_positions()
+        self._refresh_tile_grid()
+
+    @property
+    def origin(self) -> Optional[FibsemStagePosition]:
+        """The stage position canvas zero corresponds to, once one has been fixed."""
+        return self._origin
+
     def _frame(self) -> Optional[StageFrame]:
         """The mapping between stage space and the canvas, or None if it cannot be had.
 

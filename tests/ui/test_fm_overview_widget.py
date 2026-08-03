@@ -1321,6 +1321,76 @@ def test_a_move_clear_of_the_working_area_re_declares_it(qapp, interactive_widge
     assert (after[2], after[3]) == pytest.approx(widget._grid_offset())
 
 
+# ── anchoring the frame (FIB-418) ────────────────────────────────────────
+
+
+def test_the_frame_can_be_anchored_at_a_chosen_position(qapp, interactive_widget):
+    """So one canvas can describe the FM mount while another describes the column
+    48 mm away, each correctly framed, rather than both taking whatever the stage
+    happened to be doing when they woke up."""
+    from fibsem.structures import FibsemStagePosition
+
+    widget = interactive_widget
+    widget.canvas.clear_overviews()
+    stage = widget._current_stage_position()
+    elsewhere = FibsemStagePosition(
+        x=stage.x + 48e-3, y=stage.y, z=stage.z, r=stage.r, t=stage.t,
+        coordinate_system=stage.coordinate_system,
+    )
+    try:
+        widget.set_origin(elsewhere)
+        qapp.processEvents()
+
+        assert widget.origin is elsewhere
+        # canvas zero is now that position, and the stage is 48 mm the other way
+        assert widget._frame().to_canvas(elsewhere) == pytest.approx((0.0, 0.0))
+        assert widget.current_position_overlay._points[0][0] == pytest.approx(
+            widget._frame().to_canvas(stage)[0]
+        )
+    finally:
+        widget.set_origin(None)
+        qapp.processEvents()
+
+
+def test_anchoring_again_returns_to_following_the_stage(qapp, interactive_widget):
+    from fibsem.structures import FibsemStagePosition
+
+    widget = interactive_widget
+    widget.canvas.clear_overviews()
+    stage = widget._current_stage_position()
+    widget.set_origin(FibsemStagePosition(
+        x=stage.x + 1e-3, y=stage.y, z=stage.z, r=stage.r, t=stage.t,
+        coordinate_system=stage.coordinate_system,
+    ))
+    qapp.processEvents()
+
+    widget.set_origin(None)
+    qapp.processEvents()
+
+    # re-derived from the stage on the next use, rather than left unset
+    assert widget._frame() is not None
+    assert widget.origin.x == pytest.approx(stage.x)
+
+
+def test_the_frame_cannot_be_re_anchored_under_placed_images(qapp, interactive_widget):
+    """Images are positioned relative to the origin as it stood when they were added,
+    so moving it afterwards leaves every one describing a position it was never
+    acquired at."""
+    widget = interactive_widget
+    widget.canvas.clear_overviews()
+    widget.set_image(
+        widget.microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
+    )
+    qapp.processEvents()
+    anchored = widget.origin
+
+    with pytest.raises(ValueError, match="already"):
+        widget.set_origin(widget._current_stage_position())
+
+    assert widget.origin is anchored, "the origin moved despite the refusal"
+    widget.canvas.clear_overviews()
+
+
 def test_closing_the_widget_lets_go_of_the_stage_signal(qapp):
     """`stage_position_changed` belongs to the microscope and outlives the widget. A
     connection left behind emits into a Qt object already torn down on the C++ side,
