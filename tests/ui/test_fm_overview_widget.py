@@ -624,20 +624,22 @@ def _offset(base, dx=0.0, dy=0.0, name=""):
 
 
 def test_positions_are_marked_where_they_are(qapp, overview_widget):
+    """Markers live in the canvas frame, which is anchored on the stage position the
+    overview is built around -- so the origin is (0, 0), not the middle of some image.
+    What matters is that a known stage offset comes out as the same offset on screen."""
     widget = overview_widget
     image = widget.microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
     widget.set_image(image)
     base = image.metadata.stage_position
     pixel_size = image.metadata.pixel_size_x
-    height, width = image.data.shape[-2:]
 
     widget.set_positions([_offset(base, name="here"),
                           _offset(base, dx=20e-6, name="right")])
     qapp.processEvents()
 
     points = widget.position_overlay._points
-    assert points[0] == pytest.approx((width / 2, height / 2))
-    assert points[1] == pytest.approx((width / 2 + 20e-6 / pixel_size, height / 2))
+    assert points[0] == pytest.approx((0.0, 0.0))  # the origin the canvas is built on
+    assert points[1] == pytest.approx((20e-6 / pixel_size, 0.0))  # 20 um to the right
     assert widget.position_overlay._labels == ["here", "right"]
 
 
@@ -653,7 +655,7 @@ def test_positions_outside_the_image_are_still_marked(qapp, overview_widget):
     widget.set_positions([_offset(base, dx=300e-6, name="far")])
     qapp.processEvents()
 
-    assert widget.position_overlay._points[0][0] > width
+    assert widget.position_overlay._points[0][0] > width / 2
 
 
 def test_an_image_without_geometry_marks_nothing_rather_than_guessing(qapp, overview_widget):
@@ -725,3 +727,126 @@ def test_a_canvas_resize_goes_through_the_settings_widget(qapp, overview_widget)
     assert widget.settings_widget.parameters.rows == 4
     assert widget.settings_widget.parameters.cols == 6
     assert len(widget.tile_grid_overlay._tiles) == 24
+
+
+def test_overviews_are_kept_per_acquisition_not_per_position(qapp, overview_widget):
+    """A small overview and a wider one taken over the same area at different times are
+    both worth keeping. Keying on position would silently drop the first; keying on the
+    acquisition timestamp keeps both, and still replaces an image shown twice."""
+    import copy
+
+    widget = overview_widget
+    # The fixture is shared, and overviews now accumulate by design — so start clean
+    # rather than counting whatever earlier tests left behind.
+    widget.canvas.clear_overviews()
+    small = widget.microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
+    widget.set_image(small)
+    qapp.processEvents()
+
+    wide = copy.deepcopy(small)
+    wide.metadata.acquisition_date = "2026-07-31T19:00:00"
+    wide.metadata.pixel_size_x = small.metadata.pixel_size_x * 3
+    wide.metadata.pixel_size_y = small.metadata.pixel_size_y * 3
+    widget.set_image(wide)
+    qapp.processEvents()
+
+    def overviews():
+        # Only what set_image placed: the fixture seeds the canvas directly, which
+        # lands under the widget's default key rather than an overview one.
+        return [k for k in widget.canvas.canvas.placed_keys if k.startswith("overview@")]
+
+    assert len(overviews()) == 2, "the wider overview replaced the detailed one"
+
+    widths = sorted(
+        widget.canvas.canvas._placed[k].extent[1]
+        - widget.canvas.canvas._placed[k].extent[0]
+        for k in overviews()
+    )
+    assert widths[1] == pytest.approx(widths[0] * 3)  # each at its own scale
+
+    widget.set_image(small)  # showing one again must not draw a second copy
+    qapp.processEvents()
+    assert len(overviews()) == 2
+
+
+def test_the_first_preview_frame_lands_at_the_right_scale(qapp, overview_widget):
+    """`set_channel` composites and places immediately, so the key, placement and pixel
+    size have to be set before it. Establishing them afterwards applied them a tick late:
+    the first frame of a run landed under the previous run's key at the previous run's
+    pixel size, drawing it at the wrong size on top of a finished overview."""
+    import numpy as np
+
+    widget = overview_widget
+    stride = 3
+    tile_ps = widget.fm.camera.pixel_size[0]
+    preview = np.zeros((1, 64, 128), dtype=np.uint8)  # (C, H, W), already decimated
+
+    widget._show_preview({"image": preview, "preview_stride": stride})
+    qapp.processEvents()
+
+    placed = widget.canvas.canvas._placed
+    assert "fm-preview" in placed, "the first preview frame was dropped"
+
+    extent = placed["fm-preview"].extent
+    reference = widget.canvas.canvas.reference_pixel_size
+    # 128 decimated pixels at `stride` times the tile pixel size cover 128 * stride
+    # tiles-worth of ground, whatever the canvas reference happens to be.
+    expected = 128 * (tile_ps * stride) / reference
+    assert extent[1] - extent[0] == pytest.approx(expected)
+
+
+def test_toggling_a_tile_leaves_the_view_alone(qapp, overview_widget):
+    """A tile toggle comes through the same refresh as a grid resize. Re-framing on one
+    throws away the user's zoom, which reads on screen as clicking a tile zooming the
+    view — the bug #245 fixed, and which declaring the working area on every refresh
+    quietly reintroduced."""
+    widget = overview_widget
+    widget.settings_widget.parameters = OverviewParameters(rows=3, cols=3, overlap=0.1)
+    qapp.processEvents()
+
+    ax = widget.canvas.canvas._ax
+    ax.set_xlim(-100, 100)
+    ax.set_ylim(100, -100)
+    zoomed = (tuple(ax.get_xlim()), tuple(ax.get_ylim()))
+
+    widget._on_tile_toggled(0, 0, False)
+    qapp.processEvents()
+
+    assert (tuple(ax.get_xlim()), tuple(ax.get_ylim())) == zoomed
+
+
+def test_resizing_the_grid_does_reframe(qapp, overview_widget):
+    """The counterpart: a grid that no longer fits the view is worth re-framing for."""
+    widget = overview_widget
+    widget.settings_widget.parameters = OverviewParameters(rows=3, cols=3, overlap=0.1)
+    qapp.processEvents()
+
+    ax = widget.canvas.canvas._ax
+    ax.set_xlim(-100, 100)
+    ax.set_ylim(100, -100)
+    zoomed = (tuple(ax.get_xlim()), tuple(ax.get_ylim()))
+
+    widget.settings_widget.set_grid_size(5, 5)
+    qapp.processEvents()
+
+    assert (tuple(ax.get_xlim()), tuple(ax.get_ylim())) != zoomed
+
+
+def test_the_grid_keeps_its_scale_under_a_decimated_preview(qapp, overview_widget):
+    """The live preview is coarser than a tile. The grid is drawn in canvas coordinates,
+    whose scale is fixed by the canvas reference — so the preview's stride must not
+    reach it. Getting this wrong drew the grid stride times too large over the very
+    image it describes."""
+    import numpy as np
+
+    widget = overview_widget
+    widget.settings_widget.parameters = OverviewParameters(rows=3, cols=3, overlap=0.1)
+    qapp.processEvents()
+    before = widget.tile_grid_overlay._rect_for(widget.tile_grid_overlay._tiles[0])
+
+    widget._show_preview({"image": np.zeros((1, 256, 256), np.uint8), "preview_stride": 4})
+    qapp.processEvents()
+
+    after = widget.tile_grid_overlay._rect_for(widget.tile_grid_overlay._tiles[0])
+    assert after[2] == pytest.approx(before[2])
+    assert after[3] == pytest.approx(before[3])

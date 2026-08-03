@@ -51,6 +51,29 @@ _ORIGIN_MARKER_SIZE = 11  # points; fixed on screen, so zoom-independent
 _DEFAULT_DISPLAY_PX = 512
 
 
+def _require_displayable(data: np.ndarray) -> None:
+    """Reject anything that is not a single displayable picture, before anything mutates.
+
+    This canvas places pictures, not stacks: z is projected and channels are composited
+    *before* an image gets here, because neither has a single answer once many images are
+    on screen at once. Scrubbing z across tiles that were acquired over different ranges,
+    or contrasting one tile independently of its neighbours, are questions the placement
+    layer cannot answer — so they belong to whatever owns the channels.
+
+    Without this check matplotlib raises from inside ``imshow`` instead, by which point
+    :meth:`FibsemRealSpaceCanvas.add_image` has already dropped the image previously held
+    under that key — so a bad call would destroy a good picture.
+    """
+    if data.ndim == 2:
+        return
+    if data.ndim == 3 and data.shape[2] in (3, 4):
+        return
+    raise ValueError(
+        f"expected a 2-D image or (H, W, 3|4) RGB(A), got shape {data.shape}. "
+        "Project z and composite channels before placing."
+    )
+
+
 @dataclass
 class PlacedImage:
     """One image on the canvas, with the extent it was drawn at (canvas pixels)."""
@@ -93,6 +116,13 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         if reference_pixel_size:
             self._pixel_size = reference_pixel_size  # drives the scalebar
 
+        # Square pixels from the outset, not just once an image happens to arrive.
+        # imshow sets this per-artist, so an empty canvas would otherwise be "auto":
+        # the axes would stretch to the widget and draw a square grid as a rectangle --
+        # a resize alone distorted it 3x. Overlays are drawn in this frame whether or
+        # not anything has been acquired, so the frame has to be honest first.
+        self._ax.set_aspect("equal", adjustable="box")
+
         self.set_background_color(_DEFAULT_BACKGROUND)
         # Contrast/gamma acts on a single frame; there is no meaning yet for "the"
         # image here, so don't offer a control that would silently do nothing.
@@ -121,6 +151,7 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         key: Optional[str] = None,
         cmap: str = "gray",
         zorder: Optional[float] = None,
+        covers: Optional[Tuple[float, float]] = None,
     ) -> str:
         """Place *data* centred on *centre* (metres), at *pixel_size* metres/px.
 
@@ -132,10 +163,16 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         earlier one where they overlap. Pass *zorder* when that is the wrong answer —
         a coarse overview belongs *under* the detailed tiles acquired over it,
         regardless of which arrived first.
+
+        The ground an image covers is normally its shape times *pixel_size*. Pass
+        *covers* as ``(width, height)`` in metres when the array is a *reduced*
+        representation of something larger — a decimated preview, or a composite blended
+        at display resolution — so it is placed at the size it represents rather than
+        the size it is stored at. *pixel_size* then describes the source, and still
+        decides how this image sorts against others by detail.
         """
         data = np.asarray(data)
-        if data.ndim < 2:
-            raise ValueError(f"image data must be at least 2-D, got shape {data.shape}")
+        _require_displayable(data)
         if not pixel_size or pixel_size <= 0:
             raise ValueError(f"pixel_size must be positive, got {pixel_size!r}")
 
@@ -152,7 +189,7 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         if existing is not None:
             self._remove_artist(existing)
 
-        extent = self._extent_for(data.shape, centre, pixel_size)
+        extent = self._extent_for(data.shape, centre, pixel_size, covers)
         shown = _downsample(data, self._display_max_px)
         kw = {} if zorder is None else {"zorder": zorder}
         artist = self._ax.imshow(
@@ -183,7 +220,9 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         placed = self._placed.get(key)
         if placed is None:
             return False
-        placed.artist.set_data(_downsample(np.asarray(data), self._display_max_px))
+        data = np.asarray(data)
+        _require_displayable(data)
+        placed.artist.set_data(_downsample(data, self._display_max_px))
         self.draw_idle()
         return True
 
@@ -212,6 +251,25 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         self._fitted_extent = None
         super().clear()
 
+    def set_reference_pixel_size(self, pixel_size: float) -> bool:
+        """Fix the canvas scale before anything is placed.
+
+        Normally the first image supplies it. Setting it up front lets a caller draw in
+        the canvas frame — a planned tile grid, stage markers — while the canvas is still
+        empty, which is exactly when a *planned* overlay is most useful.
+
+        Refuses once images are placed: their extents were computed against the current
+        scale, so changing it would move everything already drawn. Returns whether it
+        was applied.
+        """
+        if self._placed or not pixel_size or pixel_size <= 0:
+            return False
+        self._reference_pixel_size = float(pixel_size)
+        self._pixel_size = float(pixel_size)
+        self._refresh_scalebar()
+        self._after_content_change()
+        return True
+
     def set_world_extent(
         self,
         width: Optional[float],
@@ -231,12 +289,20 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         include them. Pass None to go back to fitting the content alone.
         """
         if width is None:
-            self._world_extent_m = None
+            updated = None
         else:
             height = width if height is None else height
             if width <= 0 or height <= 0:
                 raise ValueError(f"world extent must be positive, got {width}x{height}")
-            self._world_extent_m = (width, height, centre[0], centre[1])
+            updated = (width, height, centre[0], centre[1])
+
+        if updated == self._world_extent_m:
+            # Idempotent: re-declaring the same working area is not a change, and
+            # refitting anyway would throw away the user's zoom every time a caller
+            # restated it — which one doing so on each settings change duly did.
+            return
+
+        self._world_extent_m = updated
         self._fitted_extent = None  # force a refit against the new framing
         self._after_content_change()
 
@@ -365,9 +431,19 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         shape: Tuple[int, ...],
         centre: Tuple[float, float],
         pixel_size: float,
+        covers: Optional[Tuple[float, float]] = None,
     ) -> Tuple[float, float, float, float]:
-        """Where an image of *shape* centred on *centre* (metres) lands, in canvas px."""
+        """Where an image of *shape* centred on *centre* (metres) lands, in canvas px.
+
+        *covers* overrides the ground derived from shape x pixel size, for an array that
+        is a reduced representation of something larger.
+        """
         ref = self._reference_pixel_size or pixel_size
+        if covers is not None:
+            half_w = covers[0] / ref / 2.0
+            half_h = covers[1] / ref / 2.0
+            cx, cy = centre[0] / ref, centre[1] / ref
+            return (cx - half_w, cx + half_w, cy + half_h, cy - half_h)
         height, width = shape[0], shape[1]
         scale = pixel_size / ref  # canvas pixels per image pixel
         half_w = width * scale / 2.0
@@ -410,24 +486,20 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         except (ValueError, NotImplementedError, AttributeError):
             pass
 
-    def _sync_placeholder(self) -> None:
-        """Show "No image" only while nothing is placed.
+    def _plot_empty(self) -> None:
+        """No "No image" placeholder — the empty backdrop already says it.
 
-        This canvas never calls ``ax.cla()`` — that is the whole point, since the axes
-        accumulate images — so the placeholder has to be taken away and put back by hand.
+        On a canvas that fills the view with one image, blank axes are ambiguous and the
+        text resolves it. Here the black backdrop *is* the statement: it means "nothing
+        acquired here", and it stays meaningful once images arrive, since the gaps
+        between them carry the same meaning. The text would also sit in the middle of
+        the planned tile grid, which is drawn before any acquisition.
         """
-        if self._placed and self._empty_artist is not None:
-            try:
-                self._empty_artist.remove()
-            except (ValueError, NotImplementedError):
-                pass
-            self._empty_artist = None
-        elif not self._placed and self._empty_artist is None:
-            self._plot_empty()
+        self._ax.set_facecolor(self._facecolor)
+        self._ax.axis("off")
 
     def _after_content_change(self) -> None:
         """Refit if the footprint changed, refresh chrome, and tell the overlays."""
-        self._sync_placeholder()
         extent = self._fit_extent()
         if self.auto_fit and extent != self._fitted_extent:
             self._fit_view()

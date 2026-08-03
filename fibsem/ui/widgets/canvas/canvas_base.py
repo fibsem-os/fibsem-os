@@ -215,7 +215,6 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._scalebar_visible: bool = True
         self._crosshair_visible: bool = True
         self._crosshair_artists: list = []
-        self._empty_artist = None  # "No image" placeholder; see _plot_empty
         self._hint_artist = None  # transient top-left instruction hint
         self._hint_text: Optional[str] = None  # remembered so it survives set_image
         self._title_artist = None  # top-centre image caption (e.g. FM z-slice)
@@ -819,9 +818,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
     def _plot_empty(self):
         self._ax.set_facecolor(self._facecolor)
         self._ax.axis("off")
-        # Kept so a subclass that never calls ax.cla() (one drawing many placed images)
-        # can take the placeholder away once it has content to show.
-        self._empty_artist = self._ax.text(
+        self._ax.text(
             0.5,
             0.5,
             "No image",

@@ -76,6 +76,7 @@ class TileGridOverlay(QObject, CanvasOverlay):
         self._canvas: Optional["FibsemImageCanvas"] = None
         self._artists: list = []
         self._rect: Optional["ContentRect"] = None  # canvas content bounds
+        self._anchor_point: Optional[Tuple[float, float]] = None  # see set_anchor
         self._previous_margin: Optional[float] = None
         self._cids: List[int] = []
         self._resize_axes: Optional[Tuple[bool, bool]] = None  # (horizontal, vertical)
@@ -117,13 +118,30 @@ class TileGridOverlay(QObject, CanvasOverlay):
         self._redraw()
 
     def _content(self) -> Optional["ContentRect"]:
-        """Content bounds, or None if the canvas has not reported usable ones yet.
-
-        The grid is centred on the content — today the displayed image, and under a
-        real-space canvas the region the tiles are planned around.
-        """
+        """Content bounds, or None if the canvas has not reported usable ones yet."""
         rect = self._rect
         return None if rect is None or rect.is_empty else rect
+
+    def set_anchor(self, centre: Optional[Tuple[float, float]]) -> None:
+        """Centre the grid on *centre* in canvas coordinates, or None to follow content.
+
+        A tileset is planned around a *stage position*, not around whatever is currently
+        displayed. On a canvas showing one image those coincide, which is why following
+        the content worked; on a real-space canvas they do not — the content centre is
+        wherever the acquired images happen to average out, and it moves as more arrive.
+
+        Anchoring explicitly also lets the grid be drawn before anything is acquired,
+        which is when a planned grid is most useful.
+        """
+        self._anchor_point = None if centre is None else (float(centre[0]), float(centre[1]))
+        self._redraw()
+
+    def _anchor(self) -> Optional[Tuple[float, float]]:
+        """Where the grid is centred, or None if there is nothing to centre it on."""
+        if self._anchor_point is not None:
+            return self._anchor_point
+        rect = self._content()
+        return None if rect is None else (rect.cx, rect.cy)
 
     # ── content ──────────────────────────────────────────────────────────
 
@@ -255,10 +273,9 @@ class TileGridOverlay(QObject, CanvasOverlay):
 
         # The grid is centred on the content centre, matching the runner: it measures
         # from the top-left tile and shifts so the grid straddles the start position.
-        # Callers guard on _content(); the (0, 0) fallback keeps this total.
-        rect = self._content()
-        cx = rect.cx if rect is not None else 0.0
-        cy = rect.cy if rect is not None else 0.0
+        # Callers guard on _anchor(); the (0, 0) fallback keeps this total.
+        anchor = self._anchor()
+        cx, cy = anchor if anchor is not None else (0.0, 0.0)
         origin_x = cx - span_w / 2
         origin_y = cy - span_h / 2
 
@@ -271,7 +288,7 @@ class TileGridOverlay(QObject, CanvasOverlay):
 
     def _redraw(self) -> None:
         self._remove_artists()
-        if self._ax is None or not self._tiles or self._content() is None or not self._visible:
+        if self._ax is None or not self._tiles or self._anchor() is None or not self._visible:
             # Still repaint: removing the artists takes them out of the axes, but the
             # canvas keeps showing the last render until it is asked to redraw -- so
             # returning early here left a hidden grid on screen.
@@ -350,13 +367,13 @@ class TileGridOverlay(QObject, CanvasOverlay):
         boolean because the hover cursor has to name a *corner* -- top-left and
         top-right want opposite diagonals -- and "on both axes" cannot distinguish them.
         """
-        rect = self._content()
-        if not self._tiles or self._tile_shape[1] <= 0 or rect is None:
+        anchor = self._anchor()
+        if not self._tiles or self._tile_shape[1] <= 0 or anchor is None:
             return 0, 0
 
         span_w, span_h = self._extent()
-        left = rect.cx - span_w / 2
-        top = rect.cy - span_h / 2
+        left = anchor[0] - span_w / 2
+        top = anchor[1] - span_h / 2
         # Proportional to a tile rather than a fixed pixel count, so the grab zone
         # stays usable at any zoom without querying the transform.
         tolerance = self._tile_shape[1] * self._scale() * EDGE_GRAB_FRACTION
@@ -469,8 +486,8 @@ class TileGridOverlay(QObject, CanvasOverlay):
             return
         if event.xdata is None or event.ydata is None:
             return
-        rect = self._content()
-        if not self._tiles or rect is None:
+        anchor = self._anchor()
+        if not self._tiles or anchor is None:
             # The grid can be cleared mid-drag -- `_refresh_tile_grid` does exactly
             # that if the camera geometry cannot be read -- and the row/column counts
             # below are derived from the tiles, so this would raise on an empty max().
@@ -484,11 +501,11 @@ class TileGridOverlay(QObject, CanvasOverlay):
 
         if horizontal:
             cols = self._count_for(
-                abs(event.xdata - rect.cx), tile_w * scale
+                abs(event.xdata - anchor[0]), tile_w * scale
             )
         if vertical:
             rows = self._count_for(
-                abs(event.ydata - rect.cy), tile_h * scale
+                abs(event.ydata - anchor[1]), tile_h * scale
             )
 
         self.grid_resize_requested.emit(rows, cols)

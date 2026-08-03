@@ -11,6 +11,7 @@ are Phase 6b.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -26,7 +27,9 @@ from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.widgets.canvas.fm_composite import (
     AVAILABLE_COLORS, FMLayer, auto_clim, composite_fm_layers,
 )
+from fibsem.ui.widgets.canvas.canvas_base import FibsemCanvasBase, _downsample
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.real_space_canvas import FibsemRealSpaceCanvas
 
 if TYPE_CHECKING:
     from fibsem.fm.structures import FluorescenceImage
@@ -170,11 +173,21 @@ class _ChannelRow(QFrame):
 
 
 class FMCanvasWidget(QWidget):
-    """FibsemImageCanvas + per-channel FM layer model + composite + layers popover."""
+    """FibsemImageCanvas + per-channel FM layer model + composite + layers popover.
+
+    The channel model, the layers popover and the z-scrubbing are independent of *how*
+    the blended frame is shown, so a subclass can swap the canvas (:meth:`_make_canvas`)
+    and how the composite reaches it (:meth:`_show_composite`) while keeping all of it —
+    see :class:`FMRealSpaceCanvasWidget`.
+    """
+
+    def _make_canvas(self) -> FibsemCanvasBase:
+        """The canvas this widget composites onto."""
+        return FibsemImageCanvas()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.canvas = FibsemImageCanvas()
+        self.canvas = self._make_canvas()
         self._layers: List[FMLayer] = []
         self._pixel_size: Optional[float] = None
         self._canvas_shape: Optional[Tuple[int, int]] = None  # drawn-axes shape
@@ -309,16 +322,35 @@ class FMCanvasWidget(QWidget):
 
     # ── display ───────────────────────────────────────────────────────────
 
+    def _composite_inputs(self) -> Tuple[List[FMLayer], Optional[Tuple[int, int]]]:
+        """The layers to blend and the shape to blend them at.
+
+        A subclass that shows the composite smaller than it is can substitute reduced
+        planes here, so the blend costs what is displayed rather than what was acquired.
+        """
+        return self._layers, self._shape
+
     def _recomposite(self) -> None:
-        shape = self._shape
-        rgb = composite_fm_layers(self._layers, shape)
+        layers, shape = self._composite_inputs()
+        rgb = composite_fm_layers(layers, shape)
         if rgb is None:
             return
         h, w = rgb.shape[:2]
-        if self._canvas_shape != (h, w):
+        reshaped = self._canvas_shape != (h, w)
+        self._canvas_shape = (h, w)
+        self._show_composite(rgb, reshaped)
+
+    def _show_composite(self, rgb: np.ndarray, reshaped: bool) -> None:
+        """Put the blended RGB frame on the canvas.
+
+        The only place compositing touches the canvas, and so the seam a subclass
+        overrides to display the same frame differently — placed in stage space rather
+        than filling the view. *reshaped* is True when the frame's pixel dimensions
+        changed, which is the expensive path; the steady state swaps pixels only.
+        """
+        if reshaped:
             # (re)build axes + scalebar at this shape and show the composite
             # directly — no fake single-channel FibsemImage needed
-            self._canvas_shape = (h, w)
             self.canvas.set_array(rgb, pixel_size=self._pixel_size)
         else:
             self.canvas.update_display(rgb)  # steady state: swap pixels only
@@ -418,6 +450,196 @@ class FMCanvasWidget(QWidget):
         super().resizeEvent(event)
         if self._panel.isVisible():
             self._position_panel()
+
+
+class FMRealSpaceCanvasWidget(FMCanvasWidget):
+    """FM channel model and layer controls, composited onto a real-space canvas.
+
+    Identical to :class:`FMCanvasWidget` above the display: the same channel stacks, the
+    same layers popover, the same z-scrubbing. The difference is where the blended frame
+    lands — placed at the stage position it was acquired at, on a black stage-space
+    backdrop, rather than filling the view.
+
+    That placement is what lets overlays work in stage coordinates: a planned tile grid
+    can be drawn before anything is acquired, and position markers do not depend on there
+    being an image to reproject onto.
+
+    Layers are shared across everything placed, which is right for an overview — a mosaic
+    should render uniformly, and per-image contrast would emphasise the seams rather than
+    hide them. See FIB-415 for the per-image case.
+
+    **The canvas is not FM-only.** It knows nothing about modality: ``add_image`` takes
+    any 2-D or RGB array with a position and a pixel size, so a caller can place FIB or
+    SEM images alongside the composite and they will register with it in stage space::
+
+        widget.canvas.add_image(sem_data, centre=(x, y), pixel_size=ps, zorder=-1)
+
+    This widget only manages the one key it composites into (:attr:`COMPOSITE_KEY`), so
+    anything else placed is left alone by a layer change. What is FM-specific here is the
+    *controls* — channels, blending, the layers popover — not the display.
+    """
+
+    COMPOSITE_KEY = "fm-composite"
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._placement: Tuple[float, float] = (0.0, 0.0)
+        self._composite_key: str = self.COMPOSITE_KEY
+        # Channel planes of everything placed, so a layer change can re-render images
+        # composited long ago. Only the newest is in `_layers`; the rest are here.
+        self._held: Dict[str, Dict[str, np.ndarray]] = {}
+
+    def _make_canvas(self) -> FibsemCanvasBase:
+        return FibsemRealSpaceCanvas()
+
+    # ── placement ─────────────────────────────────────────────────────────
+
+    def set_composite_key(self, key: str) -> None:
+        """Choose which placed image subsequent channel data composites into.
+
+        Re-using a key replaces that image; a new key adds one. So a second overview
+        acquired somewhere else joins the first on the canvas rather than replacing it,
+        which is the reason for placing things in stage space at all.
+        """
+        self._composite_key = key
+
+    def placed_overviews(self) -> List[str]:
+        """Keys of everything this widget has composited, oldest first."""
+        return list(self._held)
+
+    def clear_overviews(self) -> None:
+        """Drop every composited image, leaving overlays and the channel model alone."""
+        for key in list(self._held):
+            self.canvas.remove_image(key)
+        self._held.clear()
+
+    def set_placement(self, centre: Tuple[float, float]) -> None:
+        """Where the composite sits, in metres from the canvas origin.
+
+        Set before the frame it applies to. The caller projects a stage position into
+        the display plane (see :mod:`fibsem.fm.reprojection`); this widget only carries
+        the result through to the canvas.
+        """
+        self._placement = (float(centre[0]), float(centre[1]))
+
+    def set_world_extent(self, width: Optional[float], height: Optional[float] = None,
+                         centre: Tuple[float, float] = (0.0, 0.0)) -> None:
+        """Declare the working area the canvas represents — see the canvas method."""
+        self.canvas.set_world_extent(width, height, centre)
+
+    # ── display ───────────────────────────────────────────────────────────
+
+    def _show_composite(self, rgb: np.ndarray, reshaped: bool) -> None:
+        """Place the composite, rather than letting it fill the view.
+
+        A reshaped frame has to be re-placed, since its extent depends on its pixel
+        dimensions; otherwise the pixels are swapped in place, which keeps the artist and
+        so its position and draw order.
+        """
+        if not self._pixel_size:
+            return  # nothing to scale against; the caller has not said how big a pixel is
+        key = self._composite_key
+        # The composite is blended at display resolution, so it has fewer pixels than
+        # the data it represents while covering the same ground. Placement is by pixel
+        # size, so the reduction has to be spent there -- otherwise a mosaic reduced 10x
+        # is placed a tenth of its size, which is what happened when the blend first
+        # moved to display resolution and the pixel size did not follow.
+        # The composite is blended at display resolution, so it holds fewer pixels than
+        # the data it represents while covering the same ground. Say so explicitly
+        # rather than letting the canvas infer the ground from shape x pixel size --
+        # inferring placed a mosaic reduced 10x at a tenth of its size.
+        covers = None
+        if self._shape:
+            covers = (self._shape[1] * self._pixel_size, self._shape[0] * self._pixel_size)
+        # Keep this image's planes, so a later layer change can re-render it once its
+        # channels are no longer the ones in `_layers`.
+        self._held[key] = {
+            layer.name: layer.data for layer in self._layers if layer.data is not None
+        }
+        if reshaped or key not in self.canvas.placed_keys:
+            self.canvas.add_image(
+                rgb,
+                centre=self._placement,
+                pixel_size=self._pixel_size,
+                key=key,
+                covers=covers,
+                # Ordered by the *acquired* pixel size: how much detail an image holds
+                # is a property of the data, not of the blend.
+                zorder=self._detail_zorder(self._pixel_size),
+            )
+        else:
+            self.canvas.update_image(key, rgb)
+        self._restyle_others(key)
+
+    def _reduce(self, plane: np.ndarray) -> np.ndarray:
+        """A plane at the resolution the canvas will actually store.
+
+        `_downsample` strides, so this is a view rather than a copy — the reduction
+        itself costs nothing, and the blend that follows costs what is displayed.
+        """
+        return _downsample(np.asarray(plane), self.canvas._display_max_px)
+
+    def _composite_inputs(self) -> Tuple[List[FMLayer], Optional[Tuple[int, int]]]:
+        """Blend at display resolution, not acquisition resolution.
+
+        The canvas decimates whatever it is handed, so blending a full mosaic first
+        computes ~99% of a result that is then thrown away — 153 ms per layer change for
+        a 1x5 overview, against 2.6 ms reduced, and it is the layer sliders that fire it
+        continuously. Blending the reduced planes is the same picture for the cost of the
+        pixels that survive.
+        """
+        reduced = [
+            replace(layer, data=self._reduce(layer.data), _clim_cache=None)
+            if layer.data is not None else layer
+            for layer in self._layers
+        ]
+        first = next((layer.data for layer in reduced if layer.data is not None), None)
+        return reduced, (first.shape[:2] if first is not None else self._shape)
+
+    @staticmethod
+    def _detail_zorder(pixel_size: float) -> float:
+        """Draw finer images over coarser ones, whatever order they arrived in.
+
+        Arrival order is the wrong answer here. A wide, coarse overview acquired *after*
+        a detailed one covers the same ground, so by default it would hide the better
+        data underneath it — and the more detail an image has, the more it deserves to
+        be on top. Ordering by pixel size instead means a coarse survey always sits
+        behind whatever was taken at higher resolution over it.
+        """
+        return -pixel_size * 1e9  # nanometres/px, negated: smaller pixels draw on top
+
+    def _restyle_others(self, current: str) -> None:
+        """Re-render everything except *current* under the present layer settings.
+
+        Layers are display state shared by everything placed; the pixels are not. So a
+        colour or contrast change has to be applied to each held image's own planes,
+        which is why they are kept. Without this, changing a channel's colour would
+        recolour the newest overview and leave the others as they were — the same data
+        drawn two different ways, side by side.
+        """
+        for key, planes in self._held.items():
+            if key == current or key not in self.canvas.placed_keys:
+                continue
+            layers = [
+                replace(layer, data=self._reduce(planes[layer.name]), _clim_cache=None)
+                for layer in self._layers
+                if layer.name in planes
+            ]
+            if not layers:
+                continue
+            shape = layers[0].data.shape[:2]
+            rgb = composite_fm_layers(layers, shape)
+            if rgb is not None:
+                self.canvas.update_image(key, rgb)
+
+    def set_pixel_size(self, pixel_size: Optional[float]) -> None:
+        """Record the scale without touching the canvas's own.
+
+        The base assigns `canvas.pixel_size` to drive the scalebar, but here the canvas
+        takes its scale from the placed image instead — assigning it directly would set a
+        scalebar that disagrees with what is drawn.
+        """
+        self._pixel_size = pixel_size
 
 
 class FMLayersPanel(QFrame):
