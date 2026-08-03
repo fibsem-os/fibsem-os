@@ -11,7 +11,7 @@ worker thread. ``FunctionWorker`` logs every failure and delivers ``returned`` /
 ``finished`` on the thread that created it.
 
 Deliberately *not* covered: the driver layer (``fibsem/microscope.py``, ``fibsem/fm/microscope.py``)
-and the workflow hooks (``workflows/tasks/hooks.py``). Those are Qt-free by design, and
+and the workflow hooks (``fibsem/hooks.py``). Those are Qt-free by design, and
 ``FunctionWorker`` is a ``QObject`` — pulling it in there would drag Qt into non-GUI code.
 
 These checks read source rather than importing it, deliberately: CI installs neither PyQt5 nor
@@ -106,7 +106,7 @@ def test_non_gui_layers_are_left_alone():
     for relpath in (
         "fibsem/microscope.py",
         "fibsem/fm/microscope.py",
-        "fibsem/applications/autolamella/workflows/tasks/hooks.py",
+        "fibsem/hooks.py",
     ):
         src = (REPO_ROOT / relpath).read_text()
         assert "FunctionWorker" not in src, (

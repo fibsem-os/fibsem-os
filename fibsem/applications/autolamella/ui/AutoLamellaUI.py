@@ -83,7 +83,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
-from fibsem.applications.autolamella.workflows.tasks.hooks import (
+from fibsem.hooks import (
     HookEvent,
     HookManager,
     LoggingHook,
@@ -1113,7 +1113,7 @@ class AutoLamellaUI(QMainWindow):
                 name="completion_toast",
                 events=[HookEvent.TASK_COMPLETED],
                 notification_type="success",
-                message_template="Task {task_name} complete for {lamella_name}",
+                message_template="Task {task_name} complete for {item_name}",
             )
         )
         manager.register(
@@ -1129,10 +1129,11 @@ class AutoLamellaUI(QMainWindow):
                 name="cancellation_toast",
                 events=[HookEvent.TASK_CANCELLED],
                 notification_type="warning",
-                message_template="Task {task_name} cancelled for {lamella_name}",
+                message_template="Task {task_name} cancelled for {item_name}",
             )
         )
-        manager.wire(self)
+        # Signals are thread-safe to emit; hooks fire on the task worker thread.
+        manager.set_notifier(self._hook_toast_signal.emit)
         return manager
 
     #### UI UPDATES

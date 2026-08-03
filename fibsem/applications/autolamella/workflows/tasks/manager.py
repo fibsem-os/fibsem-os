@@ -12,7 +12,7 @@ import pandas as pd
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 from fibsem.cancellation import OperationCancelledError
-from fibsem.applications.autolamella.workflows.tasks.hooks import HookContext, HookEvent, HookManager
+from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
 from fibsem.microscope import FibsemMicroscope
@@ -194,9 +194,7 @@ class TaskManager:
         return self._stop_event.is_set()
 
     def _fire_workflow_hook(self, event: HookEvent) -> None:
-        if self.hook_manager is None:
-            return
-        self.hook_manager.fire(HookContext(event=event))
+        fire_event(self.hook_manager, event)
 
     # --- Internal helpers ---
 

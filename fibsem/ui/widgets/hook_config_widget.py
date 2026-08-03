@@ -24,7 +24,8 @@ from PyQt5.QtWidgets import (
 )
 from fibsem.ui.icon import fibsem_icon
 
-from fibsem.applications.autolamella.workflows.tasks.hooks import (
+from fibsem.hooks import (
+    DEFAULT_MESSAGE_TEMPLATE,
     FunctionHook,
     Hook,
     HookEvent,
@@ -41,13 +42,9 @@ from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
 # Constants
 # ---------------------------------------------------------------------------
 
-_ALL_EVENTS = [
-    HookEvent.TASK_STARTED,
-    HookEvent.TASK_COMPLETED,
-    HookEvent.TASK_FAILED,
-    HookEvent.WORKFLOW_STARTED,
-    HookEvent.WORKFLOW_COMPLETED,
-]
+# Derived from the enum so a new HookEvent is configurable without editing this list
+# (task_cancelled was missing here for exactly that reason).
+_ALL_EVENTS = list(HookEvent)
 
 _HOOK_DISPLAY_NAMES = {
     "LoggingHook": "Logging",
@@ -144,7 +141,7 @@ class HookEditDialog(QDialog):
             self._specific_widgets["notification_type"] = type_combo
 
             tmpl = QLineEdit()
-            tmpl.setPlaceholderText("Task {task_name} {event} for {lamella_name}")
+            tmpl.setPlaceholderText(DEFAULT_MESSAGE_TEMPLATE)
             specific_form.addRow("Message template", tmpl)
             self._specific_widgets["message_template"] = tmpl
 
@@ -214,7 +211,7 @@ class HookEditDialog(QDialog):
                 name=name, enabled=enabled, events=events,
                 notification_type=self._specific_widgets["notification_type"].currentText(),
                 message_template=self._specific_widgets["message_template"].text()
-                    or "Task {task_name} {event} for {lamella_name}",
+                    or DEFAULT_MESSAGE_TEMPLATE,
             )
         elif cls_name == "WebhookHook":
             return WebhookHook(
