@@ -15,6 +15,7 @@ from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from fibsem.ui.widgets.canvas.canvas_base import ContentRect
     from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 
 
@@ -34,6 +35,7 @@ class PointsOverlay(CanvasOverlay):
         self._marker = marker
         self._size = size
         self._label_prefix = label_prefix
+        self._labels: Optional[List[str]] = None
         self._ax = None
         self._canvas = None
         self._artists: list = []
@@ -47,13 +49,24 @@ class PointsOverlay(CanvasOverlay):
         self._ax = None
         self._canvas = None
 
-    def on_image_changed(self, width: int, height: int) -> None:
+    def on_content_changed(self, rect: "ContentRect") -> None:
         self._remove_artists()
-        if width > 0:
+        if not rect.is_empty:
             self._draw()
 
-    def set_points(self, points: List[Tuple[float, float]]) -> None:
+    def set_points(
+        self,
+        points: List[Tuple[float, float]],
+        labels: Optional[List[str]] = None,
+    ) -> None:
+        """Replace the points, optionally labelling each one.
+
+        `labels` takes precedence over `label_prefix`: positions that carry their own
+        names (lamellae, saved positions) should show those rather than an index into
+        whatever order they happened to arrive in.
+        """
         self._points = list(points)
+        self._labels = list(labels) if labels is not None else None
         self._remove_artists()
         self._draw()
         if self._canvas is not None:
@@ -85,9 +98,14 @@ class PointsOverlay(CanvasOverlay):
                 zorder=8,
             )
             self._artists.append(line)
-            if self._label_prefix:
+            label = None
+            if self._labels is not None and i <= len(self._labels):
+                label = self._labels[i - 1]
+            elif self._label_prefix:
+                label = f"{self._label_prefix}{i}"
+            if label:
                 ann = self._ax.annotate(
-                    f"{self._label_prefix}{i}",
+                    label,
                     xy=(x, y),
                     xytext=(6, 4),
                     textcoords="offset points",
@@ -170,8 +188,7 @@ class PointOverlay(QObject):
 
         self._ax = None
         self._canvas: Optional[FibsemImageCanvas] = None
-        self._img_w: Optional[int] = None
-        self._img_h: Optional[int] = None
+        self._rect: Optional["ContentRect"] = None  # canvas content bounds
 
         self._points: List[List[float]] = []  # [[x, y], ...]  mutable for drag
         self._artists: List = []  # Line2D per point (index-aligned)
@@ -212,11 +229,21 @@ class PointOverlay(QObject):
         self._ax = None
         self._canvas = None
 
-    def on_image_changed(self, width: int, height: int) -> None:
-        self._img_w, self._img_h = width, height
+    def on_content_changed(self, rect: "ContentRect") -> None:
+        self._rect = rect
         self._remove_all_artists()
-        if width > 0 and self._ax is not None:
+        if not rect.is_empty and self._ax is not None:
             self._draw_all()
+
+    def _clamp_to_content(self, x: float, y: float) -> Tuple[float, float]:
+        """Clamp a point to the last addressable pixel inside the content bounds."""
+        rect = self._rect
+        if rect is None or rect.is_empty:
+            return 0.0, 0.0
+        return (
+            max(rect.x0, min(x, rect.x1 - 1)),
+            max(rect.y0, min(y, rect.y1 - 1)),
+        )
 
     # ── public API ────────────────────────────────────────────────────────
 
@@ -237,7 +264,7 @@ class PointOverlay(QObject):
         self._point_labels = list(labels) if labels is not None else None
         self._selected = None
         self._remove_all_artists()
-        if self._ax is not None and self._img_w:
+        if self._ax is not None and self._rect is not None and not self._rect.is_empty:
             self._draw_all()
         if self._canvas is not None:
             self._canvas.draw_idle()
@@ -557,8 +584,7 @@ class PointOverlay(QObject):
         if event.button == 3:  # right-click → add a new point
             if not self._add_on_right_click:
                 return
-            x = max(0.0, min(event.xdata, (self._img_w or 1) - 1))
-            y = max(0.0, min(event.ydata, (self._img_h or 1) - 1))
+            x, y = self._clamp_to_content(event.xdata, event.ydata)
             idx = self.add_point(x, y)
             old_sel = self._selected
             self._selected = idx
@@ -593,10 +619,9 @@ class PointOverlay(QObject):
             return
         if event.xdata is None or event.ydata is None:
             return
-        W = self._img_w or 1
-        H = self._img_h or 1
-        x = max(0.0, min(event.xdata - self._drag_offset[0], W - 1))
-        y = max(0.0, min(event.ydata - self._drag_offset[1], H - 1))
+        x, y = self._clamp_to_content(
+            event.xdata - self._drag_offset[0], event.ydata - self._drag_offset[1]
+        )
         self._points[self._drag_idx] = [x, y]
         self._update_artist_position(self._drag_idx)
         self.point_dragging.emit(self._drag_idx, x, y)

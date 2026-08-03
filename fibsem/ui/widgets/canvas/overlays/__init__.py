@@ -1,7 +1,7 @@
 """Canvas overlays for :class:`fibsem.ui.widgets.canvas.image_canvas.FibsemImageCanvas`.
 
 Each overlay implements the duck-typed overlay protocol (``attach`` / ``detach`` /
-``on_image_changed``); most subclass :class:`CanvasOverlay`. Import overlay classes
+``on_content_changed``); most subclass :class:`CanvasOverlay`. Import overlay classes
 from this package, e.g. ``from fibsem.ui.widgets.canvas.overlays import MillingPatternOverlay``.
 """
 

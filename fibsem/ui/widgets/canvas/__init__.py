@@ -2,7 +2,11 @@
 
 This package groups the (napari-free) canvas widgets and their supporting state:
 
+- :mod:`~fibsem.ui.widgets.canvas.canvas_base` — :class:`FibsemCanvasBase`, the
+  content-agnostic navigation / overlay / toolbar / chrome half of the canvas.
 - :mod:`~fibsem.ui.widgets.canvas.image_canvas` — the core :class:`FibsemImageCanvas`.
+- :mod:`~fibsem.ui.widgets.canvas.real_space_canvas` — :class:`FibsemRealSpaceCanvas`,
+  many images drawn at the positions they were acquired.
 - :mod:`~fibsem.ui.widgets.canvas.fm_canvas` — fluorescence-microscopy canvas.
 - :mod:`~fibsem.ui.widgets.canvas.fm_composite` — FM layer compositing helpers.
 - :mod:`~fibsem.ui.widgets.canvas.quad_view` — quad-view widget, lamella editor, and
@@ -29,7 +33,9 @@ from fibsem.ui.widgets.canvas.canvas_state import (
     SceneModel,
 )
 from fibsem.ui.widgets.canvas.fm_composite import FMLayer, composite_fm_layers
+from fibsem.ui.widgets.canvas.canvas_base import ContentRect, FibsemCanvasBase
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.real_space_canvas import FibsemRealSpaceCanvas
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.canvas.quad_view import (
     LamellaEditorView,
@@ -38,8 +44,13 @@ from fibsem.ui.widgets.canvas.quad_view import (
 )
 
 __all__ = [
+    # canvas_base
+    "FibsemCanvasBase",
+    "ContentRect",
     # image_canvas
     "FibsemImageCanvas",
+    # real_space_canvas
+    "FibsemRealSpaceCanvas",
     # fm_canvas
     "FMCanvasWidget",
     # fm_composite

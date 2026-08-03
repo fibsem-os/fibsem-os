@@ -12,6 +12,7 @@ from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay  # noqa: F401  
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from fibsem.ui.widgets.canvas.canvas_base import ContentRect
     from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 
 
@@ -19,10 +20,10 @@ _RECT_FRAC = 0.25
 _RECT_OFFSET = (1.0 - _RECT_FRAC) / 2.0
 
 
-def _default_extents(H: int, W: int) -> Tuple[float, float, float, float]:
-    """Return (x0, x1, y0, y1) for a centred 25 % box."""
-    rw, rh = W * _RECT_FRAC, H * _RECT_FRAC
-    x0, y0 = W * _RECT_OFFSET, H * _RECT_OFFSET
+def _default_extents(rect: "ContentRect") -> Tuple[float, float, float, float]:
+    """Return (x0, x1, y0, y1) for a centred 25 % box within *rect*."""
+    rw, rh = rect.width * _RECT_FRAC, rect.height * _RECT_FRAC
+    x0, y0 = rect.x0 + rect.width * _RECT_OFFSET, rect.y0 + rect.height * _RECT_OFFSET
     return x0, x0 + rw, y0, y0 + rh
 
 
@@ -86,8 +87,7 @@ class RectOverlay(QObject):
 
         self._ax = None
         self._canvas: Optional[FibsemImageCanvas] = None
-        self._img_w: Optional[int] = None
-        self._img_h: Optional[int] = None
+        self._rect: Optional["ContentRect"] = None  # canvas content bounds
 
         # Rect state in data coords
         self._x0 = self._y0 = self._x1 = self._y1 = 0.0
@@ -129,9 +129,9 @@ class RectOverlay(QObject):
         self._ax = None
         self._canvas = None
 
-    def on_image_changed(self, width: int, height: int) -> None:
-        self._img_w, self._img_h = width, height
-        if self._ax is None or width == 0 or height == 0:
+    def on_content_changed(self, rect: "ContentRect") -> None:
+        self._rect = rect
+        if self._ax is None or rect.is_empty:
             return
         self._rebuild()
 
@@ -172,7 +172,7 @@ class RectOverlay(QObject):
         if self._saved is not None:
             x0, y0, w, h = self._saved
         else:
-            ex = _default_extents(self._img_h, self._img_w)
+            ex = _default_extents(self._rect)
             x0, y0, w, h = ex[0], ex[2], ex[1] - ex[0], ex[3] - ex[2]
             self._saved = (x0, y0, w, h)
 
@@ -301,26 +301,31 @@ class RectOverlay(QObject):
         dx = event.xdata - self._drag_start_data[0]
         dy = event.ydata - self._drag_start_data[1]
         rx0, ry0, rx1, ry1 = self._drag_start_rect
-        W, H = self._img_w, self._img_h
+        if self._rect is None:
+            return
+        # Clamp against the content bounds, which need not start at the origin.
+        left, top, right, bottom = (
+            self._rect.x0, self._rect.y0, self._rect.x1, self._rect.y1
+        )
 
         if self._drag_mode == "move":
             w, h = rx1 - rx0, ry1 - ry0
-            self._x0 = max(0.0, min(rx0 + dx, W - w))
-            self._y0 = max(0.0, min(ry0 + dy, H - h))
+            self._x0 = max(left, min(rx0 + dx, right - w))
+            self._y0 = max(top, min(ry0 + dy, bottom - h))
             self._x1 = self._x0 + w
             self._y1 = self._y0 + h
         elif self._drag_mode == "tl":
-            self._x0 = max(0.0, min(rx0 + dx, self._x1 - 1))
-            self._y0 = max(0.0, min(ry0 + dy, self._y1 - 1))
+            self._x0 = max(left, min(rx0 + dx, self._x1 - 1))
+            self._y0 = max(top, min(ry0 + dy, self._y1 - 1))
         elif self._drag_mode == "tr":
-            self._x1 = max(self._x0 + 1, min(rx1 + dx, W))
-            self._y0 = max(0.0, min(ry0 + dy, self._y1 - 1))
+            self._x1 = max(self._x0 + 1, min(rx1 + dx, right))
+            self._y0 = max(top, min(ry0 + dy, self._y1 - 1))
         elif self._drag_mode == "bl":
-            self._x0 = max(0.0, min(rx0 + dx, self._x1 - 1))
-            self._y1 = max(self._y0 + 1, min(ry1 + dy, H))
+            self._x0 = max(left, min(rx0 + dx, self._x1 - 1))
+            self._y1 = max(self._y0 + 1, min(ry1 + dy, bottom))
         elif self._drag_mode == "br":
-            self._x1 = max(self._x0 + 1, min(rx1 + dx, W))
-            self._y1 = max(self._y0 + 1, min(ry1 + dy, H))
+            self._x1 = max(self._x0 + 1, min(rx1 + dx, right))
+            self._y1 = max(self._y0 + 1, min(ry1 + dy, bottom))
 
         self._update_artists()
         self._blit()

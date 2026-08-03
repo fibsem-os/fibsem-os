@@ -124,6 +124,64 @@ def _parse_image_transform(value: Any) -> CameraImageTransform:
     return CameraImageTransform.NONE
 
 
+@dataclass
+class FMImageGeometry:
+    """The geometry an FM image was captured under.
+
+    Recorded on the image so a stage position can be projected onto it without a live
+    microscope, and — more importantly — without *assuming* the live microscope still
+    matches. Reprojecting a saved overview against the current pose is silently wrong
+    the moment the stage has moved or the user has flipped the display, which is
+    exactly when someone is looking at a saved overview.
+
+    These are the fields the projection actually reads, rather than a whole
+    `SystemSettings`: an FM image serialises to OME-TIFF, where the rest of a system
+    configuration is both irrelevant and liable to go stale on disk. Keeping the list
+    short also keeps the reprojection contract legible — what is here is what the
+    projection depends on.
+
+    `is_compustage` is explicit for the same reason. The beam's metadata-driven
+    reprojection has to infer it by sniffing the model name for "Arctis", with a TODO
+    against it; there is no reason to repeat that here.
+
+    Angles are in degrees, matching `SystemSettings`.
+    """
+
+    transform: CameraImageTransform = CameraImageTransform.NONE
+    camera_tilt: float = 0.0            # viewing axis, from the electron column
+    column_tilt: float = 0.0            # electron column
+    fib_column_tilt: float = 52.0       # ion column; fixes the compustage FIB pose
+    shuttle_pre_tilt: float = 0.0
+    rotation_reference: float = 0.0
+    rotation_180: float = 180.0
+    is_compustage: bool = False
+
+    def to_dict(self) -> dict:
+        return {
+            "transform": self.transform.value,
+            "camera_tilt": self.camera_tilt,
+            "column_tilt": self.column_tilt,
+            "fib_column_tilt": self.fib_column_tilt,
+            "shuttle_pre_tilt": self.shuttle_pre_tilt,
+            "rotation_reference": self.rotation_reference,
+            "rotation_180": self.rotation_180,
+            "is_compustage": self.is_compustage,
+        }
+
+    @classmethod
+    def from_dict(cls, ddict: dict) -> "FMImageGeometry":
+        return cls(
+            transform=_parse_image_transform(ddict.get("transform")),
+            camera_tilt=ddict.get("camera_tilt", 0.0),
+            column_tilt=ddict.get("column_tilt", 0.0),
+            fib_column_tilt=ddict.get("fib_column_tilt", 52.0),
+            shuttle_pre_tilt=ddict.get("shuttle_pre_tilt", 0.0),
+            rotation_reference=ddict.get("rotation_reference", 0.0),
+            rotation_180=ddict.get("rotation_180", 180.0),
+            is_compustage=ddict.get("is_compustage", False),
+        )
+
+
 class ZStackOrder(Enum):
     """Acquisition order for z-stack."""
     CHANNEL = "channel"   # default: for each channel, acquire all z-planes
@@ -1277,6 +1335,12 @@ class FluorescenceImageMetadata:
     # Stage position (optional, for correlative imaging)
     stage_position: Optional[FibsemStagePosition] = None
 
+    # Geometry the image was captured under, for reprojecting stage positions onto it.
+    # None on images written before this was recorded; reprojection raises rather than
+    # guessing, since a marker drawn in the wrong place looks exactly like one drawn in
+    # the right place.
+    geometry: Optional[FMImageGeometry] = None
+
     # File information
     filename: Optional[str] = None  # original filename
     description: Optional[str] = None  # image description/notes
@@ -1335,6 +1399,7 @@ class FluorescenceImageMetadata:
             "filename": self.filename,
             "description": self.description,
             "system_info": self.system_info,
+            "geometry": self.geometry.to_dict() if self.geometry else None,
             "channels": [
                 {
                     "name": ch.name,
@@ -1403,6 +1468,11 @@ class FluorescenceImageMetadata:
             filename=metadata_dict.get("filename"),
             description=metadata_dict.get("description"),
             system_info=metadata_dict.get("system_info"),
+            geometry=(
+                FMImageGeometry.from_dict(metadata_dict["geometry"])
+                if metadata_dict.get("geometry")
+                else None
+            ),
         )
     
     @classmethod

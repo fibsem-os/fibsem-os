@@ -291,9 +291,7 @@ class FMCanvasWidget(QWidget):
     def set_pixel_size(self, pixel_size: Optional[float]) -> None:
         self._pixel_size = pixel_size
         if pixel_size and self._canvas_shape is not None:
-            self.canvas._pixel_size = pixel_size
-            self.canvas._refresh_scalebar()
-            self.canvas.draw_idle()
+            self.canvas.pixel_size = pixel_size  # rescales the scalebar + redraws
 
     def clear(self) -> None:
         self._layers = []

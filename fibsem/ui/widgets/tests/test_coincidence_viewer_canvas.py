@@ -8,8 +8,9 @@ with *two* ``mdi:contrast-box`` buttons.
 
 These tests pin the parts that would break silently: exactly one contrast button per
 canvas, the rect/arrow overlays, the raw-frame display path (the canvas normalises
-internally now, so the widget must not pre-process), and the private canvas members
-the widget still reaches into.
+internally now, so the widget must not pre-process), and the public canvas API the
+widget drives in place of the private members it used to reach into
+(``pixel_size`` and ``set_title``).
 
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_coincidence_viewer_canvas.py
@@ -152,8 +153,46 @@ def test_fm_set_image_renders_and_sets_the_scalebar():
     assert widget.canvas._ax.get_images(), "FM canvas rendered nothing"
     assert widget.canvas._img_w == 768 and widget.canvas._img_h == 512
     # pixel_size comes from metadata.pixel_size_x, which the FibsemImage path can't source
-    assert widget.canvas._pixel_size == 1.0e-7
-    assert "FM  z=0/2" in widget.canvas._ax.get_title()
+    assert widget.canvas.pixel_size == 1.0e-7
+    assert widget.canvas._title_artist in widget.canvas._ax.texts, "z-slice title not drawn"
+    assert "FM  z=0/2" in widget.canvas._title_artist.get_text()
+
+
+def test_fm_title_is_drawn_inside_the_axes_not_as_a_clipped_axes_title():
+    """The canvas lays the figure out edge-to-edge (subplots_adjust(top=1)), so a real
+    ``Axes.set_title`` renders *above* the figure and is invisible whenever the pane is
+    wider in aspect than the image. The title must be an in-axes artist instead."""
+    widget = _FmImageCanvas()
+    widget.canvas._fig.set_size_inches(10, 2)  # pane far wider than the 768x512 frame
+    widget.set_image(_fm_stack())
+    widget.canvas.draw()
+
+    assert widget.canvas._ax.get_title() == "", "still using the clipped axes title"
+    _, fig_h = widget.canvas.get_width_height()
+    bbox = widget.canvas._title_artist.get_window_extent(widget.canvas.get_renderer())
+    assert 0 <= bbox.y0 and bbox.y1 <= fig_h, f"title outside the figure: {bbox}"
+
+
+def test_canvas_title_survives_an_image_change():
+    """set_array clears the axes, so the title has to be remembered and re-applied the
+    way the hint / info bar / legend are — otherwise it vanishes on the next frame.
+
+    Driven against the bare canvas on purpose: the FM widget re-sets the title after
+    every set_array, so going through _FmImageCanvas would pass either way.
+    """
+    canvas = FibsemImageCanvas()
+    canvas.set_array(np.zeros((512, 768)), pixel_size=1.0e-7)
+    canvas.set_title("FM  z=0/2")
+    assert canvas._title_artist is not None
+
+    canvas.set_array(np.zeros((256, 256)), pixel_size=1.0e-7)  # resolution change
+    assert canvas._title_text == "FM  z=0/2", "title text must survive an image change"
+    # Membership in _ax.texts, not `is not None`: cla() detaches the artist but leaves
+    # the attribute pointing at it, so an identity check passes on a vanished title.
+    assert canvas._title_artist in canvas._ax.texts, "title not re-attached after reset"
+
+    canvas.set_title(None)  # explicit clear
+    assert canvas._title_artist is None and canvas._title_text is None
 
 
 def test_fm_same_shape_update_is_a_data_swap_not_an_axes_reset():
