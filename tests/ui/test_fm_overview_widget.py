@@ -28,7 +28,11 @@ from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
     format_duration,
 )
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
-from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget, progress_slot
+from fibsem.ui.fm.widgets.fm_overview_widget import (
+    ElidedLabel,
+    FMOverviewWidget,
+    shrink_progress_text,
+)
 from fibsem.ui.fm.widgets.tile_mask_widget import TileMaskWidget
 from fibsem.ui.widgets.custom_widgets import ValueComboBox
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
@@ -415,41 +419,13 @@ def test_a_stage_move_does_not_fill_the_bar(qapp):
 # ── layout stability ─────────────────────────────────────────────────────
 
 
-def test_a_reset_bar_keeps_its_space(qapp):
-    """The bars must not jitter each other.
-
-    `FibsemProgressWidget.reset()` hides itself, so in a plain row the neighbouring
-    bar would shift every time a tile finished. Each sits in a fixed slot instead.
-    """
-    from PyQt5.QtWidgets import QHBoxLayout, QWidget
-
-    left, right = FibsemProgressWidget(), FibsemProgressWidget()
-    row = QWidget()
-    layout = QHBoxLayout(row)
-    layout.addWidget(progress_slot(left))
-    layout.addWidget(progress_slot(right))
-    row.resize(600, 40)
-    row.show()
-    qapp.processEvents()
-
-    left.update_progress(ProgressUpdate.numeric(1, 2, "working"))
-    right.update_progress(ProgressUpdate.numeric(1, 2, "working"))
-    qapp.processEvents()
-    before = left.parentWidget().geometry()
-
-    right.reset()
-    qapp.processEvents()
-
-    assert left.parentWidget().geometry() == before
-
-
 def test_the_bar_text_is_smaller_than_the_default(qapp):
     """Pinned because `setFont` on the holder silently does not reach the bar, so the
     obvious way to do this looks right and changes nothing."""
     from PyQt5.QtGui import QFontMetrics
 
     plain, shrunk = FibsemProgressWidget(), FibsemProgressWidget()
-    slot = progress_slot(shrunk)  # noqa: F841 - keeps the holder alive
+    shrink_progress_text(shrunk)
 
     sample = "Tiles — 4/9 · 74s remaining"
     assert (QFontMetrics(shrunk._bar.font()).width(sample)
@@ -459,7 +435,7 @@ def test_the_bar_text_is_smaller_than_the_default(qapp):
 def test_shrinking_the_text_keeps_the_failed_colouring(qapp):
     """The chunk stylesheet is what distinguishes a failed run from a finished one."""
     progress = FibsemProgressWidget()
-    slot = progress_slot(progress)  # noqa: F841
+    shrink_progress_text(progress)
 
     progress.update_progress(ProgressUpdate.failed("nope"))
 
@@ -2077,3 +2053,288 @@ def test_the_preference_survives_a_round_trip_through_yaml():
     restored = fibsem_cfg.UserPreferences.from_dict(prefs.to_dict())
 
     assert restored.features.fm_overview_tab is True
+
+
+# ── layout: the actions live in the column, not across the widget ────────
+
+
+def test_a_long_message_does_not_widen_the_widget(qapp):
+    """A `QLabel` reports the full width of its text as its size hint, and in a layout
+    that hint is a minimum — so a 132-character acquisition failure used to drag the
+    widget's minimum width from 1030 px to 1728 px and shove the window around."""
+    widget = _fresh_widget(qapp)
+    widget.resize(1200, 800)
+    widget.show()
+    qapp.processEvents()
+    idle = widget.minimumSizeHint().width()
+
+    widget.status.setText(
+        "Failed: Acquisition grid extends beyond stage limits. 9 tile(s) out of "
+        "bounds: (0,0), (0,1), (0,2), (1,0), (1,1), (1,2), (2,0), (2,1), (2,2)"
+    )
+    qapp.processEvents()
+
+    assert widget.minimumSizeHint().width() == idle
+
+    widget.close()
+
+
+def test_the_full_message_is_still_reachable(qapp):
+    """Eliding is presentation. `text()` returns what was set — the widget compares
+    against it to decide whether the status line is its to overwrite — and the tooltip
+    carries the whole thing for anything too long to show."""
+    widget = _fresh_widget(qapp)
+    message = "Failed: " + "a very long explanation " * 8
+
+    widget.status.setText(message)
+
+    assert widget.status.text() == message
+    assert widget.status.toolTip() == message
+
+    widget.close()
+
+
+def test_the_actions_sit_in_the_column_not_across_the_widget(qapp):
+    """The floor was 1030 px, all of it this row — the canvas asked for 10. A row
+    spanning the widget cannot give anything up; stacked in the settings column the
+    floor is the column's own."""
+    widget = _fresh_widget(qapp)
+    widget.resize(1200, 800)
+    widget.show()
+    qapp.processEvents()
+
+    assert widget.minimumSizeHint().width() < 600
+
+    # ...and the actions are inside the right-hand pane, not siblings of the splitter
+    assert widget.status_row.parentWidget() is not widget
+
+    widget.close()
+
+
+def test_the_progress_bars_appear_only_while_there_is_progress(qapp):
+    """They are empty most of the time. Stacked in a column nothing sits beside them,
+    so they can come and go without moving anything — which is what made this possible.
+    """
+    widget = _fresh_widget(qapp)
+    widget.resize(1200, 800)
+    widget.show()
+    qapp.processEvents()
+
+    assert not widget.progress_tiles.isVisible()
+    assert not widget.progress_tile_detail.isVisible()
+
+    widget._set_running(True)
+    qapp.processEvents()
+
+    assert widget.progress_tiles.isVisible()
+    assert widget.progress_tile_detail.isVisible()
+
+    widget._set_running(False)
+    widget.close()
+
+
+def test_a_finished_run_keeps_its_outcome_on_screen(qapp):
+    """`FibsemProgressWidget` paints finished and failed differently, and that colour is
+    the at-a-glance answer — hiding the bar the moment a run ends would throw it away.
+    The per-tile bar does go, since no tile is in progress to describe."""
+    widget = _fresh_widget(qapp)
+    widget.resize(1200, 800)
+    widget.show()
+    qapp.processEvents()
+    widget._set_running(True)
+
+    widget._finish("overview-failed", "nope")
+    qapp.processEvents()
+
+    assert widget.progress_tiles.isVisible()
+    assert not widget.progress_tile_detail.isVisible()
+
+    widget.close()
+
+
+def test_showing_the_bars_survives_their_own_reset(qapp):
+    """`FibsemProgressWidget.reset()` hides itself, so a start sequence that shows the
+    bars and then resets them leaves them hidden for the whole run."""
+    widget = _fresh_widget(qapp)
+    widget.resize(1200, 800)
+    widget.show()
+    qapp.processEvents()
+
+    widget._set_running(True)  # resets both bars internally
+    qapp.processEvents()
+
+    assert widget.progress_tiles.isVisible()
+
+    widget._set_running(False)
+    widget.close()
+
+
+# ── the canvas says where things are ─────────────────────────────────────
+
+
+def test_the_cursor_readout_is_drawn_over_the_canvas(qapp, interactive_widget):
+    """Not beside it. The only free corner is the top left — the toolbar owns the top
+    right, the scalebar the bottom right, the stage info bar the bottom left."""
+    widget = interactive_widget
+
+    assert widget.cursor_readout.parent() is widget.canvas.canvas
+
+
+def test_the_cursor_readout_hides_when_the_pointer_leaves(qapp, interactive_widget):
+    """It sits on top of the image, so an empty plaque floating over the data is worse
+    than nothing there."""
+    widget = interactive_widget
+
+    widget._on_cursor_moved(100.0, 100.0)
+    qapp.processEvents()
+    assert widget.cursor_readout.isVisible()
+    assert widget.cursor_readout.text()
+
+    widget._on_cursor_moved(None, None)
+    qapp.processEvents()
+    assert not widget.cursor_readout.isVisible()
+
+
+def test_the_info_bar_states_the_stage_pose(qapp, interactive_widget):
+    """The marker shows *where*; this says the numbers, which is what you need to write
+    one down. The objective rides along because focus depends on it and it appears
+    nowhere else on this tab."""
+    widget = interactive_widget
+
+    widget._refresh_current_position()
+    qapp.processEvents()
+
+    info = widget.canvas.canvas._info_text
+    assert info
+    assert "X:" in info and "Y:" in info
+    assert "objective" in info
+
+
+def test_the_info_bar_leaves_out_the_milling_angle(qapp, interactive_widget):
+    """A beam-side quantity, meaningless while looking through the camera. It belongs
+    on the FIB/SEM overview if anywhere."""
+    widget = interactive_widget
+
+    widget._refresh_current_position()
+
+    assert "milling" not in (widget.canvas.canvas._info_text or "")
+
+
+def test_an_unreadable_objective_does_not_cost_the_stage_position(qapp, interactive_widget):
+    """A microscope with no objective, or one that will not answer, should lose that
+    field and not the whole line."""
+    widget = interactive_widget
+
+    class _Broken:
+        @property
+        def position(self):
+            raise RuntimeError("no objective here")
+
+    original = widget.fm.objective
+    widget.fm.objective = _Broken()
+    try:
+        widget._refresh_stage_info()
+        info = widget.canvas.canvas._info_text
+    finally:
+        widget.fm.objective = original
+
+    assert info and "X:" in info
+    assert "objective" not in info
+
+
+def test_the_stage_marker_carries_no_caption(qapp, interactive_widget):
+    """It sits on top of the data, and a caption riding along with the crosshair
+    obscures the sample it is pointing at. The info bar says what it is instead."""
+    widget = interactive_widget
+
+    widget._refresh_current_position()
+
+    assert widget.current_position_overlay._labels == [""]
+
+
+# ── the canvas frame follows the stage's pose ────────────────────────────
+
+
+def _microscope_at(tilt_deg: float):
+    """A compustage microscope posed at a given tilt, with fluorescence attached."""
+    import numpy as np
+
+    from fibsem import utils
+    from fibsem.fm.microscope import FluorescenceMicroscope
+    from fibsem.structures import FibsemStagePosition
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    microscope.stage_is_compustage = True
+    microscope.system.stage.shuttle_pre_tilt = 0
+    microscope._update_orientations()
+    if microscope.fm is None:
+        microscope.fm = FluorescenceMicroscope(parent=microscope)
+    microscope.move_stage_absolute(
+        FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=np.deg2rad(tilt_deg))
+    )
+    return microscope
+
+
+def test_a_click_never_changes_the_stage_orientation(qapp):
+    """The tab is built when a microscope connects, so the origin records whatever pose
+    the stage was in then — usually t = 0. Moving to the FM position afterwards left
+    every click carrying the old tilt, and the stage flipped 180 degrees to reach it.
+    """
+    import numpy as np
+
+    microscope = _microscope_at(0.0)
+    widget = FMOverviewWidget(microscope)
+    widget._refresh_tile_grid()  # fixes the origin, at t = 0
+    qapp.processEvents()
+    assert np.rad2deg(widget.origin.t) == pytest.approx(0.0)
+
+    microscope.move_to_microscope("FM")
+    widget._on_stage_moved(microscope.get_stage_position())
+    qapp.processEvents()
+
+    target = widget._frame().to_stage(300.0, 200.0)
+
+    assert np.rad2deg(target.t) == pytest.approx(-180.0)
+    widget.close()
+
+
+def test_a_stale_origin_resolves_a_click_to_the_same_place_as_a_fresh_one(qapp):
+    """The tilt was the visible half. The projection's y/z split is computed from the
+    pose too, so a click through a stale one also landed in the wrong *place* — with y
+    inverted, which on a 180 degree flip is as wrong as it gets."""
+    stale_microscope = _microscope_at(0.0)
+    stale = FMOverviewWidget(stale_microscope)
+    stale._refresh_tile_grid()
+    stale_microscope.move_to_microscope("FM")
+    stale._on_stage_moved(stale_microscope.get_stage_position())
+    qapp.processEvents()
+
+    fresh = FMOverviewWidget(_microscope_at(-180.0))
+    fresh._refresh_tile_grid()
+    qapp.processEvents()
+
+    a = stale._frame().to_stage(300.0, 200.0)
+    b = fresh._frame().to_stage(300.0, 200.0)
+
+    assert (a.x, a.y, a.z) == pytest.approx((b.x, b.y, b.z), abs=1e-12)
+    assert a.t == pytest.approx(b.t)
+
+    stale.close()
+    fresh.close()
+
+
+def test_the_anchor_itself_does_not_move_with_the_pose(qapp):
+    """Only the pose follows. Canvas zero stays where it was fixed, which is what lets
+    images acquired at different times accumulate against one frame."""
+    microscope = _microscope_at(0.0)
+    widget = FMOverviewWidget(microscope)
+    widget._refresh_tile_grid()
+    qapp.processEvents()
+    anchor = (widget.origin.x, widget.origin.y, widget.origin.z)
+
+    microscope.move_to_microscope("FM")
+    widget._on_stage_moved(microscope.get_stage_position())
+    qapp.processEvents()
+
+    assert (widget.origin.x, widget.origin.y, widget.origin.z) == pytest.approx(anchor)
+    widget.close()
