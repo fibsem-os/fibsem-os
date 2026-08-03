@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
@@ -463,6 +464,16 @@ class FluorescenceImage:
             tifffile_image = self.data.reshape(1, nc, nz, ny, nx)
         else:
             tifffile_image = self.data
+
+        # Mirrors FibsemImage.save: the caller names a file, so the directory it
+        # lands in is this method's to create. AcquireFluorescenceTask writes a
+        # z-stack into the lamella directory without acquiring a beam image
+        # first, so this is the only thing that creates it -- and acquire_image
+        # swallows save failures, so a missing directory would lose the stack
+        # silently. dirname is empty for a bare filename, which makedirs rejects.
+        directory = os.path.dirname(filename)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
 
         # TODO: add overwrite protection to prevent overwriting existing files
         with tff.TiffWriter(filename) as tif:

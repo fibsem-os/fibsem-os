@@ -492,6 +492,42 @@ def test_fluorescence_image_creation():
     assert image.metadata.channels[0].name == "GFP"
 
 
+def test_fluorescence_image_save_creates_the_directory(tmp_path):
+    """save() names a file, so it owns the directory that file lands in.
+
+    FibsemImage.save has always done this. The FM sibling did not, and
+    AcquireFluorescenceTask writes its z-stack into the lamella directory
+    without acquiring a beam image first -- so this is the only thing that
+    creates it. acquire_image swallows save failures, so a missing directory
+    would have lost the stack silently rather than raising. See FIB-420.
+    """
+    channel = FluorescenceChannelMetadata(
+        name="GFP",
+        excitation_wavelength=488.0,
+        emission_wavelength=520.0,
+        power=0.3,
+        exposure_time=0.05,
+        gain=1.0,
+        offset=0.0,
+    )
+    metadata = FluorescenceImageMetadata(
+        acquisition_date=datetime.now().isoformat(),
+        pixel_size_x=100e-9,
+        pixel_size_y=100e-9,
+        resolution=(16, 16),
+        channels=[channel],
+    )
+    image = FluorescenceImage(
+        data=np.zeros((1, 1, 16, 16), dtype=np.uint8), metadata=metadata
+    )
+    filename = tmp_path / "does" / "not" / "exist" / "stack.ome.tiff"
+
+    written = image.save(str(filename))
+
+    assert filename.is_file()
+    assert written == str(filename)
+
+
 def test_fluorescence_image_save_load_roundtrip():
     """Test save/load roundtrip with structured annotations."""
     # Create test data
