@@ -597,16 +597,7 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast("Experiment creation cancelled.", "info")
             return
 
-        # Disconnect existing event subscribers if there's an existing experiment
-        self._disconnect_experiment_events()
-
-        # Assign the experiment
-        self.experiment = experiment
-
-        # Setup experiment connections and update UI
-        self._setup_experiment_connections()
-
-        self.experiment_update_signal.emit()
+        self._adopt_experiment(experiment)
 
     def load_experiment(self) -> None:
         """Load an existing experiment using the experiment loading dialog."""
@@ -623,11 +614,27 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast("Experiment loading cancelled.", "info")
             return
 
+        self._adopt_experiment(experiment)
+
+    def _adopt_experiment(self, experiment: Experiment) -> None:
+        """Make ``experiment`` the current one, and point logging at its logfile.
+
+        The single place the app takes ownership of an experiment, whether it was
+        just created or loaded from disk. Logging is configured here rather than in
+        Experiment.load/create because those are also called to *read* an
+        experiment -- the load dialog calls load() on every single click to preview
+        a recent entry, which previously repointed the app's root logger at each one
+        in turn, and closed the previous handler, even when the dialog was then
+        cancelled. See FIB-421.
+        """
         # Disconnect existing event subscribers if there's an existing experiment
         self._disconnect_experiment_events()
 
         # Assign the experiment
         self.experiment = experiment
+
+        utils.configure_logging(path=experiment.path, log_filename="logfile")
+        logging.info(f"Logging to experiment {experiment.name} at {experiment.path}")
 
         # Setup experiment connections and update UI
         self._setup_experiment_connections()

@@ -434,6 +434,60 @@ def test_lamella_path_follows_a_copied_experiment(tmp_path):
     assert Path(lamella.path).exists()
 
 
+def _root_handler_files() -> List[str]:
+    """The files the root logger is currently writing to."""
+    import logging
+
+    return [
+        getattr(h, "baseFilename", "")
+        for h in logging.getLogger().handlers
+        if getattr(h, "baseFilename", None)
+    ]
+
+
+def test_load_does_not_touch_the_calling_process_logging(tmp_path):
+    """Reading an experiment must not reach into global logging.
+
+    configure_logging calls basicConfig(force=True), which closes and replaces
+    every root handler. Calling it from load() meant any process that read an
+    experiment lost its own logging configuration and had its output redirected
+    into that experiment's logfile -- including the load dialog, which calls
+    load() on every single click to preview a recent entry. See FIB-421.
+    """
+    import logging
+
+    exp = _experiment_on_disk(tmp_path / "src")
+
+    own = logging.FileHandler(tmp_path / "caller.log")
+    logging.basicConfig(handlers=[own], level=logging.INFO, force=True)
+    try:
+        before = _root_handler_files()
+
+        Experiment.load(os.path.join(exp.path, "experiment.yaml"))
+
+        assert _root_handler_files() == before
+        assert not own.stream.closed, "the caller's own handler was closed"
+    finally:
+        logging.basicConfig(handlers=[logging.NullHandler()], force=True)
+
+
+def test_create_does_not_touch_the_calling_process_logging(tmp_path):
+    """Same rule for create(): the app configures logging when it adopts an
+    experiment, not as a side effect of the object existing."""
+    import logging
+
+    own = logging.FileHandler(tmp_path / "caller.log")
+    logging.basicConfig(handlers=[own], level=logging.INFO, force=True)
+    try:
+        before = _root_handler_files()
+
+        Experiment.create(path=tmp_path / "root", name="exp")
+
+        assert _root_handler_files() == before
+    finally:
+        logging.basicConfig(handlers=[logging.NullHandler()], force=True)
+
+
 def test_milling_imaging_paths_follow_a_copied_experiment(tmp_path):
     """Milling configs carry their own acquisition imaging path, copied from the
     lamella in __post_init__. Correcting `path` alone would leave acquisitions
