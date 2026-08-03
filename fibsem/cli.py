@@ -544,15 +544,12 @@ def _add_plugins_parser(sub) -> None:
     p.add_argument(
         "--debug",
         action="store_true",
-        # Declared here even though the root parser already inherits --debug from
-        # the connection parent, because taking no connection arguments means
-        # `plugins --debug` -- the position a user reaches for, and the one every
-        # other subcommand accepts -- would otherwise be an unrecognized
-        # argument. SUPPRESS rather than default=False so that *both* positions
-        # work: argparse copies every attribute of the subparser's namespace over
-        # the root's, so a plain default would silently reset a --debug given
-        # before the subcommand. Suppressed, the attribute is simply absent when
-        # the flag is not passed and whatever root parsed survives.
+        # Declared here because taking no connection arguments means `plugins
+        # --debug` -- the position every other subcommand accepts, and the one a
+        # user reaches for -- would otherwise be an unrecognized argument. The
+        # root parser still supplies the default, hence SUPPRESS: same reason as
+        # the subparsers' copy of the connection arguments, see
+        # _build_connection_parser.
         default=argparse.SUPPRESS,
         help="Show the full traceback for each plugin that failed to load",
     )
