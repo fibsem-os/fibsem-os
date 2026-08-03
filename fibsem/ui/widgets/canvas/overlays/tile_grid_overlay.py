@@ -50,16 +50,25 @@ LINE_WIDTH = 0.8
 EDGE_GRAB_FRACTION = 0.08
 MAX_TILES_PER_AXIS = 100  # matches the row/column spin boxes
 
+# How far the pointer must travel before a press inside the grid counts as a move
+# rather than a click on a tile. In screen pixels, so the split does not shift with
+# the zoom, and the same 3 the canvas uses for its own click-versus-drag test -- one
+# threshold everywhere means a gesture cannot read as a click to one and a drag to
+# the other.
+MOVE_DRAG_THRESHOLD_PX = 3
+
 
 class TileGridOverlay(QObject, CanvasOverlay):
-    """The planned tile grid, with click-to-toggle.
+    """The planned tile grid, with click-to-toggle, edge-to-resize and drag-to-move.
 
-    Emits :attr:`tile_toggled` rather than mutating anything: the mask belongs to the
-    settings widget, and two widgets writing the same state is how they drift apart.
+    Emits rather than mutating: rows, columns, the mask and the position the grid is
+    planned around all belong to the settings widget, and two widgets writing the same
+    state is how they drift apart.
     """
 
     tile_toggled = pyqtSignal(int, int, bool)      # row, col, enabled
     grid_resize_requested = pyqtSignal(int, int)   # rows, cols
+    grid_move_requested = pyqtSignal(float, float)  # new centre, canvas coordinates
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         QObject.__init__(self, parent)
@@ -81,13 +90,21 @@ class TileGridOverlay(QObject, CanvasOverlay):
         self._cids: List[int] = []
         self._resize_axes: Optional[Tuple[bool, bool]] = None  # (horizontal, vertical)
         self._cursor_set: bool = False
+        # A press inside the grid, held until it resolves into a move or a tile click:
+        # (press_px_x, press_px_y, press_x, press_y, anchor_x, anchor_y). The screen
+        # coordinates drive the threshold, the data coordinates the displacement.
+        self._move_start: Optional[Tuple[float, float, float, float, float, float]] = None
+        self._move_active: bool = False
 
     # ── lifecycle ────────────────────────────────────────────────────────
 
     def attach(self, ax, canvas: "FibsemImageCanvas") -> None:
         self._ax = ax
         self._canvas = canvas
-        canvas.canvas_clicked.connect(self._on_canvas_clicked)
+        # Raw press/motion/release rather than the canvas's `canvas_clicked`: a press
+        # inside the grid can turn into either a tile toggle or a move of the whole
+        # grid, and only the pointer's subsequent travel says which -- a signal that
+        # has already decided it was a click arrives too late to tell them apart.
         self._cids = [
             canvas.mpl_connect("button_press_event", self._on_press),
             canvas.mpl_connect("motion_notify_event", self._on_drag),
@@ -96,10 +113,6 @@ class TileGridOverlay(QObject, CanvasOverlay):
 
     def detach(self) -> None:
         if self._canvas is not None:
-            try:
-                self._canvas.canvas_clicked.disconnect(self._on_canvas_clicked)
-            except TypeError:
-                pass
             for cid in self._cids:
                 self._canvas.mpl_disconnect(cid)
             self._cids = []
@@ -265,23 +278,27 @@ class TileGridOverlay(QObject, CanvasOverlay):
         span_h = (max(t.canvas_y for t in self._tiles) + tile_h) * scale
         return span_w, span_h
 
+    def _bounds(self) -> Tuple[float, float, float, float]:
+        """(left, top, width, height) of the whole grid, in display pixels.
+
+        The grid is centred on the anchor, matching the runner: it measures from the
+        top-left tile and shifts so the grid straddles the position it is planned
+        around. Callers guard on `_anchor()`; the (0, 0) fallback keeps this total.
+        """
+        span_w, span_h = self._extent()
+        anchor = self._anchor()
+        cx, cy = anchor if anchor is not None else (0.0, 0.0)
+        return cx - span_w / 2, cy - span_h / 2, span_w, span_h
+
     def _rect_for(self, tile: TilePosition) -> Tuple[float, float, float, float]:
         """(x, y, width, height) of one tile, in display pixels."""
         tile_h, tile_w = self._tile_shape
         scale = self._scale()
-        span_w, span_h = self._extent()
-
-        # The grid is centred on the content centre, matching the runner: it measures
-        # from the top-left tile and shifts so the grid straddles the start position.
-        # Callers guard on _anchor(); the (0, 0) fallback keeps this total.
-        anchor = self._anchor()
-        cx, cy = anchor if anchor is not None else (0.0, 0.0)
-        origin_x = cx - span_w / 2
-        origin_y = cy - span_h / 2
+        left, top, _, _ = self._bounds()
 
         return (
-            origin_x + tile.canvas_x * scale,
-            origin_y + tile.canvas_y * scale,
+            left + tile.canvas_x * scale,
+            top + tile.canvas_y * scale,
             tile_w * scale,
             tile_h * scale,
         )
@@ -335,12 +352,6 @@ class TileGridOverlay(QObject, CanvasOverlay):
 
     # ── interaction ──────────────────────────────────────────────────────
 
-    def _on_canvas_clicked(self, x: float, y: float, modifiers) -> None:
-        tile = self._tile_at(x, y)
-        if tile is None:
-            return
-        self.tile_toggled.emit(tile.row, tile.col, not tile.enabled)
-
     def _tile_at(self, x: float, y: float) -> Optional[TilePosition]:
         """The tile under a point, or None.
 
@@ -367,13 +378,10 @@ class TileGridOverlay(QObject, CanvasOverlay):
         boolean because the hover cursor has to name a *corner* -- top-left and
         top-right want opposite diagonals -- and "on both axes" cannot distinguish them.
         """
-        anchor = self._anchor()
-        if not self._tiles or self._tile_shape[1] <= 0 or anchor is None:
+        if not self._tiles or self._tile_shape[1] <= 0 or self._anchor() is None:
             return 0, 0
 
-        span_w, span_h = self._extent()
-        left = anchor[0] - span_w / 2
-        top = anchor[1] - span_h / 2
+        left, top, span_w, span_h = self._bounds()
         # Proportional to a tile rather than a fixed pixel count, so the grab zone
         # stays usable at any zoom without querying the transform.
         tolerance = self._tile_shape[1] * self._scale() * EDGE_GRAB_FRACTION
@@ -426,17 +434,41 @@ class TileGridOverlay(QObject, CanvasOverlay):
     def _on_press(self, event) -> None:
         if event.button != 1 or event.inaxes is not self._ax or event.xdata is None:
             return
-        if not self._visible:
-            return
-        edges = self._edge_at(event.xdata, event.ydata)
-        if edges is None:
+        if not self._visible or not self._tiles:
             return
 
-        self._resize_axes = edges
+        edges = self._edge_at(event.xdata, event.ydata)
+        if edges is not None:
+            self._resize_axes = edges
+            self._claim(event)
+            return
+
+        anchor = self._anchor()
+        if anchor is None or not self._within(event.xdata, event.ydata):
+            # Outside the grid, so this press belongs to the canvas -- leave it to pan.
+            return
+        # Inside: held rather than acted on, because the same press starts both a move
+        # and a tile toggle and only the pointer's next few pixels say which.
+        self._move_start = (
+            event.x, event.y, event.xdata, event.ydata, anchor[0], anchor[1]
+        )
+        self._claim(event)
+
+    def _claim(self, event) -> None:
+        """Tell the canvas this overlay owns the gesture.
+
+        It cancels the pending pan and suppresses `canvas_clicked` on release, so a
+        drag inside the grid moves the grid rather than the view. The click that
+        suppression costs is re-emitted from `_on_release` when the press turns out to
+        have been a click after all.
+        """
         if self._canvas is not None:
-            # Tells the canvas an overlay owns this gesture: it cancels the pending pan
-            # and suppresses the click that would otherwise toggle a tile on release.
             self._canvas._overlay_consuming_event = True
+
+    def _within(self, x: float, y: float) -> bool:
+        """Whether a point is inside the grid's bounding box."""
+        left, top, width, height = self._bounds()
+        return left <= x <= left + width and top <= y <= top + height
 
     def _cursor_for(self, x_side: int, y_side: int):
         """The resize cursor naming what dragging here would do, or None."""
@@ -449,6 +481,16 @@ class TileGridOverlay(QObject, CanvasOverlay):
         if y_side:
             return Qt.SizeVerCursor
         return None
+
+    def _cursor_at(self, x: float, y: float):
+        """The cursor for a point over the grid, or None if it is over nothing.
+
+        Edges win over the interior, matching which gesture a press there starts.
+        """
+        cursor = self._cursor_for(*self._edge_sides(x, y))
+        if cursor is not None:
+            return cursor
+        return Qt.SizeAllCursor if self._within(x, y) else None
 
     def _update_cursor(self, event) -> None:
         """Show a resize cursor over the grid's edges.
@@ -467,7 +509,7 @@ class TileGridOverlay(QObject, CanvasOverlay):
             and event.inaxes is self._ax
             and event.xdata is not None
         ):
-            cursor = self._cursor_for(*self._edge_sides(event.xdata, event.ydata))
+            cursor = self._cursor_at(event.xdata, event.ydata)
 
         if cursor is not None:
             self._canvas.setCursor(cursor)
@@ -479,6 +521,9 @@ class TileGridOverlay(QObject, CanvasOverlay):
             self._cursor_set = False
 
     def _on_drag(self, event) -> None:
+        if self._move_start is not None:
+            self._drag_move(event)
+            return
         if self._resize_axes is None:
             self._update_cursor(event)
             return
@@ -510,8 +555,48 @@ class TileGridOverlay(QObject, CanvasOverlay):
 
         self.grid_resize_requested.emit(rows, cols)
 
+    def _drag_move(self, event) -> None:
+        """Follow the pointer with the whole grid, once it has clearly moved.
+
+        Emits an absolute centre rather than a delta, measured from where the anchor
+        was at press: the host re-anchors on every step, so accumulating deltas would
+        compound whatever it rounds the position to -- and it *does* round, because it
+        resolves the centre to a stage position and projects it back.
+        """
+        press_x, press_y, x0, y0, anchor_x, anchor_y = self._move_start
+        if event.inaxes is not self._ax or event.xdata is None or event.ydata is None:
+            return
+        if not self._move_active:
+            travelled = (event.x - press_x) ** 2 + (event.y - press_y) ** 2
+            if travelled < MOVE_DRAG_THRESHOLD_PX ** 2:
+                return
+            self._move_active = True
+
+        self.grid_move_requested.emit(
+            anchor_x + (event.xdata - x0), anchor_y + (event.ydata - y0)
+        )
+
     def _on_release(self, event) -> None:
+        # A press inside the grid that never became a drag is a click on a tile. It has
+        # to be emitted here because claiming the gesture suppressed the canvas's own
+        # click signal -- claiming is what stops the view panning out from under a move.
+        pressed_inside = self._move_start is not None
+        was_moving = self._move_active
+        self._move_start = None
+        self._move_active = False
         self._resize_axes = None
+
+        if (
+            pressed_inside
+            and not was_moving
+            and event.button == 1
+            and event.inaxes is self._ax
+            and event.xdata is not None
+        ):
+            tile = self._tile_at(event.xdata, event.ydata)
+            if tile is not None:
+                self.tile_toggled.emit(tile.row, tile.col, not tile.enabled)
+
         self._update_cursor(event)
 
     def _restore_margin(self) -> None:

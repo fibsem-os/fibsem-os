@@ -12,7 +12,7 @@ are Phase 6b.
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 from PyQt5.QtCore import Qt, QPoint, QSize, pyqtSignal
@@ -256,6 +256,48 @@ class FMCanvasWidget(QWidget):
             self._panel.set_layers(self._layers)
         return layer
 
+    def retain_channels(self, names: Sequence[str]) -> None:
+        """Drop the layers for channels no longer being displayed.
+
+        `_upsert_layer` only ever adds, which is right for the live path: channels
+        arrive one frame at a time and each is a partial update. But a caller showing a
+        whole *image* names every channel it has, and one that is absent has to go --
+        otherwise its layer stays behind still holding the previous image's pixels, and
+        those get blended into the new one. Acquiring a two-channel overview and then a
+        one-channel overview drew the second with the first's second channel, which was
+        then recorded as the second's own, so every later contrast change faithfully
+        redrew the ghost.
+        """
+        keep = set(names)
+        if all(layer.name in keep for layer in self._layers):
+            return
+
+        survivors = []
+        for layer in self._layers:
+            if layer.name in keep:
+                survivors.append(layer)
+                continue
+            self._stacks.pop(layer.name, None)
+            self._mip_clim.pop(layer.name, None)
+            if self._channel_still_shown(layer.name):
+                # Something else on the canvas still has this channel, so its control
+                # has to stay for that image to be styled through. Only the pixels go.
+                layer.data = None
+                layer._clim_cache = None
+                survivors.append(layer)
+
+        self._layers = survivors
+        self._panel.set_layers(self._layers)
+
+    def _channel_still_shown(self, name: str) -> bool:
+        """Whether a channel absent from the current image is displayed anywhere else.
+
+        False here: this canvas shows one image at a time, so a channel it does not
+        have is a channel nothing has. Overridden where several images share the
+        controls.
+        """
+        return False
+
     def set_channel(self, name: str, data: np.ndarray, color: Optional[str] = None) -> None:
         """Upsert a channel's 2-D image (live path — no z-stack); display props preserved."""
         had_stack = self._stacks.pop(name, None) is not None
@@ -290,6 +332,8 @@ class FMCanvasWidget(QWidget):
                 stack = np.asarray(data)[None]
             self._stacks[channel.name] = stack
             self._upsert_layer(channel.name, stack.max(axis=0), channel.color)
+        # After the upserts, so the panel is rebuilt once and from the final set.
+        self.retain_channels([channel.name for channel in md.channels])
         self._refresh_z_controls()
         self._apply_z_mode()
 
@@ -491,6 +535,17 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
 
     def _make_canvas(self) -> FibsemCanvasBase:
         return FibsemRealSpaceCanvas()
+
+    def _channel_still_shown(self, name: str) -> bool:
+        """True while any placed image has this channel.
+
+        Several images share one set of controls here, so a channel dropped from the
+        newest is not dropped from the canvas -- an earlier overview may well have it.
+        Removing the control would leave that overview with a channel nothing can
+        style, and `_restyle_others` would quietly stop drawing it: acquire a
+        one-channel overview and the two-channel one beside it loses a colour.
+        """
+        return any(name in planes for planes in self._held.values())
 
     # ── placement ─────────────────────────────────────────────────────────
 

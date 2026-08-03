@@ -2352,3 +2352,79 @@ def test_fluorescence_image_filepath_excluded_from_compare_and_repr():
     image = _make_image()
     image.filepath = "/somewhere/on/disk.ome.tiff"
     assert "filepath" not in repr(image)
+
+
+class TestCombiningImagesKeepsTheirMetadata:
+    """`create_z_stack` and `create_multi_channel_image` used to rebuild the metadata
+    field by field, so every field added to the dataclass afterwards had to be
+    remembered in two more places. `geometry` was not, and went missing from every
+    z-stacked and multi-channel acquisition — and so from every stitched mosaic, which
+    inherits the reference tile's metadata. Nothing consumed it there until the overview
+    canvas began projecting stage positions, at which point they all vanished on
+    acquisition.
+    """
+
+    @staticmethod
+    def _image(**overrides):
+        from fibsem.fm.structures import (
+            CameraImageTransform,
+            FluorescenceChannelMetadata,
+            FluorescenceImage,
+            FluorescenceImageMetadata,
+            FMImageGeometry,
+        )
+
+        metadata = FluorescenceImageMetadata(
+            acquisition_date="2026-07-31T12:00:00",
+            pixel_size_x=1e-7,
+            pixel_size_y=1e-7,
+            channels=[FluorescenceChannelMetadata(
+                name=overrides.pop("name", "GFP"),
+                excitation_wavelength=488.0,
+                power=0.5,
+                exposure_time=0.1,
+                gain=1.0,
+                offset=0.0,
+                objective_position=1e-3,
+            )],
+            geometry=FMImageGeometry(
+                transform=CameraImageTransform.FLIP_XY,
+                camera_tilt=180.0,
+                is_compustage=True,
+            ),
+            description="carried through",
+            **overrides,
+        )
+        return FluorescenceImage(data=np.zeros((1, 8, 8), dtype=np.uint16), metadata=metadata)
+
+    def test_a_z_stack_keeps_the_geometry(self):
+        from fibsem.fm.structures import FluorescenceImage
+
+        stack = FluorescenceImage.create_z_stack([self._image(), self._image()])
+
+        assert stack.metadata.geometry is not None
+        assert stack.metadata.geometry.camera_tilt == 180.0
+        assert stack.metadata.geometry.is_compustage is True
+        assert stack.metadata.z_positions is not None  # what stacking is *for*
+
+    def test_a_multi_channel_image_keeps_the_geometry(self):
+        from fibsem.fm.structures import FluorescenceImage
+
+        combined = FluorescenceImage.create_multi_channel_image(
+            [self._image(name="GFP"), self._image(name="RFP")]
+        )
+
+        assert combined.metadata.geometry is not None
+        assert combined.metadata.geometry.is_compustage is True
+        assert [c.name for c in combined.metadata.channels] == ["GFP", "RFP"]
+
+    def test_unrelated_fields_survive_too(self):
+        """The point is not `geometry` specifically — it is that nothing is dropped."""
+        from fibsem.fm.structures import FluorescenceImage
+
+        stack = FluorescenceImage.create_z_stack([self._image(), self._image()])
+        combined = FluorescenceImage.create_multi_channel_image([self._image()])
+
+        for metadata in (stack.metadata, combined.metadata):
+            assert metadata.description == "carried through"
+            assert metadata.pixel_size_x == 1e-7

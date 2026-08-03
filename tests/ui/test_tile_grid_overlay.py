@@ -17,7 +17,10 @@ from PyQt5.QtWidgets import QApplication
 
 from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
 from fibsem.ui.widgets.canvas.canvas_base import ContentRect
-from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import TileGridOverlay
+from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import (
+    MOVE_DRAG_THRESHOLD_PX,
+    TileGridOverlay,
+)
 
 WIDTH = HEIGHT = 1024
 PIXEL_SIZE = 1e-7
@@ -73,6 +76,33 @@ def build(rows=3, cols=3, overlap=OVERLAP, mask=None):
     overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE)
     _seed_content(overlay)
     return overlay, tiles
+
+
+def _event(overlay, x, y, button=1, px=0.0, py=0.0):
+    """A matplotlib mouse event over the overlay's axes.
+
+    `px`/`py` are screen pixels. They matter for the move gesture, which decides
+    between a click and a drag by how far the pointer travelled on screen -- in data
+    coordinates that distance would change with the zoom.
+    """
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        button=button, inaxes=overlay._ax, xdata=x, ydata=y, x=px, y=py
+    )
+
+
+def _click(overlay, x, y):
+    """Press and release at one point, without moving between the two."""
+    overlay._on_press(_event(overlay, x, y))
+    overlay._on_release(_event(overlay, x, y))
+
+
+def _drag(overlay, start, end, px_travel=50.0):
+    """Press at *start*, move to *end*, release. Screen travel defaults to a real drag."""
+    overlay._on_press(_event(overlay, *start))
+    overlay._on_drag(_event(overlay, *end, px=px_travel, py=px_travel))
+    overlay._on_release(_event(overlay, *end, px=px_travel, py=px_travel))
 
 
 def test_the_centre_tile_coincides_with_the_displayed_image(qapp):
@@ -150,7 +180,7 @@ def test_toggling_reports_the_new_state_not_the_old(qapp):
 
     disabled = next(t for t in tiles if (t.row, t.col) == (0, 0))
     x, y, width, height = overlay._rect_for(disabled)
-    overlay._on_canvas_clicked(x + width / 2, y + height / 2, None)
+    _click(overlay, x + width / 2, y + height / 2)
 
     assert received == [(0, 0, True)]
 
@@ -268,14 +298,6 @@ def test_skipped_tiles_are_grey_regardless_of_the_grid_colour(qapp):
 
 
 # ── resize by dragging an edge ───────────────────────────────────────────
-
-
-def _event(overlay, x, y, button=1):
-    from types import SimpleNamespace
-
-    return SimpleNamespace(
-        button=button, inaxes=overlay._ax, xdata=x, ydata=y, x=0, y=0
-    )
 
 
 def _edges(overlay):
@@ -471,3 +493,127 @@ def test_a_drag_survives_the_grid_being_cleared_underneath_it(qapp):
     overlay.clear()
 
     overlay._on_drag(_event(overlay, right + WIDTH, overlay._rect.cy))
+
+
+# ── move by dragging the interior ────────────────────────────────────────
+
+
+def _centre(overlay):
+    return overlay._rect.cx, overlay._rect.cy
+
+
+def test_dragging_the_interior_moves_the_grid_by_the_drag(qapp):
+    """The grid has to land where it was let go, not merely somewhere in that
+    direction -- it is a plan of where tiles will be acquired, and a drag that
+    approximated the position would plan an acquisition of somewhere else."""
+    overlay, _ = build(3, 3)
+    moved = []
+    overlay.grid_move_requested.connect(lambda x, y: moved.append((x, y)))
+    cx, cy = _centre(overlay)
+
+    _drag(overlay, (cx, cy), (cx + 300.0, cy - 125.0))
+
+    assert moved[-1] == pytest.approx((cx + 300.0, cy - 125.0))
+
+
+def test_a_press_that_barely_moves_is_a_click_not_a_drag(qapp):
+    """The same press starts both gestures, so the split has to fall somewhere. Below
+    the threshold it must toggle the tile: a hand is never perfectly still, and a click
+    that nudged the whole grid by a pixel would be worse than one that did nothing."""
+    overlay, tiles = build(3, 3)
+    moved, toggled = [], []
+    overlay.grid_move_requested.connect(lambda x, y: moved.append((x, y)))
+    overlay.tile_toggled.connect(lambda r, c, e: toggled.append((r, c, e)))
+    centre = next(t for t in tiles if (t.row, t.col) == (1, 1))
+    x, y, width, height = overlay._rect_for(centre)
+    point = (x + width / 2, y + height / 2)
+
+    _drag(overlay, point, point, px_travel=MOVE_DRAG_THRESHOLD_PX - 1)
+
+    assert moved == [], "a press that did not travel must not move the grid"
+    assert toggled == [(1, 1, False)]
+
+
+def test_a_real_drag_does_not_also_toggle_the_tile_it_started_on(qapp):
+    overlay, _ = build(3, 3)
+    toggled = []
+    overlay.tile_toggled.connect(lambda r, c, e: toggled.append((r, c, e)))
+    cx, cy = _centre(overlay)
+
+    _drag(overlay, (cx, cy), (cx + 400.0, cy))
+
+    assert toggled == []
+
+
+def test_a_press_inside_the_grid_claims_the_gesture(qapp):
+    """Otherwise the canvas pans underneath the move, and the grid and the view slide
+    apart by the same drag."""
+    overlay, _ = build(3, 3)
+    overlay._canvas._overlay_consuming_event = False
+
+    overlay._on_press(_event(overlay, *_centre(overlay)))
+
+    assert overlay._canvas._overlay_consuming_event is True
+
+
+def test_a_press_outside_the_grid_is_left_to_the_canvas(qapp):
+    """The canvas still has to be pannable. Claiming everything would take that away
+    for the sake of a gesture the pointer was nowhere near."""
+    overlay, _ = build(3, 3)
+    overlay._canvas._overlay_consuming_event = False
+    _, right, _, _ = _corners(overlay)
+
+    overlay._on_press(_event(overlay, right + 5 * WIDTH, overlay._rect.cy))
+
+    assert overlay._canvas._overlay_consuming_event is False
+
+
+def test_an_edge_press_still_resizes_rather_than_moving(qapp):
+    """Edges are inside the bounding box too, so the two gestures overlap. Resize wins,
+    matching the cursor shown there."""
+    overlay, _ = build(3, 3, overlap=OVERLAP)
+    moved = []
+    overlay.grid_move_requested.connect(lambda x, y: moved.append((x, y)))
+    right, _ = _edges(overlay)
+
+    _drag(overlay, (right, overlay._rect.cy), (right + WIDTH, overlay._rect.cy))
+
+    assert moved == []
+    assert overlay.is_resizing is False  # released
+
+
+def test_a_hidden_grid_cannot_be_moved(qapp):
+    overlay, _ = build(3, 3)
+    moved = []
+    overlay.grid_move_requested.connect(lambda x, y: moved.append((x, y)))
+    overlay.set_grid_visible(False)
+    cx, cy = _centre(overlay)
+
+    _drag(overlay, (cx, cy), (cx + 400.0, cy))
+
+    assert moved == []
+
+
+def test_the_interior_offers_a_move_cursor(qapp):
+    """The drag is undiscoverable without it -- nothing about a grid of rectangles
+    suggests the whole thing can be pushed around."""
+    from PyQt5.QtCore import Qt
+
+    overlay, _ = build(3, 3)
+
+    overlay._update_cursor(_event(overlay, *_centre(overlay)))
+
+    assert overlay._canvas.cursor == Qt.SizeAllCursor
+
+
+def test_a_move_drag_survives_the_grid_being_cleared_underneath_it(qapp):
+    """Same hazard as the resize drag: `_refresh_tile_grid` can clear the grid between
+    two motion events, and an exception escaping a handler can take the app down."""
+    overlay, _ = build(3, 3)
+    cx, cy = _centre(overlay)
+    overlay._on_press(_event(overlay, cx, cy))
+
+    overlay.clear()
+
+    overlay._on_drag(_event(overlay, cx + 400.0, cy, px=50.0, py=50.0))
+    overlay._on_release(_event(overlay, cx + 400.0, cy, px=50.0, py=50.0))

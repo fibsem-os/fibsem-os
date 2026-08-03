@@ -606,3 +606,48 @@ def test_without_covers_the_ground_still_comes_from_shape_and_pixel_size():
     c.add_image(_img(100, 100), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE)
     xmin, xmax, _, _ = c._content_extent()
     assert xmax - xmin == pytest.approx(100)
+
+
+# ── zoom bounds ───────────────────────────────────────────────────────────
+
+
+def _scroll(canvas, direction, n=1):
+    from types import SimpleNamespace
+    for _ in range(n):
+        canvas._on_scroll(SimpleNamespace(
+            inaxes=canvas._ax, xdata=0.0, ydata=0.0,
+            button="up" if direction > 0 else "down", guiEvent=None,
+        ))
+
+
+def _span(canvas):
+    x0, x1 = canvas._ax.get_xlim()
+    return abs(x1 - x0)
+
+
+def test_zooming_out_stops_before_the_content_is_lost():
+    """Unbounded scroll-out leaves the content a speck in an empty field, with no way to
+    tell which direction to come back — easy to reach by accident on a trackpad."""
+    from fibsem.ui.widgets.canvas.canvas_base import MAX_ZOOM_OUT
+
+    c = _canvas()
+    c.add_image(_img(512, 512), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE)
+    c.reset_view()
+    _scroll(c, -1, 100)
+    assert _span(c) <= 512 * MAX_ZOOM_OUT
+
+
+def test_zooming_in_stops_before_falling_between_pixels():
+    from fibsem.ui.widgets.canvas.canvas_base import MAX_ZOOM_IN
+
+    c = _canvas()
+    c.add_image(_img(512, 512), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE)
+    c.reset_view()
+    _scroll(c, 1, 100)
+    assert _span(c) >= 512 / MAX_ZOOM_IN
+
+
+def test_zoom_is_unbounded_with_nothing_to_be_relative_to():
+    """The bounds are a multiple of the content, so an empty canvas has none."""
+    c = _canvas()
+    assert c._zoom_allowed(1e9) is True

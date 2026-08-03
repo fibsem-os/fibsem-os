@@ -5,9 +5,11 @@ positioned under it. A separate top-level window rather than a child widget, for
 same reason -- native controls parented into the matplotlib canvas are forced to
 repaint on every canvas redraw.
 
-The settings here are all about *seeing* the grid, not about what will be acquired.
-Nothing in this panel changes the acquisition; the tile selection lives in
-`TileMaskWidget` and on the canvas itself.
+The settings here are about *seeing* the grid -- what is acquired is decided in the
+settings column and on the canvas itself, where the tile selection lives. The one
+exception is "Centre on stage", which undoes a drag of the grid: it is here because
+this is where you come to ask what the grid currently describes, and the summary
+directly above it is what tells you the grid is off-centre in the first place.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from PyQt5.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QSlider,
     QVBoxLayout,
     QWidget,
@@ -52,15 +55,22 @@ QLabel { color: #d6d6d6; font-size: 11px; background: transparent; }
 QLabel#panelTitle { color: #9aa0a6; font-size: 10px; font-weight: 600; letter-spacing: 1px; }
 QCheckBox { color: #d6d6d6; font-size: 11px; background: transparent; }
 QLabel#gridSummary { color: #868e93; font-size: 10px; background: transparent; }
+QPushButton#centreButton {
+    background: #2a2d38; color: #d6d6d6; font-size: 11px;
+    border: 1px solid #3d4251; border-radius: 4px; padding: 4px 8px;
+}
+QPushButton#centreButton:hover:enabled { background: #333744; }
+QPushButton#centreButton:disabled { color: #5c6169; border-color: #2e323d; }
 """
 
 
 class TileGridOptionsPanel(QFrame):
-    """Show/hide, colour and fill opacity for the tile grid overlay."""
+    """Show/hide, colour and fill opacity for the tile grid overlay, and re-centre it."""
 
     visibility_changed = pyqtSignal(bool)
     color_changed = pyqtSignal(str)
     fill_alpha_changed = pyqtSignal(float)
+    centre_requested = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -93,6 +103,16 @@ class TileGridOptionsPanel(QFrame):
         self.label_summary.setWordWrap(True)
         root.addWidget(self.label_summary)
 
+        # The way back from dragging the grid. Directly under the summary, which is
+        # what reports the offset -- disabled until there is an offset to undo, so it
+        # neither invites a click that does nothing nor strands the state a drag set.
+        self.button_centre = QPushButton("Centre on stage")
+        self.button_centre.setObjectName("centreButton")
+        self.button_centre.setToolTip("Plan the overview around the stage position again")
+        self.button_centre.setEnabled(False)
+        self.button_centre.clicked.connect(self.centre_requested)
+        root.addWidget(self.button_centre)
+
         self.check_visible = QCheckBox("Show grid")
         self.check_visible.setChecked(True)
         self.check_visible.toggled.connect(self.visibility_changed)
@@ -121,6 +141,10 @@ class TileGridOptionsPanel(QFrame):
     def set_summary(self, text: str) -> None:
         """What the grid currently describes, e.g. `3 x 3 - 10% overlap - 9/9 tiles`."""
         self.label_summary.setText(text)
+
+    def set_centre_enabled(self, enabled: bool) -> None:
+        """Whether the grid is off the stage position, and so worth re-centring."""
+        self.button_centre.setEnabled(bool(enabled))
 
     def set_color(self, color: str) -> None:
         """Reflect the current colour without emitting -- for syncing from the overlay."""
