@@ -1273,3 +1273,49 @@ def test_the_reported_offset_is_measured_in_the_frame_it_is_drawn_in(qapp, inter
     # and the sign follows the canvas: dragging down the screen reads as +y
     assert widget._target_offset()[1] > 0
 
+
+def test_the_working_area_follows_the_grid_not_the_canvas_origin(qapp, interactive_widget):
+    """Pinned to the origin, it framed empty space once the stage travelled far from
+    wherever the frame was anchored -- moving to an offset FM mount steps 48 mm -- and
+    stretched the content extent across the gap, which capped how far the view could
+    zoom in."""
+    widget = interactive_widget
+    span = widget.canvas.canvas.world_extent[0]
+
+    widget._on_grid_move(*[v + 4 * span / widget.canvas.canvas.reference_pixel_size
+                           for v in widget.tile_grid_overlay._anchor()])
+    qapp.processEvents()
+
+    _, _, cx, cy = widget.canvas.canvas.world_extent
+    assert (cx, cy) == pytest.approx(widget._grid_offset())
+
+
+def test_a_move_inside_the_working_area_leaves_the_framing_alone(qapp, interactive_widget):
+    """Re-declaring the working area re-frames the view, so it must not follow every
+    move -- a double-click to somewhere 100 µm away would throw the zoom away, the same
+    failure a tile toggle used to cause."""
+    widget = interactive_widget
+    before = widget.canvas.canvas.world_extent
+    span_px = before[0] / widget.canvas.canvas.reference_pixel_size
+    anchor = widget.tile_grid_overlay._anchor()
+
+    widget._on_grid_move(anchor[0] + span_px / 4, anchor[1])
+    qapp.processEvents()
+
+    assert widget.canvas.canvas.world_extent == before
+    # ...and the grid still moved, which is the point of not re-framing for it
+    assert widget.tile_grid_overlay._anchor()[0] == pytest.approx(anchor[0] + span_px / 4)
+
+
+def test_a_move_clear_of_the_working_area_re_declares_it(qapp, interactive_widget):
+    widget = interactive_widget
+    before = widget.canvas.canvas.world_extent
+    span_px = before[0] / widget.canvas.canvas.reference_pixel_size
+    anchor = widget.tile_grid_overlay._anchor()
+
+    widget._on_grid_move(anchor[0] + 4 * span_px, anchor[1])
+    qapp.processEvents()
+
+    after = widget.canvas.canvas.world_extent
+    assert after != before
+    assert (after[2], after[3]) == pytest.approx(widget._grid_offset())

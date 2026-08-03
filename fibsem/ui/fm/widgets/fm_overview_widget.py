@@ -469,7 +469,10 @@ class FMOverviewWidget(QWidget):
         # the stage itself -- not on whatever happens to be displayed. It used to be
         # pinned to the canvas origin, which is where the stage was the *first* time
         # anything was drawn: correct until the stage moved, and then quietly not.
-        self.tile_grid_overlay.set_anchor(self._grid_anchor())
+        offset = self._grid_offset()
+        self.tile_grid_overlay.set_anchor(
+            self.canvas.canvas.metres_to_canvas(*offset)
+        )
 
         # No `display_pixel_size`: the overlay reads it from the canvas at draw time.
         # Pinning it here would freeze the scale at whatever was displayed when the
@@ -494,14 +497,39 @@ class FMOverviewWidget(QWidget):
         footprint = (parameters.rows, parameters.cols, parameters.overlap)
         changed = footprint != self._grid_footprint
         self._grid_footprint = footprint
-        if changed and not self.tile_grid_overlay.is_resizing:
+        if (changed or self._grid_has_left_the_working_area(offset, span_x, span_y)) \
+                and not self.tile_grid_overlay.is_resizing:
             # Frame the planned area, so an empty canvas shows where the run will go
             # rather than nothing at all, and so clicks land in a meaningful frame.
             # Behind the same guard as the refit below, and for the same reason: a tile
             # toggle comes through here too, and re-framing on one threw away the
             # user's zoom -- which is what made clicking a tile look like zooming.
-            self.canvas.set_world_extent(span_x, span_y)
+            self.canvas.set_world_extent(span_x, span_y, offset)
             self.tile_grid_overlay.fit_view()
+
+    def _grid_has_left_the_working_area(
+        self, offset: Tuple[float, float], span_x: float, span_y: float
+    ) -> bool:
+        """Whether the declared working area has stopped describing where the grid is.
+
+        The working area is centred on the grid rather than on the canvas origin. The
+        two coincide until the stage travels far from wherever the frame was anchored
+        -- moving to an offset FM mount steps 48 mm -- and an area left behind at the
+        origin then frames empty space *and* stretches the content extent across the
+        gap, which is what caps how far the view can zoom in: the limiter is relative
+        to the content, so it read the span as 48 mm when what mattered was 0.1 mm.
+
+        Re-declaring it re-frames the view, though, so it cannot simply follow every
+        move -- a double-click to somewhere 100 µm away would throw the zoom away, the
+        same failure a tile toggle used to cause. It follows only once the grid has
+        left the area outright, at which point what is framed and what is planned no
+        longer overlap at all.
+        """
+        declared = self.canvas.canvas.world_extent
+        if declared is None:
+            return True  # nothing declared yet, so nothing describes the grid
+        width, height, cx, cy = declared
+        return abs(offset[0] - cx) > width / 2 or abs(offset[1] - cy) > height / 2
 
     def _toggle_tile_grid_panel(self) -> None:
         if not self.btn_tile_grid.isChecked():
@@ -725,20 +753,29 @@ class FMOverviewWidget(QWidget):
         """
         return self._target or self._current_stage_position()
 
-    def _grid_anchor(self) -> Tuple[float, float]:
-        """Where on the canvas the planned grid is centred.
+    def _grid_offset(self) -> Tuple[float, float]:
+        """Where the planned grid's centre sits relative to the canvas origin, in metres.
 
-        Falls back to the canvas origin when the centre cannot be projected, which
-        draws the grid in the middle of the frame rather than not at all.
+        Falls back to the origin when the centre cannot be projected, which draws the
+        grid in the middle of the frame rather than not at all.
         """
         frame = self._frame()
         centre = self._grid_centre()
         if frame is not None and centre is not None:
             try:
-                return frame.to_canvas(centre)
+                return frame.offset(centre)
             except Exception as e:
                 logging.debug(f"Could not place the planned grid: {e}")
-        return self.canvas.canvas.metres_to_canvas(0.0, 0.0)
+        return (0.0, 0.0)
+
+    def _grid_anchor(self) -> Tuple[float, float]:
+        """Where on the canvas the planned grid is centred.
+
+        The same place :meth:`_grid_offset` names, in canvas pixels rather than metres
+        -- derived from it rather than projected again, so the drawn grid and the
+        declared working area cannot end up centred on different points.
+        """
+        return self.canvas.canvas.metres_to_canvas(*self._grid_offset())
 
     def _refresh_positions(self) -> None:
         """Mark the stage positions in the canvas frame."""
