@@ -1319,3 +1319,45 @@ def test_a_move_clear_of_the_working_area_re_declares_it(qapp, interactive_widge
     after = widget.canvas.canvas.world_extent
     assert after != before
     assert (after[2], after[3]) == pytest.approx(widget._grid_offset())
+
+
+def test_closing_the_widget_lets_go_of_the_stage_signal(qapp):
+    """`stage_position_changed` belongs to the microscope and outlives the widget. A
+    connection left behind emits into a Qt object already torn down on the C++ side,
+    which is a segfault rather than an exception: closing the tab and then moving the
+    stage from anywhere else in the application took the whole application down.
+
+    Asserted on the subscriber count rather than by provoking the crash, since a test
+    that segfaults takes the runner with it.
+    """
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    microscope = build_microscope()
+    before = len(microscope.stage_position_changed)
+    widget = FMOverviewWidget(microscope)
+    assert len(microscope.stage_position_changed) == before + 1
+
+    widget.close()
+    qapp.processEvents()
+
+    assert len(microscope.stage_position_changed) == before
+
+
+def test_a_dropped_widget_lets_go_of_the_stage_signal_too(qapp):
+    """Not everything gets closed. psygnal holds a bound method weakly and drops it
+    when the owner is collected -- but not a Qt signal's `emit`, which PyQt rebuilds on
+    every access, so psygnal can neither weakref it nor match it at disconnect time.
+    It also says nothing when the disconnect therefore removes nothing."""
+    import gc
+
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    microscope = build_microscope()
+    before = len(microscope.stage_position_changed)
+    widget = FMOverviewWidget(microscope)
+    assert len(microscope.stage_position_changed) == before + 1
+
+    del widget
+    gc.collect()
+
+    assert len(microscope.stage_position_changed) == before

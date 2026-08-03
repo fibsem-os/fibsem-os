@@ -165,7 +165,13 @@ class FMOverviewWidget(QWidget):
         self._progress_received.connect(self._apply_progress)
         self.fm.acquisition_progress_signal.connect(self._on_progress)
         self._stage_moved.connect(self._on_stage_moved)
-        self.microscope.stage_position_changed.connect(self._stage_moved.emit)
+        # A plain bound method, not `self._stage_moved.emit`, matching how the progress
+        # signal is subscribed just above. psygnal holds bound methods weakly and drops
+        # them when the owner is collected, which a Qt signal's `emit` does not get: PyQt
+        # builds a new wrapper on every access, so psygnal cannot weakref it, cannot
+        # match it at disconnect time -- and says nothing when the disconnect therefore
+        # removes nothing. Emitting into a widget Qt had already torn down was a segfault.
+        self.microscope.stage_position_changed.connect(self._on_stage_signal)
         self._refresh_current_position()
 
     def _default_channels(self) -> List[ChannelSettings]:
@@ -797,6 +803,15 @@ class FMOverviewWidget(QWidget):
 
     # ── canvas interaction ───────────────────────────────────────────────
 
+    def _on_stage_signal(self, position: FibsemStagePosition) -> None:
+        """Called by psygnal, on whichever thread polled. Touches no widgets.
+
+        The counterpart of :meth:`_on_progress`, and a real method rather than the Qt
+        signal's `emit` for a reason beyond symmetry -- see the note where it is
+        connected.
+        """
+        self._stage_moved.emit(position)
+
     def _on_stage_moved(self, position: FibsemStagePosition) -> None:
         """A poll found the stage somewhere new.
 
@@ -1236,8 +1251,17 @@ class FMOverviewWidget(QWidget):
     def closeEvent(self, event) -> None:
         if self.is_acquiring:
             self._stop_event.set()
-        try:
-            self.fm.acquisition_progress_signal.disconnect(self._on_progress)
-        except (TypeError, RuntimeError):
-            pass
+        # Every psygnal this widget subscribed to, without exception. They outlive the
+        # widget -- they belong to the microscope -- and they hold bound methods of Qt
+        # objects that `close` has already torn down on the C++ side, so the next emit
+        # writes into freed memory. Closing the tab and then moving the stage from
+        # anywhere else in the application was a hard segfault, not an exception.
+        for signal, slot in (
+            (self.fm.acquisition_progress_signal, self._on_progress),
+            (self.microscope.stage_position_changed, self._on_stage_signal),
+        ):
+            try:
+                signal.disconnect(slot)
+            except (TypeError, RuntimeError, ValueError, KeyError):
+                pass
         super().closeEvent(event)
