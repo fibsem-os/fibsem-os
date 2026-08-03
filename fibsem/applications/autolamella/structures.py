@@ -783,6 +783,19 @@ class Lamella:
 
     @property
     def is_failure(self) -> bool:
+        """Whether a human has judged this lamella defective.
+
+        Deliberately not set by a failing task, and it should stay that way. A
+        task failing is a fact about one attempt; a defect is a judgement about
+        the lamella. TaskManager._should_skip skips a lamella marked failed for
+        *every* remaining task, so auto-setting this on a stage timeout or a
+        momentary comms drop would permanently abandon a lamella that only
+        needed retrying.
+
+        Whether a failed task blocks dependent work is a separate question,
+        answered by completed_tasks -- which filters on task status, so a failed
+        prerequisite does not license the task that requires it. See FIB-490.
+        """
         return self.defect.state is DefectType.FAILURE
 
     @property
