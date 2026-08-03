@@ -41,7 +41,8 @@ from fibsem.structures import (
     Point,
     ReferenceImageParameters,
 )
-from fibsem.utils import configure_logging, format_duration
+from fibsem.utils import configure_logging as _configure_logging
+from fibsem.utils import format_duration
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -1152,8 +1153,12 @@ class Experiment:
         for lamella in experiment.positions:
             lamella.relocate(experiment.path)
 
-        # configure experiment logging
-        configure_logging(path=experiment.path, log_filename="logfile")
+        # NOTE: deliberately does not configure logging. configure_logging calls
+        # basicConfig(force=True), which closes and replaces every root handler --
+        # so reading an experiment would reach into the calling process's global
+        # logging and redirect its output into this experiment's logfile. Callers
+        # that want that ask for it: the app does so when it adopts an experiment.
+        # See FIB-421.
 
         # attempt to load task protocol from the same directory
         protocol_path = os.path.join(experiment.path, "protocol.yaml")
@@ -1329,9 +1334,11 @@ class Experiment:
         # create the experiment
         experiment = Experiment(path=path, name=name, metadata=metadata)
 
-        # configure experiment logging
         os.makedirs(experiment.path, exist_ok=True)
-        configure_logging(path=experiment.path, log_filename="logfile")
+
+        # NOTE: as with load(), creating an experiment does not reconfigure the
+        # calling process's logging -- the app does that when it adopts one.
+        # See FIB-421.
 
         # save the experiment
         experiment.save()
@@ -1339,6 +1346,28 @@ class Experiment:
         logging.info(f"Created new experiment {experiment.name} at {experiment.path}")
 
         return experiment
+
+    def configure_logging(self) -> str:
+        """Send this process's log output to the experiment's logfile.
+
+        Note this reconfigures the *root* logger: it is process-global, not
+        scoped to this experiment, and it replaces whatever handlers were set up
+        before. Two consequences worth knowing before calling it:
+
+        * a process that logs elsewhere stops doing so
+        * a second call points logging at the second experiment
+
+        ``load`` and ``create`` deliberately do not call this. Reading an
+        experiment must not reach into the caller's logging -- the load dialog
+        reads one on every click to preview it -- so the callers that do want it
+        say so. The app calls this when it adopts an experiment; a headless
+        script that wants its output in the experiment folder calls it after
+        loading or creating one. See FIB-421.
+
+        Returns:
+            The path of the logfile being written to.
+        """
+        return _configure_logging(path=self.path, log_filename="logfile")
 
     def save_protocol(self) -> None:
         """Save the task protocol to disk in the experiment directory."""
