@@ -17,6 +17,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaTaskState,
+    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
     Lamella,
@@ -68,7 +69,7 @@ def _manager(experiment: Experiment, hook_manager: HookManager) -> TaskManager:
 def _add_lamella(experiment: Experiment, name: str, completed: List[str]) -> Lamella:
     lamella = Lamella(path=experiment.path, number=len(experiment.positions) + 1, petname=name)
     for task_name in completed:
-        lamella.task_history.append(AutoLamellaTaskState(name=task_name))
+        lamella.task_history.append(AutoLamellaTaskState(name=task_name, status=AutoLamellaTaskStatus.Completed))
     experiment.positions.append(lamella)
     return lamella
 
@@ -91,7 +92,7 @@ def test_fires_when_the_last_required_task_lands(experiment, recorder):
     manager._maybe_fire_lamella_completed(lamella, "MillTrench")
     assert _events(fired) == []
 
-    lamella.task_history.append(AutoLamellaTaskState(name="MillUndercut"))
+    lamella.task_history.append(AutoLamellaTaskState(name="MillUndercut", status=AutoLamellaTaskStatus.Completed))
     manager._maybe_fire_lamella_completed(lamella, "MillUndercut")
 
     assert _events(fired) == ["item_completed"]
@@ -131,7 +132,7 @@ def test_each_lamella_fires_for_itself(experiment, recorder):
     manager._snapshot_completion()
 
     for lamella in (lam1, lam2):
-        lamella.task_history.append(AutoLamellaTaskState(name="MillUndercut"))
+        lamella.task_history.append(AutoLamellaTaskState(name="MillUndercut", status=AutoLamellaTaskStatus.Completed))
         manager._maybe_fire_lamella_completed(lamella, "MillUndercut")
 
     assert [c.item_name for c in fired] == [lam1.name, lam2.name]
@@ -151,7 +152,7 @@ def test_fires_when_the_last_outstanding_lamella_finishes(experiment, recorder):
     manager._maybe_fire_experiment_completed()
     assert _events(fired) == []  # lam-2 still outstanding
 
-    lam2.task_history.append(AutoLamellaTaskState(name="MillUndercut"))
+    lam2.task_history.append(AutoLamellaTaskState(name="MillUndercut", status=AutoLamellaTaskStatus.Completed))
     manager._maybe_fire_experiment_completed()
 
     assert _events(fired) == ["experiment_completed"]

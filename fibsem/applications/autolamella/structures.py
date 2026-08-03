@@ -320,9 +320,18 @@ class AutoLamellaWorkflowConfig:
         return []
 
     def get_completed_tasks(self, lamella: 'Lamella', with_timestamps: bool = False) -> List[str]:
-        """Get the list of completed tasks for a given lamella."""
+        """Get the list of completed tasks for a given lamella.
+
+        Filtered on status for the same reason as Lamella.completed_tasks:
+        task_history holds every terminal outcome since FIB-490. Unfiltered, a
+        failed required task would make is_completed() true, which drives the
+        ITEM_COMPLETED / EXPERIMENT_COMPLETED events and the is_completed column
+        in the experiment summary.
+        """
         completed_tasks = []
         for task in lamella.task_history:
+            if task.status is not AutoLamellaTaskStatus.Completed:
+                continue
             if task.name in self.workflow:
                 txt = task.name
                 if with_timestamps:
@@ -790,14 +799,30 @@ class Lamella:
 
     @property
     def completed_tasks(self) -> List[str]:
-        """Return a list of completed task names."""
-        return [task.name for task in self.task_history]
+        """Return a list of completed task names.
+
+        Filtered on status: task_history records every terminal outcome, not just
+        successes (FIB-490), so an unfiltered read would count a failed task as
+        done. That matters most in TaskManager._should_skip, where this gates
+        prerequisites -- a failed trench would otherwise license an undercut.
+        """
+        return [
+            task.name
+            for task in self.task_history
+            if task.status is AutoLamellaTaskStatus.Completed
+        ]
 
     @property
     def last_completed_task(self) -> Optional['AutoLamellaTaskState']:
-        """Return the last completed task state."""
-        if self.task_history:
-            return self.task_history[-1]
+        """Return the last completed task state.
+
+        The last *completed* one, not the last recorded: a failure landing last
+        would otherwise be reported as the lamella's latest progress in the
+        experiment summary.
+        """
+        for task in reversed(self.task_history):
+            if task.status is AutoLamellaTaskStatus.Completed:
+                return task
         return None
 
     @property
