@@ -14,12 +14,14 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 from PyQt5.QtCore import QPoint, Qt, pyqtSignal
+from PyQt5.QtGui import QFontMetrics
 from PyQt5.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -60,30 +62,69 @@ from fibsem.ui.widgets.canvas.fm_canvas import FMRealSpaceCanvasWidget
 from fibsem.ui.widgets.canvas.stage_frame import FMStageProjection, StageFrame
 
 TEXT_MUTED = "#868e93"
-PROGRESS_WIDTH = 260
-PROGRESS_HEIGHT = 22
 PROGRESS_FONT_PX = 10
+# Inset for chrome drawn over the canvas, matching the toolbar buttons' own margin so
+# the cursor readout in the top left lines up with the buttons in the top right.
+CANVAS_CHROME_MARGIN = 4
 
 
-def progress_slot(progress: FibsemProgressWidget) -> QWidget:
-    """A fixed-size holder that keeps its space whether the bar is showing or not.
+def shrink_progress_text(progress: FibsemProgressWidget) -> FibsemProgressWidget:
+    """Fit a progress bar to a narrow column: smaller text, and no say in the width.
 
-    `FibsemProgressWidget.reset()` hides itself, which in a plain layout collapses the
-    row and shifts everything beside it -- so a bar going away at the end of a run
-    would drag the buttons across. Reserving the space decouples them.
+    The font goes on via a stylesheet rather than `setFont`, which does not reach the
+    bar, and rather than touching the widget's private `_bar`. The bar's own sheet sets
+    no font-size, so this applies without disturbing the chunk colouring it relies on to
+    tell finished from failed.
+
+    The size policy is the same trap as :class:`ElidedLabel`, one level down: a bar
+    reports its *message* width as its hint, so a long failure ran off the end of the
+    column and out of the window. Ignored horizontally, it takes the width it is given.
     """
-    # Via a stylesheet on the holder rather than `setFont`, which does not reach the
-    # bar, and rather than touching the widget's private `_bar`. The bar's own sheet
-    # sets no font-size, so this applies without disturbing the chunk colouring it
-    # relies on to tell finished from failed.
     progress.setStyleSheet(f"QProgressBar {{ font-size: {PROGRESS_FONT_PX}px; }}")
+    progress.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+    return progress
 
-    slot = QWidget()
-    slot.setFixedSize(PROGRESS_WIDTH, PROGRESS_HEIGHT)
-    layout = QHBoxLayout(slot)
-    layout.setContentsMargins(0, 0, 0, 0)
-    layout.addWidget(progress)
-    return slot
+
+class ElidedLabel(QLabel):
+    """A label that shortens its text to fit, instead of forcing its parent wider.
+
+    A plain `QLabel` reports the full width of its text as its size hint, and in a
+    layout that hint becomes a minimum: a 132-character acquisition failure dragged this
+    widget's minimum width from 1030 px to 1728 px, so a message pushed the window
+    around. Here the text gives way instead.
+
+    `text()` still returns what was set, not what is drawn -- callers compare against it
+    to decide whether the line is theirs to overwrite, and eliding is presentation.
+    """
+
+    def __init__(self, text: str = "", parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._full_text = ""
+        # Ignored horizontally: the label neither asks for room nor refuses to shrink,
+        # which is the whole point -- its content must not set anyone's minimum.
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setText(text)
+
+    def setText(self, text: Optional[str]) -> None:
+        self._full_text = text or ""
+        # The full message, for anything too long to show. Set before the caller gets a
+        # chance to override it: `_finish` follows its own `setText` with a tooltip of
+        # its own, and that one should win.
+        self.setToolTip(self._full_text)
+        self._elide()
+
+    def text(self) -> str:
+        return self._full_text
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._elide()
+
+    def _elide(self) -> None:
+        metrics = QFontMetrics(self.font())
+        super().setText(
+            metrics.elidedText(self._full_text, Qt.ElideRight, max(0, self.width() - 2))
+        )
 
 
 # Key the in-progress mosaic is drawn under. Distinct from a finished overview's
@@ -282,32 +323,40 @@ class FMOverviewWidget(QWidget):
         # and scrolling sideways to reach a spinbox is worse than a cramped one.
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
+        # Where a double-click would take the stage, read off continuously rather than
+        # on demand: the canvas is a map, and a map you have to click to get a
+        # coordinate out of cannot be used to decide whether to click.
+        #
+        # Drawn over the canvas rather than beside it, in the one free corner -- the
+        # toolbar owns the top right, the scalebar the bottom right, and the stage info
+        # bar the bottom left. A Qt label rather than the canvas's own text chrome
+        # because this updates on every mouse motion, and `set_info_text` costs ~4.9 ms
+        # against a label's 0.08 ms; at motion-event rates that is the difference
+        # between a readout and a stutter.
+        self.cursor_readout = QLabel(self.canvas.canvas)
+        self.cursor_readout.setAttribute(Qt.WA_TransparentForMouseEvents)
+        # Monospaced so the digits sit still while the cursor moves. A proportional
+        # font makes the whole readout shuffle on every pixel of travel.
+        self.cursor_readout.setStyleSheet(
+            "color: #e8e8e8; font-size: 10px; font-family: monospace;"
+            "background: rgba(26, 26, 26, 160); border-radius: 3px; padding: 2px 5px;"
+        )
+        self.cursor_readout.move(CANVAS_CHROME_MARGIN, CANVAS_CHROME_MARGIN)
+        self.cursor_readout.hide()  # nothing to say until the pointer is over the canvas
+
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(self.canvas)
-        splitter.addWidget(scroll)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 0)
 
         # Two bars: across the grid, and within the tile being acquired. Both are
         # `FibsemProgressWidget`, which distinguishes finished from failed -- a failed
         # run used to paint the same full green bar as a successful one.
-        self.progress_tiles = FibsemProgressWidget()
-        self.progress_tile_detail = FibsemProgressWidget()
+        # Hidden until a run starts: they are empty most of the time, and stacked in a
+        # column there is nothing beside them to shift when they come and go.
+        self.progress_tiles = shrink_progress_text(FibsemProgressWidget())
+        self.progress_tile_detail = shrink_progress_text(FibsemProgressWidget())
 
-        self.status = QLabel("")
+        self.status = ElidedLabel("")
         self.status.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
-
-        # Where a double-click would take the stage, read off continuously rather than
-        # on demand: the canvas is a map, and a map you have to click to get a
-        # coordinate out of cannot be used to decide whether to click.
-        self.cursor_readout = QLabel("")
-        self.cursor_readout.setFixedWidth(CURSOR_READOUT_WIDTH)
-        self.cursor_readout.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        # Monospaced so the digits sit still while the cursor moves. A proportional
-        # font makes the whole readout shuffle on every pixel of travel.
-        self.cursor_readout.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-size: 11px; font-family: monospace;"
-        )
 
         self.button_acquire = QPushButton("Acquire Overview")
         self.button_acquire.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
@@ -320,32 +369,45 @@ class FMOverviewWidget(QWidget):
         self.button_cancel.clicked.connect(self.cancel)
         self.button_cancel.setEnabled(False)
 
-        # One row: status, both bars, then the actions. The bars sit in fixed slots, so
-        # the buttons hold their position whatever the bars are doing.
-        # The two bars are one readout and sit tight together; the gap that matters is
-        # the one separating them from the buttons.
-        bars = QWidget()
-        bars_layout = QHBoxLayout(bars)
-        bars_layout.setContentsMargins(0, 0, 0, 0)
-        bars_layout.setSpacing(3)
-        bars_layout.addWidget(progress_slot(self.progress_tiles))
-        bars_layout.addWidget(progress_slot(self.progress_tile_detail))
+        buttons = QWidget()
+        buttons_layout = QHBoxLayout(buttons)
+        buttons_layout.setContentsMargins(0, 0, 0, 0)
+        buttons_layout.setSpacing(6)
+        buttons_layout.addWidget(self.button_cancel)
+        buttons_layout.addWidget(self.button_acquire, stretch=1)
 
+        # The actions live at the foot of the settings column, not in a row spanning the
+        # whole widget. Spanning cost 1030 px of minimum width -- all of it, the canvas
+        # asked for 10 -- because a horizontal row cannot give anything up. Stacked in
+        # the column the floor is the column's own, and the canvas can be as narrow as
+        # the window allows. Same shape as `FibsemMinimapWidget`, which stacks its run
+        # controls under its settings for the same reason.
         self.status_row = QWidget()
-        status_layout = QHBoxLayout(self.status_row)
-        status_layout.setContentsMargins(8, 4, 8, 8)
-        status_layout.setSpacing(10)
-        status_layout.addWidget(self.status, stretch=1)
-        status_layout.addWidget(self.cursor_readout)
-        status_layout.addWidget(bars)
-        status_layout.addWidget(self.button_cancel)
-        status_layout.addWidget(self.button_acquire)
+        actions_layout = QVBoxLayout(self.status_row)
+        actions_layout.setContentsMargins(8, 4, 8, 8)
+        actions_layout.setSpacing(5)
+        actions_layout.addWidget(self.status)
+        actions_layout.addWidget(self.progress_tiles)
+        actions_layout.addWidget(self.progress_tile_detail)
+        actions_layout.addWidget(buttons)
+
+        side = QWidget()
+        side_layout = QVBoxLayout(side)
+        side_layout.setContentsMargins(0, 0, 0, 0)
+        side_layout.setSpacing(0)
+        side_layout.addWidget(scroll, stretch=1)
+        side_layout.addWidget(self.status_row)
+
+        splitter.addWidget(side)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 0)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(0)
         layout.addWidget(splitter, stretch=1)
-        layout.addWidget(self.status_row)
+
+        self._set_progress_visible(False)
 
         self.channel_widget.settings_changed.connect(self._on_channels_changed)
         self.channel_widget.enabled_changed.connect(self._on_enabled_changed)
@@ -624,7 +686,12 @@ class FMOverviewWidget(QWidget):
         if self._origin is None or position is None or projection is None:
             return (0.0, 0.0)
         try:
-            return projection.to_plane(position, self._origin)
+            # The image's own *geometry*, but the shared *pose* -- the same base
+            # `_frame` places everything else against. Two different bases put the
+            # image and the grid describing it in different places: a stale t = 0
+            # origin against a stage at t = -180 landed them 300 um apart, mirrored
+            # in y, which is a mosaic that disagrees with the grid that planned it.
+            return projection.to_plane(position, self._posed(self._origin))
         except Exception as e:
             logging.debug(f"Could not place the image in stage space: {e}")
             return (0.0, 0.0)
@@ -743,7 +810,31 @@ class FMOverviewWidget(QWidget):
             return None
         self._origin = origin  # fix it now, so later drawing shares this frame
 
-        return StageFrame(self.canvas.canvas, origin, projection)
+        return StageFrame(self.canvas.canvas, self._posed(origin), projection)
+
+    def _posed(self, origin: FibsemStagePosition) -> FibsemStagePosition:
+        """The origin, re-stated in the pose the stage is actually in.
+
+        Canvas zero is a *place* -- x, y, z -- and stays fixed, which is what lets
+        images accumulate against a common frame. The rotation and tilt are not part of
+        that anchor: they are how stage space maps onto the canvas at all, and they
+        change when the stage re-poses.
+
+        Carrying the pose the origin happened to be captured in was a real bug, and a
+        dangerous one. The tab is built when a microscope connects, so the origin
+        recorded whatever pose the stage was in then -- usually t = 0. Moving to the FM
+        position afterwards left every click resolved through the old pose: the y
+        component came out with the wrong sign, so the stage went to the wrong place,
+        and the target inherited t = 0, so it also flipped 180 degrees getting there.
+        """
+        current = self._current_stage_position()
+        if current is None:
+            return origin
+        return FibsemStagePosition(
+            x=origin.x, y=origin.y, z=origin.z,
+            r=current.r, t=current.t,
+            coordinate_system=origin.coordinate_system,
+        )
 
     def _refresh_stage_metadata(self) -> None:
         """Draw where the sample and the stage can physically go.
@@ -814,7 +905,44 @@ class FMOverviewWidget(QWidget):
             logging.debug(f"Could not mark the current stage position: {e}")
             self.current_position_overlay.set_points([])
             return
+        # Unlabelled on purpose: the crosshair sits on top of the data, and a caption
+        # riding along with it obscures the sample it is pointing at. What it is gets
+        # said in the info bar below instead, which costs the image nothing.
         self.current_position_overlay.set_points([point], labels=[""])
+        self._refresh_stage_info()
+
+    def _refresh_stage_info(self) -> None:
+        """Say where the stage is, in the canvas's bottom-left info bar.
+
+        The marker shows *where*; this says the numbers, which is what you need to
+        write one down or check you are where you meant to be. On the canvas rather
+        than in the settings column because it describes what is being looked at.
+
+        The objective position rides along because on a fluorescence system it is part
+        of the pose -- focus depends on it, and it is not visible anywhere else on this
+        tab. The milling angle deliberately does not: it is a beam-side quantity,
+        meaningless while looking through the camera, and it belongs on the FIB/SEM
+        overview if anywhere.
+
+        The objective may be unavailable -- a microscope with none, or one that will not
+        answer -- and is dropped on its own rather than losing the stage position with it.
+        """
+        position = self._current_stage_position()
+        if position is None:
+            self.canvas.canvas.set_info_text(None)
+            return
+
+        parts = [position.pretty]
+
+        try:
+            parts.append(
+                f"objective {self.fm.objective.position * constants.SI_TO_MILLI:.3f} mm"
+                f" ({self.fm.objective.state.lower()})"
+            )
+        except Exception as e:
+            logging.debug(f"No objective position for the info bar: {e}")
+
+        self.canvas.canvas.set_info_text("   |   ".join(parts))
 
     def _current_stage_position(self) -> Optional[FibsemStagePosition]:
         """Where the stage is, polling the microscope only when nothing has said yet.
@@ -995,19 +1123,33 @@ class FMOverviewWidget(QWidget):
         self._update_grid_summary()
 
     def _on_cursor_moved(self, x: Optional[float], y: Optional[float]) -> None:
-        """Report the stage position under the cursor, or blank once it leaves."""
+        """Report the stage position under the cursor, or hide once it leaves."""
         if x is None or y is None:
-            self.cursor_readout.setText("")
+            self._set_cursor_readout("")
             return
         frame = self._frame()
         if frame is None:
-            self.cursor_readout.setText("")
+            self._set_cursor_readout("")
             return
         try:
-            self.cursor_readout.setText(self._describe(frame.to_stage(x, y)))
+            self._set_cursor_readout(self._describe(frame.to_stage(x, y)))
         except Exception as e:
             logging.debug(f"Could not resolve the cursor position: {e}")
-            self.cursor_readout.setText("")
+            self._set_cursor_readout("")
+
+    def _set_cursor_readout(self, text: str) -> None:
+        """Show the readout over the canvas, sized to its text, or hide it when empty.
+
+        Hidden rather than blanked: it sits on top of the image, and an empty plaque
+        floating over the data is worse than nothing there. `adjustSize` because the
+        label is positioned rather than laid out, so nothing else will size it.
+        """
+        self.cursor_readout.setText(text)
+        if not text:
+            self.cursor_readout.hide()
+            return
+        self.cursor_readout.adjustSize()
+        self.cursor_readout.show()
 
     @staticmethod
     def _describe(position: FibsemStagePosition) -> str:
@@ -1200,6 +1342,17 @@ class FMOverviewWidget(QWidget):
         self._apply_enabled_state()
         self.status.setText("Cancelling…")
 
+    def _set_progress_visible(self, visible: bool) -> None:
+        """Show the progress bars only while there is progress to show.
+
+        They spend most of their life empty. Stacked in the settings column nothing sits
+        beside them, so they can come and go without moving anything -- which is what
+        made this possible: they used to be inline with the buttons, where hiding one
+        slid the actions sideways, and a fixed-size holder existed purely to stop that.
+        """
+        self.progress_tiles.setVisible(visible)
+        self.progress_tile_detail.setVisible(visible)
+
     def _set_running(self, running: bool) -> None:
         self._running = running
         self._apply_enabled_state()
@@ -1212,6 +1365,11 @@ class FMOverviewWidget(QWidget):
             self.progress_tiles.reset()
             self.progress_tile_detail.reset()
             self.status.setText("Starting…")
+
+        # After the resets above, not before: `FibsemProgressWidget.reset()` hides
+        # itself, so showing the bars first and resetting them second leaves them
+        # hidden for the whole run.
+        self._set_progress_visible(running)
 
     # ── progress ─────────────────────────────────────────────────────────
 
@@ -1365,6 +1523,10 @@ class FMOverviewWidget(QWidget):
         return "", ""
 
     def _finish(self, state: str, error: Optional[str]) -> None:
+        # Hides both bars. The per-tile one stays hidden -- there is no tile in progress
+        # to describe -- but the overall bar is shown again below whenever it has a
+        # terminal state worth reading: `FibsemProgressWidget` paints finished and
+        # failed differently, and that colour is the at-a-glance answer.
         self._set_running(False)
         self._worker = None
         self.progress_tile_detail.reset()
@@ -1380,16 +1542,22 @@ class FMOverviewWidget(QWidget):
             self.status.setText(f"Overview acquired — {shape[-1]} × {shape[-2]} px{suffix}")
             self.status.setToolTip(tooltip)
             self.progress_tiles.update_progress(ProgressUpdate.done())
+            self.progress_tiles.show()
         elif state == "overview-cancelled":
             self.status.setText("Cancelled. Tiles acquired so far are still shown.")
+            # Nothing to show: a cancel has no terminal state of its own, and the status
+            # line already says what happened.
             self.progress_tiles.reset()
         else:
             self.status.setText(f"Failed: {error}" if error else "Failed.")
             # Failed, not done: the widget paints these differently, and a failure
             # showing a full green bar reads as success in everything but the text.
-            self.progress_tiles.update_progress(
-                ProgressUpdate.failed(error or "Acquisition failed")
-            )
+            # The bar carries the *fact*, not the reason -- a stage-limits rejection
+            # names every offending tile, and a bar is a worse place to read that than
+            # the status line above it, which elides and keeps the whole thing in its
+            # tooltip.
+            self.progress_tiles.update_progress(ProgressUpdate.failed("Failed"))
+            self.progress_tiles.show()
 
     # ── lifecycle ────────────────────────────────────────────────────────
 
