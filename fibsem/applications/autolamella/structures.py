@@ -320,9 +320,18 @@ class AutoLamellaWorkflowConfig:
         return []
 
     def get_completed_tasks(self, lamella: 'Lamella', with_timestamps: bool = False) -> List[str]:
-        """Get the list of completed tasks for a given lamella."""
+        """Get the list of completed tasks for a given lamella.
+
+        Filtered on status for the same reason as Lamella.completed_tasks:
+        task_history holds every terminal outcome since FIB-490. Unfiltered, a
+        failed required task would make is_completed() true, which drives the
+        ITEM_COMPLETED / EXPERIMENT_COMPLETED events and the is_completed column
+        in the experiment summary.
+        """
         completed_tasks = []
         for task in lamella.task_history:
+            if task.status is not AutoLamellaTaskStatus.Completed:
+                continue
             if task.name in self.workflow:
                 txt = task.name
                 if with_timestamps:
@@ -774,6 +783,19 @@ class Lamella:
 
     @property
     def is_failure(self) -> bool:
+        """Whether a human has judged this lamella defective.
+
+        Deliberately not set by a failing task, and it should stay that way. A
+        task failing is a fact about one attempt; a defect is a judgement about
+        the lamella. TaskManager._should_skip skips a lamella marked failed for
+        *every* remaining task, so auto-setting this on a stage timeout or a
+        momentary comms drop would permanently abandon a lamella that only
+        needed retrying.
+
+        Whether a failed task blocks dependent work is a separate question,
+        answered by completed_tasks -- which filters on task status, so a failed
+        prerequisite does not license the task that requires it. See FIB-490.
+        """
         return self.defect.state is DefectType.FAILURE
 
     @property
@@ -790,14 +812,30 @@ class Lamella:
 
     @property
     def completed_tasks(self) -> List[str]:
-        """Return a list of completed task names."""
-        return [task.name for task in self.task_history]
+        """Return a list of completed task names.
+
+        Filtered on status: task_history records every terminal outcome, not just
+        successes (FIB-490), so an unfiltered read would count a failed task as
+        done. That matters most in TaskManager._should_skip, where this gates
+        prerequisites -- a failed trench would otherwise license an undercut.
+        """
+        return [
+            task.name
+            for task in self.task_history
+            if task.status is AutoLamellaTaskStatus.Completed
+        ]
 
     @property
     def last_completed_task(self) -> Optional['AutoLamellaTaskState']:
-        """Return the last completed task state."""
-        if self.task_history:
-            return self.task_history[-1]
+        """Return the last completed task state.
+
+        The last *completed* one, not the last recorded: a failure landing last
+        would otherwise be reported as the lamella's latest progress in the
+        experiment summary.
+        """
+        for task in reversed(self.task_history):
+            if task.status is AutoLamellaTaskStatus.Completed:
+                return task
         return None
 
     @property
@@ -1368,6 +1406,32 @@ class Experiment:
             The path of the logfile being written to.
         """
         return _configure_logging(path=self.path, log_filename="logfile")
+
+    def register_metadata(self, microscope: "FibsemMicroscope") -> None:
+        """Stamp this experiment's identity onto the images ``microscope`` acquires.
+
+        Which experiment produced an image is a property of the run, not of the GUI.
+        This previously happened only in AutoLamellaUI, so images acquired from a
+        script, a headless run, or the standalone FibsemUI carried the microscope's
+        default ``FibsemExperiment()`` -- id ``None`` -- and could not be associated
+        with an experiment afterwards. See FIB-449.
+
+        Mirrors ``configure_logging``: ``load`` and ``create`` deliberately do not
+        call it, because reading an experiment must not reach into the caller's
+        microscope. Callers that own the run say so. The app calls it when it adopts
+        an experiment, TaskManager calls it when it takes one to run, and a script
+        driving the microscope directly calls it itself.
+        """
+        import fibsem
+        from fibsem.utils import _register_metadata
+
+        _register_metadata(
+            microscope=microscope,
+            application_software="autolamella",
+            application_software_version=fibsem.__version__,
+            experiment_name=self.name,
+            experiment_method="null",
+        )
 
     def save_protocol(self) -> None:
         """Save the task protocol to disk in the experiment directory."""
