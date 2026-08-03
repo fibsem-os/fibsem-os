@@ -4,7 +4,7 @@ import logging
 import threading
 import time
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List, Optional, Set
 
 import fibsem.config as fcfg
 from fibsem.constants import DATETIME_DISPLAY_AMPM
@@ -61,6 +61,10 @@ class TaskManager:
         self.hook_manager = hook_manager
         self._stop_event = threading.Event()
         self.queue = TaskQueue()
+        # Lamellae already finished when the run started, so re-running a task on
+        # finished work does not re-announce it. Seeded in _run_queue.
+        self._completed_lamella: Set[str] = set()
+        self._experiment_was_complete = False
 
     # --- Public API ---
 
@@ -79,6 +83,7 @@ class TaskManager:
 
     def _run_queue(self) -> None:
         """Process queue items until empty or stopped."""
+        self._snapshot_completion()
         self._fire_workflow_hook(HookEvent.WORKFLOW_STARTED)
         while not self.is_stopped:
             item = self.queue.next()
@@ -159,6 +164,8 @@ class TaskManager:
                 msg=msg,
             )
 
+            self._maybe_fire_lamella_completed(lamella, item.task_name)
+
         # if the objective is inserted, retract for safety
         if self.microscope.fm is not None and self.microscope.fm.objective.state == "Inserted":
             self.microscope.fm.objective.retract()
@@ -171,6 +178,10 @@ class TaskManager:
         else:
             self._fire_workflow_hook(HookEvent.WORKFLOW_COMPLETED)
             update_status_ui(self.parent_ui, "", workflow_info=self._completion_message())
+            # After the run event, since finishing the run is what makes the experiment
+            # finishable. Not fired on the cancelled path: an aborted run has not
+            # established anything about the experiment.
+            self._maybe_fire_experiment_completed()
         print(self.experiment.task_history_dataframe())
 
     def build_run_summary_dataframe(self) -> pd.DataFrame:
@@ -212,6 +223,69 @@ class TaskManager:
 
     def _fire_workflow_hook(self, event: HookEvent) -> None:
         fire_event(self.hook_manager, event)
+
+    def _is_complete(self, lamella: 'Lamella') -> bool:
+        """Whether a lamella has completed every task the workflow requires of it."""
+        # task_protocol is None until one is loaded ("must be set externally").
+        if self.experiment.task_protocol is None:
+            return False
+        workflow_config = self.experiment.task_protocol.workflow_config
+        # A workflow that requires nothing completes nothing. is_completed() is
+        # vacuously True against an empty required-task list, which would announce
+        # every lamella as finished the moment a protocol failed to load — and with
+        # FIB-461 that means generating artifacts for work that never happened.
+        if not workflow_config.required_tasks:
+            return False
+        return workflow_config.is_completed(lamella)
+
+    def _snapshot_completion(self) -> None:
+        """Record what was already finished before this run, so the completion events
+        fire on the transition rather than on every run that ends in a finished state."""
+        self._completed_lamella = {
+            p.name for p in self.experiment.positions if self._is_complete(p)
+        }
+        self._experiment_was_complete = self._all_lamella_complete()
+
+    def _all_lamella_complete(self) -> bool:
+        positions = self.experiment.positions
+        # An experiment with no lamellae has not been completed, it is empty. all([])
+        # would say otherwise.
+        return bool(positions) and all(self._is_complete(p) for p in positions)
+
+    def _maybe_fire_lamella_completed(self, lamella: 'Lamella', task_name: str) -> None:
+        """Fire ITEM_COMPLETED the first time a lamella satisfies the workflow's
+        completion predicate during this run. The lamella is AutoLamella's item.
+
+        A lamella is the unit that gets delivered to a TEM, so this is the event
+        downstream work hangs off — it lets a per-lamella artifact be produced the
+        moment that lamella is finished, rather than waiting for the whole run.
+        """
+        if lamella.name in self._completed_lamella or not self._is_complete(lamella):
+            return
+        self._completed_lamella.add(lamella.name)
+        fire_event(
+            self.hook_manager,
+            HookEvent.ITEM_COMPLETED,
+            task_name=task_name,
+            task_type=lamella.task_state.task_type,
+            item_name=lamella.name,
+            task_state=lamella.task_state,
+        )
+
+    def _maybe_fire_experiment_completed(self) -> None:
+        """Fire EXPERIMENT_COMPLETED once, when the last outstanding lamella finishes.
+
+        The roll-up of ITEM_COMPLETED: same predicate, applied to every position.
+        """
+        if self._experiment_was_complete or not self._all_lamella_complete():
+            return
+        self._experiment_was_complete = True
+        logging.info(f"Experiment {self.experiment.name} is complete.")
+        fire_event(
+            self.hook_manager,
+            HookEvent.EXPERIMENT_COMPLETED,
+            item_name=self.experiment.name,
+        )
 
     def _completion_message(self) -> str:
         """Closing status line for a run that was not cancelled.

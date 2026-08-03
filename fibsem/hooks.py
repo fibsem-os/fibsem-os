@@ -22,9 +22,14 @@ class HookEvent(str, Enum):
     TASK_FAILED = "task_failed"
     TASK_CANCELLED = "task_cancelled"
     TASK_SKIPPED = "task_skipped"
+    # Ordered by widening scope: one task, then the item all its tasks were for, then
+    # the run, then the whole experiment. "item" rather than "lamella" to match
+    # HookContext.item_name — the application decides what an item is.
+    ITEM_COMPLETED = "item_completed"
     WORKFLOW_STARTED = "workflow_started"
     WORKFLOW_COMPLETED = "workflow_completed"
     WORKFLOW_CANCELLED = "workflow_cancelled"
+    EXPERIMENT_COMPLETED = "experiment_completed"
 
 
 @dataclass
