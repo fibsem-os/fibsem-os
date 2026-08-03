@@ -15,8 +15,7 @@ from copy import deepcopy
 from typing import List, Optional, TYPE_CHECKING
 import numpy as np
 import napari
-import fibsem
-from fibsem import conversions, utils
+from fibsem import conversions
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
 from fibsem.ui import notification_service
 from fibsem.microscope import FibsemMicroscope
@@ -567,13 +566,7 @@ class AutoLamellaUI(QMainWindow):
 
         # Register metadata
         if self.microscope is not None:
-            utils._register_metadata(
-                microscope=self.microscope,
-                application_software="autolamella",
-                application_software_version=fibsem.__version__,
-                experiment_name=self.experiment.name,
-                experiment_method="null",
-            )
+            self.experiment.register_metadata(self.microscope)
 
         # Update UI
         self.update_lamella_combobox()

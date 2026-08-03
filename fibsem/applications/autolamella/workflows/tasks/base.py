@@ -142,11 +142,39 @@ class AutoLamellaTask(ABC):
         except Exception as e:
             # A user Stop is a cancellation, not a failure — fire the distinct hook so it
             # notifies as "cancelled" (warning) rather than "FAILED" (error).
-            self._fire_hook("task_cancelled" if self._is_cancellation(e) else "task_failed",
-                            error=str(e))
+            cancelled = self._is_cancellation(e)
+            # Record before announcing. The hook payload carries task_state, which
+            # still reads InProgress from pre_task until this runs.
+            #
+            # Guarded: anything raising in here would replace the task's own
+            # exception with this one, losing what actually went wrong.
+            try:
+                self.lamella.task_state.status = (
+                    AutoLamellaTaskStatus.Cancelled if cancelled else AutoLamellaTaskStatus.Failed
+                )
+                self.lamella.task_state.status_message = (
+                    "Cancelled by user." if cancelled else str(e)
+                )
+                self._record_outcome()
+            except Exception:
+                logging.exception(f"Could not record the outcome of {self.task_name}")
+            self._fire_hook("task_cancelled" if cancelled else "task_failed", error=str(e))
             raise
         self.post_task()
         self._fire_hook("task_completed")
+
+    def _record_outcome(self) -> None:
+        """Freeze the finished task_state into task_history.
+
+        Runs on every terminal path, not just success. task_state is a single object
+        that the next task's pre_task overwrites, so an outcome that isn't frozen here
+        is gone from the experiment as soon as that lamella starts its next task --
+        leaving the logfile as the only record that the task ever failed. See FIB-490.
+        """
+        if self.lamella.task_state is None:
+            raise ValueError("Task state is not set. Did you run pre_task()?")
+        self.lamella.task_state.end_timestamp = datetime.timestamp(datetime.now())
+        self.lamella.task_history.append(deepcopy(self.lamella.task_state))
 
     def _is_cancellation(self, exc: Exception) -> bool:
         """Whether ``exc`` is a user Stop rather than a genuine failure: it surfaces as
@@ -198,15 +226,14 @@ class AutoLamellaTask(ABC):
         # post-task
         if self.lamella.task_state is None:
             raise ValueError("Task state is not set. Did you run pre_task()?")
-        self.lamella.task_state.end_timestamp = datetime.timestamp(datetime.now())
         self.lamella.task_state.status = AutoLamellaTaskStatus.Completed
         self.lamella.task_state.status_message = ""
         self.log_status_message(message="FINISHED", display_message="Finished")
         self.log_task_config()
         self.lamella.task_config[self.task_name] = deepcopy(self.config)
-        self.lamella.task_history.append(deepcopy(self.lamella.task_state))
+        self._record_outcome()
         if self._last_fib_image is not None:
-            self.lamella.save_thumbnail(self._last_fib_image) # TODO: append to the history if task fails?
+            self.lamella.save_thumbnail(self._last_fib_image)
 
     def log_task_config(self) -> None:
         """Log the task configuration to the log file. This can be used for debugging or reporting."""

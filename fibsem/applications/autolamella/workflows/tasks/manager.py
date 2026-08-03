@@ -61,6 +61,12 @@ class TaskManager:
         self.hook_manager = hook_manager
         self._stop_event = threading.Event()
         self.queue = TaskQueue()
+
+        # Stamp the experiment onto the images this run acquires. Done here rather
+        # than only in the UI so a headless run through run_tasks() records it too;
+        # the app also calls it when it adopts an experiment, and repeating it just
+        # re-sets the same two attributes. See FIB-449.
+        self.experiment.register_metadata(self.microscope)
         # Lamellae already finished when the run started, so re-running a task on
         # finished work does not re-announce it. Seeded in _run_queue.
         self._completed_lamella: Set[str] = set()
@@ -416,7 +422,14 @@ class TaskManager:
             # A user Stop surfaces as OperationCancelledError (milling) or InterruptedError
             # (_check_for_abort); either way self.is_stopped is set by TaskManager.stop().
             # Mark it Cancelled, not Failed — it isn't an error.
-            if self.is_stopped or isinstance(e, OperationCancelledError):
+            #
+            # The task itself now records the outcome and freezes it into task_history
+            # before re-raising (FIB-490), so this repeats what it already set. It stays
+            # as the fallback for exceptions raised before the task's run() is entered --
+            # an unknown task name, or a construction failure -- where nothing else has.
+            # The predicate matches AutoLamellaTaskBase._is_cancellation so the frozen
+            # history entry and the live task_state cannot disagree.
+            if self.is_stopped or isinstance(e, (OperationCancelledError, InterruptedError)):
                 logging.info(f"Task {task_name} for lamella {lamella.name} cancelled by user.")
                 lamella.task_state.status = AutoLamellaTaskStatus.Cancelled
                 lamella.task_state.status_message = "Cancelled by user."

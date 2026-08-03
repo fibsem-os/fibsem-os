@@ -1369,6 +1369,32 @@ class Experiment:
         """
         return _configure_logging(path=self.path, log_filename="logfile")
 
+    def register_metadata(self, microscope: "FibsemMicroscope") -> None:
+        """Stamp this experiment's identity onto the images ``microscope`` acquires.
+
+        Which experiment produced an image is a property of the run, not of the GUI.
+        This previously happened only in AutoLamellaUI, so images acquired from a
+        script, a headless run, or the standalone FibsemUI carried the microscope's
+        default ``FibsemExperiment()`` -- id ``None`` -- and could not be associated
+        with an experiment afterwards. See FIB-449.
+
+        Mirrors ``configure_logging``: ``load`` and ``create`` deliberately do not
+        call it, because reading an experiment must not reach into the caller's
+        microscope. Callers that own the run say so. The app calls it when it adopts
+        an experiment, TaskManager calls it when it takes one to run, and a script
+        driving the microscope directly calls it itself.
+        """
+        import fibsem
+        from fibsem.utils import _register_metadata
+
+        _register_metadata(
+            microscope=microscope,
+            application_software="autolamella",
+            application_software_version=fibsem.__version__,
+            experiment_name=self.name,
+            experiment_method="null",
+        )
+
     def save_protocol(self) -> None:
         """Save the task protocol to disk in the experiment directory."""
         self.task_protocol.save(os.path.join(self.path, "protocol.yaml"))
