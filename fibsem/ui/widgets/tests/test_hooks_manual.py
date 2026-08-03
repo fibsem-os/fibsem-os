@@ -54,8 +54,7 @@ class HookTestWindow(QMainWindow):
         self.manager = HookManager()
         self.manager.register(LoggingHook(
             name="task_logger",
-            events=[HookEvent.TASK_STARTED, HookEvent.TASK_COMPLETED, HookEvent.TASK_FAILED,
-                    HookEvent.WORKFLOW_STARTED, HookEvent.WORKFLOW_COMPLETED],
+            events=list(HookEvent),  # from the enum, so a new event is logged for free
         ))
         self.manager.register(NotificationHook(
             name="completion_toast",
