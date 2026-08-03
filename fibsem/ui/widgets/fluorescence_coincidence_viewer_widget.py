@@ -1991,7 +1991,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             pformat(milling_task_config.to_dict(), width=80, compact=True)
         )
         dlg.setStandardButtons(QMessageBox.Yes | QMessageBox.Cancel)
-        dlg.setDefaultButton(QMessageBox.Yes)
+        # Cancel is the default: this dialog opens on the click that would start the
+        # mill, so a default of Yes means a stray Enter or Space burns the sample.
+        # Starting an irreversible action should take a deliberate click.
+        dlg.setDefaultButton(QMessageBox.Cancel)
         if dlg.exec_() != QMessageBox.Yes:
             return
 
