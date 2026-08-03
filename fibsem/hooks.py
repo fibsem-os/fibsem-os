@@ -21,8 +21,10 @@ class HookEvent(str, Enum):
     TASK_COMPLETED = "task_completed"
     TASK_FAILED = "task_failed"
     TASK_CANCELLED = "task_cancelled"
+    TASK_SKIPPED = "task_skipped"
     WORKFLOW_STARTED = "workflow_started"
     WORKFLOW_COMPLETED = "workflow_completed"
+    WORKFLOW_CANCELLED = "workflow_cancelled"
 
 
 @dataclass
@@ -37,6 +39,9 @@ class HookContext:
     # left untyped so this module does not depend on any one application's structures.
     task_state: Optional[Any] = None
     error: Optional[str] = None
+    # Why a task was skipped, on TASK_SKIPPED. The producer decides the vocabulary;
+    # AutoLamella uses not_required / failure / missing_prereqs / lamella_not_found.
+    skip_reason: Optional[str] = None
     timestamp: float = field(default_factory=time.time)
 
     def __post_init__(self):
@@ -69,6 +74,7 @@ def _template_fields(context: HookContext) -> Dict[str, str]:
         "item_name": context.item_name,
         "lamella_name": context.item_name,  # deprecated alias, renders pre-rename templates
         "error": context.error or "",
+        "skip_reason": context.skip_reason or "",
     }
 
 
@@ -219,6 +225,7 @@ class WebhookHook(Hook):
                 # this key, so endpoints reading it keep working. Drop after v0.6.
                 "lamella_name": context.item_name,
                 "error": context.error,
+                "skip_reason": context.skip_reason,
                 "timestamp": context.timestamp,
             }
             requests.request(self.method, self.url, json=payload, timeout=self.timeout)
