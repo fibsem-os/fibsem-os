@@ -23,6 +23,7 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QApplication, QWidget
 
 from psygnal.containers import EventedDict
@@ -330,6 +331,58 @@ def test_milling_widget_switches_to_the_canvas_when_given_a_controller():
     w.set_controller(controller)
     assert w._controller is controller
     assert w._fib_canvas is controller.get_canvas(BeamType.ION)
+
+
+class _FakeImageWidget(QWidget):
+    """Stands in for FibsemImageSettingsWidget: the napari Microscope tab feeds the
+    milling widget through these three attributes and nothing else."""
+
+    viewer_update_signal = pyqtSignal()
+
+    def __init__(self, image, layer):
+        super().__init__()
+        self.ib_image = image
+        self.ib_layer = layer
+
+
+def test_napari_callers_still_get_their_fib_image_layer():
+    """The napari pattern path is gated on _fib_image_layer, and the only thing that
+    ever supplies it for the Microscope tab is `iw.ib_layer` being picked up here —
+    that tab never calls set_fib_image(). Lose the pickup and milling patterns silently
+    stop drawing and the right-click reposition menu stops appearing, in a tab this
+    phase is not supposed to touch at all.
+    """
+    microscope, _ = _session()
+    image = FibsemImage.generate_blank_image(resolution=_RESOLUTION, hfw=_HFW)
+    sentinel = object()  # a napari layer, only ever passed through
+    iw = _FakeImageWidget(image, sentinel)
+
+    w = MillingTaskViewerWidget(
+        microscope=microscope, viewer=None, image_widget=iw, milling_enabled=False
+    )
+    assert w._fib_image is image
+    assert w._fib_image_layer is sentinel, (
+        "napari callers lost their image layer — patterns and the reposition menu "
+        "are both gated on it"
+    )
+
+
+def test_napari_callers_keep_the_layer_across_an_image_update():
+    """Same gate, on the live-acquisition path: every new FIB frame re-reads ib_layer."""
+    microscope, _ = _session()
+    image = FibsemImage.generate_blank_image(resolution=_RESOLUTION, hfw=_HFW)
+    iw = _FakeImageWidget(image, object())
+    w = MillingTaskViewerWidget(
+        microscope=microscope, viewer=None, image_widget=iw, milling_enabled=False
+    )
+
+    new_image = FibsemImage.generate_blank_image(resolution=_RESOLUTION, hfw=_HFW)
+    new_layer = object()
+    iw.ib_image, iw.ib_layer = new_image, new_layer
+    w._on_viewer_image_updated()
+
+    assert w._fib_image is new_image
+    assert w._fib_image_layer is new_layer, "image update dropped the layer"
 
 
 def test_eye_toggle_routes_through_the_reducer_when_wired():

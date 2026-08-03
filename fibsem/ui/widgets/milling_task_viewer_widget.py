@@ -148,6 +148,11 @@ class MillingTaskViewerWidget(QWidget):
         if iw is not None:
             try:
                 self._fib_image = iw.ib_image
+                # Still load-bearing: the napari pattern path and the right-click
+                # reposition menu are both gated on _fib_image_layer, and the Microscope
+                # tab never calls set_fib_image() — this pickup is its only source. It
+                # goes unused (harmlessly) once a controller is attached.
+                self._fib_image_layer = iw.ib_layer
                 iw.viewer_update_signal.connect(self._on_viewer_image_updated)
             except Exception:
                 pass
@@ -403,6 +408,7 @@ class MillingTaskViewerWidget(QWidget):
                 return
         try:
             self._fib_image = iw.ib_image
+            self._fib_image_layer = iw.ib_layer  # re-read per frame; see _setup_viewer_integration
             self._schedule_pattern_update()
         except Exception as e:
             logging.error(f"MillingTaskViewerWidget: viewer image update error: {e}")
@@ -458,6 +464,12 @@ class MillingTaskViewerWidget(QWidget):
             self._pattern_update_inflight = False
             if self._pattern_update_pending:
                 self._schedule_pattern_update()
+
+        # Drawing the pattern shapes leaves them selected in napari; reselect the beam
+        # layer or click-to-move starts hitting the shapes layer. Napari path only —
+        # the canvas path returned above and has no layer selection to restore.
+        if self._image_widget is not None:
+            self._image_widget.restore_active_layer_for_movement()
 
     def _update_canvas_patterns(self) -> None:
         """Push the current enabled stages to the FIB canvas via the reducer (quad-view)."""
