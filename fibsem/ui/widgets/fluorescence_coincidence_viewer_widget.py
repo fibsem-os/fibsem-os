@@ -29,13 +29,13 @@ import os
 import time
 from collections import deque
 from datetime import timedelta
-from pprint import pformat
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QAction,
+    QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -69,6 +69,9 @@ from fibsem.ui.widgets.custom_widgets import (
     IntegerValueSpinBox,
     LamellaNameListWidget,
     TitledPanel,
+)
+from fibsem.ui.widgets.coincidence_milling_confirmation_dialog import (
+    CoincidenceMillingConfirmationDialog,
 )
 from fibsem.ui.widgets.selected_lamella_widget import SelectedLamellaWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
@@ -1973,27 +1976,26 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                     )
                     return
 
-        # Build confirmation summary
-        lines = [f"Lamella: {self._selected_lamella.name}"]
-        if selected_channel_settings is not None:
-            lines.append(f"Channel: {selected_channel_settings.pretty}")
-        lines.append(f"Field of View: {milling_task_config.field_of_view * 1e6:.1f} µm")
-        stage_names = [s.pretty_name for s in milling_task_config.stages if s.enabled]
-        if stage_names:
-            lines.append("Stages: " + ", ".join(stage_names))
-
-        dlg = QMessageBox(self)
-        dlg.setWindowTitle("Confirm Coincidence Milling")
-        dlg.setIcon(QMessageBox.Question)
-        dlg.setText("Review milling parameters before starting.")
-        dlg.setInformativeText("\n".join(lines))
-        dlg.setDetailedText(
-            pformat(milling_task_config.to_dict(), width=80, compact=True)
+        # Pre-flight summary. Supervision is read off the strategy config rather than
+        # self._supervised, because the config is what governs the run:
+        # _connect_coincidence_strategies seeds the button from it a few lines below,
+        # so before the first mill a toggled button and the config can disagree and the
+        # config wins. A confirmation dialog has to describe what will happen.
+        dlg = CoincidenceMillingConfirmationDialog(
+            task_config=milling_task_config,
+            lamella_name=self._selected_lamella.name,
+            channel_name=(
+                selected_channel_settings.pretty
+                if selected_channel_settings is not None
+                else None
+            ),
+            parent=self,
         )
-        dlg.setStandardButtons(QMessageBox.Yes | QMessageBox.Cancel)
-        dlg.setDefaultButton(QMessageBox.Yes)
-        if dlg.exec_() != QMessageBox.Yes:
-            return
+        try:
+            if dlg.exec_() != QDialog.Accepted:
+                return
+        finally:
+            dlg.deleteLater()
 
         if selected_channel_settings is not None and self.microscope is not None:
             self.microscope.fm.set_channel(selected_channel_settings)
