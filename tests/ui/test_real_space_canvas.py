@@ -543,10 +543,10 @@ def test_a_projected_stage_offset_places_an_image_where_the_projection_says():
     import numpy as np
 
     from fibsem.fm.reprojection import project_stage_position
-    from fibsem.fm.structures import CameraImageTransform, FMImageGeometry
+    from fibsem.fm.structures import CameraImageTransform, FibsemHardwareGeometry
     from fibsem.structures import FibsemStagePosition
 
-    geometry = FMImageGeometry(
+    geometry = FibsemHardwareGeometry(
         transform=CameraImageTransform.NONE,
         camera_tilt=180.0,
         is_compustage=True,

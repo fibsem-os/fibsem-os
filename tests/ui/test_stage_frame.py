@@ -22,7 +22,7 @@ import pytest
 # collection from failing there rather than skipping.
 pytest.importorskip("PyQt5")
 
-from fibsem.fm.structures import CameraImageTransform, FMImageGeometry
+from fibsem.fm.structures import CameraImageTransform, FibsemHardwareGeometry
 from fibsem.structures import FibsemStagePosition
 from fibsem.ui.widgets.canvas.stage_frame import FMStageProjection, StageFrame
 
@@ -55,7 +55,7 @@ def _geometry(**overrides):
         is_compustage=True,
     )
     fields.update(overrides)
-    return FMImageGeometry(**fields)
+    return FibsemHardwareGeometry(**fields)
 
 
 def _frame(canvas=None, origin=None, **geometry):

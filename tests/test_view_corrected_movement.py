@@ -29,10 +29,15 @@ import pytest
 from fibsem import movement, utils
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import CameraImageTransform
-from fibsem.structures import BeamType, FibsemStagePosition
+from fibsem.structures import BeamType, FibsemHardwareGeometry, FibsemStagePosition
 
 # sweep: stage tilt x pretilt x rotation x beam x compustage
-STAGE_TILTS_DEG = [-50, -23, 0, 15, 35, 52]
+#
+# -128 is the compustage FIB orientation for pretilt 0 (fib_column_tilt - pretilt - 180
+# = 52 - 0 - 180). Without it `is_fib_orientation` was False in all 36 combinations, so
+# the compustage sign flip and the pretilt-sign override it drives went untested
+# despite compustage being parametrised. Added with FIB-481.
+STAGE_TILTS_DEG = [-128, -50, -23, 0, 15, 35, 52]
 PRETILTS_DEG = [0, 35, 45]
 ROTATIONS_DEG = [0, 180]
 BEAM_TYPES = [BeamType.ELECTRON, BeamType.ION]
@@ -169,16 +174,19 @@ def _configure(microscope, *, pretilt_deg, rotation_deg, tilt_deg, compustage):
 def _sync_image_metadata(image, microscope, position, *, is_compustage: bool) -> None:
     """Point an image's metadata at the geometry the microscope is configured for.
 
-    `tiled.py` reads geometry from image metadata rather than from a microscope, and
-    detects a compustage from `system.sim` / the model name rather than from
-    `stage_is_compustage`. The marker therefore has to be set explicitly here --
-    otherwise the test would silently depend on whatever the ambient default
-    configuration happens to advertise, which differs between machines and CI.
+    `tiled.py` reads geometry from image metadata rather than from a microscope, so the
+    compustage marker has to be set explicitly -- otherwise the test would silently
+    depend on whatever the ambient default configuration happens to advertise, which
+    differs between machines and CI.
+
+    Since FIB-481 that is a recorded field rather than a `system.sim` entry standing in
+    for one, so this sets what the projection actually reads.
     """
-    image.metadata.system = microscope.system
+    image.metadata.system_info = microscope.system.info
+    image.metadata.hardware_geometry = FibsemHardwareGeometry.from_system_settings(
+        microscope.system, is_compustage=is_compustage
+    )
     image.metadata.microscope_state.stage_position = position
-    image.metadata.system.sim = dict(image.metadata.system.sim or {})
-    image.metadata.system.sim["is_compustage"] = is_compustage
 
 
 class TestRefactorParity:

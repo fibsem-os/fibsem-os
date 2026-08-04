@@ -272,17 +272,19 @@ def _inverse_y_corrected_stage_movement(
         Returns:
             float: expected_y input that would produce the given dy, dz movements
         """
-        if image.metadata is None or image.metadata.system is None:
-            raise ValueError("Image metadata or system metadata is not set. Cannot calculate inverse y corrected stage movement.")
+        if image.metadata is None or image.metadata.hardware_geometry is None:
+            raise ValueError("Image metadata or hardware geometry is not set. Cannot calculate inverse y corrected stage movement.")
+
+        geometry = image.metadata.hardware_geometry
 
         # all angles in radians
-        sem_column_tilt = np.deg2rad(image.metadata.system.electron.column_tilt)
-        fib_column_tilt = np.deg2rad(image.metadata.system.ion.column_tilt)
+        sem_column_tilt = np.deg2rad(geometry.column_tilt)
+        fib_column_tilt = np.deg2rad(geometry.fib_column_tilt)
 
-        stage_pretilt = np.deg2rad(image.metadata.system.stage.shuttle_pre_tilt)
+        stage_pretilt = np.deg2rad(geometry.shuttle_pre_tilt)
 
-        stage_rotation_flat_to_eb = np.deg2rad(image.metadata.system.stage.rotation_reference) % (2 * np.pi)
-        stage_rotation_flat_to_ion = np.deg2rad(image.metadata.system.stage.rotation_180) % (2 * np.pi)
+        stage_rotation_flat_to_eb = np.deg2rad(geometry.rotation_reference) % (2 * np.pi)
+        stage_rotation_flat_to_ion = np.deg2rad(geometry.rotation_180) % (2 * np.pi)
 
         # current stage position
         current_stage_position = image.metadata.stage_position
@@ -295,22 +297,27 @@ def _inverse_y_corrected_stage_movement(
         # microscope; for the compustage the rotation is always 0, so the orientation is
         # fixed by the tilt alone (FIB sits at column_tilt - pretilt - 180, i.e. ~-128 deg,
         # and the FM pose at -180 deg).
+        #
+        # NOTE: this differs from the live path and from fm/reprojection.py, which both
+        # also require the rotation to match the reference before calling a pose FIB.
+        # Deliberately left alone here so FIB-481 is a pure restructuring with no
+        # numerical difference; the divergence is FIB-500. It is latent -- a compustage
+        # image cannot carry a non-zero rotation, so the two versions only disagree
+        # about poses no acquisition can produce.
         compustage_sign = 1.0
-        stage_is_compustage = "Arctis" in image.metadata.system.info.model or image.metadata.system.sim.get("is_compustage", False)
         is_fib_orientation = False
-        if stage_is_compustage: # TODO: add compustage to metadata
-            fib_orientation_tilt = np.radians(
-                image.metadata.system.ion.column_tilt
-                - image.metadata.system.stage.shuttle_pre_tilt
-                - 180
+        if geometry.is_compustage:
+            fib_orientation_tilt = np.deg2rad(
+                geometry.fib_column_tilt - geometry.shuttle_pre_tilt - 180
             )
-            is_fib_orientation = bool(np.isclose(stage_tilt, fib_orientation_tilt, atol=0.1))
+            is_fib_orientation = bool(
+                np.isclose(stage_tilt, fib_orientation_tilt, atol=0.1)
+            )
             compustage_sign = 1.0 if is_fib_orientation else -1.0
             stage_tilt += np.pi
 
         PRETILT_SIGN = 1.0
         # pretilt angle depends on rotation
-        from fibsem import movement
         if movement.rotation_angle_is_smaller(stage_rotation, stage_rotation_flat_to_eb, atol=5):
             PRETILT_SIGN = 1.0
         if movement.rotation_angle_is_smaller(stage_rotation, stage_rotation_flat_to_ion, atol=5):
@@ -347,7 +354,7 @@ def _inverse_y_corrected_stage_movement(
         expected_y = y_sample_move * np.cos(stage_tilt + perspective_tilt_adjustment)
 
         # Apply compustage correction if needed
-        if stage_is_compustage:
+        if geometry.is_compustage:
             expected_y *= compustage_sign
 
         return expected_y
