@@ -1731,6 +1731,8 @@ class _StubHost:
     _build_fm_overview_widget = _Real._build_fm_overview_widget
     _teardown_fm_overview_widget = _Real._teardown_fm_overview_widget
     _update_fm_overview_experiment = _Real._update_fm_overview_experiment
+    _update_fm_overview_positions = _Real._update_fm_overview_positions
+    _update_fm_overview_selection = _Real._update_fm_overview_selection
     _set_minimap_workflow_enabled = _Real._set_minimap_workflow_enabled
 
     def __init__(self, microscope=None, experiment=None, tab_enabled=True):
@@ -1929,7 +1931,9 @@ def test_the_experiment_directory_reaches_the_widget(qapp, tmp_path):
     host._build_fm_overview_widget()
     assert host.fm_overview_widget._save_directory is None
 
-    host.autolamella_ui.experiment = type("_Exp", (), {"path": str(tmp_path)})()
+    host.autolamella_ui.experiment = type(
+        "_Exp", (), {"path": str(tmp_path), "positions": []}
+    )()
     host._update_fm_overview_experiment()
 
     assert host.fm_overview_widget._save_directory == str(tmp_path)
@@ -2404,3 +2408,226 @@ def test_the_placement_of_an_image_matches_a_widget_that_never_moved(qapp):
 
     stale.close()
     fresh.close()
+
+
+# ── marked positions ─────────────────────────────────────────────────────
+
+
+def _named(name: str, x: float, y: float, tilt_deg: float = -180.0):
+    import numpy as np
+
+    from fibsem.structures import FibsemStagePosition
+
+    position = FibsemStagePosition(
+        x=x, y=y, z=0.0, r=0.0, t=np.deg2rad(tilt_deg)
+    )
+    position.name = name
+    return position
+
+
+def test_marked_positions_are_drawn_where_their_stage_positions_are(qapp):
+    widget = _fresh_widget(qapp)
+    widget._refresh_tile_grid()
+    qapp.processEvents()
+
+    widget.set_positions([_named("Lamella-01", 100e-6, 50e-6)])
+
+    frame = widget._frame()
+    expected = frame.to_canvas(_named("Lamella-01", 100e-6, 50e-6))
+    assert widget.position_overlay._points == [pytest.approx(expected)]
+    assert widget.position_overlay._labels == ["Lamella-01"]
+
+    widget.close()
+
+
+def test_the_selected_position_is_drawn_on_its_own_layer(qapp):
+    """`PointsOverlay` paints every point the same colour, so one selected marker among
+    many needs a layer of its own rather than per-point colours."""
+    widget = _fresh_widget(qapp)
+    widget._refresh_tile_grid()
+    widget.set_positions(
+        [_named("Lamella-01", 100e-6, 50e-6), _named("Lamella-02", -80e-6, 20e-6)]
+    )
+    qapp.processEvents()
+
+    widget.set_selected_position("Lamella-02")
+
+    assert widget.position_overlay._labels == ["Lamella-01"]
+    assert widget.selected_position_overlay._labels == ["Lamella-02"]
+
+    widget.close()
+
+
+def test_selecting_nothing_puts_every_position_back(qapp):
+    widget = _fresh_widget(qapp)
+    widget._refresh_tile_grid()
+    widget.set_positions(
+        [_named("Lamella-01", 100e-6, 50e-6), _named("Lamella-02", -80e-6, 20e-6)]
+    )
+    widget.set_selected_position("Lamella-01")
+    qapp.processEvents()
+
+    widget.set_selected_position(None)
+
+    assert sorted(widget.position_overlay._labels) == ["Lamella-01", "Lamella-02"]
+    assert widget.selected_position_overlay._points == []
+
+    widget.close()
+
+
+def test_a_selection_that_names_nothing_marked_highlights_nothing(qapp):
+    """The host's list and this one are rebuilt independently from one experiment, so a
+    name can arrive for a lamella this canvas cannot place."""
+    widget = _fresh_widget(qapp)
+    widget._refresh_tile_grid()
+    widget.set_positions([_named("Lamella-01", 100e-6, 50e-6)])
+    qapp.processEvents()
+
+    widget.set_selected_position("Lamella-99")
+
+    assert widget.position_overlay._labels == ["Lamella-01"]
+    assert widget.selected_position_overlay._points == []
+
+    widget.close()
+
+
+def test_the_selection_survives_the_positions_being_rebuilt(qapp):
+    """Held by name rather than index for exactly this: the host rebuilds the list on
+    every experiment change, and an index would point at a different lamella the moment
+    one was removed."""
+    widget = _fresh_widget(qapp)
+    widget._refresh_tile_grid()
+    widget.set_positions(
+        [_named("Lamella-01", 100e-6, 50e-6), _named("Lamella-02", -80e-6, 20e-6)]
+    )
+    widget.set_selected_position("Lamella-02")
+    qapp.processEvents()
+
+    # Lamella-01 removed; the selected one is now at a different index.
+    widget.set_positions([_named("Lamella-02", -80e-6, 20e-6)])
+    qapp.processEvents()
+
+    assert widget.selected_position_overlay._labels == ["Lamella-02"]
+    assert widget.position_overlay._points == []
+
+    widget.close()
+
+
+def _lamella_with_poses(name: str, microscope, x: float, y: float):
+    """A stand-in lamella carrying both poses, built the way the app builds them."""
+    from fibsem.applications.autolamella.poses import (
+        MILLING_ORIENTATION,
+        build_lamella_poses,
+    )
+    from fibsem.structures import FibsemStagePosition
+
+    beam = microscope.get_orientation(MILLING_ORIENTATION)
+    marked = FibsemStagePosition(x=x, y=y, z=0.0, r=beam.r, t=beam.t)
+    poses = build_lamella_poses(microscope, marked)
+    return type(
+        "_Lamella", (), {
+            "name": name,
+            "fluorescence_pose": poses.fluorescence,
+            "milling_pose": poses.milling,
+        },
+    )()
+
+
+def test_the_host_marks_lamellae_by_their_fluorescence_pose(qapp):
+    """The trap this half exists to avoid. A lamella carries a milling pose and a
+    fluorescence pose, and on a compustage the stage flips 180 degrees between them —
+    so marking the milling pose would put every lamella somewhere the sample is not.
+    """
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    host = _StubHost(microscope=build_microscope())
+    host._build_fm_overview_widget()
+    widget = host.fm_overview_widget
+    microscope = host.autolamella_ui.microscope
+
+    lamella = _lamella_with_poses("Lamella-01", microscope, 100e-6, 50e-6)
+    host.autolamella_ui.experiment = type(
+        "_Exp", (), {"path": "/tmp", "positions": [lamella]}
+    )()
+
+    host._update_fm_overview_positions()
+
+    marked = widget._positions[0]
+    assert marked.t == pytest.approx(lamella.fluorescence_pose.stage_position.t)
+    assert marked.t != pytest.approx(lamella.milling_pose.stage_position.t)
+    assert marked.name == "Lamella-01"
+
+    host._teardown_fm_overview_widget()
+
+
+def test_a_lamella_with_no_fluorescence_pose_is_skipped_not_misplaced(qapp):
+    """It cannot be placed on this canvas at all — normal on a system with no FM, and
+    possible on an older experiment. Better absent than drawn somewhere invented."""
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    host = _StubHost(microscope=build_microscope())
+    host._build_fm_overview_widget()
+    microscope = host.autolamella_ui.microscope
+
+    placeable = _lamella_with_poses("Lamella-01", microscope, 100e-6, 50e-6)
+    orphan = type("_Lamella", (), {"name": "Lamella-02", "fluorescence_pose": None})()
+    host.autolamella_ui.experiment = type(
+        "_Exp", (), {"path": "/tmp", "positions": [placeable, orphan]}
+    )()
+
+    host._update_fm_overview_positions()
+
+    assert [p.name for p in host.fm_overview_widget._positions] == ["Lamella-01"]
+
+    host._teardown_fm_overview_widget()
+
+
+def test_no_experiment_clears_the_marked_positions(qapp):
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    host = _StubHost(microscope=build_microscope())
+    host._build_fm_overview_widget()
+    microscope = host.autolamella_ui.microscope
+    host.autolamella_ui.experiment = type(
+        "_Exp", (), {
+            "path": "/tmp",
+            "positions": [_lamella_with_poses("Lamella-01", microscope, 100e-6, 50e-6)],
+        },
+    )()
+    host._update_fm_overview_positions()
+    assert host.fm_overview_widget._positions
+
+    host.autolamella_ui.experiment = None
+    host._update_fm_overview_positions()
+
+    assert host.fm_overview_widget._positions == []
+
+    host._teardown_fm_overview_widget()
+
+
+def test_selection_reaches_the_overview_whichever_list_it_came_from(qapp):
+    """The three selection handlers guard against selecting each other in circles. This
+    highlight emits nothing, so it must run whichever list the selection came from —
+    which is exactly what that guard suppresses."""
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    host = _StubHost(microscope=build_microscope())
+    host._build_fm_overview_widget()
+    lamella = type("_Lamella", (), {"name": "Lamella-07"})()
+
+    host._syncing_selection = True  # as it is while the lists sync each other
+    host._update_fm_overview_selection(lamella)
+
+    assert host.fm_overview_widget.selected_position == "Lamella-07"
+
+    host._teardown_fm_overview_widget()
+
+
+def test_the_host_tolerates_no_fm_overview_tab(qapp):
+    """Both updates are called from paths that run on every system, including those
+    with the tab switched off or no fluorescence detector at all."""
+    host = _StubHost(microscope=_plain_microscope())
+    host._apply_fm_overview_visibility()
+
+    host._update_fm_overview_positions()   # must not raise
+    host._update_fm_overview_selection(None)  # must not raise

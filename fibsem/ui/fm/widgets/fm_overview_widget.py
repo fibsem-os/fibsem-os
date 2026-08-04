@@ -139,6 +139,9 @@ GRID_RADIUS_M = 1000e-6
 CURRENT_POSITION_COLOUR = "#ffee58"
 # Cyan for positions a user saved, against the yellow of where the stage is.
 SAVED_POSITION_COLOUR = "#26c6da"
+# Lime for the one selected, matching the minimap so the same position reads the same
+# way on both. Bright enough to find at a glance among a grid full of cyan.
+SELECTED_POSITION_COLOUR = "#76ff03"
 # Muted, because the holder slots are structural context like the limits rather
 # than something anyone marked -- and they would otherwise read as saved positions.
 SLOT_COLOUR = "#90a4ae"
@@ -187,6 +190,8 @@ class FMOverviewWidget(QWidget):
         # whole scene each time one arrived. Taken from the first image displayed.
         self._origin: Optional[FibsemStagePosition] = None
         self._positions: List[FibsemStagePosition] = []
+        # Which marked position is selected, by name. See `set_selected_position`.
+        self._selected_position: Optional[str] = None
         self._grid_footprint: Optional[tuple] = None
         self._enabled_channels: Optional[List[ChannelSettings]] = None
         # Where the stage is, as far as anyone has told us. Cached rather than polled
@@ -290,6 +295,15 @@ class FMOverviewWidget(QWidget):
             color=SAVED_POSITION_COLOUR, marker="o", size=7
         )
         self.canvas.canvas.add_overlay(self.position_overlay)
+
+        # The selected position, on its own layer rather than as a colour within the
+        # one above: `PointsOverlay` paints every point the same, and one selected
+        # marker is not worth teaching it per-point colours for. Added last, so it
+        # draws over its unselected neighbours where markers crowd together.
+        self.selected_position_overlay = PointsOverlay(
+            color=SELECTED_POSITION_COLOUR, marker="o", size=10
+        )
+        self.canvas.canvas.add_overlay(self.selected_position_overlay)
 
         # The list alone shows only name/excitation/emission, with no way to set the
         # exposure, power or gain a tile is actually acquired at. This composes the
@@ -719,9 +733,28 @@ class FMOverviewWidget(QWidget):
 
         Names are carried onto the markers, so a caller does not have to keep a
         parallel list of labels in the order it happened to pass them.
+
+        These are *fluorescence* poses. A lamella carries one of each, and the beam-side
+        pose is a different place on this canvas -- on a compustage the stage flips
+        between them -- so a host passing the wrong one would mark every position
+        somewhere the sample is not. See `build_lamella_poses`.
         """
         self._positions = list(positions)
         self._refresh_positions()
+
+    def set_selected_position(self, name: Optional[str]) -> None:
+        """Pick out one of the marked positions, or None for none.
+
+        By name rather than index: the host's list and this one are rebuilt
+        independently from the same experiment, and an index would silently point at a
+        different lamella the moment one was removed.
+        """
+        self._selected_position = name or None
+        self._refresh_positions()
+
+    @property
+    def selected_position(self) -> Optional[str]:
+        return self._selected_position
 
     def set_save_directory(self, path: Optional[str]) -> None:
         """Write acquired overviews under *path*, or None to keep them in memory only.
@@ -1000,18 +1033,29 @@ class FMOverviewWidget(QWidget):
         frame = self._frame()
         if not self._positions or frame is None:
             self.position_overlay.set_points([])
+            self.selected_position_overlay.set_points([])
             return
 
         points, labels = [], []
+        selected_points, selected_labels = [], []
         for position in self._positions:
             try:
-                points.append(frame.to_canvas(position))
+                point = frame.to_canvas(position)
             except Exception as e:
                 logging.debug(f"Cannot mark {position.name!r}: {e}")
                 continue
-            labels.append(position.name or "")
+            name = position.name or ""
+            if name and name == self._selected_position:
+                selected_points.append(point)
+                selected_labels.append(name)
+            else:
+                points.append(point)
+                labels.append(name)
 
         self.position_overlay.set_points(points, labels=labels)
+        self.selected_position_overlay.set_points(
+            selected_points, labels=selected_labels
+        )
 
     # ── canvas interaction ───────────────────────────────────────────────
 

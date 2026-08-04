@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import sys
 import time
+from copy import deepcopy
 from typing import Optional
 
 try:
@@ -1582,6 +1583,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
 
         self._selected_card_lamella = lamella
+        self._update_fm_overview_selection(lamella)
         self.lamella_task_image_widget.set_lamella(lamella)
         if lamella is not None:
             self.lamella_widget.select_lamella(lamella.name)
@@ -1596,6 +1598,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_experiment_lamella_selected(self, lamella):
         """Sync card container and minimap when experiment-tab list selection changes."""
+        self._update_fm_overview_selection(lamella)
         if getattr(self, "_syncing_selection", False) or lamella is None:
             return
         if not hasattr(self, "lamella_card_container"):
@@ -1610,6 +1613,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_minimap_lamella_selected(self, lamella):
         """Sync experiment list and card container when minimap list selection changes."""
+        self._update_fm_overview_selection(lamella)
         if getattr(self, "_syncing_selection", False) or lamella is None:
             return
         self._syncing_selection = True
@@ -2192,6 +2196,65 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.fm_overview_widget.set_save_directory(
             str(experiment.path) if experiment is not None else None
         )
+        self._update_fm_overview_positions()
+
+    def _update_fm_overview_selection(self, lamella):
+        """Highlight the selected lamella on the FM overview.
+
+        Called from each of the selection handlers *before* their `_syncing_selection`
+        guard, and deliberately: that guard exists to stop three lists selecting each
+        other in circles, and this is not a fourth list. It emits nothing and only
+        repaints, so it wants to run whichever list the selection came from — which is
+        exactly what the guard suppresses.
+        """
+        if getattr(self, "fm_overview_widget", None) is None:
+            return
+        self.fm_overview_widget.set_selected_position(
+            lamella.name if lamella is not None else None
+        )
+
+    def _update_fm_overview_positions(self):
+        """Mark the experiment's lamellae on the FM overview.
+
+        **Fluorescence poses, not the primary stage position.** A lamella carries one of
+        each and they are different places on this canvas — on a compustage the stage
+        flips 180 degrees between them — so passing the milling pose would mark every
+        lamella somewhere the sample is not.
+
+        A lamella with no fluorescence pose cannot be placed here at all, which is the
+        normal state on a system with no FM and possible on one loaded from an older
+        experiment. Those are counted rather than dropped in silence: a canvas showing
+        three of five positions and saying nothing is worse than one saying which two
+        it cannot show.
+        """
+        if getattr(self, "fm_overview_widget", None) is None:
+            return
+        experiment = (
+            self.autolamella_ui.experiment if self.autolamella_ui is not None else None
+        )
+        if experiment is None:
+            self.fm_overview_widget.set_positions([])
+            return
+
+        positions, unplaceable = [], []
+        for lamella in experiment.positions:
+            pose = lamella.fluorescence_pose
+            if pose is None or pose.stage_position is None:
+                unplaceable.append(lamella.name)
+                continue
+            # Named here rather than relying on whatever the stored position carries:
+            # the marker's label is the lamella's name, and a pose saved before names
+            # were stamped on positions would otherwise draw an unlabelled dot.
+            position = deepcopy(pose.stage_position)
+            position.name = lamella.name
+            positions.append(position)
+
+        self.fm_overview_widget.set_positions(positions)
+        if unplaceable:
+            logging.info(
+                f"{len(unplaceable)} lamella(e) have no fluorescence pose and are not "
+                f"shown on the FM overview: {', '.join(unplaceable)}"
+            )
 
     def _on_notification_service(
         self, message: str, notification_type: str, temporary: bool
