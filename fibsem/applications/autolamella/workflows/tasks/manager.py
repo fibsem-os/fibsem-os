@@ -127,6 +127,7 @@ class TaskManager:
                 self._fire_skipped_hook(
                     item.task_name, lamella.name, skip_reason,
                     task_type=task_config.task_type if task_config else "",
+                    item_id=lamella._id,
                 )
                 continue
 
@@ -227,8 +228,24 @@ class TaskManager:
     def is_stopped(self) -> bool:
         return self._stop_event.is_set()
 
+    def hook_run_context(self) -> dict:
+        """The fields every hook event from this run carries: which experiment, and
+        how much of the queue is left.
+
+        Public because AutoLamellaTask fires task events itself and needs the same
+        fields; a task reaches this through its task_manager.
+        """
+        return {
+            "experiment_id": self.experiment._id,
+            "experiment_name": self.experiment.name,
+            "tasks_remaining": len(self.queue.pending),
+            "tasks_total": len(self.queue.items),
+        }
+
     def _fire_workflow_hook(self, event: HookEvent) -> None:
-        fire_event(self.hook_manager, event)
+        # Workflow events used to carry nothing at all, so workflow_completed reached a
+        # webhook with no way to tell which experiment had finished.
+        fire_event(self.hook_manager, event, **self.hook_run_context())
 
     def _is_complete(self, lamella: 'Lamella') -> bool:
         """Whether a lamella has completed every task the workflow requires of it."""
@@ -275,7 +292,10 @@ class TaskManager:
             task_name=task_name,
             task_type=lamella.task_state.task_type,
             item_name=lamella.name,
+            item_id=lamella._id,
+            task_id=lamella.task_state.task_id,
             task_state=lamella.task_state,
+            **self.hook_run_context(),
         )
 
     def _maybe_fire_experiment_completed(self) -> None:
@@ -291,6 +311,8 @@ class TaskManager:
             self.hook_manager,
             HookEvent.EXPERIMENT_COMPLETED,
             item_name=self.experiment.name,
+            item_id=self.experiment._id,
+            **self.hook_run_context(),
         )
 
     def _completion_message(self) -> str:
@@ -313,17 +335,21 @@ class TaskManager:
         return "All tasks completed."
 
     def _fire_skipped_hook(self, task_name: str, item_name: str,
-                           skip_reason: str, task_type: str = "") -> None:
+                           skip_reason: str, task_type: str = "",
+                           item_id: str = "") -> None:
         """Fire TASK_SKIPPED. Unlike the other task events this cannot come from
         AutoLamellaTask, because the skip is decided before any task object exists —
-        so there is no task_state to attach."""
+        so there is no task_state to attach, and no task_id: nothing ran to have one.
+        item_id is empty on the lamella-not-found path, where there is no lamella."""
         fire_event(
             self.hook_manager,
             HookEvent.TASK_SKIPPED,
             task_name=task_name,
             task_type=task_type,
             item_name=item_name,
+            item_id=item_id,
             skip_reason=skip_reason,
+            **self.hook_run_context(),
         )
 
     # --- Internal helpers ---

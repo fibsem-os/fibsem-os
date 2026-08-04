@@ -186,14 +186,23 @@ class AutoLamellaTask(ABC):
 
     def _fire_hook(self, event: str, error: Optional[str] = None) -> None:
         from fibsem.hooks import fire_event
+        # Which experiment, and how much of the queue is left. Only the manager knows
+        # either, and a task can run without one -- a script driving a task directly, or
+        # a stand-in -- so those fields are simply absent then. Fetched the same
+        # defensive way as hook_manager below, rather than requiring a real TaskManager.
+        get_run_context = getattr(self.task_manager, "hook_run_context", None)
+        run_context = get_run_context() if callable(get_run_context) else {}
         fire_event(
             getattr(self.task_manager, "hook_manager", None),
             event,
             task_name=self.task_name,
             task_type=self.task_type,
             item_name=self.lamella.name,
+            item_id=self.lamella._id,
+            task_id=self.task_id,
             task_state=self.lamella.task_state,
             error=error,
+            **run_context,
         )
 
     @abstractmethod

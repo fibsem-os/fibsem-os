@@ -1114,7 +1114,13 @@ class AutoLamellaUI(QMainWindow):
                 name="failure_toast",
                 events=[HookEvent.TASK_FAILED],
                 notification_type="error",
-                message_template="Task {task_name} FAILED: {error}",
+                # A failure does not stop the run, so say what happens next: without the
+                # remaining count this reads as a dead workflow to someone at the
+                # instrument who is not watching the timeline.
+                message_template=(
+                    "Task {task_name} FAILED for {item_name}: {error} "
+                    "— continuing, {tasks_remaining} tasks remaining"
+                ),
             )
         )
         manager.register(
