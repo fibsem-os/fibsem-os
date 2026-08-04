@@ -381,12 +381,16 @@ class WorkflowTimelineWidget(QWidget):
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.NoFrame)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._scroll.setStyleSheet(
-            f"QScrollArea {{ background: {stylesheets.GRAY_BACKGROUND_COLOR}; border: none; }}"
-        )
+        # Transparent rather than a hardcoded colour: this widget is embedded in
+        # panels that set their own background (workflow_right_panel is #2b2d31),
+        # and painting GRAY_BACKGROUND_COLOR here left the rows as a visibly
+        # darker rectangle inside a lighter panel, with the header strip above
+        # them a third shade again.
+        self._scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        self._scroll.viewport().setStyleSheet("background: transparent;")
 
         self._contents = QWidget()
-        self._contents.setStyleSheet(f"background: {stylesheets.GRAY_BACKGROUND_COLOR};")
+        self._contents.setStyleSheet("background: transparent;")
         self._contents_layout = QVBoxLayout(self._contents)
         self._contents_layout.setContentsMargins(0, 4, 0, 4)
         self._contents_layout.setSpacing(0)
