@@ -1,0 +1,193 @@
+{
+  "experiment": {
+    "application": "fibsemOS",
+    "application_version": null,
+    "date": 1785813017.683109,
+    "fibsem_revision": "v0.5.1-111-ga09d57e6-dirty",
+    "fibsem_version": "0.5.2.dev0",
+    "id": "test-experiment",
+    "method": null,
+    "name": null
+  },
+  "image": {
+    "autocontrast": false,
+    "autogamma": false,
+    "beam_type": "ION",
+    "drift_correction": false,
+    "dwell_time": 1e-06,
+    "filename": "ref_ot_initial_alignment_1785813018_628903",
+    "frame_integration": null,
+    "hfw": 0.00015,
+    "line_integration": null,
+    "path": "D:\\SharedData\\user\\test-experiment\\01-test-lamella",
+    "reduced_area": {
+      "height": 0.4,
+      "left": 0.7,
+      "top": 0.3,
+      "width": 0.25
+    },
+    "resolution": [
+      1536,
+      1024
+    ],
+    "save": true,
+    "scan_interlacing": null
+  },
+  "microscope_state": {
+    "electron_beam": null,
+    "electron_detector": null,
+    "ion_beam": {
+      "beam_current": 2e-11,
+      "beam_type": "ION",
+      "dwell_time": 1e-06,
+      "hfw": 0.00015,
+      "preset": null,
+      "resolution": [
+        1536,
+        1024
+      ],
+      "scan_rotation": 0.0,
+      "shift": {
+        "x": 0,
+        "y": 0
+      },
+      "stigmation": {
+        "x": 0,
+        "y": 0
+      },
+      "voltage": 30000,
+      "working_distance": 0.0165
+    },
+    "ion_detector": {
+      "brightness": 0.5,
+      "contrast": 0.5,
+      "mode": "SecondaryElectrons",
+      "type": "ETD"
+    },
+    "objective_position": null,
+    "stage_position": {
+      "coordinate_system": "RAW",
+      "name": null,
+      "r": 0.0,
+      "t": -0.017453292519943295,
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0
+    },
+    "timestamp": 1785813018.629308
+  },
+  "pixel_size": {
+    "x": 9.765624999999999e-08,
+    "y": 9.765624999999999e-08
+  },
+  "system": {
+    "electron": {
+      "beam_type": "ELECTRON",
+      "column_tilt": 0,
+      "current": 5e-11,
+      "detector_brightness": 0.0,
+      "detector_contrast": 0.0,
+      "detector_mode": "Unknown",
+      "detector_type": "Unknown",
+      "dwell_time": 1e-06,
+      "enabled": true,
+      "eucentric_height": 0.007,
+      "hfw": 0.00015,
+      "plasma": false,
+      "plasma_gas": null,
+      "preset": null,
+      "resolution": [
+        1536,
+        1024
+      ],
+      "scan_rotation": 0.0,
+      "shift": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "stigmation": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "voltage": 2000,
+      "working_distance": 0.007
+    },
+    "gis": {
+      "enabled": true,
+      "multichem": false,
+      "sputter_coater": false
+    },
+    "info": {
+      "application": null,
+      "application_version": null,
+      "fibsem_revision": "v0.5.1-111-ga09d57e6-dirty",
+      "fibsem_version": "0.5.2.dev0",
+      "hardware_version": "v0.23",
+      "ip_address": "127.0.0.1",
+      "manufacturer": "Demo",
+      "model": "DemoMicroscope",
+      "name": "test-configuration",
+      "serial_number": "0000000",
+      "software_version": "0.1"
+    },
+    "ion": {
+      "beam_type": "ION",
+      "column_tilt": 52,
+      "current": 2e-11,
+      "detector_brightness": 0.0,
+      "detector_contrast": 0.0,
+      "detector_mode": "Unknown",
+      "detector_type": "Unknown",
+      "dwell_time": 1e-06,
+      "enabled": true,
+      "eucentric_height": 0.0165,
+      "hfw": 0.00015,
+      "plasma": false,
+      "plasma_gas": "None",
+      "preset": null,
+      "resolution": [
+        1536,
+        1024
+      ],
+      "scan_rotation": 0.0,
+      "shift": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "stigmation": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "voltage": 30000,
+      "working_distance": 0.0165
+    },
+    "manipulator": {
+      "enabled": false,
+      "rotation": false,
+      "tilt": false
+    },
+    "sim": {
+      "fib": null,
+      "is_compustage": true,
+      "sem": null,
+      "use_cycle": true
+    },
+    "stage": {
+      "enabled": true,
+      "manipulator_height_limit": 0.0037,
+      "milling_angle": 15.0,
+      "rotation": true,
+      "rotation_180": 0,
+      "rotation_reference": 0,
+      "shuttle_pre_tilt": 0,
+      "tilt": true
+    }
+  },
+  "user": {
+    "email": "null",
+    "hostname": "TEST-PC",
+    "name": "user",
+    "organization": "null"
+  },
+  "version": "v4"
+}
