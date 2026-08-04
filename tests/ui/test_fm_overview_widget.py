@@ -1736,6 +1736,8 @@ class _StubHost:
     _update_fm_overview_positions = _Real._update_fm_overview_positions
     _update_fm_overview_selection = _Real._update_fm_overview_selection
     _set_minimap_workflow_enabled = _Real._set_minimap_workflow_enabled
+    _rebuild_lamella_list = _Real._rebuild_lamella_list
+    _wire_position_events = _Real._wire_position_events
     # Connected by `_build_fm_overview_widget`, so every host needs them present.
     _on_fm_overview_add_position = _Real._on_fm_overview_add_position
     _on_fm_overview_move_position = _Real._on_fm_overview_move_position
@@ -3119,6 +3121,147 @@ def test_a_move_that_names_nothing_does_nothing(qapp, tmp_path, monkeypatch):
 
     assert asked == [], "asked about a lamella that is not there"
     assert host.autolamella_ui.experiment.saves == 0
+
+    host._teardown_fm_overview_widget()
+
+
+# ── positions marked anywhere reach the FM canvas ────────────────────────
+
+
+class _ListStub:
+    """Stands in for the lamella list and card container in `_rebuild_lamella_list`."""
+
+    def __init__(self):
+        self.lamellae = []
+
+    def clear(self):
+        self.lamellae.clear()
+
+    def add_lamella(self, lamella):
+        self.lamellae.append(lamella)
+
+
+def _list_host(qapp, tmp_path, experiment=None):
+    """A `_StubHost` that can run the real `_rebuild_lamella_list`."""
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    host = _StubHost(microscope=build_microscope())
+    host._build_fm_overview_widget()
+    host.autolamella_ui.experiment = experiment
+    host.lamella_list_widget = _ListStub()
+    host.lamella_card_container = _ListStub()
+    host._lamella_list_experiment = None
+    host._on_lamella_card_selected = lambda lamella: None
+    host._on_workflow_selection_changed = lambda: None
+    host._update_lamella_tab_enabled = lambda: None
+    return host
+
+
+def _real_experiment(tmp_path, name="fm-overview-test"):
+    from fibsem.applications.autolamella.structures import Experiment
+
+    return Experiment(path=tmp_path, name=name)
+
+
+def test_a_lamella_added_anywhere_reaches_the_fm_canvas(qapp, tmp_path):
+    """The reported bug: a position marked on the FIB/SEM overview never appeared on the
+    FM one. Nothing was wrong with the marking -- the canvas was simply never told, so it
+    kept showing whatever it had last been handed.
+
+    Appending is how every add arrives, whatever marked it: the minimap calls
+    `add_new_lamella` and trusts `inserted` to refresh the displays.
+    """
+    experiment = _real_experiment(tmp_path)
+    host = _list_host(qapp, tmp_path, experiment)
+    host._wire_position_events()
+    assert host.fm_overview_widget._positions == []
+
+    microscope = host.autolamella_ui.microscope
+    lamella = _real_lamella("Lamella-01", microscope, tmp_path)
+    experiment.positions.append(lamella)  # nobody calls the FM refresh by hand
+
+    assert [p.name for p in host.fm_overview_widget._positions] == ["Lamella-01"]
+    assert host.lamella_list_widget.lamellae == [lamella]
+
+    host._teardown_fm_overview_widget()
+
+
+def test_removing_a_lamella_takes_its_marker_away(qapp, tmp_path):
+    experiment = _real_experiment(tmp_path)
+    host = _list_host(qapp, tmp_path, experiment)
+    host._wire_position_events()
+    microscope = host.autolamella_ui.microscope
+    experiment.positions.append(_real_lamella("Lamella-01", microscope, tmp_path))
+    assert host.fm_overview_widget._positions
+
+    experiment.positions.pop()
+
+    assert host.fm_overview_widget._positions == []
+
+    host._teardown_fm_overview_widget()
+
+
+def test_editing_a_position_in_place_re_marks_the_canvas(qapp, tmp_path):
+    """`update_lamella_position_ui` replaces a milling pose and emits `changed` -- no
+    insert, no removal, and the list rows have nothing to redraw. The canvas does."""
+    experiment = _real_experiment(tmp_path)
+    host = _list_host(qapp, tmp_path, experiment)
+    host._wire_position_events()
+    microscope = host.autolamella_ui.microscope
+    lamella = _real_lamella("Lamella-01", microscope, tmp_path)
+    experiment.positions.append(lamella)
+    before = host.fm_overview_widget._positions[0].x
+
+    lamella.fluorescence_pose.stage_position.x = before + 500e-6
+    experiment.positions.events.changed.emit()
+
+    assert host.fm_overview_widget._positions[0].x == pytest.approx(before + 500e-6)
+
+    host._teardown_fm_overview_widget()
+
+
+def test_closing_an_experiment_clears_the_canvas(qapp, tmp_path):
+    """Before the `experiment is None` return in the rebuild, because an experiment
+    closing has to clear the canvas as much as one opening has to fill it."""
+    experiment = _real_experiment(tmp_path)
+    host = _list_host(qapp, tmp_path, experiment)
+    microscope = host.autolamella_ui.microscope
+    experiment.positions.append(_real_lamella("Lamella-01", microscope, tmp_path))
+    host._rebuild_lamella_list()
+    assert host.fm_overview_widget._positions
+
+    host.autolamella_ui.experiment = None
+    host._rebuild_lamella_list()
+
+    assert host.fm_overview_widget._positions == []
+
+    host._teardown_fm_overview_widget()
+
+
+def test_switching_experiments_lets_go_of_the_old_one(qapp, tmp_path):
+    """The disconnect has to actually disconnect. It did not: the connections were
+    lambdas and the disconnects named the methods those lambdas called, which psygnal
+    accepts and silently ignores.
+
+    Asserted on the subscriber count rather than on what gets drawn, because drawing
+    cannot tell the difference -- `_rebuild_lamella_list` reads the *current* experiment,
+    so a leaked subscription only does redundant work. The claim being tested is the one
+    the code makes, which is that it stops following the experiment it is leaving.
+    """
+    first = _real_experiment(tmp_path / "one", name="one")
+    host = _list_host(qapp, tmp_path, first)
+    host._wire_position_events()
+    assert len(first.positions.events.inserted) == 1
+
+    second = _real_experiment(tmp_path / "two", name="two")
+    host.autolamella_ui.experiment = second
+    host._wire_position_events()
+
+    for signal in ("inserted", "removed", "changed"):
+        assert len(getattr(first.positions.events, signal)) == 0, (
+            f"still subscribed to the old experiment's {signal}"
+        )
+        assert len(getattr(second.positions.events, signal)) == 1
 
     host._teardown_fm_overview_widget()
 

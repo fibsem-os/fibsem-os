@@ -1321,28 +1321,47 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._rebuild_lamella_list()
         self._on_workflow_selection_changed()  # evaluate after lamella are populated
         self.lamella_workflow_widget._update_summary()
+        self._wire_position_events()
+
+    def _wire_position_events(self):
+        """Follow the current experiment's position list, and stop following the last.
+
+        Everything that draws the set of lamellae -- the list rows, the cards, the FM
+        overview canvas -- is rebuilt from these, so a display that is not reachable from
+        here is a display that goes stale the moment a lamella is added anywhere else.
+        That was how a position marked on the FIB/SEM overview never appeared on the FM
+        one.
+        """
         experiment = self.autolamella_ui.experiment if self.autolamella_ui else None
-        if experiment is not self._lamella_list_experiment:
-            # Disconnect from the old experiment's position events
-            if self._lamella_list_experiment is not None:
-                try:
-                    self._lamella_list_experiment.positions.events.inserted.disconnect(
-                        self._rebuild_lamella_list
-                    )
-                    self._lamella_list_experiment.positions.events.removed.disconnect(
-                        self._rebuild_lamella_list
-                    )
-                except Exception:
-                    pass
-            # Connect to the new experiment's position events
-            if experiment is not None:
-                experiment.positions.events.inserted.connect(
-                    lambda *_: self._rebuild_lamella_list()
-                )
-                experiment.positions.events.removed.connect(
-                    lambda *_: self._rebuild_lamella_list()
-                )
-            self._lamella_list_experiment = experiment
+        if experiment is self._lamella_list_experiment:
+            return
+
+        if self._lamella_list_experiment is not None:
+            events = self._lamella_list_experiment.positions.events
+            try:
+                events.inserted.disconnect(self._rebuild_lamella_list)
+                events.removed.disconnect(self._rebuild_lamella_list)
+                events.changed.disconnect(self._update_fm_overview_positions)
+            except Exception as e:
+                logging.debug(f"Could not disconnect position events: {e}")
+
+        # Bound methods rather than lambdas, so the disconnects above can find them.
+        # psygnal passes each callback only as many arguments as it accepts, so a
+        # no-argument handler needs no wrapper -- and a lambda cannot be disconnected by
+        # naming the method it calls, which made the disconnect a silent no-op (psygnal
+        # does not complain about disconnecting something that was never connected).
+        # Nothing broke, because the experiment being disconnected from is on its way out
+        # and never emits again, but it did not do what it said.
+        if experiment is not None:
+            events = experiment.positions.events
+            events.inserted.connect(self._rebuild_lamella_list)
+            events.removed.connect(self._rebuild_lamella_list)
+            # `changed` means a lamella was edited in place rather than added or removed
+            # -- `update_lamella_position_ui` emits it after replacing a milling pose.
+            # The list rows do not care, but the canvas draws the positions themselves,
+            # so it has to be told.
+            events.changed.connect(self._update_fm_overview_positions)
+        self._lamella_list_experiment = experiment
 
     def create_notification_button(self):
         """Add buttons to the tab bar for adding Protocol Editor, Lamella, and Minimap tabs."""
@@ -1915,6 +1934,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_list_widget.clear()
         self.lamella_card_container.clear()
         self._on_lamella_card_selected(None)
+        # The FM canvas is another display of the same set, so it is rebuilt here rather
+        # than from its own subscription -- one handler for "the lamellae changed" means
+        # the two cannot end up disagreeing about what the experiment holds. Before the
+        # `experiment is None` return, because an experiment closing has to clear the
+        # canvas as much as an experiment opening has to fill it.
+        self._update_fm_overview_positions()
         if experiment is None:
             return
         for lamella in experiment.positions:
