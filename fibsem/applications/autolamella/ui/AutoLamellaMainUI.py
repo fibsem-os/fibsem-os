@@ -56,6 +56,7 @@ from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
     GRAY_ICON_COLOR,
+    DEFECT_ORANGE_COLOR,
     WORKFLOW_BORDER_STYLESHEET,
 )
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
@@ -128,6 +129,75 @@ def confirm_run_workflow_dialog(
     btn_row.addStretch()
     yes_btn = QPushButton("Yes")
     no_btn = QPushButton("No")
+    yes_btn.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
+    no_btn.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+    yes_btn.clicked.connect(dlg.accept)
+    no_btn.clicked.connect(dlg.reject)
+    no_btn.setDefault(True)
+    btn_row.addWidget(no_btn)
+    btn_row.addWidget(yes_btn)
+    layout.addLayout(btn_row)
+
+    return dlg.exec_() == QDialog.Accepted
+
+
+def confirm_add_to_queue_dialog(
+    lamella_names: list,
+    task_names: list,
+    run_next: bool,
+    already_queued: list,
+    parent=None,
+) -> bool:
+    """Confirm adding work to a queue that is already running.
+
+    ``already_queued`` is stated rather than acted on: a task that runs twice
+    mills twice — the same mechanism that makes "Run again" useful — so the
+    consequence is named and the operator decides. Silently adding four of the
+    six pairs asked for would be its own surprise.
+    """
+    dlg = QDialog(parent)
+    dlg.setWindowTitle("Add to Queue")
+    dlg.setMinimumWidth(600)
+
+    layout = QVBoxLayout(dlg)
+    layout.setSpacing(8)
+
+    total = len(lamella_names) * len(task_names)
+    where = "to run next" if run_next else "at the end of the queue"
+    layout.addWidget(QLabel(
+        f"Add {total} task(s) for {len(lamella_names)} lamella {where}?"
+    ))
+
+    col_row = QHBoxLayout()
+    col_row.setSpacing(8)
+    detail_height = min(max(len(lamella_names), len(task_names)) * 20 + 16, 216)
+    for heading, items in [("Lamella", lamella_names), ("Tasks", task_names)]:
+        col = QVBoxLayout()
+        col.setSpacing(4)
+        col.addWidget(QLabel(f"<b>{heading}</b>"))
+        te = QTextEdit()
+        te.setPlainText("\n".join(f"• {n}" for n in items))
+        te.setReadOnly(True)
+        te.setFixedHeight(detail_height)
+        col.addWidget(te)
+        col_row.addLayout(col)
+    layout.addLayout(col_row)
+
+    if already_queued:
+        warning = QLabel(
+            f"<b>{len(already_queued)} already queued</b> and will be added again, "
+            f"so those tasks will run twice:<br>"
+            + "<br>".join(f"• {n}" for n in already_queued[:6])
+            + ("<br>• …" if len(already_queued) > 6 else "")
+        )
+        warning.setWordWrap(True)
+        warning.setStyleSheet(f"color: {DEFECT_ORANGE_COLOR};")
+        layout.addWidget(warning)
+
+    btn_row = QHBoxLayout()
+    btn_row.addStretch()
+    yes_btn = QPushButton(f"Add {total} task(s)")
+    no_btn = QPushButton("Cancel")
     yes_btn.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
     no_btn.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
     yes_btn.clicked.connect(dlg.accept)
@@ -829,6 +899,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 f"Select {' and '.join(missing)} to run the workflow"
             )
 
+        # The timeline's Add button commits the same selection, so it follows the
+        # same rule — there is nothing to add until something is ticked.
+        if hasattr(self, "workflow_timeline"):
+            if valid:
+                tip = (f"Add to queue: {n_lam} lamella, "
+                       f"{n_task} task{'s' if n_task != 1 else ''}")
+            else:
+                tip = f"Select {' and '.join(missing)} to add to the queue"
+            self.workflow_timeline.set_add_enabled(valid, tip)
+
     def set_workflow_running(self, message: str | None = None):
         """Show stop button and update status message."""
         self.run_workflow_btn.hide()
@@ -1450,6 +1530,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         _rp_layout.setSpacing(0)
         self.workflow_timeline = WorkflowProgressWidget()
         self.workflow_timeline.queue_action_requested.connect(self._on_queue_action)
+        self.workflow_timeline.add_to_queue_requested.connect(self._on_add_to_queue)
         _rp_layout.addWidget(self.workflow_timeline)
 
         splitter.addWidget(self.lamella_workflow_widget)
@@ -1531,6 +1612,73 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         protocol.workflow_config.tasks[:] = self.lamella_workflow_widget.get_tasks()
         self.autolamella_ui._on_workflow_config_changed(protocol.workflow_config)
+
+    def _on_add_to_queue(self, run_next: bool) -> None:
+        """Add the left panel's current selection to the running queue.
+
+        The selection UI is LamellaWorkflowWidget, which stays live during a run
+        and is cleared when one is launched — so it is empty and free mid-run.
+        Reusing it avoids a second lamella-and-task picker that would have to be
+        kept in step with the first.
+        """
+        manager = getattr(self.autolamella_ui, "_task_manager", None)
+        if manager is None:
+            return
+
+        lamellae = self.lamella_workflow_widget.get_selected_lamella()
+        tasks = self.lamella_workflow_widget.get_selected_tasks()
+        if not lamellae or not tasks:
+            self._show_queue_message(
+                "Select at least one lamella and one task to add to the queue."
+            )
+            return
+
+        lamella_names = [lam.name for lam in lamellae]
+        task_names = [t.name for t in tasks]
+
+        pending = {(i.lamella_name, i.task_name) for i in manager.queue.pending}
+        already = [f"{t} for {ln}" for t in task_names for ln in lamella_names
+                   if (ln, t) in pending]
+
+        if not confirm_add_to_queue_dialog(lamella_names, task_names, run_next,
+                                           already, parent=self):
+            return
+
+        # A lamella created before a task joined the protocol has no config for
+        # it, and run_task raises on that. Backfill from the base protocol first.
+        experiment = self.autolamella_ui.experiment
+        missing = [ln for ln, lam in zip(lamella_names, lamellae)
+                   if any(t not in lam.task_config for t in task_names)]
+        if missing and experiment is not None:
+            experiment.apply_lamella_config(missing, task_names)
+
+        # Task-outer, lamella-inner, matching how build_from_matrix lays out the
+        # original queue, so added work interleaves the same way.
+        #
+        # For "run next" each item is anchored after the previous one rather than
+        # to the front: front=True on every add would put each new item ahead of
+        # the last, reversing the batch.
+        added, anchor = 0, None
+        for task_name in task_names:
+            for lamella_name in lamella_names:
+                if not run_next:
+                    item = manager.queue.add(lamella_name, task_name)
+                elif anchor is None:
+                    item = manager.queue.add(lamella_name, task_name, front=True)
+                else:
+                    item = manager.queue.add(lamella_name, task_name, after=anchor)
+                if item is not None:
+                    anchor = item.id
+                    added += 1
+
+        manager.notify_queue_changed()
+        where = "to run next" if run_next else "to the queue"
+        self._show_queue_message(f"Added {added} task(s) {where}.")
+
+        # Clear the selection, as starting a workflow does — the work is committed,
+        # and leaving it ticked invites adding the same batch twice.
+        self.lamella_workflow_widget.lamella_list._on_select_all(False)
+        self.lamella_workflow_widget.workflow._on_select_all(False)
 
     def _on_queue_changed(self, info: dict) -> None:
         """The queue was edited between tasks — no task lifecycle to hang it off."""
