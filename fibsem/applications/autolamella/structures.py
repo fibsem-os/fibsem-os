@@ -1375,9 +1375,6 @@ class Experiment:
             application_software="autolamella",
             experiment_id=self.id,
             experiment_name=self.name,
-            # No application_software_version: AutoLamella ships inside fibsem and has
-            # no version of its own. Passing fibsem.__version__ only made the two
-            # fields tautologically equal. See FIB-448.
         )
 
     def save_protocol(self) -> None:

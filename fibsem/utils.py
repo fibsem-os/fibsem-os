@@ -498,8 +498,7 @@ def save_positions(positions: list, path: str = None, overwrite: bool = False) -
 def _register_metadata(microscope: 'FibsemMicroscope',
                        application_software: str,
                        experiment_name: str,
-                       experiment_id: Optional[str] = None,
-                       application_software_version: Optional[str] = None) -> None:
+                       experiment_id: Optional[str] = None) -> None:
     """Stamp user, experiment and application identity onto what ``microscope`` acquires.
 
     ``experiment_id`` is the stable join key and should always be supplied; it is
@@ -511,10 +510,10 @@ def _register_metadata(microscope: 'FibsemMicroscope',
     reference. It is a property of the running system, and putting it in one place
     is what lets the reference carry identity only (FIB-445 D1, FIB-448).
 
-    ``application_software_version`` is genuinely optional: an application shipped
-    inside fibsem has no version of its own, and passing ``fibsem.__version__`` for
-    it only made the two fields tautologically equal. Out-of-tree applications built
-    on fibsem do have one, which is why the field stays.
+    There is no application *version* to record. An application shipped inside
+    fibsem has no version of its own -- passing ``fibsem.__version__`` for it only
+    made two fields tautologically equal -- and ``info.fibsem_revision`` already
+    pins the exact commit doing the work. See FIB-448.
     """
     from fibsem.structures import FibsemExperimentRef, FibsemUser
 
@@ -531,4 +530,3 @@ def _register_metadata(microscope: 'FibsemMicroscope',
     info = getattr(getattr(microscope, "system", None), "info", None)
     if info is not None:
         info.application = application_software
-        info.application_version = application_software_version

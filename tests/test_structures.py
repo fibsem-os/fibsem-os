@@ -486,11 +486,16 @@ def test_only_system_info_carries_the_software_versions():
     ref = FibsemExperimentRef().to_dict()
     info = SystemInfo.from_dict({}).to_dict()
 
-    for key in ("fibsem_version", "fibsem_revision", "application", "application_version"):
+    for key in ("fibsem_version", "fibsem_revision", "application"):
         assert key in info, f"SystemInfo should own {key}"
         assert key not in ref, f"the experiment reference should not duplicate {key}"
 
     assert set(ref) == {"id", "name", "date"}
+    # Neither, since v5: it was declared in both and populated in neither. An
+    # application inside fibsem has no version of its own, and fibsem_revision
+    # already pins the commit doing the work.
+    assert "application_version" not in info
+    assert "application_version" not in ref
 
 
 def test_metadata_from_dict_accepts_pre_change_files():
@@ -512,7 +517,15 @@ def test_metadata_from_dict_accepts_pre_change_files():
     assert experiment.id == "exp-1"
     assert experiment.date == 1700000000.0
 
-    legacy_info = {"name": "Test", "manufacturer": "Demo", "fibsem_version": "0.5.1"}
+    # `application_version` is here because SystemInfo declared it up to v4. It is
+    # constructed field by field, so a key it no longer knows is ignored rather than
+    # raising -- which is what makes dropping the field safe for existing files.
+    legacy_info = {
+        "name": "Test",
+        "manufacturer": "Demo",
+        "fibsem_version": "0.5.1",
+        "application_version": "0.5.1",
+    }
     info = SystemInfo.from_dict(legacy_info)
     assert info.name == "Test"
     assert info.fibsem_version == "0.5.1"
