@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QPainter
@@ -58,8 +58,8 @@ def _queue_status_to_step_status(s) -> "StepStatus":
         AutoLamellaTaskStatus.Failed:     StepStatus.FAILED,
         AutoLamellaTaskStatus.Skipped:    StepStatus.SKIPPED,
         AutoLamellaTaskStatus.Cancelled:  StepStatus.CANCELLED,
-        # Removed reuses the skipped look (grey, struck through) for now; it gets
-        # its own treatment when the timeline becomes queue-editable.
+        # Removed items are filtered out before they reach the timeline; mapped
+        # anyway so any other caller gets the struck-through look, not a crash.
         AutoLamellaTaskStatus.Removed:    StepStatus.SKIPPED,
     }.get(s, StepStatus.PENDING)  # unknown status must never crash the timeline
 
@@ -163,6 +163,14 @@ class _OuterRow(QWidget):
         self._inner_rows: List[_InnerStepRow] = []
         self._setup_ui(step, is_last)
 
+    def set_index(self, index: int) -> None:
+        """Update the index reported by :attr:`clicked`, after a reorder."""
+        self._index = index
+
+    def set_is_last(self, is_last: bool) -> None:
+        """Show or hide the connector line — the last row has nothing to join to."""
+        self._line.setVisible(not is_last)
+
     def _setup_ui(self, step: TimelineStep, is_last: bool) -> None:
         root = QHBoxLayout(self)
         root.setContentsMargins(8, 0, 8, 0)
@@ -179,13 +187,16 @@ class _OuterRow(QWidget):
         self._dot = _DotWidget(_status_color(step.status))
         left_layout.addWidget(self._dot, 0, Qt.AlignHCenter)
 
-        if not is_last:
-            line = QFrame()
-            line.setFrameShape(QFrame.VLine)
-            line.setFixedWidth(_LINE_W)
-            line.setStyleSheet(f"background: {_LINE_COLOR}; border: none;")
-            line.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
-            left_layout.addWidget(line, 1, Qt.AlignHCenter)
+        # Always built, shown or hidden by position: a row can become (or stop
+        # being) the last one when the queue is reordered. A hidden widget is
+        # empty to the layout, so this matches never creating it.
+        self._line = QFrame()
+        self._line.setFrameShape(QFrame.VLine)
+        self._line.setFixedWidth(_LINE_W)
+        self._line.setStyleSheet(f"background: {_LINE_COLOR}; border: none;")
+        self._line.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self._line.setVisible(not is_last)
+        left_layout.addWidget(self._line, 1, Qt.AlignHCenter)
 
         root.addWidget(left)
 
@@ -208,6 +219,7 @@ class _OuterRow(QWidget):
         right.addWidget(self._subtitle)
 
         # Error label — shown on failed rows
+        self._error_msg = ""
         self._error_label = QLabel()
         self._error_label.setStyleSheet(f"color: {_DOT_FAILED}; font-size: 11px;")
         self._error_label.setWordWrap(True)
@@ -235,15 +247,24 @@ class _OuterRow(QWidget):
         self._label.setFont(f)
         self._subtitle.setText(step.subtitle)
         self._subtitle.setVisible(bool(step.subtitle))
-        # Clear error on refresh — errors are set separately via set_error()
-        self._error_label.setVisible(False)
+        # The timeline refreshes every row on every update, so an error has to
+        # survive a refresh or it would vanish the moment the next task starts.
+        # It belongs to a failed row, so a row that is no longer failed (a
+        # re-run, say) drops it.
+        if step.status is not StepStatus.FAILED:
+            self._error_msg = ""
+        self._error_label.setText(self._error_msg)
+        self._error_label.setVisible(bool(self._error_msg))
 
     def set_error(self, msg: str) -> None:
         """Show an error message below the subtitle."""
+        self._error_msg = msg
         self._error_label.setText(msg)
         self._error_label.setVisible(bool(msg))
 
     def set_selected(self, selected: bool) -> None:
+        if selected == self._selected:
+            return
         self._selected = selected
         self.setStyleSheet(f"background: {_SELECTED_BG if selected else 'transparent'};")
 
@@ -282,6 +303,8 @@ class WorkflowTimelineWidget(QWidget):
         super().__init__(parent)
         self._steps: List[TimelineStep] = []
         self._rows: List[_OuterRow] = []
+        self._keys: List[str] = []
+        self._selected_key: Optional[str] = None
         self._selected_index: Optional[int] = None
         self._setup_ui()
 
@@ -309,12 +332,84 @@ class WorkflowTimelineWidget(QWidget):
 
     # ── Public API ────────────────────────────────────────────────────────
     def set_steps(self, steps: List[TimelineStep]) -> None:
+        """Replace the timeline wholesale. Rows are keyed by position."""
         self.clear()
-        self._steps = list(steps)
-        for i, step in enumerate(self._steps):
-            row = _OuterRow(step, i, is_last=(i == len(self._steps) - 1))
-            row.clicked.connect(self._on_row_clicked)
-            self._rows.append(row)
+        self.sync_steps([str(i) for i in range(len(steps))], steps)
+
+    def sync_steps(self, keys: List[str], steps: List[TimelineStep]) -> None:
+        """Reconcile the rows against *keys*, reusing the widgets already built.
+
+        Rows are matched by key, so a row keeps its identity — and with it its
+        inner step list, error text and subtitle — across an insertion, a
+        removal or a reorder.
+
+        Only ``status`` and ``label`` are taken from *steps* for a row that
+        already exists. Subtitles are written by the caller as the run
+        progresses (elapsed time, completion time, skip reason) and would be
+        wiped if every sync rebuilt them from scratch.
+        """
+        by_key: Dict[str, _OuterRow] = dict(zip(self._keys, self._rows))
+        step_by_key: Dict[str, TimelineStep] = dict(zip(self._keys, self._steps))
+
+        for key in self._keys:
+            if key not in keys:
+                row = by_key.pop(key)
+                step_by_key.pop(key, None)
+                self._contents_layout.removeWidget(row)
+                # Unparent before deleting: deleteLater() does not run until the
+                # event loop comes back round, and until it does the row keeps
+                # its last geometry and paints over whatever moved up into it.
+                row.setParent(None)
+                row.deleteLater()
+
+        new_steps: List[TimelineStep] = []
+        new_rows: List[_OuterRow] = []
+        for i, (key, step) in enumerate(zip(keys, steps)):
+            row = by_key.get(key)
+            if row is None:
+                row = _OuterRow(step, i, is_last=False)
+                row.clicked.connect(self._on_row_clicked)
+                new_steps.append(step)
+            else:
+                kept = step_by_key[key]
+                kept.label = step.label
+                kept.status = step.status
+                new_steps.append(kept)
+            new_rows.append(row)
+
+        reordered = self._keys != keys
+        self._keys = list(keys)
+        self._steps = new_steps
+        self._rows = new_rows
+
+        if reordered:
+            self._relayout()
+
+        last = len(self._rows) - 1
+        for i, row in enumerate(self._rows):
+            row.set_index(i)
+            row.set_is_last(i == last)
+            row.refresh(self._steps[i])
+
+        # Selection is held by key so it follows its row rather than staying
+        # behind on whatever moved into that position.
+        self._selected_index = (
+            self._keys.index(self._selected_key)
+            if self._selected_key in self._keys else None
+        )
+        for i, row in enumerate(self._rows):
+            row.set_selected(i == self._selected_index)
+
+    def _relayout(self) -> None:
+        """Re-add every row to the layout in ``self._rows`` order.
+
+        Taking a widget out of a layout does not delete or reparent it, and the
+        rows go straight back in before the event loop runs again, so nothing
+        the rows own (inner steps in particular) is disturbed.
+        """
+        while self._contents_layout.count():
+            self._contents_layout.takeAt(0)
+        for row in self._rows:
             self._contents_layout.addWidget(row)
         self._contents_layout.addStretch(1)
 
@@ -337,12 +432,15 @@ class WorkflowTimelineWidget(QWidget):
         self._steps.clear()
         for row in self._rows:
             self._contents_layout.removeWidget(row)
+            row.setParent(None)  # see sync_steps: it paints until the loop runs
             row.deleteLater()
         self._rows.clear()
+        self._keys.clear()
         item = self._contents_layout.takeAt(0)
         while item:
             item = self._contents_layout.takeAt(0)
         self._selected_index = None
+        self._selected_key = None
 
     # ── Internal ──────────────────────────────────────────────────────────
     def _on_row_clicked(self, index: int) -> None:
@@ -351,6 +449,7 @@ class WorkflowTimelineWidget(QWidget):
         if self._selected_index is not None and self._selected_index < len(self._rows):
             self._rows[self._selected_index].set_selected(False)
         self._selected_index = index
+        self._selected_key = self._keys[index] if index < len(self._keys) else None
         self._rows[index].set_selected(True)
         self.step_selected.emit(index)
 
@@ -373,7 +472,11 @@ class WorkflowProgressWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._items: list = []  # List[WorkItem] from queue snapshot
+        self._items: list = []  # visible WorkItems from the last queue snapshot
+        # The active row is held by WorkItem id; _outer_index is derived from it
+        # on every sync, so it survives rows being added, removed or reordered
+        # above it.
+        self._active_id: Optional[str] = None
         self._outer_index: int = -1
         self._inner_finished: bool = False
         self._active_start_time: Optional[float] = None
@@ -397,19 +500,22 @@ class WorkflowProgressWidget(QWidget):
 
     # ── Public API ────────────────────────────────────────────────────────
     def set_workflow(self, items: list) -> None:
-        """Pre-populate the outer timeline from queue items (WorkItem instances)."""
-        self._items = list(items)
-        self._outer_index = -1
-        steps = [
-            TimelineStep(
-                label=item.lamella_name,
-                subtitle=item.task_name,
-                status=_queue_status_to_step_status(item.status),
-            )
-            for item in self._items
-        ]
-        self._outer.set_steps(steps)
-        self._update_header(self._items)
+        """Populate the outer timeline from queue items, starting fresh.
+
+        Resets the active row, so this is the entry point for a new run. Use
+        :meth:`refresh_queue` to re-sync a run already in progress.
+        """
+        self._active_id = None
+        self._sync(items)
+
+    def refresh_queue(self, items: list) -> None:
+        """Re-sync the timeline with a queue snapshot, mid-run.
+
+        Called when the queue itself is edited (added to, reordered, or an item
+        removed) rather than when a task starts or finishes. The active row and
+        its inner step list are preserved.
+        """
+        self._sync(items)
 
     def update_from_status(self, status: dict) -> None:
         """Advance the timeline from a workflow_update_signal payload.
@@ -425,28 +531,27 @@ class WorkflowProgressWidget(QWidget):
         task_status = status.get("status", None)
         task_duration = status.get("task_duration", None)
 
-        # Update all row statuses from queue snapshot
-        active_idx = -1
-        for i, item in enumerate(queue_items):
-            if i >= len(self._outer._rows):
-                break
-            step_status = _queue_status_to_step_status(item.status)
-            self._outer.set_step_status(i, step_status)
-            if item.status == AutoLamellaTaskStatus.InProgress:
-                active_idx = i
+        # Reconcile rows with the snapshot; this also refreshes every status.
+        self._sync(queue_items)
 
-        # New active row — show inner container, start elapsed timer
-        if active_idx >= 0 and active_idx != self._outer_index:
-            self._outer_index = active_idx
+        active_id = next((i.id for i in self._items
+                          if i.status == AutoLamellaTaskStatus.InProgress), None)
+
+        # New active row — show inner container, start elapsed timer. Compared by
+        # id, so a reorder that moves the running task does not restart it.
+        if active_id is not None and active_id != self._active_id:
+            self._active_id = active_id
+            self._outer_index = next(
+                n for n, i in enumerate(self._items) if i.id == active_id
+            )
             self._inner_finished = False
             self._active_start_time = status.get("timestamp", time.time())
             self._elapsed_timer.start(1000)
-            self._show_inner_at(active_idx)
+            self._show_inner_at(self._outer_index)
             # Auto-scroll to the active row
-            if active_idx < len(self._outer._rows):
-                self._outer._scroll.ensureWidgetVisible(
-                    self._outer._rows[active_idx]
-                )
+            self._outer._scroll.ensureWidgetVisible(
+                self._outer._rows[self._outer_index]
+            )
 
         # Completion/failure/cancel — set subtitle, hide inner, resolve last inner step
         if task_status in (AutoLamellaTaskStatus.Completed, AutoLamellaTaskStatus.Failed,
@@ -455,16 +560,16 @@ class WorkflowProgressWidget(QWidget):
             self._active_start_time = None
             idx = self._outer_index
             if 0 <= idx < len(self._outer._rows):
-                task_name = queue_items[idx].task_name if idx < len(queue_items) else ""
+                task_name = self._items[idx].task_name
                 self._set_completion_subtitle(idx, task_duration, task_name, completed_at=status.get("timestamp"))
-                # Refresh the row so the updated subtitle is rendered
-                self._outer._rows[idx].refresh(self._outer._steps[idx])
-                self._outer._rows[idx].set_inner_visible(False)
-                # Show error message on failed rows
+                # Show error message on failed rows, before the refresh that renders it
                 if task_status == AutoLamellaTaskStatus.Failed:
                     error_msg = status.get("error_message", None)
                     if error_msg:
                         self._outer._rows[idx].set_error(error_msg)
+                # Refresh the row so the updated subtitle is rendered
+                self._outer._rows[idx].refresh(self._outer._steps[idx])
+                self._outer._rows[idx].set_inner_visible(False)
             self._finish_inner(failed=(task_status == AutoLamellaTaskStatus.Failed))
 
         elif task_status == AutoLamellaTaskStatus.Skipped:
@@ -472,15 +577,35 @@ class WorkflowProgressWidget(QWidget):
             task_name = status.get("task_name", "")
             item_name = status.get("item_name", "")
             reason_str = _SKIP_REASON_LABELS.get(skip_reason, skip_reason or "Skipped")
-            for i, item in enumerate(queue_items):
+            for i, item in enumerate(self._items):
                 if item.lamella_name == item_name and item.task_name == task_name:
-                    if 0 <= i < len(self._outer._rows):
-                        self._outer._steps[i].subtitle = reason_str
-                        self._outer._rows[i].refresh(self._outer._steps[i])
+                    self._outer._steps[i].subtitle = reason_str
+                    self._outer._rows[i].refresh(self._outer._steps[i])
                     break
 
-        # Update progress header
-        self._update_header(queue_items)
+    def _sync(self, items: list) -> None:
+        """Reconcile the timeline against a queue snapshot, keyed by WorkItem id.
+
+        Removed items are dropped from the view rather than struck through in
+        place: the user asked for them to go, so leaving the row behind would
+        overstate how much work is left and make a move past one look like it
+        jumped two rows. They stay in the queue itself for the run summary.
+        """
+        from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+
+        self._items = [i for i in items
+                       if i.status is not AutoLamellaTaskStatus.Removed]
+        self._outer.sync_steps(
+            [i.id for i in self._items],
+            [TimelineStep(label=i.lamella_name,
+                          subtitle=i.task_name,
+                          status=_queue_status_to_step_status(i.status))
+             for i in self._items],
+        )
+        self._outer_index = next(
+            (n for n, i in enumerate(self._items) if i.id == self._active_id), -1
+        )
+        self._update_header(self._items)
 
     def update_step(self, step_name: str) -> None:
         """Mark the previous inner step completed and append a new ACTIVE one."""
@@ -508,6 +633,7 @@ class WorkflowProgressWidget(QWidget):
 
     def clear(self) -> None:
         self._items.clear()
+        self._active_id = None
         self._outer_index = -1
         self._inner_finished = False
         self._elapsed_timer.stop()
@@ -522,6 +648,7 @@ class WorkflowProgressWidget(QWidget):
         rather than through update_from_status().
         """
         self._outer_index = index
+        self._active_id = self._items[index].id if 0 <= index < len(self._items) else None
         self._show_inner_at(index)
 
     # ── Internal ──────────────────────────────────────────────────────────
@@ -548,11 +675,10 @@ class WorkflowProgressWidget(QWidget):
         if total == 0:
             self._header.setText("Workflow")
             return
-        # Removed counts as resolved — otherwise the counter can never reach the
-        # total once a user pulls an item from the queue.
+        # Removed items are already filtered out of the view, so they leave both
+        # sides of this fraction rather than counting as work done.
         done = sum(1 for i in queue_items if i.status in (
-            AutoLamellaTaskStatus.Completed, AutoLamellaTaskStatus.Skipped,
-            AutoLamellaTaskStatus.Removed))
+            AutoLamellaTaskStatus.Completed, AutoLamellaTaskStatus.Skipped))
         failed = sum(1 for i in queue_items if i.status == AutoLamellaTaskStatus.Failed)
         text = f"Workflow — {done}/{total}"
         if failed:
