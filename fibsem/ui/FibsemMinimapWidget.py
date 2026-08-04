@@ -31,6 +31,7 @@ from superqt import ensure_main_thread
 
 from fibsem import constants, conversions
 from fibsem.ui import notification_service
+from fibsem.applications.autolamella.poses import sync_fluorescence_pose
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MICROEXPANSION_KEY,
@@ -979,6 +980,10 @@ class FibsemMinimapWidget(QWidget):
 
         # keep the milling angle consistent with the updated milling pose
         lamella.update_milling_angle(self.microscope)
+        # ...and the fluorescence pose, which describes the same piece of sample from
+        # the other side. Left behind, it would go on naming where this lamella used to
+        # be -- and nothing about a stale pose looks wrong.
+        sync_fluorescence_pose(self.microscope, lamella)
 
         self.parent_widget.experiment.save()
         self._update_position_display()

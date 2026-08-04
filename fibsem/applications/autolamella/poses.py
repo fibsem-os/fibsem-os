@@ -121,6 +121,55 @@ def build_lamella_poses(
     return LamellaPoses(milling=milling, fluorescence=fluorescence)
 
 
+def sync_fluorescence_pose(microscope: "FibsemMicroscope", lamella) -> bool:
+    """Bring a lamella's fluorescence pose back in line with its milling pose.
+
+    For the callers that move a lamella on the beam side. They set the milling pose and
+    have historically stopped there, which leaves the fluorescence pose describing where
+    the lamella *used to be* -- a stale pose being worse than a missing one, because
+    nothing about it looks wrong.
+
+    Only the stage position is rewritten. Everything else the fluorescence pose carries
+    is kept, the objective position most of all: someone focused on this lamella by hand,
+    and moving it sideways is not a reason to throw that away.
+
+    Deliberately does **not** invent a pose for a lamella that has none. A lamella with
+    no fluorescence pose has never been marked under fluorescence, and `fluorescence_
+    selected` asks only whether an objective position exists -- so conjuring one here
+    would make a lamella nobody has ever looked at report itself as focused.
+
+    Returns:
+        True if the pose was updated; False if there was none to update, or the
+        instrument cannot work one out (an offset mount -- see FIB-93).
+    """
+    pose = getattr(lamella, "fluorescence_pose", None)
+    if pose is None:
+        return False
+
+    milling = getattr(lamella, "milling_pose", None)
+    if milling is None or milling.stage_position is None:
+        logging.debug(
+            f"Cannot sync the fluorescence pose of {getattr(lamella, 'name', '?')}: "
+            f"it has no milling pose to derive one from."
+        )
+        return False
+
+    position = _to_fluorescence(microscope, milling.stage_position)
+    if position is None:
+        # Left as it stands rather than cleared. It cannot be derived on this system, so
+        # whatever is there was put there deliberately and is the better of two bad
+        # answers -- but it is now stale, and saying so is the only thing left to do.
+        logging.warning(
+            f"Could not update the fluorescence pose of "
+            f"{getattr(lamella, 'name', '?')} to follow its milling pose; it still "
+            f"describes the previous position."
+        )
+        return False
+
+    pose.stage_position = position
+    return True
+
+
 def _to_milling(
     microscope: "FibsemMicroscope", position: FibsemStagePosition
 ) -> FibsemStagePosition:

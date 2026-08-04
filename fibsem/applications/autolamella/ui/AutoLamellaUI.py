@@ -75,7 +75,10 @@ from fibsem.ui.widgets.autolamella_load_task_protocol_widget import (
 from fibsem.ui.fm.widgets import MinimapPlotWidget
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 from fibsem.applications.autolamella import config as cfg
-from fibsem.applications.autolamella.poses import build_lamella_poses
+from fibsem.applications.autolamella.poses import (
+    build_lamella_poses,
+    sync_fluorescence_pose,
+)
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
@@ -1374,6 +1377,10 @@ class AutoLamellaUI(QMainWindow):
 
         # keep the milling angle consistent with the updated milling pose
         lamella.update_milling_angle(self.microscope)
+        # ...and the fluorescence pose, which describes the same piece of sample from
+        # the other side. Left behind, it would go on naming where this lamella used to
+        # be -- and nothing about a stale pose looks wrong.
+        sync_fluorescence_pose(self.microscope, lamella)
 
         self.update_lamella_combobox()
         self.update_ui()

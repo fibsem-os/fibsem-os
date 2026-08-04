@@ -11,6 +11,8 @@ No Qt and no experiment here: this is the arithmetic, and it is worth being able
 it without either.
 """
 
+from copy import deepcopy
+
 import numpy as np
 import pytest
 
@@ -19,6 +21,7 @@ from fibsem.applications.autolamella.poses import (
     FLUORESCENCE_ORIENTATION,
     MILLING_ORIENTATION,
     build_lamella_poses,
+    sync_fluorescence_pose,
 )
 from fibsem.structures import FibsemStagePosition
 
@@ -248,3 +251,112 @@ def test_marking_from_the_beam_side_still_works_on_an_offset_mount():
 
     assert poses.milling.stage_position.x == pytest.approx(marked.x)
     assert poses.fluorescence is None
+
+
+# ── keeping the two in step when only one of them moves ──────────────────
+
+
+def _lamella(microscope, x=100e-6, y=50e-6, with_fluorescence=True):
+    """A stand-in lamella with both poses, built the way the app builds them."""
+    poses = build_lamella_poses(microscope, _at(microscope, MILLING_ORIENTATION, x, y))
+
+    class _Lamella:
+        name = "Lamella-01"
+
+    lamella = _Lamella()
+    lamella.milling_pose = poses.milling
+    lamella.fluorescence_pose = poses.fluorescence if with_fluorescence else None
+    return lamella
+
+
+def _move_milling_to(microscope, lamella, x, y):
+    """Move only the milling pose, as every beam-side caller has always done."""
+    lamella.milling_pose.stage_position = _at(microscope, MILLING_ORIENTATION, x, y)
+
+
+def test_the_fluorescence_pose_follows_a_milling_pose_that_moved():
+    """The bug this exists for. A lamella moved on the beam side kept a fluorescence
+    pose describing where it used to be -- and nothing about a stale pose looks wrong."""
+    microscope = _microscope()
+    lamella = _lamella(microscope)
+    _move_milling_to(microscope, lamella, 400e-6, -200e-6)
+
+    assert sync_fluorescence_pose(microscope, lamella) is True
+
+    assert lamella.fluorescence_pose.stage_position.x == pytest.approx(400e-6)
+    assert lamella.fluorescence_pose.stage_position.y == pytest.approx(-200e-6)
+
+
+def test_the_synced_pose_is_still_in_the_fluorescence_orientation():
+    """Only the place moves. A pose that came back carrying the milling tilt would put
+    the stage 157 degrees from where the objective is."""
+    microscope = _microscope()
+    lamella = _lamella(microscope)
+    _move_milling_to(microscope, lamella, 400e-6, -200e-6)
+
+    sync_fluorescence_pose(microscope, lamella)
+
+    assert (
+        microscope.get_stage_orientation(lamella.fluorescence_pose.stage_position)
+        == FLUORESCENCE_ORIENTATION
+    )
+
+
+def test_syncing_keeps_the_objective_position():
+    """Someone focused on this lamella by hand. Moving it sideways is not a reason to
+    throw that away, and re-deriving the whole pose would."""
+    microscope = _microscope()
+    lamella = _lamella(microscope)
+    lamella.fluorescence_pose.objective_position = 7.7e-3
+    _move_milling_to(microscope, lamella, 400e-6, -200e-6)
+
+    sync_fluorescence_pose(microscope, lamella)
+
+    assert lamella.fluorescence_pose.objective_position == pytest.approx(7.7e-3)
+
+
+def test_a_lamella_with_no_fluorescence_pose_is_not_given_one():
+    """It has never been marked under fluorescence, and `fluorescence_selected` asks
+    only whether an objective position exists -- so conjuring one here would make a
+    lamella nobody has looked at report itself as focused."""
+    microscope = _microscope()
+    lamella = _lamella(microscope, with_fluorescence=False)
+    _move_milling_to(microscope, lamella, 400e-6, -200e-6)
+
+    assert sync_fluorescence_pose(microscope, lamella) is False
+    assert lamella.fluorescence_pose is None
+
+
+def test_an_offset_mount_says_so_rather_than_inventing_a_pose():
+    """There is no transform between the two sides there (FIB-93). The existing pose is
+    left alone -- it was put there deliberately and is the better of two bad answers --
+    and the caller is told the sync did not happen."""
+    microscope = _microscope(compustage=False)
+    lamella = _lamella(microscope)
+    lamella.fluorescence_pose = deepcopy(lamella.milling_pose)
+    lamella.fluorescence_pose.stage_position = _at(
+        microscope, FLUORESCENCE_ORIENTATION, 1e-6, 2e-6
+    )
+    _move_milling_to(microscope, lamella, 400e-6, -200e-6)
+
+    assert sync_fluorescence_pose(microscope, lamella) is False
+    assert lamella.fluorescence_pose.stage_position.x == pytest.approx(1e-6)
+
+
+def test_syncing_agrees_with_marking_the_same_position_afresh():
+    """A moved lamella and a newly marked one at the same place have to describe the
+    same thing. Two routes to a fluorescence pose that disagreed would be a bug that
+    only showed up on lamellae with a history."""
+    microscope = _microscope()
+    lamella = _lamella(microscope)
+    _move_milling_to(microscope, lamella, 400e-6, -200e-6)
+    sync_fluorescence_pose(microscope, lamella)
+
+    fresh = build_lamella_poses(
+        microscope, _at(microscope, MILLING_ORIENTATION, 400e-6, -200e-6)
+    )
+
+    moved = lamella.fluorescence_pose.stage_position
+    assert moved.x == pytest.approx(fresh.fluorescence.stage_position.x, abs=1e-12)
+    assert moved.y == pytest.approx(fresh.fluorescence.stage_position.y, abs=1e-12)
+    assert moved.t == pytest.approx(fresh.fluorescence.stage_position.t, abs=1e-9)
