@@ -19,6 +19,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskState,
     AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
+    DefectType,
     Experiment,
     Lamella,
 )
@@ -174,6 +175,55 @@ def test_does_not_refire_for_an_already_complete_experiment(experiment, recorder
 def test_an_empty_experiment_is_not_a_completed_one(experiment, recorder):
     """all([]) is True, which would declare an experiment with no lamellae finished."""
     hook_manager, fired = recorder
+    manager = _manager(experiment, hook_manager)
+    manager._snapshot_completion()
+
+    manager._maybe_fire_experiment_completed()
+
+    assert _events(fired) == []
+
+
+def test_an_abandoned_lamella_does_not_hold_the_experiment_open(experiment, recorder):
+    """_should_skip skips a defective lamella for every remaining task, so it can never
+    satisfy the completion predicate. Counting it meant one abandoned lamella — which
+    most real sessions have — permanently prevented its experiment from completing."""
+    hook_manager, fired = recorder
+    _add_lamella(experiment, "lam-1", completed=REQUIRED_TASKS)
+    abandoned = _add_lamella(experiment, "lam-2", completed=["MillTrench"])
+    manager = _manager(experiment, hook_manager)
+    manager._snapshot_completion()
+
+    manager._maybe_fire_experiment_completed()
+    assert _events(fired) == []  # lam-2 is still expected to finish
+
+    abandoned.defect.state = DefectType.FAILURE
+    manager._maybe_fire_experiment_completed()
+
+    assert _events(fired) == ["experiment_completed"]
+
+
+def test_a_lamella_sent_for_rework_still_holds_it_open(experiment, recorder):
+    """Rework is not abandonment: that lamella is coming back."""
+    hook_manager, fired = recorder
+    _add_lamella(experiment, "lam-1", completed=REQUIRED_TASKS)
+    rework = _add_lamella(experiment, "lam-2", completed=["MillTrench"])
+    rework.defect.state = DefectType.REWORK
+    manager = _manager(experiment, hook_manager)
+    manager._snapshot_completion()
+
+    manager._maybe_fire_experiment_completed()
+
+    assert _events(fired) == []
+
+
+def test_an_experiment_where_everything_was_abandoned_is_not_complete(
+    experiment, recorder
+):
+    """Nothing was delivered, so this must not report as success — the same misreport
+    as a workflow claiming completion when every task was skipped."""
+    hook_manager, fired = recorder
+    for name in ("lam-1", "lam-2"):
+        _add_lamella(experiment, name, completed=[]).defect.state = DefectType.FAILURE
     manager = _manager(experiment, hook_manager)
     manager._snapshot_completion()
 
