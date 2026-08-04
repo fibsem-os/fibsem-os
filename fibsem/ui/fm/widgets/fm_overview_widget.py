@@ -53,7 +53,11 @@ from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
 )
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointsOverlay
 from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import TileGridOverlay
-from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.ui.widgets.custom_widgets import (
+    ContextMenu,
+    ContextMenuConfig,
+    TitledPanel,
+)
 from fibsem.ui.widgets.progress_widget import (
     FibsemProgressWidget,
     ProgressUpdate,
@@ -155,6 +159,18 @@ class FMOverviewWidget(QWidget):
     """Configure, run and view a fluorescence overview acquisition."""
 
     overview_acquired = pyqtSignal(FluorescenceImage)
+
+    # A user right-clicked the canvas and asked for a position there. Both carry a
+    # *fluorescence* stage position -- the canvas is anchored on the FM side, and both
+    # are only ever emitted with the stage in a valid FM orientation, so the rotation
+    # and tilt they carry are the fluorescence ones.
+    #
+    # Requests, not commands, and deliberately: this widget knows nothing about
+    # lamellae or experiments, which is what lets it open standalone against a
+    # simulator. A host that owns an experiment decides what a position *means*, whether
+    # the user should be asked first, and what else moves with it.
+    position_add_requested = pyqtSignal(object)  # FibsemStagePosition
+    position_move_requested = pyqtSignal(str, object)  # name, FibsemStagePosition
 
     # Internal hop from the acquisition thread to the GUI thread. The microscope's
     # progress signal is a psygnal, which calls its callbacks synchronously on
@@ -430,6 +446,7 @@ class FMOverviewWidget(QWidget):
         self.tile_grid_overlay.grid_resize_requested.connect(self._on_grid_resize)
         self.tile_grid_overlay.grid_move_requested.connect(self._on_grid_move)
         self.canvas.canvas.canvas_double_clicked.connect(self._on_canvas_double_clicked)
+        self.canvas.canvas.canvas_right_clicked.connect(self._on_canvas_right_clicked)
         self.canvas.canvas.cursor_moved.connect(self._on_cursor_moved)
 
     def _section(self, title: str, widget: QWidget) -> QWidget:
@@ -1103,25 +1120,116 @@ class FMOverviewWidget(QWidget):
             )
             return
 
+        target = self._stage_position_at(x, y)
+        if target is None:
+            return
+
+        self.status.setText(f"Moving to {self._describe(target)}…")
+        worker = FunctionWorker(self._move_worker, target)
+        worker.start()
+
+    def _on_canvas_right_clicked(self, x: float, y: float, modifiers=None) -> None:
+        """Offer to put a position at the right-clicked point."""
+        config = self._position_menu(x, y)
+        if config is None:
+            return
+        ContextMenu(config, parent=self).show_at_cursor()
+
+    def _position_menu(self, x: float, y: float) -> Optional[ContextMenuConfig]:
+        """What right-clicking at a canvas point offers, or None to offer nothing.
+
+        Separate from showing it because `show_at_cursor` runs a modal event loop, and
+        everything worth checking -- whether the menu appears at all, what it offers,
+        and which position each entry would request -- is decided here. A test that had
+        to open the menu could only hang.
+
+        The widget creates nothing itself: each entry emits a request and lets a host
+        that owns an experiment decide. So the menu appears whenever the point is
+        somewhere the stage could go, even with nobody listening -- there is nothing
+        here that could tell the difference, and a menu that stayed shut because no host
+        was connected would make the standalone app behave differently for no visible
+        reason.
+        """
+        if self._running or self.is_acquiring or not self._interactive:
+            # `_running` and `_interactive` are the two facts `_apply_enabled_state`
+            # gates the controls on, and this is gated on the same two for the same
+            # reason: marking is cheap in itself, but a host that has taken the
+            # instrument is usually a workflow iterating `experiment.positions`, and
+            # adding one underneath it is not a thing to do quietly. `is_acquiring`
+            # comes along because the double-click asks it, and a right-click that was
+            # allowed where a double-click was refused would just be confusing.
+            notification_service.show_toast(
+                "Cannot mark positions while an acquisition is running.", "warning"
+            )
+            return None
+        # Stricter than the double-click's check, and deliberately so. Moving works from
+        # any pose: the whole scene -- images, markers, grid -- is re-placed through the
+        # pose the stage is in (see `_posed`), so a click still lands on the feature it
+        # points at. Marking has to survive being written down: the position becomes a
+        # lamella's *fluorescence* pose, and one carrying SEM rotation and tilt is not
+        # one, however right it looked on screen.
+        #
+        # `fm.has_valid_orientation()` is the wrong question here -- it asks whether FM
+        # acquisition is allowed, which SEM and MILLING both are, and which
+        # `ALLOW_UNKNOWN_ORIENTATIONS` currently answers yes to unconditionally.
+        #
+        # Asked of `fm.default_orientation` rather than a constant of our own, because
+        # that is the orientation `build_lamella_poses` derives a fluorescence pose
+        # *into*. Two names for the same thing could drift; one cannot.
+        orientation = self.microscope.get_stage_orientation()
+        if orientation != self.fm.default_orientation:
+            notification_service.show_toast(
+                f"Move to the fluorescence position before marking on the overview "
+                f"(the stage is at {orientation}).",
+                "warning",
+            )
+            return None
+
+        target = self._stage_position_at(x, y)
+        if target is None:
+            return None
+
+        config = ContextMenuConfig()
+        config.add_action(
+            "Add Position Here",
+            callback=lambda: self.position_add_requested.emit(target),
+            tooltip=f"Add a position at {self._describe(target)}",
+        )
+        selected = self._selected_position
+        if selected:
+            config.add_action(
+                f"Move Selected Position Here ({selected})",
+                callback=lambda: self.position_move_requested.emit(selected, target),
+                tooltip=f"Move {selected} to {self._describe(target)}",
+            )
+        return config
+
+    def _stage_position_at(self, x: float, y: float) -> Optional[FibsemStagePosition]:
+        """The stage position a canvas point names, or None if it is not usable.
+
+        Shared by clicking to move and right-clicking to mark, so the two cannot
+        disagree about where a point is -- which they would eventually, being the same
+        arithmetic written twice.
+
+        Outside the limits counts as not usable for both: the stage cannot go there, so
+        it is neither somewhere to move nor somewhere to put a lamella.
+        """
         frame = self._frame()
         if frame is None:
-            return
+            return None
         try:
             target = frame.to_stage(x, y)
         except Exception as e:
             logging.debug(f"Could not resolve the clicked position: {e}")
-            return
+            return None
 
         limits = getattr(self.microscope._stage, "limits", None)
         if limits and not target.is_within_limits(limits, axes=["x", "y"]):
             notification_service.show_toast(
                 "That position is outside the stage limits.", "warning"
             )
-            return
-
-        self.status.setText(f"Moving to {self._describe(target)}…")
-        worker = FunctionWorker(self._move_worker, target)
-        worker.start()
+            return None
+        return target
 
     def _move_worker(self, target: FibsemStagePosition) -> None:
         """Runs off the GUI thread. Only signals may cross back."""

@@ -1221,6 +1221,7 @@ class AutoLamellaUI(QMainWindow):
         stage_position: Optional[FibsemStagePosition] = None,
         name: Optional[str] = None,
         objective_position: Optional[float] = None,
+        marked_at: Optional[str] = None,
     ) -> Lamella:
         """Add a lamella to the experiment.
 
@@ -1231,6 +1232,9 @@ class AutoLamellaUI(QMainWindow):
                 If None, the current stage position is used.
             name: The name of the lamella. If None, a default name will be generated.
             objective_position: The objective position of the lamella. If None, the 'focused' objective position is used.
+            marked_at: The orientation *stage_position* is in, for a caller that knows.
+                Left alone it is read off the position, which is right on a compustage
+                and cannot be on an offset mount -- see `build_lamella_poses`.
         Returns:
             lamella: The created lamella.
         """
@@ -1247,6 +1251,7 @@ class AutoLamellaUI(QMainWindow):
             microscope=self.microscope,
             position=stage_position,
             objective_position=objective_position,
+            marked_at=marked_at,
         )
 
         # create the lamella
