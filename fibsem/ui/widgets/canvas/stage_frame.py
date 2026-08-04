@@ -32,7 +32,7 @@ from fibsem.fm.reprojection import project_image_point, project_stage_position
 from fibsem.structures import FibsemStagePosition, Point
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
-    from fibsem.fm.structures import FMImageGeometry
+    from fibsem.fm.structures import FibsemHardwareGeometry
     from fibsem.microscope import FibsemMicroscope
     from fibsem.ui.widgets.canvas.real_space_canvas import FibsemRealSpaceCanvas
 
@@ -70,7 +70,7 @@ class FMStageProjection:
     carried here so the two directions cannot be handed different ones.
     """
 
-    geometry: "FMImageGeometry"
+    geometry: "FibsemHardwareGeometry"
     pixel_size: float
     shape: Tuple[int, int]  # (height, width)
 
@@ -80,7 +80,7 @@ class FMStageProjection:
     ) -> Optional["FMStageProjection"]:
         """Read the projection off the live instrument, or None if it cannot be read.
 
-        Live rather than from a displayed image, for two reasons. `FMImageGeometry` is
+        Live rather than from a displayed image, for two reasons. `FibsemHardwareGeometry` is
         system configuration -- camera tilt, shuttle pre-tilt, the camera flip,
         compustage or not -- and not pose; the pose enters through the frame's origin,
         as its rotation and tilt. So a recorded geometry and the live one agree by

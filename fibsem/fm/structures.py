@@ -42,11 +42,20 @@ from ome_types.model import (
 # enum of the same name here, so the two tilers held different objects for the same
 # concept and `is` comparisons across them silently failed. Imported (and so
 # re-exported) rather than redefined, to keep that from happening again.
-from fibsem.structures import (
+#
+# CameraImageTransform, its parser and FibsemHardwareGeometry are canonical there for
+# the same reason: the geometry record is one structure for both modalities, it needs
+# the enum, and core cannot import from this package -- this module imports from it, so
+# the reverse is a cycle. Imported (and so re-exported) here, which is where every
+# consumer of them still is. FMImageGeometry was the FM-only half until FIB-481.
+from fibsem.structures import (  # noqa: F401
     AutoFocusMode,
+    CameraImageTransform,
+    FibsemHardwareGeometry,
     FibsemRectangle,
     FibsemStagePosition,
     TileOrderStrategy,
+    _parse_image_transform,
 )
 
 # Autofocus types are canonical in fibsem.autofunctions.autofocus; re-export here
@@ -57,130 +66,6 @@ from fibsem.autofunctions.autofocus import (  # noqa: E402,F401
     FocusMethod,
     FocusSweepPass,
 )
-
-
-class CameraImageTransform(Enum):
-    """Image transformations for aligning fluorescence images with SEM/FIB coordinate systems.
-
-    Flips only. Any fixed rotation between the sensor and the stage belongs to the
-    mount, not to user preference, and is corrected inside the driver
-    (``FluorescenceMicroscope.mount_transform``) before this is applied.
-
-    Restricting the set to flips makes it the Klein four-group: every member is its
-    own inverse and composition is order-independent, so mapping a displacement
-    between the displayed image and the stage is two sign flips with no axis swap
-    and no inverse to get backwards. Flips also preserve the array shape, so the
-    image and its geometry metadata always describe the same frame.
-    """
-
-    NONE = None
-    FLIP_X = "flip-x"
-    FLIP_Y = "flip-y"
-    FLIP_XY = "flip-xy"
-
-    def apply_to_delta(self, dx: float, dy: float) -> Tuple[float, float]:
-        """Map a displacement between the raw and displayed frames.
-
-        Every member is its own inverse, so this maps in both directions: use it to
-        take a delta measured in the displayed image back to the underlying frame,
-        and vice versa.
-        """
-        flip_x = self in (CameraImageTransform.FLIP_X, CameraImageTransform.FLIP_XY)
-        flip_y = self in (CameraImageTransform.FLIP_Y, CameraImageTransform.FLIP_XY)
-        return (-dx if flip_x else dx, -dy if flip_y else dy)
-
-
-# Transforms that stored configurations may still hold. A half turn is the same
-# element as flipping both axes, so it maps across without losing the setting; the
-# quarter turns describe a mount, which the driver now corrects, and have no
-# equivalent here.
-_LEGACY_IMAGE_TRANSFORMS = {"rotate-180": CameraImageTransform.FLIP_XY}
-
-
-def _parse_image_transform(value: Any) -> CameraImageTransform:
-    """Read a stored transform, tolerating values that are no longer members.
-
-    Rotations were removed once mount rotation moved into the driver. A half turn is
-    migrated to the equivalent flip so the setting survives; anything else falls back
-    to no transform with a warning rather than raising.
-    """
-    if value is None:
-        return CameraImageTransform.NONE
-    try:
-        return CameraImageTransform(value)
-    except ValueError:
-        pass
-
-    migrated = _LEGACY_IMAGE_TRANSFORMS.get(value)
-    if migrated is not None:
-        logging.info(
-            f"Camera image transform {value!r} is now {migrated.value!r}; migrated."
-        )
-        return migrated
-
-    logging.warning(
-        f"Unsupported camera image transform {value!r}; falling back to none. "
-        "Rotations are now applied as a fixed mount correction inside the driver."
-    )
-    return CameraImageTransform.NONE
-
-
-@dataclass
-class FMImageGeometry:
-    """The geometry an FM image was captured under.
-
-    Recorded on the image so a stage position can be projected onto it without a live
-    microscope, and — more importantly — without *assuming* the live microscope still
-    matches. Reprojecting a saved overview against the current pose is silently wrong
-    the moment the stage has moved or the user has flipped the display, which is
-    exactly when someone is looking at a saved overview.
-
-    These are the fields the projection actually reads, rather than a whole
-    `SystemSettings`: an FM image serialises to OME-TIFF, where the rest of a system
-    configuration is both irrelevant and liable to go stale on disk. Keeping the list
-    short also keeps the reprojection contract legible — what is here is what the
-    projection depends on.
-
-    `is_compustage` is explicit for the same reason. The beam's metadata-driven
-    reprojection has to infer it by sniffing the model name for "Arctis", with a TODO
-    against it; there is no reason to repeat that here.
-
-    Angles are in degrees, matching `SystemSettings`.
-    """
-
-    transform: CameraImageTransform = CameraImageTransform.NONE
-    camera_tilt: float = 0.0            # viewing axis, from the electron column
-    column_tilt: float = 0.0            # electron column
-    fib_column_tilt: float = 52.0       # ion column; fixes the compustage FIB pose
-    shuttle_pre_tilt: float = 0.0
-    rotation_reference: float = 0.0
-    rotation_180: float = 180.0
-    is_compustage: bool = False
-
-    def to_dict(self) -> dict:
-        return {
-            "transform": self.transform.value,
-            "camera_tilt": self.camera_tilt,
-            "column_tilt": self.column_tilt,
-            "fib_column_tilt": self.fib_column_tilt,
-            "shuttle_pre_tilt": self.shuttle_pre_tilt,
-            "rotation_reference": self.rotation_reference,
-            "rotation_180": self.rotation_180,
-            "is_compustage": self.is_compustage,
-        }
-
-    @classmethod
-    def from_dict(cls, ddict: dict) -> "FMImageGeometry":
-        return cls(
-            transform=_parse_image_transform(ddict.get("transform")),
-            camera_tilt=ddict.get("camera_tilt", 0.0),
-            column_tilt=ddict.get("column_tilt", 0.0),
-            fib_column_tilt=ddict.get("fib_column_tilt", 52.0),
-            shuttle_pre_tilt=ddict.get("shuttle_pre_tilt", 0.0),
-            rotation_reference=ddict.get("rotation_reference", 0.0),
-            rotation_180=ddict.get("rotation_180", 180.0),
-            is_compustage=ddict.get("is_compustage", False),
-        )
 
 
 class ZStackOrder(Enum):
@@ -1330,7 +1215,7 @@ class FluorescenceImageMetadata:
     # None on images written before this was recorded; reprojection raises rather than
     # guessing, since a marker drawn in the wrong place looks exactly like one drawn in
     # the right place.
-    geometry: Optional[FMImageGeometry] = None
+    geometry: Optional[FibsemHardwareGeometry] = None
 
     # File information
     filename: Optional[str] = None  # original filename
@@ -1460,7 +1345,7 @@ class FluorescenceImageMetadata:
             description=metadata_dict.get("description"),
             system_info=metadata_dict.get("system_info"),
             geometry=(
-                FMImageGeometry.from_dict(metadata_dict["geometry"])
+                FibsemHardwareGeometry.from_dict(metadata_dict["geometry"])
                 if metadata_dict.get("geometry")
                 else None
             ),

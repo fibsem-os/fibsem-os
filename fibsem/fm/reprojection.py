@@ -6,7 +6,7 @@ would send the stage, these ask where the stage already is on screen. Both run t
 projection, so a marker drawn here lands where clicking there would take you.
 
 Microscope-free by design. Everything the projection reads comes from the image's own
-:class:`FMImageGeometry` and stage position, so a saved overview reprojects correctly
+:class:`FibsemHardwareGeometry` and stage position, so a saved overview reprojects correctly
 even when the stage has since moved or the display transform has since been flipped --
 which is precisely when someone is looking at a saved overview. Reading any of it from
 a live microscope would make the result depend on state the image does not describe.
@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, List, Tuple
 
 import numpy as np
 
-from fibsem.fm.structures import FMImageGeometry
+from fibsem.fm.structures import FibsemHardwareGeometry
 from fibsem.movement import rotation_angle_is_smaller
 from fibsem.structures import FibsemStagePosition, Point
 
@@ -33,7 +33,7 @@ if TYPE_CHECKING:  # pragma: no cover - annotation only
 
 
 def _projection_terms(
-    geometry: FMImageGeometry,
+    geometry: FibsemHardwareGeometry,
     stage_rotation: float,
     stage_tilt: float,
 ) -> Tuple[float, float, float]:
@@ -92,7 +92,7 @@ def _projection_terms(
 
 def view_corrected_stage_movement(
     expected_y: float,
-    geometry: FMImageGeometry,
+    geometry: FibsemHardwareGeometry,
     stage_rotation: float,
     stage_tilt: float,
 ) -> Tuple[float, float]:
@@ -131,7 +131,7 @@ def view_corrected_stage_movement(
 def inverse_view_corrected_dy(
     dy: float,
     dz: float,
-    geometry: FMImageGeometry,
+    geometry: FibsemHardwareGeometry,
     stage_rotation: float,
     stage_tilt: float,
 ) -> float:
@@ -184,7 +184,7 @@ def project_stage_position(
     base_position: FibsemStagePosition,
     pixel_size: float,
     image_shape: Tuple[int, int],
-    geometry: FMImageGeometry,
+    geometry: FibsemHardwareGeometry,
 ) -> Point:
     """Where a stage position falls in a displayed FM image, in pixels.
 
@@ -225,7 +225,7 @@ def project_image_point(
     base_position: FibsemStagePosition,
     pixel_size: float,
     image_shape: Tuple[int, int],
-    geometry: FMImageGeometry,
+    geometry: FibsemHardwareGeometry,
 ) -> FibsemStagePosition:
     """The stage position under a pixel in a displayed FM image.
 

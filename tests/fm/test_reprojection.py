@@ -22,7 +22,7 @@ from fibsem.fm.reprojection import (
 from fibsem.fm.structures import (
     CameraImageTransform,
     ChannelSettings,
-    FMImageGeometry,
+    FibsemHardwareGeometry,
 )
 from fibsem.structures import FibsemStagePosition, Point
 
@@ -224,13 +224,13 @@ class TestGeometryIsRecorded:
 
     @pytest.mark.parametrize("transform", TRANSFORMS)
     def test_geometry_round_trips_through_a_dict(self, transform):
-        geometry = FMImageGeometry(
+        geometry = FibsemHardwareGeometry(
             transform=transform, camera_tilt=90.0, column_tilt=0.0,
             fib_column_tilt=52.0, shuttle_pre_tilt=35.0,
             rotation_reference=10.0, rotation_180=190.0, is_compustage=True,
         )
 
-        assert FMImageGeometry.from_dict(geometry.to_dict()) == geometry
+        assert FibsemHardwareGeometry.from_dict(geometry.to_dict()) == geometry
 
 
 class TestReprojectionOntoAnImage:
@@ -299,7 +299,7 @@ class TestReprojectionOntoAnImage:
 def test_the_pure_projection_needs_no_microscope():
     """The whole point of the split: reprojection must work on a loaded file with no
     instrument attached, which is how it will usually be used."""
-    geometry = FMImageGeometry(
+    geometry = FibsemHardwareGeometry(
         transform=CameraImageTransform.NONE, camera_tilt=180.0,
         is_compustage=True, shuttle_pre_tilt=0.0,
     )

@@ -2407,7 +2407,7 @@ class TestCombiningImagesKeepsTheirMetadata:
             FluorescenceChannelMetadata,
             FluorescenceImage,
             FluorescenceImageMetadata,
-            FMImageGeometry,
+            FibsemHardwareGeometry,
         )
 
         metadata = FluorescenceImageMetadata(
@@ -2423,7 +2423,7 @@ class TestCombiningImagesKeepsTheirMetadata:
                 offset=0.0,
                 objective_position=1e-3,
             )],
-            geometry=FMImageGeometry(
+            geometry=FibsemHardwareGeometry(
                 transform=CameraImageTransform.FLIP_XY,
                 camera_tilt=180.0,
                 is_compustage=True,

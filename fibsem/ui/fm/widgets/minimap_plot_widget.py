@@ -847,11 +847,11 @@ class MinimapPlotWidget(QWidget):
             return None
 
         try:
-            if (self.image.metadata.system is not None and
+            if (self.image.metadata.hardware_geometry is not None and
                 self.image.metadata.microscope_state is not None and
                 self.image.metadata.microscope_state.stage_position is not None):
 
-                reference_rotation = self.image.metadata.system.stage.rotation_reference
+                reference_rotation = self.image.metadata.hardware_geometry.rotation_reference
                 current_rotation = self.image.metadata.microscope_state.stage_position.r
 
                 if reference_rotation is not None and current_rotation is not None:

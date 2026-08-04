@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 from abc import ABC, abstractmethod
@@ -1748,6 +1749,171 @@ class SystemSettings:
         )
 
 
+class CameraImageTransform(Enum):
+    """Image transformations for aligning fluorescence images with SEM/FIB coordinate systems.
+
+    Flips only. Any fixed rotation between the sensor and the stage belongs to the
+    mount, not to user preference, and is corrected inside the driver
+    (``FluorescenceMicroscope.mount_transform``) before this is applied.
+
+    Restricting the set to flips makes it the Klein four-group: every member is its
+    own inverse and composition is order-independent, so mapping a displacement
+    between the displayed image and the stage is two sign flips with no axis swap
+    and no inverse to get backwards. Flips also preserve the array shape, so the
+    image and its geometry metadata always describe the same frame.
+
+    Lives here rather than in ``fibsem.fm.structures`` only because
+    ``FibsemHardwareGeometry`` needs it and core cannot import from the FM package --
+    ``fm.structures`` imports from this module, so the reverse is a cycle. Re-exported
+    there, which is where every consumer of it still is.
+    """
+
+    NONE = None
+    FLIP_X = "flip-x"
+    FLIP_Y = "flip-y"
+    FLIP_XY = "flip-xy"
+
+    def apply_to_delta(self, dx: float, dy: float) -> Tuple[float, float]:
+        """Map a displacement between the raw and displayed frames.
+
+        Every member is its own inverse, so this maps in both directions: use it to
+        take a delta measured in the displayed image back to the underlying frame,
+        and vice versa.
+        """
+        flip_x = self in (CameraImageTransform.FLIP_X, CameraImageTransform.FLIP_XY)
+        flip_y = self in (CameraImageTransform.FLIP_Y, CameraImageTransform.FLIP_XY)
+        return (-dx if flip_x else dx, -dy if flip_y else dy)
+
+
+# Transforms that stored configurations may still hold. A half turn is the same
+# element as flipping both axes, so it maps across without losing the setting; the
+# quarter turns describe a mount, which the driver now corrects, and have no
+# equivalent here.
+_LEGACY_IMAGE_TRANSFORMS = {"rotate-180": CameraImageTransform.FLIP_XY}
+
+
+def _parse_image_transform(value: Any) -> CameraImageTransform:
+    """Read a stored transform, tolerating values that are no longer members.
+
+    Rotations were removed once mount rotation moved into the driver. A half turn is
+    migrated to the equivalent flip so the setting survives; anything else falls back
+    to no transform with a warning rather than raising.
+    """
+    if value is None:
+        return CameraImageTransform.NONE
+    try:
+        return CameraImageTransform(value)
+    except ValueError:
+        pass
+
+    migrated = _LEGACY_IMAGE_TRANSFORMS.get(value)
+    if migrated is not None:
+        logging.info(
+            f"Camera image transform {value!r} is now {migrated.value!r}; migrated."
+        )
+        return migrated
+
+    logging.warning(
+        f"Unsupported camera image transform {value!r}; falling back to none. "
+        "Rotations are now applied as a fixed mount correction inside the driver."
+    )
+    return CameraImageTransform.NONE
+
+
+@dataclass
+class FibsemHardwareGeometry:
+    """The instrument's fixed physical arrangement: column tilts, stage reference angles.
+
+    Recorded on an image so a stage position can be projected onto it without a live
+    microscope -- and, more to the point, without *assuming* the live microscope still
+    matches. Reprojecting a saved image against the current pose is silently wrong the
+    moment the stage has moved or the instrument has been reconfigured.
+
+    Distinct from its two neighbours. ``MicroscopeState`` is dynamic observation, what
+    the instrument was *doing*; ``SystemSettings`` is the config file, the whole of it.
+    This is what the instrument *is*, in the terms a projection actually needs.
+
+    **One record for both modalities.** The beam and fluorescence paths were given
+    separate structures that named the same six terms identically, free to drift with
+    nothing to catch it. ``camera_tilt`` and ``transform`` describe the fluorescence
+    camera and stay at their defaults on a beam image; that is two dormant fields on a
+    SEM picture, accepted deliberately so there is exactly one definition of how this
+    instrument is arranged rather than two that merely agree today (FIB-481).
+
+    Angles are in degrees, matching ``SystemSettings``. Both reprojection paths convert
+    at the point of use.
+
+    ``is_compustage`` is stored rather than derived. The live value is ground truth --
+    ThermoFisher reads it from ``connection.specimen.compustage.is_installed`` -- but
+    an image had no field for it, so the beam path inferred it by matching the model
+    name against "Arctis", with a TODO against the line. A capability is not a name.
+
+    Note this is deliberately *not* grouped this way in ``SystemSettings`` itself: that
+    maps onto ``microscope-configuration.yaml``, a user-facing file, and regrouping it
+    would mean migrating every site's config for a cosmetic gain. The scatter stays
+    there; ``from_system_settings`` is the one place that knows about it.
+    """
+
+    column_tilt: float = 0.0            # electron column
+    fib_column_tilt: float = 52.0       # ion column; fixes the compustage FIB pose
+    shuttle_pre_tilt: float = 0.0
+    rotation_reference: float = 0.0
+    rotation_180: float = 180.0
+    is_compustage: bool = False
+    # Fluorescence only; left at these defaults for a beam image.
+    camera_tilt: float = 0.0            # viewing axis, from the electron column
+    transform: CameraImageTransform = CameraImageTransform.NONE
+
+    @classmethod
+    def from_system_settings(
+        cls, system: SystemSettings, is_compustage: bool = False
+    ) -> "FibsemHardwareGeometry":
+        """Gather the geometry terms out of a full system configuration.
+
+        ``is_compustage`` is a parameter because ``SystemSettings`` does not carry it:
+        it is a property of the installed hardware, which only the connected
+        microscope knows. Callers holding one should pass ``microscope.stage_is_compustage``.
+        """
+        return cls(
+            column_tilt=system.electron.column_tilt,
+            fib_column_tilt=system.ion.column_tilt,
+            shuttle_pre_tilt=system.stage.shuttle_pre_tilt,
+            rotation_reference=system.stage.rotation_reference,
+            rotation_180=system.stage.rotation_180,
+            is_compustage=is_compustage,
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "column_tilt": self.column_tilt,
+            "fib_column_tilt": self.fib_column_tilt,
+            "shuttle_pre_tilt": self.shuttle_pre_tilt,
+            "rotation_reference": self.rotation_reference,
+            "rotation_180": self.rotation_180,
+            "is_compustage": self.is_compustage,
+            "camera_tilt": self.camera_tilt,
+            "transform": self.transform.value,
+        }
+
+    @classmethod
+    def from_dict(cls, ddict: dict) -> "FibsemHardwareGeometry":
+        # `.get` throughout, with the field defaults repeated rather than referenced:
+        # a file written before this record existed has none of these keys, and the
+        # point of the record is that such a file still loads.
+        return cls(
+            column_tilt=ddict.get("column_tilt", 0.0),
+            fib_column_tilt=ddict.get("fib_column_tilt", 52.0),
+            shuttle_pre_tilt=ddict.get("shuttle_pre_tilt", 0.0),
+            rotation_reference=ddict.get("rotation_reference", 0.0),
+            rotation_180=ddict.get("rotation_180", 180.0),
+            is_compustage=ddict.get("is_compustage", False),
+            camera_tilt=ddict.get("camera_tilt", 0.0),
+            # Not a bare CameraImageTransform(...): stored configurations may hold a
+            # rotation that is no longer a member, which the parser migrates.
+            transform=_parse_image_transform(ddict.get("transform")),
+        )
+
+
 @dataclass
 class MicroscopeSettings:
 
@@ -1951,11 +2117,17 @@ class FibsemImageMetadata:
     Three kinds of claim live here, and they are easy to mistake for each other
     (FIB-445 D1). Anything added should be placed deliberately in one of them:
 
-    **Provenance** -- what produced this image. ``system`` (which instrument),
+    **Provenance** -- what produced this image. ``system_info`` (which instrument),
     ``user`` (who), ``experiment`` (which run). Constant for a run. The same
     question at a finer grain -- which lamella, which task -- is not recorded yet;
     see FIB-466. It varies *within* a run, which changes the mechanism that writes
     it, but not the kind of fact it is.
+
+    **Configuration** -- what the instrument *is*. ``hardware_geometry``: the fixed
+    physical arrangement a projection needs. Up to v5 this was the entire
+    ``SystemSettings``, 1683 bytes of it, to deliver six numbers -- and it carried
+    the manipulator configuration and the simulator flags into every picture. See
+    FIB-481.
 
     **Observation** -- what the instrument was doing. ``microscope_state``,
     ``pixel_size``. Measured at acquisition.
@@ -1975,7 +2147,11 @@ class FibsemImageMetadata:
     image_settings: ImageSettings
     pixel_size: Point
     microscope_state: MicroscopeState
-    system: Optional[SystemSettings] = None
+    # Both replaced `system: Optional[SystemSettings]` in v6 (FIB-481). Optional
+    # because a file written before v6 may carry neither in a recoverable form, and
+    # because a FibsemImage can be constructed without a microscope at all.
+    system_info: Optional[SystemInfo] = None
+    hardware_geometry: Optional[FibsemHardwareGeometry] = None
     version: str = METADATA_VERSION
     user: FibsemUser = field(default_factory=lambda: FibsemUser())
     experiment: FibsemExperimentRef = field(default_factory=lambda: FibsemExperimentRef())
@@ -2013,9 +2189,53 @@ class FibsemImageMetadata:
         # produced a plausible empty FibsemUser rather than an error. See FIB-486.
         settings_dict["user"] = self.user.to_dict()
         settings_dict["experiment"] = self.experiment.to_dict()
-        settings_dict["system"] = self.system.to_dict() if self.system is not None else {}
+        settings_dict["system_info"] = (
+            self.system_info.to_dict() if self.system_info is not None else {}
+        )
+        settings_dict["hardware_geometry"] = (
+            self.hardware_geometry.to_dict() if self.hardware_geometry is not None else {}
+        )
 
         return settings_dict
+
+    @staticmethod
+    def _geometry_from_legacy_system(system: dict) -> Optional[FibsemHardwareGeometry]:
+        """Recover the geometry from a pre-v6 `system` blob.
+
+        Read with `.get()` chains rather than by building a `SystemSettings` first.
+        That constructor is bracket-indexed throughout -- a blob missing any of
+        `stage`, `electron`, `ion`, `manipulator`, `gis` or `info` raises KeyError --
+        and inheriting that here would break exactly the old files this exists to
+        load. See `tests/test_metadata_fixtures.py`.
+
+        Compustage is recovered the way the reprojection used to detect it, by model
+        name, falling back to the simulator flag. That match is wrong -- a capability
+        inferred from a name -- which is why v6 records it instead. It survives here
+        only because a pre-v6 file has nothing better in it.
+        """
+        if not system:
+            return None
+
+        stage = system.get("stage") or {}
+        electron = system.get("electron") or {}
+        ion = system.get("ion") or {}
+        info = system.get("info") or {}
+        sim = system.get("sim") or {}
+
+        model = info.get("model") or ""
+        is_compustage = "Arctis" in model or bool(sim.get("is_compustage", False))
+
+        # Field defaults where a key is absent, so a partial blob degrades to the
+        # same values a freshly-constructed record would have.
+        default = FibsemHardwareGeometry()
+        return FibsemHardwareGeometry(
+            column_tilt=electron.get("column_tilt", default.column_tilt),
+            fib_column_tilt=ion.get("column_tilt", default.fib_column_tilt),
+            shuttle_pre_tilt=stage.get("shuttle_pre_tilt", default.shuttle_pre_tilt),
+            rotation_reference=stage.get("rotation_reference", default.rotation_reference),
+            rotation_180=stage.get("rotation_180", default.rotation_180),
+            is_compustage=is_compustage,
+        )
 
     @staticmethod
     def from_dict(settings: dict) -> "FibsemImageMetadata":
@@ -2030,11 +2250,21 @@ class FibsemImageMetadata:
                 settings["microscope_state"]
             )
 
-        # the system settings are optional
-        system_dict = settings.get("system", {})
-        system_settings = None
-        if system_dict:
-            system_settings = SystemSettings.from_dict(system_dict)
+        # Presence-detection, not a version switch (FIB-445 D3): v6 writes
+        # `system_info` and `hardware_geometry`, everything before it wrote a whole
+        # `system`. Both are optional -- an image may be built without a microscope.
+        legacy_system = settings.get("system") or {}
+
+        info_dict = settings.get("system_info") or legacy_system.get("info") or {}
+        system_info = SystemInfo.from_dict(info_dict) if info_dict else None
+
+        geometry_dict = settings.get("hardware_geometry") or {}
+        if geometry_dict:
+            hardware_geometry = FibsemHardwareGeometry.from_dict(geometry_dict)
+        else:
+            hardware_geometry = FibsemImageMetadata._geometry_from_legacy_system(
+                legacy_system
+            )
 
         metadata = FibsemImageMetadata(
             image_settings=image_settings,
@@ -2043,7 +2273,8 @@ class FibsemImageMetadata:
             microscope_state=microscope_state,
             user=FibsemUser.from_dict(settings.get("user", {})),
             experiment=FibsemExperimentRef.from_dict(settings.get("experiment", {})),
-            system=system_settings
+            system_info=system_info,
+            hardware_geometry=hardware_geometry,
         )
         return metadata
 

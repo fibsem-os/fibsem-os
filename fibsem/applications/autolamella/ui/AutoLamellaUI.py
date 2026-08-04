@@ -989,7 +989,8 @@ class AutoLamellaUI(QMainWindow):
                     resolution=(2048, 2048), hfw=4000e-6
                 )
                 image.metadata.microscope_state = ms  # type: ignore
-                image.metadata.system = self.microscope.system  # type: ignore
+                image.metadata.system_info = self.microscope.system.info  # type: ignore
+                image.metadata.hardware_geometry = self.microscope.hardware_geometry()  # type: ignore
                 self.minimap_plot_widget.image = image
 
             beam_type = self.minimap_plot_widget.image.metadata.beam_type  # type: ignore

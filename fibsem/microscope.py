@@ -1,5 +1,6 @@
 from __future__ import annotations
 import copy
+import dataclasses
 import datetime
 import logging
 import os
@@ -97,12 +98,14 @@ from fibsem.structures import (
     BeamSettings,
     BeamSystemSettings,
     BeamType,
+    CameraImageTransform,
     CrossSectionPattern,
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemDetectorSettings,
     FibsemExperimentRef,
     FibsemGasInjectionSettings,
+    FibsemHardwareGeometry,
     FibsemImage,
     FibsemImageMetadata,
     FibsemLineSettings,
@@ -1585,30 +1588,60 @@ class FibsemMicroscope(ABC):
 
         return new_position
 
-    def fm_image_geometry(self) -> "FMImageGeometry":
+    def hardware_geometry(self) -> FibsemHardwareGeometry:
+        """The fixed geometry this instrument is arranged in.
+
+        The beam counterpart of :meth:`fm_image_geometry`, and its shared core. Both
+        stamp the same terms onto an acquired image so it can be reprojected later
+        without a live microscope to consult.
+
+        ``stage_is_compustage`` is the authority here -- ThermoFisher reads it from
+        ``connection.specimen.compustage.is_installed``. Recording it is what lets
+        the reprojection stop inferring it from the model name (FIB-481).
+        """
+        return FibsemHardwareGeometry.from_system_settings(
+            self.system, is_compustage=self.stage_is_compustage
+        )
+
+    def _set_additional_metadata(self, image: FibsemImage) -> None:
+        """Stamp who, which run, which instrument and how it is arranged onto an image.
+
+        Lifted here from ``ThermoMicroscope`` in FIB-481: the same three lines were
+        written out at eight acquisition sites across three microscope classes, so a
+        change to what an image records meant finding all eight.
+        """
+        image.metadata.user = self.user
+        image.metadata.experiment = self.experiment
+        # Copied, not referenced. `hardware_geometry()` returns a fresh record, so
+        # aliasing the live SystemInfo here would leave one field on the image a
+        # snapshot and the other a window onto the microscope. TescanMicroscope
+        # rewrites system.info.model/serial/software_version on every acquisition,
+        # so the alias reached back into images already taken. Pre-dates FIB-481 --
+        # `metadata.system = self.system` aliased the whole thing -- but the two
+        # fields set together should not disagree about what they are.
+        image.metadata.system_info = deepcopy(self.system.info)
+        image.metadata.hardware_geometry = self.hardware_geometry()
+
+    def fm_image_geometry(self) -> FibsemHardwareGeometry:
         """The geometry the FM is currently imaging under.
 
-        Stamped onto acquired images so they can be reprojected later without a live
-        microscope, and used for the live view here so that both paths run the same
-        projection rather than two that merely agree today.
+        The same record :meth:`hardware_geometry` returns, with the camera's own two
+        terms filled in. Stamped onto acquired images so they can be reprojected later
+        without a live microscope, and used for the live view here so that both paths
+        run the same projection rather than two that merely agree today.
 
         Raises:
             ValueError: if no fluorescence microscope is available.
         """
-        from fibsem.fm.structures import CameraImageTransform, FMImageGeometry
-
         if self.fm is None:
             raise ValueError("Fluorescence microscope is not available.")
 
-        return FMImageGeometry(
+        # replace() on the shared record rather than rebuilding it: the instrument
+        # terms are gathered in one place, and only the camera's are added here.
+        return dataclasses.replace(
+            self.hardware_geometry(),
             transform=self.fm._transform or CameraImageTransform.NONE,
             camera_tilt=self.fm.camera_tilt,
-            column_tilt=self.system.electron.column_tilt,
-            fib_column_tilt=self.system.ion.column_tilt,
-            shuttle_pre_tilt=self.system.stage.shuttle_pre_tilt,
-            rotation_reference=self.system.stage.rotation_reference,
-            rotation_180=self.system.stage.rotation_180,
-            is_compustage=self.stage_is_compustage,
         )
 
     def fm_stable_move(self, dx: float, dy: float) -> FibsemStagePosition:
@@ -2060,10 +2093,7 @@ class ThermoMicroscope(FibsemMicroscope):
             copy.deepcopy(state),
         )
 
-        # set additional metadata
-        fibsem_image.metadata.user = self.user
-        fibsem_image.metadata.experiment = self.experiment
-        fibsem_image.metadata.system = self.system
+        self._set_additional_metadata(fibsem_image)
 
         # store last imaging settings
         self._last_imaging_settings = image_settings
@@ -2100,10 +2130,7 @@ class ThermoMicroscope(FibsemMicroscope):
             copy.deepcopy(state),
         )
 
-        # set additional metadata
-        image.metadata.user = self.user
-        image.metadata.experiment = self.experiment
-        image.metadata.system = self.system
+        self._set_additional_metadata(image)
 
         return image
 
@@ -2222,12 +2249,6 @@ class ThermoMicroscope(FibsemMicroscope):
             drift_correction=image_settings.drift_correction,
         )
 
-    def _set_additional_metadata(self, fibsem_image: FibsemImage) -> None:
-        """Set additional metadata for the FibsemImage."""
-        fibsem_image.metadata.user = self.user
-        fibsem_image.metadata.experiment = self.experiment
-        fibsem_image.metadata.system = self.system
-
     def last_image(self, beam_type: BeamType = BeamType.ELECTRON) -> FibsemImage:
         """
         Get the last previously acquired image.
@@ -2260,10 +2281,7 @@ class ThermoMicroscope(FibsemMicroscope):
             beam_type=beam_type,
         )
 
-        # set additional metadata
-        fibsem_image.metadata.user = self.user
-        fibsem_image.metadata.experiment = self.experiment
-        fibsem_image.metadata.system = self.system
+        self._set_additional_metadata(fibsem_image)
 
         logging.debug({"msg": "acquire_image", "metadata": fibsem_image.metadata.to_dict()})
 
@@ -2344,10 +2362,7 @@ class ThermoMicroscope(FibsemMicroscope):
             copy.deepcopy(state),
         )
 
-        # set additional metadata
-        image.metadata.user = self.user
-        image.metadata.experiment = self.experiment
-        image.metadata.system = self.system
+        self._set_additional_metadata(image)
 
         return image
 

@@ -364,8 +364,9 @@ class FibsemMinimapWidget(QWidget):
         ms = self.microscope.get_microscope_state(beam_type=beam_type)
         image = FibsemImage.generate_blank_image(resolution=(4096, 4096), hfw=4000e-6)
         image.metadata.image_settings.beam_type = beam_type  # type: ignore
-        image.metadata.microscope_state = ms                # type: ignore
-        image.metadata.system = self.microscope.system      # type: ignore
+        image.metadata.microscope_state = ms                            # type: ignore
+        image.metadata.system_info = self.microscope.system.info        # type: ignore
+        image.metadata.hardware_geometry = self.microscope.hardware_geometry()  # type: ignore
         self.update_viewer(image=image)
 
     def set_experiment(self):
