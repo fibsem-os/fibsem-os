@@ -486,12 +486,16 @@ def format_pretty_dataframes(dfs: dict[str, pd.DataFrame]) -> dict[str, pd.DataF
     # WORKFLOW
     df_workflow = dfs["workflow"]
     # rename cols
+    # errors="raise" so a column that stops existing fails loudly. This rename
+    # asked for "task" while workflow_dataframe() produces "task_name", and pandas
+    # ignores unknown labels by default -- so the PDF quietly showed the raw column
+    # name instead. See FIB-458.
     df_workflow = df_workflow.rename(columns={
         "order": "Order",
-        "task": "Task Name",
+        "task_name": "Task Name",
         "required": "Required",
         "supervised": "Supervised",
-    })
+    }, errors="raise")
 
     # TASK HISTORY
     df_task_history = dfs["task_history"]
