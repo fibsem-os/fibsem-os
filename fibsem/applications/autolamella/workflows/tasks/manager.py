@@ -13,7 +13,7 @@ import pandas as pd
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 from fibsem.cancellation import OperationCancelledError
 from fibsem.hooks import HookEvent, HookManager, fire_event
-from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
+from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue, WorkItem
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
 from fibsem.microscope import FibsemMicroscope
 from fibsem.utils import format_time_remaining
@@ -107,18 +107,13 @@ class TaskManager:
                 self._fire_skipped_hook(item.task_name, item.lamella_name, "lamella_not_found")
                 continue
 
-            task_names = self.queue.task_names
-            lamella_names = self.queue.lamella_names
-
-            skip_reason = self._should_skip(lamella, item.task_name, lamella_names)
+            skip_reason = self._should_skip(lamella, item.task_name)
             if skip_reason is not None:
                 msg = f"Skipping {lamella.name} for {item.task_name}: {skip_reason}."
                 self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
                 self._emit_status(
-                    task_name=item.task_name,
-                    task_names=task_names,
+                    item=item,
                     lamella=lamella,
-                    required_lamella=lamella_names,
                     status=AutoLamellaTaskStatus.Skipped,
                     msg=msg,
                     skip_reason=skip_reason,
@@ -142,10 +137,8 @@ class TaskManager:
 
             # Emit InProgress status
             self._emit_status(
-                task_name=item.task_name,
-                task_names=task_names,
+                item=item,
                 lamella=lamella,
-                required_lamella=lamella_names,
                 status=AutoLamellaTaskStatus.InProgress,
                 msg=f"Starting task {item.task_name} for Lamella {lamella.name}.",
             )
@@ -161,10 +154,8 @@ class TaskManager:
             else:
                 msg = f"Error in task {item.task_name} for Lamella {lamella.name}."
             self._emit_status(
-                task_name=item.task_name,
-                task_names=task_names,
+                item=item,
                 lamella=lamella,
-                required_lamella=lamella_names,
                 status=final_status,
                 error_message=lamella.task_state.status_message,
                 task_duration=lamella.task_state.duration,
@@ -387,13 +378,14 @@ class TaskManager:
 
             time.sleep(min(1.0, remaining))
 
-    def _should_skip(self, lamella: 'Lamella', task_name: str,
-                     required_lamella: List[str]) -> Optional[str]:
-        """Return skip reason string, or None if task should run."""
-        if required_lamella and lamella.name not in required_lamella:
-            logging.info(f"Skipping lamella {lamella.name} for task {task_name}. Not in required lamella list.")
-            return "not_required"
+    def _should_skip(self, lamella: 'Lamella', task_name: str) -> Optional[str]:
+        """Return skip reason string, or None if task should run.
 
+        Deliberately does not re-check the run's lamella selection: that filter
+        is applied when the queue is built, so anything that reaches here is
+        wanted — including items the user added mid-run, which are not in the
+        original selection and were previously skipped as "not_required".
+        """
         if lamella.is_failure:
             logging.info(f"Skipping lamella {lamella.name} for task {task_name}. Marked as failure or has defect.")
             return "failure"
@@ -405,8 +397,7 @@ class TaskManager:
 
         return None
 
-    def _emit_status(self, task_name: str, task_names: List[str],
-                     lamella: 'Lamella', required_lamella: List[str],
+    def _emit_status(self, item: WorkItem, lamella: 'Lamella',
                      status: 'AutoLamellaTaskStatus',
                      msg: str = "",
                      error_message: Optional[str] = None,
@@ -421,14 +412,21 @@ class TaskManager:
         raises; the UI needs neither of those properties. See FIB-464.
 
         What the two must agree on is vocabulary: the item is item_name here as it is in
-        HookContext. The matrix fields below have no hook counterpart and stay — they are
-        timeline positioning, not lifecycle facts.
+        HookContext. The queue position fields below have no hook counterpart and stay —
+        they are timeline positioning, not lifecycle facts.
         """
         if self.parent_ui is None:
             return
 
+        # Progress is measured against the live queue rather than the launch
+        # plan. A position in the original task x lamella matrix has no answer
+        # for an item the user added mid-run, and stops being meaningful for
+        # everything else as soon as the queue is reordered.
+        items = self.queue.items
+        position = next((i for i, it in enumerate(items) if it.id == item.id), None)
+
         status_dict = {
-            "task_name": task_name,
+            "task_name": item.task_name,
             "item_name": lamella.name,
             # Deprecated alias for item_name, kept for consumers outside this repo.
             # Drop alongside the HookContext shims after v0.6.
@@ -438,18 +436,14 @@ class TaskManager:
             "error_message": error_message,
             "task_duration": task_duration,
             "skip_reason": skip_reason,
+            "queue_position": position + 1 if position is not None else None,
+            "queue_total": len(items),
+            "queue_items": items,  # thread-safe snapshot
+            # The plan this run was launched with. Informational only — the live
+            # queue may since have diverged from it.
+            "task_names": self.queue.task_names,
+            "lamella_names": self.queue.lamella_names,
         }
-
-        # Include full context when task_names list is available
-        status_dict["task_names"] = task_names
-        status_dict["total_tasks"] = len(task_names)
-        status_dict["current_task_index"] = task_names.index(task_name)
-        status_dict["lamella_names"] = required_lamella
-        status_dict["current_lamella_index"] = (
-            required_lamella.index(lamella.name) if lamella.name in required_lamella else None
-        )
-        status_dict["total_lamellas"] = len(required_lamella)
-        status_dict["queue_items"] = self.queue.items  # thread-safe snapshot
 
         self.parent_ui.workflow_update_signal.emit({"msg": msg, "status": status_dict})
 

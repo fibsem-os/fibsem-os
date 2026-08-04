@@ -51,12 +51,10 @@ def manager(tmp_path: Path) -> TaskManager:
 
 def _emit(manager: TaskManager, name: str = "lam-1") -> dict:
     lamella = Lamella(path=manager.experiment.path, number=1, petname=name)
-    manager.queue.build_from_matrix(["MillTrench"], [lamella.name])
+    items = manager.queue.build_from_matrix(["MillTrench"], [lamella.name])
     manager._emit_status(
-        task_name="MillTrench",
-        task_names=["MillTrench"],
+        item=items[0],
         lamella=lamella,
-        required_lamella=[lamella.name],
         status=AutoLamellaTaskStatus.InProgress,
     )
     return manager.parent_ui.workflow_update_signal.payloads[-1]["status"]
@@ -77,11 +75,17 @@ def test_the_old_key_is_still_emitted_for_outside_consumers(manager: TaskManager
     assert status["lamella_name"] == status["item_name"]
 
 
-def test_the_matrix_fields_keep_their_names(manager: TaskManager):
-    """lamella_names and the indices are timeline positioning, not lifecycle facts —
-    they have no hook counterpart to agree with, so they are left alone."""
+def test_the_positioning_fields_keep_their_names(manager: TaskManager):
+    """The position fields are timeline positioning, not lifecycle facts — they have
+    no hook counterpart to agree with, so the vocabulary alignment leaves them alone.
+
+    They are no longer the task x lamella matrix indices this originally asserted:
+    those were replaced by a position in the live queue, because the queue can be
+    added to and reordered mid-run and a matrix coordinate then has no answer. That
+    is FIB-472, not a vocabulary change — the point this test makes is unaffected.
+    """
     status = _emit(manager)
 
     assert "lamella_names" in status
-    assert "current_lamella_index" in status
-    assert "total_lamellas" in status
+    assert "queue_position" in status
+    assert "queue_total" in status

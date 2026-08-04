@@ -57,6 +57,7 @@ class AutoLamellaTaskStatus(Enum):
     Failed = auto()
     Skipped = auto()
     Cancelled = auto()  # aborted by the user (Stop), distinct from a genuine Failure
+    Removed = auto()    # pulled from the queue by the user before it ran
 
 
 # AutoLamellaUser lived here: a richer user identity (role, preferences, is_default)
