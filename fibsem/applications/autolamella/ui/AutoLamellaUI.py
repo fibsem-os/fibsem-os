@@ -82,9 +82,10 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
-from fibsem.applications.autolamella.tools.artifacts import write_completion_summary
+# Paired with the disabled completion_summary hook in setup_hooks; FunctionHook comes
+# back from fibsem.hooks below at the same time.
+# from fibsem.applications.autolamella.tools.artifacts import write_completion_summary
 from fibsem.hooks import (
-    FunctionHook,
     HookEvent,
     HookManager,
     LoggingHook,
@@ -1133,21 +1134,34 @@ class AutoLamellaUI(QMainWindow):
                 message_template="Task {task_name} cancelled for {item_name}",
             )
         )
-        manager.register(
-            FunctionHook(
-                name="completion_summary",
-                events=[HookEvent.EXPERIMENT_COMPLETED],
-                # A FunctionHook rather than a template-driven one because this needs
-                # the experiment itself, which the context deliberately does not carry
-                # -- the path is derivable from the record, and in-process hooks can
-                # reach the record. A webhook could not, which is the distinction.
-                #
-                # HookManager.fire contains what this raises, so a summary that cannot
-                # be written is logged and the run carries on. FIB-461 asks for exactly
-                # that, and it comes for free rather than needing a second guard here.
-                callback=lambda ctx: write_completion_summary(self.experiment, ctx),
-            )
-        )
+        # Deliberately not registered yet. The trigger is proven end to end and the
+        # writer is tested, but completion-summary.json is a placeholder for the real
+        # artifacts (the PDF and the overview PNG), and turning it on here would start
+        # writing a throwaway file into every user's lamella directories. Re-enable when
+        # the artifact is the one people actually want -- see FIB-461. Two imports at the
+        # top of this file come back with it: write_completion_summary and FunctionHook.
+        #
+        # Per lamella, not per experiment: a lamella is what gets delivered, and an
+        # experiment with one abandoned lamella never reaches completion at all, so
+        # hanging the artifact off the experiment would mean it was almost never
+        # written.
+        #
+        # A FunctionHook rather than a template-driven one because this needs the
+        # experiment itself, which the context deliberately does not carry -- the path
+        # is derivable from the record, and in-process hooks can reach the record. A
+        # webhook could not, which is the distinction.
+        #
+        # HookManager.fire contains what this raises, so a summary that cannot be
+        # written is logged and the run carries on. FIB-461 asks for exactly that, and
+        # it comes for free rather than needing a second guard here.
+        #
+        # manager.register(
+        #     FunctionHook(
+        #         name="completion_summary",
+        #         events=[HookEvent.ITEM_COMPLETED],
+        #         callback=lambda ctx: write_completion_summary(self.experiment, ctx),
+        #     )
+        # )
         # Signals are thread-safe to emit; hooks fire on the task worker thread.
         manager.set_notifier(self._hook_toast_signal.emit)
         return manager
