@@ -11,6 +11,7 @@ import time
 import warnings
 import yaml
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Type
@@ -40,9 +41,26 @@ class HookContext:
     # Name of the item the task ran against. Today that is always a lamella, but the
     # hook contract stays domain-agnostic so grids (or anything else) can fire hooks.
     item_name: str = ""
+    # Stable keys beside the display names. Names are what a person reads and can
+    # change; these are what a consumer stores and joins on. task_id identifies this
+    # *execution*, so it matches the entry the run leaves in the task history.
+    item_id: str = ""
+    task_id: str = ""
+    # Which run this belongs to. Without it, a consumer handling more than one
+    # experiment cannot tell their events apart.
+    experiment_id: Optional[str] = None
+    experiment_name: str = ""
+    # How much of the run is left. A failure does not stop a run — the queue moves to
+    # the next item — so without this a bare "FAILED" reads as a dead workflow.
+    # tasks_remaining counts what is still to come, excluding the one this event is
+    # about: on a failure, "3 remaining" means three more will be attempted.
+    tasks_remaining: Optional[int] = None
+    tasks_total: Optional[int] = None
     # Application-owned state for the run. AutoLamella passes an AutoLamellaTaskState;
     # left untyped so this module does not depend on any one application's structures.
     task_state: Optional[Any] = None
+    # The exception message, not a traceback: this payload can leave the machine via a
+    # webhook, and a traceback is unbounded. The logfile has the full one.
     error: Optional[str] = None
     # Why a task was skipped, on TASK_SKIPPED. The producer decides the vocabulary;
     # AutoLamella uses not_required / failure / missing_prereqs / lamella_not_found.
@@ -54,6 +72,31 @@ class HookContext:
         # comparisons work consistently regardless of Python version.
         if hasattr(self.event, "value"):
             self.event = self.event.value
+        self._snapshot_task_state()
+
+    def _snapshot_task_state(self) -> None:
+        """Copy task_state, so a hook that defers work reads what happened here.
+
+        Producers pass live state. AutoLamella's is a single object reused for every
+        run, so a hook that touches it asynchronously — a webhook posting from its
+        daemon thread, a callback queued onto another thread — would otherwise read
+        whatever the *next* task has since written into it. WebhookHook is safe today
+        only because it happens to read plain strings.
+
+        Guarded, and deliberately so: this runs in the producer's call stack, before
+        HookManager.fire's try/except exists to contain anything. An application object
+        that cannot be deepcopied must not take the workflow down with it, so the copy
+        degrades to the live reference and says so.
+        """
+        if self.task_state is None:
+            return
+        try:
+            self.task_state = deepcopy(self.task_state)
+        except Exception:
+            logging.exception(
+                "Could not snapshot task_state for the %s hook; passing the live "
+                "object, which a deferred hook may see mutated", self.event,
+            )
 
     @property
     def lamella_name(self) -> str:
@@ -70,6 +113,11 @@ class HookContext:
 DEFAULT_MESSAGE_TEMPLATE = "Task {task_name} {event} for {item_name}"
 
 
+def _blank_if_none(value: Optional[int]) -> str:
+    """Render an absent count as empty rather than the string "None"."""
+    return "" if value is None else str(value)
+
+
 def _template_fields(context: HookContext) -> Dict[str, str]:
     """Placeholder values available to a hook message template."""
     return {
@@ -78,6 +126,12 @@ def _template_fields(context: HookContext) -> Dict[str, str]:
         "task_type": context.task_type,
         "item_name": context.item_name,
         "lamella_name": context.item_name,  # deprecated alias, renders pre-rename templates
+        "item_id": context.item_id,
+        "task_id": context.task_id,
+        "experiment_id": context.experiment_id or "",
+        "experiment_name": context.experiment_name,
+        "tasks_remaining": _blank_if_none(context.tasks_remaining),
+        "tasks_total": _blank_if_none(context.tasks_total),
         "error": context.error or "",
         "skip_reason": context.skip_reason or "",
     }
@@ -229,6 +283,12 @@ class WebhookHook(Hook):
                 # Deprecated duplicate of item_name: the payload shipped in v0.5.1 with
                 # this key, so endpoints reading it keep working. Drop after v0.6.
                 "lamella_name": context.item_name,
+                "item_id": context.item_id,
+                "task_id": context.task_id,
+                "experiment_id": context.experiment_id,
+                "experiment_name": context.experiment_name,
+                "tasks_remaining": context.tasks_remaining,
+                "tasks_total": context.tasks_total,
                 "error": context.error,
                 "skip_reason": context.skip_reason,
                 "timestamp": context.timestamp,
