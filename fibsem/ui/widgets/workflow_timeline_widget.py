@@ -5,21 +5,24 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Dict, List, Optional
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import QPoint, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QPainter
 from PyQt5.QtWidgets import (
     QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QScrollArea,
     QSizePolicy,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.ui import stylesheets
+from fibsem.ui.icon import fibsem_icon
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 _DOT_COMPLETED  = stylesheets.GREEN_COLOR
@@ -39,6 +42,13 @@ _SKIP_REASON_LABELS = {
 _SELECTED_BG    = "#2d3f5c"
 _LABEL_COLOR    = stylesheets.GRAY_TEXT_COLOR
 _SUBTITLE_COLOR = stylesheets.GRAY_SECONDARY_COLOR
+
+_ACTIONS_BTN    = 20   # px — the hover-revealed "..." button
+_ACTIONS_STYLE  = (
+    "QToolButton { background: transparent; border: none; border-radius: 3px; }"
+    "QToolButton:hover { background: #3a3d42; }"
+    "QToolButton::menu-indicator { image: none; }"
+)
 
 _DOT_SIZE       = 12
 _INNER_DOT_SIZE = 8
@@ -155,11 +165,13 @@ class _OuterRow(QWidget):
     """One outer (lamella, task) row with an embedded collapsible inner step list."""
 
     clicked = pyqtSignal(int)
+    menu_requested = pyqtSignal(int, QPoint)  # index, global position
 
     def __init__(self, step: TimelineStep, index: int, is_last: bool, parent=None):
         super().__init__(parent)
         self._index = index
         self._selected = False
+        self._actions_enabled = False
         self._inner_rows: List[_InnerStepRow] = []
         self._setup_ui(step, is_last)
 
@@ -237,6 +249,50 @@ class _OuterRow(QWidget):
 
         root.addLayout(right, 1)
 
+        # Hover-revealed actions button. The timeline is dense enough that a
+        # permanent button on every row would be noise, but right-click alone is
+        # undiscoverable — so both, and the button only while the pointer is here.
+        self._btn_actions = QToolButton()
+        self._btn_actions.setFixedSize(_ACTIONS_BTN, _ACTIONS_BTN)
+        self._btn_actions.setStyleSheet(_ACTIONS_STYLE)
+        self._btn_actions.setIcon(
+            fibsem_icon("mdi:dots-horizontal", color=stylesheets.GRAY_ICON_COLOR)
+        )
+        self._btn_actions.setToolTip("Queue actions")
+        self._btn_actions.setVisible(False)
+        self._btn_actions.clicked.connect(self._on_actions_clicked)
+        root.addWidget(self._btn_actions, 0, Qt.AlignTop)
+
+    # ── Queue actions ─────────────────────────────────────────────────────
+    def set_actions_enabled(self, enabled: bool) -> None:
+        """Whether this row can offer queue actions at all.
+
+        False when no run is live: there is no queue to act on, so the button
+        is hidden rather than opening a menu with every entry greyed out. Which
+        *individual* actions apply to this row is decided when the menu opens.
+        """
+        self._actions_enabled = enabled
+        if not enabled:
+            self._btn_actions.setVisible(False)
+
+    def _on_actions_clicked(self) -> None:
+        self.menu_requested.emit(
+            self._index,
+            self._btn_actions.mapToGlobal(self._btn_actions.rect().bottomLeft()),
+        )
+
+    def contextMenuEvent(self, event):
+        if self._actions_enabled:
+            self.menu_requested.emit(self._index, event.globalPos())
+
+    def enterEvent(self, event):
+        self._btn_actions.setVisible(self._actions_enabled)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._btn_actions.setVisible(False)
+        super().leaveEvent(event)
+
     # ── Outer row refresh ─────────────────────────────────────────────────
     def refresh(self, step: TimelineStep) -> None:
         self._dot.set_color(_status_color(step.status))
@@ -298,6 +354,7 @@ class WorkflowTimelineWidget(QWidget):
     """Scrollable vertical list of outer workflow rows."""
 
     step_selected = pyqtSignal(int)
+    row_menu_requested = pyqtSignal(int, QPoint)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -306,7 +363,14 @@ class WorkflowTimelineWidget(QWidget):
         self._keys: List[str] = []
         self._selected_key: Optional[str] = None
         self._selected_index: Optional[int] = None
+        self._actions_enabled = False
         self._setup_ui()
+
+    def set_actions_enabled(self, enabled: bool) -> None:
+        """Offer queue actions on every row, or on none of them."""
+        self._actions_enabled = enabled
+        for row in self._rows:
+            row.set_actions_enabled(enabled)
 
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -317,12 +381,16 @@ class WorkflowTimelineWidget(QWidget):
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.NoFrame)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._scroll.setStyleSheet(
-            f"QScrollArea {{ background: {stylesheets.GRAY_BACKGROUND_COLOR}; border: none; }}"
-        )
+        # Transparent rather than a hardcoded colour: this widget is embedded in
+        # panels that set their own background (workflow_right_panel is #2b2d31),
+        # and painting GRAY_BACKGROUND_COLOR here left the rows as a visibly
+        # darker rectangle inside a lighter panel, with the header strip above
+        # them a third shade again.
+        self._scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        self._scroll.viewport().setStyleSheet("background: transparent;")
 
         self._contents = QWidget()
-        self._contents.setStyleSheet(f"background: {stylesheets.GRAY_BACKGROUND_COLOR};")
+        self._contents.setStyleSheet("background: transparent;")
         self._contents_layout = QVBoxLayout(self._contents)
         self._contents_layout.setContentsMargins(0, 4, 0, 4)
         self._contents_layout.setSpacing(0)
@@ -369,6 +437,8 @@ class WorkflowTimelineWidget(QWidget):
             if row is None:
                 row = _OuterRow(step, i, is_last=False)
                 row.clicked.connect(self._on_row_clicked)
+                row.menu_requested.connect(self.row_menu_requested)
+                row.set_actions_enabled(self._actions_enabled)
                 new_steps.append(step)
             else:
                 kept = step_by_key[key]
@@ -470,6 +540,11 @@ class WorkflowProgressWidget(QWidget):
                  hidden automatically when the task completes or fails.
     """
 
+    # (action, WorkItem.id). The widget never mutates the queue itself — it has
+    # no business knowing what a queue is — so the owner performs the action and
+    # feeds the result back through refresh_queue().
+    queue_action_requested = pyqtSignal(str, str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._items: list = []  # visible WorkItems from the last queue snapshot
@@ -496,9 +571,18 @@ class WorkflowProgressWidget(QWidget):
         root.addWidget(self._header)
 
         self._outer = WorkflowTimelineWidget()
+        self._outer.row_menu_requested.connect(self._show_row_menu)
         root.addWidget(self._outer, 1)
 
     # ── Public API ────────────────────────────────────────────────────────
+    def set_actions_enabled(self, enabled: bool) -> None:
+        """Offer queue actions on the rows, or not at all.
+
+        False when no run is live — the timeline stays on screen after a
+        workflow finishes, and there is no queue left to reorder.
+        """
+        self._outer.set_actions_enabled(enabled)
+
     def set_workflow(self, items: list) -> None:
         """Populate the outer timeline from queue items, starting fresh.
 
@@ -652,6 +736,66 @@ class WorkflowProgressWidget(QWidget):
         self._show_inner_at(index)
 
     # ── Internal ──────────────────────────────────────────────────────────
+    _FINISHED = (StepStatus.COMPLETED, StepStatus.FAILED,
+                 StepStatus.SKIPPED, StepStatus.CANCELLED)
+
+    def build_row_menu(self, index: int) -> Optional[QMenu]:
+        """The queue-actions menu for a row, or None if the row is unknown.
+
+        Enablement is worked out when the menu is built rather than cached on
+        the row: the worker may have consumed the row since the last paint. That
+        still leaves a race between opening the menu and clicking it, which is
+        why the owner has to handle a refusal rather than assume success.
+
+        Every row gets the same menu with the inapplicable entries greyed out —
+        a row with no menu teaches nothing about why it has no menu.
+        """
+        steps = self._outer._steps
+        if not (0 <= index < len(self._items)) or index >= len(steps):
+            return None
+
+        item_id = self._items[index].id
+        pending = [i for i, s in enumerate(steps) if s.status is StepStatus.PENDING]
+        rank = pending.index(index) if index in pending else -1
+        is_pending = rank >= 0
+        is_finished = steps[index].status in self._FINISHED
+
+        menu = QMenu(self)
+        menu.setToolTipsVisible(True)
+
+        def add(action_id: str, label: str, icon: str, enabled: bool):
+            act = menu.addAction(
+                fibsem_icon(icon, color=stylesheets.GRAY_ICON_COLOR), label
+            )
+            act.setEnabled(enabled)
+            act.setData(action_id)
+            if not (is_pending or is_finished):
+                act.setToolTip("This task is already running")
+            act.triggered.connect(
+                lambda _checked=False, a=action_id: self.queue_action_requested.emit(a, item_id)
+            )
+            return act
+
+        add("move_up", "Move up", "mdi:arrow-up", is_pending and rank > 0)
+        add("move_down", "Move down", "mdi:arrow-down",
+            is_pending and rank < len(pending) - 1)
+        add("run_next", "Run next", "mdi:skip-next", is_pending and rank > 0)
+        menu.addSeparator()
+        add("remove", "Remove from queue", "mdi:trash-can-outline", is_pending)
+        if is_finished:
+            menu.addSeparator()
+            add("run_again", "Run again", "mdi:refresh", True)
+        return menu
+
+    def _show_row_menu(self, index: int, pos: QPoint) -> None:
+        menu = self.build_row_menu(index)
+        if menu is None:
+            return
+        menu.exec_(pos)
+        # exec_ returns only after the chosen action has already fired, so the
+        # menu can go. Otherwise every right-click leaves one parented to us.
+        menu.deleteLater()
+
     def _show_inner_at(self, index: int) -> None:
         """Clear and show the inner container at *index*; hide all others."""
         for i, row in enumerate(self._outer._rows):
