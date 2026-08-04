@@ -44,7 +44,7 @@ from fibsem.structures import ( #noqa
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemDetectorSettings,
-    FibsemExperiment,
+    FibsemExperimentRef,
     FibsemGasInjectionSettings,
     FibsemImage,
     FibsemImageMetadata,
@@ -271,7 +271,7 @@ class TescanMicroscope(FibsemMicroscope):
         # user, experiment metadata
         # TODO: remove once db integrated
         self.user = FibsemUser.from_environment()
-        self.experiment = FibsemExperiment()
+        self.experiment = FibsemExperimentRef()
 
         # initialise last images
         self.last_image_eb: Optional[FibsemImage] = None

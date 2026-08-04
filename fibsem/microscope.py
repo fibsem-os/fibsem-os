@@ -101,7 +101,7 @@ from fibsem.structures import (
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemDetectorSettings,
-    FibsemExperiment,
+    FibsemExperimentRef,
     FibsemGasInjectionSettings,
     FibsemImage,
     FibsemImageMetadata,
@@ -1877,7 +1877,7 @@ class ThermoMicroscope(FibsemMicroscope):
         # user, experiment metadata
         # TODO: remove once db integrated
         self.user = FibsemUser.from_environment()
-        self.experiment = FibsemExperiment()
+        self.experiment = FibsemExperimentRef()
         self._default_application_file = "Si"
         self._current_application_file = self._default_application_file
 

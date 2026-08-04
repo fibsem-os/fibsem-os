@@ -124,7 +124,7 @@ def _describe() -> Optional[str]:
     # Not --broken: that needs git >= 2.13, and on older git the whole command
     # fails, losing the revision entirely.
     #
-    # Cached because FibsemImageMetadata builds a FibsemExperiment for every
+    # Cached because FibsemImageMetadata builds a FibsemExperimentRef for every
     # acquired image — without this that would be one git fork per image.
     return _run_git("describe", "--tags", "--always", "--dirty")
 

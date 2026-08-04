@@ -509,11 +509,11 @@ def _register_metadata(microscope: 'FibsemMicroscope',
     broke the link from every image written before it. See FIB-446.
     """
     import fibsem
-    from fibsem.structures import FibsemExperiment, FibsemUser
+    from fibsem.structures import FibsemExperimentRef, FibsemUser
 
     user = FibsemUser.from_environment()
 
-    experiment = FibsemExperiment(
+    experiment = FibsemExperimentRef(
         id=experiment_id,
         name=experiment_name,
         method=experiment_method,

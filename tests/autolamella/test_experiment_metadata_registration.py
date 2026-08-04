@@ -1,7 +1,7 @@
 """Which experiment produced an image is a property of the run, not of the GUI.
 
 Registration used to happen only in AutoLamellaUI, so images acquired from a script
-or a headless run carried the microscope's default ``FibsemExperiment()`` -- id
+or a headless run carried the microscope's default ``FibsemExperimentRef()`` -- id
 ``None`` -- and could not be associated with an experiment afterwards. See FIB-449.
 """
 

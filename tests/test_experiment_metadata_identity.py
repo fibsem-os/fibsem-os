@@ -7,11 +7,11 @@ from a different one. Up to v0.5.2 the `id` field held the name. See FIB-446.
 """
 
 from fibsem.config import METADATA_VERSION, UNVERSIONED_METADATA
-from fibsem.structures import FibsemExperiment
+from fibsem.structures import FibsemExperimentRef
 
 
 def test_the_id_and_the_name_are_separate_fields():
-    experiment = FibsemExperiment(id="7c1e...uuid", name="my-experiment")
+    experiment = FibsemExperimentRef(id="7c1e...uuid", name="my-experiment")
 
     d = experiment.to_dict()
     assert d["id"] == "7c1e...uuid"
@@ -19,9 +19,9 @@ def test_the_id_and_the_name_are_separate_fields():
 
 
 def test_round_trip_keeps_both():
-    original = FibsemExperiment(id="7c1e...uuid", name="my-experiment")
+    original = FibsemExperimentRef(id="7c1e...uuid", name="my-experiment")
 
-    restored = FibsemExperiment.from_dict(original.to_dict())
+    restored = FibsemExperimentRef.from_dict(original.to_dict())
 
     assert restored.id == original.id
     assert restored.name == original.name
@@ -32,7 +32,7 @@ def test_a_pre_rename_file_is_recognisable_by_its_missing_name():
     holds one. Not backfilled, so a reader is never handed a name claiming to be an ID."""
     old_file = {"id": "my-experiment", "method": "null"}
 
-    restored = FibsemExperiment.from_dict(old_file)
+    restored = FibsemExperimentRef.from_dict(old_file)
 
     assert restored.name is None
     assert restored.id == "my-experiment"
