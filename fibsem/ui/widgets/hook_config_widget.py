@@ -26,6 +26,7 @@ from fibsem.ui.icon import fibsem_icon
 
 from fibsem.hooks import (
     DEFAULT_MESSAGE_TEMPLATE,
+    EVENT_GROUPS,
     FunctionHook,
     Hook,
     HookEvent,
@@ -33,6 +34,7 @@ from fibsem.hooks import (
     LoggingHook,
     NotificationHook,
     WebhookHook,
+    resolve_events,
 )
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
@@ -107,6 +109,25 @@ class HookEditDialog(QDialog):
 
         layout.addWidget(TitledPanel("General", content=common_w, collapsible=False))
 
+        # --- Event groups ---
+        # Offered above the individual events, and first for a reason: a group keeps
+        # covering events added in later versions, where an enumerated list silently
+        # stops. See FIB-494.
+        groups_w = QWidget()
+        groups_layout = QVBoxLayout(groups_w)
+        groups_layout.setContentsMargins(4, 4, 4, 4)
+        groups_layout.setSpacing(2)
+        self._group_checks: dict[str, QCheckBox] = {}
+        for group_name in EVENT_GROUPS:
+            chk = QCheckBox(group_name.replace("_", " "))
+            chk.setToolTip(
+                "Currently covers: " + ", ".join(resolve_events([group_name]))
+                + "\nIncludes matching events added in future versions."
+            )
+            self._group_checks[group_name] = chk
+            groups_layout.addWidget(chk)
+        layout.addWidget(TitledPanel("Event groups", content=groups_w, collapsible=False))
+
         # --- Events ---
         events_w = QWidget()
         events_layout = QVBoxLayout(events_w)
@@ -117,7 +138,7 @@ class HookEditDialog(QDialog):
             chk = QCheckBox(event.value)
             self._event_checks[event.value] = chk
             events_layout.addWidget(chk)
-        layout.addWidget(TitledPanel("Events", content=events_w, collapsible=False))
+        layout.addWidget(TitledPanel("Individual events", content=events_w, collapsible=False))
 
         # --- Type-specific fields ---
         specific_w = QWidget()
@@ -179,8 +200,14 @@ class HookEditDialog(QDialog):
     def _load(self, hook: Hook):
         self._name_edit.setText(hook.name)
         self._enabled_chk.setChecked(hook.enabled)
+        # Load groups and events separately. Ticking the events a group *covers*
+        # would turn the group into its expansion on save, which is the drift
+        # FIB-494 exists to prevent -- reintroduced by the editor.
+        subscribed = {e.value if hasattr(e, "value") else e for e in hook.events}
+        for group_name, chk in self._group_checks.items():
+            chk.setChecked(group_name in subscribed)
         for event_val, chk in self._event_checks.items():
-            chk.setChecked(event_val in hook.events)
+            chk.setChecked(event_val in subscribed)
 
         cls_name = type(hook).__name__
         if cls_name == "LoggingHook":
@@ -197,7 +224,9 @@ class HookEditDialog(QDialog):
         """Return a new hook instance with the current dialog values."""
         name = self._name_edit.text().strip()
         enabled = self._enabled_chk.isChecked()
-        events = [v for v, chk in self._event_checks.items() if chk.isChecked()]
+        # Groups first, and stored as group names rather than expanded.
+        events = [g for g, chk in self._group_checks.items() if chk.isChecked()]
+        events += [v for v, chk in self._event_checks.items() if chk.isChecked()]
 
         cls_name = self._hook_cls.__name__
 
