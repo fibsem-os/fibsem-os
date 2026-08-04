@@ -1368,16 +1368,13 @@ class Experiment:
         an experiment, TaskManager calls it when it takes one to run, and a script
         driving the microscope directly calls it itself.
         """
-        import fibsem
         from fibsem.utils import _register_metadata
 
         _register_metadata(
             microscope=microscope,
             application_software="autolamella",
-            application_software_version=fibsem.__version__,
             experiment_id=self.id,
             experiment_name=self.name,
-            experiment_method="null",
         )
 
     def save_protocol(self) -> None:

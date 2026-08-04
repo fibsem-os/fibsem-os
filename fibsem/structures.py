@@ -1647,14 +1647,20 @@ class SystemInfo:
     aggregation joins on, and the only field that distinguishes two of the same
     model in one facility.
 
-    The version fields are duplicated on ``FibsemExperimentRef`` today; FIB-448
-    removes them from there. Software version is a property of the running system,
-    not of an experiment.
+    The version fields were duplicated on ``FibsemExperimentRef`` until v5, which
+    removed them from there (FIB-448). What software is running is a property of
+    the running system, not of an experiment.
 
     An experiment spanning a software upgrade will therefore disagree with its own
     images -- the experiment record captured v0.5.1 at creation, day-2 images say
     v0.5.2 here. That is two true facts, not a duplication bug: it says the run
     spanned an upgrade, which is worth knowing.
+
+    There is deliberately no ``application_version``. It existed up to v4 and was
+    never once populated: an application shipped inside fibsem has no version of its
+    own, and ``fibsem_revision`` already pins the exact commit doing the work. An
+    out-of-tree application wanting to stamp its own version needs a public
+    registration API first -- the field can come back alongside one.
     """
 
     name: str
@@ -1666,7 +1672,6 @@ class SystemInfo:
     software_version: str
     fibsem_version: str = fibsem.__version__
     application: Optional[str] = None
-    application_version: Optional[str] = None
     # The commit actually running, when installed from a source checkout. None
     # for a wheel install. default_factory, not a plain default, so the lookup
     # happens on first use rather than at import of this module.
@@ -1683,7 +1688,6 @@ class SystemInfo:
             "software_version": self.software_version,
             "fibsem_version": self.fibsem_version,
             "application": self.application,
-            "application_version": self.application_version,
             "fibsem_revision": self.fibsem_revision,
         }
 
@@ -1699,7 +1703,7 @@ class SystemInfo:
             software_version=settings.get("software_version", "Unknown"),
             fibsem_version=settings.get("fibsem_version", fibsem.__version__),
             application=settings.get("application", None),
-            application_version=settings.get("application_version", None),
+            # `application_version` is not read: files up to v4 carry it, always null.
             # `or`, not a .get() default: settings.get(k, get_revision()) would
             # evaluate the lookup eagerly on every call.
             fibsem_revision=settings.get("fibsem_revision") or get_revision(),
@@ -1821,6 +1825,11 @@ class FibsemExperimentRef:
 
     The deference rule applies here because a richer record exists to defer to. It
     does not apply to every embedded copy -- see ``FibsemUser``.
+
+    **Identity only.** Which experiment, and when. What software was running is a
+    property of the running system, not of an experiment, so it lives on
+    ``SystemInfo`` and only there (FIB-445 D1, FIB-448). This carried duplicates of
+    it until v5.
     """
 
     # Experiment.id, a UUID -- stable, the join key. Held the experiment *name* up to
@@ -1828,46 +1837,37 @@ class FibsemExperimentRef:
     # is a name. See FIB-446.
     id: Optional[str] = None
     name: Optional[str] = None
-    method: Optional[str] = None
     # default_factory, not a plain default: a plain default is evaluated once at
     # class definition, so every experiment recorded the interpreter's import
     # time rather than its own creation time.
     date: float = field(default_factory=lambda: datetime.timestamp(datetime.now()))
-    application: str = "fibsemOS"
-    fibsem_version: str = fibsem.__version__
-    application_version: Optional[str] = None
-    # The commit actually running, when installed from a source checkout. None
-    # for a wheel install.
-    fibsem_revision: Optional[str] = field(default_factory=get_revision)
 
     def to_dict(self) -> dict:
         """Converts to a dictionary."""
         return {
             "id": self.id,
             "name": self.name,
-            "method": self.method,
             "date": self.date,
-            "application": self.application,
-            "fibsem_version": self.fibsem_version,
-            "application_version": self.application_version,
-            "fibsem_revision": self.fibsem_revision,
         }
 
     @staticmethod
     def from_dict(settings: dict) -> "FibsemExperimentRef":
-        """Converts from a dictionary."""
+        """Converts from a dictionary.
+
+        Files written before v5 also carry `application`, `application_version`,
+        `fibsem_version`, `fibsem_revision` and `method` here. None are read.
+        `application`, `fibsem_version` and `fibsem_revision` live on ``SystemInfo``,
+        which is where a reader should look; `application_version` was never
+        populated anywhere; `method` never held anything but the string "null". The
+        values are still in those files if anyone needs to dig them out by hand.
+        """
         return FibsemExperimentRef(
             id=settings.get("id", "Unknown"),
             # Absent in files written before v0.5.3, where `id` holds the name. Left
             # as None rather than backfilled from `id`, so a reader can tell the two
             # eras apart instead of being handed a name that claims to be an ID.
             name=settings.get("name"),
-            method=settings.get("method", "Unknown"),
             date=settings.get("date", "Unknown"),
-            application=settings.get("application", "fibsemOS"),
-            fibsem_version=settings.get("fibsem_version", fibsem.__version__),
-            application_version=settings.get("application_version", None),
-            fibsem_revision=settings.get("fibsem_revision") or get_revision(),
         )
 
 

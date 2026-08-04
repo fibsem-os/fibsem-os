@@ -477,11 +477,25 @@ def test_fibsem_image_load_sets_filepath(tmp_path):
 # fibsem_revision — the running commit, recorded alongside fibsem_version
 
 
-def test_experiment_and_system_info_carry_fibsem_revision():
+def test_only_system_info_carries_the_software_versions():
+    """SystemInfo owns what software is running; the experiment reference carries
+    identity only. They both did until FIB-448, with no rule about which won if
+    they disagreed -- and they could, being built at different moments."""
     from fibsem.structures import FibsemExperimentRef, SystemInfo
 
-    assert "fibsem_revision" in FibsemExperimentRef().to_dict()
-    assert "fibsem_revision" in SystemInfo.from_dict({}).to_dict()
+    ref = FibsemExperimentRef().to_dict()
+    info = SystemInfo.from_dict({}).to_dict()
+
+    for key in ("fibsem_version", "fibsem_revision", "application"):
+        assert key in info, f"SystemInfo should own {key}"
+        assert key not in ref, f"the experiment reference should not duplicate {key}"
+
+    assert set(ref) == {"id", "name", "date"}
+    # Neither, since v5: it was declared in both and populated in neither. An
+    # application inside fibsem has no version of its own, and fibsem_revision
+    # already pins the commit doing the work.
+    assert "application_version" not in info
+    assert "application_version" not in ref
 
 
 def test_metadata_from_dict_accepts_pre_change_files():
@@ -496,30 +510,35 @@ def test_metadata_from_dict_accepts_pre_change_files():
         "fibsem_version": "0.5.1",
         "application_version": "0.5.1",
     }
+    # Keys this build no longer reads must not stop the file loading. The versions
+    # are still in the file; a reader wanting them looks at system.info, or at the
+    # raw dict for a file old enough to lack one. See FIB-448.
     experiment = FibsemExperimentRef.from_dict(legacy_experiment)
     assert experiment.id == "exp-1"
-    assert experiment.fibsem_version == "0.5.1"
+    assert experiment.date == 1700000000.0
 
-    legacy_info = {"name": "Test", "manufacturer": "Demo", "fibsem_version": "0.5.1"}
+    # `application_version` is here because SystemInfo declared it up to v4. It is
+    # constructed field by field, so a key it no longer knows is ignored rather than
+    # raising -- which is what makes dropping the field safe for existing files.
+    legacy_info = {
+        "name": "Test",
+        "manufacturer": "Demo",
+        "fibsem_version": "0.5.1",
+        "application_version": "0.5.1",
+    }
     info = SystemInfo.from_dict(legacy_info)
     assert info.name == "Test"
     assert info.fibsem_version == "0.5.1"
 
 
 def test_metadata_round_trips_fibsem_revision():
-    from fibsem.structures import FibsemExperimentRef, SystemInfo
-
-    experiment = FibsemExperimentRef.from_dict(
-        {"id": "exp-1", "fibsem_revision": "v0.5.1-48-g4cd11d9c"}
-    )
-    assert experiment.fibsem_revision == "v0.5.1-48-g4cd11d9c"
-    assert (
-        FibsemExperimentRef.from_dict(experiment.to_dict()).fibsem_revision
-        == "v0.5.1-48-g4cd11d9c"
-    )
+    from fibsem.structures import SystemInfo
 
     info = SystemInfo.from_dict({"fibsem_revision": "v0.5.1-48-g4cd11d9c"})
     assert info.fibsem_revision == "v0.5.1-48-g4cd11d9c"
+    assert (
+        SystemInfo.from_dict(info.to_dict()).fibsem_revision == "v0.5.1-48-g4cd11d9c"
+    )
 
 
 def test_experiment_date_is_creation_time_not_import_time():
