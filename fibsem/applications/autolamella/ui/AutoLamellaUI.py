@@ -82,15 +82,11 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
-# Paired with the disabled completion_summary hook in setup_hooks; FunctionHook comes
-# back from fibsem.hooks below at the same time.
+# Paired with the disabled completion_summary hook in setup_hooks; FunctionHook and
+# HookEvent come back from fibsem.hooks below at the same time.
 # from fibsem.applications.autolamella.tools.artifacts import write_completion_summary
-from fibsem.hooks import (
-    HookEvent,
-    HookManager,
-    LoggingHook,
-    NotificationHook,
-)
+from fibsem.applications.autolamella.hook_defaults import default_hooks
+from fibsem.hooks import HookManager
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
 from psygnal import EmissionInfo
@@ -1091,55 +1087,29 @@ class AutoLamellaUI(QMainWindow):
         self._stop_workflow_thread()
 
     def setup_hooks(self) -> HookManager:
-        """Build the default HookManager for task lifecycle events."""
+        """Build the HookManager for one workflow run.
+
+        Called per run from the workflow worker, not once at startup, so the hook set is
+        rebuilt each time — which is what will let a user's saved configuration take
+        effect on the next run without a restart, and means the config dialog can never
+        be editing a manager a running workflow is holding. See FIB-497.
+
+        The defaults live in hook_defaults.default_hooks() rather than here, so they can
+        be serialized and diffed without a QApplication. Code-registered hooks go after
+        them: a configuration load must never be able to remove a hook that only exists
+        in Python.
+        """
         manager = HookManager()
-        manager.register(
-            LoggingHook(
-                name="task_logger",
-                events=[
-                    HookEvent.TASK_STARTED,
-                    HookEvent.TASK_COMPLETED,
-                    HookEvent.TASK_FAILED,
-                    HookEvent.TASK_CANCELLED,
-                ],
-            )
-        )
-        manager.register(
-            NotificationHook(
-                name="completion_toast",
-                events=[HookEvent.TASK_COMPLETED],
-                notification_type="success",
-                message_template="Task {task_name} complete for {item_name}",
-            )
-        )
-        manager.register(
-            NotificationHook(
-                name="failure_toast",
-                events=[HookEvent.TASK_FAILED],
-                notification_type="error",
-                # A failure does not stop the run, so say what happens next: without the
-                # remaining count this reads as a dead workflow to someone at the
-                # instrument who is not watching the timeline.
-                message_template=(
-                    "Task {task_name} FAILED for {item_name}: {error} "
-                    "— continuing, {tasks_remaining} tasks remaining"
-                ),
-            )
-        )
-        manager.register(
-            NotificationHook(
-                name="cancellation_toast",
-                events=[HookEvent.TASK_CANCELLED],
-                notification_type="warning",
-                message_template="Task {task_name} cancelled for {item_name}",
-            )
-        )
+        for hook in default_hooks():
+            manager.register(hook)
+
         # Deliberately not registered yet. The trigger is proven end to end and the
         # writer is tested, but completion-summary.json is a placeholder for the real
         # artifacts (the PDF and the overview PNG), and turning it on here would start
         # writing a throwaway file into every user's lamella directories. Re-enable when
-        # the artifact is the one people actually want -- see FIB-461. Two imports at the
-        # top of this file come back with it: write_completion_summary and FunctionHook.
+        # the artifact is the one people actually want -- see FIB-461. Three imports at
+        # the top of this file come back with it: write_completion_summary, and
+        # FunctionHook + HookEvent from fibsem.hooks.
         #
         # Per lamella, not per experiment: a lamella is what gets delivered, and an
         # experiment with one abandoned lamella never reaches completion at all, so
