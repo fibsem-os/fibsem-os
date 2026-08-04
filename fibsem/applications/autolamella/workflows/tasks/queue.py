@@ -3,7 +3,7 @@
 import copy
 import threading
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from uuid import uuid4
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
@@ -118,6 +118,18 @@ class TaskQueue:
         """Return a deep copy — safe to read from another thread."""
         with self._lock:
             return [copy.copy(i) for i in self._items]
+
+    @property
+    def counts(self) -> Tuple[int, int]:
+        """(pending, total), without copying every item just to count them.
+
+        `items` and `pending` both build a new list, which is the wrong tool when the
+        caller only wants a length -- and hooks ask on every event.
+        """
+        with self._lock:
+            pending = sum(1 for i in self._items
+                          if i.status == AutoLamellaTaskStatus.NotStarted)
+            return pending, len(self._items)
 
     @property
     def pending(self) -> List[WorkItem]:

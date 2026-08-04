@@ -52,6 +52,8 @@ class HookContext:
     experiment_name: str = ""
     # How much of the run is left. A failure does not stop a run — the queue moves to
     # the next item — so without this a bare "FAILED" reads as a dead workflow.
+    # tasks_remaining counts what is still to come, excluding the one this event is
+    # about: on a failure, "3 remaining" means three more will be attempted.
     tasks_remaining: Optional[int] = None
     tasks_total: Optional[int] = None
     # Application-owned state for the run. AutoLamella passes an AutoLamellaTaskState;

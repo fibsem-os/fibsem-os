@@ -234,12 +234,17 @@ class TaskManager:
 
         Public because AutoLamellaTask fires task events itself and needs the same
         fields; a task reaches this through its task_manager.
+
+        tasks_remaining excludes the task the event is about: queue.next() marks an
+        item InProgress before the task runs, so the one in flight is already out of
+        the pending set on every path, skips included.
         """
+        pending, total = self.queue.counts
         return {
             "experiment_id": self.experiment._id,
             "experiment_name": self.experiment.name,
-            "tasks_remaining": len(self.queue.pending),
-            "tasks_total": len(self.queue.items),
+            "tasks_remaining": pending,
+            "tasks_total": total,
         }
 
     def _fire_workflow_hook(self, event: HookEvent) -> None:
