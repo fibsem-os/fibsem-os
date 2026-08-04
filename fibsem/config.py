@@ -3,7 +3,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import yaml
 
@@ -177,6 +177,13 @@ if not os.path.exists(DEFAULT_CONFIGURATION_PATH):
         
 print(f"Default configuration {DEFAULT_CONFIGURATION_NAME}. Configuration Path: {DEFAULT_CONFIGURATION_PATH}")
 
+def _is_same_path(path: Optional[str], other: Optional[str]) -> bool:
+    """Compare two configuration paths, either of which may be unset."""
+    if path is None or other is None:
+        return False
+    return os.path.normpath(path) == os.path.normpath(other)
+
+
 def add_configuration(configuration_name: str, path: str):
     """Add a new configuration to the user configurations file."""
     if configuration_name in USER_CONFIGURATIONS:
@@ -186,6 +193,27 @@ def add_configuration(configuration_name: str, path: str):
     USER_CONFIGURATIONS_YAML["configurations"] = USER_CONFIGURATIONS
     with open(USER_CONFIGURATIONS_PATH, "w") as f:
         yaml.dump(USER_CONFIGURATIONS_YAML, f)
+
+
+def register_configuration(path: str, configuration_name: Optional[str] = None) -> str:
+    """Register a configuration file, and return the name it was registered under.
+
+    Registering is the only thing that makes a configuration selectable, so unlike
+    add_configuration this never refuses: a name already taken by a different file
+    is given a numeric suffix instead of raising.
+    """
+    if configuration_name is None:
+        configuration_name = os.path.splitext(os.path.basename(path))[0]
+
+    name, index = configuration_name, 2
+    while name in USER_CONFIGURATIONS:
+        if _is_same_path(USER_CONFIGURATIONS[name].get("path"), path):
+            return name  # already registered
+        name = f"{configuration_name} ({index})"
+        index += 1
+
+    add_configuration(configuration_name=name, path=path)
+    return name
 
 
 def remove_configuration(configuration_name: str):
