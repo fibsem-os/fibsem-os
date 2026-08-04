@@ -10,9 +10,10 @@ be something you can round-trip through YAML and diff. They were previously four
 by reading the source.
 """
 
-from typing import List
+import logging
+from typing import List, Optional
 
-from fibsem.hooks import Hook, HookEvent, LoggingHook, NotificationHook
+from fibsem.hooks import Hook, HookEvent, HookManager, LoggingHook, NotificationHook
 
 
 def default_hooks() -> List[Hook]:
@@ -62,3 +63,41 @@ def default_hooks() -> List[Hook]:
             message_template="Task {task_name} cancelled for {item_name}",
         ),
     ]
+
+
+def build_hook_manager(configured: Optional[List[dict]]) -> HookManager:
+    """Build the manager for a run from a user's saved hooks, or from the defaults.
+
+    ``configured`` is ``UserPreferences.hooks``. The three states are distinct:
+
+    * ``None`` -- never configured. Use the defaults, and note they are *not* written
+      to disk on first run: materialising them would freeze every user who never opens
+      the dialog on this version's defaults forever, so improving them later would
+      reach nobody.
+    * a list -- **replaces** the defaults rather than merging with them. Someone who
+      deleted the failure toast must get no failure toast; merging would put it back.
+    * ``[]`` -- everything turned off. A real answer, not an empty file.
+
+    A configuration that cannot be read falls back to the defaults with a warning
+    rather than raising: a bad hooks section must not stop the application starting,
+    and running with no notifications at all is worse than running with the standard
+    ones. The whole section falls back rather than the offending entry, so the warning
+    describes something a user can actually find and fix.
+    """
+    if configured is None:
+        manager = HookManager()
+        for hook in default_hooks():
+            manager.register(hook)
+        return manager
+
+    try:
+        return HookManager.from_dict({"hooks": configured})
+    except Exception:
+        logging.exception(
+            "Could not build hooks from your saved configuration; falling back to the "
+            "defaults. Fix or remove the 'hooks' section of user-preferences.yaml."
+        )
+        manager = HookManager()
+        for hook in default_hooks():
+            manager.register(hook)
+        return manager
