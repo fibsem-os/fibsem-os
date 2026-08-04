@@ -33,6 +33,106 @@ class HookEvent(str, Enum):
     EXPERIMENT_COMPLETED = "experiment_completed"
 
 
+def _event_name(value: Any) -> str:
+    """A HookEvent member or a plain string, as a plain string.
+
+    Not str(): for a str-mixin Enum that returns "HookEvent.TASK_FAILED" on some
+    Python versions and "task_failed" on others, and this runs on 3.8 through 3.13.
+    """
+    return value.value if hasattr(value, "value") else value
+
+
+# Every HookEvent belongs to exactly one category. A partition rather than loose
+# grouping, and deliberately: overlapping categories would let a new event be filed
+# under a broad one only, leaving a narrower group silently not covering it -- which
+# is the bug this whole mechanism exists to prevent. A test fails if any event is
+# unclassified, so adding one to HookEvent without deciding what it *is* breaks CI
+# rather than quietly breaking someone's notifications months later.
+EVENT_CATEGORIES: Dict[str, List[HookEvent]] = {
+    "any_start": [
+        HookEvent.TASK_STARTED,
+        HookEvent.WORKFLOW_STARTED,
+    ],
+    "any_completion": [
+        HookEvent.TASK_COMPLETED,
+        HookEvent.ITEM_COMPLETED,
+        HookEvent.WORKFLOW_COMPLETED,
+        HookEvent.EXPERIMENT_COMPLETED,
+    ],
+    # Only what went wrong on its own. A cancellation is someone pressing Stop, which
+    # is not a failure and is not something to wake anyone up about -- if you were
+    # there to cancel it, you already know.
+    "any_failure": [
+        HookEvent.TASK_FAILED,
+    ],
+    "any_cancellation": [
+        HookEvent.TASK_CANCELLED,
+        HookEvent.WORKFLOW_CANCELLED,
+    ],
+    "any_skip": [
+        HookEvent.TASK_SKIPPED,
+    ],
+}
+
+# Broader groups are unions of categories, computed rather than hand-listed, so
+# classifying a new event once puts it into every group that should contain it.
+_GROUP_UNIONS: Dict[str, List[str]] = {
+    "any_terminal": ["any_completion", "any_failure", "any_cancellation", "any_skip"],
+}
+
+EVENT_GROUPS: Dict[str, List[HookEvent]] = dict(EVENT_CATEGORIES)
+for _group_name, _members in _GROUP_UNIONS.items():
+    EVENT_GROUPS[_group_name] = [
+        event for category in _members for event in EVENT_CATEGORIES[category]
+    ]
+
+# What a hook's `events` list may legally contain: any single event, or any group.
+KNOWN_SUBSCRIPTIONS = {event.value for event in HookEvent} | set(EVENT_GROUPS)
+
+
+def covers_event(subscriptions: List[str], event: str) -> bool:
+    """Whether a hook subscribed to ``subscriptions`` should receive ``event``.
+
+    A subscription is either an exact event name or a group name. Exact names still
+    work unchanged -- every configuration written before groups existed uses them,
+    and a hook that genuinely wants one specific event should be able to say so.
+    """
+    event = _event_name(event)
+    for subscription in subscriptions:
+        name = _event_name(subscription)
+        if name == event:
+            return True
+        group = EVENT_GROUPS.get(name)
+        if group is not None and any(_event_name(e) == event for e in group):
+            return True
+    return False
+
+
+def resolve_events(subscriptions: List[str]) -> List[str]:
+    """Expand groups to the events they currently cover, for display only.
+
+    Never persist this. A configuration that stores the expansion stops covering
+    events added later, which is precisely the drift groups exist to avoid -- the
+    saved form must stay the group name.
+    """
+    resolved: List[str] = []
+    for subscription in subscriptions:
+        name = _event_name(subscription)
+        for event in EVENT_GROUPS.get(name, [name]):
+            event = _event_name(event)
+            if event not in resolved:
+                resolved.append(event)
+    return resolved
+
+
+def unknown_subscriptions(subscriptions: List[str]) -> List[str]:
+    """Names that are neither an event nor a group, and so will never match."""
+    return [
+        name for name in (_event_name(s) for s in subscriptions)
+        if name not in KNOWN_SUBSCRIPTIONS
+    ]
+
+
 @dataclass
 class HookContext:
     event: str
@@ -158,9 +258,23 @@ def render_template(template: str, context: HookContext) -> str:
 @dataclass
 class Hook(ABC):
     name: str = ""
+    # Event names, group names, or a mix. See EVENT_GROUPS.
     events: List[str] = field(default_factory=list)
     enabled: bool = True
     task_types: List[str] = field(default_factory=list)  # [] = all types
+
+    def __post_init__(self) -> None:
+        # A misspelled subscription matches nothing, forever, without a word -- the
+        # same silent class of failure as the drift groups exist to fix. Warn rather
+        # than raise: one bad name in a config should not stop the application, and
+        # the hook's other subscriptions still work.
+        unknown = unknown_subscriptions(self.events)
+        if unknown:
+            logging.warning(
+                f"Hook '{self.name}' subscribes to unknown event(s) {unknown}, which "
+                f"will never fire. Known events and groups: "
+                f"{sorted(KNOWN_SUBSCRIPTIONS)}"
+            )
 
     @abstractmethod
     def run(self, context: HookContext) -> None:
@@ -262,6 +376,7 @@ class WebhookHook(Hook):
     timeout: int = 5
 
     def __post_init__(self):
+        super().__post_init__()  # subscription validation
         if self.method.upper() not in _WEBHOOK_ALLOWED_METHODS:
             raise ValueError(
                 f"WebhookHook: method '{self.method}' is not allowed (must be one of {sorted(_WEBHOOK_ALLOWED_METHODS)})"
@@ -347,7 +462,7 @@ class HookManager:
         for hook in self._hooks:
             if not hook.enabled:
                 continue
-            if context.event not in hook.events:
+            if not covers_event(hook.events, context.event):
                 continue
             if hook.task_types and context.task_type not in hook.task_types:
                 continue
