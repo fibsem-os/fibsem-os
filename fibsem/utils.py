@@ -499,14 +499,23 @@ def _register_metadata(microscope: 'FibsemMicroscope',
                        application_software: str,
                        application_software_version: str,
                        experiment_name: str,
-                       experiment_method: str) -> None:
+                       experiment_method: str,
+                       experiment_id: Optional[str] = None) -> None:
+    """Stamp user and experiment identity onto everything ``microscope`` acquires.
+
+    ``experiment_id`` is the stable join key and should always be supplied; it is
+    optional only so a caller that has no ID yet still registers something. It used
+    to be omitted entirely and ``id`` carried the name, which meant a rename silently
+    broke the link from every image written before it. See FIB-446.
+    """
     import fibsem
     from fibsem.structures import FibsemExperiment, FibsemUser
 
     user = FibsemUser.from_environment()
 
     experiment = FibsemExperiment(
-        id = experiment_name,
+        id=experiment_id,
+        name=experiment_name,
         method=experiment_method,
         application=application_software, 
         fibsem_version=fibsem.__version__,

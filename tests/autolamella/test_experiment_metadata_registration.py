@@ -47,7 +47,9 @@ def test_register_metadata_stamps_the_experiment_onto_the_microscope(
 ) -> None:
     experiment.register_metadata(microscope)
 
-    assert microscope.experiment.id == "test-experiment"
+    # The UUID is the join key; the name is the display string (FIB-446).
+    assert microscope.experiment.id == experiment._id
+    assert microscope.experiment.name == "test-experiment"
     assert microscope.experiment.application == "autolamella"
 
 
@@ -57,7 +59,8 @@ def test_creating_a_task_manager_registers_without_a_gui(
     """A headless run goes through TaskManager, never through AutoLamellaUI."""
     TaskManager(microscope=microscope, experiment=experiment, parent_ui=None)
 
-    assert microscope.experiment.id == "test-experiment"
+    assert microscope.experiment.id == experiment._id
+    assert microscope.experiment.name == "test-experiment"
 
 
 def test_loading_an_experiment_does_not_touch_the_microscope(

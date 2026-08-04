@@ -1429,6 +1429,7 @@ class Experiment:
             microscope=microscope,
             application_software="autolamella",
             application_software_version=fibsem.__version__,
+            experiment_id=self._id,
             experiment_name=self.name,
             experiment_method="null",
         )

@@ -18,7 +18,11 @@ from scipy.ndimage import median_filter, gaussian_filter
 
 import fibsem
 from fibsem.versioning import get_revision
-from fibsem.config import METADATA_VERSION, SUPPORTED_COORDINATE_SYSTEMS
+from fibsem.config import (
+    METADATA_VERSION,
+    SUPPORTED_COORDINATE_SYSTEMS,
+    UNVERSIONED_METADATA,
+)
 
 
 TFibsemPatternSettings = TypeVar(
@@ -1785,7 +1789,19 @@ class MicroscopeSettings:
 
 @dataclass
 class FibsemExperiment:
+    """Identity snapshot of the experiment an image was acquired for.
+
+    A snapshot, not an authority: authoritative only in the absence of the experiment
+    record, which wins on conflict (FIB-445 D2). That rule needs a stable key -- with
+    only a name, a renamed experiment is indistinguishable from a different one, so
+    there is no conflict to detect, just two strings that disagree.
+    """
+
+    # Experiment._id, a UUID -- stable, the join key. Held the experiment *name* up to
+    # and including v0.5.2; a file whose `name` is absent is from that era and its `id`
+    # is a name. See FIB-446.
     id: Optional[str] = None
+    name: Optional[str] = None
     method: Optional[str] = None
     # default_factory, not a plain default: a plain default is evaluated once at
     # class definition, so every experiment recorded the interpreter's import
@@ -1802,6 +1818,7 @@ class FibsemExperiment:
         """Converts to a dictionary."""
         return {
             "id": self.id,
+            "name": self.name,
             "method": self.method,
             "date": self.date,
             "application": self.application,
@@ -1815,6 +1832,10 @@ class FibsemExperiment:
         """Converts from a dictionary."""
         return FibsemExperiment(
             id=settings.get("id", "Unknown"),
+            # Absent in files written before v0.5.3, where `id` holds the name. Left
+            # as None rather than backfilled from `id`, so a reader can tell the two
+            # eras apart instead of being handed a name that claims to be an ID.
+            name=settings.get("name"),
             method=settings.get("method", "Unknown"),
             date=settings.get("date", "Unknown"),
             application=settings.get("application", "fibsemOS"),
@@ -1919,7 +1940,7 @@ class FibsemImageMetadata:
         """Converts a dictionary to metadata."""
 
         image_settings = ImageSettings.from_dict(settings["image"])
-        version = settings.get("version", METADATA_VERSION)
+        version = settings.get("version", UNVERSIONED_METADATA)
         if settings["pixel_size"] is not None:
             pixel_size = Point.from_dict(settings["pixel_size"])
         if settings["microscope_state"] is not None:
