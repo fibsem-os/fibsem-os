@@ -355,6 +355,33 @@ _WEBHOOK_ALLOWED_METHODS = {"POST", "GET"}
 _WEBHOOK_ALLOWED_SCHEMES = {"http", "https"}
 
 
+def _safe_url(url: str) -> str:
+    """The part of a webhook URL that is safe to write down: scheme and host.
+
+    For a Slack incoming webhook the path *is* the credential -- there is no separate
+    token -- so the host is as much as a log or an error message may carry.
+    """
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    if not parsed.netloc:
+        return "<invalid url>"
+    return f"{parsed.scheme}://{parsed.netloc}/<redacted>"
+
+
+def _redact_url(text: str, url: str) -> str:
+    """Strip a webhook URL, and its bare path, out of ``text``.
+
+    requests reports the path on its own -- "Max retries exceeded with url:
+    /services/T.../B.../TOKEN" -- so replacing the whole URL is not enough.
+    """
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    for secret in (url, parsed.path):
+        if secret and len(secret) > 1:
+            text = text.replace(secret, "/<redacted>")
+    return text
+
+
 def _validate_webhook_url(url: str) -> str:
     """Raise ValueError if url is empty or uses a disallowed scheme."""
     if not url:
@@ -382,6 +409,18 @@ class WebhookHook(Hook):
                 f"WebhookHook: method '{self.method}' is not allowed (must be one of {sorted(_WEBHOOK_ALLOWED_METHODS)})"
             )
         self.method = self.method.upper()
+        # Warned rather than refused. http is a real choice for a service on the lab's
+        # own network -- a self-hosted Mattermost, an internal automation endpoint --
+        # and there would be no way around a hard block. But for a hosted service the
+        # URL usually *is* the credential, and over http it crosses the network in
+        # clear text along with the experiment and item names, so it should be a
+        # decision someone made rather than a default they inherited.
+        if self.url.lower().startswith("http://"):
+            logging.warning(
+                f"{type(self).__name__} '{self.name}' posts over http, so its URL and "
+                f"payload cross the network unencrypted. Use https unless this is a "
+                f"service on your own network."
+            )
 
     def run(self, context: HookContext) -> None:
         _validate_webhook_url(self.url)
@@ -429,8 +468,19 @@ class WebhookHook(Hook):
                     f"{type(self).__name__} '{self.name}' was rejected: "
                     f"HTTP {response.status_code} {response.text[:200]}"
                 )
-        except Exception:
-            logging.exception(f"{type(self).__name__} '{self.name}' failed")
+        except Exception as exc:
+            # Deliberately not logging.exception. requests puts the full URL in its
+            # message -- and the bare path separately -- and for an incoming webhook
+            # that path *is* the credential. Logfiles are the first thing a user sends
+            # when something goes wrong, so a DNS blip must not put a working Slack
+            # credential into a file that then gets emailed around. The exception type
+            # and a redacted message are the diagnosis; the traceback added nothing but
+            # frame locations here.
+            logging.error(
+                f"{type(self).__name__} '{self.name}' failed posting to "
+                f"{_safe_url(self.url)}: {type(exc).__name__}: "
+                f"{_redact_url(str(exc), self.url)}"
+            )
 
     def to_dict(self) -> dict:
         return {**super().to_dict(), "url": self.url, "method": self.method, "timeout": self.timeout}
