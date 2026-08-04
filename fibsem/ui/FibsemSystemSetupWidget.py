@@ -1,5 +1,4 @@
 import logging
-import os
 from pprint import pprint
 from typing import Optional
 
@@ -138,14 +137,23 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         if configuration_name is None:
             configuration_name = self.comboBox_configuration.currentText()
 
-        configuration_path = cfg.USER_CONFIGURATIONS[configuration_name]["path"]
+        # this runs as a currentTextChanged slot, where an exception is fatal rather
+        # than merely logged, so an unregistered name or an unreadable file has to
+        # report itself instead of raising.
+        configuration = cfg.USER_CONFIGURATIONS.get(configuration_name)
+        configuration_path = configuration.get("path") if configuration else None
 
         if configuration_path is None:
             notification_service.show_toast(f"Configuration {configuration_name} not found.", "error")
-            return
+            return None
 
         # load the configuration
-        self.settings = utils.load_microscope_configuration(configuration_path)
+        try:
+            self.settings = utils.load_microscope_configuration(configuration_path)
+        except Exception as e:
+            logging.warning(f"Unable to load configuration {configuration_name} from {configuration_path}: {e}")
+            notification_service.show_toast(f"Unable to load configuration {configuration_name}: {e}", "error")
+            return None
 
         pprint(self.settings.to_dict()["info"])
 
@@ -165,30 +173,34 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
 
         # TODO: validate configuration
 
-        # ask user to add to user configurations
-        if hasattr(str, "removesuffix"):
-            configuration_name = os.path.basename(path).removesuffix(".yaml")
-        else:
-            configuration_name = os.path.basename(path).replace(".yaml", "")
+        # register the configuration. this is unconditional: registering is what makes a
+        # configuration selectable, so skipping it left the combo box holding a name that
+        # resolved to nothing, and selecting it took the app down.
+        known_names = set(cfg.USER_CONFIGURATIONS)
+        configuration_name = cfg.register_configuration(path=path)
 
-        if configuration_name not in cfg.USER_CONFIGURATIONS:
-            msg = "Would you like to add this configuration to the user configurations?"
-            ret = message_box_ui(text=msg, title="Add to user configurations?", parent=self)
+        # set default configuration. only worth asking for a configuration we hadn't
+        # already seen; re-importing a known one shouldn't re-prompt.
+        if configuration_name not in known_names:
+            msg = "Would you like to make this the default configuration?"
+            ret = message_box_ui(text=msg, title="Set default configuration?", parent=self)
 
-            # add to user configurations
             if ret:
-                cfg.add_configuration(configuration_name=configuration_name, path=path)
+                cfg.set_default_configuration(configuration_name=configuration_name)
 
-                # set default configuration
-                msg = "Would you like to make this the default configuration?"
-                ret = message_box_ui(text=msg, title="Set default configuration?", parent=self)
+        # add configuration to combobox, reusing the entry if it is already listed.
+        # select it quietly and load once: setCurrentIndex stays silent when the entry is
+        # already current, so leaving the load to the signal would skip it on re-import.
+        combo = self.comboBox_configuration
+        combo.blockSignals(True)
+        index = combo.findText(configuration_name)
+        if index == -1:
+            combo.addItem(configuration_name)
+            index = combo.count() - 1
+        combo.setCurrentIndex(index)
+        combo.blockSignals(False)
 
-                if ret:
-                    cfg.set_default_configuration(configuration_name=configuration_name)
-
-        # add configuration to combobox
-        self.comboBox_configuration.addItem(configuration_name)
-        self.comboBox_configuration.setCurrentText(configuration_name)
+        self.load_configuration(configuration_name)
 
     def connect_to_microscope(self):
 
