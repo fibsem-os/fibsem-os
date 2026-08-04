@@ -82,7 +82,9 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
+from fibsem.applications.autolamella.tools.artifacts import write_completion_summary
 from fibsem.hooks import (
+    FunctionHook,
     HookEvent,
     HookManager,
     LoggingHook,
@@ -1129,6 +1131,21 @@ class AutoLamellaUI(QMainWindow):
                 events=[HookEvent.TASK_CANCELLED],
                 notification_type="warning",
                 message_template="Task {task_name} cancelled for {item_name}",
+            )
+        )
+        manager.register(
+            FunctionHook(
+                name="completion_summary",
+                events=[HookEvent.EXPERIMENT_COMPLETED],
+                # A FunctionHook rather than a template-driven one because this needs
+                # the experiment itself, which the context deliberately does not carry
+                # -- the path is derivable from the record, and in-process hooks can
+                # reach the record. A webhook could not, which is the distinction.
+                #
+                # HookManager.fire contains what this raises, so a summary that cannot
+                # be written is logged and the run carries on. FIB-461 asks for exactly
+                # that, and it comes for free rather than needing a second guard here.
+                callback=lambda ctx: write_completion_summary(self.experiment, ctx),
             )
         )
         # Signals are thread-safe to emit; hooks fire on the task worker thread.
