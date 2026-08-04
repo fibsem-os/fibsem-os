@@ -39,7 +39,18 @@ _SKIP_REASON_LABELS = {
     "failure": "Marked as failure",
     "missing_prereqs": "Prerequisites not met",
 }
-_SELECTED_BG    = "#2d3f5c"
+# Selection marks the row you are acting on; it drives nothing else, so it stays
+# quiet. Painted rather than set as a stylesheet: a stylesheet set on the row
+# cascades to its child labels, which do not span the row, so the fill came out
+# as disconnected bands with a gap between label and subtitle.
+#
+# PRIMARY_COLOR is what selection means across the app — the lamella cards mark
+# themselves with a 2px border in it, so the timeline agrees rather than
+# inventing a second selection blue.
+_SELECTED_BG    = QColor(stylesheets.PRIMARY_COLOR)
+_SELECTED_BG.setAlpha(30)
+_SELECTED_BAR   = QColor(stylesheets.PRIMARY_COLOR)
+_SELECTED_BAR_W = 2
 _LABEL_COLOR    = stylesheets.GRAY_TEXT_COLOR
 _SUBTITLE_COLOR = stylesheets.GRAY_SECONDARY_COLOR
 
@@ -330,7 +341,18 @@ class _OuterRow(QWidget):
         if selected == self._selected:
             return
         self._selected = selected
-        self.setStyleSheet(f"background: {_SELECTED_BG if selected else 'transparent'};")
+        self.update()
+
+    def paintEvent(self, event):
+        if not self._selected:
+            return
+        p = QPainter(self)
+        p.setPen(Qt.NoPen)
+        # One contiguous rect across the whole row, including the inner steps when
+        # the active row is the selected one — they belong to it.
+        p.fillRect(self.rect(), _SELECTED_BG)
+        if _SELECTED_BAR_W:
+            p.fillRect(0, 0, _SELECTED_BAR_W, self.height(), _SELECTED_BAR)
 
     # ── Inner step management ─────────────────────────────────────────────
     def set_inner_visible(self, visible: bool) -> None:
