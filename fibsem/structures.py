@@ -1821,53 +1821,51 @@ class FibsemExperimentRef:
 
     The deference rule applies here because a richer record exists to defer to. It
     does not apply to every embedded copy -- see ``FibsemUser``.
+
+    **Identity only.** Which experiment, and when. What software was running is a
+    property of the running system, not of an experiment, so it lives on
+    ``SystemInfo`` and only there (FIB-445 D1, FIB-448). This carried duplicates of
+    it until v5.
     """
 
     # Experiment.id, a UUID -- stable, the join key. Held the experiment *name* up to
     # and including v0.5.2; a file whose `name` is absent is from that era and its `id`
     # is a name. See FIB-446.
+    # Experiment.id, a UUID -- stable, the join key. Held the experiment *name* up to
+    # and including v0.5.2; a file whose `name` is absent is from that era and its `id`
+    # is a name. See FIB-446.
     id: Optional[str] = None
     name: Optional[str] = None
-    method: Optional[str] = None
     # default_factory, not a plain default: a plain default is evaluated once at
     # class definition, so every experiment recorded the interpreter's import
     # time rather than its own creation time.
     date: float = field(default_factory=lambda: datetime.timestamp(datetime.now()))
-    application: str = "fibsemOS"
-    fibsem_version: str = fibsem.__version__
-    application_version: Optional[str] = None
-    # The commit actually running, when installed from a source checkout. None
-    # for a wheel install.
-    fibsem_revision: Optional[str] = field(default_factory=get_revision)
 
     def to_dict(self) -> dict:
         """Converts to a dictionary."""
         return {
             "id": self.id,
             "name": self.name,
-            "method": self.method,
             "date": self.date,
-            "application": self.application,
-            "fibsem_version": self.fibsem_version,
-            "application_version": self.application_version,
-            "fibsem_revision": self.fibsem_revision,
         }
 
     @staticmethod
     def from_dict(settings: dict) -> "FibsemExperimentRef":
-        """Converts from a dictionary."""
+        """Converts from a dictionary.
+
+        Files written before v5 also carry `application`, `application_version`,
+        `fibsem_version`, `fibsem_revision` and `method` here. They are not read:
+        the first four now live on ``SystemInfo``, which is where a reader should
+        look, and `method` never held anything but the string "null". The values
+        are still in those files if anyone needs to dig them out by hand.
+        """
         return FibsemExperimentRef(
             id=settings.get("id", "Unknown"),
             # Absent in files written before v0.5.3, where `id` holds the name. Left
             # as None rather than backfilled from `id`, so a reader can tell the two
             # eras apart instead of being handed a name that claims to be an ID.
             name=settings.get("name"),
-            method=settings.get("method", "Unknown"),
             date=settings.get("date", "Unknown"),
-            application=settings.get("application", "fibsemOS"),
-            fibsem_version=settings.get("fibsem_version", fibsem.__version__),
-            application_version=settings.get("application_version", None),
-            fibsem_revision=settings.get("fibsem_revision") or get_revision(),
         )
 
 

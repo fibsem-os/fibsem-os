@@ -11,8 +11,10 @@ import fibsem
 
 # Documentation for a human reading a file, not a parsing switch -- from_dict does not
 # branch on it, and additive changes are detected from field presence instead (FIB-445
-# D3). Bumped to v4 when FibsemExperimentRef gained `name` and `id` became the UUID.
-METADATA_VERSION = "v4"
+# D3). Bumped to v4 when FibsemExperimentRef gained `name` and `id` became the UUID;
+# to v5 when it dropped its duplicates of the application/version fields, which
+# SystemInfo owns (FIB-448). Those keys are still present in v4-and-earlier files.
+METADATA_VERSION = "v5"
 # What an unversioned file is. Absent means written before versioning existed, i.e.
 # older than v1 -- not "current", which is what defaulting to METADATA_VERSION claimed.
 UNVERSIONED_METADATA = "v0"

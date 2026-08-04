@@ -296,12 +296,18 @@ def test_repeated_calls_fork_once(monkeypatch):
 
 
 def test_metadata_construction_forks_once(monkeypatch):
-    """FibsemImageMetadata builds a FibsemExperimentRef per acquired image.
+    """Reading many images must not mean one git fork per image.
 
-    Without the cache on _describe that would be one git fork per image, which is
-    the regression this test exists to prevent.
+    SystemInfo defaults fibsem_revision from get_revision(), and from_dict falls back
+    to it for any file that predates the field -- so loading a directory of images
+    calls it once per image. Without the cache on _describe that is a subprocess each
+    time, which is the regression this test exists to prevent.
+
+    Until FIB-448 the motivating case was FibsemExperimentRef, which carried its own
+    copy of the revision and was built per acquired image. That duplicate is gone;
+    SystemInfo owns the field now, and the invariant is unchanged.
     """
-    from fibsem.structures import FibsemExperimentRef
+    from fibsem.structures import SystemInfo
 
     calls = []
 
@@ -311,10 +317,10 @@ def test_metadata_construction_forks_once(monkeypatch):
 
     monkeypatch.setattr(versioning, "_run_git", _count)
 
-    experiments = [FibsemExperimentRef() for _ in range(50)]
+    infos = [SystemInfo.from_dict({}) for _ in range(50)]
 
     assert len(calls) == 1
-    assert all(e.fibsem_revision == "v0.5.1-48-g4cd11d9c" for e in experiments)
+    assert all(i.fibsem_revision == "v0.5.1-48-g4cd11d9c" for i in infos)
 
 
 # --- logging ---------------------------------------------------------------

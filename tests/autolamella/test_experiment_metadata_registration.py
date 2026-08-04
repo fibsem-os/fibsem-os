@@ -50,7 +50,9 @@ def test_register_metadata_stamps_the_experiment_onto_the_microscope(
     # The UUID is the join key; the name is the display string (FIB-446).
     assert microscope.experiment.id == experiment.id
     assert microscope.experiment.name == "test-experiment"
-    assert microscope.experiment.application == "autolamella"
+    # Which application is running lives on SystemInfo, not the experiment reference:
+    # it is a property of the running system, not of an experiment. See FIB-448.
+    assert microscope.system.info.application == "autolamella"
 
 
 def test_creating_a_task_manager_registers_without_a_gui(

@@ -497,29 +497,38 @@ def save_positions(positions: list, path: str = None, overwrite: bool = False) -
 # TODO: re-think this, dont like the pop ups
 def _register_metadata(microscope: 'FibsemMicroscope',
                        application_software: str,
-                       application_software_version: str,
                        experiment_name: str,
-                       experiment_method: str,
-                       experiment_id: Optional[str] = None) -> None:
-    """Stamp user and experiment identity onto everything ``microscope`` acquires.
+                       experiment_id: Optional[str] = None,
+                       application_software_version: Optional[str] = None) -> None:
+    """Stamp user, experiment and application identity onto what ``microscope`` acquires.
 
     ``experiment_id`` is the stable join key and should always be supplied; it is
     optional only so a caller that has no ID yet still registers something. It used
     to be omitted entirely and ``id`` carried the name, which meant a rename silently
     broke the link from every image written before it. See FIB-446.
+
+    Which application is running goes on ``SystemInfo``, not on the experiment
+    reference. It is a property of the running system, and putting it in one place
+    is what lets the reference carry identity only (FIB-445 D1, FIB-448).
+
+    ``application_software_version`` is genuinely optional: an application shipped
+    inside fibsem has no version of its own, and passing ``fibsem.__version__`` for
+    it only made the two fields tautologically equal. Out-of-tree applications built
+    on fibsem do have one, which is why the field stays.
     """
-    import fibsem
     from fibsem.structures import FibsemExperimentRef, FibsemUser
 
-    user = FibsemUser.from_environment()
-
-    experiment = FibsemExperimentRef(
+    microscope.user = FibsemUser.from_environment()
+    microscope.experiment = FibsemExperimentRef(
         id=experiment_id,
         name=experiment_name,
-        method=experiment_method,
-        application=application_software, 
-        fibsem_version=fibsem.__version__,
-        application_version=application_software_version,
     )
-    microscope.user = user
-    microscope.experiment = experiment
+
+    # info carries fibsem_version and fibsem_revision already, set when it is built.
+    # Reached defensively at both levels: a stand-in microscope (a test double, or a
+    # caller wiring up a run without hardware) may have neither attribute, and
+    # failing to record the application is not worth an AttributeError.
+    info = getattr(getattr(microscope, "system", None), "info", None)
+    if info is not None:
+        info.application = application_software
+        info.application_version = application_software_version
