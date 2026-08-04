@@ -33,6 +33,7 @@ from fibsem.hooks import (
     HookManager,
     LoggingHook,
     NotificationHook,
+    SlackHook,
     WebhookHook,
     resolve_events,
 )
@@ -52,18 +53,21 @@ _HOOK_DISPLAY_NAMES = {
     "LoggingHook": "Logging",
     "NotificationHook": "Notification",
     "WebhookHook": "Webhook",
+    "SlackHook": "Slack",
 }
 
 _HOOK_CLASSES: dict[str, Type[Hook]] = {
     "LoggingHook": LoggingHook,
     "NotificationHook": NotificationHook,
     "WebhookHook": WebhookHook,
+    "SlackHook": SlackHook,
 }
 
 _TYPE_COLORS = {
     "LoggingHook":      "#50a6ff",
     "NotificationHook": stylesheets.GREEN_COLOR,
     "WebhookHook":      stylesheets.ORANGE_COLOR,
+    "SlackHook":        "#a67cff",
 }
 
 
@@ -184,6 +188,19 @@ class HookEditDialog(QDialog):
             specific_form.addRow("Timeout", timeout_spin)
             self._specific_widgets["timeout"] = timeout_spin
 
+        elif cls_name == "SlackHook":
+            # Only the two fields a user actually sets. Slack incoming webhooks are
+            # always POST, and the timeout default is fine, so neither is worth asking.
+            url_edit = QLineEdit()
+            url_edit.setPlaceholderText("https://hooks.slack.com/services/...")
+            specific_form.addRow("Webhook URL", url_edit)
+            self._specific_widgets["url"] = url_edit
+
+            tmpl = QLineEdit()
+            tmpl.setPlaceholderText(DEFAULT_MESSAGE_TEMPLATE)
+            specific_form.addRow("Message", tmpl)
+            self._specific_widgets["message_template"] = tmpl
+
         if self._specific_widgets:
             layout.addWidget(TitledPanel(
                 _HOOK_DISPLAY_NAMES.get(cls_name, cls_name),
@@ -219,6 +236,9 @@ class HookEditDialog(QDialog):
             self._specific_widgets["url"].setText(hook.url)
             self._specific_widgets["method"].setCurrentText(hook.method)
             self._specific_widgets["timeout"].setValue(hook.timeout)
+        elif cls_name == "SlackHook":
+            self._specific_widgets["url"].setText(hook.url)
+            self._specific_widgets["message_template"].setText(hook.message_template)
 
     def get_hook(self) -> Hook:
         """Return a new hook instance with the current dialog values."""
@@ -248,6 +268,13 @@ class HookEditDialog(QDialog):
                 url=self._specific_widgets["url"].text().strip(),
                 method=self._specific_widgets["method"].currentText(),
                 timeout=self._specific_widgets["timeout"].value(),
+            )
+        elif cls_name == "SlackHook":
+            return SlackHook(
+                name=name, enabled=enabled, events=events,
+                url=self._specific_widgets["url"].text().strip(),
+                message_template=self._specific_widgets["message_template"].text()
+                    or DEFAULT_MESSAGE_TEMPLATE,
             )
         return LoggingHook(name=name, enabled=enabled, events=events)
 
