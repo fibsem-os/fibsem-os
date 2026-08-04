@@ -84,3 +84,32 @@ def test_ticking_a_group_produces_the_group(qapp):
 
     assert result.events == ["any_failure"]
     assert result.url == "https://hooks.example.com/x"
+
+
+# ---------------------------------------------------------------------------
+# a new hook type has to be editable, or it can only be written by hand
+# ---------------------------------------------------------------------------
+
+def test_a_slack_hook_round_trips_through_the_dialog(qapp):
+    from fibsem.hooks import SlackHook
+
+    hook = SlackHook(
+        name="slack", events=["any_failure"],
+        url="https://hooks.slack.com/services/x",
+        message_template="{item_name} broke",
+    )
+
+    result = HookEditDialog(hook=hook).get_hook()
+
+    assert isinstance(result, SlackHook)
+    assert result.url == "https://hooks.slack.com/services/x"
+    assert result.message_template == "{item_name} broke"
+    assert result.events == ["any_failure"]
+
+
+def test_slack_is_offered_when_adding_a_hook(qapp):
+    """A type missing from the editor's list can only be configured by hand."""
+    from fibsem.hooks import HOOK_TYPES
+    from fibsem.ui.widgets.hook_config_widget import _HOOK_CLASSES
+
+    assert set(_HOOK_CLASSES) == set(HOOK_TYPES)

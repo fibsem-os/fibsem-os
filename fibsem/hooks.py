@@ -387,10 +387,13 @@ class WebhookHook(Hook):
         _validate_webhook_url(self.url)
         threading.Thread(target=self._post, args=(context,), daemon=True).start()
 
-    def _post(self, context: HookContext) -> None:
-        try:
-            import requests
-            payload = {
+    def _payload(self, context: HookContext) -> dict:
+        """The JSON body to post.
+
+        Subclasses override this for services that require a particular shape -- a
+        generic endpoint takes the structured event, Slack does not. See SlackHook.
+        """
+        return {
                 "event": context.event,
                 "task_name": context.task_name,
                 "task_type": context.task_type,
@@ -407,10 +410,27 @@ class WebhookHook(Hook):
                 "error": context.error,
                 "skip_reason": context.skip_reason,
                 "timestamp": context.timestamp,
-            }
-            requests.request(self.method, self.url, json=payload, timeout=self.timeout)
+        }
+
+    def _post(self, context: HookContext) -> None:
+        try:
+            import requests
+            response = requests.request(
+                self.method, self.url, json=self._payload(context), timeout=self.timeout
+            )
+            # A rejected request is not an exception, so without this check an endpoint
+            # that refuses the body -- Slack answering invalid_payload to a generic
+            # payload, an expired URL, a typo in the path -- fails in complete silence.
+            # The hook sits in the configuration looking connected and delivers nothing.
+            # The response body is where the reason lives, so include it, truncated
+            # because an error page can be arbitrarily long.
+            if not response.ok:
+                logging.warning(
+                    f"{type(self).__name__} '{self.name}' was rejected: "
+                    f"HTTP {response.status_code} {response.text[:200]}"
+                )
         except Exception:
-            logging.exception(f"WebhookHook '{self.name}' failed")
+            logging.exception(f"{type(self).__name__} '{self.name}' failed")
 
     def to_dict(self) -> dict:
         return {**super().to_dict(), "url": self.url, "method": self.method, "timeout": self.timeout}
@@ -433,6 +453,36 @@ class WebhookHook(Hook):
 
 
 @dataclass
+class SlackHook(WebhookHook):
+    """Posts a rendered message to a Slack incoming webhook.
+
+    Its own type rather than a WebhookHook pointed at a Slack URL, because Slack
+    rejects an arbitrary JSON body with ``invalid_payload``: an incoming webhook wants
+    ``{"text": ...}`` or a blocks array, not the structured event. Everything else --
+    URL validation, the daemon thread, the timeout, the rejection warning -- comes from
+    WebhookHook.
+
+    The same shape serves Discord with ``content`` instead of ``text``; each service
+    that dictates its own body is a few lines here.
+    """
+    message_template: str = DEFAULT_MESSAGE_TEMPLATE
+
+    def _payload(self, context: HookContext) -> dict:
+        return {"text": render_template(self.message_template, context)}
+
+    def to_dict(self) -> dict:
+        return {**super().to_dict(), "message_template": self.message_template}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "SlackHook":
+        # super() builds via cls(), so this is already a SlackHook; only the field
+        # WebhookHook does not know about is left to set.
+        hook = super().from_dict(d)
+        hook.message_template = d.get("message_template", DEFAULT_MESSAGE_TEMPLATE)
+        return hook
+
+
+@dataclass
 class FunctionHook(Hook):
     """Hook that calls a Python callable. Not serializable — registered in code only."""
     callback: Optional[Callable[["HookContext"], None]] = field(default=None, repr=False)
@@ -446,6 +496,7 @@ HOOK_TYPES: Dict[str, Type[Hook]] = {
     "LoggingHook": LoggingHook,
     "NotificationHook": NotificationHook,
     "WebhookHook": WebhookHook,
+    "SlackHook": SlackHook,
 }
 
 
