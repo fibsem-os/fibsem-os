@@ -266,10 +266,19 @@ class TaskManager:
         self._experiment_was_complete = self._all_lamella_complete()
 
     def _all_lamella_complete(self) -> bool:
-        positions = self.experiment.positions
-        # An experiment with no lamellae has not been completed, it is empty. all([])
-        # would say otherwise.
-        return bool(positions) and all(self._is_complete(p) for p in positions)
+        """Whether every lamella still in scope has finished.
+
+        Lamellae a human has marked defective are out of scope: _should_skip skips them
+        for every remaining task, so they can never satisfy the completion predicate.
+        Counting them meant a single abandoned lamella permanently prevented its
+        experiment from ever reporting complete — and in a real session most experiments
+        have one. The completion predicate and the skip predicate have to agree on which
+        lamellae they are talking about.
+        """
+        active = [p for p in self.experiment.positions if not p.is_failure]
+        # An experiment with nothing left in scope — empty, or every lamella abandoned —
+        # produced nothing, and must not announce success. all([]) would say otherwise.
+        return bool(active) and all(self._is_complete(p) for p in active)
 
     def _maybe_fire_lamella_completed(self, lamella: 'Lamella', task_name: str) -> None:
         """Fire ITEM_COMPLETED the first time a lamella satisfies the workflow's
