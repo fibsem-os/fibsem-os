@@ -14,7 +14,6 @@ or with the previous snapshot; the id is the only stable handle.
 Uses the shared offscreen ``qapp`` fixture from tests/conftest.py.
 """
 import os
-from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -22,7 +21,10 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
+from PyQt5.QtCore import QObject, pyqtSignal
+
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
+from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
 from fibsem.ui.widgets.workflow_timeline_widget import (
@@ -312,38 +314,73 @@ def test_completion_subtitle_is_not_wiped_by_a_later_sync(widget, queue):
 
 # ── Through the real TaskManager ──────────────────────────────────────────────
 
-class _SignalToWidget:
-    """Stands in for workflow_update_signal, routing payloads into the widget
-    exactly as AutoLamellaMainUI._on_workflow_update does.
+class _ParentUI(QObject):
+    """The signals TaskManager emits on, declared as real pyqtSignals.
 
-    The payload shape is the seam between the manager and the timeline; going
-    through the real _emit_status is what stops the two drifting apart.
+    AutoLamellaUI itself needs a live napari viewer with docked widgets, so it
+    cannot be built here — but the signals are real Qt signals with real
+    connection and dispatch, not a Python object with an ``emit`` method. That
+    matters: a queue edit reaching the wrong signal is what crashed the app.
     """
 
-    def __init__(self, widget: WorkflowProgressWidget):
-        self._widget = widget
+    workflow_update_signal = pyqtSignal(dict)
+    queue_changed_signal = pyqtSignal(dict)
 
-    def emit(self, info: dict) -> None:
-        queue_changed = info.get("queue_changed", None)
-        if queue_changed is not None:
-            self._widget.refresh_queue(queue_changed.get("queue_items", []))
-        status = info.get("status", None)
-        if status is not None:
-            self._widget.update_from_status(status)
+    def __init__(self):
+        super().__init__()
+        self.workflow_updates = []
+        self.queue_changes = []
+        self.workflow_update_signal.connect(self.workflow_updates.append)
+        self.queue_changed_signal.connect(self.queue_changes.append)
+
+
+class _NoMicroscope:
+    """Enough microscope for TaskManager's constructor and its objective retract.
+
+    Experiment.register_metadata stamps the user and experiment ref onto it, so
+    it has to be something attributes can be set on. Same stand-in as
+    tests/autolamella/test_task_manager_hooks.py.
+    """
+    fm = None
+
+
+def _experiment(tmp_path, names=("L1", "L2")) -> Experiment:
+    experiment = Experiment(path=tmp_path, name="test-exp")
+    for i, name in enumerate(names, start=1):
+        experiment.positions.append(
+            Lamella(path=experiment.path, number=i, petname=name)
+        )
+    return experiment
 
 
 @pytest.fixture
-def manager(widget) -> TaskManager:
-    experiment = SimpleNamespace(register_metadata=lambda microscope: None)
-    parent_ui = SimpleNamespace(workflow_update_signal=_SignalToWidget(widget))
-    m = TaskManager(microscope=None, experiment=experiment, parent_ui=parent_ui)
-    m.queue.build_from_matrix(["Trench", "Undercut"], ["L1", "L2"])
+def manager(widget, tmp_path) -> TaskManager:
+    """A real TaskManager, on a real Experiment, wired to the real widget.
+
+    The slots mirror AutoLamellaMainUI._on_workflow_update and _on_queue_changed.
+    Going through the real _emit_status / notify_queue_changed is what stops the
+    payload contract drifting from the widget that reads it.
+    """
+    experiment = _experiment(tmp_path)
+    parent_ui = _ParentUI()
+    parent_ui.workflow_update_signal.connect(
+        lambda info: widget.update_from_status(info["status"])
+    )
+    parent_ui.queue_changed_signal.connect(
+        lambda info: widget.refresh_queue(info["queue_items"])
+    )
+
+    m = TaskManager(microscope=_NoMicroscope(), experiment=experiment,
+                    parent_ui=parent_ui)
+    m.queue.build_from_matrix(
+        ["Trench", "Undercut"], [p.name for p in experiment.positions]
+    )
     return m
 
 
 def emit(manager: TaskManager, item, status, **extra) -> None:
-    manager._emit_status(item=item, lamella=SimpleNamespace(name=item.lamella_name),
-                         status=status, **extra)
+    lamella = manager.experiment.get_lamella_by_name(item.lamella_name)
+    manager._emit_status(item=item, lamella=lamella, status=status, **extra)
 
 
 def test_the_managers_own_payload_builds_the_timeline(widget, manager):
@@ -369,8 +406,46 @@ def test_notify_queue_changed_reaches_the_timeline(widget, manager):
     assert [r._label.text() for r in widget._outer._rows[0]._inner_rows] == ["Setup"]
 
 
-def test_notify_queue_changed_is_a_noop_headless():
-    experiment = SimpleNamespace(register_metadata=lambda microscope: None)
-    m = TaskManager(microscope=None, experiment=experiment, parent_ui=None)
+def test_notify_queue_changed_is_a_noop_headless(tmp_path):
+    m = TaskManager(microscope=_NoMicroscope(),
+                    experiment=_experiment(tmp_path, names=["L1"]), parent_ui=None)
     m.queue.build_from_matrix(["Trench"], ["L1"])
     m.notify_queue_changed()  # must not raise
+
+
+def test_a_queue_edit_never_reaches_the_workflow_update_slot(manager):
+    """Regression: this crashed the app on every queue action.
+
+    workflow_update_signal also drives AutoLamellaUI.handle_workflow_update,
+    which reads info["msg"] with no default — so a payload without it raised
+    KeyError out of a slot, and PyQt5 aborts the process on that. Beyond the
+    missing key, that handler rebuilds the interaction UI and clears
+    WAITING_FOR_UI_UPDATE, none of which a queue edit should touch.
+    """
+    manager.queue.add("L9", "Polish")
+    manager.notify_queue_changed()
+
+    assert manager.parent_ui.workflow_updates == []
+    assert len(manager.parent_ui.queue_changes) == 1
+
+
+def test_task_status_still_goes_out_on_the_workflow_signal(manager):
+    """The other half of the split: don't quietly reroute the lifecycle stream."""
+    item = manager.queue.next()
+    emit(manager, item, Status.InProgress)
+
+    assert len(manager.parent_ui.workflow_updates) == 1
+    assert manager.parent_ui.queue_changes == []
+
+
+def test_every_workflow_update_carries_the_key_its_other_slot_requires(manager):
+    """AutoLamellaUI.handle_workflow_update reads info["msg"] with no default, and
+    PyQt5 aborts the process on an exception escaping a slot. Every payload put on
+    this signal has to satisfy that, whoever emits it."""
+    item = manager.queue.next()
+    emit(manager, item, Status.InProgress)
+    manager.queue.mark_done(item, Status.Completed)
+    emit(manager, item, Status.Completed, task_duration=1.0)
+
+    assert manager.parent_ui.workflow_updates
+    assert all("msg" in info for info in manager.parent_ui.workflow_updates)

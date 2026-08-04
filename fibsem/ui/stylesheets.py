@@ -127,6 +127,13 @@ QMenu::item:selected {
     background-color: #3d4251;
 }
 
+/* Without this, `QMenu { color }` above also paints disabled items, so a greyed
+   action is indistinguishable from an available one. Matches the disabled
+   colour used by the button and field rules below. */
+QMenu::item:disabled {
+    color: #6b6b6b;
+}
+
 QTabWidget::pane {
     border: none;
     background-color: #262930;

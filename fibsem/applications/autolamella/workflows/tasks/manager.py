@@ -224,17 +224,18 @@ class TaskManager:
 
         Status updates only fire when a task starts, finishes or is skipped, so
         an edit made between two tasks would otherwise stay invisible until the
-        next one began. Routing it through the same signal keeps the UI's view
-        of the queue single-sourced, and makes an edit from the worker thread
-        (a script, say) as safe as one from the UI thread.
+        next one began.
+
+        Deliberately its own signal rather than workflow_update_signal: that one
+        also drives AutoLamellaUI.handle_workflow_update, which rebuilds the
+        interaction UI and clears WAITING_FOR_UI_UPDATE every time it fires. A
+        queue edit is not a step in the task lifecycle.
         """
         if self.parent_ui is None:
             return
-        self.parent_ui.workflow_update_signal.emit({
-            "queue_changed": {
-                "queue_items": self.queue.items,  # thread-safe snapshot
-                "version": self.queue.version,
-            }
+        self.parent_ui.queue_changed_signal.emit({
+            "queue_items": self.queue.items,  # thread-safe snapshot
+            "version": self.queue.version,
         })
 
     def hook_run_context(self) -> dict:

@@ -5,71 +5,93 @@ broke as soon as the queue could be mutated: an added task raised ValueError
 out of _emit_status, and an added lamella was silently skipped as
 "not_required". Progress is now measured against the live queue instead.
 
-These exercise _emit_status/_should_skip directly with stubs — no microscope,
-no Qt, no experiment on disk.
+These drive _emit_status/_should_skip against a real Experiment, real Lamellas
+and a real task protocol. The only stand-ins are the two the environment cannot
+provide: a microscope and the Qt UI.
 """
 
-from types import SimpleNamespace
-from typing import Optional
+from pathlib import Path
+from typing import Dict, List, Optional
 
 import pytest
 
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskDescription,
+    AutoLamellaTaskProtocol,
+    AutoLamellaTaskState,
+)
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaWorkflowConfig,
+    DefectType,
+    Experiment,
+    Lamella,
+)
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 
 
-class FakeSignal:
-    def __init__(self):
-        self.emitted = []
+class RecordingUI:
+    """The one stand-in here: a recorder in place of AutoLamellaUI.
 
-    def emit(self, payload):
+    AutoLamellaUI needs a live napari viewer with docked widgets, so it cannot be
+    built in a test. Everything else below is the real object. Deliberately not a
+    QObject with real pyqtSignals — this module has no Qt dependency, and adding
+    one would take it out of CI, where PyQt5 is not installed.
+    """
+
+    def __init__(self):
+        self.workflow_update_signal = self
+        self.emitted: List[dict] = []
+        self._task_manager = None  # _check_for_abort reads this
+
+    def emit(self, payload: dict) -> None:
         self.emitted.append(payload)
 
 
-class FakeUI:
-    def __init__(self):
-        self.workflow_update_signal = FakeSignal()
-        self._task_manager = None  # _check_for_abort reads this
+class NoMicroscope:
+    """Enough microscope to construct a TaskManager and retract the objective.
+
+    Experiment.register_metadata stamps the user and experiment ref onto it, so
+    it has to be something attributes can be set on — None will not do.
+    """
+    fm = None
 
 
-def fake_lamella(name: str, is_failure: bool = False, completed=()):
-    return SimpleNamespace(
-        name=name,
-        id=f"id-{name}",
-        is_failure=is_failure,
-        has_completed_task=lambda task, _done=set(completed): task in _done,
-        task_config={},
-        task_state=SimpleNamespace(status=Status.NotStarted, status_message="",
-                                   duration=0.0, task_type="", task_id=f"task-{name}"),
-    )
+def make_lamella(experiment: Experiment, name: str, is_failure: bool = False,
+                 completed=()) -> Lamella:
+    lamella = Lamella(path=Path(experiment.path) / name,
+                      number=len(experiment.positions) + 1, petname=name)
+    if is_failure:
+        lamella.defect.state = DefectType.FAILURE
+    for task_name in completed:
+        lamella.task_history.append(
+            AutoLamellaTaskState(name=task_name, status=Status.Completed)
+        )
+    experiment.positions.append(lamella)
+    return lamella
 
 
-def fake_experiment(requirements: Optional[dict] = None):
+def make_experiment(tmp_path: Path, requirements: Optional[Dict[str, List[str]]] = None,
+                    lamella_names=("L1", "L2")) -> Experiment:
+    """A real Experiment with a real task protocol.
+
+    ``required=False`` throughout so nothing is ever "complete" — the completion
+    hooks are a different test module's subject and would only add noise here.
+    """
     reqs = requirements or {}
-    lamellas: dict = {}
-
-    def get_lamella_by_name(name: str):
-        return lamellas.setdefault(name, fake_lamella(name))
-
-    return SimpleNamespace(
-        positions=[],
-        id="exp-1",
-        name="test-exp",
-        save=lambda: None,
-        task_history_dataframe=lambda: "",
-        get_lamella_by_name=get_lamella_by_name,
-        register_metadata=lambda microscope: None,
-        task_protocol=SimpleNamespace(
-            workflow_config=SimpleNamespace(
-                requirements=lambda name: reqs.get(name, []),
-                get_scheduled_at=lambda name: None,
-                # no required tasks -> _is_complete is False, so the completion
-                # hooks stay out of the way of what these tests are about
-                required_tasks=[],
-                is_completed=lambda lamella: False,
-            ),
-        ),
+    experiment = Experiment(path=tmp_path, name="test-exp")
+    experiment.task_protocol = AutoLamellaTaskProtocol(
+        workflow_config=AutoLamellaWorkflowConfig(
+            tasks=[
+                AutoLamellaTaskDescription(name=name, supervise=False, required=False,
+                                           requires=reqs.get(name, []))
+                for name in ("Trench", "Undercut", "Polishing")
+            ]
+        )
     )
+    for name in lamella_names:
+        make_lamella(experiment, name)
+    return experiment
 
 
 def run_queue_with(manager: TaskManager, on_task=None):
@@ -87,7 +109,6 @@ def run_queue_with(manager: TaskManager, on_task=None):
             on_task(task_name, lamella)
         return None
 
-    manager.microscope = SimpleNamespace(fm=None)
     manager.parent_ui._task_manager = manager
     manager._run_single_task = _run_single_task
     manager._run_queue()
@@ -95,8 +116,9 @@ def run_queue_with(manager: TaskManager, on_task=None):
 
 
 @pytest.fixture
-def manager() -> TaskManager:
-    m = TaskManager(microscope=None, experiment=fake_experiment(), parent_ui=FakeUI())
+def manager(tmp_path) -> TaskManager:
+    m = TaskManager(microscope=NoMicroscope(),
+                    experiment=make_experiment(tmp_path), parent_ui=RecordingUI())
     m.queue.build_from_matrix(["Trench", "Undercut"], ["L1", "L2"])
     return m
 
@@ -109,7 +131,7 @@ def last_status(manager: TaskManager) -> dict:
 
 def test_emit_reports_position_in_the_live_queue(manager):
     item = manager.queue.items[2]
-    manager._emit_status(item=item, lamella=fake_lamella(item.lamella_name),
+    manager._emit_status(item=item, lamella=manager.experiment.get_lamella_by_name(item.lamella_name),
                          status=Status.InProgress)
     status = last_status(manager)
     assert status["queue_position"] == 3
@@ -121,7 +143,7 @@ def test_emit_for_a_task_outside_the_launch_plan(manager):
     added = manager.queue.add("L1", "Polishing")
     assert added.task_name not in manager.queue.task_names
 
-    manager._emit_status(item=added, lamella=fake_lamella("L1"),
+    manager._emit_status(item=added, lamella=manager.experiment.get_lamella_by_name("L1"),
                          status=Status.InProgress)
     status = last_status(manager)
     assert status["task_name"] == "Polishing"
@@ -131,7 +153,8 @@ def test_emit_for_a_task_outside_the_launch_plan(manager):
 
 def test_emit_for_a_lamella_outside_the_launch_plan(manager):
     added = manager.queue.add("L99", "Trench")
-    manager._emit_status(item=added, lamella=fake_lamella("L99"),
+    manager._emit_status(item=added,
+                         lamella=make_lamella(manager.experiment, "L99"),
                          status=Status.InProgress)
     status = last_status(manager)
     assert status["item_name"] == "L99"
@@ -143,14 +166,14 @@ def test_emit_for_a_lamella_outside_the_launch_plan(manager):
 def test_emit_position_follows_a_reorder(manager):
     item = manager.queue.items[3]
     manager.queue.move_to_front(item.id)
-    manager._emit_status(item=item, lamella=fake_lamella(item.lamella_name),
+    manager._emit_status(item=item, lamella=manager.experiment.get_lamella_by_name(item.lamella_name),
                          status=Status.InProgress)
     assert last_status(manager)["queue_position"] == 1
 
 
 def test_emit_carries_the_launch_plan_as_context(manager):
     item = manager.queue.items[0]
-    manager._emit_status(item=item, lamella=fake_lamella("L1"), status=Status.InProgress)
+    manager._emit_status(item=item, lamella=manager.experiment.get_lamella_by_name("L1"), status=Status.InProgress)
     status = last_status(manager)
     assert status["task_names"] == ["Trench", "Undercut"]
     assert status["lamella_names"] == ["L1", "L2"]
@@ -158,7 +181,7 @@ def test_emit_carries_the_launch_plan_as_context(manager):
 
 def test_emit_includes_a_queue_snapshot(manager):
     item = manager.queue.items[0]
-    manager._emit_status(item=item, lamella=fake_lamella("L1"), status=Status.InProgress)
+    manager._emit_status(item=item, lamella=manager.experiment.get_lamella_by_name("L1"), status=Status.InProgress)
     snapshot = last_status(manager)["queue_items"]
     assert len(snapshot) == 4
     snapshot[0].status = Status.Failed
@@ -167,7 +190,7 @@ def test_emit_includes_a_queue_snapshot(manager):
 
 def test_emit_passes_through_error_and_skip_detail(manager):
     item = manager.queue.items[0]
-    manager._emit_status(item=item, lamella=fake_lamella("L1"), status=Status.Failed,
+    manager._emit_status(item=item, lamella=manager.experiment.get_lamella_by_name("L1"), status=Status.Failed,
                          msg="boom", error_message="it broke", task_duration=12.5)
     status = last_status(manager)
     assert status["error_message"] == "it broke"
@@ -175,10 +198,12 @@ def test_emit_passes_through_error_and_skip_detail(manager):
     assert manager.parent_ui.workflow_update_signal.emitted[-1]["msg"] == "boom"
 
 
-def test_emit_is_a_noop_headless():
-    m = TaskManager(microscope=None, experiment=fake_experiment(), parent_ui=None)
+def test_emit_is_a_noop_headless(tmp_path):
+    experiment = make_experiment(tmp_path, lamella_names=["L1"])
+    m = TaskManager(microscope=NoMicroscope(), experiment=experiment, parent_ui=None)
     m.queue.build_from_matrix(["Trench"], ["L1"])
-    m._emit_status(item=m.queue.items[0], lamella=fake_lamella("L1"),
+    m._emit_status(item=m.queue.items[0],
+                   lamella=experiment.get_lamella_by_name("L1"),
                    status=Status.InProgress)  # must not raise
 
 
@@ -186,25 +211,34 @@ def test_emit_is_a_noop_headless():
 
 def test_lamella_outside_the_launch_selection_is_not_skipped(manager):
     """Regression: the old allow-list check skipped anything added mid-run."""
+    lamella = make_lamella(manager.experiment, "L99")
     assert "L99" not in manager.queue.lamella_names
-    assert manager._should_skip(fake_lamella("L99"), "Trench") is None
+    assert manager._should_skip(lamella, "Trench") is None
 
 
 def test_failed_lamella_is_skipped(manager):
-    assert manager._should_skip(fake_lamella("L1", is_failure=True), "Trench") == "failure"
+    lamella = manager.experiment.get_lamella_by_name("L1")
+    lamella.defect.state = DefectType.FAILURE
+    assert manager._should_skip(lamella, "Trench") == "failure"
 
 
-def test_missing_prerequisites_are_skipped():
-    m = TaskManager(microscope=None,
-                    experiment=fake_experiment({"Undercut": ["Trench"]}),
-                    parent_ui=FakeUI())
+def test_missing_prerequisites_are_skipped(tmp_path):
+    experiment = make_experiment(tmp_path, requirements={"Undercut": ["Trench"]},
+                                 lamella_names=["L1"])
+    m = TaskManager(microscope=NoMicroscope(), experiment=experiment,
+                    parent_ui=RecordingUI())
     m.queue.build_from_matrix(["Trench", "Undercut"], ["L1"])
-    assert m._should_skip(fake_lamella("L1"), "Undercut") == "missing_prereqs"
-    assert m._should_skip(fake_lamella("L1", completed=["Trench"]), "Undercut") is None
+    lamella = experiment.get_lamella_by_name("L1")
+    assert m._should_skip(lamella, "Undercut") == "missing_prereqs"
+
+    lamella.task_history.append(
+        AutoLamellaTaskState(name="Trench", status=Status.Completed)
+    )
+    assert m._should_skip(lamella, "Undercut") is None
 
 
 def test_no_requirements_runs(manager):
-    assert manager._should_skip(fake_lamella("L1"), "Trench") is None
+    assert manager._should_skip(manager.experiment.get_lamella_by_name("L1"), "Trench") is None
 
 
 # ── _run_queue: mid-run queue edits ───────────────────────────────────────────
@@ -229,7 +263,13 @@ def test_task_added_mid_run_executes(manager):
 
 
 def test_lamella_added_mid_run_executes(manager):
-    """An out-of-plan lamella used to be silently skipped as not_required."""
+    """An out-of-plan lamella used to be silently skipped as not_required.
+
+    It still has to exist in the experiment: queueing work for a name the
+    experiment has never heard of is skipped with a warning, which a fake
+    experiment that conjured lamellas on lookup used to hide.
+    """
+    make_lamella(manager.experiment, "L99")
     added = []
 
     def on_task(task_name, lamella):

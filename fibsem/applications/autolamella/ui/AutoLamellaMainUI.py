@@ -40,6 +40,7 @@ from fibsem.versioning import get_version_string
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, Lamella
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI, INSTRUCTIONS
+from fibsem.applications.autolamella.workflows.tasks.queue import QueueOp, QueueResult
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.ui import FibsemMinimapWidget
 from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
@@ -835,6 +836,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if message and self.status_bar is not None:
             self.status_bar.showMessage(message)
         self._set_minimap_workflow_enabled(False)
+        if hasattr(self, "workflow_timeline"):
+            self.workflow_timeline.set_actions_enabled(
+                fibsem_cfg.FEATURE_EDIT_RUNNING_QUEUE_ENABLED
+            )
 
     def hide_workflow_running(self):
         """Hide the stop button and show run button."""
@@ -842,6 +847,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.supervised_status_btn.hide()
         self.run_workflow_btn.show()
         self._set_minimap_workflow_enabled(True)
+        # The timeline stays on screen after a run, but there is no longer a
+        # queue behind it — offering to reorder one would be a lie.
+        if hasattr(self, "workflow_timeline"):
+            self.workflow_timeline.set_actions_enabled(False)
 
     def _set_minimap_workflow_enabled(self, enabled: bool):
         """Enable/disable overview acquisition in both overview tabs during a workflow.
@@ -1096,6 +1105,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # Connect to workflow update signal from AutoLamellaUI
         self.autolamella_ui.workflow_update_signal.connect(self._on_workflow_update)
+        self.autolamella_ui.queue_changed_signal.connect(self._on_queue_changed)
         self.autolamella_ui.step_update_signal.connect(self._on_step_update)
         self.autolamella_ui.experiment_update_signal.connect(self._on_experiment_update)
         self.autolamella_ui._workflow_finished_signal.connect(
@@ -1439,6 +1449,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         _rp_layout.setContentsMargins(0, 0, 0, 0)
         _rp_layout.setSpacing(0)
         self.workflow_timeline = WorkflowProgressWidget()
+        self.workflow_timeline.queue_action_requested.connect(self._on_queue_action)
         _rp_layout.addWidget(self.workflow_timeline)
 
         splitter.addWidget(self.lamella_workflow_widget)
@@ -1521,6 +1532,75 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         protocol.workflow_config.tasks[:] = self.lamella_workflow_widget.get_tasks()
         self.autolamella_ui._on_workflow_config_changed(protocol.workflow_config)
 
+    def _on_queue_changed(self, info: dict) -> None:
+        """The queue was edited between tasks — no task lifecycle to hang it off."""
+        self.workflow_timeline.refresh_queue(info.get("queue_items", []))
+
+    def _on_queue_action(self, action: str, item_id: str) -> None:
+        """Apply a timeline row action to the live queue.
+
+        The timeline emits an intent keyed on WorkItem.id and nothing more; the
+        queue is reached from here because the widget is generic and has no
+        business knowing what a queue is.
+        """
+        manager = getattr(self.autolamella_ui, "_task_manager", None)
+        if manager is None:
+            return
+
+        queue = manager.queue
+        item = next((i for i in queue.items if i.id == item_id), None)
+        if item is None:
+            self._show_queue_message("That task is no longer in the queue.")
+            return
+        label = f"{item.task_name} for {item.lamella_name}"
+
+        if action == "run_again":
+            # A fresh item rather than a rewind: the original attempt still
+            # happened and stays in the run record.
+            added = queue.add(item.lamella_name, item.task_name, front=True)
+            message = (f"Queued {label} to run next." if added is not None
+                       else f"Could not queue {label}.")
+        else:
+            call = {
+                "move_up":   lambda: queue.nudge(item_id, -1),
+                "move_down": lambda: queue.nudge(item_id, +1),
+                "run_next":  lambda: queue.move_to_front(item_id),
+                "remove":    lambda: queue.remove(item_id),
+            }.get(action)
+            if call is None:
+                logging.warning(f"Unknown queue action from the timeline: {action}")
+                return
+            message = self._queue_action_message(action, label, call())
+
+        manager.notify_queue_changed()
+        self._show_queue_message(message)
+
+    @staticmethod
+    def _queue_action_message(action: str, label: str, result: QueueResult) -> str:
+        """Describe the outcome of a queue action, or "" to say nothing.
+
+        The row may have started running between the menu opening and the click,
+        which is the whole reason the queue returns a structured result rather
+        than a bool — say so instead of appearing to do nothing.
+        """
+        if result.op is QueueOp.NO_OP:
+            return ""  # already first or last; the user can see that
+        if result.op is QueueOp.NOT_PENDING:
+            return f"{label} is already running."
+        if not result.ok:
+            return f"{label} is no longer in the queue."
+        return {
+            "move_up":   f"Moved {label} up.",
+            "move_down": f"Moved {label} down.",
+            "run_next":  f"{label} will run next.",
+            "remove":    f"Removed {label} from the queue.",
+        }.get(action, "")
+
+    def _show_queue_message(self, message: str) -> None:
+        """Transient confirmation for a queue edit — no modal, no interruption."""
+        if message and self.status_bar is not None:
+            self.status_bar.showMessage(message, 4000)
+
     def _on_workflow_update(self, info: dict):
         """Handle workflow update signal and update the workflow status bar."""
         t0 = t1 = time.time()
@@ -1530,12 +1610,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         status_bar_msg = info.get("status_bar", None)
         if status_bar_msg is not None and self.status_bar is not None:
             self.status_bar.showMessage(status_bar_msg)
-
-        # Queue edited between tasks (added to, reordered, item removed) — no task
-        # lifecycle to hang it off, so refresh the timeline on its own.
-        queue_changed = info.get("queue_changed", None)
-        if queue_changed is not None:
-            self.workflow_timeline.refresh_queue(queue_changed.get("queue_items", []))
 
         status_msg = info.get("status", None)
         if status_msg is not None:

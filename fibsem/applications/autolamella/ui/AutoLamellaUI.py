@@ -150,6 +150,11 @@ INSTRUCTIONS = {
 
 class AutoLamellaUI(QMainWindow):
     workflow_update_signal = pyqtSignal(dict)
+    # Kept separate from workflow_update_signal on purpose: that one drives
+    # handle_workflow_update, which reconfigures the interaction UI and clears
+    # WAITING_FOR_UI_UPDATE on every emission. A queue edit is not a step in the
+    # task lifecycle and must not disturb any of that.
+    queue_changed_signal = pyqtSignal(dict)
     step_update_signal = pyqtSignal(str)  # emits human-readable step label
     detection_confirmed_signal = pyqtSignal(bool)
     _workflow_finished_signal = pyqtSignal(bool)
