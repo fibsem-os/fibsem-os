@@ -43,6 +43,14 @@ _SELECTED_BG    = "#2d3f5c"
 _LABEL_COLOR    = stylesheets.GRAY_TEXT_COLOR
 _SUBTITLE_COLOR = stylesheets.GRAY_SECONDARY_COLOR
 
+_ADD_BTN_STYLE  = (
+    "QToolButton { background: transparent; border: none; border-radius: 3px;"
+    " color: #d1d2d4; font-size: 13px; padding: 3px 6px; }"
+    "QToolButton:hover { background: #3a3d42; }"
+    "QToolButton:disabled { color: #6b6b6b; }"
+    "QToolButton::menu-indicator { image: none; }"
+)
+
 _ACTIONS_BTN    = 20   # px — the hover-revealed "..." button
 _ACTIONS_STYLE  = (
     "QToolButton { background: transparent; border: none; border-radius: 3px; }"
@@ -544,6 +552,9 @@ class WorkflowProgressWidget(QWidget):
     # no business knowing what a queue is — so the owner performs the action and
     # feeds the result back through refresh_queue().
     queue_action_requested = pyqtSignal(str, str)
+    # run_next: True to add at the front of the pending region, False for the end.
+    # What to add comes from the owner's own selection UI, not from here.
+    add_to_queue_requested = pyqtSignal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -566,9 +577,50 @@ class WorkflowProgressWidget(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
+        # Header strip: the progress count, and the one control that acts on the
+        # queue as a whole. It lives here rather than in the status bar because
+        # that bar is already full during a supervised run (message, milling
+        # progress, attention, supervised, Stop) and putting an additive button
+        # next to Stop invites the wrong click.
+        header_row = QHBoxLayout()
+        # Right margin clears the scroll bar column below, so the button's menu
+        # arrow does not sit directly on top of the scroll bar's arrow.
+        header_row.setContentsMargins(0, 0, 20, 0)
+        header_row.setSpacing(4)
+
         self._header = QLabel("Workflow")
         self._header.setStyleSheet(_HEADER_STYLE)
-        root.addWidget(self._header)
+        header_row.addWidget(self._header, 1)
+
+        self._btn_add = QToolButton()
+        self._btn_add.setStyleSheet(_ADD_BTN_STYLE)
+        self._btn_add.setText("Add to Queue")
+        self._btn_add.setIcon(fibsem_icon("mdi:plus", color=stylesheets.GRAY_ICON_COLOR))
+        self._btn_add.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self._btn_add.setVisible(False)
+        # Nothing is selected until the owner says otherwise.
+        self._btn_add.setEnabled(False)
+        self._btn_add.setToolTip("Select a lamella and a task to add to the queue")
+        # The whole button opens the menu, rather than a split button whose arrow
+        # is a tiny target and draws its own raised section against a flat header.
+        # Both destinations are then equally visible instead of one being hidden
+        # behind an arrow most people never press.
+        self._btn_add.setPopupMode(QToolButton.InstantPopup)
+
+        add_menu = QMenu(self._btn_add)
+        # A disabled action, not addSection(): the styled QMenu does not draw a
+        # section's text, so the heading would silently vanish.
+        heading = add_menu.addAction("Add to queue:")
+        heading.setEnabled(False)
+        add_menu.addSeparator()
+        act_end = add_menu.addAction("Add to End of Queue")
+        act_next = add_menu.addAction("Add to Run Next")
+        act_end.triggered.connect(lambda: self.add_to_queue_requested.emit(False))
+        act_next.triggered.connect(lambda: self.add_to_queue_requested.emit(True))
+        self._btn_add.setMenu(add_menu)
+        header_row.addWidget(self._btn_add)
+
+        root.addLayout(header_row)
 
         self._outer = WorkflowTimelineWidget()
         self._outer.row_menu_requested.connect(self._show_row_menu)
@@ -576,12 +628,25 @@ class WorkflowProgressWidget(QWidget):
 
     # ── Public API ────────────────────────────────────────────────────────
     def set_actions_enabled(self, enabled: bool) -> None:
-        """Offer queue actions on the rows, or not at all.
+        """Offer queue actions on the rows and the header, or not at all.
 
         False when no run is live — the timeline stays on screen after a
-        workflow finishes, and there is no queue left to reorder.
+        workflow finishes, and there is no queue left to edit. This is the same
+        question the Add button asks, so it shares the gate.
         """
         self._outer.set_actions_enabled(enabled)
+        self._btn_add.setVisible(enabled)
+
+    def set_add_enabled(self, enabled: bool, tooltip: str = "") -> None:
+        """Whether there is a selection worth adding.
+
+        Distinct from :meth:`set_actions_enabled`, which asks whether there is a
+        live queue at all — the button is shown but greyed when a run is going
+        and nothing is ticked, so it says what it needs rather than vanishing.
+        """
+        self._btn_add.setEnabled(enabled)
+        if tooltip:
+            self._btn_add.setToolTip(tooltip)
 
     def set_workflow(self, items: list) -> None:
         """Populate the outer timeline from queue items, starting fresh.
