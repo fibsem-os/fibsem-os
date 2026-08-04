@@ -219,6 +219,24 @@ class TaskManager:
     def is_stopped(self) -> bool:
         return self._stop_event.is_set()
 
+    def notify_queue_changed(self) -> None:
+        """Tell the UI the queue's contents changed, outside the task lifecycle.
+
+        Status updates only fire when a task starts, finishes or is skipped, so
+        an edit made between two tasks would otherwise stay invisible until the
+        next one began. Routing it through the same signal keeps the UI's view
+        of the queue single-sourced, and makes an edit from the worker thread
+        (a script, say) as safe as one from the UI thread.
+        """
+        if self.parent_ui is None:
+            return
+        self.parent_ui.workflow_update_signal.emit({
+            "queue_changed": {
+                "queue_items": self.queue.items,  # thread-safe snapshot
+                "version": self.queue.version,
+            }
+        })
+
     def hook_run_context(self) -> dict:
         """The fields every hook event from this run carries: which experiment, and
         how much of the queue is left.

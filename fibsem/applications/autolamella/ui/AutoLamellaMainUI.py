@@ -180,7 +180,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._toasts_enabled = self._preferences.display.toasts_enabled
         self._border_enabled = self._preferences.display.border_enabled
         self.dev_mode = self._preferences.display.dev_mode
-        self._workflow_timeline_initialized = False
 
         # create menus, status bar, and tabs
         self._create_menu_bar()
@@ -1532,13 +1531,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if status_bar_msg is not None and self.status_bar is not None:
             self.status_bar.showMessage(status_bar_msg)
 
+        # Queue edited between tasks (added to, reordered, item removed) — no task
+        # lifecycle to hang it off, so refresh the timeline on its own.
+        queue_changed = info.get("queue_changed", None)
+        if queue_changed is not None:
+            self.workflow_timeline.refresh_queue(queue_changed.get("queue_items", []))
+
         status_msg = info.get("status", None)
         if status_msg is not None:
-            _is_start = not self._workflow_timeline_initialized
-            queue_items = status_msg.get("queue_items", [])
-            if _is_start and queue_items:
-                self.workflow_timeline.set_workflow(queue_items)
-                self._workflow_timeline_initialized = True
+            # No build-once guard: update_from_status reconciles rows against the
+            # snapshot by WorkItem id, so first paint and every later change go
+            # through the same path.
             self.workflow_timeline.update_from_status(status_msg)
 
             task_name = status_msg.get("task_name", "Unknown Task")
@@ -1716,7 +1719,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_workflow_finished(self, cancelled: bool = False):
         """Handle workflow finished signal."""
-        self._workflow_timeline_initialized = False
+        # The next run's items carry new ids, so the timeline rebuilds itself on
+        # its first status update — nothing to reset here.
         # Resolve any outer row left in ACTIVE state (e.g. if workflow was cancelled)
         self.workflow_timeline.finish_current_step(failed=cancelled)
         self.workflow_timeline.clear_steps()
