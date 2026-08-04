@@ -82,9 +82,27 @@ class PointsOverlay(CanvasOverlay):
                 pass
         self._artists.clear()
 
+    def _marker_edge(self):
+        """Edge colour and width for the marker.
+
+        Unfilled markers (+, x, ...) have no face, so they are drawn entirely in their
+        edge colour: giving them a white one painted every point white whatever colour
+        it was asked for, and left the label as the only thing carrying the colour.
+        Filled markers (o, s, ...) keep the thin white outline, which is what makes them
+        legible against a bright image.
+
+        Same rule as `PointOverlay._marker_edge` below, which had it right.
+        """
+        from matplotlib.lines import Line2D
+
+        if self._marker in Line2D.filled_markers:
+            return "white", 0.8
+        return self._color, 2.0
+
     def _draw(self):
         if self._ax is None:
             return
+        edge_color, edge_width = self._marker_edge()
         for i, (x, y) in enumerate(self._points, 1):
             (line,) = self._ax.plot(
                 x,
@@ -92,8 +110,8 @@ class PointsOverlay(CanvasOverlay):
                 marker=self._marker,
                 markersize=self._size,
                 color=self._color,
-                markeredgecolor="white",
-                markeredgewidth=0.8,
+                markeredgecolor=edge_color,
+                markeredgewidth=edge_width,
                 linestyle="none",
                 zorder=8,
             )

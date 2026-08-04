@@ -138,8 +138,11 @@ PREVIEW_KEY = "fm-preview"
 # Radius of the specimen grid, for the boundary circle. Matches the minimap's.
 GRID_RADIUS_M = 1000e-6
 
-# Yellow for "you are here", against the red grid origin and the amber of saved
-# positions -- three markers that must not be mistaken for each other.
+# All three position markers are crosshairs, so colour is the only thing telling them
+# apart -- they have to stay far enough apart to read at a glance, and away from the red
+# the canvas draws its origin in.
+#
+# Yellow for "you are here".
 CURRENT_POSITION_COLOUR = "#ffee58"
 # Cyan for positions a user saved, against the yellow of where the stage is.
 SAVED_POSITION_COLOUR = "#26c6da"
@@ -307,8 +310,11 @@ class FMOverviewWidget(QWidget):
         )
         self.canvas.canvas.add_overlay(self.current_position_overlay)
 
+        # Crosshairs rather than dots: a marked position is a point on the sample, and
+        # a filled dot covers the feature it is naming. The gap in the middle is the
+        # whole reason -- you can see what you marked.
         self.position_overlay = PointsOverlay(
-            color=SAVED_POSITION_COLOUR, marker="o", size=7
+            color=SAVED_POSITION_COLOUR, marker="+", size=11
         )
         self.canvas.canvas.add_overlay(self.position_overlay)
 
@@ -317,7 +323,7 @@ class FMOverviewWidget(QWidget):
         # marker is not worth teaching it per-point colours for. Added last, so it
         # draws over its unselected neighbours where markers crowd together.
         self.selected_position_overlay = PointsOverlay(
-            color=SELECTED_POSITION_COLOUR, marker="o", size=10
+            color=SELECTED_POSITION_COLOUR, marker="+", size=15
         )
         self.canvas.canvas.add_overlay(self.selected_position_overlay)
 
