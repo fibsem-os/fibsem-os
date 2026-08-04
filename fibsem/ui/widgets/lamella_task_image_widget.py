@@ -252,7 +252,7 @@ class LamellaTaskImageWidget(QWidget):
 
     def set_lamella(self, lamella: Optional[Lamella]) -> None:
         """Set the lamella to display. Skips reload if same lamella."""
-        new_id = lamella._id if lamella is not None else None
+        new_id = lamella.id if lamella is not None else None
         if new_id == self._lamella_id:
             return
 

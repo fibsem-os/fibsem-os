@@ -59,7 +59,7 @@ def test_workflow_events_say_which_experiment(experiment, recorder):
 
     assert [c.event for c in fired] == ["workflow_started", "workflow_completed"]
     for context in fired:
-        assert context.experiment_id == experiment._id
+        assert context.experiment_id == experiment.id
         assert context.experiment_name == "test-exp"
 
 
@@ -92,7 +92,7 @@ def test_a_skipped_event_carries_the_lamella_id(experiment, recorder):
     manager.run(task_names=["MillTrench"], required_lamella=[lamella.name])
 
     skipped = [c for c in fired if c.event == "task_skipped"]
-    assert skipped[0].item_id == lamella._id
+    assert skipped[0].item_id == lamella.id
 
 
 def test_a_missing_lamella_has_no_id_to_report(experiment, recorder):
@@ -106,7 +106,7 @@ def test_a_missing_lamella_has_no_id_to_report(experiment, recorder):
     assert skipped[0].item_name == "ghost"
     assert skipped[0].item_id == ""
     # still says which experiment, even with nothing else to go on
-    assert skipped[0].experiment_id == experiment._id
+    assert skipped[0].experiment_id == experiment.id
 
 
 def test_the_event_task_id_joins_to_the_task_history_entry(recorder, tmp_path):
@@ -136,7 +136,7 @@ def test_the_event_task_id_joins_to_the_task_history_entry(recorder, tmp_path):
 
     failed = [c for c in fired if c.event == "task_failed"][0]
     assert failed.task_id == lamella.task_history[-1].task_id
-    assert failed.item_id == lamella._id
+    assert failed.item_id == lamella.id
     # and the snapshot is of the terminal state, not the InProgress it started in
     assert failed.task_state.status is AutoLamellaTaskStatus.Failed
 

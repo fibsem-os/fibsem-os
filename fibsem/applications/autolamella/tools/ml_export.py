@@ -214,7 +214,7 @@ def collect_sample(lamella: Lamella, stem: str) -> Optional[ExportedSample]:
         pixelsize=image.metadata.pixel_size.x,
         hfw=hfw,
         petname=lamella.name,
-        lamella_id=lamella._id,
+        lamella_id=lamella.id,
         pixel_x=float(point.x),
         pixel_y=float(point.y),
         poi=lamella.poi.to_dict(),
@@ -264,7 +264,7 @@ def _sample_to_dict(sample: ExportedSample, experiment: Experiment) -> dict:
         "image": f"{IMAGES_DIR}/{sample.stem}.tif",
         "experiment": {
             "name": experiment.name,
-            "id": experiment._id,
+            "id": experiment.id,
             "path": str(experiment.path),
             "user": experiment.user,
             "project": experiment.project,

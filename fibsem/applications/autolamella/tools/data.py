@@ -277,13 +277,13 @@ def calculate_statistics_dataframe(path: Path, encoding: str = "cp1252"):
     df_milling["exp_name"] = experiment.name
 
     # add experiment id to all df
-    df_history["exp_id"] = experiment._id if experiment._id is not None else "NO_ID"
-    df_beam_shift["exp_id"] = experiment._id if experiment._id is not None else "NO_ID"
-    df_steps["exp_id"] = experiment._id if experiment._id is not None else "NO_ID"
-    df_stage["exp_id"] = experiment._id if experiment._id is not None else "NO_ID"
-    df_det["exp_id"] = experiment._id if experiment._id is not None else "NO_ID"
-    df_click["exp_id"] = experiment._id if experiment._id is not None else "NO_ID"
-    df_milling["exp_id"] = experiment._id if experiment._id is not None else "NO_ID"
+    df_history["exp_id"] = experiment.id if experiment.id is not None else "NO_ID"
+    df_beam_shift["exp_id"] = experiment.id if experiment.id is not None else "NO_ID"
+    df_steps["exp_id"] = experiment.id if experiment.id is not None else "NO_ID"
+    df_stage["exp_id"] = experiment.id if experiment.id is not None else "NO_ID"
+    df_det["exp_id"] = experiment.id if experiment.id is not None else "NO_ID"
+    df_click["exp_id"] = experiment.id if experiment.id is not None else "NO_ID"
+    df_milling["exp_id"] = experiment.id if experiment.id is not None else "NO_ID"
 
     # write dataframes to csv, overwrite
     filename = os.path.join(path, 'history.csv')
