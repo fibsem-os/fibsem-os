@@ -85,7 +85,8 @@ from fibsem.applications.autolamella.structures import (
 # Paired with the disabled completion_summary hook in setup_hooks; FunctionHook and
 # HookEvent come back from fibsem.hooks below at the same time.
 # from fibsem.applications.autolamella.tools.artifacts import write_completion_summary
-from fibsem.applications.autolamella.hook_defaults import default_hooks
+import fibsem.config as fibsem_cfg
+from fibsem.applications.autolamella.hook_defaults import build_hook_manager
 from fibsem.hooks import HookManager
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
@@ -1100,14 +1101,16 @@ class AutoLamellaUI(QMainWindow):
         effect on the next run without a restart, and means the config dialog can never
         be editing a manager a running workflow is holding. See FIB-497.
 
-        The defaults live in hook_defaults.default_hooks() rather than here, so they can
-        be serialized and diffed without a QApplication. Code-registered hooks go after
-        them: a configuration load must never be able to remove a hook that only exists
-        in Python.
+        The hook set comes from the user's saved configuration when there is one, and
+        from hook_defaults.default_hooks() when there is not. Re-read here rather than
+        cached at startup, so editing user-preferences.yaml by hand takes effect on the
+        next run of a workflow instead of needing a restart.
+
+        Code-registered hooks go after: a configuration load replaces the *defaults*,
+        and must never be able to remove a hook that only exists in Python.
         """
-        manager = HookManager()
-        for hook in default_hooks():
-            manager.register(hook)
+        preferences = fibsem_cfg.load_user_preferences()
+        manager = build_hook_manager(preferences.hooks)
 
         # Deliberately not registered yet. The trigger is proven end to end and the
         # writer is tested, but completion-summary.json is a placeholder for the real

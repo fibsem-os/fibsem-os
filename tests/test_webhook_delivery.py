@@ -127,7 +127,98 @@ def test_a_connection_failure_is_still_logged(monkeypatch, caplog):
     with caplog.at_level(logging.ERROR):
         hook._post(_context())  # must not raise into the workflow
 
-    assert any("no route to host" in r.exc_text for r in caplog.records if r.exc_text)
+    message = " ".join(r.message for r in caplog.records)
+    assert "no route to host" in message and "OSError" in message
+
+
+# ---------------------------------------------------------------------------
+# the url is a credential
+# ---------------------------------------------------------------------------
+
+# Shaped like a real Slack incoming webhook, sharing nothing with one. The ids follow
+# Slack's own documentation placeholders; the token is a canary the assertions below
+# search for, so it must not be a string that could turn up by coincidence.
+FAKE_TOKEN = "NOTAREALTOKEN00000000000"
+SECRET_URL = f"https://hooks.slack.com/services/T00000000/B00000000/{FAKE_TOKEN}"
+
+
+def test_a_failure_does_not_write_the_url_into_the_log(monkeypatch, caplog):
+    """For an incoming webhook the path *is* the credential, and logfiles are the first
+    thing a user sends when something goes wrong. requests puts the full URL in its
+    exception message, so logging.exception here leaked a working Slack credential on
+    every DNS blip."""
+    def boom(method, url, json=None, timeout=None):
+        raise ConnectionError(
+            f"HTTPSConnectionPool(host='hooks.slack.com', port=443): Max retries "
+            f"exceeded with url: /services/T00000000/B00000000/{FAKE_TOKEN}"
+        )
+
+    monkeypatch.setattr(requests, "request", boom)
+    hook = SlackHook(name="slack", events=["any_failure"], url=SECRET_URL)
+
+    with caplog.at_level(logging.DEBUG):
+        hook._post(_context())
+
+    logged = " ".join(
+        (r.message or "") + (r.exc_text or "") for r in caplog.records
+    )
+    assert FAKE_TOKEN not in logged
+    assert "B00000000" not in logged
+
+
+def test_the_host_is_still_named_so_the_failure_is_diagnosable(monkeypatch, caplog):
+    """Redaction must not make the log useless -- the host and the error type are what
+    tell someone whether it is DNS, the network, or the wrong service."""
+    def boom(method, url, json=None, timeout=None):
+        raise OSError("Failed to resolve 'hooks.slack.com'")
+
+    monkeypatch.setattr(requests, "request", boom)
+    hook = SlackHook(name="slack", events=["any_failure"], url=SECRET_URL)
+
+    with caplog.at_level(logging.ERROR):
+        hook._post(_context())
+
+    message = caplog.records[0].message
+    assert "hooks.slack.com" in message
+    assert "OSError" in message
+    assert "slack" in message  # which hook
+
+
+def test_redaction_catches_the_bare_path_too():
+    """requests reports the path on its own, not only the whole URL."""
+    from fibsem.hooks import _redact_url
+
+    text = f"Max retries exceeded with url: /services/T00000000/B00000000/{FAKE_TOKEN}"
+
+    assert FAKE_TOKEN not in _redact_url(text, SECRET_URL)
+
+
+# ---------------------------------------------------------------------------
+# http
+# ---------------------------------------------------------------------------
+
+def test_posting_over_http_warns(caplog):
+    """The URL is usually the credential, and over http it crosses the network in the
+    clear along with the payload."""
+    with caplog.at_level(logging.WARNING):
+        WebhookHook(name="plain", events=["any_failure"], url="http://lab-server/hook")
+
+    assert any("http" in r.message and "https" in r.message for r in caplog.records)
+
+
+def test_https_is_quiet(caplog):
+    with caplog.at_level(logging.WARNING):
+        WebhookHook(name="secure", events=["any_failure"], url="https://x/y")
+
+    assert not caplog.records
+
+
+def test_http_is_warned_about_not_refused():
+    """A self-hosted service on the lab's own network is a real case, and a hard block
+    would leave no way around it."""
+    hook = WebhookHook(name="plain", events=["any_failure"], url="http://lab-server/x")
+
+    assert hook.url == "http://lab-server/x"
 
 
 # ---------------------------------------------------------------------------

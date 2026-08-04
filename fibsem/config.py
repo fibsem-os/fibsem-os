@@ -352,6 +352,17 @@ class UserPreferences:
     movement: MovementPreferences = field(default_factory=MovementPreferences)
     experiment: ExperimentPreferences = field(default_factory=ExperimentPreferences)
     reporting: ReportingPreferences = field(default_factory=ReportingPreferences)
+    # Serialized hooks, as HookManager.to_dict()["hooks"] produces them. Held as plain
+    # dicts rather than Hook objects on purpose: to_dict() below is dataclasses.asdict,
+    # which would recurse into a Hook, strip the "type" key that reconstructs it, and
+    # then hit NotificationHook._notify -- a callable, which yaml.safe_dump refuses.
+    # Keeping them opaque also keeps this module free of any hook imports.
+    #
+    # None and [] are different, and the difference is the whole feature: None means
+    # never configured, so the application uses its defaults, while [] means the user
+    # turned everything off. Conflating them either resurrects hooks someone deleted or
+    # silences a fresh install. See FIB-497.
+    hooks: Optional[List[dict]] = None
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
@@ -359,13 +370,16 @@ class UserPreferences:
     @classmethod
     def from_dict(cls, d: dict) -> "UserPreferences":
         """Reconstruct from a dict, handling both nested and legacy flat formats."""
-        if any(k in d for k in ("display", "features", "movement", "experiment", "reporting")):
+        if any(k in d for k in ("display", "features", "movement", "experiment",
+                                "reporting", "hooks")):
             return cls(
                 display=_sub_from_dict(DisplayPreferences, d.get("display", {})),
                 features=_sub_from_dict(FeatureFlags, d.get("features", {})),
                 movement=_sub_from_dict(MovementPreferences, d.get("movement", {})),
                 experiment=_sub_from_dict(ExperimentPreferences, d.get("experiment", {})),
                 reporting=_sub_from_dict(ReportingPreferences, d.get("reporting", {})),
+                # .get() rather than a default, so an absent key stays None
+                hooks=d.get("hooks"),
             )
         # Legacy flat format
         prefs = cls()
