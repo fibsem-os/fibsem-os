@@ -478,15 +478,15 @@ def test_fibsem_image_load_sets_filepath(tmp_path):
 
 
 def test_experiment_and_system_info_carry_fibsem_revision():
-    from fibsem.structures import FibsemExperiment, SystemInfo
+    from fibsem.structures import FibsemExperimentRef, SystemInfo
 
-    assert "fibsem_revision" in FibsemExperiment().to_dict()
+    assert "fibsem_revision" in FibsemExperimentRef().to_dict()
     assert "fibsem_revision" in SystemInfo.from_dict({}).to_dict()
 
 
 def test_metadata_from_dict_accepts_pre_change_files():
     """Saved data written before fibsem_revision existed must still load."""
-    from fibsem.structures import FibsemExperiment, SystemInfo
+    from fibsem.structures import FibsemExperimentRef, SystemInfo
 
     legacy_experiment = {
         "id": "exp-1",
@@ -496,7 +496,7 @@ def test_metadata_from_dict_accepts_pre_change_files():
         "fibsem_version": "0.5.1",
         "application_version": "0.5.1",
     }
-    experiment = FibsemExperiment.from_dict(legacy_experiment)
+    experiment = FibsemExperimentRef.from_dict(legacy_experiment)
     assert experiment.id == "exp-1"
     assert experiment.fibsem_version == "0.5.1"
 
@@ -507,14 +507,14 @@ def test_metadata_from_dict_accepts_pre_change_files():
 
 
 def test_metadata_round_trips_fibsem_revision():
-    from fibsem.structures import FibsemExperiment, SystemInfo
+    from fibsem.structures import FibsemExperimentRef, SystemInfo
 
-    experiment = FibsemExperiment.from_dict(
+    experiment = FibsemExperimentRef.from_dict(
         {"id": "exp-1", "fibsem_revision": "v0.5.1-48-g4cd11d9c"}
     )
     assert experiment.fibsem_revision == "v0.5.1-48-g4cd11d9c"
     assert (
-        FibsemExperiment.from_dict(experiment.to_dict()).fibsem_revision
+        FibsemExperimentRef.from_dict(experiment.to_dict()).fibsem_revision
         == "v0.5.1-48-g4cd11d9c"
     )
 
@@ -526,11 +526,11 @@ def test_experiment_date_is_creation_time_not_import_time():
     """A plain dataclass default would freeze this at module-import time."""
     import time
 
-    from fibsem.structures import FibsemExperiment
+    from fibsem.structures import FibsemExperimentRef
 
     before = datetime.datetime.timestamp(datetime.datetime.now())
     time.sleep(0.01)
-    experiment = FibsemExperiment()
+    experiment = FibsemExperimentRef()
     time.sleep(0.01)
     after = datetime.datetime.timestamp(datetime.datetime.now())
 

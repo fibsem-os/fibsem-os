@@ -296,12 +296,12 @@ def test_repeated_calls_fork_once(monkeypatch):
 
 
 def test_metadata_construction_forks_once(monkeypatch):
-    """FibsemImageMetadata builds a FibsemExperiment per acquired image.
+    """FibsemImageMetadata builds a FibsemExperimentRef per acquired image.
 
     Without the cache on _describe that would be one git fork per image, which is
     the regression this test exists to prevent.
     """
-    from fibsem.structures import FibsemExperiment
+    from fibsem.structures import FibsemExperimentRef
 
     calls = []
 
@@ -311,7 +311,7 @@ def test_metadata_construction_forks_once(monkeypatch):
 
     monkeypatch.setattr(versioning, "_run_git", _count)
 
-    experiments = [FibsemExperiment() for _ in range(50)]
+    experiments = [FibsemExperimentRef() for _ in range(50)]
 
     assert len(calls) == 1
     assert all(e.fibsem_revision == "v0.5.1-48-g4cd11d9c" for e in experiments)

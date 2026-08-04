@@ -27,7 +27,7 @@ from fibsem.structures import (
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemDetectorSettings,
-    FibsemExperiment,
+    FibsemExperimentRef,
     FibsemGasInjectionSettings,
     FibsemImage,
     FibsemImageMetadata,
@@ -261,7 +261,7 @@ class DemoMicroscope(FibsemMicroscope):
         # user, experiment metadata
         # TODO: remove once db integrated
         self.user = FibsemUser.from_environment()
-        self.experiment = FibsemExperiment()
+        self.experiment = FibsemExperimentRef()
 
         self._last_imaging_settings: ImageSettings = ImageSettings()
         self.milling_channel: BeamType = BeamType.ION

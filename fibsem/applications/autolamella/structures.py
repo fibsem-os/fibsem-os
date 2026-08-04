@@ -1413,7 +1413,7 @@ class Experiment:
         Which experiment produced an image is a property of the run, not of the GUI.
         This previously happened only in AutoLamellaUI, so images acquired from a
         script, a headless run, or the standalone FibsemUI carried the microscope's
-        default ``FibsemExperiment()`` -- id ``None`` -- and could not be associated
+        default ``FibsemExperimentRef()`` -- id ``None`` -- and could not be associated
         with an experiment afterwards. See FIB-449.
 
         Mirrors ``configure_logging``: ``load`` and ``create`` deliberately do not

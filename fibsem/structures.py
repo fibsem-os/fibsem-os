@@ -1640,6 +1640,23 @@ class GISSystemSettings:
 
 @dataclass
 class SystemInfo:
+    """Which instrument, and what software is running on it. Provenance.
+
+    Owns both facts, and is the only place either belongs (FIB-445 D1).
+    ``serial_number`` is the instrument identity -- the key any per-instrument
+    aggregation joins on, and the only field that distinguishes two of the same
+    model in one facility.
+
+    The version fields are duplicated on ``FibsemExperimentRef`` today; FIB-448
+    removes them from there. Software version is a property of the running system,
+    not of an experiment.
+
+    An experiment spanning a software upgrade will therefore disagree with its own
+    images -- the experiment record captured v0.5.1 at creation, day-2 images say
+    v0.5.2 here. That is two true facts, not a duplication bug: it says the run
+    spanned an upgrade, which is worth knowing.
+    """
+
     name: str
     ip_address: str
     manufacturer: str
@@ -1788,13 +1805,22 @@ class MicroscopeSettings:
 
 
 @dataclass
-class FibsemExperiment:
-    """Identity snapshot of the experiment an image was acquired for.
+class FibsemExperimentRef:
+    """A reference to the experiment an image was acquired for. Provenance.
 
-    A snapshot, not an authority: authoritative only in the absence of the experiment
-    record, which wins on conflict (FIB-445 D2). That rule needs a stable key -- with
+    Not an experiment. The experiment itself is the application's own record --
+    AutoLamella's ``Experiment``, with positions, protocol and history -- and this
+    is a denormalised pointer to it, embedded in every image so the file can say
+    what produced it without the surrounding directory. Named ``...Ref`` because
+    the two types are otherwise a single import apart and easily confused.
+
+    **Defers to the record.** Authoritative only in the absence of the experiment
+    record, which wins on conflict (FIB-445 D2). That rule needs a stable key: with
     only a name, a renamed experiment is indistinguishable from a different one, so
     there is no conflict to detect, just two strings that disagree.
+
+    The deference rule applies here because a richer record exists to defer to. It
+    does not apply to every embedded copy -- see ``FibsemUser``.
     """
 
     # Experiment._id, a UUID -- stable, the join key. Held the experiment *name* up to
@@ -1828,9 +1854,9 @@ class FibsemExperiment:
         }
 
     @staticmethod
-    def from_dict(settings: dict) -> "FibsemExperiment":
+    def from_dict(settings: dict) -> "FibsemExperimentRef":
         """Converts from a dictionary."""
-        return FibsemExperiment(
+        return FibsemExperimentRef(
             id=settings.get("id", "Unknown"),
             # Absent in files written before v0.5.3, where `id` holds the name. Left
             # as None rather than backfilled from `id`, so a reader can tell the two
@@ -1847,9 +1873,26 @@ class FibsemExperiment:
 
 @dataclass
 class FibsemUser:
+    """Who acquired an image. Provenance, and the only user model there is.
+
+    Unlike ``FibsemExperimentRef``, this is not a reference to anything: there is
+    no richer user record for it to defer to, so the "the record wins on conflict"
+    rule (FIB-445 D2) does not apply -- this *is* the record, and it happens to be
+    stored embedded in every image.
+
+    That would change if a user table ever lands (the DB work models one), at which
+    point this becomes a snapshot of it and the deference rule starts to apply.
+    Worth knowing before treating the two structures as the same kind of thing.
+
+    Practical consequence of being embedded: it cannot be corrected retroactively.
+    A wrong name here is wrong in every file already written.
+    """
+
     name: Optional[str] = None
     email: Optional[str] = None
     organization: Optional[str] = None
+    # Which machine, not which person -- host identity sitting on the user record.
+    # Left here rather than moved, because moving it changes the serialised shape.
     hostname: Optional[str] = None
     # TODO: add host_ip_address
 
@@ -1903,7 +1946,31 @@ class FibsemUser:
 
 @dataclass
 class FibsemImageMetadata:
-    """Metadata for a FibsemImage."""
+    """Metadata for a FibsemImage.
+
+    Three kinds of claim live here, and they are easy to mistake for each other
+    (FIB-445 D1). Anything added should be placed deliberately in one of them:
+
+    **Provenance** -- what produced this image. ``system`` (which instrument),
+    ``user`` (who), ``experiment`` (which run). Constant for a run. The same
+    question at a finer grain -- which lamella, which task -- is not recorded yet;
+    see FIB-466. It varies *within* a run, which changes the mechanism that writes
+    it, but not the kind of fact it is.
+
+    **Observation** -- what the instrument was doing. ``microscope_state``,
+    ``pixel_size``. Measured at acquisition.
+
+    **Request** -- what was asked for. ``image_settings``. Note this is *intent*,
+    not outcome: if autocontrast ran, or the requested hfw was clamped, nothing
+    here records that the request was not honoured. See FIB-482.
+
+    The rule for provenance is one writer per fact, denormalised deliberately at
+    this boundary: an image is embedded in a file that may be copied, emailed or
+    read years later, so it carries enough to identify its source without the
+    surrounding directory. Whether an embedded copy *defers* to a richer record is
+    a separate question, answered per-structure -- see ``FibsemExperimentRef``
+    (defers) and ``FibsemUser`` (does not, because there is nothing to defer to).
+    """
 
     image_settings: ImageSettings
     pixel_size: Point
@@ -1911,7 +1978,7 @@ class FibsemImageMetadata:
     system: Optional[SystemSettings] = None
     version: str = METADATA_VERSION
     user: FibsemUser = field(default_factory=lambda: FibsemUser())
-    experiment: FibsemExperiment = field(default_factory=lambda: FibsemExperiment())
+    experiment: FibsemExperimentRef = field(default_factory=lambda: FibsemExperimentRef())
 
     @property
     def beam_type(self) -> BeamType:
@@ -1975,7 +2042,7 @@ class FibsemImageMetadata:
             pixel_size=pixel_size,
             microscope_state=microscope_state,
             user=FibsemUser.from_dict(settings.get("user", {})),
-            experiment=FibsemExperiment.from_dict(settings.get("experiment", {})),
+            experiment=FibsemExperimentRef.from_dict(settings.get("experiment", {})),
             system=system_settings
         )
         return metadata
