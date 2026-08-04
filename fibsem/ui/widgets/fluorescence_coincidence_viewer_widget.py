@@ -2132,7 +2132,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 AutoLamellaTaskState(
                     name=COINCIDENCE_REVIEW_TASK_NAME,
                     task_type="MILL_COINCIDENT",
-                    lamella_id=lamella._id,
+                    lamella_id=lamella.id,
                     end_timestamp=now,
                     status=AutoLamellaTaskStatus.Completed,
                     status_message="Coincidence milling (recorded from viewer)",

@@ -59,66 +59,12 @@ class AutoLamellaTaskStatus(Enum):
     Cancelled = auto()  # aborted by the user (Stop), distinct from a genuine Failure
 
 
-@dataclass
-class AutoLamellaUser:
-    """Application-level user identity. Maps to the DB user table."""
-    _id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    username: str = ""          # login handle / OS username
-    name: str = ""              # display name
-    email: str = ""
-    organization: str = ""
-    role: str = "user"          # "admin" | "user" | "guest"
-    is_default: bool = False    # loaded automatically at startup
-    preferences: dict = field(default_factory=dict)
-    created_at: float = field(default_factory=lambda: datetime.timestamp(datetime.now()))
-
-    def to_fibsem_user(self) -> "FibsemUser":
-        """Convert to a FibsemUser snapshot for image TIFF metadata."""
-        from fibsem.structures import FibsemUser
-        return FibsemUser(
-            name=self.name or self.username,
-            email=self.email,
-            organization=self.organization,
-        )
-
-    def to_dict(self) -> dict:
-        return {
-            "_id": self._id,
-            "username": self.username,
-            "name": self.name,
-            "email": self.email,
-            "organization": self.organization,
-            "role": self.role,
-            "is_default": self.is_default,
-            "preferences": self.preferences,
-            "created_at": self.created_at,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "AutoLamellaUser":
-        user = cls(
-            username=data.get("username", ""),
-            name=data.get("name", ""),
-            email=data.get("email", ""),
-            organization=data.get("organization", ""),
-            role=data.get("role", "user"),
-            is_default=data.get("is_default", False),
-            preferences=data.get("preferences", {}),
-            created_at=data.get("created_at", datetime.timestamp(datetime.now())),
-        )
-        if "_id" in data:
-            user._id = data["_id"]
-        return user
-
-    @staticmethod
-    def from_environment() -> "AutoLamellaUser":
-        """Create a default user from the OS environment."""
-        import platform
-        import socket
-        username = os.environ.get("USERNAME") or os.environ.get("USER", "user")
-        hostname = socket.gethostname() if platform.system() in ("Linux", "Darwin") \
-            else os.environ.get("COMPUTERNAME", "hostname")
-        return AutoLamellaUser(username=username, name=username, is_default=True)
+# AutoLamellaUser lived here: a richer user identity (role, preferences, is_default)
+# with a to_fibsem_user() bridge into image metadata. Nothing ever constructed one --
+# not the app, not a script, not a test -- so the bridge was never called and the
+# extra fields never had a reader. Removed rather than left dormant, because half a
+# user model is worse than either answer. fibsem.structures.FibsemUser is the only
+# user model now; see FIB-450 and the ownership rule on FibsemImageMetadata.
 
 
 @evented
@@ -447,7 +393,7 @@ class AutoLamellaTaskProtocol:
     name: str = "AutoLamella Task Protocol"
     description: str = "Protocol for AutoLamella"
     version: str = "1.0"
-    _id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
     task_config: EventedDict[str, AutoLamellaTaskConfig] = field(default_factory=lambda: EventedDict())   # unique_name: AutoLamellaTaskConfig
     workflow_config: AutoLamellaWorkflowConfig = field(default_factory=AutoLamellaWorkflowConfig)
     options: AutoLamellaWorkflowOptions = field(default_factory=AutoLamellaWorkflowOptions)
@@ -458,7 +404,7 @@ class AutoLamellaTaskProtocol:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "_id": self._id,
+            "_id": self.id,
             "name": self.name,
             "description": self.description,
             "version": self.version,
@@ -487,7 +433,7 @@ class AutoLamellaTaskProtocol:
             correlation=CorrelationConfig.from_dict(data.get("correlation")),
         )
         if "_id" in data:
-            protocol._id = data["_id"]
+            protocol.id = data["_id"]
         return protocol
 
     @classmethod
@@ -726,7 +672,7 @@ class Lamella:
     number: int                                                             # TODO: deprecate, use petname instead
     petname: str
     alignment_area: FibsemRectangle = field(default_factory=lambda: FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA))
-    _id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
     task_config: EventedDict[str, 'AutoLamellaTaskConfig'] = field(default_factory=lambda: EventedDict())
     poses: Dict[str, MicroscopeState] = field(default_factory=dict)
     task_state: AutoLamellaTaskState = field(default_factory=AutoLamellaTaskState)
@@ -745,9 +691,9 @@ class Lamella:
         # path the caller never named. Directories are created where a lamella is
         # actually created (``Experiment.add_new_lamella``) and where files are
         # actually written (``FibsemImage.save``, ``save_thumbnail``). See FIB-420.
-        if self._id is None:
-            self._id = str(uuid.uuid4())
-        self.task_state.lamella_id = self._id
+        if self.id is None:
+            self.id = str(uuid.uuid4())
+        self.task_state.lamella_id = self.id
 
         self._sync_imaging_paths()
 
@@ -901,7 +847,7 @@ class Lamella:
             "path": str(self.path),
             "alignment_area": self.alignment_area.to_dict(),
             "number": self.number,
-            "id": str(self._id),
+            "id": str(self.id),
             "poses": {k: v.to_dict() for k, v in self.poses.items()},
             "task_config": {k: v.to_dict() for k, v in self.task_config.items()},
             "task_state": self.task_state.to_dict(),
@@ -947,7 +893,7 @@ class Lamella:
             path=data["path"],
             alignment_area=alignment_area,
             number=data.get("number", data.get("number", 0)),
-            _id=data.get("id", ""),
+            id=data.get("id", ""),
             poses=poses,
             task_config=load_task_config(data.get("task_config", {})),
             task_state=AutoLamellaTaskState.from_dict(data.get("task_state", {})),
@@ -1038,7 +984,7 @@ class Lamella:
 @dataclass
 class Experiment:
     name: str
-    _id: str
+    id: str
     path: Path
     positions: EventedList[Lamella] = field(default_factory=EventedList)
     landing_positions: List[FibsemStagePosition] = field(default_factory=list)
@@ -1057,7 +1003,7 @@ class Experiment:
             metadata: Optional dictionary containing experiment metadata (e.g., description, user, project, organisation).
         """
         self.name: str = name
-        self._id = str(uuid.uuid4())
+        self.id = str(uuid.uuid4())
         self.path: Path = os.path.join(path, name)
         self.created_at: float = datetime.timestamp(datetime.now())
 
@@ -1071,7 +1017,7 @@ class Experiment:
 
         state_dict = {
             "name": self.name,
-            "_id": self._id,
+            "_id": self.id,
             "path": self.path,
             "positions": [deepcopy(lamella.to_dict()) for lamella in self.positions],
             "landing_positions": [pos.to_dict() for pos in self.landing_positions],
@@ -1091,7 +1037,7 @@ class Experiment:
         name = ddict["name"]
         experiment = Experiment(path=path, name=name)
         experiment.created_at = ddict.get("created_at", None)
-        experiment._id = ddict.get("_id", "NULL")
+        experiment.id = ddict.get("_id", "NULL")
 
         experiment.metadata = ddict.get("metadata", {})
 
@@ -1429,7 +1375,7 @@ class Experiment:
             microscope=microscope,
             application_software="autolamella",
             application_software_version=fibsem.__version__,
-            experiment_id=self._id,
+            experiment_id=self.id,
             experiment_name=self.name,
             experiment_method="null",
         )
@@ -1506,9 +1452,9 @@ class Experiment:
                 "experiment_name": self.name,
                 "experiment_path": self.path,
                 "experiment_created_at": self.created_at,
-                "experiment_id": self._id,
+                "experiment_id": self.id,
                 "lamella_name": p.name,
-                "lamella_id": p._id,
+                "lamella_id": p.id,
                 "last_completed": p.last_completed_task.completed if p.last_completed_task else None,
                 "last_completed_task": p.last_completed_task.name if p.last_completed_task else None,
                 "last_completed_at": p.last_completed_task.completed_at if p.last_completed_task else None,

@@ -1082,7 +1082,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             return
 
         other_names = [
-            p.name for p in experiment.positions if p._id != source_lamella._id
+            p.name for p in experiment.positions if p.id != source_lamella.id
         ]
         task_names = self._sort_task_names_by_workflow(
             list(source_lamella.task_config.keys())

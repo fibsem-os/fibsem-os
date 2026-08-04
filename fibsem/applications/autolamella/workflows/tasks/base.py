@@ -198,7 +198,7 @@ class AutoLamellaTask(ABC):
             task_name=self.task_name,
             task_type=self.task_type,
             item_name=self.lamella.name,
-            item_id=self.lamella._id,
+            item_id=self.lamella.id,
             task_id=self.task_id,
             task_state=self.lamella.task_state,
             error=error,
@@ -210,7 +210,7 @@ class AutoLamellaTask(ABC):
         pass
 
     def pre_task(self) -> None:
-        logging.info(f"Running {self.task_name}, {self.task_type} ({self.task_id}) for {self.lamella.name} ({self.lamella._id})")
+        logging.info(f"Running {self.task_name}, {self.task_type} ({self.task_id}) for {self.lamella.name} ({self.lamella.id})")
 
         # pre-task
         # task_state is a single object reused across every run, so each per-run field
@@ -251,7 +251,7 @@ class AutoLamellaTask(ABC):
                 "msg": "task_config",
                 "timestamp": datetime.now().isoformat(),
                 "lamella": self.lamella.name,
-                "lamella_id": self.lamella._id,
+                "lamella_id": self.lamella.id,
                 "task_id": self.task_id,
                 "task_type": self.task_type,
                 "task_name": self.task_name,
@@ -266,7 +266,7 @@ class AutoLamellaTask(ABC):
         logging.debug({"msg": "status",
                        "timestamp": datetime.now().isoformat(),
                        "lamella": self.lamella.name,
-                       "lamella_id": self.lamella._id,
+                       "lamella_id": self.lamella.id,
                        "task_id": self.task_id,
                        "task_type": self.task_type,
                        "task_name": self.task_name,

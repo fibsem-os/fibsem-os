@@ -127,7 +127,7 @@ class TaskManager:
                 self._fire_skipped_hook(
                     item.task_name, lamella.name, skip_reason,
                     task_type=task_config.task_type if task_config else "",
-                    item_id=lamella._id,
+                    item_id=lamella.id,
                 )
                 continue
 
@@ -241,7 +241,7 @@ class TaskManager:
         """
         pending, total = self.queue.counts
         return {
-            "experiment_id": self.experiment._id,
+            "experiment_id": self.experiment.id,
             "experiment_name": self.experiment.name,
             "tasks_remaining": pending,
             "tasks_total": total,
@@ -297,7 +297,7 @@ class TaskManager:
             task_name=task_name,
             task_type=lamella.task_state.task_type,
             item_name=lamella.name,
-            item_id=lamella._id,
+            item_id=lamella.id,
             task_id=lamella.task_state.task_id,
             task_state=lamella.task_state,
             **self.hook_run_context(),
@@ -316,7 +316,7 @@ class TaskManager:
             self.hook_manager,
             HookEvent.EXPERIMENT_COMPLETED,
             item_name=self.experiment.name,
-            item_id=self.experiment._id,
+            item_id=self.experiment.id,
             **self.hook_run_context(),
         )
 

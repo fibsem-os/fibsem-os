@@ -1823,7 +1823,7 @@ class FibsemExperimentRef:
     does not apply to every embedded copy -- see ``FibsemUser``.
     """
 
-    # Experiment._id, a UUID -- stable, the join key. Held the experiment *name* up to
+    # Experiment.id, a UUID -- stable, the join key. Held the experiment *name* up to
     # and including v0.5.2; a file whose `name` is absent is from that era and its `id`
     # is a name. See FIB-446.
     id: Optional[str] = None
