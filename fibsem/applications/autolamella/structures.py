@@ -59,66 +59,12 @@ class AutoLamellaTaskStatus(Enum):
     Cancelled = auto()  # aborted by the user (Stop), distinct from a genuine Failure
 
 
-@dataclass
-class AutoLamellaUser:
-    """Application-level user identity. Maps to the DB user table."""
-    _id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    username: str = ""          # login handle / OS username
-    name: str = ""              # display name
-    email: str = ""
-    organization: str = ""
-    role: str = "user"          # "admin" | "user" | "guest"
-    is_default: bool = False    # loaded automatically at startup
-    preferences: dict = field(default_factory=dict)
-    created_at: float = field(default_factory=lambda: datetime.timestamp(datetime.now()))
-
-    def to_fibsem_user(self) -> "FibsemUser":
-        """Convert to a FibsemUser snapshot for image TIFF metadata."""
-        from fibsem.structures import FibsemUser
-        return FibsemUser(
-            name=self.name or self.username,
-            email=self.email,
-            organization=self.organization,
-        )
-
-    def to_dict(self) -> dict:
-        return {
-            "_id": self._id,
-            "username": self.username,
-            "name": self.name,
-            "email": self.email,
-            "organization": self.organization,
-            "role": self.role,
-            "is_default": self.is_default,
-            "preferences": self.preferences,
-            "created_at": self.created_at,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "AutoLamellaUser":
-        user = cls(
-            username=data.get("username", ""),
-            name=data.get("name", ""),
-            email=data.get("email", ""),
-            organization=data.get("organization", ""),
-            role=data.get("role", "user"),
-            is_default=data.get("is_default", False),
-            preferences=data.get("preferences", {}),
-            created_at=data.get("created_at", datetime.timestamp(datetime.now())),
-        )
-        if "_id" in data:
-            user._id = data["_id"]
-        return user
-
-    @staticmethod
-    def from_environment() -> "AutoLamellaUser":
-        """Create a default user from the OS environment."""
-        import platform
-        import socket
-        username = os.environ.get("USERNAME") or os.environ.get("USER", "user")
-        hostname = socket.gethostname() if platform.system() in ("Linux", "Darwin") \
-            else os.environ.get("COMPUTERNAME", "hostname")
-        return AutoLamellaUser(username=username, name=username, is_default=True)
+# AutoLamellaUser lived here: a richer user identity (role, preferences, is_default)
+# with a to_fibsem_user() bridge into image metadata. Nothing ever constructed one --
+# not the app, not a script, not a test -- so the bridge was never called and the
+# extra fields never had a reader. Removed rather than left dormant, because half a
+# user model is worse than either answer. fibsem.structures.FibsemUser is the only
+# user model now; see FIB-450 and the ownership rule on FibsemImageMetadata.
 
 
 @evented
