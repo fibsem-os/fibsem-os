@@ -131,6 +131,7 @@ class AutoLamellaFluorescenceOverviewTab(QWidget):
 
         self.overview.position_add_requested.connect(self._on_add_requested)
         self.overview.position_move_requested.connect(self._on_move_requested)
+        self.overview.position_selected.connect(self._on_marker_clicked)
         # In the settings column rather than beside it: the positions are the subject of
         # this tab, and a column of their own would read as a third pane.
         self.overview.add_settings_section("Lamella Positions", self.lamella_list)
@@ -265,13 +266,39 @@ class AutoLamellaFluorescenceOverviewTab(QWidget):
         The flag is what stops the round trip. The window answers by syncing every list
         it knows about, this tab included, and re-selecting the row under a click that
         is still happening moves the selection out from under the user.
+
+        Checked as well as set: `_on_marker_clicked` selects the row itself, and the row
+        answering by coming back through here announced the same lamella twice.
         """
+        if self._syncing_selection:
+            return
         self._syncing_selection = True
         try:
             if self.overview is not None:
                 self.overview.set_selected_position(
                     lamella.name if lamella is not None else None
                 )
+            self.lamella_selected.emit(lamella)
+        finally:
+            self._syncing_selection = False
+
+    def _on_marker_clicked(self, name: str) -> None:
+        """A crosshair on the canvas was clicked: select that lamella everywhere.
+
+        The canvas has already highlighted it -- it knows the name it drew. What it
+        cannot do is turn a name into a lamella, so the list and the window are told from
+        here, through the same path a row click takes.
+        """
+        experiment = self.experiment
+        if experiment is None:
+            return
+        lamella = next((p for p in experiment.positions if p.name == name), None)
+        if lamella is None:
+            logging.debug(f"Clicked {name!r}, which is not in the experiment.")
+            return
+        self._syncing_selection = True
+        try:
+            self.lamella_list.select(name)
             self.lamella_selected.emit(lamella)
         finally:
             self._syncing_selection = False

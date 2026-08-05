@@ -174,6 +174,9 @@ class FMOverviewWidget(QWidget):
     # the user should be asked first, and what else moves with it.
     position_add_requested = pyqtSignal(object)  # FibsemStagePosition
     position_move_requested = pyqtSignal(str, object)  # name, FibsemStagePosition
+    # A marked position was clicked. Emitted with the name it was marked under, so a
+    # host can select whatever that name means to it.
+    position_selected = pyqtSignal(str)
 
     # Internal hop from the acquisition thread to the GUI thread. The microscope's
     # progress signal is a psygnal, which calls its callbacks synchronously on
@@ -451,6 +454,7 @@ class FMOverviewWidget(QWidget):
         self.tile_grid_overlay.tile_toggled.connect(self._on_tile_toggled)
         self.tile_grid_overlay.grid_resize_requested.connect(self._on_grid_resize)
         self.tile_grid_overlay.grid_move_requested.connect(self._on_grid_move)
+        self.canvas.canvas.canvas_clicked.connect(self._on_canvas_clicked)
         self.canvas.canvas.canvas_double_clicked.connect(self._on_canvas_double_clicked)
         self.canvas.canvas.canvas_right_clicked.connect(self._on_canvas_right_clicked)
         self.canvas.canvas.cursor_moved.connect(self._on_cursor_moved)
@@ -1161,6 +1165,59 @@ class FMOverviewWidget(QWidget):
             if abs(now - before) > 1e-9:
                 return True
         return False
+
+    def _on_canvas_clicked(self, x: float, y: float, modifiers=None) -> None:
+        """Select a marked position if the click landed on one.
+
+        A miss leaves the selection alone rather than clearing it, which is where this
+        parts company with the minimap's interactive overlay. Clearing would have to
+        travel: the host syncs its other lists from the selection, and their handlers
+        ignore None -- so an empty click would blank this canvas and nothing else, which
+        is worse than a selection that outstays its welcome. Nothing here is destroyed
+        by keeping it.
+        """
+        name = self._position_at(x, y)
+        if name is None:
+            return
+        self.set_selected_position(name)
+        self.position_selected.emit(name)
+
+    # Screen-space hit radius, matching `PointOverlay`'s. In pixels rather than stage
+    # microns so that how close you have to click does not change with the zoom.
+    PICK_RADIUS_PX = 12
+
+    def _position_at(self, x: float, y: float) -> Optional[str]:
+        """The marked position under a canvas point, or None.
+
+        Measured on screen, not in data units: at a wide zoom every marker would be
+        within any sensible micron radius of the click, and at a tight one none would be.
+        """
+        frame = self._frame()
+        ax = getattr(self.canvas.canvas, "_ax", None)
+        if frame is None or ax is None or not self._positions:
+            return None
+        try:
+            transform = ax.transData
+            click = transform.transform((x, y))
+        except Exception as e:
+            logging.debug(f"Could not resolve the click for picking: {e}")
+            return None
+
+        best_name, best_distance = None, float(self.PICK_RADIUS_PX)
+        for position in self._positions:
+            name = position.name
+            if not name:
+                continue
+            try:
+                point = transform.transform(frame.to_canvas(position))
+            except Exception:
+                continue
+            distance = (
+                (click[0] - point[0]) ** 2 + (click[1] - point[1]) ** 2
+            ) ** 0.5
+            if distance < best_distance:
+                best_name, best_distance = name, distance
+        return best_name
 
     def _on_canvas_double_clicked(self, x: float, y: float, modifiers=None) -> None:
         """Move the stage to the double-clicked point.

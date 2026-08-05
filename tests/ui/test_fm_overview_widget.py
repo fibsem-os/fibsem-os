@@ -3750,3 +3750,125 @@ def test_the_stage_limits_re_pose_even_with_the_grid_pinned(qapp):
     assert [(spec.cx, spec.cy) for spec in widget.stage_overlay._specs] != before
 
     widget.close()
+
+
+# ── clicking a marker selects it ─────────────────────────────────────────
+
+
+def test_clicking_a_marker_selects_it(qapp, interactive_widget):
+    """As the minimap does. The markers are drawn by a non-interactive overlay, so the
+    canvas's own click signal does the picking."""
+    widget = interactive_widget
+    widget.set_positions([
+        _named("Lamella-01", 120e-6, 90e-6),
+        _named("Lamella-02", -160e-6, 40e-6),
+    ])
+    picked = []
+    widget.position_selected.connect(lambda name: picked.append(name))
+    frame = widget._frame()
+
+    widget._on_canvas_clicked(*frame.to_canvas(_named("Lamella-02", -160e-6, 40e-6)))
+
+    assert picked == ["Lamella-02"]
+    assert widget.selected_position == "Lamella-02"
+    # ...and it moved onto the selected overlay, so it is drawn as selected too
+    assert widget.selected_position_overlay._labels == ["Lamella-02"]
+
+    widget.set_selected_position(None)
+    widget.set_positions([])
+
+
+def test_clicking_empty_space_keeps_the_selection(qapp, interactive_widget):
+    """Where this parts company with the minimap's interactive overlay, on purpose: the
+    host syncs its other lists from the selection and their handlers ignore None, so a
+    clearing click would blank this canvas and nothing else."""
+    widget = interactive_widget
+    widget.set_positions([_named("Lamella-01", 120e-6, 90e-6)])
+    widget.set_selected_position("Lamella-01")
+    frame = widget._frame()
+    picked = []
+    widget.position_selected.connect(lambda name: picked.append(name))
+
+    widget._on_canvas_clicked(*frame.to_canvas(_named("far", 900e-6, -900e-6)))
+
+    assert picked == []
+    assert widget.selected_position == "Lamella-01"
+
+    widget.set_selected_position(None)
+    widget.set_positions([])
+
+
+def test_the_pick_radius_is_screen_space(qapp, interactive_widget):
+    """In pixels, not microns: how close you have to click must not change with the
+    zoom. The same stage point is a hit when zoomed out and a miss when zoomed in."""
+    widget = interactive_widget
+    widget.set_positions([_named("Lamella-01", 120e-6, 90e-6)])
+    frame = widget._frame()
+    ax = widget.canvas.canvas._ax
+    before = (ax.get_xlim(), ax.get_ylim())
+    # 80 um away from the marker, in stage terms
+    near = frame.to_canvas(_named("probe", 200e-6, 90e-6))
+
+    ax.set_xlim(-50000, 50000)
+    ax.set_ylim(-50000, 50000)
+    qapp.processEvents()
+    zoomed_out = widget._position_at(*near)
+
+    ax.set_xlim(-200, 200)
+    ax.set_ylim(-200, 200)
+    qapp.processEvents()
+    zoomed_in = widget._position_at(*near)
+
+    assert zoomed_out == "Lamella-01", "should be within 12px when zoomed right out"
+    assert zoomed_in is None, "should be far outside 12px when zoomed right in"
+
+    ax.set_xlim(*before[0])
+    ax.set_ylim(*before[1])
+    widget.set_positions([])
+
+
+def test_the_nearest_marker_wins(qapp, interactive_widget):
+    """Two markers can both be inside the radius when they are close together.
+
+    The nearest one is deliberately *first* in the list: keeping a hit without also
+    keeping its distance leaves the last match winning, which would agree with the right
+    answer if the nearest happened to come last.
+    """
+    widget = interactive_widget
+    widget.set_positions([
+        _named("Lamella-02", 121e-6, 90e-6),   # nearest to the probe, and first
+        _named("Lamella-01", 120e-6, 90e-6),
+    ])
+    frame = widget._frame()
+
+    assert widget._position_at(
+        *frame.to_canvas(_named("probe", 120.9e-6, 90e-6))
+    ) == "Lamella-02"
+
+    widget.set_positions([])
+
+
+def test_clicking_a_marker_selects_the_lamella_everywhere(qapp, tmp_path):
+    """The canvas knows the name it drew; turning that into a lamella is the tab's job,
+    and it goes out on the same path a row click takes."""
+    tab = _tab_with(qapp, tmp_path)
+    microscope = tab.microscope
+    tab.experiment.positions.extend([
+        _lamella_with_poses("Lamella-01", microscope, tmp_path, 100e-6, 50e-6),
+        _lamella_with_poses("Lamella-02", microscope, tmp_path, -80e-6, 20e-6),
+    ])
+    tab.refresh_positions()
+    qapp.processEvents()
+    seen = []
+    tab.lamella_selected.connect(lambda lamella: seen.append(lamella))
+
+    frame = tab.overview._frame()
+    marker = frame.to_canvas(tab.overview._positions[1])
+    tab.overview._on_canvas_clicked(*marker)
+    qapp.processEvents()
+
+    assert [lamella.name for lamella in seen] == ["Lamella-02"]
+    assert tab.lamella_list.selected_name == "Lamella-02"
+    assert tab.overview.selected_position == "Lamella-02"
+
+    tab._drop_overview()
