@@ -412,13 +412,16 @@ class FMImageDisplayWidget(QWidget):
         return self._z_slider.value()
 
     def _update_name_label(self) -> None:
-        """Show the loaded FM image's filename in the header."""
-        filename = ""
-        if self._fm_image is not None:
-            filename = getattr(self._fm_image.metadata, "filename", "") or ""
-        base = os.path.basename(filename) if filename else ""
+        """Show the loaded FM image's filename in the header.
+
+        The file it was loaded from, not the name recorded at acquisition, which
+        does not track a rename and is missing from a volume written by other
+        software (FIB-509).
+        """
+        path = getattr(self._fm_image, "filepath", None) or ""
+        base = os.path.basename(path)
         self._name_label.setText(base)
-        self._name_label.setToolTip(filename)
+        self._name_label.setToolTip(path)
         self._name_label.setVisible(bool(base))
 
     # ------------------------------------------------------------------

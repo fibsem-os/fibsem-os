@@ -721,6 +721,9 @@ def _fake_fm(n_c=2, n_z=5, filename="/data/BeforeMilling_G1.ome.tiff"):
     chans = [SimpleNamespace(name=f"CH{i}", color=None) for i in range(n_c)]
     return SimpleNamespace(
         data=np.zeros((n_c, n_z, 8, 8), dtype=np.float32),
+        # filepath is where the volume was loaded from and is what names it in the
+        # UI (FIB-509); metadata.filename is the name it was acquired under.
+        filepath=filename,
         metadata=SimpleNamespace(filename=filename, channels=chans),
     )
 
@@ -850,18 +853,16 @@ def test_fm_display_shows_image_name(qapp):
 
 
 def test_fib_header_shows_image_name(qapp):
+    """The file it was loaded from, extension and all — see FIB-509 for why the
+    acquisition metadata's name is not it."""
     from types import SimpleNamespace
 
     w = _widget(qapp)
     assert w._fib_name_label.isHidden() is True  # nothing loaded yet
 
-    img = SimpleNamespace(
-        metadata=SimpleNamespace(
-            image_settings=SimpleNamespace(filename="/x/ref_Mill_res_02")
-        )
-    )
+    img = SimpleNamespace(filepath="/x/ref_Mill_res_02.tif")
     w._update_fib_name_label(img)
-    assert w._fib_name_label.text() == "ref_Mill_res_02"
+    assert w._fib_name_label.text() == "ref_Mill_res_02.tif"
     assert w._fib_name_label.isHidden() is False
 
 
