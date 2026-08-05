@@ -21,7 +21,6 @@ from PyQt5.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
-    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -39,22 +38,41 @@ from fibsem.plugins.report import (
     summarise,
 )
 from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.stylesheets import GRAY_ICON_COLOR
+from fibsem.ui.stylesheets import (
+    ACCENT_COLOR,
+    BORDER_COLOR,
+    ERROR_COLOR,
+    GRAY_ICON_COLOR,
+    OK_COLOR,
+    PANEL_COLOR,
+    ROW_ALT_COLOR,
+    SURFACE_COLOR,
+    TEXT_COLOR,
+    TEXT_MUTED_COLOR,
+    TEXT_STRONG_COLOR,
+    WARN_COLOR,
+)
 from fibsem.ui.utils import open_path_in_file_explorer
-from fibsem.ui.widgets.custom_widgets import IconToolButton
+from fibsem.ui.widgets.custom_widgets import (
+    ElidedLabel,
+    IconToolButton,
+    chip,
+    style_with_tooltip,
+)
 
-# Palette (matching fibsem.ui.stylesheets napari theme)
-_BG = "#262930"
-_PANEL = "#1e2027"
-_ROW_ALT = "#2b2f38"
-_BORDER = "#3d4251"
-_TEXT = "#d6d6d6"
-_TEXT_STRONG = "#f0f1f2"
-_TEXT_MUTED = "#868e93"
-_ACCENT = "#50a6ff"
-_OK = "#4caf50"
-_WARN = "#e0a030"
-_ERROR = "#d04040"
+# Short local names for the shared palette. These appear inside dozens of
+# f-strings below, where the full names would wrap every one of them.
+_BG = SURFACE_COLOR
+_PANEL = PANEL_COLOR
+_ROW_ALT = ROW_ALT_COLOR
+_BORDER = BORDER_COLOR
+_TEXT = TEXT_COLOR
+_TEXT_STRONG = TEXT_STRONG_COLOR
+_TEXT_MUTED = TEXT_MUTED_COLOR
+_ACCENT = ACCENT_COLOR
+_OK = OK_COLOR
+_WARN = WARN_COLOR
+_ERROR = ERROR_COLOR
 
 _COLUMNS = ["Extension", "Source", "Entry point group"]
 
@@ -109,55 +127,7 @@ QTableWidget::item:selected {{ background-color: #2d3947; color: {_TEXT_STRONG};
 
 _CHECKBOX_STYLE = f"font-size: 12px; color: {_TEXT};"
 
-# Restates the application stylesheet's own QToolTip rule. A selector-less
-# stylesheet set on a widget also styles the tooltip shown over that widget, and
-# it sits nearer than the application sheet, so it wins: `background:
-# transparent` on a table cell leaves its tooltip as floating text with no panel
-# behind it, and a muted `color` makes the tooltip text unreadable. Anything
-# applied through _style() carries this so that cannot happen.
-_TOOLTIP_STYLE = f"""
-QToolTip {{
-    background-color: {_PANEL};
-    color: {_TEXT};
-    border: 1px solid {_BORDER};
-    padding: 4px 8px;
-    border-radius: 3px;
-}}
-"""
-
-
-def _style(widget: QWidget, css: str) -> None:
-    """Apply a selector-less stylesheet without swallowing the widget's tooltip.
-
-    Use this rather than setStyleSheet for any rule written without a selector.
-    A rule with one (``QDialog {...}``, ``QTableWidget {...}``) cannot match
-    QToolTip and needs no such care.
-    """
-    widget.setStyleSheet(css + _TOOLTIP_STYLE)
-
 _COPY_ICON = "mdi:content-copy"
-
-
-class _ElidedLabel(QLabel):
-    """A QLabel that elides rather than clipping mid-glyph.
-
-    The Extension column stretches, so the width is not known when the row is
-    built and any one-off elide would be wrong at the next size. The size policy
-    is Ignored so a 60-character dotted class path cannot drive the column
-    wider, which would defeat the point.
-    """
-
-    def __init__(self, text: str, parent: Optional[QWidget] = None) -> None:
-        super().__init__(text, parent)
-        self._full_text = text
-        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-
-    def paintEvent(self, event) -> None:  # noqa: N802 - Qt naming
-        metrics = QFontMetrics(self.font())
-        elided = metrics.elidedText(self._full_text, Qt.ElideRight, self.width())
-        if elided != self.text():
-            self.setText(elided)
-        super().paintEvent(event)
 
 
 class PluginsDialog(QDialog):
@@ -201,20 +171,20 @@ class PluginsDialog(QDialog):
         titles = QVBoxLayout()
         titles.setSpacing(2)
         self.title_label = QLabel("Registered extensions")
-        _style(
+        style_with_tooltip(
             self.title_label,
             f"font-size: 15px; font-weight: 500; color: {_TEXT_STRONG};",
         )
         # counts are meta, not the heading -- the heading says what this dialog
         # is, the line under it says what is currently in it.
         self.meta_label = QLabel()
-        _style(self.meta_label, f"font-size: 12px; color: {_TEXT_MUTED};")
+        style_with_tooltip(self.meta_label, f"font-size: 12px; color: {_TEXT_MUTED};")
         titles.addWidget(self.title_label)
         titles.addWidget(self.meta_label)
         header.addLayout(titles, 1)
 
         self.builtins_checkbox = QCheckBox("Show built-ins")
-        _style(self.builtins_checkbox, _CHECKBOX_STYLE)
+        style_with_tooltip(self.builtins_checkbox, _CHECKBOX_STYLE)
         self.builtins_checkbox.setToolTip(
             "Built-in extensions ship with fibsem and are always present; they "
             "are counted but hidden so installed ones stand out."
@@ -272,27 +242,10 @@ class PluginsDialog(QDialog):
         table.setColumnWidth(2, _group_column_width())
         return table
 
-    @staticmethod
-    def _chip(text: str, colour: str) -> QLabel:
-        """A pill label: coloured dot + text, on a tint of the same colour."""
-        rgb = QColor(colour)
-        tint = f"rgba({rgb.red()}, {rgb.green()}, {rgb.blue()}, 0.15)"
-        chip = QLabel(f'<span style="color:{colour};">&#9679;</span> {text}')
-        _style(
-            chip,
-            f"background-color: {tint}; color: {colour};"
-            f"padding: 2px 9px; border-radius: 10px; font-size: 11px;",
-        )
-        # A rich-text QLabel under-reports sizeHint against the stylesheet
-        # padding, so the last character clips. Measure and pin the width.
-        metrics = QFontMetrics(chip.font())
-        chip.setMinimumWidth(metrics.horizontalAdvance(f"* {text}") + 26)
-        return chip
-
     def _name_cell(self, extension: Extension) -> QWidget:
         """Two lines: what it registered as, and what it resolved to."""
         widget = QWidget()
-        _style(widget, "background: transparent;")
+        style_with_tooltip(widget, "background: transparent;")
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(12, 8, 10, 8)
         layout.setSpacing(2)
@@ -301,14 +254,14 @@ class PluginsDialog(QDialog):
         # declared target takes the line instead. A listing that only shows what
         # resolved cannot answer "why isn't mine here?".
         inactive = extension.is_problem
-        name = _ElidedLabel(extension.name or extension.target)
-        _style(
+        name = ElidedLabel(extension.name or extension.target)
+        style_with_tooltip(
             name,
             f"{_MONOSPACE} font-size: 13px; background: transparent;"
             f"color: {_TEXT_MUTED if inactive else _TEXT_STRONG};",
         )
-        detail = _ElidedLabel(_detail_line(extension))
-        _style(
+        detail = ElidedLabel(_detail_line(extension))
+        style_with_tooltip(
             detail,
             f"font-size: 11px; background: transparent;"
             f"color: {_reason_colour(extension)};",
@@ -321,7 +274,7 @@ class PluginsDialog(QDialog):
     def _source_cell(self, extension: Extension) -> QWidget:
         """The source chip, plus a shadowed chip where the name was taken."""
         widget = QWidget()
-        _style(widget, "background: transparent;")
+        style_with_tooltip(widget, "background: transparent;")
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(8, 6, 8, 6)
         layout.setSpacing(4)
@@ -333,9 +286,9 @@ class PluginsDialog(QDialog):
             # use, so it does not get the in-use colour. The state chip beside
             # it carries the emphasis instead.
             colour = _TEXT_MUTED
-        layout.addWidget(self._chip(label, colour))
+        layout.addWidget(chip(label, colour))
         if extension.shadowed:
-            layout.addWidget(self._chip(_UNAVAILABLE_LABEL, _WARN))
+            layout.addWidget(chip(_UNAVAILABLE_LABEL, _WARN))
         layout.addStretch()
         widget.setToolTip(extension.problem or f"Source: {label}")
         return widget
