@@ -1766,7 +1766,7 @@ class _StubHost:
     # ── reading through to the tab ───────────────────────────────────────
     # Test scaffolding, not production shims: these say "what the window can see of the
     # tab" so the window-level tests below read as they did before the tab was split
-    # out, while still going through the real `FluorescenceOverviewTab`.
+    # out, while still going through the real `AutoLamellaFluorescenceOverviewTab`.
 
     @property
     def fm_overview_widget(self):
@@ -3006,7 +3006,7 @@ def test_a_refused_add_is_reported_rather_than_raised(qapp, tmp_path):
 def test_moving_asks_before_it_moves_anything(qapp, tmp_path, monkeypatch):
     """Moving one pose moves both, and the milling pose is not visible from this canvas.
     Said rather than assumed."""
-    from fibsem.applications.autolamella.ui import fluorescence_overview_tab as module
+    from fibsem.applications.autolamella.ui import autolamella_fluorescence_overview_tab as module
     from fibsem.ui.fm.overview_app import build_microscope
 
     host = _wired_host(qapp, tmp_path)
@@ -3035,7 +3035,7 @@ def test_moving_asks_before_it_moves_anything(qapp, tmp_path, monkeypatch):
 
 
 def test_confirming_a_move_moves_both_poses(qapp, tmp_path, monkeypatch):
-    from fibsem.applications.autolamella.ui import fluorescence_overview_tab as module
+    from fibsem.applications.autolamella.ui import autolamella_fluorescence_overview_tab as module
 
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
@@ -3064,7 +3064,7 @@ def test_a_move_rewrites_the_stage_positions_and_nothing_else(qapp, tmp_path, mo
     """A move is a move. The poses are edited in place rather than replaced, so the beam
     settings the lamella was marked with survive -- and so does the objective position,
     because the user moved sideways, they did not refocus."""
-    from fibsem.applications.autolamella.ui import fluorescence_overview_tab as module
+    from fibsem.applications.autolamella.ui import autolamella_fluorescence_overview_tab as module
 
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
@@ -3086,7 +3086,7 @@ def test_moving_a_lamella_that_has_no_fluorescence_pose_gives_it_one(
     """Possible on a lamella marked before there was an FM. It gets a whole new pose
     rather than an edit, and that one is built on what the lamella itself recorded --
     not on whatever the microscope happens to be set to now."""
-    from fibsem.applications.autolamella.ui import fluorescence_overview_tab as module
+    from fibsem.applications.autolamella.ui import autolamella_fluorescence_overview_tab as module
 
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
@@ -3109,7 +3109,7 @@ def test_moving_a_lamella_that_has_no_fluorescence_pose_gives_it_one(
 def test_a_move_re_derives_the_milling_angle(qapp, tmp_path, monkeypatch):
     """It is computed from the milling-pose stage tilt, so a pose that moved without it
     would leave the lamella claiming an angle its own pose no longer implies."""
-    from fibsem.applications.autolamella.ui import fluorescence_overview_tab as module
+    from fibsem.applications.autolamella.ui import autolamella_fluorescence_overview_tab as module
 
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
@@ -3131,7 +3131,7 @@ def test_a_move_re_derives_the_milling_angle(qapp, tmp_path, monkeypatch):
 def test_a_move_that_names_nothing_does_nothing(qapp, tmp_path, monkeypatch):
     """The canvas holds its selection by name and is rebuilt independently of the host's
     list, so a name can arrive for a lamella that is no longer there."""
-    from fibsem.applications.autolamella.ui import fluorescence_overview_tab as module
+    from fibsem.applications.autolamella.ui import autolamella_fluorescence_overview_tab as module
 
     host = _wired_host(qapp, tmp_path)
     lamella = _real_lamella("Lamella-01", host.autolamella_ui.microscope, tmp_path)
@@ -3293,7 +3293,7 @@ def test_switching_experiments_lets_go_of_the_old_one(qapp, tmp_path):
 def test_a_confirmed_move_re_marks_the_canvas(qapp, tmp_path, monkeypatch):
     """Otherwise the marker stays where the lamella used to be until something else
     happens to refresh it."""
-    from fibsem.applications.autolamella.ui import fluorescence_overview_tab as module
+    from fibsem.applications.autolamella.ui import autolamella_fluorescence_overview_tab as module
 
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
@@ -3315,10 +3315,10 @@ def test_a_confirmed_move_re_marks_the_canvas(qapp, tmp_path, monkeypatch):
 
 
 def _tab_with(qapp, tmp_path, positions=()):
-    """A `FluorescenceOverviewTab` with a live overview and an experiment."""
+    """A `AutoLamellaFluorescenceOverviewTab` with a live overview and an experiment."""
     import fibsem.config as fibsem_cfg
-    from fibsem.applications.autolamella.ui.fluorescence_overview_tab import (
-        FluorescenceOverviewTab,
+    from fibsem.applications.autolamella.ui.autolamella_fluorescence_overview_tab import (
+        AutoLamellaFluorescenceOverviewTab,
     )
     from fibsem.ui.fm.overview_app import build_microscope
 
@@ -3331,7 +3331,7 @@ def _tab_with(qapp, tmp_path, positions=()):
         "_UI", (), {"microscope": microscope, "experiment": experiment}
     )()
     ui.update_ui = lambda: None
-    tab = FluorescenceOverviewTab(ui)
+    tab = AutoLamellaFluorescenceOverviewTab(ui)
     tab.refresh_microscope()
     qapp.processEvents()
     return tab

@@ -39,7 +39,7 @@ if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.applications.autolamella.structures import Lamella
 
 
-class FluorescenceOverviewTab(QWidget):
+class AutoLamellaFluorescenceOverviewTab(QWidget):
     """Drives `FMOverviewWidget` on behalf of an experiment.
 
     Built empty and filled in on connection: `FMOverviewWidget` requires a microscope

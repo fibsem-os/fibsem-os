@@ -40,8 +40,8 @@ from fibsem.versioning import get_version_string
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, Lamella
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI, INSTRUCTIONS
-from fibsem.applications.autolamella.ui.fluorescence_overview_tab import (
-    FluorescenceOverviewTab,
+from fibsem.applications.autolamella.ui.autolamella_fluorescence_overview_tab import (
+    AutoLamellaFluorescenceOverviewTab,
 )
 from fibsem.applications.autolamella.workflows.tasks.queue import QueueOp, QueueResult
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
@@ -2091,10 +2091,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         The tab is created empty. `FMOverviewWidget` requires a microscope with a
         fluorescence detector at construction -- it has no meaningful empty state, since
         every scale on its canvas comes from the camera -- and at this point there may be
-        no microscope at all. :class:`FluorescenceOverviewTab` fills itself in on
+        no microscope at all. :class:`AutoLamellaFluorescenceOverviewTab` fills itself in on
         connection, and says so through `availability_changed`.
         """
-        self.fm_overview_tab = FluorescenceOverviewTab(self.autolamella_ui)
+        self.fm_overview_tab = AutoLamellaFluorescenceOverviewTab(self.autolamella_ui)
         self.fm_overview_tab.availability_changed.connect(
             self._on_fm_overview_availability
         )
