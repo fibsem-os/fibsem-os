@@ -338,12 +338,12 @@ class FMOverviewWidget(QWidget):
         )
 
         controls = QWidget()
-        controls_layout = QVBoxLayout(controls)
-        controls_layout.setContentsMargins(8, 8, 8, 8)
-        controls_layout.setSpacing(10)
-        controls_layout.addWidget(self._section("Channels", self.channel_widget))
-        controls_layout.addWidget(self.settings_widget)
-        controls_layout.addStretch()
+        self._controls_layout = QVBoxLayout(controls)
+        self._controls_layout.setContentsMargins(8, 8, 8, 8)
+        self._controls_layout.setSpacing(10)
+        self._controls_layout.addWidget(self._section("Channels", self.channel_widget))
+        self._controls_layout.addWidget(self.settings_widget)
+        self._controls_layout.addStretch()
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -751,6 +751,32 @@ class FMOverviewWidget(QWidget):
             logging.debug(f"Could not place {position} in the canvas frame: {e}")
             return (0.0, 0.0)
 
+    def add_settings_section(self, title: str, widget: QWidget, first: bool = True) -> None:
+        """Put a host's own controls in the settings column, under *title*.
+
+        Part of the host contract, alongside `set_positions` and `set_save_directory`,
+        and for the same reason: some of what belongs on this tab needs to know things
+        this widget must not. A list of the experiment's lamellae is the case in point --
+        its rows subscribe to `lamella.events.description` and read task and defect
+        state, so it cannot be built here without dragging the whole application layer
+        in behind it.
+
+        A slot rather than the host laying out its own column beside this one, because
+        the alternative reads as a third pane: the settings already have a column, and
+        these controls belong *in* it, next to everything else that is about the run.
+
+        `first` because a host's section is usually the subject of the tab rather than a
+        footnote to it -- what you came to look at, above the parameters of the next
+        acquisition. Appended before the trailing stretch either way, so the column
+        stays top-aligned.
+        """
+        section = self._section(title, widget)
+        if first:
+            self._controls_layout.insertWidget(0, section)
+        else:
+            # -1 is the stretch added in `_init_ui`; stay above it.
+            self._controls_layout.insertWidget(self._controls_layout.count() - 1, section)
+
     def set_positions(self, positions: List[FibsemStagePosition]) -> None:
         """Stage positions to mark on the overview, e.g. saved lamella positions.
 
@@ -1113,25 +1139,48 @@ class FMOverviewWidget(QWidget):
         coincidence viewer: a single click is how the canvas is explored, and a stage
         that moved on every stray click would be unusable.
         """
+        target = self._stage_position_at(x, y) if self._may_move() else None
+        if target is None:
+            return
+        self.move_to(target)
+
+    def _may_move(self) -> bool:
+        """Whether driving the stage from this tab is allowed right now, and say if not."""
         if self.is_acquiring:
             notification_service.show_toast(
                 "Cannot move the stage during an acquisition.", "warning"
             )
-            return
+            return False
         if not self.fm.has_valid_orientation():
             notification_service.show_toast(
                 f"Stage must be in a valid FM orientation to move via the overview "
                 f"(currently {self.microscope.get_stage_orientation()}).",
                 "warning",
             )
+            return False
+        return True
+
+    def move_to(self, position: FibsemStagePosition) -> None:
+        """Drive the stage to *position*, off the GUI thread.
+
+        Public because a host drives it too -- picking a saved position out of a list is
+        the same act as double-clicking where it is drawn, and they should not be able to
+        disagree about whether a move is allowed or how it is reported.
+
+        The limits are checked here rather than trusted from the caller: a stored
+        position can be outside them on a system it was not recorded on.
+        """
+        if not self._may_move():
+            return
+        limits = getattr(self.microscope._stage, "limits", None)
+        if limits and not position.is_within_limits(limits, axes=["x", "y"]):
+            notification_service.show_toast(
+                "That position is outside the stage limits.", "warning"
+            )
             return
 
-        target = self._stage_position_at(x, y)
-        if target is None:
-            return
-
-        self.status.setText(f"Moving to {self._describe(target)}…")
-        worker = FunctionWorker(self._move_worker, target)
+        self.status.setText(f"Moving to {self._describe(position)}…")
+        worker = FunctionWorker(self._move_worker, position)
         worker.start()
 
     def _on_canvas_right_clicked(self, x: float, y: float, modifiers=None) -> None:

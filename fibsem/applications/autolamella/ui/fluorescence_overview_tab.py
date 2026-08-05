@@ -33,6 +33,7 @@ from fibsem.applications.autolamella.poses import (
 from fibsem.ui import notification_service
 from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
 from fibsem.ui.utils import message_box_ui
+from fibsem.ui.widgets.custom_widgets import LamellaNameListWidget
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.applications.autolamella.structures import Lamella
@@ -51,6 +52,10 @@ class FluorescenceOverviewTab(QWidget):
     # disable the tab; this object deliberately does not touch the tab bar, which is the
     # one thing about the tab that is not its business.
     availability_changed = pyqtSignal(bool)
+    # A lamella was picked in this tab's own list. The window forwards it to the other
+    # lists; nothing here selects them directly, which is what keeps the sync in one
+    # place instead of four.
+    lamella_selected = pyqtSignal(object)
 
     def __init__(self, autolamella_ui, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -60,9 +65,20 @@ class FluorescenceOverviewTab(QWidget):
         # object, and the old widget would go on reading geometry from an instrument
         # nobody is driving (FIB-433), so the identity is worth keeping.
         self._microscope = None
+        # Set while this tab is the one driving a selection, so the highlight it gets
+        # back does not re-enter the list and fight whatever the user just clicked.
+        self._syncing_selection = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+
+        self.lamella_list = LamellaNameListWidget()
+        self.lamella_list.enable_actions_button(True)
+        self.lamella_list.enable_move_to_action(True)
+        self.lamella_list.enable_remove_button(True)
+        self.lamella_list.lamella_selected.connect(self._on_list_selection)
+        self.lamella_list.move_to_requested.connect(self._on_move_to_requested)
+        self.lamella_list.remove_requested.connect(self._on_remove_requested)
 
     # ── what the window asks ─────────────────────────────────────────────
 
@@ -115,6 +131,9 @@ class FluorescenceOverviewTab(QWidget):
 
         self.overview.position_add_requested.connect(self._on_add_requested)
         self.overview.position_move_requested.connect(self._on_move_requested)
+        # In the settings column rather than beside it: the positions are the subject of
+        # this tab, and a column of their own would read as a third pane.
+        self.overview.add_settings_section("Lamella Positions", self.lamella_list)
 
         self._microscope = microscope
         self.layout().addWidget(self.overview)
@@ -130,6 +149,18 @@ class FluorescenceOverviewTab(QWidget):
         """
         if self.overview is None:
             return
+        # Taken back before the widget goes. `add_settings_section` reparents the list
+        # into the overview's column, so Qt destroying the overview would destroy the
+        # list with it, and the next `refresh_microscope` would hand a dead C++ object to
+        # `add_settings_section`. The list belongs to this tab and outlives any one
+        # overview, so it is moved out rather than left to be collected.
+        #
+        # Kept as a precondition rather than because a test proves it: under the
+        # offscreen platform the deferred delete does not actually run, so the failure it
+        # prevents cannot be reproduced here. `test_the_list_survives_the_overview_being_
+        # rebuilt` covers the reuse, not this mechanism.
+        self.lamella_list.setParent(self)
+        self.lamella_list.hide()
         try:
             self.overview.close()
         except Exception as e:
@@ -168,6 +199,10 @@ class FluorescenceOverviewTab(QWidget):
         self.overview.set_selected_position(
             lamella.name if lamella is not None else None
         )
+        # Not while this tab is the one that raised the selection: the list already shows
+        # what the user clicked, and re-selecting it would fight them mid-click.
+        if not self._syncing_selection and lamella is not None:
+            self.lamella_list.select(lamella.name)
 
     def refresh_positions(self) -> None:
         """Mark the experiment's lamellae on the fluorescence canvas.
@@ -188,7 +223,13 @@ class FluorescenceOverviewTab(QWidget):
         experiment = self.experiment
         if experiment is None:
             self.overview.set_positions([])
+            self.lamella_list.set_lamella([])
             return
+
+        # Every lamella, including the ones the canvas cannot place. The list is how you
+        # find out a lamella exists but has no fluorescence pose -- dropping those here
+        # too would leave the log as the only place that says so.
+        self.lamella_list.set_lamella(list(experiment.positions))
 
         positions, unplaceable = [], []
         for lamella in experiment.positions:
@@ -215,6 +256,64 @@ class FluorescenceOverviewTab(QWidget):
         if self.overview is None:
             return
         self.overview.set_interactive(enabled)
+
+    # ── the list ─────────────────────────────────────────────────────────
+
+    def _on_list_selection(self, lamella) -> None:
+        """A row was clicked: highlight it on the canvas, and tell the window.
+
+        The flag is what stops the round trip. The window answers by syncing every list
+        it knows about, this tab included, and re-selecting the row under a click that
+        is still happening moves the selection out from under the user.
+        """
+        self._syncing_selection = True
+        try:
+            if self.overview is not None:
+                self.overview.set_selected_position(
+                    lamella.name if lamella is not None else None
+                )
+            self.lamella_selected.emit(lamella)
+        finally:
+            self._syncing_selection = False
+
+    def _on_move_to_requested(self, lamella) -> None:
+        """Drive the stage to a lamella's *fluorescence* pose.
+
+        Not `stage_position`, which is the milling pose: this tab looks at the sample
+        from the fluorescence side, and moving to the milling pose from here would swing
+        the stage 180 degrees away from the view you asked to centre.
+        """
+        if lamella is None:
+            return
+        pose = lamella.fluorescence_pose
+        if pose is None or pose.stage_position is None:
+            notification_service.show_toast(
+                f"{lamella.name} has no fluorescence pose to move to.", "warning"
+            )
+            return
+        if self.overview is None:
+            return
+        self.overview.move_to(pose.stage_position)
+
+    def _on_remove_requested(self, lamella) -> None:
+        """Remove a lamella from the experiment.
+
+        The row's own button already asked -- `_LamellaRow._on_remove_clicked` puts up
+        the confirmation before it emits -- so this does not ask twice.
+        """
+        experiment = self.experiment
+        if experiment is None or lamella is None:
+            return
+        try:
+            experiment.positions.remove(lamella)
+        except ValueError:
+            logging.debug(f"Cannot remove {lamella.name!r}: not in the experiment.")
+            return
+        experiment.save()
+        # `positions` is an EventedList, so the window's own rebuild has already run off
+        # `removed` and re-marked this canvas. Saying it again would be a second full
+        # redraw for nothing.
+        notification_service.show_toast(f"Removed {lamella.name}.", "info")
 
     # ── turning a request into a lamella ─────────────────────────────────
 

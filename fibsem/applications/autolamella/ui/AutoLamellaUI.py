@@ -1257,19 +1257,20 @@ class AutoLamellaUI(QMainWindow):
             marked_at=marked_at,
         )
 
-        # create the lamella
+        # create the lamella, with both poses already on it -- see
+        # `Experiment.add_new_lamella`. Assigning the fluorescence pose after the append
+        # left every listener that redraws on `inserted` deciding the new lamella had
+        # none, which is how each newly marked lamella went missing from the FM overview.
         self.experiment.add_new_lamella(
             microscope_state=poses.milling,
             task_config=self.experiment.task_protocol.task_config,
             name=name,
+            fluorescence_pose=poses.fluorescence,
         )
         lamella = self.experiment.positions[-1]
 
         # derive the milling angle from the milling-pose stage tilt
         lamella.update_milling_angle(self.microscope)
-
-        if poses.fluorescence is not None:
-            lamella.fluorescence_pose = poses.fluorescence
 
         self.experiment.save()
         self.update_lamella_combobox(latest=True)

@@ -1446,8 +1446,20 @@ class Experiment:
     def add_new_lamella(self,
                         microscope_state: MicroscopeState,
                         task_config: EventedDict[str, AutoLamellaTaskConfig],
-                        name: Optional[str] = None) -> None:
-        """Create a new lamella and add it to the experiment."""
+                        name: Optional[str] = None,
+                        fluorescence_pose: Optional[MicroscopeState] = None) -> None:
+        """Create a new lamella and add it to the experiment.
+
+        Args:
+            fluorescence_pose: where the lamella is under the objective, if the caller
+                worked one out. Passed in rather than assigned by the caller afterwards
+                because `add_lamella` publishes `positions.events.inserted`, and
+                everything drawing the experiment redraws on it -- a pose attached a
+                moment later arrives after every listener has already decided this
+                lamella has none. That is not hypothetical: it left each newly marked
+                lamella missing from the FM overview until something else forced a
+                refresh.
+        """
         template = self.task_protocol.lamella_defaults
         number = max((pos.number for pos in self.positions), default=0) + 1
         if name is None:
@@ -1468,6 +1480,8 @@ class Experiment:
         if template.poi is not None:
             lamella.poi = deepcopy(template.poi)
         lamella.milling_pose = microscope_state
+        if fluorescence_pose is not None:
+            lamella.fluorescence_pose = fluorescence_pose
 
         # create the lamella directory
         os.makedirs(lamella.path, exist_ok=True)

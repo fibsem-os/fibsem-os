@@ -1732,6 +1732,7 @@ class _StubHost:
     _apply_fm_overview_visibility = _Real._apply_fm_overview_visibility
     _on_fm_overview_availability = _Real._on_fm_overview_availability
     _refresh_fm_overview_positions = _Real._refresh_fm_overview_positions
+    _on_fm_overview_lamella_selected = _Real._on_fm_overview_lamella_selected
     _set_minimap_workflow_enabled = _Real._set_minimap_workflow_enabled
     _rebuild_lamella_list = _Real._rebuild_lamella_list
     _wire_position_events = _Real._wire_position_events
@@ -2538,27 +2539,32 @@ def test_the_selection_survives_the_positions_being_rebuilt(qapp):
     widget.close()
 
 
-def _lamella_with_poses(name: str, microscope, x: float, y: float):
-    """A stand-in lamella carrying both poses, built the way the app builds them."""
+def _lamella_with_poses(name: str, microscope, tmp_path, x: float, y: float):
+    """A lamella carrying both poses, built the way the app builds them.
+
+    A real `Lamella`, not a stand-in with the two attributes this used to need. The
+    settings column now holds a `LamellaNameListWidget`, whose rows subscribe to
+    `lamella.events.description` and read the task and defect state -- which is exactly
+    why that list cannot live inside `FMOverviewWidget`, and why the tab that owns it is
+    in the autolamella package.
+    """
     from fibsem.applications.autolamella.poses import (
         MILLING_ORIENTATION,
         build_lamella_poses,
     )
+    from fibsem.applications.autolamella.structures import Lamella
     from fibsem.structures import FibsemStagePosition
 
     beam = microscope.get_orientation(MILLING_ORIENTATION)
     marked = FibsemStagePosition(x=x, y=y, z=0.0, r=beam.r, t=beam.t)
     poses = build_lamella_poses(microscope, marked)
-    return type(
-        "_Lamella", (), {
-            "name": name,
-            "fluorescence_pose": poses.fluorescence,
-            "milling_pose": poses.milling,
-        },
-    )()
+    lamella = Lamella(petname=name, path=str(tmp_path / name), number=1)
+    lamella.milling_pose = poses.milling
+    lamella.fluorescence_pose = poses.fluorescence
+    return lamella
 
 
-def test_the_host_marks_lamellae_by_their_fluorescence_pose(qapp):
+def test_the_host_marks_lamellae_by_their_fluorescence_pose(qapp, tmp_path):
     """The trap this half exists to avoid. A lamella carries a milling pose and a
     fluorescence pose, and on a compustage the stage flips 180 degrees between them —
     so marking the milling pose would put every lamella somewhere the sample is not.
@@ -2570,7 +2576,7 @@ def test_the_host_marks_lamellae_by_their_fluorescence_pose(qapp):
     widget = host.fm_overview_widget
     microscope = host.autolamella_ui.microscope
 
-    lamella = _lamella_with_poses("Lamella-01", microscope, 100e-6, 50e-6)
+    lamella = _lamella_with_poses("Lamella-01", microscope, tmp_path, 100e-6, 50e-6)
     host.autolamella_ui.experiment = type(
         "_Exp", (), {"path": "/tmp", "positions": [lamella]}
     )()
@@ -2585,7 +2591,7 @@ def test_the_host_marks_lamellae_by_their_fluorescence_pose(qapp):
     host._teardown_fm_overview_widget()
 
 
-def test_a_lamella_with_no_fluorescence_pose_is_skipped_not_misplaced(qapp):
+def test_a_lamella_with_no_fluorescence_pose_is_skipped_not_misplaced(qapp, tmp_path):
     """It cannot be placed on this canvas at all — normal on a system with no FM, and
     possible on an older experiment. Better absent than drawn somewhere invented."""
     from fibsem.ui.fm.overview_app import build_microscope
@@ -2594,8 +2600,9 @@ def test_a_lamella_with_no_fluorescence_pose_is_skipped_not_misplaced(qapp):
     host._build_fm_overview_widget()
     microscope = host.autolamella_ui.microscope
 
-    placeable = _lamella_with_poses("Lamella-01", microscope, 100e-6, 50e-6)
-    orphan = type("_Lamella", (), {"name": "Lamella-02", "fluorescence_pose": None})()
+    placeable = _lamella_with_poses("Lamella-01", microscope, tmp_path, 100e-6, 50e-6)
+    orphan = _lamella_with_poses("Lamella-02", microscope, tmp_path, 0.0, 0.0)
+    del orphan.poses["FLUORESCENCE"]
     host.autolamella_ui.experiment = type(
         "_Exp", (), {"path": "/tmp", "positions": [placeable, orphan]}
     )()
@@ -2607,7 +2614,7 @@ def test_a_lamella_with_no_fluorescence_pose_is_skipped_not_misplaced(qapp):
     host._teardown_fm_overview_widget()
 
 
-def test_no_experiment_clears_the_marked_positions(qapp):
+def test_no_experiment_clears_the_marked_positions(qapp, tmp_path):
     from fibsem.ui.fm.overview_app import build_microscope
 
     host = _StubHost(microscope=build_microscope())
@@ -2616,7 +2623,7 @@ def test_no_experiment_clears_the_marked_positions(qapp):
     host.autolamella_ui.experiment = type(
         "_Exp", (), {
             "path": "/tmp",
-            "positions": [_lamella_with_poses("Lamella-01", microscope, 100e-6, 50e-6)],
+            "positions": [_lamella_with_poses("Lamella-01", microscope, tmp_path, 100e-6, 50e-6)],
         },
     )()
     host._update_fm_overview_positions()
@@ -3302,3 +3309,316 @@ def test_a_confirmed_move_re_marks_the_canvas(qapp, tmp_path, monkeypatch):
     assert host.fm_overview_widget._positions[0].x != pytest.approx(before)
 
     host._teardown_fm_overview_widget()
+
+
+# ── the lamella list in the settings column ──────────────────────────────
+
+
+def _tab_with(qapp, tmp_path, positions=()):
+    """A `FluorescenceOverviewTab` with a live overview and an experiment."""
+    import fibsem.config as fibsem_cfg
+    from fibsem.applications.autolamella.ui.fluorescence_overview_tab import (
+        FluorescenceOverviewTab,
+    )
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    # The tab is behind a preference that is off by default, and `refresh_microscope`
+    # reads it. `_restore_fm_overview_flag` puts it back afterwards.
+    fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED = True
+    microscope = build_microscope()
+    experiment = _experiment_with(positions, tmp_path)
+    ui = type(
+        "_UI", (), {"microscope": microscope, "experiment": experiment}
+    )()
+    ui.update_ui = lambda: None
+    tab = FluorescenceOverviewTab(ui)
+    tab.refresh_microscope()
+    qapp.processEvents()
+    return tab
+
+
+def test_the_list_sits_in_the_settings_column(qapp, tmp_path):
+    """Not in a column of its own beside it: the positions are the subject of this tab,
+    and a third pane would read as somewhere else to look."""
+    tab = _tab_with(qapp, tmp_path)
+
+    # its way up the tree reaches the overview, not the tab directly
+    parents, w = [], tab.lamella_list
+    while w is not None:
+        parents.append(w)
+        w = w.parent()
+
+    assert tab.overview in parents
+    assert tab.lamella_list.isVisibleTo(tab.overview)
+
+    tab._drop_overview()
+
+
+def test_the_list_shows_every_lamella_including_the_unplaceable(qapp, tmp_path):
+    """The canvas can only draw the ones with a fluorescence pose. The list is how you
+    find out the others exist at all -- dropping them here too would leave the log as the
+    only place that says so."""
+    tab = _tab_with(qapp, tmp_path)
+    microscope = tab.microscope
+    placeable = _lamella_with_poses("Lamella-01", microscope, tmp_path, 100e-6, 50e-6)
+    orphan = _lamella_with_poses("Lamella-02", microscope, tmp_path, 0.0, 0.0)
+    del orphan.poses["FLUORESCENCE"]
+    tab.experiment.positions.extend([placeable, orphan])
+
+    tab.refresh_positions()
+
+    from PyQt5.QtCore import Qt
+
+    names = [
+        tab.lamella_list._list.item(i).data(Qt.UserRole).name
+        for i in range(tab.lamella_list._list.count())
+    ]
+    assert names == ["Lamella-01", "Lamella-02"]
+    # ...while the canvas draws only the one it can place
+    assert [p.name for p in tab.overview._positions] == ["Lamella-01"]
+
+    tab._drop_overview()
+
+
+def test_picking_a_row_highlights_it_on_the_canvas(qapp, tmp_path):
+    tab = _tab_with(qapp, tmp_path)
+    microscope = tab.microscope
+    tab.experiment.positions.extend([
+        _lamella_with_poses("Lamella-01", microscope, tmp_path, 100e-6, 50e-6),
+        _lamella_with_poses("Lamella-02", microscope, tmp_path, -80e-6, 20e-6),
+    ])
+    tab.refresh_positions()
+    qapp.processEvents()
+
+    tab.lamella_list.select("Lamella-02")
+    qapp.processEvents()
+
+    assert tab.overview.selected_position == "Lamella-02"
+
+    tab._drop_overview()
+
+
+def test_picking_a_row_tells_the_window(qapp, tmp_path):
+    """The other lists are synced by the window, not from here -- one place doing it
+    beats four talking to each other."""
+    tab = _tab_with(qapp, tmp_path)
+    microscope = tab.microscope
+    tab.experiment.positions.extend([
+        _lamella_with_poses("Lamella-01", microscope, tmp_path, 100e-6, 50e-6),
+        _lamella_with_poses("Lamella-02", microscope, tmp_path, -80e-6, 20e-6),
+    ])
+    tab.refresh_positions()
+    qapp.processEvents()
+    seen = []
+    tab.lamella_selected.connect(lambda lamella: seen.append(lamella))
+
+    # the second, because populating restores the selection to the first -- picking a
+    # row that is already current emits nothing
+    tab.lamella_list.select("Lamella-02")
+    qapp.processEvents()
+
+    assert [lamella.name for lamella in seen if lamella is not None] == ["Lamella-02"]
+
+    tab._drop_overview()
+
+
+def test_a_selection_arriving_from_elsewhere_reaches_the_list(qapp, tmp_path):
+    tab = _tab_with(qapp, tmp_path)
+    microscope = tab.microscope
+    tab.experiment.positions.extend([
+        _lamella_with_poses("Lamella-01", microscope, tmp_path, 100e-6, 50e-6),
+        _lamella_with_poses("Lamella-02", microscope, tmp_path, -80e-6, 20e-6),
+    ])
+    tab.refresh_positions()
+    qapp.processEvents()
+
+    tab.set_selected(tab.experiment.positions[1])
+    qapp.processEvents()
+
+    assert tab.lamella_list.selected_name == "Lamella-02"
+    assert tab.overview.selected_position == "Lamella-02"
+
+    tab._drop_overview()
+
+
+def test_move_to_drives_the_stage_to_the_fluorescence_pose(qapp, tmp_path, monkeypatch):
+    """Not `stage_position`, which is the milling pose. This tab looks at the sample from
+    the fluorescence side, and moving to the milling pose would swing the stage 180
+    degrees away from the view you asked to centre."""
+    from fibsem.ui.fm.widgets import fm_overview_widget as module
+
+    tab = _tab_with(qapp, tmp_path)
+    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    microscope = tab.microscope
+    lamella = _lamella_with_poses("Lamella-01", microscope, tmp_path, 300e-6, -150e-6)
+    tab.experiment.positions.append(lamella)
+    tab.refresh_positions()
+
+    tab._on_move_to_requested(lamella)
+    qapp.processEvents()
+
+    arrived = microscope.get_stage_position()
+    fm_pose = lamella.fluorescence_pose.stage_position
+    assert arrived.x == pytest.approx(fm_pose.x, abs=1e-9)
+    assert arrived.y == pytest.approx(fm_pose.y, abs=1e-9)
+    assert microscope.get_stage_orientation(arrived) == "FM"
+    assert arrived.t != pytest.approx(lamella.milling_pose.stage_position.t)
+
+    tab._drop_overview()
+
+
+def test_move_to_a_lamella_with_no_fluorescence_pose_is_refused(qapp, tmp_path, monkeypatch):
+    from fibsem.ui.fm.widgets import fm_overview_widget as module
+
+    tab = _tab_with(qapp, tmp_path)
+    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    microscope = tab.microscope
+    lamella = _lamella_with_poses("Lamella-01", microscope, tmp_path, 300e-6, -150e-6)
+    del lamella.poses["FLUORESCENCE"]
+    tab.experiment.positions.append(lamella)
+    before = microscope.get_stage_position()
+
+    tab._on_move_to_requested(lamella)  # must not raise
+    qapp.processEvents()
+
+    assert microscope.get_stage_position().x == pytest.approx(before.x)
+
+    tab._drop_overview()
+
+
+def test_removing_a_lamella_takes_it_off_the_list_and_the_canvas(qapp, tmp_path):
+    tab = _tab_with(qapp, tmp_path)
+    microscope = tab.microscope
+    keep = _lamella_with_poses("Lamella-01", microscope, tmp_path, 100e-6, 50e-6)
+    drop = _lamella_with_poses("Lamella-02", microscope, tmp_path, -80e-6, 20e-6)
+    tab.experiment.positions.extend([keep, drop])
+    tab.refresh_positions()
+
+    tab._on_remove_requested(drop)
+    tab.refresh_positions()  # the window's rebuild does this off `removed`
+
+    assert list(tab.experiment.positions) == [keep]
+    assert [p.name for p in tab.overview._positions] == ["Lamella-01"]
+    assert tab.experiment.saves == 1
+
+    tab._drop_overview()
+
+
+def test_the_list_survives_the_overview_being_rebuilt(qapp, tmp_path):
+    """A reconnection replaces the overview. The list belongs to the tab, so it is the
+    same object afterwards, still populated, and sitting in the *new* column.
+
+    It does not verify the reparent in `_drop_overview` that makes this safe against Qt
+    ownership: the offscreen platform never actually runs the deferred delete, so the
+    old overview is still alive either way and the mechanism cannot be reproduced here.
+    Removing that reparent leaves this test passing -- checked."""
+    tab = _tab_with(qapp, tmp_path)
+    microscope = tab.microscope
+    tab.experiment.positions.append(
+        _lamella_with_poses("Lamella-01", microscope, tmp_path, 100e-6, 50e-6)
+    )
+    tab.refresh_positions()
+    first = tab.lamella_list
+
+    from PyQt5.QtCore import QEvent
+
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    tab.autolamella_ui.microscope = build_microscope()
+    tab.refresh_microscope()  # a reconnection: new microscope, new overview
+    # `deleteLater` is deferred, so without this the old overview is still alive at
+    # assert time and a list left inside it would look fine. A running event loop does
+    # this for you; a test has to ask.
+    qapp.sendPostedEvents(None, QEvent.DeferredDelete)
+    qapp.processEvents()
+
+    assert tab.lamella_list is first, "the list was replaced"
+    assert tab.lamella_list.selected_name == "Lamella-01", "the list lost its contents"
+    parents, w = [], tab.lamella_list
+    while w is not None:
+        parents.append(w)
+        w = w.parent()
+    assert tab.overview in parents, "the list did not move to the new overview"
+
+    tab._drop_overview()
+
+
+def test_a_lamella_is_complete_before_anyone_is_told_about_it(qapp, tmp_path):
+    """The reported bug: a position added from the FIB/SEM minimap was missing from the
+    FM overview -- always the newest one, and only until something else forced a refresh.
+
+    `add_lamella` publishes `inserted`, and everything drawing the experiment redraws on
+    it. The fluorescence pose used to be assigned three lines *after* that, so every
+    listener decided the new lamella had none and skipped it as unplaceable.
+
+    Asserted at the moment the signal fires, because that is the only moment it was ever
+    wrong: by the time `add_new_lamella` returned, the pose was there.
+    """
+    from psygnal.containers import EventedDict
+
+    from fibsem.applications.autolamella.poses import (
+        MILLING_ORIENTATION,
+        build_lamella_poses,
+    )
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
+    from fibsem.structures import FibsemStagePosition
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    microscope = build_microscope()
+    experiment = _real_experiment(tmp_path)
+    experiment.task_protocol = AutoLamellaTaskProtocol()
+
+    seen = []
+    experiment.positions.events.inserted.connect(
+        lambda *_: seen.append(experiment.positions[-1].fluorescence_pose is not None)
+    )
+
+    beam = microscope.get_orientation(MILLING_ORIENTATION)
+    poses = build_lamella_poses(
+        microscope,
+        FibsemStagePosition(x=100e-6, y=50e-6, z=0.0, r=beam.r, t=beam.t),
+    )
+    experiment.add_new_lamella(
+        microscope_state=poses.milling,
+        task_config=EventedDict(),
+        fluorescence_pose=poses.fluorescence,
+    )
+
+    assert seen == [True], "the lamella was published before it had a fluorescence pose"
+
+
+def test_a_lamella_added_from_elsewhere_lands_on_the_canvas_immediately(qapp, tmp_path):
+    """The same bug, end to end: nothing calls the FM refresh by hand on this path, so
+    the marker has to be there off the `inserted` event alone."""
+    from psygnal.containers import EventedDict
+
+    from fibsem.applications.autolamella.poses import (
+        MILLING_ORIENTATION,
+        build_lamella_poses,
+    )
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
+    from fibsem.structures import FibsemStagePosition
+
+    tab = _tab_with(qapp, tmp_path)
+    microscope = tab.microscope
+    experiment = _real_experiment(tmp_path / "exp")
+    experiment.task_protocol = AutoLamellaTaskProtocol()
+    tab.autolamella_ui.experiment = experiment
+    experiment.positions.events.inserted.connect(lambda *_: tab.refresh_positions())
+
+    beam = microscope.get_orientation(MILLING_ORIENTATION)
+    poses = build_lamella_poses(
+        microscope,
+        FibsemStagePosition(x=100e-6, y=50e-6, z=0.0, r=beam.r, t=beam.t),
+    )
+    experiment.add_new_lamella(
+        microscope_state=poses.milling,
+        task_config=EventedDict(),
+        name="Lamella-01",
+        fluorescence_pose=poses.fluorescence,
+    )
+    qapp.processEvents()
+
+    assert [p.name for p in tab.overview._positions] == ["Lamella-01"]
+
+    tab._drop_overview()

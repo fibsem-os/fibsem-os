@@ -2098,6 +2098,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.fm_overview_tab.availability_changed.connect(
             self._on_fm_overview_availability
         )
+        self.fm_overview_tab.lamella_selected.connect(self._on_fm_overview_lamella_selected)
 
         self.tab_widget.insertTab(
             2, self.fm_overview_tab,
@@ -2107,6 +2108,22 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.tab_widget.indexOf(self.fm_overview_tab), False
         )
         self._apply_fm_overview_visibility()
+
+    def _on_fm_overview_lamella_selected(self, lamella):
+        """Sync the other lists when the FM overview's list selection changes.
+
+        The same shape as `_on_minimap_lamella_selected`, minus the call back into the
+        FM tab: it raised this, and it has already highlighted what was clicked.
+        """
+        if getattr(self, "_syncing_selection", False) or lamella is None:
+            return
+        self._syncing_selection = True
+        try:
+            self.autolamella_ui.lamella_list.select(lamella.name)
+            if hasattr(self, "lamella_card_container"):
+                self.lamella_card_container.select_lamella(lamella.name)
+        finally:
+            self._syncing_selection = False
 
     def _refresh_fm_overview_positions(self):
         """Re-mark the FM overview, tolerating there being no tab.
