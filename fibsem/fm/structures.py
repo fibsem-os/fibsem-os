@@ -51,6 +51,7 @@ from ome_types.model import (
 from fibsem.structures import (  # noqa: F401
     AutoFocusMode,
     CameraImageTransform,
+    FibsemExperimentRef,
     FibsemHardwareGeometry,
     FibsemRectangle,
     FibsemStagePosition,
@@ -848,6 +849,10 @@ class FluorescenceImage:
             filename=self.metadata.filename,
             description=self.metadata.description,
             system_info=self.metadata.system_info,
+            # A projection of a lamella's image is still that lamella's. Carried
+            # forward so a derived image does not lose what produced it (FIB-466).
+            experiment=self.metadata.experiment,
+            geometry=self.metadata.geometry,
             dimension_order=self.metadata.dimension_order,
         )
 
@@ -980,6 +985,10 @@ class FluorescenceImage:
             filename=self.metadata.filename,
             description=self.metadata.description,
             system_info=self.metadata.system_info,
+            # A projection of a lamella's image is still that lamella's. Carried
+            # forward so a derived image does not lose what produced it (FIB-466).
+            experiment=self.metadata.experiment,
+            geometry=self.metadata.geometry,
             dimension_order=self.metadata.dimension_order,
         )
 
@@ -1217,6 +1226,13 @@ class FluorescenceImageMetadata:
     # the right place.
     geometry: Optional[FibsemHardwareGeometry] = None
 
+    # Which experiment, item and task produced this. The same record the beam path
+    # carries, for the same reason: a forwarded file should say what produced it
+    # without the surrounding directory (FIB-466). None on images written before this
+    # was recorded, on ones acquired outside a workflow, and on ones written by other
+    # software -- `from_ome` reconstructs from OME's own fields and cannot recover it.
+    experiment: Optional[FibsemExperimentRef] = None
+
     # File information
     filename: Optional[str] = None  # original filename
     description: Optional[str] = None  # image description/notes
@@ -1276,6 +1292,7 @@ class FluorescenceImageMetadata:
             "description": self.description,
             "system_info": self.system_info,
             "geometry": self.geometry.to_dict() if self.geometry else None,
+            "experiment": self.experiment.to_dict() if self.experiment else None,
             "channels": [
                 {
                     "name": ch.name,
@@ -1349,11 +1366,24 @@ class FluorescenceImageMetadata:
                 if metadata_dict.get("geometry")
                 else None
             ),
+            experiment=(
+                FibsemExperimentRef.from_dict(metadata_dict["experiment"])
+                if metadata_dict.get("experiment")
+                else None
+            ),
         )
     
     @classmethod
     def from_ome(cls, ome: OMEMetadata) -> 'FluorescenceImageMetadata':
-        """Convert OME metadata to FluorescenceImageMetadata with availability checks."""
+        """Convert OME metadata to FluorescenceImageMetadata with availability checks.
+
+        For importing images from **external software**. `load` prefers the
+        `FluorescenceImageMetadata` map annotation, which is what this package writes
+        and which round-trips everything; this reconstructs from OME's own structured
+        fields, so anything with no OME equivalent -- `system_info`, `geometry`,
+        `experiment` -- comes back None. That is the honest answer for a file another
+        program produced, not a gap to fill in with defaults.
+        """
 
         # TODO: add test cases for this function
         # TODO: support loading power, gain, offset from OME if available

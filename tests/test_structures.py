@@ -490,7 +490,17 @@ def test_only_system_info_carries_the_software_versions():
         assert key in info, f"SystemInfo should own {key}"
         assert key not in ref, f"the experiment reference should not duplicate {key}"
 
-    assert set(ref) == {"id", "name", "date"}
+    # Identity, at both rates: which experiment (set once at registration) and where
+    # in it (set per task, FIB-466). Nothing about the software or the instrument.
+    assert set(ref) == {
+        "id",
+        "name",
+        "date",
+        "item_id",
+        "item_name",
+        "task_id",
+        "task_name",
+    }
     # Neither, since v5: it was declared in both and populated in neither. An
     # application inside fibsem has no version of its own, and fibsem_revision
     # already pins the commit doing the work.

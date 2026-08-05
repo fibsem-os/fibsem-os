@@ -162,6 +162,12 @@ class AutoLamellaTask(ABC):
                 logging.exception(f"Could not record the outcome of {self.task_name}")
             self._fire_hook("task_cancelled" if cancelled else "task_failed", error=str(e))
             raise
+        finally:
+            # In a finally, not in post_task, which never runs when _run() raises. Left
+            # set, the next thing acquired -- an operator looking at what went wrong,
+            # a supervision step -- would be stamped with the task that just failed.
+            # That is silently wrong, and wrong exactly when the record matters most.
+            self.microscope.experiment.clear_workflow_metadata()
         self.post_task()
         self._fire_hook("task_completed")
 
@@ -233,6 +239,16 @@ class AutoLamellaTask(ABC):
         self.lamella.task_state.status = AutoLamellaTaskStatus.InProgress
         self.lamella.task_state.status_message = ""
         self.lamella.task_state.outputs = {}
+
+        # Stamp onto everything acquired from here until run() clears it, so an image
+        # says which lamella and task produced it rather than relying on which folder
+        # it happens to sit in (FIB-466).
+        self.microscope.experiment.set_workflow_metadata(
+            item_id=self.lamella.id,
+            item_name=self.lamella.name,
+            task_id=self.task_id,
+            task_name=self.task_name,
+        )
         self.log_status_message(message="STARTED",
                                 display_message="Started",
                                 workflow_display_message=f"{self.lamella.name} [{self.display_name}]")

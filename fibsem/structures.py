@@ -1989,10 +1989,21 @@ class FibsemExperimentRef:
     The deference rule applies here because a richer record exists to defer to. It
     does not apply to every embedded copy -- see ``FibsemUser``.
 
-    **Identity only.** Which experiment, and when. What software was running is a
-    property of the running system, not of an experiment, so it lives on
-    ``SystemInfo`` and only there (FIB-445 D1, FIB-448). This carried duplicates of
-    it until v5.
+    **Identity only.** Which experiment, which item, which task, and when. What
+    software was running is a property of the running system, not of an experiment,
+    so it lives on ``SystemInfo`` and only there (FIB-445 D1, FIB-448). This carried
+    duplicates of it until v5.
+
+    **Two write rates, one record.** The experiment is set once at registration; the
+    item and task change as a run progresses and are written and cleared around each
+    one (FIB-466). They are kept together because they are one answer to one question
+    -- *what produced this image* -- and a reader wants "experiment X, lamella Y, task
+    Z" in one place rather than assembled from two.
+
+    That only works because every image gets its **own copy**: `_set_additional_metadata`
+    deepcopies this. It used to be shared by reference, which was harmless while
+    nothing mutated it, and would have silently rewritten the item on every
+    already-acquired image the moment one did.
     """
 
     # Experiment.id, a UUID -- stable, the join key. Held the experiment *name* up to
@@ -2005,12 +2016,58 @@ class FibsemExperimentRef:
     # time rather than its own creation time.
     date: float = field(default_factory=lambda: datetime.timestamp(datetime.now()))
 
+    # Where in the run. None outside a workflow -- the minimap, a manual acquisition,
+    # a script -- which is a real answer rather than missing information.
+    #
+    # "item" rather than "lamella": the core library has no reason to know what an
+    # application works through one at a time, and ``HookContext`` settled on the same
+    # word for the same reason. IDs *and* names because they answer different
+    # questions -- the name is what a person reads, the id is what a reader joins on
+    # and it survives a rename. Recording only names is the mistake FIB-446 fixed for
+    # the experiment itself.
+    item_id: Optional[str] = None
+    item_name: Optional[str] = None
+    task_id: Optional[str] = None
+    task_name: Optional[str] = None
+
+    def set_workflow_metadata(
+        self,
+        item_id: Optional[str] = None,
+        item_name: Optional[str] = None,
+        task_id: Optional[str] = None,
+        task_name: Optional[str] = None,
+    ) -> None:
+        """Record what subsequent images should say about where in the run they were
+        taken, leaving experiment identity alone.
+
+        Named ``..._metadata`` because that is all it does. It does not start, select
+        or configure a workflow -- several widgets have a ``set_workflow*`` that does
+        something along those lines, and this is not one of them.
+        """
+        self.item_id = item_id
+        self.item_name = item_name
+        self.task_id = task_id
+        self.task_name = task_name
+
+    def clear_workflow_metadata(self) -> None:
+        """Stop stamping an item and task, keeping the experiment.
+
+        A method rather than four assignments at the call site: this has to run on
+        every path out of a task, and the one thing it must never do is take the
+        experiment's own identity with it.
+        """
+        self.set_workflow_metadata()
+
     def to_dict(self) -> dict:
         """Converts to a dictionary."""
         return {
             "id": self.id,
             "name": self.name,
             "date": self.date,
+            "item_id": self.item_id,
+            "item_name": self.item_name,
+            "task_id": self.task_id,
+            "task_name": self.task_name,
         }
 
     @staticmethod
@@ -2031,6 +2088,11 @@ class FibsemExperimentRef:
             # eras apart instead of being handed a name that claims to be an ID.
             name=settings.get("name"),
             date=settings.get("date", "Unknown"),
+            # Absent before v8, and in any image acquired outside a workflow.
+            item_id=settings.get("item_id"),
+            item_name=settings.get("item_name"),
+            task_id=settings.get("task_id"),
+            task_name=settings.get("task_name"),
         )
 
 

@@ -21,7 +21,10 @@ import fibsem
 # flag, which up to v5 had to be inferred from the model name.
 # v7 dropped `autogamma` from the recorded image settings along with the feature
 # itself (FIB-505). Older files still carry the key; it is ignored.
-METADATA_VERSION = "v7"
+# v8 added `workflow` -- which item and which task an image was acquired for
+# (FIB-466). Absent in earlier files, and absent in any image acquired outside a
+# workflow, which is a real answer rather than a missing one.
+METADATA_VERSION = "v8"
 # What an unversioned file is. Absent means written before versioning existed, i.e.
 # older than v1 -- not "current", which is what defaulting to METADATA_VERSION claimed.
 UNVERSIONED_METADATA = "v0"
