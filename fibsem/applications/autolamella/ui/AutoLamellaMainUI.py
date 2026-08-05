@@ -1702,6 +1702,34 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         label = f"{item.task_name} for {item.lamella_name}"
 
+        if action == "stop_task":
+            # Confirmed, unlike Remove: that edits a list, this interrupts an
+            # operation already under way on the sample.
+            # Built rather than QMessageBox.question(...): the difference from Stop
+            # is the point of asking at all, and everything in the text slot renders
+            # at question weight. The explanation belongs in the informative slot.
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Question)
+            box.setWindowTitle("Stop Task")
+            box.setText(f"Stop <b>{label}</b>?")
+            box.setInformativeText(
+                "It will be marked cancelled and the workflow will carry on with "
+                "the next queued task. Use Stop to end the whole run instead."
+            )
+            box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            box.setDefaultButton(QMessageBox.No)
+            if box.exec_() != QMessageBox.Yes:
+                return
+            # Two halves, as Stop Workflow has: tell the queue this task is being
+            # abandoned, and bring the hardware to a halt. Without the second, the
+            # task stops waiting for the mill but the mill keeps going.
+            manager.stop_task()
+            self.autolamella_ui.stop_current_operations()
+            # No queue mutation here: the task unwinds on the worker thread and the
+            # status it emits on the way out is what updates the timeline.
+            self._show_queue_message(f"Stopping {label}...")
+            return
+
         if action == "run_again":
             # A fresh item rather than a rewind: the original attempt still
             # happened and stays in the run record.

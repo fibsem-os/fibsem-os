@@ -68,18 +68,31 @@ def test_the_last_pending_row_cannot_move_down(widget):
     }
 
 
-def test_the_running_row_offers_nothing(widget):
-    """Not an empty menu — the greyed entries are what explain the rule."""
+def test_the_running_row_offers_only_stop_task(widget):
+    """It cannot be moved or removed — but it can be abandoned (FIB-499). The
+    greyed entries are still what explain the rest of the rule."""
     assert actions(widget, 1) == {
         "move_up": False, "move_down": False,
         "run_next": False, "remove": False,
+        "stop_task": True,
     }
 
 
-def test_the_running_row_says_why_it_is_greyed(widget):
+def test_the_running_row_says_why_the_rest_are_greyed(widget):
+    """The tooltip explains a disabled entry, so it does not land on Stop Task."""
     menu = widget.build_row_menu(1)
-    assert all(a.toolTip() == "This task is already running"
-               for a in menu.actions() if a.data())
+    tips = {a.data(): a.toolTip() for a in menu.actions() if a.data()}
+
+    assert tips["remove"] == "This task is already running"
+    # Qt defaults an action's tooltip to its own text, so the check is that Stop
+    # Task did not inherit the explanation meant for the disabled entries.
+    assert tips["stop_task"] != tips["remove"]
+
+
+def test_only_the_running_row_can_be_stopped(widget):
+    """Nothing else is under way, so there is nothing to interrupt."""
+    for index in (0, 2, 3):
+        assert "stop_task" not in actions(widget, index)
 
 
 def test_a_finished_row_offers_only_run_again(widget):

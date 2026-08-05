@@ -47,7 +47,9 @@ class GridTask(ABC):
         self.parent_ui = parent_ui
         self.task_manager = task_manager
         self.task_id = str(uuid.uuid4())
-        self._stop_event = task_manager._stop_event if task_manager else None
+        # The manager's token, as AutoLamellaTask takes: GridTask is a parallel
+        # hierarchy, so it has to be kept in step by hand.
+        self._stop_event = task_manager.abort_token if task_manager else None
 
     @property
     def slot(self) -> Optional[GridSlot]:
