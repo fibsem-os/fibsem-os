@@ -435,43 +435,72 @@ def save_user_preferences(preferences) -> None:
 
 
 @dataclass
-class RecentExperimentInfo:
-    """Display information for a recently used experiment."""
+class ExperimentSummary:
+    """What an experiment says about itself, read without loading it.
+
+    Was ``RecentExperimentInfo``, when the recents list was the only caller.
+    Enumerating a directory asks the same question of a file nobody has opened
+    (FIB-457), so the name no longer claims the file is recent.
+
+    The instrument and operator come from the ``session`` record (FIB-451) and
+    are absent from anything written before it, or from an experiment no session
+    has adopted. That is a real answer -- nothing is known -- so they stay None
+    rather than defaulting to a string that would group with other unknowns.
+    """
     path: str  # path to the experiment.yaml file
     name: str
     created_at: float = 0.0
     num_lamella: int = 0
     exists: bool = True
     available: bool = True  # False if the file is missing or could not be read
+    instrument_serial: Optional[str] = None
+    instrument_model: Optional[str] = None
+    operator: Optional[str] = None
+    software_version: Optional[str] = None
 
 
-def _peek_experiment_yaml(experiment_yaml_path: str) -> RecentExperimentInfo:
-    """Read minimal display info from an experiment.yaml without fully loading it.
+def peek_experiment(experiment_yaml_path: str) -> ExperimentSummary:
+    """Read an experiment.yaml's summary without fully loading it.
 
     Falls back to the parent directory name if the file is missing or unreadable.
     A file that exists but cannot be parsed is kept (exists=True) but flagged
-    as unavailable so the UI can show it as such rather than silently pruning it.
+    as unavailable so the caller can show it as such rather than silently
+    pruning it.
+
+    Reads only, and never raises: this runs over directories of files written by
+    other versions, and one unparseable experiment must not take out the
+    enumeration around it.
     """
     fallback_name = os.path.basename(os.path.dirname(experiment_yaml_path)) or experiment_yaml_path
     if not os.path.exists(experiment_yaml_path):
-        return RecentExperimentInfo(
+        return ExperimentSummary(
             path=experiment_yaml_path, name=fallback_name, exists=False, available=False
         )
 
     try:
         with open(experiment_yaml_path, "r") as f:
             ddict = yaml.safe_load(f) or {}
-        return RecentExperimentInfo(
+        # `or {}` at each level, not `.get(k, {})`: a key present but null is how
+        # an experiment no session has adopted serialises, and that has to read
+        # the same as the key being absent entirely.
+        session = ddict.get("session") or {}
+        system = session.get("system") or {}
+        user = session.get("user") or {}
+        return ExperimentSummary(
             path=experiment_yaml_path,
             name=ddict.get("name") or fallback_name,
             created_at=ddict.get("created_at") or 0.0,
             num_lamella=len(ddict.get("positions") or []),
             exists=True,
             available=True,
+            instrument_serial=system.get("serial_number"),
+            instrument_model=system.get("model"),
+            operator=user.get("name"),
+            software_version=system.get("fibsem_version"),
         )
     except Exception as e:
         logging.warning(f"Failed to read experiment info from {experiment_yaml_path}: {e}")
-        return RecentExperimentInfo(
+        return ExperimentSummary(
             path=experiment_yaml_path, name=fallback_name, exists=True, available=False
         )
 
@@ -510,7 +539,7 @@ def record_recent_experiment(experiment_yaml_path: str) -> None:
     save_user_preferences(prefs)
 
 
-def get_recent_experiments(prune_missing: bool = True) -> List[RecentExperimentInfo]:
+def get_recent_experiments(prune_missing: bool = True) -> List[ExperimentSummary]:
     """Return display info for recent experiments, most-recent-first.
 
     Args:
@@ -518,7 +547,7 @@ def get_recent_experiments(prune_missing: bool = True) -> List[RecentExperimentI
             persist the pruned list back to preferences.
     """
     prefs = load_user_preferences()
-    infos = [_peek_experiment_yaml(str(p)) for p in prefs.experiment.recent_experiments]
+    infos = [peek_experiment(str(p)) for p in prefs.experiment.recent_experiments]
 
     if prune_missing:
         kept = [info for info in infos if info.exists]

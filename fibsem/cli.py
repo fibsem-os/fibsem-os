@@ -4,8 +4,9 @@ from __future__ import annotations
 import argparse
 import logging
 import math
+import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -523,6 +524,152 @@ def _add_mill_angle_parser(sub, conn) -> None:
     p.set_defaults(func=cmd_mill_angle)
 
 
+def _experiment_roots(args) -> "list[str]":
+    """Where to look, given what the user asked for.
+
+    Defaults to the experiment directory they have configured, falling back to
+    the packaged default. Neither is authoritative -- experiments can be created
+    anywhere -- which is why --root exists and why the command says how many
+    places it actually looked.
+    """
+    from fibsem import config as cfg
+
+    if args.root:
+        return list(args.root)
+
+    prefs = cfg.load_user_preferences()
+    configured = prefs.experiment.default_experiment_directory
+    return [configured or cfg.AUTOLAMELLA_LOG_PATH]
+
+
+def _since_timestamp(args) -> Optional[float]:
+    """Resolve --days / --since into one lower bound, or None."""
+    if args.days is not None and args.since is not None:
+        raise ValueError("--days and --since both set a start; use one or the other")
+    if args.days is not None:
+        return (datetime.now() - timedelta(days=args.days)).timestamp()
+    if args.since is not None:
+        return datetime.strptime(args.since, "%Y-%m-%d").timestamp()
+    return None
+
+
+def cmd_experiments(args) -> int:
+    """List experiments, optionally narrowed to one instrument or time window.
+
+    Answers "what did this microscope do this week?" for the roots it is given.
+    It cannot answer it for the whole facility: nothing records where experiments
+    are created, so this is only ever as complete as the places it looked. The
+    summary line says how many that was, so an empty answer reads as "not here"
+    rather than "never happened". See FIB-457.
+
+    Takes no microscope: this is a question about files.
+    """
+    from fibsem.applications.autolamella.tools.experiments import (
+        discover_experiments,
+        filter_experiments,
+        group_by_instrument,
+        recent_experiments,
+    )
+
+    try:
+        since = _since_timestamp(args)
+    except ValueError as e:
+        print(f"error: {e}")
+        return 2
+
+    roots = _experiment_roots(args)
+    found = {}
+    for root in roots:
+        for experiment in discover_experiments(root):
+            found[os.path.realpath(experiment.path)] = experiment
+    if args.recent:
+        for experiment in recent_experiments():
+            found.setdefault(os.path.realpath(experiment.path), experiment)
+
+    experiments = filter_experiments(
+        sorted(found.values(), key=lambda e: e.created_at, reverse=True),
+        instrument=args.instrument,
+        operator=args.operator,
+        since=since,
+        until=(
+            datetime.strptime(args.until, "%Y-%m-%d").timestamp() if args.until else None
+        ),
+    )
+
+    if not experiments:
+        print(f"No experiments found in {len(roots)} location(s): {', '.join(roots)}")
+        return 0
+
+    if args.group:
+        for serial, group in group_by_instrument(experiments).items():
+            model = next((e.instrument_model for e in group if e.instrument_model), None)
+            heading = f"{model} ({serial})" if serial else "No session recorded"
+            print(f"\n{heading} — {len(group)} experiment(s)")
+            _print_experiments(group)
+    else:
+        _print_experiments(experiments)
+
+    print(f"\n{len(experiments)} experiment(s) in {len(roots)} location(s)")
+    return 0
+
+
+def _print_experiments(experiments) -> None:
+    """One row each: when, what, where it ran, who ran it, how much was in it."""
+    for e in experiments:
+        when = (
+            datetime.fromtimestamp(e.created_at).strftime("%Y-%m-%d %H:%M")
+            if e.created_at
+            else "unknown"
+        )
+        # An experiment written before the session record has no instrument and no
+        # operator. Shown as "-" rather than blank so the column stays readable and
+        # missing does not look like empty.
+        instrument = e.instrument_model or "-"
+        if e.instrument_serial:
+            instrument = f"{instrument}/{e.instrument_serial}"
+        note = "" if e.available else "  [unreadable]"
+        print(
+            f"  {when}  {e.name[:28]:28s} {instrument[:24]:24s} "
+            f"{(e.operator or '-')[:16]:16s} {e.num_lamella:3d} lamella{note}"
+        )
+        print(f"      {os.path.dirname(e.path)}")
+
+
+def _add_experiments_parser(sub) -> None:
+    """Enumerate experiments on disk.
+
+    Deliberately takes no connection arguments, for the same reason as `plugins`:
+    this is a question about files, usually asked away from the instrument, and
+    requiring a microscope to answer "what ran last week" would make it useless
+    where it is most wanted.
+    """
+    p = sub.add_parser(
+        "experiments",
+        help="List experiments on disk, by instrument or time window",
+    )
+    p.add_argument(
+        "--root",
+        action="append",
+        metavar="PATH",
+        help="Directory to search; repeatable. Defaults to your configured "
+             "experiment directory",
+    )
+    p.add_argument(
+        "--recent",
+        action="store_true",
+        help="Also include experiments this machine has opened, which may live "
+             "outside any searched root (last 10 only)",
+    )
+    p.add_argument("--instrument", metavar="SERIAL|MODEL",
+                   help="Only experiments run on this instrument")
+    p.add_argument("--operator", metavar="NAME", help="Only experiments run by this operator")
+    p.add_argument("--days", type=int, metavar="N", help="Only the last N days")
+    p.add_argument("--since", metavar="YYYY-MM-DD", help="Only on or after this date")
+    p.add_argument("--until", metavar="YYYY-MM-DD", help="Only on or before this date")
+    p.add_argument("--group", action="store_true", help="Group the listing by instrument")
+    p.set_defaults(func=cmd_experiments, needs_microscope=False)
+
+
 def _add_plugins_parser(sub) -> None:
     """List what resolved under each entry point group.
 
@@ -624,6 +771,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_info_parser(sub, conn)
     _add_mill_angle_parser(sub, conn)
     _add_set_beam_parser(sub, conn)
+    _add_experiments_parser(sub)
     _add_plugins_parser(sub)
     return root
 
