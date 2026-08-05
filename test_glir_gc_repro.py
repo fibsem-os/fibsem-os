@@ -3,7 +3,7 @@
 Recreates the conditions of the 2026-07-22 Tescan session crashes
 (``OSError: access violation reading 0x1C`` in ``glDrawArrays``): a napari
 viewer whose Image/Shapes layers are churned from the main thread (as
-``update_lamella_ui`` / ``_update_lamella_display`` do) while background
+``update_lamella_ui`` and the minimap overlay updates do) while background
 threads allocate heavily (as workflow/movement/acquisition threads do).
 
 The crash mechanism is Python's GC running in a worker thread and finalizing
@@ -82,7 +82,7 @@ class LayerChurner:
         self.image_layer.data = np.random.randint(
             0, 255, shape, dtype=np.uint8
         )
-        # remove/re-add an overlay layer, as _update_lamella_display does
+        # remove/re-add an overlay layer, as the minimap crosshair updates do
         if "overlay" in self.viewer.layers:
             self.viewer.layers.remove("overlay")
         lines = np.random.rand(6, 2, 2) * shape[0]
