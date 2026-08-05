@@ -139,8 +139,23 @@ class TileGridOptionsPanel(QFrame):
         root.addWidget(self.slider_alpha)
 
     def set_summary(self, text: str) -> None:
-        """What the grid currently describes, e.g. `3 x 3 - 10% overlap - 9/9 tiles`."""
+        """What the grid currently describes, e.g. `3 x 3 - 10% overlap - 9/9 tiles`.
+
+        The minimum height is set from the label's own `heightForWidth` because nothing
+        else will. A word-wrapped QLabel's height depends on the width it is given, and
+        that dependency does not reach this panel's own size hint -- so as the summary
+        grew (dragging the grid adds a line saying how far it sits from the stage, and
+        that line wraps) the label kept a height computed for fewer lines and clipped
+        the text top and bottom, the overflow split evenly because a QLabel centres its
+        text vertically (FIB-510).
+
+        Measured rather than reasoned: at 196px wide the label reported height 36 for
+        text needing 48 -- exactly one line short.
+        """
         self.label_summary.setText(text)
+        label = self.label_summary
+        width = label.width() or (self.width() - 24)  # 24 = the layout's l/r margins
+        label.setMinimumHeight(label.heightForWidth(width))
 
     def set_centre_enabled(self, enabled: bool) -> None:
         """Whether the grid is off the stage position, and so worth re-centring."""

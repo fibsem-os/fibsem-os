@@ -527,6 +527,10 @@ class FMOverviewWidget(QWidget):
                 f"{offset[1] * constants.SI_TO_MICRO:+.0f} µm from the stage"
             )
         self.tile_grid_panel.set_summary(summary)
+        # The text just changed, and it wraps -- so the panel may need to be a different
+        # height than it was. Only worth doing while it is up; opening it fits it anyway.
+        if self.tile_grid_panel.isVisible():
+            self._fit_tile_grid_panel()
 
     def _target_offset(self) -> Optional[Tuple[float, float]]:
         """How far the target sits from the stage, in metres, or None if not set.
@@ -664,14 +668,30 @@ class FMOverviewWidget(QWidget):
             self.tile_grid_panel.hide()
             return
 
+        self._fit_tile_grid_panel()
+        self.tile_grid_panel.show()
+        self.tile_grid_panel.raise_()
+
+    def _fit_tile_grid_panel(self) -> None:
+        """Size the tile grid panel to its contents and put it back in its corner.
+
+        Both together, and both whenever the summary changes rather than only when the
+        panel opens. The panel is a fixed width with a word-wrapped summary, so its
+        height is however many lines that text takes -- and the text grows: dragging the
+        grid adds a line saying how far it now sits from the stage. Sized once at open
+        time, the panel kept that height and clipped the extra lines top and bottom
+        (FIB-510).
+
+        The move is not optional after a resize. The panel is anchored by its top-*right*
+        corner, so its x is computed from its own width; leaving it alone would be fine
+        for a height change and wrong the moment the width followed.
+        """
         self.tile_grid_panel.adjustSize()
         # Anchored in global coordinates: the panel is a top-level tool window, so it
         # cannot be placed relative to the canvas in widget coordinates.
         canvas = self.canvas.canvas
         anchor = canvas.mapToGlobal(QPoint(canvas.width() - 8, 44))
         self.tile_grid_panel.move(anchor.x() - self.tile_grid_panel.width(), anchor.y())
-        self.tile_grid_panel.show()
-        self.tile_grid_panel.raise_()
 
     def set_image(self, image: FluorescenceImage) -> None:
         """Show an image at the stage position it was acquired at.

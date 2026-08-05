@@ -3872,3 +3872,88 @@ def test_clicking_a_marker_selects_the_lamella_everywhere(qapp, tmp_path):
     assert tab.overview.selected_position == "Lamella-02"
 
     tab._drop_overview()
+
+
+def test_the_tile_grid_panel_grows_with_its_summary(qapp, interactive_widget):
+    """FIB-510. The panel is a fixed width with a word-wrapped summary, so its height is
+    however many lines that text takes -- and the text grows: dragging the grid adds a
+    line saying how far it now sits from the stage. Fitted only at open time, the panel
+    kept its old height and clipped the extra line top and bottom.
+    """
+    widget = interactive_widget
+    panel = widget.tile_grid_panel
+    widget.btn_tile_grid.setChecked(True)
+    widget._toggle_tile_grid_panel()
+    qapp.processEvents()
+    short = panel.height()
+    assert short >= panel.sizeHint().height()
+
+    # drag the grid, which is what adds the offset line
+    frame = widget._frame()
+    here = frame.to_canvas(widget._current_stage_position())
+    widget._on_grid_move(here[0] + 2500.0, here[1] - 400.0)
+    qapp.processEvents()
+
+    assert "from the stage" in panel.label_summary.text(), "the summary did not grow"
+    assert panel.height() > short, "the panel did not grow with it"
+    assert panel.height() >= panel.sizeHint().height(), "the summary is clipped"
+
+    widget.btn_tile_grid.setChecked(False)
+    widget._toggle_tile_grid_panel()
+    widget.clear_target()
+
+
+def test_the_tile_grid_summary_is_never_clipped(qapp):
+    """FIB-510, at the level it actually breaks.
+
+    A word-wrapped QLabel's height depends on the width it is given, and that dependency
+    does not reach the panel's own size hint -- so past a certain length the panel stops
+    growing and the label keeps a height computed for fewer lines. The text is centred
+    vertically, so the overflow is split top and bottom, which is what the report showed.
+
+    Measured at 196 px wide: the label reported height 36 for text needing 48. Three
+    lines was not enough to trigger it, which is why the widget-level test above passes
+    either way.
+    """
+    from fibsem.ui.fm.widgets.tile_grid_options_panel import TileGridOptionsPanel
+
+    panel = TileGridOptionsPanel()
+    panel.set_summary("3 × 3  ·  10% overlap  ·  9/9 tiles\n287 × 287 µm")
+    panel.adjustSize()
+    panel.show()
+    qapp.processEvents()
+
+    # what dragging the grid adds, which wraps onto a further line
+    panel.set_summary(
+        "3 × 3  ·  10% overlap  ·  9/9 tiles\n287 × 287 µm"
+        "\nOffset +563, -93 µm from the stage"
+    )
+    qapp.processEvents()
+
+    label = panel.label_summary
+    assert label.height() >= label.heightForWidth(label.width()), (
+        f"summary clipped: {label.height()}px for text needing "
+        f"{label.heightForWidth(label.width())}px"
+    )
+
+    panel.close()
+
+
+def test_a_hidden_tile_grid_panel_is_not_refitted(qapp, interactive_widget):
+    """Opening it fits it anyway, and moving a hidden top-level window around is work
+    nobody can see."""
+    widget = interactive_widget
+    widget.btn_tile_grid.setChecked(False)
+    widget._toggle_tile_grid_panel()
+    qapp.processEvents()
+    assert not widget.tile_grid_panel.isVisible()
+
+    fits = []
+    original = widget._fit_tile_grid_panel
+    widget._fit_tile_grid_panel = lambda: fits.append(1) or original()
+
+    widget._update_grid_summary()
+
+    assert fits == []
+
+    widget._fit_tile_grid_panel = original
