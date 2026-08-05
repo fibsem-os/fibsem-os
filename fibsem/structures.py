@@ -2475,9 +2475,12 @@ class FibsemImage:
 
         md = self.metadata
         microscope = Microscope(
-            manufacturer=md.system.info.manufacturer,
-            model=md.system.info.model,
-            serial_number=md.system.info.serial_number,
+            # md.system_info since FIB-481; this was md.system.info, which no longer
+            # exists. Nothing calls this -- see FIB-485 for whether it should live at
+            # all -- but leaving a known-broken reference is worse than fixing it.
+            manufacturer=md.system_info.manufacturer,
+            model=md.system_info.model,
+            serial_number=md.system_info.serial_number,
         )
         instrument = Instrument(microscope=microscope)
 
