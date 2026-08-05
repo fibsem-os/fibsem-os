@@ -63,6 +63,7 @@ from fibsem.fm.structures import FluorescenceImage
 from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
 from fibsem.structures import BeamType, FibsemImage, Point
 from fibsem.ui import notification_service, stylesheets
+from fibsem.ui.stylesheets import CANVAS_BG, SURFACE_COLOR
 from fibsem.ui.fm.widgets import LinePlotWidget
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.custom_widgets import (
@@ -82,8 +83,10 @@ if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
     from fibsem.milling.tasks import FibsemMillingTaskConfig
 
-_BG = "#262930"
-_HEADER_BG = "#1e2124"
+# Short local names for the shared palette. These appear inside dozens of
+# f-strings below, where the full names would wrap every one of them.
+_BG = SURFACE_COLOR
+_HEADER_BG = CANVAS_BG
 
 # name used for the coincidence entry in the lamella review panel / task history
 COINCIDENCE_REVIEW_TASK_NAME = "Coincidence Milling"

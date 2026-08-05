@@ -552,3 +552,33 @@ def test_the_type_column_fits_the_widest_row_of_chips(qapp, tmp_path):
         for row in range(dialog.table.rowCount())
     )
     assert dialog.table.columnWidth(1) >= widest
+
+
+def test_no_widget_swallows_its_own_tooltip(qapp, tmp_path):
+    """A selector-less stylesheet on a widget also styles the QToolTip over it.
+
+    It beats the application sheet because it sits nearer, so
+    ``background: transparent`` on a table cell leaves that cell's tooltip as
+    floating text with no panel behind it -- unreadable against whatever is
+    underneath. The four tooltips this dialog sets were all affected.
+
+    Asserted over every widget rather than the four known ones: the trap is that
+    a widget acquires a tooltip later, and nothing about ``setStyleSheet`` warns
+    you. ``_style()`` restates the tooltip rule; rules that name their own type
+    do not leak and are left alone.
+
+    Not verifiable by rendering -- the offscreen platform never realises a
+    tooltip window, so QTipLabel is absent from topLevelWidgets().
+    """
+    from PyQt5.QtWidgets import QWidget
+
+    _write(tmp_path, "demo.py", '"""A demo script.\n\nReads the experiment.\n"""\ndef run(ctx):\n    pass\n')
+    dialog = _dialog(tmp_path, context=FakeContext())
+
+    offenders = [
+        (type(w).__name__, w.styleSheet()[:60])
+        for w in dialog.findChildren(QWidget) + [dialog]
+        if w.styleSheet().strip() and "{" not in w.styleSheet()
+    ]
+
+    assert offenders == []

@@ -24,7 +24,17 @@ from PyQt5.QtWidgets import (
 
 from fibsem.versioning import get_branch, get_revision
 from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.stylesheets import SECONDARY_BUTTON_STYLESHEET
+from fibsem.ui.stylesheets import (
+    ACCENT_COLOR,
+    BORDER_COLOR,
+    OK_COLOR,
+    PANEL_COLOR,
+    SECONDARY_BUTTON_STYLESHEET,
+    SURFACE_COLOR,
+    TEXT_COLOR,
+    TEXT_MUTED_COLOR,
+    TEXT_STRONG_COLOR,
+)
 from fibsem.ui.widgets.custom_widgets import IconToolButton, _SpinnerLabel
 
 _logger = logging.getLogger(__name__)
@@ -32,15 +42,16 @@ _logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
-# Palette (matching fibsem.ui.stylesheets napari theme)
-_BG = "#262930"
-_PANEL = "#1e2027"
-_BORDER = "#3d4251"
-_TEXT = "#d6d6d6"
-_TEXT_STRONG = "#f0f1f2"
-_TEXT_MUTED = "#868e93"
-_ACCENT = "#50a6ff"
-_OK = "#4caf50"
+# Short local names for the shared palette. These appear inside dozens of
+# f-strings below, where the full names would wrap every one of them.
+_BG = SURFACE_COLOR
+_PANEL = PANEL_COLOR
+_BORDER = BORDER_COLOR
+_TEXT = TEXT_COLOR
+_TEXT_STRONG = TEXT_STRONG_COLOR
+_TEXT_MUTED = TEXT_MUTED_COLOR
+_ACCENT = ACCENT_COLOR
+_OK = OK_COLOR
 _MONO = "Menlo, Consolas, 'DejaVu Sans Mono', monospace"
 
 # Characters of the serial number left visible; the rest is masked so a

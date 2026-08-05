@@ -22,21 +22,31 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET
+from fibsem.ui.stylesheets import (
+    BORDER_COLOR,
+    PANEL_COLOR,
+    PRIMARY_BUTTON_STYLESHEET,
+    ROW_ALT_COLOR,
+    SURFACE_COLOR,
+    TEXT_COLOR,
+    TEXT_MUTED_COLOR,
+    TEXT_STRONG_COLOR,
+)
 from fibsem.ui.widgets.task_summary_formatting import (
     STATUS_BADGE_COLORS,
     STATUS_CHIP_ORDER,
     format_duration_short,
 )
 
-# Palette (matching fibsem.ui.stylesheets napari theme)
-_BG = "#262930"
-_PANEL = "#1e2027"
-_ROW_ALT = "#2b2f38"
-_BORDER = "#3d4251"
-_TEXT = "#d6d6d6"
-_TEXT_STRONG = "#f0f1f2"
-_TEXT_MUTED = "#868e93"
+# Short local names for the shared palette. These appear inside dozens of
+# f-strings below, where the full names would wrap every one of them.
+_BG = SURFACE_COLOR
+_PANEL = PANEL_COLOR
+_ROW_ALT = ROW_ALT_COLOR
+_BORDER = BORDER_COLOR
+_TEXT = TEXT_COLOR
+_TEXT_STRONG = TEXT_STRONG_COLOR
+_TEXT_MUTED = TEXT_MUTED_COLOR
 
 _TABLE_STYLE = f"""
 QTableWidget {{

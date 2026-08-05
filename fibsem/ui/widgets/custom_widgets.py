@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Any, List, Optional, Union
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QCursor, QIcon, QPainter
+from PyQt5.QtGui import QColor, QCursor, QFontMetrics, QIcon, QPainter
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QAbstractSpinBox,
@@ -23,6 +23,7 @@ from PyQt5.QtWidgets import (
     QListWidgetItem,
     QMenu,
     QMessageBox,
+    QSizePolicy,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -1194,3 +1195,73 @@ class LamellaNameListWidget(QWidget):
                     return
         if self._list.count() > 0:
             self._list.setCurrentRow(0)
+
+
+# ---------------------------------------------------------------------------
+# Shared pieces of the hand-built dark-theme dialogs
+# ---------------------------------------------------------------------------
+
+
+def style_with_tooltip(widget: QWidget, css: str) -> None:
+    """Set a selector-less stylesheet without swallowing the widget's tooltip.
+
+    A stylesheet with no selector applies to every type Qt renders through the
+    widget, the QToolTip included, and beats the application sheet because it
+    sits nearer -- so a cell styled ``background: transparent`` shows its tooltip
+    as floating text with nothing behind it.
+
+    Use this for any rule that does not name a type. Rules that do
+    (``QPushButton {...}``) cannot leak and can be set directly.
+    """
+    widget.setStyleSheet(css + stylesheets.TOOLTIP_STYLESHEET)
+
+
+class ElidedLabel(QLabel):
+    """A QLabel that elides rather than clipping mid-glyph.
+
+    For a column that stretches, where the width is not known when the row is
+    built and any one-off elide would be wrong at the next size. The size policy
+    is Ignored so long unbreakable text -- a dotted class path, a file path --
+    cannot drive the column wider, which would defeat the point.
+    """
+
+    def __init__(self, text: str, parent: Optional[QWidget] = None) -> None:
+        super().__init__(text, parent)
+        self._full_text = text
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        # At paint time the width is always the real one. Doing this on resize
+        # instead misses a label that is laid out at its final size and never
+        # resized, which then clips. Re-eliding from _full_text rather than from
+        # the displayed text keeps it stable: setText schedules one more paint,
+        # the second computes the same string, and it settles.
+        metrics = QFontMetrics(self.font())
+        elided = metrics.elidedText(self._full_text, Qt.ElideRight, self.width())
+        if elided != self.text():
+            self.setText(elided)  # QLabel draws it, so the stylesheet colour survives
+        super().paintEvent(event)
+
+
+def chip(text: str, colour: str, font_size: int = 11) -> QLabel:
+    """A pill label: text on a tint of its own colour.
+
+    No dot. Once every chip has one it separates nothing, and it costs real width
+    in the narrow columns these sit in.
+
+    The minimum width is set explicitly because a QLabel inside a table cell
+    reports a size hint that ignores stylesheet padding, so the pill would
+    otherwise render clipped at both ends.
+    """
+    rgb = QColor(colour)
+    tint = f"rgba({rgb.red()}, {rgb.green()}, {rgb.blue()}, 0.15)"
+    label = QLabel(text)
+    style_with_tooltip(
+        label,
+        f"background-color: {tint}; color: {colour};"
+        f"padding: 2px 9px; border-radius: 10px; font-size: {font_size}px;",
+    )
+    font = label.font()
+    font.setPixelSize(font_size)
+    label.setMinimumWidth(QFontMetrics(font).horizontalAdvance(text) + 26)
+    return label

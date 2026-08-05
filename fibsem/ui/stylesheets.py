@@ -660,6 +660,53 @@ DEFECT_RED_COLOR = "#d04040"
 CANVAS_BG = "#1e2124"
 PRIMARY_ACCENT = "#3a6ea5"  # matches the quad-view selection border
 
+# ---------------------------------------------------------------------------
+# Napari-dark surface palette
+#
+# The tokens the hand-built dialogs style themselves from. Named for the role
+# they play rather than the shade they are, because that is what a caller is
+# choosing: a panel is a panel whether or not it stays #1e2027.
+#
+# Four of these already existed above under shade-derived names, and those are
+# deliberately left in place for their current callers rather than renamed --
+# the churn would reach well past the widgets that share this palette:
+#
+#     SURFACE_COLOR      == GRAY_BACKGROUND_COLOR
+#     TEXT_STRONG_COLOR  == GRAY_TEXT_COLOR
+#     TEXT_MUTED_COLOR   == GRAY_SECONDARY_COLOR
+#     OK_COLOR           == AUTOMATED_COLOR, GREEN_COLOR
+#     ERROR_COLOR        == DEFECT_RED_COLOR
+#
+# So: prefer these when styling a new dialog, and do not add a third spelling
+# of a colour that is already here twice.
+SURFACE_COLOR = "#262930"       # dialog background
+PANEL_COLOR = "#1e2027"         # inset panels, table headers
+ROW_ALT_COLOR = "#2b2f38"       # alternating row tint, hover
+BORDER_COLOR = "#3d4251"        # panel and control borders
+TEXT_COLOR = "#d6d6d6"          # body text
+TEXT_STRONG_COLOR = "#f0f1f2"   # titles, emphasis
+TEXT_MUTED_COLOR = "#868e93"    # secondary text, disabled
+ACCENT_COLOR = "#50a6ff"        # links, selected state, informational chips
+OK_COLOR = "#4caf50"            # success
+ERROR_COLOR = "#d04040"         # failure
+
+# The tooltip rule, for restating alongside a selector-less widget stylesheet.
+#
+# A stylesheet set on a widget with no selector applies to every type Qt renders
+# through it -- including the QToolTip shown over it -- and it wins over the
+# application sheet because it sits nearer. So `background: transparent` on a
+# table cell leaves that cell's tooltip as floating text with no panel behind it.
+# Prefer custom_widgets.style_with_tooltip() to using this constant directly.
+TOOLTIP_STYLESHEET = f"""
+QToolTip {{
+    background-color: {PANEL_COLOR};
+    color: {TEXT_COLOR};
+    border: 1px solid {BORDER_COLOR};
+    padding: 4px 8px;
+    border-radius: 3px;
+}}
+"""
+
 WORKFLOW_BORDER_STYLESHEET = """
     QFrame#workflow_border_frame[borderState="idle"]       { border: 4px solid #262930; }
     QFrame#workflow_border_frame[borderState="automated"]  { border: 4px solid #4caf50; }

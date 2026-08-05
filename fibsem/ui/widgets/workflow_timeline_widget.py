@@ -28,7 +28,7 @@ from fibsem.ui.icon import fibsem_icon
 _DOT_COMPLETED  = stylesheets.GREEN_COLOR
 _DOT_ACTIVE     = "#ff9800"
 _DOT_PENDING    = "#606060"
-_DOT_FAILED     = "#99121F"
+_DOT_FAILED     = stylesheets.RED_COLOR
 _DOT_SKIPPED    = "#9e9e9e"
 # Slate, not amber: the old #e0a030 was indistinguishable from the active orange,
 # so a cancelled row read as still running — especially when it was the last thing
