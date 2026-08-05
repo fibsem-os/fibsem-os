@@ -402,123 +402,6 @@ class AutoLamellaUI(QMainWindow):
             self.movement_widget.update_ui()
 
         self._update_minimap_data(stage_position=stage_position)
-        self._update_lamella_display()
-
-    def _update_lamella_display(self, selected_name: Optional[str] = None) -> None:
-        """Update the lamella display in the live fib view."""
-
-        if not cfg.FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED:
-            return
-
-        if self.experiment is None:
-            return
-
-        if self.image_widget is None:
-            return
-
-        if self.image_widget.ib_image is None or self.image_widget.ib_layer is None:
-            return
-
-        from fibsem.imaging.tiled import reproject_stage_positions_onto_image2
-        from fibsem.ui.napari.utilities import (
-            NapariShapeOverlay,
-            create_crosshair_shape,
-        )
-        from fibsem.ui.FibsemMinimapWidget import CROSSHAIR_CONFIG
-
-        if selected_name is None:
-            selected_name = self.lamella_list.selected_name
-
-        try:
-            # image.metadata.image_settings.beam_type = BeamType.ION # WHYYY
-            points = reproject_stage_positions_onto_image2(
-                image=self.image_widget.ib_image,
-                positions=self.experiment.get_milling_positions(),
-                bound=True,
-            )
-
-            # NOTE: this displayes the previous lamella position when using workflow becasue when the stage position moves, the image is still the previous one
-            # so the reprojected position is wrong until a new image is acquired. but this doesn't trigger a new render until the next stage move. so its always 'one behind'
-            # should disable until we can fix this properly
-
-            layer_scale = None
-            overlays: List[NapariShapeOverlay] = []
-            for pt in points:
-                saved_lines = create_crosshair_shape(
-                    pt, CROSSHAIR_CONFIG["crosshair_size"], layer_scale
-                )
-
-                # Use lime for selected position, cyan for others
-                color = CROSSHAIR_CONFIG["colors"]["saved_unselected"]
-                if pt.name == selected_name:
-                    color = CROSSHAIR_CONFIG["colors"]["saved_selected"]
-
-                # Show position name on crosshair if saved position FOV is disabled
-                # label = saved_pos.name if not self.show_saved_positions_fov else ""
-
-                for line, txt in zip(saved_lines, [pt.name, ""]):
-                    overlays.append(
-                        NapariShapeOverlay(
-                            shape=line, color=color, label=txt, shape_type="line"
-                        )
-                    )
-
-            crosshair_overlays = overlays
-
-            # TODO: use a common function for this?
-            # QUERY: also do it for the SEM?
-            # Collect all crosshair overlays
-            layer_name = CROSSHAIR_CONFIG["layer_name"]
-
-            if len(crosshair_overlays) == 0:
-                logging.info("No crosshair overlays to display.")
-                # Remove existing layer if no overlays to display
-                if layer_name in self.viewer.layers:
-                    self.viewer.layers.remove(layer_name)
-                return
-
-            # Extract data for napari
-            crosshair_lines = [overlay.shape for overlay in crosshair_overlays]
-            colors = [overlay.color for overlay in crosshair_overlays]
-            labels = [overlay.label for overlay in crosshair_overlays]
-
-            # Prepare text properties for labels
-            text_properties = {"string": labels, **CROSSHAIR_CONFIG["text_properties"]}
-            # text_properties["color"] = colors # displays the text the same color as the line
-
-            # Update or create the napari layer
-            if layer_name in self.viewer.layers:
-                # Update existing layer
-                layer = self.viewer.layers[layer_name]
-                layer.data = crosshair_lines
-                # Note: edge_color and text updates may not work with all napari versions
-                try:
-                    layer.edge_color = colors
-                    layer.edge_width = CROSSHAIR_CONFIG["line_style"]["edge_width"]
-                    layer.face_color = CROSSHAIR_CONFIG["line_style"]["face_color"]
-                    layer.text = text_properties
-                    layer.visible = True
-                    layer.translate = self.image_widget.ib_layer.translate
-                except AttributeError:
-                    logging.warning("Could not update layer properties directly")
-            else:
-                # Create new layer
-                self.viewer.add_shapes(
-                    data=crosshair_lines,
-                    name=layer_name,
-                    shape_type="line",
-                    edge_color=colors,
-                    edge_width=CROSSHAIR_CONFIG["line_style"]["edge_width"],
-                    face_color=CROSSHAIR_CONFIG["line_style"]["face_color"],
-                    scale=layer_scale,
-                    text=text_properties,
-                    translate=self.image_widget.ib_layer.translate,
-                )
-
-        except Exception as e:
-            logging.warning(f"Could not update lamella display: {e}")
-        finally:
-            self.image_widget.restore_active_layer_for_movement()
 
     def _disconnect_experiment_events(self) -> None:
         """Disconnect existing experiment and microscope event subscribers.
@@ -1267,7 +1150,6 @@ class AutoLamellaUI(QMainWindow):
         self.selected_lamella_widget.set_lamella(lamella)
 
         self._update_minimap_data(selected_name=lamella.name)
-        self._update_lamella_display(selected_name=lamella.name)
 
     def set_spot_burn_widget_active(self, active: bool = True) -> None:
         """Set the spot burn widget active (sets the tab visible, activate point layer)."""
