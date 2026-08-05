@@ -75,6 +75,10 @@ from fibsem.ui.widgets.autolamella_load_task_protocol_widget import (
 from fibsem.ui.fm.widgets import MinimapPlotWidget
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 from fibsem.applications.autolamella import config as cfg
+from fibsem.applications.autolamella.poses import (
+    build_lamella_poses,
+    sync_fluorescence_pose,
+)
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
@@ -1220,12 +1224,20 @@ class AutoLamellaUI(QMainWindow):
         stage_position: Optional[FibsemStagePosition] = None,
         name: Optional[str] = None,
         objective_position: Optional[float] = None,
+        marked_at: Optional[str] = None,
     ) -> Lamella:
         """Add a lamella to the experiment.
+
         Args:
-            stage_position: The stage position of the lamella. If None, the current stage position is used.
+            stage_position: Where the lamella is, in any orientation -- which one is
+                read off the position itself, so a position picked on the fluorescence
+                side is taken as the fluorescence pose rather than as somewhere to mill.
+                If None, the current stage position is used.
             name: The name of the lamella. If None, a default name will be generated.
             objective_position: The objective position of the lamella. If None, the 'focused' objective position is used.
+            marked_at: The orientation *stage_position* is in, for a caller that knows.
+                Left alone it is read off the position, which is right on a compustage
+                and cannot be on an offset mount -- see `build_lamella_poses`.
         Returns:
             lamella: The created lamella.
         """
@@ -1238,35 +1250,27 @@ class AutoLamellaUI(QMainWindow):
                 "No microscope connected. Please connect a microscope first."
             )
 
-        # get microscope state
-        microscope_state = self.microscope.get_microscope_state()
-        if stage_position is not None:
-            microscope_state.stage_position = deepcopy(stage_position)
+        poses = build_lamella_poses(
+            microscope=self.microscope,
+            position=stage_position,
+            objective_position=objective_position,
+            marked_at=marked_at,
+        )
 
-        # create the lamella
+        # create the lamella, with both poses already on it -- see
+        # `Experiment.add_new_lamella`. Assigning the fluorescence pose after the append
+        # left every listener that redraws on `inserted` deciding the new lamella had
+        # none, which is how each newly marked lamella went missing from the FM overview.
         self.experiment.add_new_lamella(
-            microscope_state=microscope_state,
+            microscope_state=poses.milling,
             task_config=self.experiment.task_protocol.task_config,
             name=name,
+            fluorescence_pose=poses.fluorescence,
         )
         lamella = self.experiment.positions[-1]
 
         # derive the milling angle from the milling-pose stage tilt
         lamella.update_milling_angle(self.microscope)
-
-        # if the objective position is not provided, use the 'focus' position from the microscope
-        if self.microscope.fm is not None:
-            # convert the fluorescence pose to the configured orientation
-            fluorescence_stage_position = self.microscope.get_target_position(
-                stage_position=deepcopy(microscope_state.stage_position),
-                target_orientation=self.microscope.fm.default_orientation,
-            )
-            fluorescence_pose = deepcopy(microscope_state)
-            fluorescence_pose.stage_position = fluorescence_stage_position
-            if objective_position is None:
-                objective_position = self.microscope.fm.objective.focus_position
-            fluorescence_pose.objective_position = objective_position
-            lamella.fluorescence_pose = fluorescence_pose
 
         self.experiment.save()
         self.update_lamella_combobox(latest=True)
@@ -1374,6 +1378,10 @@ class AutoLamellaUI(QMainWindow):
 
         # keep the milling angle consistent with the updated milling pose
         lamella.update_milling_angle(self.microscope)
+        # ...and the fluorescence pose, which describes the same piece of sample from
+        # the other side. Left behind, it would go on naming where this lamella used to
+        # be -- and nothing about a stale pose looks wrong.
+        sync_fluorescence_pose(self.microscope, lamella)
 
         self.update_lamella_combobox()
         self.update_ui()

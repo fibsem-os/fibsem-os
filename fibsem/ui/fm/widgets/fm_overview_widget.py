@@ -53,7 +53,11 @@ from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
 )
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointsOverlay
 from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import TileGridOverlay
-from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.ui.widgets.custom_widgets import (
+    ContextMenu,
+    ContextMenuConfig,
+    TitledPanel,
+)
 from fibsem.ui.widgets.progress_widget import (
     FibsemProgressWidget,
     ProgressUpdate,
@@ -134,11 +138,17 @@ PREVIEW_KEY = "fm-preview"
 # Radius of the specimen grid, for the boundary circle. Matches the minimap's.
 GRID_RADIUS_M = 1000e-6
 
-# Yellow for "you are here", against the red grid origin and the amber of saved
-# positions -- three markers that must not be mistaken for each other.
+# All three position markers are crosshairs, so colour is the only thing telling them
+# apart -- they have to stay far enough apart to read at a glance, and away from the red
+# the canvas draws its origin in.
+#
+# Yellow for "you are here".
 CURRENT_POSITION_COLOUR = "#ffee58"
 # Cyan for positions a user saved, against the yellow of where the stage is.
 SAVED_POSITION_COLOUR = "#26c6da"
+# Lime for the one selected, matching the minimap so the same position reads the same
+# way on both. Bright enough to find at a glance among a grid full of cyan.
+SELECTED_POSITION_COLOUR = "#76ff03"
 # Muted, because the holder slots are structural context like the limits rather
 # than something anyone marked -- and they would otherwise read as saved positions.
 SLOT_COLOUR = "#90a4ae"
@@ -152,6 +162,21 @@ class FMOverviewWidget(QWidget):
     """Configure, run and view a fluorescence overview acquisition."""
 
     overview_acquired = pyqtSignal(FluorescenceImage)
+
+    # A user right-clicked the canvas and asked for a position there. Both carry a
+    # *fluorescence* stage position -- the canvas is anchored on the FM side, and both
+    # are only ever emitted with the stage in a valid FM orientation, so the rotation
+    # and tilt they carry are the fluorescence ones.
+    #
+    # Requests, not commands, and deliberately: this widget knows nothing about
+    # lamellae or experiments, which is what lets it open standalone against a
+    # simulator. A host that owns an experiment decides what a position *means*, whether
+    # the user should be asked first, and what else moves with it.
+    position_add_requested = pyqtSignal(object)  # FibsemStagePosition
+    position_move_requested = pyqtSignal(str, object)  # name, FibsemStagePosition
+    # A marked position was clicked. Emitted with the name it was marked under, so a
+    # host can select whatever that name means to it.
+    position_selected = pyqtSignal(str)
 
     # Internal hop from the acquisition thread to the GUI thread. The microscope's
     # progress signal is a psygnal, which calls its callbacks synchronously on
@@ -187,6 +212,8 @@ class FMOverviewWidget(QWidget):
         # whole scene each time one arrived. Taken from the first image displayed.
         self._origin: Optional[FibsemStagePosition] = None
         self._positions: List[FibsemStagePosition] = []
+        # Which marked position is selected, by name. See `set_selected_position`.
+        self._selected_position: Optional[str] = None
         self._grid_footprint: Optional[tuple] = None
         self._enabled_channels: Optional[List[ChannelSettings]] = None
         # Where the stage is, as far as anyone has told us. Cached rather than polled
@@ -286,10 +313,22 @@ class FMOverviewWidget(QWidget):
         )
         self.canvas.canvas.add_overlay(self.current_position_overlay)
 
+        # Crosshairs rather than dots: a marked position is a point on the sample, and
+        # a filled dot covers the feature it is naming. The gap in the middle is the
+        # whole reason -- you can see what you marked.
         self.position_overlay = PointsOverlay(
-            color=SAVED_POSITION_COLOUR, marker="o", size=7
+            color=SAVED_POSITION_COLOUR, marker="+", size=11
         )
         self.canvas.canvas.add_overlay(self.position_overlay)
+
+        # The selected position, on its own layer rather than as a colour within the
+        # one above: `PointsOverlay` paints every point the same, and one selected
+        # marker is not worth teaching it per-point colours for. Added last, so it
+        # draws over its unselected neighbours where markers crowd together.
+        self.selected_position_overlay = PointsOverlay(
+            color=SELECTED_POSITION_COLOUR, marker="+", size=15
+        )
+        self.canvas.canvas.add_overlay(self.selected_position_overlay)
 
         # The list alone shows only name/excitation/emission, with no way to set the
         # exposure, power or gain a tile is actually acquired at. This composes the
@@ -302,12 +341,12 @@ class FMOverviewWidget(QWidget):
         )
 
         controls = QWidget()
-        controls_layout = QVBoxLayout(controls)
-        controls_layout.setContentsMargins(8, 8, 8, 8)
-        controls_layout.setSpacing(10)
-        controls_layout.addWidget(self._section("Channels", self.channel_widget))
-        controls_layout.addWidget(self.settings_widget)
-        controls_layout.addStretch()
+        self._controls_layout = QVBoxLayout(controls)
+        self._controls_layout.setContentsMargins(8, 8, 8, 8)
+        self._controls_layout.setSpacing(10)
+        self._controls_layout.addWidget(self._section("Channels", self.channel_widget))
+        self._controls_layout.addWidget(self.settings_widget)
+        self._controls_layout.addStretch()
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -415,7 +454,9 @@ class FMOverviewWidget(QWidget):
         self.tile_grid_overlay.tile_toggled.connect(self._on_tile_toggled)
         self.tile_grid_overlay.grid_resize_requested.connect(self._on_grid_resize)
         self.tile_grid_overlay.grid_move_requested.connect(self._on_grid_move)
+        self.canvas.canvas.canvas_clicked.connect(self._on_canvas_clicked)
         self.canvas.canvas.canvas_double_clicked.connect(self._on_canvas_double_clicked)
+        self.canvas.canvas.canvas_right_clicked.connect(self._on_canvas_right_clicked)
         self.canvas.canvas.cursor_moved.connect(self._on_cursor_moved)
 
     def _section(self, title: str, widget: QWidget) -> QWidget:
@@ -486,6 +527,10 @@ class FMOverviewWidget(QWidget):
                 f"{offset[1] * constants.SI_TO_MICRO:+.0f} µm from the stage"
             )
         self.tile_grid_panel.set_summary(summary)
+        # The text just changed, and it wraps -- so the panel may need to be a different
+        # height than it was. Only worth doing while it is up; opening it fits it anyway.
+        if self.tile_grid_panel.isVisible():
+            self._fit_tile_grid_panel()
 
     def _target_offset(self) -> Optional[Tuple[float, float]]:
         """How far the target sits from the stage, in metres, or None if not set.
@@ -623,14 +668,30 @@ class FMOverviewWidget(QWidget):
             self.tile_grid_panel.hide()
             return
 
+        self._fit_tile_grid_panel()
+        self.tile_grid_panel.show()
+        self.tile_grid_panel.raise_()
+
+    def _fit_tile_grid_panel(self) -> None:
+        """Size the tile grid panel to its contents and put it back in its corner.
+
+        Both together, and both whenever the summary changes rather than only when the
+        panel opens. The panel is a fixed width with a word-wrapped summary, so its
+        height is however many lines that text takes -- and the text grows: dragging the
+        grid adds a line saying how far it now sits from the stage. Sized once at open
+        time, the panel kept that height and clipped the extra lines top and bottom
+        (FIB-510).
+
+        The move is not optional after a resize. The panel is anchored by its top-*right*
+        corner, so its x is computed from its own width; leaving it alone would be fine
+        for a height change and wrong the moment the width followed.
+        """
         self.tile_grid_panel.adjustSize()
         # Anchored in global coordinates: the panel is a top-level tool window, so it
         # cannot be placed relative to the canvas in widget coordinates.
         canvas = self.canvas.canvas
         anchor = canvas.mapToGlobal(QPoint(canvas.width() - 8, 44))
         self.tile_grid_panel.move(anchor.x() - self.tile_grid_panel.width(), anchor.y())
-        self.tile_grid_panel.show()
-        self.tile_grid_panel.raise_()
 
     def set_image(self, image: FluorescenceImage) -> None:
         """Show an image at the stage position it was acquired at.
@@ -714,14 +775,59 @@ class FMOverviewWidget(QWidget):
             logging.debug(f"Could not place {position} in the canvas frame: {e}")
             return (0.0, 0.0)
 
+    def add_settings_section(self, title: str, widget: QWidget, first: bool = True) -> None:
+        """Put a host's own controls in the settings column, under *title*.
+
+        Part of the host contract, alongside `set_positions` and `set_save_directory`,
+        and for the same reason: some of what belongs on this tab needs to know things
+        this widget must not. A list of the experiment's lamellae is the case in point --
+        its rows subscribe to `lamella.events.description` and read task and defect
+        state, so it cannot be built here without dragging the whole application layer
+        in behind it.
+
+        A slot rather than the host laying out its own column beside this one, because
+        the alternative reads as a third pane: the settings already have a column, and
+        these controls belong *in* it, next to everything else that is about the run.
+
+        `first` because a host's section is usually the subject of the tab rather than a
+        footnote to it -- what you came to look at, above the parameters of the next
+        acquisition. Appended before the trailing stretch either way, so the column
+        stays top-aligned.
+        """
+        section = self._section(title, widget)
+        if first:
+            self._controls_layout.insertWidget(0, section)
+        else:
+            # -1 is the stretch added in `_init_ui`; stay above it.
+            self._controls_layout.insertWidget(self._controls_layout.count() - 1, section)
+
     def set_positions(self, positions: List[FibsemStagePosition]) -> None:
         """Stage positions to mark on the overview, e.g. saved lamella positions.
 
         Names are carried onto the markers, so a caller does not have to keep a
         parallel list of labels in the order it happened to pass them.
+
+        These are *fluorescence* poses. A lamella carries one of each, and the beam-side
+        pose is a different place on this canvas -- on a compustage the stage flips
+        between them -- so a host passing the wrong one would mark every position
+        somewhere the sample is not. See `build_lamella_poses`.
         """
         self._positions = list(positions)
         self._refresh_positions()
+
+    def set_selected_position(self, name: Optional[str]) -> None:
+        """Pick out one of the marked positions, or None for none.
+
+        By name rather than index: the host's list and this one are rebuilt
+        independently from the same experiment, and an index would silently point at a
+        different lamella the moment one was removed.
+        """
+        self._selected_position = name or None
+        self._refresh_positions()
+
+    @property
+    def selected_position(self) -> Optional[str]:
+        return self._selected_position
 
     def set_save_directory(self, path: Optional[str]) -> None:
         """Write acquired overviews under *path*, or None to keep them in memory only.
@@ -1000,18 +1106,29 @@ class FMOverviewWidget(QWidget):
         frame = self._frame()
         if not self._positions or frame is None:
             self.position_overlay.set_points([])
+            self.selected_position_overlay.set_points([])
             return
 
         points, labels = [], []
+        selected_points, selected_labels = [], []
         for position in self._positions:
             try:
-                points.append(frame.to_canvas(position))
+                point = frame.to_canvas(position)
             except Exception as e:
                 logging.debug(f"Cannot mark {position.name!r}: {e}")
                 continue
-            labels.append(position.name or "")
+            name = position.name or ""
+            if name and name == self._selected_position:
+                selected_points.append(point)
+                selected_labels.append(name)
+            else:
+                points.append(point)
+                labels.append(name)
 
         self.position_overlay.set_points(points, labels=labels)
+        self.selected_position_overlay.set_points(
+            selected_points, labels=selected_labels
+        )
 
     # ── canvas interaction ───────────────────────────────────────────────
 
@@ -1031,13 +1148,96 @@ class FMOverviewWidget(QWidget):
         the poll that raised the signal saw, so taking it costs nothing and cannot
         disagree with what prompted the update.
         """
+        reposed = self._pose_changed(position)
         self._stage_position = position
         self._refresh_current_position()
+        # Everything else on the canvas is placed through a frame whose rotation and
+        # tilt come from wherever the stage is (see `_posed`), so a re-pose moves all of
+        # it. Redrawn only when the pose actually changes: the stage is polled
+        # constantly, and a translation leaves every one of these exactly where it was --
+        # the origin they are measured from moves with nothing.
+        if reposed:
+            self._refresh_positions()
+            self._refresh_stage_metadata()
         # The grid follows the stage only when it is not pinned to a target and not
         # mid-run. During a run the stage visits every tile in turn, and a grid that
         # followed would crawl across the canvas describing nothing.
         if self._target is None and not self.is_acquiring:
             self._refresh_tile_grid()
+
+    def _pose_changed(self, position: FibsemStagePosition) -> bool:
+        """Whether *position* is at a different rotation or tilt from the last one.
+
+        Only r and t, because only they enter the frame. Where the stage has travelled
+        to is not part of how stage space maps onto the canvas -- canvas zero is the
+        origin, and it does not move.
+        """
+        previous = self._stage_position
+        if previous is None:
+            return position.r is not None or position.t is not None
+        for now, before in ((position.r, previous.r), (position.t, previous.t)):
+            if now is None or before is None:
+                if now is not before:
+                    return True
+                continue
+            # Well below anything a user could mean and well above float noise on a
+            # value that has been through a couple of transforms.
+            if abs(now - before) > 1e-9:
+                return True
+        return False
+
+    def _on_canvas_clicked(self, x: float, y: float, modifiers=None) -> None:
+        """Select a marked position if the click landed on one.
+
+        A miss leaves the selection alone rather than clearing it, which is where this
+        parts company with the minimap's interactive overlay. Clearing would have to
+        travel: the host syncs its other lists from the selection, and their handlers
+        ignore None -- so an empty click would blank this canvas and nothing else, which
+        is worse than a selection that outstays its welcome. Nothing here is destroyed
+        by keeping it.
+        """
+        name = self._position_at(x, y)
+        if name is None:
+            return
+        self.set_selected_position(name)
+        self.position_selected.emit(name)
+
+    # Screen-space hit radius, matching `PointOverlay`'s. In pixels rather than stage
+    # microns so that how close you have to click does not change with the zoom.
+    PICK_RADIUS_PX = 12
+
+    def _position_at(self, x: float, y: float) -> Optional[str]:
+        """The marked position under a canvas point, or None.
+
+        Measured on screen, not in data units: at a wide zoom every marker would be
+        within any sensible micron radius of the click, and at a tight one none would be.
+        """
+        frame = self._frame()
+        ax = getattr(self.canvas.canvas, "_ax", None)
+        if frame is None or ax is None or not self._positions:
+            return None
+        try:
+            transform = ax.transData
+            click = transform.transform((x, y))
+        except Exception as e:
+            logging.debug(f"Could not resolve the click for picking: {e}")
+            return None
+
+        best_name, best_distance = None, float(self.PICK_RADIUS_PX)
+        for position in self._positions:
+            name = position.name
+            if not name:
+                continue
+            try:
+                point = transform.transform(frame.to_canvas(position))
+            except Exception:
+                continue
+            distance = (
+                (click[0] - point[0]) ** 2 + (click[1] - point[1]) ** 2
+            ) ** 0.5
+            if distance < best_distance:
+                best_name, best_distance = name, distance
+        return best_name
 
     def _on_canvas_double_clicked(self, x: float, y: float, modifiers=None) -> None:
         """Move the stage to the double-clicked point.
@@ -1046,38 +1246,152 @@ class FMOverviewWidget(QWidget):
         coincidence viewer: a single click is how the canvas is explored, and a stage
         that moved on every stray click would be unusable.
         """
+        target = self._stage_position_at(x, y) if self._may_move() else None
+        if target is None:
+            return
+        self.move_to(target)
+
+    def _may_move(self) -> bool:
+        """Whether driving the stage from this tab is allowed right now, and say if not."""
         if self.is_acquiring:
             notification_service.show_toast(
                 "Cannot move the stage during an acquisition.", "warning"
             )
-            return
+            return False
         if not self.fm.has_valid_orientation():
             notification_service.show_toast(
                 f"Stage must be in a valid FM orientation to move via the overview "
                 f"(currently {self.microscope.get_stage_orientation()}).",
                 "warning",
             )
+            return False
+        return True
+
+    def move_to(self, position: FibsemStagePosition) -> None:
+        """Drive the stage to *position*, off the GUI thread.
+
+        Public because a host drives it too -- picking a saved position out of a list is
+        the same act as double-clicking where it is drawn, and they should not be able to
+        disagree about whether a move is allowed or how it is reported.
+
+        The limits are checked here rather than trusted from the caller: a stored
+        position can be outside them on a system it was not recorded on.
+        """
+        if not self._may_move():
+            return
+        limits = getattr(self.microscope._stage, "limits", None)
+        if limits and not position.is_within_limits(limits, axes=["x", "y"]):
+            notification_service.show_toast(
+                "That position is outside the stage limits.", "warning"
+            )
             return
 
+        self.status.setText(f"Moving to {self._describe(position)}…")
+        worker = FunctionWorker(self._move_worker, position)
+        worker.start()
+
+    def _on_canvas_right_clicked(self, x: float, y: float, modifiers=None) -> None:
+        """Offer to put a position at the right-clicked point."""
+        config = self._position_menu(x, y)
+        if config is None:
+            return
+        ContextMenu(config, parent=self).show_at_cursor()
+
+    def _position_menu(self, x: float, y: float) -> Optional[ContextMenuConfig]:
+        """What right-clicking at a canvas point offers, or None to offer nothing.
+
+        Separate from showing it because `show_at_cursor` runs a modal event loop, and
+        everything worth checking -- whether the menu appears at all, what it offers,
+        and which position each entry would request -- is decided here. A test that had
+        to open the menu could only hang.
+
+        The widget creates nothing itself: each entry emits a request and lets a host
+        that owns an experiment decide. So the menu appears whenever the point is
+        somewhere the stage could go, even with nobody listening -- there is nothing
+        here that could tell the difference, and a menu that stayed shut because no host
+        was connected would make the standalone app behave differently for no visible
+        reason.
+        """
+        if self._running or self.is_acquiring or not self._interactive:
+            # `_running` and `_interactive` are the two facts `_apply_enabled_state`
+            # gates the controls on, and this is gated on the same two for the same
+            # reason: marking is cheap in itself, but a host that has taken the
+            # instrument is usually a workflow iterating `experiment.positions`, and
+            # adding one underneath it is not a thing to do quietly. `is_acquiring`
+            # comes along because the double-click asks it, and a right-click that was
+            # allowed where a double-click was refused would just be confusing.
+            notification_service.show_toast(
+                "Cannot mark positions while an acquisition is running.", "warning"
+            )
+            return None
+        # Stricter than the double-click's check, and deliberately so. Moving works from
+        # any pose: the whole scene -- images, markers, grid -- is re-placed through the
+        # pose the stage is in (see `_posed`), so a click still lands on the feature it
+        # points at. Marking has to survive being written down: the position becomes a
+        # lamella's *fluorescence* pose, and one carrying SEM rotation and tilt is not
+        # one, however right it looked on screen.
+        #
+        # `fm.has_valid_orientation()` is the wrong question here -- it asks whether FM
+        # acquisition is allowed, which SEM and MILLING both are, and which
+        # `ALLOW_UNKNOWN_ORIENTATIONS` currently answers yes to unconditionally.
+        #
+        # Asked of `fm.default_orientation` rather than a constant of our own, because
+        # that is the orientation `build_lamella_poses` derives a fluorescence pose
+        # *into*. Two names for the same thing could drift; one cannot.
+        orientation = self.microscope.get_stage_orientation()
+        if orientation != self.fm.default_orientation:
+            notification_service.show_toast(
+                f"Move to the fluorescence position before marking on the overview "
+                f"(the stage is at {orientation}).",
+                "warning",
+            )
+            return None
+
+        target = self._stage_position_at(x, y)
+        if target is None:
+            return None
+
+        config = ContextMenuConfig()
+        config.add_action(
+            "Add Position Here",
+            callback=lambda: self.position_add_requested.emit(target),
+            tooltip=f"Add a position at {self._describe(target)}",
+        )
+        selected = self._selected_position
+        if selected:
+            config.add_action(
+                f"Move Selected Position Here ({selected})",
+                callback=lambda: self.position_move_requested.emit(selected, target),
+                tooltip=f"Move {selected} to {self._describe(target)}",
+            )
+        return config
+
+    def _stage_position_at(self, x: float, y: float) -> Optional[FibsemStagePosition]:
+        """The stage position a canvas point names, or None if it is not usable.
+
+        Shared by clicking to move and right-clicking to mark, so the two cannot
+        disagree about where a point is -- which they would eventually, being the same
+        arithmetic written twice.
+
+        Outside the limits counts as not usable for both: the stage cannot go there, so
+        it is neither somewhere to move nor somewhere to put a lamella.
+        """
         frame = self._frame()
         if frame is None:
-            return
+            return None
         try:
             target = frame.to_stage(x, y)
         except Exception as e:
             logging.debug(f"Could not resolve the clicked position: {e}")
-            return
+            return None
 
         limits = getattr(self.microscope._stage, "limits", None)
         if limits and not target.is_within_limits(limits, axes=["x", "y"]):
             notification_service.show_toast(
                 "That position is outside the stage limits.", "warning"
             )
-            return
-
-        self.status.setText(f"Moving to {self._describe(target)}…")
-        worker = FunctionWorker(self._move_worker, target)
-        worker.start()
+            return None
+        return target
 
     def _move_worker(self, target: FibsemStagePosition) -> None:
         """Runs off the GUI thread. Only signals may cross back."""

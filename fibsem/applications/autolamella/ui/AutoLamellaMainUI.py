@@ -40,10 +40,12 @@ from fibsem.versioning import get_version_string
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, Lamella
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI, INSTRUCTIONS
+from fibsem.applications.autolamella.ui.autolamella_fluorescence_overview_tab import (
+    AutoLamellaFluorescenceOverviewTab,
+)
 from fibsem.applications.autolamella.workflows.tasks.queue import QueueOp, QueueResult
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.ui import FibsemMinimapWidget
-from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
 from fibsem.ui.qt.gc import install_main_thread_gc
 from fibsem.ui.stylesheets import (
     MILLING_PROGRESS_BAR_STYLESHEET,
@@ -960,8 +962,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if hasattr(self, "minimap_widget"):
             self.minimap_widget.pushButton_run_tile_collection.setEnabled(enabled)
             self.minimap_widget.pushButton_load_image.setEnabled(enabled)
-        if getattr(self, "fm_overview_widget", None) is not None:
-            self.fm_overview_widget.set_interactive(enabled)
+        if getattr(self, "fm_overview_tab", None) is not None:
+            self.fm_overview_tab.set_interactive(enabled)
 
     def _set_border_state(self, state: str):
         """Update the tab widget border to reflect current workflow state.
@@ -1262,7 +1264,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
 
         self.minimap_widget.set_experiment()
-        self._update_fm_overview_experiment()
+        self.fm_overview_tab.refresh_experiment()
         self.task_widget.set_experiment(self.autolamella_ui.experiment)
         self.lamella_widget.set_experiment()
         experiment = self.autolamella_ui.experiment
@@ -1299,9 +1301,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # by an experiment, so loading one must not switch it on for a system that has
         # no FM -- it would open onto an empty container.
         fm_overview_tab_index = (
-            self.tab_widget.indexOf(self._fm_overview_container)
-            if getattr(self, "fm_overview_widget", None) is None
-            and hasattr(self, "_fm_overview_container")
+            self.tab_widget.indexOf(self.fm_overview_tab)
+            if getattr(self, "fm_overview_tab", None) is not None
+            and not self.fm_overview_tab.is_available
             else -1
         )
         for i in range(self.tab_widget.count()):
@@ -1315,28 +1317,47 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._rebuild_lamella_list()
         self._on_workflow_selection_changed()  # evaluate after lamella are populated
         self.lamella_workflow_widget._update_summary()
+        self._wire_position_events()
+
+    def _wire_position_events(self):
+        """Follow the current experiment's position list, and stop following the last.
+
+        Everything that draws the set of lamellae -- the list rows, the cards, the FM
+        overview canvas -- is rebuilt from these, so a display that is not reachable from
+        here is a display that goes stale the moment a lamella is added anywhere else.
+        That was how a position marked on the FIB/SEM overview never appeared on the FM
+        one.
+        """
         experiment = self.autolamella_ui.experiment if self.autolamella_ui else None
-        if experiment is not self._lamella_list_experiment:
-            # Disconnect from the old experiment's position events
-            if self._lamella_list_experiment is not None:
-                try:
-                    self._lamella_list_experiment.positions.events.inserted.disconnect(
-                        self._rebuild_lamella_list
-                    )
-                    self._lamella_list_experiment.positions.events.removed.disconnect(
-                        self._rebuild_lamella_list
-                    )
-                except Exception:
-                    pass
-            # Connect to the new experiment's position events
-            if experiment is not None:
-                experiment.positions.events.inserted.connect(
-                    lambda *_: self._rebuild_lamella_list()
-                )
-                experiment.positions.events.removed.connect(
-                    lambda *_: self._rebuild_lamella_list()
-                )
-            self._lamella_list_experiment = experiment
+        if experiment is self._lamella_list_experiment:
+            return
+
+        if self._lamella_list_experiment is not None:
+            events = self._lamella_list_experiment.positions.events
+            try:
+                events.inserted.disconnect(self._rebuild_lamella_list)
+                events.removed.disconnect(self._rebuild_lamella_list)
+                events.changed.disconnect(self._refresh_fm_overview_positions)
+            except Exception as e:
+                logging.debug(f"Could not disconnect position events: {e}")
+
+        # Bound methods rather than lambdas, so the disconnects above can find them.
+        # psygnal passes each callback only as many arguments as it accepts, so a
+        # no-argument handler needs no wrapper -- and a lambda cannot be disconnected by
+        # naming the method it calls, which made the disconnect a silent no-op (psygnal
+        # does not complain about disconnecting something that was never connected).
+        # Nothing broke, because the experiment being disconnected from is on its way out
+        # and never emits again, but it did not do what it said.
+        if experiment is not None:
+            events = experiment.positions.events
+            events.inserted.connect(self._rebuild_lamella_list)
+            events.removed.connect(self._rebuild_lamella_list)
+            # `changed` means a lamella was edited in place rather than added or removed
+            # -- `update_lamella_position_ui` emits it after replacing a milling pose.
+            # The list rows do not care, but the canvas draws the positions themselves,
+            # so it has to be told.
+            events.changed.connect(self._refresh_fm_overview_positions)
+        self._lamella_list_experiment = experiment
 
     def create_notification_button(self):
         """Add buttons to the tab bar for adding Protocol Editor, Lamella, and Minimap tabs."""
@@ -1582,6 +1603,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
 
         self._selected_card_lamella = lamella
+        self.fm_overview_tab.set_selected(lamella)
         self.lamella_task_image_widget.set_lamella(lamella)
         if lamella is not None:
             self.lamella_widget.select_lamella(lamella.name)
@@ -1596,6 +1618,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_experiment_lamella_selected(self, lamella):
         """Sync card container and minimap when experiment-tab list selection changes."""
+        self.fm_overview_tab.set_selected(lamella)
         if getattr(self, "_syncing_selection", False) or lamella is None:
             return
         if not hasattr(self, "lamella_card_container"):
@@ -1610,6 +1633,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_minimap_lamella_selected(self, lamella):
         """Sync experiment list and card container when minimap list selection changes."""
+        self.fm_overview_tab.set_selected(lamella)
         if getattr(self, "_syncing_selection", False) or lamella is None:
             return
         self._syncing_selection = True
@@ -1906,6 +1930,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_list_widget.clear()
         self.lamella_card_container.clear()
         self._on_lamella_card_selected(None)
+        # The FM canvas is another display of the same set, so it is rebuilt here rather
+        # than from its own subscription -- one handler for "the lamellae changed" means
+        # the two cannot end up disagreeing about what the experiment holds. Before the
+        # `experiment is None` return, because an experiment closing has to clear the
+        # canvas as much as an experiment opening has to fill it.
+        self._refresh_fm_overview_positions()
         if experiment is None:
             return
         for lamella in experiment.positions:
@@ -2058,29 +2088,65 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         two show different stage poses -- milling pose on the beam side, FM pose here --
         and relating them is what the correlation workflow is for.
 
-        Only the container is made here. `FMOverviewWidget` requires a microscope with a
+        The tab is created empty. `FMOverviewWidget` requires a microscope with a
         fluorescence detector at construction -- it has no meaningful empty state, since
-        every scale on its canvas comes from the camera -- and at this point there may
-        be no microscope at all. The widget is built on connection instead, by
-        :meth:`_build_fm_overview_widget`, and the tab stays disabled until then.
+        every scale on its canvas comes from the camera -- and at this point there may be
+        no microscope at all. :class:`AutoLamellaFluorescenceOverviewTab` fills itself in on
+        connection, and says so through `availability_changed`.
         """
-        self._fm_overview_container = QWidget()
-        layout = QVBoxLayout(self._fm_overview_container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        self.fm_overview_widget: Optional[FMOverviewWidget] = None
-        # The microscope the current widget was built for. A reconnection hands out a
-        # new object, and the old widget would go on reading geometry from an instrument
-        # nobody is driving (FIB-433), so the identity is worth keeping.
-        self._fm_overview_microscope = None
+        self.fm_overview_tab = AutoLamellaFluorescenceOverviewTab(self.autolamella_ui)
+        self.fm_overview_tab.availability_changed.connect(
+            self._on_fm_overview_availability
+        )
+        self.fm_overview_tab.lamella_selected.connect(self._on_fm_overview_lamella_selected)
 
         self.tab_widget.insertTab(
-            2, self._fm_overview_container,
+            2, self.fm_overview_tab,
             fibsem_icon("mdi:microscope", color=GRAY_ICON_COLOR), "FM Overview",
         )
         self.tab_widget.setTabEnabled(
-            self.tab_widget.indexOf(self._fm_overview_container), False
+            self.tab_widget.indexOf(self.fm_overview_tab), False
         )
         self._apply_fm_overview_visibility()
+
+    def _on_fm_overview_lamella_selected(self, lamella):
+        """Sync the other lists when the FM overview's list selection changes.
+
+        The same shape as `_on_minimap_lamella_selected`, minus the call back into the
+        FM tab: it raised this, and it has already highlighted what was clicked.
+        """
+        if getattr(self, "_syncing_selection", False) or lamella is None:
+            return
+        self._syncing_selection = True
+        try:
+            self.autolamella_ui.lamella_list.select(lamella.name)
+            if hasattr(self, "lamella_card_container"):
+                self.lamella_card_container.select_lamella(lamella.name)
+        finally:
+            self._syncing_selection = False
+
+    def _refresh_fm_overview_positions(self):
+        """Re-mark the FM overview, tolerating there being no tab.
+
+        A method on the window rather than connecting `fm_overview_tab.refresh_positions`
+        straight to the experiment's signal: the tab is rebuilt when the microscope
+        changes, and a subscription holding the old one's bound method would be both
+        stale and undisconnectable. This one is stable for the window's lifetime, which
+        is what `_wire_position_events`' disconnect needs.
+        """
+        if getattr(self, "fm_overview_tab", None) is None:
+            return
+        self.fm_overview_tab.refresh_positions()
+
+    def _on_fm_overview_availability(self, available: bool):
+        """Enable the tab when it has something to drive.
+
+        The one thing about the tab that is not the tab's own business: it has no
+        business reaching out to the tab bar it happens to sit in.
+        """
+        self.tab_widget.setTabEnabled(
+            self.tab_widget.indexOf(self.fm_overview_tab), available
+        )
 
     def _apply_fm_overview_visibility(self):
         """Show or hide the FM Overview tab to match the preference, immediately.
@@ -2098,9 +2164,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         * **No microscope yet** is temporary, so the tab stays visible and disabled,
           which is what every other tab does while waiting for a connection.
         """
-        if not hasattr(self, "_fm_overview_container"):
+        if getattr(self, "fm_overview_tab", None) is None:
             return
-        index = self.tab_widget.indexOf(self._fm_overview_container)
+        index = self.tab_widget.indexOf(self.fm_overview_tab)
         microscope = (
             self.autolamella_ui.microscope if self.autolamella_ui is not None else None
         )
@@ -2109,89 +2175,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             index, fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED and not has_no_fm
         )
         # Builds when the flag is on and there is an FM, tears down otherwise.
-        self._build_fm_overview_widget()
-
-    def _build_fm_overview_widget(self):
-        """Put a widget in the FM Overview tab, once there is something to drive.
-
-        Called on every connection. Rebuilds when the microscope object has changed,
-        because the widget holds its microscope for life and would otherwise be talking
-        to the previous one -- destructive of anything on the canvas, and the reason
-        FIB-433 exists to do this without throwing the view away.
-        """
-        # `connected_signal` is subscribed in `_create_main_tab`, which runs before this
-        # tab is reserved. Nothing can fire in between synchronously, but the ordering is
-        # not this method's to rely on.
-        if not hasattr(self, "_fm_overview_container"):
-            return
-
-        microscope = (
-            self.autolamella_ui.microscope if self.autolamella_ui is not None else None
-        )
-        index = self.tab_widget.indexOf(self._fm_overview_container)
-
-        if (
-            not fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED
-            or microscope is None
-            or microscope.fm is None
-        ):
-            # Switched off, or no fluorescence detector. The tab stays in place but dead
-            # rather than being removed, so the tab bar does not change shape between
-            # systems; hiding it is `_apply_fm_overview_visibility`'s job.
-            self._teardown_fm_overview_widget()
-            self.tab_widget.setTabEnabled(index, False)
-            return
-
-        if self.fm_overview_widget is not None:
-            if self._fm_overview_microscope is microscope:
-                return
-            self._teardown_fm_overview_widget()
-
-        try:
-            self.fm_overview_widget = FMOverviewWidget(microscope)
-        except Exception as e:
-            logging.error(f"Could not create the FM overview tab: {e}")
-            self.tab_widget.setTabEnabled(index, False)
-            return
-
-        self._fm_overview_microscope = microscope
-        self._fm_overview_container.layout().addWidget(self.fm_overview_widget)
-        self.tab_widget.setTabEnabled(index, True)
-        self._update_fm_overview_experiment()
-
-    def _teardown_fm_overview_widget(self):
-        """Drop the current FM overview widget, if there is one.
-
-        `close()` rather than `deleteLater()` alone: the widget's `closeEvent` is what
-        releases its psygnal subscriptions on the microscope, and those outlive the
-        widget -- a stale one left connected emits into a torn-down Qt object.
-        """
-        if self.fm_overview_widget is None:
-            return
-        try:
-            self.fm_overview_widget.close()
-        except Exception as e:
-            logging.debug(f"Error closing the FM overview widget: {e}")
-        self._fm_overview_container.layout().removeWidget(self.fm_overview_widget)
-        self.fm_overview_widget.deleteLater()
-        self.fm_overview_widget = None
-        self._fm_overview_microscope = None
-
-    def _update_fm_overview_experiment(self):
-        """Tell the FM overview tab where to save.
-
-        Told rather than handed the experiment: the widget knows nothing about
-        experiments, and keeping it that way is what lets it open standalone against a
-        simulator and be constructed in a test from a microscope alone.
-        """
-        if getattr(self, "fm_overview_widget", None) is None:
-            return
-        experiment = (
-            self.autolamella_ui.experiment if self.autolamella_ui is not None else None
-        )
-        self.fm_overview_widget.set_save_directory(
-            str(experiment.path) if experiment is not None else None
-        )
+        self.fm_overview_tab.refresh_microscope()
 
     def _on_notification_service(
         self, message: str, notification_type: str, temporary: bool
