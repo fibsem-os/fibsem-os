@@ -63,7 +63,7 @@ def test_record_ignores_empty_path(prefs_env):
 
 def test_peek_reads_display_metadata(prefs_env):
     path = _write_experiment(prefs_env / "meta", name="cool-experiment", created_at=1234.0, num_positions=3)
-    info = cfg._peek_experiment_yaml(path)
+    info = cfg.peek_experiment(path)
     assert info.name == "cool-experiment"
     assert info.created_at == 1234.0
     assert info.num_lamella == 3
@@ -73,7 +73,7 @@ def test_peek_reads_display_metadata(prefs_env):
 
 def test_peek_missing_file(prefs_env):
     path = str(prefs_env / "gone" / "experiment.yaml")
-    info = cfg._peek_experiment_yaml(path)
+    info = cfg.peek_experiment(path)
     assert info.exists is False
     assert info.available is False
     assert info.name == "gone"  # falls back to parent dir name
@@ -86,7 +86,7 @@ def test_peek_corrupt_file_is_unavailable_but_exists(prefs_env):
     with open(yaml_path, "w") as f:
         f.write("{ this is: not: valid yaml ]")
 
-    info = cfg._peek_experiment_yaml(yaml_path)
+    info = cfg.peek_experiment(yaml_path)
     assert info.exists is True       # kept, not silently pruned
     assert info.available is False   # flagged so the UI can grey it out
 
