@@ -243,6 +243,42 @@ def test_a_plain_tiff_is_still_named(qapp):
     assert data.to_dict()["fib_image_filename"] == "from_another_program.tif"
 
 
+# ---------------------------------------------------------------------------
+# Derived volumes, which naming from `filepath` would otherwise strand
+# ---------------------------------------------------------------------------
+
+
+def test_an_interpolated_volume_is_still_that_files_volume(qapp):
+    """Interpolate is a button in the Images tab, so this is a normal path.
+
+    Naming an image from ``filepath`` means a derived image that drops it gets no
+    name at all -- worse than before, since the metadata copy used to carry the
+    acquisition name forward. The resampled volume is still the source file's.
+    """
+    from fibsem.correlation.util import interpolate_fm_volume
+
+    source = _fm_image()
+    source.metadata.pixel_size_z = 5e-7
+
+    interpolated = interpolate_fm_volume(
+        source, target_z_size_m=2.5e-7, method="linear"
+    )
+
+    assert interpolated.filepath == FM_PATH
+    assert CorrelationInputData(fm_image=interpolated).fm_image_filename == (
+        "fm_stack.ome.tiff"
+    )
+
+
+def test_a_projection_and_a_focus_stack_keep_it_too(qapp):
+    """The other two derived forms, which have the same shape."""
+    source = _fm_image()
+    source.metadata.pixel_size_z = 5e-7
+
+    assert source.max_intensity_projection().filepath == FM_PATH
+    assert source.focus_stack().filepath == FM_PATH
+
+
 def test_no_image_and_no_file_stay_none(qapp):
     """``to_dict`` is on the only persistence path, so neither may raise (FIB-316)."""
     assert CorrelationInputData().fib_image_filename is None

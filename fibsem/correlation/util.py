@@ -432,7 +432,16 @@ def interpolate_fm_volume(
                 src, np.arange(len(old)), old
             ).tolist()
 
-    return FluorescenceImage(data=interpolated, metadata=new_meta)
+    # Resampled, but still this file's volume. The correlation UI names an image
+    # by its filepath (FIB-509), so dropping it here would blank the header and
+    # record a null filename for every correlation run after an interpolation.
+    return FluorescenceImage(
+        data=interpolated,
+        metadata=new_meta,
+        # getattr, because this function is exercised with minimal stand-ins that
+        # carry only the fields it reads.
+        filepath=getattr(fm_image, "filepath", None),
+    )
 
 
 def multi_channel_get_z_guass(image: np.ndarray, x: int, y: int, show: bool = False) -> List[float]:

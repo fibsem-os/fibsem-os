@@ -322,7 +322,12 @@ class ZParameters:
 class FluorescenceImage:
     data: np.ndarray  # TCZYX format (Time, Channels, Z, Y, X)
     metadata: "FluorescenceImageMetadata"
-    # the file this image is associated with on disk, set by save() and load().
+    # the file this image is associated with on disk, set by save() and load(), and
+    # inherited by the derived forms -- projection, focus stack, interpolation. A
+    # resampled volume is still that file's volume, and it is the only file that
+    # describes it; the UI and the correlation record name an image from this
+    # (FIB-509), so dropping it on a derived image loses the provenance entirely.
+    # Nothing writes back to it: save() takes the filename it is given.
     # excluded from compare/repr: it describes where the image lives, not what it contains,
     # so two images of the same data read from different paths are still equal.
     filepath: Optional[str] = field(default=None, compare=False, repr=False)
@@ -856,7 +861,12 @@ class FluorescenceImage:
             dimension_order=self.metadata.dimension_order,
         )
 
-        return FluorescenceImage(data=projected_data, metadata=projected_metadata)
+        return FluorescenceImage(
+            data=projected_data,
+            metadata=projected_metadata,
+            # Still this file's image; see the note on the field (FIB-509).
+            filepath=self.filepath,
+        )
 
     def focus_stack(
         self,
@@ -992,7 +1002,12 @@ class FluorescenceImage:
             dimension_order=self.metadata.dimension_order,
         )
 
-        return FluorescenceImage(data=stacked_data, metadata=stacked_metadata)
+        return FluorescenceImage(
+            data=stacked_data,
+            metadata=stacked_metadata,
+            # Still this file's image; see the note on the field (FIB-509).
+            filepath=self.filepath,
+        )
 
     def calculate_histogram(
         self,
