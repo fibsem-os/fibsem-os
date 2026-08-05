@@ -394,7 +394,7 @@ def installed_plugin_versions() -> Dict[str, str]:
 
     Having a distribution *is* the filter: a built-in has none, and a
     script-loaded extension carries a path instead. What is left is what somebody
-    installed, which is the question an experiment's provenance needs to answer --
+    installed, which is the question an experiment's session record needs to answer --
     a plugin developer debugging a remote site otherwise has no way to know which
     build of their own code ran (FIB-451).
 

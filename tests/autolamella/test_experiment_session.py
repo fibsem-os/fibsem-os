@@ -58,7 +58,7 @@ def test_an_experiment_no_session_has_touched_knows_nothing(tmp_path: Path) -> N
     """None, rather than a half-filled record.
 
     Creating an experiment happens in a dialog with no microscope, so the
-    instrument genuinely is unknown until a run adopts it.
+    instrument genuinely is unknown until a session adopts it.
     """
     assert _experiment(tmp_path).session is None
 
@@ -182,7 +182,7 @@ def test_an_unrelated_metadata_entry_declares_nobody(
 
 
 # ---------------------------------------------------------------------------
-# Last run wins, and it reaches disk
+# The latest session wins, and it reaches disk
 # ---------------------------------------------------------------------------
 
 

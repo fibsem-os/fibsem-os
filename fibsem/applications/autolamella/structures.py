@@ -1052,7 +1052,7 @@ class Experiment:
         experiment.metadata = ddict.get("metadata", {})
 
         # Absent from every experiment written before FIB-451, and from any that no
-        # run has adopted yet. Both mean the same thing -- nothing is known about
+        # session has adopted yet. Both mean the same thing -- nothing is known about
         # what produced this -- and None says that without guessing.
         session = ddict.get("session")
         experiment.session = SessionInfo.from_dict(session) if session else None
