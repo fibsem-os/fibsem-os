@@ -3622,3 +3622,131 @@ def test_a_lamella_added_from_elsewhere_lands_on_the_canvas_immediately(qapp, tm
     assert [p.name for p in tab.overview._positions] == ["Lamella-01"]
 
     tab._drop_overview()
+
+
+# ── the scene follows the stage's pose ───────────────────────────────────
+
+
+def test_marked_positions_move_when_the_stage_re_poses(qapp):
+    """Reported: tilt the stage 180 degrees and the markers stay put, when they should
+    move. Everything on this canvas is placed through a frame whose rotation and tilt
+    come from wherever the stage is, so a re-pose moves all of it -- but only the current
+    position crosshair and the tile grid were being redrawn."""
+    from fibsem.structures import FibsemStagePosition
+
+    microscope = _microscope_at(-180.0)  # FM
+    widget = FMOverviewWidget(microscope)
+    widget._refresh_tile_grid()
+    qapp.processEvents()
+
+    marked = _named("Lamella-01", 100e-6, 50e-6)
+    widget.set_positions([marked])
+    at_fm = list(widget.position_overlay._points)
+
+    milling = microscope.get_orientation("MILLING")
+    microscope.move_stage_absolute(
+        FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=milling.r, t=milling.t)
+    )
+    widget._on_stage_moved(microscope.get_stage_position())
+    qapp.processEvents()
+
+    after = list(widget.position_overlay._points)
+    assert after != at_fm, "the markers did not follow the re-pose"
+    # ...and they are where the frame now says they are, not merely somewhere else
+    assert after[0] == pytest.approx(widget._frame().to_canvas(marked), abs=1e-6)
+
+    widget.close()
+
+
+def test_the_selected_marker_re_poses_too(qapp):
+    """It is on its own overlay, so it is a second thing that has to be redrawn."""
+    from fibsem.structures import FibsemStagePosition
+
+    microscope = _microscope_at(-180.0)
+    widget = FMOverviewWidget(microscope)
+    widget._refresh_tile_grid()
+    widget.set_positions([_named("Lamella-01", 100e-6, 50e-6)])
+    widget.set_selected_position("Lamella-01")
+    qapp.processEvents()
+    before = list(widget.selected_position_overlay._points)
+
+    milling = microscope.get_orientation("MILLING")
+    microscope.move_stage_absolute(
+        FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=milling.r, t=milling.t)
+    )
+    widget._on_stage_moved(microscope.get_stage_position())
+    qapp.processEvents()
+
+    assert list(widget.selected_position_overlay._points) != before
+
+    widget.close()
+
+
+def test_translating_the_stage_leaves_the_markers_alone(qapp):
+    """The stage is polled constantly and a translation moves none of this: the origin
+    everything is measured from does not move with it. Redrawing anyway would be work
+    per poll for no visible change."""
+    from fibsem.structures import FibsemStagePosition
+
+    microscope = _microscope_at(-180.0)
+    widget = FMOverviewWidget(microscope)
+    widget._refresh_tile_grid()
+    widget.set_positions([_named("Lamella-01", 100e-6, 50e-6)])
+    qapp.processEvents()
+    before = list(widget.position_overlay._points)
+
+    redraws = []
+    original = widget._refresh_positions
+    widget._refresh_positions = lambda: redraws.append(1) or original()
+
+    here = microscope.get_stage_position()
+    microscope.move_stage_absolute(
+        FibsemStagePosition(x=here.x + 200e-6, y=here.y - 90e-6, z=here.z,
+                            r=here.r, t=here.t)
+    )
+    widget._on_stage_moved(microscope.get_stage_position())
+    qapp.processEvents()
+
+    assert redraws == [], "redrew the markers for a move that cannot have moved them"
+    assert list(widget.position_overlay._points) == before
+
+    widget.close()
+
+
+def test_the_stage_limits_re_pose_even_with_the_grid_pinned(qapp):
+    """Drawn from the same frame, so they had the same bug.
+
+    With the grid free, `_refresh_tile_grid` redraws them on its way past and this
+    passes either way. The target is pinned first so that path is skipped -- dragging the
+    grid somewhere and then re-posing the stage is exactly when nothing else would.
+
+    The origin is also put *off* the grid centre. Anchored on it, the limits box and the
+    grid boundary sit at canvas zero whatever the pose -- a zero offset stays zero
+    through any rotation -- so the test would pass by drawing nothing that could move.
+    """
+    from fibsem.structures import FibsemStagePosition
+
+    microscope = _microscope_at(-180.0)
+    fm = microscope.get_orientation("FM")
+    microscope.move_stage_absolute(
+        FibsemStagePosition(x=250e-6, y=-180e-6, z=0.0, r=fm.r, t=fm.t)
+    )
+    widget = FMOverviewWidget(microscope)
+    widget._refresh_tile_grid()  # fixes the origin, off-centre
+    qapp.processEvents()
+    before = [(spec.cx, spec.cy) for spec in widget.stage_overlay._specs]
+    assert any(cx or cy for cx, cy in before), "nothing drawn that a re-pose could move"
+
+    # Pin the grid, so `_on_stage_moved` will not redraw it -- and with it, the limits.
+    widget._target = microscope.get_stage_position()
+
+    milling = microscope.get_orientation("MILLING")
+    microscope.move_stage_absolute(
+        FibsemStagePosition(x=250e-6, y=-180e-6, z=0.0, r=milling.r, t=milling.t)
+    )
+    widget._on_stage_moved(microscope.get_stage_position())
+    qapp.processEvents()
+
+    assert [(spec.cx, spec.cy) for spec in widget.stage_overlay._specs] != before
+
+    widget.close()

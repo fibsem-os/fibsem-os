@@ -1124,13 +1124,43 @@ class FMOverviewWidget(QWidget):
         the poll that raised the signal saw, so taking it costs nothing and cannot
         disagree with what prompted the update.
         """
+        reposed = self._pose_changed(position)
         self._stage_position = position
         self._refresh_current_position()
+        # Everything else on the canvas is placed through a frame whose rotation and
+        # tilt come from wherever the stage is (see `_posed`), so a re-pose moves all of
+        # it. Redrawn only when the pose actually changes: the stage is polled
+        # constantly, and a translation leaves every one of these exactly where it was --
+        # the origin they are measured from moves with nothing.
+        if reposed:
+            self._refresh_positions()
+            self._refresh_stage_metadata()
         # The grid follows the stage only when it is not pinned to a target and not
         # mid-run. During a run the stage visits every tile in turn, and a grid that
         # followed would crawl across the canvas describing nothing.
         if self._target is None and not self.is_acquiring:
             self._refresh_tile_grid()
+
+    def _pose_changed(self, position: FibsemStagePosition) -> bool:
+        """Whether *position* is at a different rotation or tilt from the last one.
+
+        Only r and t, because only they enter the frame. Where the stage has travelled
+        to is not part of how stage space maps onto the canvas -- canvas zero is the
+        origin, and it does not move.
+        """
+        previous = self._stage_position
+        if previous is None:
+            return position.r is not None or position.t is not None
+        for now, before in ((position.r, previous.r), (position.t, previous.t)):
+            if now is None or before is None:
+                if now is not before:
+                    return True
+                continue
+            # Well below anything a user could mean and well above float noise on a
+            # value that has been through a couple of transforms.
+            if abs(now - before) > 1e-9:
+                return True
+        return False
 
     def _on_canvas_double_clicked(self, x: float, y: float, modifiers=None) -> None:
         """Move the stage to the double-clicked point.
