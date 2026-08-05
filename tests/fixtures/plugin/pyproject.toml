@@ -25,6 +25,11 @@ fixture_strategy = "fibsem_test_plugin.strategies:FixtureMillingStrategy"
 
 [project.entry-points."fibsem.tasks"]
 fixture_task = "fibsem_test_plugin.tasks:FixtureTask"
+# Two failure shapes, declared on purpose. Neither registers anything, and
+# neither used to leave a trace anywhere the user could reach -- the plugin
+# listing exists to report exactly these, so they have to be exercised.
+wrong_base_class = "fibsem_test_plugin.tasks:NotATask"
+missing_module = "fibsem_test_plugin.nonexistent:Whatever"
 
 [tool.setuptools]
 packages = ["fibsem_test_plugin"]

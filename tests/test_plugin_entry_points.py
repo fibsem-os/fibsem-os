@@ -34,6 +34,7 @@ PATTERN_NAME = "Fixture Pattern"
 STRATEGY_NAME = "Fixture Strategy"
 TASK_TYPE = "FIXTURE_TASK"
 CLASHING_PATTERN_NAME = "Rectangle"  # a built-in name the fixture claims on purpose
+FAILING_ENTRY_POINTS = ("wrong_base_class", "missing_module")  # declared to fail
 
 def _fixture_installed() -> bool:
     """Detect the fixture without importing it.
@@ -204,3 +205,118 @@ def test_shadowed_plugin_is_not_silently_reported_as_the_builtin():
     from fibsem.milling.patterning.patterns2 import RectanglePattern
 
     assert isinstance(get_pattern(CLASHING_PATTERN_NAME), RectanglePattern)
+
+
+# ---------------------------------------------------------------------------
+# Introspection: what the registries cannot tell you
+#
+# get_patterns() and friends return {name: class}, which by construction cannot
+# express a plugin that failed to load or one a built-in shadowed. Those are the
+# two questions the plugin listing exists to answer, so they are asserted
+# against the same installed fixture rather than against synthetic records --
+# a mock cannot catch a change to the real entry point loading path.
+# ---------------------------------------------------------------------------
+
+
+def test_load_records_report_the_failures_the_registry_drops():
+    """Both failure shapes are reported, with the declared target intact."""
+    from fibsem.applications.autolamella.workflows.tasks import (
+        get_task_plugin_records,
+        get_tasks,
+    )
+
+    failures = {r.entry_point: r for r in get_task_plugin_records() if not r.loaded}
+    assert set(failures) == set(FAILING_ENTRY_POINTS), sorted(failures)
+
+    wrong_base = failures["wrong_base_class"]
+    assert "not a subclass of AutoLamellaTask" in wrong_base.error
+    # The declared target survives even though nothing resolved: a listing that
+    # only shows what worked cannot answer "why isn't mine here?".
+    assert wrong_base.value == "fibsem_test_plugin.tasks:NotATask"
+    assert wrong_base.cls is None and wrong_base.name is None
+
+    assert "ModuleNotFoundError" in failures["missing_module"].error
+
+    # ...and none of them leaked into the registry.
+    assert all(cls.__name__ != "NotATask" for cls in get_tasks().values())
+
+
+def test_load_records_carry_the_providing_distribution():
+    """Which install a plugin came from, for a machine with several envs."""
+    from fibsem.applications.autolamella.workflows.tasks import get_task_plugin_records
+
+    record = next(r for r in get_task_plugin_records() if r.entry_point == "fixture_task")
+    assert record.distribution == "fibsem-test-plugin"
+    assert record.version == "0.0.0"
+
+
+def test_shadowed_plugin_is_reported_rather_than_vanishing():
+    """The clashing pattern loaded, lost the name, and is still accounted for.
+
+    ``get_patterns()`` merges built-ins last, so the shadowed class is simply
+    absent from the result -- nothing downstream can tell it was ever installed.
+    """
+    from fibsem.plugins.report import ExtensionSource, collect_extensions
+
+    patterns = next(g for g in collect_extensions() if g.group == "fibsem.patterns")
+    shadowed = [e for e in patterns.extensions if e.shadowed]
+
+    assert [e.name for e in shadowed] == [CLASHING_PATTERN_NAME]
+    assert shadowed[0].source is ExtensionSource.PLUGIN
+    assert "built-in" in shadowed[0].problem
+    assert shadowed[0].target.endswith("ClashingPattern")
+
+    # The winning entry under that name is the built-in, listed separately.
+    winners = [
+        e
+        for e in patterns.extensions
+        if e.name == CLASHING_PATTERN_NAME and not e.shadowed
+    ]
+    assert [e.source for e in winners] == [ExtensionSource.BUILTIN]
+
+
+def test_failed_entry_point_becomes_a_row_that_spells_out_the_consequence():
+    """A bare "ModuleNotFoundError" does not tell a user what state they are in.
+
+    The reason has to say that nothing registered, or a reader cannot tell
+    whether their plugin is half-loaded or simply absent.
+    """
+    from fibsem.plugins.report import ExtensionSource, collect_extensions
+
+    tasks = next(g for g in collect_extensions() if g.group == "fibsem.tasks")
+    failed = [e for e in tasks.extensions if e.source is ExtensionSource.FAILED]
+
+    assert len(failed) == len(FAILING_ENTRY_POINTS), [e.target for e in failed]
+    for extension in failed:
+        assert extension.name is None
+        assert extension.problem.endswith("- nothing was registered")
+        # The declared target, not a resolved one -- nothing resolved.
+        assert ":" in extension.target
+        assert extension.distribution == "fibsem-test-plugin"
+
+
+def test_report_lists_the_fixture_across_all_three_groups():
+    from fibsem.plugins.report import ExtensionSource, collect_extensions, render_report
+
+    groups = collect_extensions()
+    assert [g.group for g in groups] == [
+        "fibsem.patterns",
+        "fibsem.strategies",
+        "fibsem.tasks",
+    ]
+
+    text = render_report(groups)
+    for name in (PATTERN_NAME, STRATEGY_NAME, TASK_TYPE):
+        assert name in text
+
+    # Failures are in the text too, which is the difference between this and
+    # simply listing the registries.
+    assert "fibsem_test_plugin.tasks:NotATask" in text
+    assert text.count("failed") >= 1
+
+    # Built-ins are counted but not listed unless asked for.
+    assert "fibsem.milling.patterning.patterns2.RectanglePattern" not in text
+    assert "fibsem.milling.patterning.patterns2.RectanglePattern" in render_report(
+        groups, show_builtins=True
+    )
+    assert any(e.source is ExtensionSource.BUILTIN for e in groups[0].extensions)

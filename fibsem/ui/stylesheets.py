@@ -688,6 +688,7 @@ TEXT_STRONG_COLOR = "#f0f1f2"   # titles, emphasis
 TEXT_MUTED_COLOR = "#868e93"    # secondary text, disabled
 ACCENT_COLOR = "#50a6ff"        # links, selected state, informational chips
 OK_COLOR = "#4caf50"            # success
+WARN_COLOR = "#e0a030"          # loaded but inactive, degraded, needs attention
 ERROR_COLOR = "#d04040"         # failure
 
 # The tooltip rule, for restating alongside a selector-less widget stylesheet.

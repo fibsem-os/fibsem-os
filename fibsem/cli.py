@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import math
 import sys
 from datetime import datetime
@@ -301,6 +302,37 @@ def cmd_info(microscope, _settings, _args) -> int:
     return 0
 
 
+def cmd_plugins(args) -> int:
+    """Print what resolved under each entry point group.
+
+    A plugin registered under a mistyped group name fails completely silently:
+    nothing iterates unknown groups, so there is no error to log and the user
+    sees only that their plugin never appeared. Printing the literal group
+    strings is the whole diagnostic -- they can diff them against their own
+    pyproject in the same terminal.
+
+    Takes no microscope: see _add_plugins_parser.
+    """
+    from fibsem.plugins.report import collect_extensions, render_report
+
+    # Loading the registries logs a full traceback per broken plugin. Those are
+    # the very failures this command reports in one readable line each, and
+    # dumping them above the report would bury it. Nothing is lost: --debug
+    # brings the tracebacks back for when the one-line reason is not enough.
+    #
+    # Safe to do here only because importing fibsem.cli does not pull in any of
+    # the three registries, so nothing has loaded yet at this point.
+    if not args.debug:
+        logging.disable(logging.CRITICAL)
+    try:
+        groups = collect_extensions()
+    finally:
+        logging.disable(logging.NOTSET)
+
+    print(render_report(groups, show_builtins=args.show_builtins))
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Parser construction
 # ---------------------------------------------------------------------------
@@ -491,6 +523,39 @@ def _add_mill_angle_parser(sub, conn) -> None:
     p.set_defaults(func=cmd_mill_angle)
 
 
+def _add_plugins_parser(sub) -> None:
+    """List what resolved under each entry point group.
+
+    Deliberately takes no connection arguments: diagnosing a plugin is usually
+    done away from the instrument, and requiring a microscope to answer "did my
+    plugin load?" would make the command useless in exactly the situation it
+    exists for. ``main()`` dispatches it before connecting.
+    """
+    p = sub.add_parser(
+        "plugins",
+        help="List registered patterns, strategies and tasks, and where they came from",
+    )
+    p.add_argument(
+        "--all",
+        action="store_true",
+        dest="show_builtins",
+        help="Include built-in extensions, which are counted but hidden by default",
+    )
+    p.add_argument(
+        "--debug",
+        action="store_true",
+        # Declared here because taking no connection arguments means `plugins
+        # --debug` -- the position every other subcommand accepts, and the one a
+        # user reaches for -- would otherwise be an unrecognized argument. The
+        # root parser still supplies the default, hence SUPPRESS: same reason as
+        # the subparsers' copy of the connection arguments, see
+        # _build_connection_parser.
+        default=argparse.SUPPRESS,
+        help="Show the full traceback for each plugin that failed to load",
+    )
+    p.set_defaults(func=cmd_plugins, needs_microscope=False)
+
+
 def _add_set_beam_parser(sub, conn) -> None:
     p = sub.add_parser("set-beam", parents=[conn], help="Set beam voltage, current, or HFW")
     p.add_argument(
@@ -547,6 +612,7 @@ def _build_parser() -> argparse.ArgumentParser:
         action=_VersionAction,
         help="Print the fibsemOS version and exit",
     )
+    root.set_defaults(needs_microscope=True)
     sub = root.add_subparsers(dest="subcommand", metavar="SUBCOMMAND")
     sub.required = True
     _add_acquire_parser(sub, conn)
@@ -558,6 +624,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_info_parser(sub, conn)
     _add_mill_angle_parser(sub, conn)
     _add_set_beam_parser(sub, conn)
+    _add_plugins_parser(sub)
     return root
 
 
@@ -575,6 +642,17 @@ def main() -> None:
     if args.subcommand == "move":
         if all(v is None for v in [args.x, args.y, args.z, args.rotation, args.tilt]):
             parser.error("move: at least one of --x, --y, --z, --rotation, --tilt must be specified")
+
+    # Subcommands that answer a question about this install rather than about a
+    # microscope run before the connection attempt. `plugins` in particular has
+    # to work with nothing plugged in -- it exists to explain why something is
+    # missing, and demanding hardware first would make it useless.
+    if not args.needs_microscope:
+        try:
+            sys.exit(args.func(args))
+        except Exception as e:
+            print(f"error: {e}", file=sys.stderr)
+            sys.exit(1)
 
     try:
         microscope, settings = utils.setup_session(

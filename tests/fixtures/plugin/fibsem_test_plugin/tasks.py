@@ -23,3 +23,14 @@ class FixtureTask(AutoLamellaTask):
 
     def _run(self) -> None:
         raise NotImplementedError("fixture task is never executed")
+
+
+class NotATask:
+    """Declared under fibsem.tasks on purpose, without being a task.
+
+    The wrong-base-class failure is distinct from an import failure: this one
+    loads perfectly and only fails the issubclass check afterwards, so the
+    loader has to report it as a failure rather than let it through. Nothing
+    registers it -- that is the point.
+    """
+

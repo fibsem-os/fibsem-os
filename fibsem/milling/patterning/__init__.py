@@ -7,13 +7,10 @@ similar to the MillingStrategy plugin system.
 
 import logging
 import typing
-try:
-    from functools import cache
-except ImportError:  # Python < 3.9 fallback
-    from functools import lru_cache as cache
-from typing import Dict, Type, Any, Optional
+from typing import Any, Dict, Optional, Tuple, Type
 
 from fibsem.milling.patterning.patterns2 import BasePattern
+from fibsem.plugins.loader import PluginRecord, load_entry_point_group, plugin_classes
 
 # Built-in patterns (imported from patterns2.py)
 from fibsem.milling.patterning.patterns2 import (
@@ -80,47 +77,32 @@ def register_pattern(pattern_cls: Type[BasePattern]) -> None:
     logging.info("Registered pattern '%s'", pattern_cls.name)
 
 
-@cache
-def _get_plugin_patterns() -> Dict[str, Type[BasePattern]]:
-    """
-    Discover and import pattern plugins via entry points.
-    
-    The plugin logic is based on:
-    https://packaging.python.org/en/latest/guides/creating-and-discovering-plugins/#using-package-metadata
-    
+PATTERN_ENTRY_POINT_GROUP = "fibsem.patterns"
+
+
+def get_pattern_plugin_records() -> Tuple[PluginRecord, ...]:
+    """Every ``fibsem.patterns`` entry point and what became of it.
+
+    Loading happens once per process, on the first call. Includes the plugins
+    that failed and the ones a built-in later shadows, neither of which
+    survives into :func:`get_patterns` -- see ``fibsem.plugins.report``.
+
     To add a plugin pattern, add to your package's pyproject.toml:
-    
+
     [project.entry-points.'fibsem.patterns']
     my_pattern = "my_package.patterns:MyCustomPattern"
     """
-    import sys
+    return load_entry_point_group(
+        group=PATTERN_ENTRY_POINT_GROUP,
+        base_cls=BasePattern,
+        name_of=lambda cls: cls.name,
+        kind="pattern",
+    )
 
-    if sys.version_info < (3, 10):
-        from importlib_metadata import entry_points
-    else:
-        from importlib.metadata import entry_points
 
-    patterns: Dict[str, Type[BasePattern]] = {}
-    
-    for pattern_entry_point in entry_points(group="fibsem.patterns"):
-        try:
-            pattern = pattern_entry_point.load()
-            if not issubclass(pattern, BasePattern):
-                raise TypeError(
-                    f"'{pattern_entry_point.value}' is not a subclass of BasePattern"
-                )
-            logging.info("Loaded pattern plugin '%s'", pattern.name)
-            patterns[pattern.name] = pattern
-        except TypeError as e:
-            logging.warning("Invalid pattern plugin found: %s", str(e))
-        except Exception:
-            logging.error(
-                "Unexpected error raised while attempting to import pattern from '%s'",
-                pattern_entry_point.value,
-                exc_info=True,
-            )
-    
-    return patterns
+def _get_plugin_patterns() -> Dict[str, Type[BasePattern]]:
+    """Plugin patterns that loaded, as ``{name: class}``."""
+    return plugin_classes(get_pattern_plugin_records())
 
 
 def get_patterns() -> Dict[str, Type[BasePattern]]:
