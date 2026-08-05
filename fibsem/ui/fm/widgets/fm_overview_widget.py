@@ -61,7 +61,7 @@ from fibsem.ui.widgets.progress_widget import (
 from fibsem.ui.widgets.canvas.fm_canvas import FMRealSpaceCanvasWidget
 from fibsem.ui.widgets.canvas.stage_frame import FMStageProjection, StageFrame
 
-TEXT_MUTED = "#868e93"
+TEXT_MUTED = stylesheets.TEXT_MUTED_COLOR
 PROGRESS_FONT_PX = 10
 # Inset for chrome drawn over the canvas, matching the toolbar buttons' own margin so
 # the cursor readout in the top left lines up with the buttons in the top right.

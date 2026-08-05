@@ -46,7 +46,7 @@ _ROW_RIGHT_WIDTH = 10
 # Fit-state indicator colours. A fitted point (unmodified auto-fit result) is
 # white so it reads as "lit up"; otherwise a muted grey — dimmer than the light
 # trash/edit icons — so it recedes to a placeholder.
-_FITTED_ICON_COLOR = "#ffffff"
+_FITTED_ICON_COLOR = stylesheets.WHITE_ICON_COLOR
 _UNFITTED_ICON_COLOR = "#6b6f76"
 
 _POINT_TYPE_COLORS: Dict[PointType, str] = {
