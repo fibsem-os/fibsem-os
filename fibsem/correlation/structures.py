@@ -6,6 +6,7 @@ from enum import auto, Enum
 from typing import Optional
 import json
 import logging
+import os
 import time
 
 import numpy as np
@@ -93,6 +94,24 @@ def apply_z_surface_correction(
     return corrected
 
 
+def _loaded_filename(image) -> Optional[str]:
+    """Name the file ``image`` was loaded from, or None if it came from nowhere.
+
+    Read off ``filepath``, not the metadata. The metadata records the name the
+    *acquirer* asked for, which is a stem -- ``save`` appends the suffix itself --
+    and goes stale the moment a file is renamed or copied. ``filepath`` is set by
+    both ``load()`` and ``save()`` on either image class, including for a plain
+    TIFF whose metadata failed to parse at all (FIB-509).
+
+    Deliberately no fallback to the requested name: an image that was never
+    written has no file, and naming one it does not have sends whoever reads the
+    record looking for it. None is the honest answer, and this is read by
+    ``to_dict`` -- the only persistence path -- so it must not raise (FIB-316).
+    """
+    filepath = getattr(image, "filepath", None)
+    return os.path.basename(filepath) if filepath else None
+
+
 @dataclass
 class CorrelationInputData:
     fib_image: Optional[FibsemImage] = None
@@ -173,16 +192,11 @@ class CorrelationInputData:
 
     @property
     def fib_image_filename(self) -> Optional[str]:
-        # Also read by to_dict, so it must tolerate an image without metadata
-        # rather than take the auto-save down with it (FIB-316).
-        settings = getattr(
-            getattr(self.fib_image, "metadata", None), "image_settings", None
-        )
-        return getattr(settings, "filename", None)
+        return _loaded_filename(self.fib_image)
 
     @property
     def fm_image_filename(self) -> Optional[str]:
-        return getattr(getattr(self.fm_image, "metadata", None), "filename", None)
+        return _loaded_filename(self.fm_image)
 
     @staticmethod
     def from_dict(data: dict) -> CorrelationInputData:

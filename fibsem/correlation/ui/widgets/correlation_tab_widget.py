@@ -628,19 +628,15 @@ class _ImagesTab(QWidget):
 
     def set_fib_image(self, image: FibsemImage) -> None:
         self._fib_image = image
-        filename = (
-            getattr(
-                getattr(getattr(image, "metadata", None), "image_settings", None),
-                "filename",
-                "",
-            )
-            or ""
-        )
-        # The metadata names the file; only the picker knows where it is. Resolve
-        # against what it already offers instead of taking the name as a path —
-        # and leave the display alone if this image isn't one of the known files,
-        # rather than showing a name the picker cannot load.
-        resolved = self._fib_picker.select_file(filename)
+        # Resolve against what the picker already offers rather than trusting the
+        # path — leave the display alone if this image isn't one of the known
+        # files, instead of showing something the picker cannot load.
+        #
+        # From `filepath`, not `image_settings.filename`: the latter is the name
+        # the acquirer asked for, a stem with no extension, so matching it against
+        # a real path never succeeded and a pre-loaded image left the combo
+        # showing nothing selected (FIB-509).
+        resolved = self._fib_picker.select_file(getattr(image, "filepath", None) or "")
         if resolved:
             self._fib_loaded_path = resolved
         h, w = image.data.shape[:2]
@@ -652,9 +648,9 @@ class _ImagesTab(QWidget):
 
     def set_fm_image(self, image: FluorescenceImage) -> None:
         self._fm_image = image
-        resolved = self._fm_picker.select_file(
-            getattr(image.metadata, "filename", "") or ""
-        )
+        # Same as the FIB side: the file it was loaded from, not the name it was
+        # acquired under (FIB-509).
+        resolved = self._fm_picker.select_file(getattr(image, "filepath", None) or "")
         if resolved:
             self._fm_loaded_path = resolved
         self._update_fm_labels(image)
@@ -1809,12 +1805,16 @@ class CorrelationTabWidget(QWidget):
         self.data_changed.emit(self.data)
 
     def _update_fib_name_label(self, image: FibsemImage) -> None:
-        """Show the loaded FIB image's filename in the header (mirrors FM)."""
-        iset = getattr(getattr(image, "metadata", None), "image_settings", None)
-        filename = getattr(iset, "filename", "") or ""
-        base = os.path.basename(filename) if filename else ""
+        """Show the loaded FIB image's filename in the header (mirrors FM).
+
+        The file it came from, so the label matches what the picker above it
+        shows and the tooltip gives the full path. An image that was never
+        written gets no label rather than the name it would have had (FIB-509).
+        """
+        path = getattr(image, "filepath", None) or ""
+        base = os.path.basename(path)
         self._fib_name_label.setText(base)
-        self._fib_name_label.setToolTip(filename)
+        self._fib_name_label.setToolTip(path)
         self._fib_name_label.setVisible(bool(base))
 
     def set_fm_image(self, fm_image: FluorescenceImage) -> None:
