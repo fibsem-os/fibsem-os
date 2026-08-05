@@ -17,6 +17,7 @@ from fibsem import movement
 from fibsem.conversions import is_inside_image_bounds
 from fibsem.structures import (
     BeamType,
+    FibsemHardwareGeometry,
     FibsemImage,
     FibsemStagePosition,
     Point,
@@ -149,6 +150,16 @@ def calculate_reprojected_stage_position2(image: FibsemImage, pos: FibsemStagePo
     dx = delta.x
     if dx is None:
         raise ValueError("Stage position x coordinate is None. Cannot reproject stage position.")
+
+    # Tescan stage x is inverted wrt image coordinates (see TescanMicroscope.stable_move);
+    # the y inversion is handled inside _inverse_y_corrected_stage_movement_tescan. Match
+    # case-insensitively — a live scope reports "TESCAN", config/saved images "Tescan"; an
+    # exact check silently fell back to Thermo math and placed added positions at the
+    # opposite corner. (band-aid string check, tracked in FIB-300)
+    system_info = image.metadata.system_info
+    if system_info is not None and system_info.manufacturer.upper() == "TESCAN":
+        dx = -dx
+
     # dy = microscope._inverse_y_corrected_stage_movement(dy=delta.y, dz=delta.z, beam_type=beam_type) # type: ignore
     dy = _inverse_y_corrected_stage_movement(image, dy=delta.y, dz=delta.z, beam_type=beam_type) # type: ignore
 
@@ -275,6 +286,14 @@ def _inverse_y_corrected_stage_movement(
         if image.metadata is None or image.metadata.hardware_geometry is None:
             raise ValueError("Image metadata or hardware geometry is not set. Cannot calculate inverse y corrected stage movement.")
 
+        # Tescan stages have a different geometry (z below the tilt axis), so the inverse
+        # is a separate derivation, not the compustage-aware path below. Match
+        # case-insensitively: a live scope reports "TESCAN", config/saved images "Tescan".
+        # (band-aid string check, tracked in FIB-300)
+        system_info = image.metadata.system_info
+        if system_info is not None and system_info.manufacturer.upper() == "TESCAN":
+            return _inverse_y_corrected_stage_movement_tescan(image, dy=dy, dz=dz, beam_type=beam_type)
+
         geometry = image.metadata.hardware_geometry
 
         # all angles in radians
@@ -358,3 +377,116 @@ def _inverse_y_corrected_stage_movement(
             expected_y *= compustage_sign
 
         return expected_y
+
+
+def _inverse_y_corrected_stage_movement_tescan(
+    image: FibsemImage,
+    dy: float,
+    dz: float,
+    beam_type: BeamType = BeamType.ELECTRON,
+) -> float:
+    """Tescan inverse of _y_corrected_stage_movement, from image metadata.
+
+    Thin adapter: pulls the geometry and stage pose out of the image metadata and defers
+    to inverse_y_corrected_stage_movement_tescan_from_geometry. TescanMicroscope's own
+    method is the other adapter over the same core (from the live microscope), so the two
+    can no longer drift apart.
+
+    Args:
+        dy (float): actual y stage movement (raw stage frame)
+        dz (float): actual z stage movement (raw stage frame)
+        beam_type (BeamType, optional): beam_type used. Defaults to BeamType.ELECTRON.
+
+    Returns:
+        float: expected_y input that would produce the given dy, dz movements
+    """
+    if image.metadata is None or image.metadata.hardware_geometry is None:
+        raise ValueError("Image metadata or hardware geometry is not set. Cannot calculate inverse y corrected stage movement.")
+
+    return inverse_y_corrected_stage_movement_tescan_from_geometry(
+        geometry=image.metadata.hardware_geometry,
+        stage_position=image.metadata.stage_position,
+        dy=dy,
+        dz=dz,
+        beam_type=beam_type,
+    )
+
+
+def inverse_y_corrected_stage_movement_tescan_from_geometry(
+    geometry: FibsemHardwareGeometry,
+    stage_position: FibsemStagePosition,
+    dy: float,
+    dz: float,
+    beam_type: BeamType = BeamType.ELECTRON,
+) -> float:
+    """Tescan inverse of _y_corrected_stage_movement — the single source of the math.
+
+    Takes the raw geometry (column tilts, pre-tilt, rotation references) and the stage pose
+    at acquisition, and returns the image-space dy that would produce the given raw stage
+    deltas. Both the image-metadata path (_inverse_y_corrected_stage_movement_tescan) and
+    the live-microscope path (TescanMicroscope._inverse_y_corrected_stage_movement) are thin
+    adapters over this function; the microscope builds `geometry` from
+    `self.hardware_geometry()`, whose fields are the same ones the image carries.
+
+    Tescan stages have the z-axis BELOW the tilt axis: the y/z translation axes are fixed in
+    the chamber frame, so the inversion uses the full chamber-frame sample inclination (stage
+    tilt + pre-tilt) rather than just the pre-tilt. See
+    https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414 for the derivation.
+
+    Args:
+        geometry: fixed instrument geometry (column tilts, shuttle pre-tilt, rotation refs).
+        stage_position: stage pose at acquisition (rotation r and tilt t, radians).
+        dy (float): actual y stage movement (raw stage frame).
+        dz (float): actual z stage movement (raw stage frame).
+        beam_type (BeamType, optional): beam_type used. Defaults to BeamType.ELECTRON.
+
+    Returns:
+        float: expected_y input that would produce the given dy, dz movements.
+    """
+    # undo the stage-axis inversion applied in stable_move (y_stage = -y_chamber)
+    # TODO(hardware-verify): keep in sync with the x/y inversion in TescanMicroscope.stable_move.
+    dy = -dy
+
+    # all angles in radians
+    sem_column_tilt = np.deg2rad(geometry.column_tilt)
+    fib_column_tilt = np.deg2rad(geometry.fib_column_tilt)
+
+    stage_pretilt = np.deg2rad(geometry.shuttle_pre_tilt)
+
+    stage_rotation_flat_to_eb = np.deg2rad(geometry.rotation_reference) % (2 * np.pi)
+    stage_rotation_flat_to_ion = np.deg2rad(geometry.rotation_180) % (2 * np.pi)
+
+    # stage pose at acquisition
+    stage_rotation = stage_position.r % (2 * np.pi) if stage_position.r is not None else 0.0
+    stage_tilt = stage_position.t if stage_position.t is not None else 0.0
+
+    PRETILT_SIGN = 1.0
+    # pretilt angle depends on rotation
+    if movement.rotation_angle_is_smaller(stage_rotation, stage_rotation_flat_to_eb, atol=5):
+        PRETILT_SIGN = 1.0
+    if movement.rotation_angle_is_smaller(stage_rotation, stage_rotation_flat_to_ion, atol=5):
+        PRETILT_SIGN = -1.0
+
+    corrected_pretilt_angle = PRETILT_SIGN * (stage_pretilt + sem_column_tilt)
+
+    # inclination of the sample plane relative to the chamber horizontal
+    # TODO(hardware-verify): tilt sense and z direction, see
+    # TescanMicroscope._y_corrected_stage_movement.
+    sample_inclination = stage_tilt - corrected_pretilt_angle
+
+    beam_tilt = sem_column_tilt if beam_type is BeamType.ELECTRON else fib_column_tilt
+
+    # invert: forward is y = d*cos(incl), z = -d*sin(incl);
+    # recover d from the larger component for numerical stability. The sin branch must
+    # negate dz to match the forward's negated z.
+    cos_incl = np.cos(sample_inclination)
+    sin_incl = np.sin(sample_inclination)
+    if abs(cos_incl) > abs(sin_incl):
+        y_sample_move = dy / cos_incl
+    else:
+        y_sample_move = -dz / sin_incl
+
+    # re-project the sample-plane distance into the image plane
+    expected_y = y_sample_move * np.cos(sample_inclination - beam_tilt)
+
+    return expected_y

@@ -33,6 +33,7 @@ from fibsem.imaging.tiling.plotting import (  # noqa: E402,F401
 )
 from fibsem.imaging.tiling.reprojection import (  # noqa: E402,F401
     _inverse_y_corrected_stage_movement,
+    _inverse_y_corrected_stage_movement_tescan,
     _to_raw_coordinate_system,
     _to_specimen_coordinate_system,
     _transform_position,

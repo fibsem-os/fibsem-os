@@ -113,6 +113,8 @@ class MillingStageRowWidget(QWidget):
         pattern_names: List[str],
         strategy_names: List[str],
         current_values: Optional[List[float]] = None,
+        preset_values: Optional[List[str]] = None,
+        show_preset: bool = False,
         enabled: bool = True,
         parent: Optional[QWidget] = None,
     ) -> None:
@@ -125,6 +127,8 @@ class MillingStageRowWidget(QWidget):
         self._pattern_names = pattern_names
         self._strategy_names = strategy_names
         self._current_values = current_values or []
+        self._preset_values = preset_values or []
+        self._show_preset = show_preset
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 3, 6, 3)
@@ -154,10 +158,21 @@ class MillingStageRowWidget(QWidget):
         self.depth_spin.setSizePolicy(depth_sp)
         _add_flex_column(layout, self.depth_spin, _COL_DEPTH)
 
+        # Current and Preset share one column: Tescan mills by preset (milling_current is
+        # a no-op on that backend), every other backend mills by current. Exactly one is
+        # ever visible, so the column boundaries still line up with the header.
         _current_items = self._current_values if self._current_values else [stage.milling.milling_current]
         self.current_combo = ValueComboBox(items=_current_items, unit="A")
         self.current_combo.setToolTip("Milling current")
         _add_flex_column(layout, self.current_combo, _COL_CURRENT)
+
+        _preset_items = self._preset_values if self._preset_values else [stage.milling.preset]
+        self.preset_combo = ValueComboBox(items=_preset_items)
+        self.preset_combo.setToolTip("Milling preset")
+        _add_flex_column(layout, self.preset_combo, _COL_CURRENT)
+
+        self.current_combo.setVisible(not self._show_preset)
+        self.preset_combo.setVisible(self._show_preset)
 
         self.strategy_combo = ValueComboBox(items=strategy_names)
         self.strategy_combo.setToolTip("Strategy")
@@ -187,7 +202,7 @@ class MillingStageRowWidget(QWidget):
         self.btn_remove.clicked.connect(lambda: self.remove_clicked.emit(self.stage))
 
         for w in (self.name_edit, self.pattern_combo, self.depth_spin,
-                  self.current_combo, self.strategy_combo):
+                  self.current_combo, self.preset_combo, self.strategy_combo):
             w.installEventFilter(self)
 
         self._connect_signals()
@@ -202,6 +217,7 @@ class MillingStageRowWidget(QWidget):
         self.pattern_combo.currentIndexChanged.connect(self._on_pattern_type_changed)
         self.depth_spin.editingFinished.connect(self._on_depth_changed)
         self.current_combo.currentIndexChanged.connect(self._on_current_changed)
+        self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
         self.strategy_combo.currentIndexChanged.connect(self._on_strategy_changed)
 
     # ------------------------------------------------------------------
@@ -210,7 +226,7 @@ class MillingStageRowWidget(QWidget):
 
     def _block_controls(self, block: bool) -> None:
         for w in (self.name_edit, self.pattern_combo, self.depth_spin,
-                  self.current_combo, self.strategy_combo):
+                  self.current_combo, self.preset_combo, self.strategy_combo):
             w.blockSignals(block)
 
     def _update_depth_visibility(self) -> None:
@@ -249,10 +265,12 @@ class MillingStageRowWidget(QWidget):
         if depth is not None:
             self.depth_spin.setValue(depth * _SI_TO_MICRO)
         self.current_combo.set_value(self.stage.milling.milling_current)
+        self.preset_combo.set_value(self.stage.milling.preset)
         self.strategy_combo.set_value(self.stage.strategy.name)
         # tooltips reflect the current selection so elided (narrow) values stay readable
         self.pattern_combo.setToolTip(f"Pattern: {self.pattern_combo.currentText()}")
         self.current_combo.setToolTip(f"Current: {self.current_combo.currentText()}")
+        self.preset_combo.setToolTip(f"Preset: {self.preset_combo.currentText()}")
         self.strategy_combo.setToolTip(f"Strategy: {self.strategy_combo.currentText()}")
         self._update_depth_visibility()
         color = COLOURS[self.index % len(COLOURS)]
@@ -306,6 +324,13 @@ class MillingStageRowWidget(QWidget):
         self.stage.milling.milling_current = new_current
         self.stage_changed.emit(self.stage)
 
+    def _on_preset_changed(self) -> None:
+        new_preset = self.preset_combo.value()
+        if new_preset is None or new_preset == self.stage.milling.preset:
+            return
+        self.stage.milling.preset = new_preset
+        self.stage_changed.emit(self.stage)
+
     def _on_strategy_changed(self) -> None:
         new_name = self.strategy_combo.value()
         if new_name is None or new_name == self.stage.strategy.name:
@@ -338,6 +363,7 @@ class _MillingStageListHeader(QWidget):
         layout.addWidget(self.checkbox_all)
 
         self.lbl_pattern: Optional[QLabel] = None
+        self.lbl_current: Optional[QLabel] = None
         for label_text, spec in [
             ("Stage", _COL_NAME),
             ("Pattern", _COL_PATTERN),
@@ -350,6 +376,8 @@ class _MillingStageListHeader(QWidget):
             _add_flex_column(layout, lbl, spec)
             if label_text == "Pattern":
                 self.lbl_pattern = lbl  # toggled with the pattern column (eye button)
+            if label_text == "Current":
+                self.lbl_current = lbl  # retitled "Preset" on backends that mill by preset
 
         # trailing spacer matches the row's color+remove+drag vs the header's eye+add,
         # so the strategy column's right edge lines up with the rows
@@ -395,7 +423,13 @@ class MillingStageListWidget(QWidget):
     order_changed = pyqtSignal(list)       # List[FibsemMillingStage] in new order
     eye_toggled = pyqtSignal(bool)         # True = patterns visible
 
-    def __init__(self, current_values: Optional[List[float]] = None, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        current_values: Optional[List[float]] = None,
+        preset_values: Optional[List[str]] = None,
+        show_preset: bool = False,
+        parent: Optional[QWidget] = None,
+    ) -> None:
         super().__init__(parent)
 
         self._selected_stage: Optional[FibsemMillingStage] = None
@@ -404,6 +438,8 @@ class MillingStageListWidget(QWidget):
         self._pattern_names: List[str] = get_pattern_names()
         self._strategy_names: List[str] = get_strategy_names()
         self._current_values: List[float] = current_values or []
+        self._preset_values: List[str] = preset_values or []
+        self._show_preset: bool = show_preset
         self._show_pattern: bool = False
 
         layout = QVBoxLayout(self)
@@ -412,6 +448,8 @@ class MillingStageListWidget(QWidget):
 
         self._header = _MillingStageListHeader()
         self._header.lbl_pattern.setVisible(self._show_pattern)
+        if self._show_preset:
+            self._header.lbl_current.setText("Preset")
         layout.addWidget(self._header)
 
         sep = QFrame()
@@ -473,6 +511,8 @@ class MillingStageListWidget(QWidget):
             pattern_names=self._pattern_names,
             strategy_names=self._strategy_names,
             current_values=self._current_values,
+            preset_values=self._preset_values,
+            show_preset=self._show_preset,
             enabled=enabled,
         )
         row.pattern_combo.setVisible(self._show_pattern)
@@ -607,6 +647,8 @@ class MillingStageListWidget(QWidget):
                 pattern_names=self._pattern_names,
                 strategy_names=self._strategy_names,
                 current_values=self._current_values,
+                preset_values=self._preset_values,
+                show_preset=self._show_preset,
                 enabled=enabled,
             )
             row.pattern_combo.setVisible(self._show_pattern)
