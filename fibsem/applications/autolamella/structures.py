@@ -36,10 +36,12 @@ from fibsem.structures import (
     FibsemImage,
     FibsemRectangle,
     FibsemStagePosition,
+    FibsemUser,
     ImageSettings,
     MicroscopeState,
     Point,
     ReferenceImageParameters,
+    RunProvenance,
 )
 from fibsem.utils import configure_logging as _configure_logging
 from fibsem.utils import format_duration
@@ -992,6 +994,7 @@ class Experiment:
     created_at: float = field(default_factory=lambda: datetime.timestamp(datetime.now()))
     task_protocol: 'AutoLamellaTaskProtocol' = field(default_factory=lambda: AutoLamellaTaskProtocol())
     metadata: Dict[str, Any] = field(default_factory=dict)
+    provenance: Optional[RunProvenance] = None
 
     def __init__(self, path: Path,
                  name: str = cfg.EXPERIMENT_NAME,
@@ -1013,6 +1016,10 @@ class Experiment:
 
         self.task_protocol: AutoLamellaTaskProtocol = None # must be set externally
         self.metadata: Dict[str, Any] = metadata if metadata is not None else {}
+        # What produced this: filled in by register_metadata, when a run adopts the
+        # experiment and there is a microscope to ask. None until then -- creating
+        # an experiment happens in a dialog that has no microscope. See FIB-451.
+        self.provenance: Optional[RunProvenance] = None
 
     def to_dict(self, include_protocol: bool = False) -> dict:
 
@@ -1024,6 +1031,7 @@ class Experiment:
             "landing_positions": [pos.to_dict() for pos in self.landing_positions],
             "created_at": self.created_at,
             "metadata": self.metadata,
+            "provenance": self.provenance.to_dict() if self.provenance is not None else None,
         }
 
         if include_protocol:
@@ -1041,6 +1049,14 @@ class Experiment:
         experiment.id = ddict.get("_id", "NULL")
 
         experiment.metadata = ddict.get("metadata", {})
+
+        # Absent from every experiment written before FIB-451, and from any that no
+        # run has adopted yet. Both mean the same thing -- nothing is known about
+        # what produced this -- and None says that without guessing.
+        provenance = ddict.get("provenance")
+        experiment.provenance = (
+            RunProvenance.from_dict(provenance) if provenance else None
+        )
 
         # load lamella from dict
         for lamella_dict in ddict["positions"]:
@@ -1368,6 +1384,10 @@ class Experiment:
         microscope. Callers that own the run say so. The app calls it when it adopts
         an experiment, TaskManager calls it when it takes one to run, and a script
         driving the microscope directly calls it itself.
+
+        Registration also runs the other way: this is the only moment the experiment
+        meets a microscope, so it is where the experiment learns which instrument,
+        which operator and which software are running it (FIB-451).
         """
         from fibsem.utils import _register_metadata
 
@@ -1377,6 +1397,46 @@ class Experiment:
             experiment_id=self.id,
             experiment_name=self.name,
         )
+
+        # After _register_metadata, which sets `application` on the very SystemInfo
+        # being snapshotted here.
+        self.provenance = RunProvenance.collect(
+            microscope, user=self._declared_user()
+        )
+
+        # Written now rather than left to whatever saves next -- relying on someone
+        # else's save is how FIB-490 lost every failed task. Only for an experiment
+        # that already has a file, though: constructing one deliberately does not
+        # touch the disk (FIB-420), and both `create` and `load` guarantee a file
+        # exists, so in a real run this always writes. A caller driving an
+        # in-memory experiment is not asking this method to give it a directory.
+        if os.path.exists(os.path.join(self.path, "experiment.yaml")):
+            self.save()
+
+    def _declared_user(self) -> Optional[FibsemUser]:
+        """The operator named when the experiment was created, if anyone was.
+
+        The create dialog collects a name and organisation as free text into the
+        untyped ``metadata`` dict. Those beat ``FibsemUser.from_environment()``,
+        which reads the OS account -- on a shared facility login that names the
+        workstation rather than the person, and somebody who typed a name meant it.
+
+        Only the two fields the dialog offers are overridden. ``hostname`` stays as
+        the environment reports it, because it answers a different question: which
+        machine, not which person.
+        """
+        metadata = self.metadata or {}
+        name = metadata.get("user")
+        organization = metadata.get("organisation")
+        if not name and not organization:
+            return None
+
+        user = FibsemUser.from_environment()
+        if name:
+            user.name = name
+        if organization:
+            user.organization = organization
+        return user
 
     def save_protocol(self) -> None:
         """Save the task protocol to disk in the experiment directory."""

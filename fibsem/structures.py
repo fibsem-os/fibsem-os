@@ -2188,6 +2188,86 @@ class FibsemUser:
 
 
 @dataclass
+class RunProvenance:
+    """Which instrument, whose account, and what software produced an experiment.
+
+    An experiment directory records what it contains but nothing about what made
+    it, so "was this run before or after the upgrade", "which machine was this on"
+    and "which build of my plugin ran" are all unanswerable from the record. Every
+    part of this is already collected per-image; this promotes it to the
+    experiment (FIB-451).
+
+    **This describes the last run to touch the experiment, not the one that created
+    it.** ``Experiment.create()` has no microscope -- the dialog that calls it never
+    holds one -- so the instrument is simply unknown until a run adopts the
+    experiment. The last run is the fact that can actually be established, and it
+    has the useful property of backfilling onto experiments that predate this.
+
+    Overwriting loses less than it looks like. Every image already carries its own
+    ``SystemInfo``, so an experiment spanning an upgrade shows v0.5.1 on day-one
+    images and v0.5.2 here -- two true facts, which is the same reasoning that put
+    the version fields on ``SystemInfo`` in the first place (FIB-445 D1). A
+    per-session history is FIB-452's shape, not this record's.
+    """
+
+    recorded_at: float = field(
+        default_factory=lambda: datetime.timestamp(datetime.now())
+    )
+    system: Optional[SystemInfo] = None
+    user: Optional[FibsemUser] = None
+    # Distribution name -> version for every installed extension; see
+    # `installed_plugin_versions`. A plain dict so it survives `yaml.safe_dump`,
+    # which is how an experiment is written.
+    plugins: Dict[str, str] = field(default_factory=dict)
+
+    @classmethod
+    def collect(
+        cls, microscope: "FibsemMicroscope", user: Optional[FibsemUser] = None
+    ) -> "RunProvenance":
+        """Snapshot what is running right now.
+
+        ``user`` overrides the environment's, for a caller that knows better: on a
+        shared facility login the OS account names the workstation rather than the
+        operator, so a name somebody actually typed is the stronger evidence.
+
+        The system info is copied. It is a live object on the microscope -- the
+        application field is set on it during registration, and a driver may update
+        it -- and a record that quietly changes after the fact is not a record.
+        """
+        from copy import deepcopy
+
+        # Lazy: `report` imports all three registries, so importing it here would
+        # cycle straight back through this module.
+        from fibsem.plugins.report import installed_plugin_versions
+
+        info = getattr(getattr(microscope, "system", None), "info", None)
+        return cls(
+            system=deepcopy(info) if info is not None else None,
+            user=user if user is not None else FibsemUser.from_environment(),
+            plugins=installed_plugin_versions(),
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "recorded_at": self.recorded_at,
+            "system": self.system.to_dict() if self.system is not None else None,
+            "user": self.user.to_dict() if self.user is not None else None,
+            "plugins": dict(self.plugins),
+        }
+
+    @staticmethod
+    def from_dict(ddict: dict) -> "RunProvenance":
+        system = ddict.get("system")
+        user = ddict.get("user")
+        return RunProvenance(
+            recorded_at=ddict.get("recorded_at"),
+            system=SystemInfo.from_dict(system) if system else None,
+            user=FibsemUser.from_dict(user) if user else None,
+            plugins=dict(ddict.get("plugins") or {}),
+        )
+
+
+@dataclass
 class FibsemImageMetadata:
     """Metadata for a FibsemImage.
 

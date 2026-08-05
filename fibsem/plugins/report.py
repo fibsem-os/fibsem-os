@@ -42,6 +42,7 @@ __all__ = [
     "Extension",
     "ExtensionGroup",
     "collect_extensions",
+    "installed_plugin_versions",
     "render_report",
     "group_counts_phrase",
     "environment_line",
@@ -386,6 +387,27 @@ def collect_extensions() -> Tuple[ExtensionGroup, ...]:
     are worth showing without it.
     """
     return tuple(_collect_group(*spec) for spec in _GROUPS)
+
+
+def installed_plugin_versions() -> Dict[str, str]:
+    """Distribution name to version, for every out-of-tree extension visible here.
+
+    Having a distribution *is* the filter: a built-in has none, and a
+    script-loaded extension carries a path instead. What is left is what somebody
+    installed, which is the question an experiment's provenance needs to answer --
+    a plugin developer debugging a remote site otherwise has no way to know which
+    build of their own code ran (FIB-451).
+
+    Includes a distribution whose entry point failed to load. It was installed and
+    it shaped the run by being absent from the registry, so leaving it out would
+    make the record agree with a machine that never had it.
+    """
+    versions: Dict[str, str] = {}
+    for group in collect_extensions():
+        for extension in group.extensions:
+            if extension.distribution:
+                versions[extension.distribution] = extension.version or "unknown"
+    return versions
 
 
 # ---------------------------------------------------------------------------
