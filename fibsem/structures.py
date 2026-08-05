@@ -2188,26 +2188,30 @@ class FibsemUser:
 
 
 @dataclass
-class RunProvenance:
-    """Which instrument, whose account, and what software produced an experiment.
+class SessionInfo:
+    """Which instrument, whose account, and what software worked on an experiment.
 
-    An experiment directory records what it contains but nothing about what made
-    it, so "was this run before or after the upgrade", "which machine was this on"
+    A session is what ``setup_session`` establishes: a connected instrument and the
+    configuration around it. ``SystemInfo`` answers the instrument half and rides in
+    every image; this is that plus who is at the keyboard and which plugins are
+    installed, recorded once on the experiment itself.
+
+    An experiment directory otherwise says what it contains and nothing about what
+    made it, so "was this before or after the upgrade", "which machine was this on"
     and "which build of my plugin ran" are all unanswerable from the record. Every
-    part of this is already collected per-image; this promotes it to the
-    experiment (FIB-451).
+    part of this was already collected per-image; this promotes it (FIB-451).
 
-    **This describes the last run to touch the experiment, not the one that created
-    it.** ``Experiment.create()` has no microscope -- the dialog that calls it never
-    holds one -- so the instrument is simply unknown until a run adopts the
-    experiment. The last run is the fact that can actually be established, and it
-    has the useful property of backfilling onto experiments that predate this.
+    **The latest session, not the one that created the experiment.**
+    ``Experiment.create()`` has no microscope -- the dialog that calls it never
+    holds one -- so the instrument is simply unknown until a session adopts the
+    experiment. The latest is the fact that can actually be established, and it has
+    the useful property of backfilling onto experiments that predate this.
 
     Overwriting loses less than it looks like. Every image already carries its own
     ``SystemInfo``, so an experiment spanning an upgrade shows v0.5.1 on day-one
     images and v0.5.2 here -- two true facts, which is the same reasoning that put
-    the version fields on ``SystemInfo`` in the first place (FIB-445 D1). A
-    per-session history is FIB-452's shape, not this record's.
+    the version fields on ``SystemInfo`` in the first place (FIB-445 D1). Keeping
+    every session rather than the latest is FIB-452's shape, not this record's.
     """
 
     recorded_at: float = field(
@@ -2223,7 +2227,7 @@ class RunProvenance:
     @classmethod
     def collect(
         cls, microscope: "FibsemMicroscope", user: Optional[FibsemUser] = None
-    ) -> "RunProvenance":
+    ) -> "SessionInfo":
         """Snapshot what is running right now.
 
         ``user`` overrides the environment's, for a caller that knows better: on a
@@ -2256,10 +2260,10 @@ class RunProvenance:
         }
 
     @staticmethod
-    def from_dict(ddict: dict) -> "RunProvenance":
+    def from_dict(ddict: dict) -> "SessionInfo":
         system = ddict.get("system")
         user = ddict.get("user")
-        return RunProvenance(
+        return SessionInfo(
             recorded_at=ddict.get("recorded_at"),
             system=SystemInfo.from_dict(system) if system else None,
             user=FibsemUser.from_dict(user) if user else None,

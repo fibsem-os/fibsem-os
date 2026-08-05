@@ -1,4 +1,4 @@
-"""An experiment directory should say what produced it (FIB-451).
+"""An experiment should record which session worked on it (FIB-451).
 
 `Experiment` recorded what it contains and nothing about what made it, so "was
 this before or after the upgrade", "which instrument was this on" and "which
@@ -9,8 +9,10 @@ Every part of it was already collected per-image. What was missing was a moment
 to promote it, and `register_metadata` is that moment: the only place the
 experiment meets a microscope.
 
-It describes the **last run to touch the experiment**, not the run that created
-it -- `Experiment.create()` has no microscope to ask.
+A session is what `setup_session` establishes -- a connected instrument and the
+configuration around it -- plus who is at the keyboard. It is the **latest** one,
+not the one that created the experiment: `Experiment.create()` has no microscope
+to ask.
 """
 
 import os
@@ -52,13 +54,13 @@ def _experiment(tmp_path: Path, metadata=None) -> Experiment:
 # ---------------------------------------------------------------------------
 
 
-def test_an_experiment_nothing_has_run_knows_nothing(tmp_path: Path) -> None:
+def test_an_experiment_no_session_has_touched_knows_nothing(tmp_path: Path) -> None:
     """None, rather than a half-filled record.
 
     Creating an experiment happens in a dialog with no microscope, so the
     instrument genuinely is unknown until a run adopts it.
     """
-    assert _experiment(tmp_path).provenance is None
+    assert _experiment(tmp_path).session is None
 
 
 def test_registering_records_the_instrument(
@@ -68,7 +70,7 @@ def test_registering_records_the_instrument(
 
     experiment.register_metadata(microscope)
 
-    system = experiment.provenance.system
+    system = experiment.session.system
     assert system.serial_number == microscope.system.info.serial_number
     assert system.manufacturer == microscope.system.info.manufacturer
     assert system.model == microscope.system.info.model
@@ -84,10 +86,10 @@ def test_it_records_the_software_that_ran(
 
     experiment.register_metadata(microscope)
 
-    assert experiment.provenance.system.fibsem_version == fibsem.__version__
+    assert experiment.session.system.fibsem_version == fibsem.__version__
     # Set by _register_metadata onto the very SystemInfo snapshotted here, so this
     # also pins the ordering: collect after registration, or it reads None.
-    assert experiment.provenance.system.application == "autolamella"
+    assert experiment.session.system.application == "autolamella"
 
 
 def test_it_records_installed_plugin_versions(
@@ -98,7 +100,7 @@ def test_it_records_installed_plugin_versions(
 
     experiment.register_metadata(microscope)
 
-    plugins = experiment.provenance.plugins
+    plugins = experiment.session.plugins
     assert isinstance(plugins, dict)
     assert all(isinstance(k, str) and isinstance(v, str) for k, v in plugins.items())
 
@@ -117,7 +119,7 @@ def test_the_system_info_is_copied_not_referenced(
 
     microscope.system.info.model = "SomethingElse"
 
-    assert experiment.provenance.system.model != "SomethingElse"
+    assert experiment.session.system.model != "SomethingElse"
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +136,7 @@ def test_without_a_declared_operator_it_falls_back_to_the_account(
 
     from fibsem.structures import FibsemUser
 
-    assert experiment.provenance.user.name == FibsemUser.from_environment().name
+    assert experiment.session.user.name == FibsemUser.from_environment().name
 
 
 def test_a_declared_operator_beats_the_os_account(
@@ -148,8 +150,8 @@ def test_a_declared_operator_beats_the_os_account(
 
     experiment.register_metadata(microscope)
 
-    assert experiment.provenance.user.name == "Dr Someone"
-    assert experiment.provenance.user.organization == "Some Institute"
+    assert experiment.session.user.name == "Dr Someone"
+    assert experiment.session.user.organization == "Some Institute"
 
 
 def test_the_hostname_still_comes_from_the_environment(
@@ -163,7 +165,7 @@ def test_the_hostname_still_comes_from_the_environment(
 
     experiment.register_metadata(microscope)
 
-    assert experiment.provenance.user.hostname == FibsemUser.from_environment().hostname
+    assert experiment.session.user.hostname == FibsemUser.from_environment().hostname
 
 
 def test_an_unrelated_metadata_entry_declares_nobody(
@@ -176,7 +178,7 @@ def test_an_unrelated_metadata_entry_declares_nobody(
 
     experiment.register_metadata(microscope)
 
-    assert experiment.provenance.user.name == FibsemUser.from_environment().name
+    assert experiment.session.user.name == FibsemUser.from_environment().name
 
 
 # ---------------------------------------------------------------------------
@@ -184,21 +186,20 @@ def test_an_unrelated_metadata_entry_declares_nobody(
 # ---------------------------------------------------------------------------
 
 
-def test_registering_again_records_the_later_run(
+def test_registering_again_records_the_later_session(
     microscope: FibsemMicroscope, tmp_path: Path
 ) -> None:
-    """The chosen semantics: this describes the run that last touched the
-    experiment. Version drift within a run is not lost -- every image carries its
-    own SystemInfo (FIB-445 D1)."""
+    """The chosen semantics: the latest session, not the first. Version drift is
+    not lost by overwriting -- every image carries its own SystemInfo (FIB-445 D1)."""
     experiment = _experiment(tmp_path)
     experiment.register_metadata(microscope)
-    first = experiment.provenance.system.software_version
+    first = experiment.session.system.software_version
 
     microscope.system.info.software_version = "9.9-after-the-upgrade"
     experiment.register_metadata(microscope)
 
     assert first != "9.9-after-the-upgrade"
-    assert experiment.provenance.system.software_version == "9.9-after-the-upgrade"
+    assert experiment.session.system.software_version == "9.9-after-the-upgrade"
 
 
 def test_registering_persists_it(
@@ -215,7 +216,7 @@ def test_registering_persists_it(
     experiment.register_metadata(microscope)
 
     written = _stored(experiment)
-    assert written["provenance"]["system"]["serial_number"] == (
+    assert written["session"]["system"]["serial_number"] == (
         microscope.system.info.serial_number
     )
 
@@ -233,7 +234,7 @@ def test_registering_does_not_conjure_a_file(
 
     assert not os.path.exists(os.path.join(experiment.path, "experiment.yaml"))
     # Still recorded in memory, so the next real save carries it.
-    assert experiment.provenance is not None
+    assert experiment.session is not None
 
 
 def test_it_survives_a_round_trip(
@@ -245,10 +246,10 @@ def test_it_survives_a_round_trip(
 
     reloaded = Experiment.load(Path(experiment.path) / "experiment.yaml")
 
-    assert reloaded.provenance.user.name == "Dr Someone"
-    assert reloaded.provenance.system.model == experiment.provenance.system.model
-    assert reloaded.provenance.plugins == experiment.provenance.plugins
-    assert reloaded.provenance.recorded_at == experiment.provenance.recorded_at
+    assert reloaded.session.user.name == "Dr Someone"
+    assert reloaded.session.system.model == experiment.session.system.model
+    assert reloaded.session.plugins == experiment.session.plugins
+    assert reloaded.session.recorded_at == experiment.session.recorded_at
 
 
 def test_an_experiment_written_before_this_loads_with_none(tmp_path: Path) -> None:
@@ -257,11 +258,11 @@ def test_an_experiment_written_before_this_loads_with_none(tmp_path: Path) -> No
     experiment.save()
 
     stored = _stored(experiment)
-    del stored["provenance"]
+    del stored["session"]
     with open(os.path.join(experiment.path, "experiment.yaml"), "w") as f:
         yaml.safe_dump(stored, f, indent=4)
 
-    assert Experiment.load(Path(experiment.path) / "experiment.yaml").provenance is None
+    assert Experiment.load(Path(experiment.path) / "experiment.yaml").session is None
 
 
 # ---------------------------------------------------------------------------

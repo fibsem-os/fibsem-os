@@ -41,7 +41,7 @@ from fibsem.structures import (
     MicroscopeState,
     Point,
     ReferenceImageParameters,
-    RunProvenance,
+    SessionInfo,
 )
 from fibsem.utils import configure_logging as _configure_logging
 from fibsem.utils import format_duration
@@ -994,7 +994,7 @@ class Experiment:
     created_at: float = field(default_factory=lambda: datetime.timestamp(datetime.now()))
     task_protocol: 'AutoLamellaTaskProtocol' = field(default_factory=lambda: AutoLamellaTaskProtocol())
     metadata: Dict[str, Any] = field(default_factory=dict)
-    provenance: Optional[RunProvenance] = None
+    session: Optional[SessionInfo] = None
 
     def __init__(self, path: Path,
                  name: str = cfg.EXPERIMENT_NAME,
@@ -1016,10 +1016,11 @@ class Experiment:
 
         self.task_protocol: AutoLamellaTaskProtocol = None # must be set externally
         self.metadata: Dict[str, Any] = metadata if metadata is not None else {}
-        # What produced this: filled in by register_metadata, when a run adopts the
-        # experiment and there is a microscope to ask. None until then -- creating
-        # an experiment happens in a dialog that has no microscope. See FIB-451.
-        self.provenance: Optional[RunProvenance] = None
+        # The instrument, operator and software that last worked on this. Filled in
+        # by register_metadata, when a session adopts the experiment and there is a
+        # microscope to ask; None until then, because creating an experiment happens
+        # in a dialog that has no microscope. See FIB-451.
+        self.session: Optional[SessionInfo] = None
 
     def to_dict(self, include_protocol: bool = False) -> dict:
 
@@ -1031,7 +1032,7 @@ class Experiment:
             "landing_positions": [pos.to_dict() for pos in self.landing_positions],
             "created_at": self.created_at,
             "metadata": self.metadata,
-            "provenance": self.provenance.to_dict() if self.provenance is not None else None,
+            "session": self.session.to_dict() if self.session is not None else None,
         }
 
         if include_protocol:
@@ -1053,10 +1054,8 @@ class Experiment:
         # Absent from every experiment written before FIB-451, and from any that no
         # run has adopted yet. Both mean the same thing -- nothing is known about
         # what produced this -- and None says that without guessing.
-        provenance = ddict.get("provenance")
-        experiment.provenance = (
-            RunProvenance.from_dict(provenance) if provenance else None
-        )
+        session = ddict.get("session")
+        experiment.session = SessionInfo.from_dict(session) if session else None
 
         # load lamella from dict
         for lamella_dict in ddict["positions"]:
@@ -1386,8 +1385,8 @@ class Experiment:
         driving the microscope directly calls it itself.
 
         Registration also runs the other way: this is the only moment the experiment
-        meets a microscope, so it is where the experiment learns which instrument,
-        which operator and which software are running it (FIB-451).
+        meets a microscope, so it is where the experiment learns which session is
+        working on it -- instrument, operator, software and plugins (FIB-451).
         """
         from fibsem.utils import _register_metadata
 
@@ -1400,7 +1399,7 @@ class Experiment:
 
         # After _register_metadata, which sets `application` on the very SystemInfo
         # being snapshotted here.
-        self.provenance = RunProvenance.collect(
+        self.session = SessionInfo.collect(
             microscope, user=self._declared_user()
         )
 
