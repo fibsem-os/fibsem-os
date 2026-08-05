@@ -360,7 +360,6 @@ def run_auto_focus(
         hfw=hfw,
         beam_type=beam_type,
         autocontrast=False,
-        autogamma=False,
         save=False,
         reduced_area=settings.reduced_area,
     )

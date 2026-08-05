@@ -561,7 +561,6 @@ class ImageSettings:
         beam_type (BeamType): The type of beam to use for image acquisition.
         save (bool): Whether or not to save the acquired image to disk.
         filename (str): The filename to use when saving the acquired image.
-        autogamma (bool): Whether or not to apply gamma correction to the acquired image.
         path (Path): The path to the directory where the acquired image should be saved.
         reduced_area (FibsemRectangle): The rectangular region of interest within the acquired image, if any.
 
@@ -572,6 +571,12 @@ class ImageSettings:
             Converts the ImageSettings object to a dictionary of image settings.
     """
 
+    # There was an `autogamma` flag here, which applied gamma correction to the pixels
+    # after acquisition. It was removed (FIB-505): unlike `autocontrast`, which
+    # configures the detector *before* the image exists, gamma is a display correction
+    # applied to the array afterwards -- and baking it into the stored data is
+    # destructive and unrecoverable. The canvas's ContrastGammaControl does it at
+    # display time instead, where it is adjustable and reversible.
     resolution: Tuple[int, int] = (1536, 1024)
     dwell_time: float = 1e-6
     hfw: float = 150e-6
@@ -579,7 +584,6 @@ class ImageSettings:
     beam_type: BeamType = BeamType.ELECTRON
     save: bool = False
     filename: str = "default_image"
-    autogamma: bool = False
     path: Optional[Union[Path, str]] = None
     reduced_area: Optional[FibsemRectangle] = None
     line_integration: Optional[int] = None  # (int32) 2 - 255
@@ -610,9 +614,6 @@ class ImageSettings:
             isinstance(self.filename, str) or self.filename is None
         ), f"filename must b str, currently is {type(self.filename)}"
         assert (
-            isinstance(self.autogamma, bool) or self.autogamma is None
-        ), f"gamma enabled setting must be bool, currently is {type(self.autogamma)}"
-        assert (
             isinstance(self.path, (Path, str)) or self.path is None
         ), f"save path must be Path or str, currently is {type(self.path)}"
         assert (
@@ -637,7 +638,6 @@ class ImageSettings:
             hfw=settings.get("hfw", 150e-6),
             autocontrast=settings.get("autocontrast", False),
             beam_type=BeamType[beam_name.upper()],
-            autogamma=settings.get("autogamma", False),
             save=settings.get("save", False),
             path=settings.get("path", os.getcwd()),
             filename=settings.get("filename", "default_image"),
@@ -658,9 +658,6 @@ class ImageSettings:
             "hfw": self.hfw if self.hfw is not None else None,
             "autocontrast": self.autocontrast
             if self.autocontrast is not None
-            else None,
-            "autogamma": self.autogamma
-            if self.autogamma is not None
             else None,
             "save": self.save if self.save is not None else None,
             "path": str(self.path) if self.path is not None else None,

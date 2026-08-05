@@ -347,7 +347,6 @@ def generate_report2(experiment: Experiment,
     if sections["overview"]:
         try:
             filenames = glob.glob(os.path.join(experiment.path, "*overview*.tif"))
-            filenames = [f for f in filenames if "autogamma" not in f]
             if len(filenames) > 0:
                 pdf.add_page_break()
                 pdf.add_heading("Overview (Positions)")

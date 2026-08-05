@@ -505,7 +505,6 @@ class OverviewImageWidget(QWidget):
             self.stage_positions = self.experiment.get_milling_positions()
 
             filenames = glob.glob(os.path.join(experiment.path, "*overview*.tif"))
-            filenames = [f for f in filenames if "autogamma" not in f]
             if filenames:
                 self._load_overview_image(filenames[-1])
         else:
