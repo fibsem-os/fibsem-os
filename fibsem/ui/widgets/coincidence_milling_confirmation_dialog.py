@@ -41,7 +41,7 @@ from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
     format_duration,
 )
 
-BACKGROUND = "#262930"
+BACKGROUND = stylesheets.SURFACE_COLOR
 
 # The dimensions that determine the milled volume, in the order they read. Driven off
 # the pattern's own to_dict() rather than isinstance checks, so a new pattern type

@@ -38,22 +38,33 @@ from PyQt5.QtWidgets import (
 from fibsem.cancellation import OperationCancelledError
 from fibsem.scripting import DiscoveredScript, ScriptResult
 from fibsem.ui.stylesheets import (
+    ACCENT_COLOR,
+    BORDER_COLOR,
+    ERROR_COLOR,
+    PANEL_COLOR,
     PRIMARY_BUTTON_STYLESHEET,
+    ROW_ALT_COLOR,
     STOP_WORKFLOW_BUTTON_STYLESHEET,
+    SURFACE_COLOR,
+    TEXT_COLOR,
+    TEXT_MUTED_COLOR,
+    TEXT_STRONG_COLOR,
 )
 from fibsem.ui.utils import open_path_in_file_explorer
+from fibsem.ui.widgets.custom_widgets import ElidedLabel, chip, style_with_tooltip
 from fibsem.ui.widgets.script_runner import ScriptRunner
 
-# Palette (matching fibsem.ui.stylesheets napari theme)
-_BG = "#262930"
-_PANEL = "#1e2027"
-_ROW_ALT = "#2b2f38"
-_BORDER = "#3d4251"
-_TEXT = "#d6d6d6"
-_TEXT_STRONG = "#f0f1f2"
-_TEXT_MUTED = "#868e93"
-_ACCENT = "#50a6ff"
-_ERROR = "#d04040"
+# Short local names for the shared palette. These appear inside dozens of
+# f-strings below, where the full names would wrap every one of them.
+_BG = SURFACE_COLOR
+_PANEL = PANEL_COLOR
+_ROW_ALT = ROW_ALT_COLOR
+_BORDER = BORDER_COLOR
+_TEXT = TEXT_COLOR
+_TEXT_STRONG = TEXT_STRONG_COLOR
+_TEXT_MUTED = TEXT_MUTED_COLOR
+_ACCENT = ACCENT_COLOR
+_ERROR = ERROR_COLOR
 
 # Colour here says *what a script is*, not how frightened to be. Amber for
 # Microscope and Writes meant the two most common rows were permanently lit as
@@ -139,33 +150,6 @@ QPushButton:disabled {{ color: {_TEXT_MUTED}; }}
 """
 
 
-class _ElidedLabel(QLabel):
-    """A QLabel that elides rather than clipping mid-glyph.
-
-    The Script column stretches, so the width is not known when the row is built
-    and any one-off elide would be wrong at the next size. Re-eliding on resize
-    tracks it. The size policy is Ignored so the full text cannot drive the
-    column wider, which would defeat the point.
-    """
-
-    def __init__(self, text: str, parent: Optional[QWidget] = None) -> None:
-        super().__init__(text, parent)
-        self._full_text = text
-        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-
-    def paintEvent(self, event) -> None:  # noqa: N802 - Qt naming
-        # At paint time the width is always the real one. Doing this on resize
-        # instead misses a label that is laid out at its final size and never
-        # resized, which then clips. Re-eliding from _full_text rather than from
-        # the displayed text keeps it stable: setText schedules one more paint,
-        # the second computes the same string, and it settles.
-        metrics = QFontMetrics(self.font())
-        elided = metrics.elidedText(self._full_text, Qt.ElideRight, self.width())
-        if elided != self.text():
-            self.setText(elided)  # QLabel draws it, so the stylesheet colour survives
-        super().paintEvent(event)
-
-
 def _script_type(script: DiscoveredScript) -> "tuple[str, Optional[str]]":
     """(label, chip colour) describing what a script is allowed to touch.
 
@@ -210,13 +194,11 @@ class ScriptManagerDialog(QDialog):
         titles = QVBoxLayout()
         titles.setSpacing(2)
         self.title_label = QLabel("User scripts")
-        self.title_label.setStyleSheet(
-            f"font-size: {_FS_TITLE}px; font-weight: 500; color: {_TEXT_STRONG};"
-        )
+        style_with_tooltip(self.title_label, f"font-size: {_FS_TITLE}px; font-weight: 500; color: {_TEXT_STRONG};")
         # counts and location are meta, not the heading -- the heading says what
         # this dialog is, the line under it says what is currently in it.
         self.meta_label = QLabel()
-        self.meta_label.setStyleSheet(f"font-size: {_FS_BODY}px; color: {_TEXT_MUTED};")
+        style_with_tooltip(self.meta_label, f"font-size: {_FS_BODY}px; color: {_TEXT_MUTED};")
         self.meta_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.meta_label.setMinimumWidth(160)
         titles.addWidget(self.title_label)
@@ -254,29 +236,25 @@ class ScriptManagerDialog(QDialog):
         layout.addWidget(self.stack)
 
         self.detail_panel = detail_panel = QWidget()
-        detail_panel.setStyleSheet(
-            f"background-color: {_PANEL}; border: 1px solid {_BORDER}; border-radius: 6px;"
-        )
+        style_with_tooltip(detail_panel, f"background-color: {_PANEL}; border: 1px solid {_BORDER}; border-radius: 6px;")
         detail_layout = QHBoxLayout(detail_panel)
         detail_layout.setContentsMargins(11, 9, 11, 9)
         self.detail_label = QLabel()
         self.detail_label.setTextFormat(Qt.RichText)
-        self.detail_label.setStyleSheet(
-            f"border: none; font-size: {_FS_BODY}px; color: {_TEXT};"
-        )
+        style_with_tooltip(self.detail_label, f"border: none; font-size: {_FS_BODY}px; color: {_TEXT};")
         # the consequence of running this sits opposite the facts about it, so it
         # reads as a warning rather than another line of metadata
         self.consequence_label = QLabel()
         self.consequence_label.setTextFormat(Qt.RichText)
         self.consequence_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.consequence_label.setStyleSheet(f"border: none; font-size: {_FS_BODY}px;")
+        style_with_tooltip(self.consequence_label, f"border: none; font-size: {_FS_BODY}px;")
         detail_layout.addWidget(self.detail_label, 1)
         detail_layout.addWidget(self.consequence_label, 0)
         layout.addWidget(detail_panel)
 
         footer = QHBoxLayout()
         self.hint_label = QLabel()
-        self.hint_label.setStyleSheet(f"font-size: {_FS_BODY}px; color: {_TEXT_MUTED};")
+        style_with_tooltip(self.hint_label, f"font-size: {_FS_BODY}px; color: {_TEXT_MUTED};")
         footer.addWidget(self.hint_label)
         footer.addStretch()
         close_button = QPushButton("Close")
@@ -296,27 +274,21 @@ class ScriptManagerDialog(QDialog):
         anything else in the dialog.
         """
         panel = QWidget()
-        panel.setStyleSheet(
-            f"background-color: {_PANEL}; border: 1px solid {_BORDER};"
-            f"border-radius: 6px;"
-        )
+        style_with_tooltip(panel, f"background-color: {_PANEL}; border: 1px solid {_BORDER};"
+            f"border-radius: 6px;")
         layout = QVBoxLayout(panel)
         layout.setAlignment(Qt.AlignCenter)
         layout.setSpacing(6)
 
         headline = QLabel("No scripts in this folder")
         headline.setAlignment(Qt.AlignCenter)
-        headline.setStyleSheet(
-            f"border: none; font-size: {_FS_NAME}px; color: {_TEXT};"
-        )
+        style_with_tooltip(headline, f"border: none; font-size: {_FS_NAME}px; color: {_TEXT};")
         hint = QLabel(
             "Use New script… to start one from a template, "
             "or Change folder… to look somewhere else."
         )
         hint.setAlignment(Qt.AlignCenter)
-        hint.setStyleSheet(
-            f"border: none; font-size: {_FS_BODY}px; color: {_TEXT_MUTED};"
-        )
+        style_with_tooltip(hint, f"border: none; font-size: {_FS_BODY}px; color: {_TEXT_MUTED};")
         # Says "repository" on purpose: examples/ is not shipped in the wheel, so a
         # pip-installed user will not find it on disk and would otherwise be told
         # only to write one from scratch. FIB-341 owns seeding them properly.
@@ -324,9 +296,7 @@ class ScriptManagerDialog(QDialog):
         examples.setTextFormat(Qt.RichText)
         examples.setAlignment(Qt.AlignCenter)
         examples.setWordWrap(True)
-        examples.setStyleSheet(
-            f"border: none; font-size: {_FS_BODY}px; color: {_TEXT_MUTED};"
-        )
+        style_with_tooltip(examples, f"border: none; font-size: {_FS_BODY}px; color: {_TEXT_MUTED};")
         layout.addWidget(headline)
         layout.addWidget(hint)
         layout.addSpacing(4)
@@ -356,49 +326,22 @@ class ScriptManagerDialog(QDialog):
         table.setColumnWidth(2, 130)
         return table
 
-    @staticmethod
-    def _chip(text: str, colour: str) -> QLabel:
-        """A pill label: text on a tint of its own colour.
-
-        No dot. Once every chip had one it separated nothing, and it cost real
-        width in a 130px column that has to fit three chips on one row.
-        """
-        rgb = QColor(colour)
-        tint = f"rgba({rgb.red()}, {rgb.green()}, {rgb.blue()}, 0.15)"
-        chip = QLabel(text)
-        chip.setStyleSheet(
-            f"background-color: {tint}; color: {colour};"
-            f"padding: 2px 9px; border-radius: 10px; font-size: {_FS_SMALL}px;"
-        )
-        # sizeHint does not account for the stylesheet padding, so the last character
-        # clips. Measure the text and pin the width -- at the size it actually
-        # renders at, or the default font's metrics pad every chip by the difference.
-        font = chip.font()
-        font.setPixelSize(_FS_SMALL)
-        metrics = QFontMetrics(font)
-        chip.setMinimumWidth(metrics.horizontalAdvance(text) + 26)
-        return chip
-
     def _name_cell(self, script: DiscoveredScript) -> QWidget:
         """Two lines: the filename, and what it does (or why it will not load)."""
         widget = QWidget()
-        widget.setStyleSheet("background: transparent;")
+        style_with_tooltip(widget, "background: transparent;")
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(12, 8, 10, 8)
         layout.setSpacing(2)
 
         summary = script.description if script.is_runnable else script.error
-        name = _ElidedLabel(script.name)
-        name.setStyleSheet(
-            f"font-family: Menlo, monospace; font-size: {_FS_NAME}px;"
+        name = ElidedLabel(script.name)
+        style_with_tooltip(name, f"font-family: Menlo, monospace; font-size: {_FS_NAME}px;"
             f"background: transparent;"
-            f"color: {_TEXT_STRONG if script.is_runnable else _TEXT_MUTED};"
-        )
-        detail = _ElidedLabel(summary)
-        detail.setStyleSheet(
-            f"font-size: {_FS_BODY}px; background: transparent;"
-            f"color: {_TEXT if script.is_runnable else _ERROR};"
-        )
+            f"color: {_TEXT_STRONG if script.is_runnable else _TEXT_MUTED};")
+        detail = ElidedLabel(summary)
+        style_with_tooltip(detail, f"font-size: {_FS_BODY}px; background: transparent;"
+            f"color: {_TEXT if script.is_runnable else _ERROR};")
         layout.addWidget(name)
         layout.addWidget(detail)
         # the summary is elided in the row, so the tooltip has to carry it in full
@@ -413,16 +356,16 @@ class ScriptManagerDialog(QDialog):
         constantly and tell you no more than their absence would.
         """
         widget = QWidget()
-        widget.setStyleSheet("background: transparent;")
+        style_with_tooltip(widget, "background: transparent;")
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(8, 6, 8, 6)
         layout.setSpacing(4)
 
         label, colour = _script_type(script)
         if colour is not None:
-            layout.addWidget(self._chip(label, colour))
+            layout.addWidget(chip(label, colour, _FS_SMALL))
         if script.writes:
-            layout.addWidget(self._chip("Writes", _WRITES))
+            layout.addWidget(chip("Writes", _WRITES, _FS_SMALL))
         layout.addStretch()
         notes = [f"Type: {label}"]
         if script.writes:
@@ -587,7 +530,7 @@ class ScriptManagerDialog(QDialog):
         self.consequence_label.setToolTip(explain)
         # sizeHint does not cover the stylesheet's own font-size, so the tail clips.
         # Pin from the plain text before it is wrapped in the colour span. Unlike
-        # _chip, this label was styled back in _build(), so by now font() has the
+        # chip(), this label was styled back in _build(), so by now font() has the
         # stylesheet size and needs no explicit setPixelSize.
         metrics = QFontMetrics(self.consequence_label.font())
         self.consequence_label.setMinimumWidth(metrics.horizontalAdvance(consequence) + 10)

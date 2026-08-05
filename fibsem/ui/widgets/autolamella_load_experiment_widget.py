@@ -25,6 +25,7 @@ from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     PRIMARY_COLOR_PRESSED,
     SECONDARY_BUTTON_STYLESHEET,
+    TEXT_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 
@@ -71,7 +72,7 @@ RECENT_LAMELLA_ICON = "mdi:layers-triple-outline"
 RECENT_ALERT_ICON = "mdi:alert-circle-outline"
 RECENT_ICON_COLOR = "#9aa0ab"
 RECENT_PILL_TEXT_COLOR = "#b7bcc6"
-RECENT_NAME_COLOR = "#d6d6d6"
+RECENT_NAME_COLOR = TEXT_COLOR
 # Muted colour for rows whose experiment.yaml is missing or unreadable
 RECENT_UNAVAILABLE_COLOR = "#6b6b6b"
 

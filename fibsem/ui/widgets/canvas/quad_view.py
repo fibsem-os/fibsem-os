@@ -36,7 +36,11 @@ from fibsem.ui.widgets.canvas.canvas_state import (
     PointsSpec,
     SceneModel,
 )
-from fibsem.ui.stylesheets import CANVAS_BG as _BG, PRIMARY_ACCENT as _SELECT_ACCENT
+from fibsem.ui.stylesheets import (
+    CANVAS_BG as _BG,
+    GREEN_COLOR,
+    PRIMARY_ACCENT as _SELECT_ACCENT,
+)
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 
@@ -57,7 +61,7 @@ _PLACEHOLDER_STYLE = "color: #777; font-size: 12px;"
 _PANEL_QSS = "#viewPanel {{ background: {bg}; border: 2px solid {border}; }}"
 # Live-acquisition border: green, and it takes priority over the blue selected border so a
 # live view is obvious even when you've clicked away to another cell.
-_LIVE_ACCENT = "#4caf50"
+_LIVE_ACCENT = GREEN_COLOR
 
 
 def _titled(title: str, inner: QWidget) -> QFrame:

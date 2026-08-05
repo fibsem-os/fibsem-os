@@ -14,9 +14,10 @@ from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.structures import BeamType, Point
 from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
 from fibsem.ui.widgets.custom_widgets import IconToolButton
+from fibsem.ui.stylesheets import CANVAS_BG
 
 
-_HEADER_BG = "#1e2124"
+_HEADER_BG = CANVAS_BG
 _MUTED = "#8a9099"
 
 

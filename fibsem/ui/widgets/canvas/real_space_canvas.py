@@ -31,6 +31,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
+from fibsem.ui.stylesheets import GRAY_CANVAS_COLOR
 from fibsem.ui.widgets.canvas.canvas_base import (
     EMPTY_CONTENT,
     ContentRect,
@@ -40,7 +41,7 @@ from fibsem.ui.widgets.canvas.canvas_base import (
 
 _logger = logging.getLogger(__name__)
 
-_DEFAULT_BACKGROUND = "#000000"  # empty space reads as "nothing acquired here"
+_DEFAULT_BACKGROUND = GRAY_CANVAS_COLOR  # empty space reads as "nothing acquired here"
 _ORIGIN_MARKER_SIZE = 11  # points; fixed on screen, so zoom-independent
 # Red, matching the grid boundary this marks the centre of. The current stage
 # position is the yellow one -- the pair have to stay distinguishable.

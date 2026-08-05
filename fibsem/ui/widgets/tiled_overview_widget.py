@@ -29,16 +29,19 @@ from matplotlib.text import Text as MplText
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QLabel, QSizePolicy, QVBoxLayout, QWidget
 
+from fibsem.ui.stylesheets import CANVAS_BG, GRAY_WHITE_COLOR, OK_COLOR
+
 _logger = logging.getLogger(__name__)
 
-# Colours
-_COLOR_ENABLED = "#4CAF50"
+# Colours. The local names say what each is *for* here; the shared constants say
+# what the value is, so the two stay in step without this file naming a shade.
+_COLOR_ENABLED = OK_COLOR
 _COLOR_ENABLED_EDGE = "#81C784"
 _COLOR_DISABLED = "#37474F"
 _COLOR_DISABLED_EDGE = "#546E7A"
 _COLOR_DISABLED_ALPHA = 0.45
-_COLOR_BG = "#1e2124"
-_COLOR_TEXT = "#FFFFFF"
+_COLOR_BG = CANVAS_BG
+_COLOR_TEXT = GRAY_WHITE_COLOR
 _COLOR_TEXT_DISABLED = "#78909C"
 
 _TILE_PAD = 0.06   # fractional gap in grid-unit mode

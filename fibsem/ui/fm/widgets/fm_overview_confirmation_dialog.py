@@ -31,12 +31,12 @@ from fibsem.fm.timing import estimate_tileset_acquisition_time
 from fibsem.structures import TileOrderStrategy
 from fibsem.ui import stylesheets
 
-BACKGROUND = "#262930"
-PANEL = "#1e2027"
-BORDER = "#3d4251"
-TEXT = "#d6d6d6"
-TEXT_STRONG = "#f0f1f2"
-TEXT_MUTED = "#868e93"
+BACKGROUND = stylesheets.SURFACE_COLOR
+PANEL = stylesheets.PANEL_COLOR
+BORDER = stylesheets.BORDER_COLOR
+TEXT = stylesheets.TEXT_COLOR
+TEXT_STRONG = stylesheets.TEXT_STRONG_COLOR
+TEXT_MUTED = stylesheets.TEXT_MUTED_COLOR
 
 def format_duration(seconds: float) -> str:
     """`2m 14s`, `1h 03m`, `45s` — whichever reads best at that magnitude."""
