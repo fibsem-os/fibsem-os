@@ -19,7 +19,9 @@ import fibsem
 # `system_info` and `hardware_geometry` (FIB-481). from_dict recovers both from a v5-
 # and-earlier `system` blob, so older files still load -- including their compustage
 # flag, which up to v5 had to be inferred from the model name.
-METADATA_VERSION = "v6"
+# v7 dropped `autogamma` from the recorded image settings along with the feature
+# itself (FIB-505). Older files still carry the key; it is ignored.
+METADATA_VERSION = "v7"
 # What an unversioned file is. Absent means written before versioning existed, i.e.
 # older than v1 -- not "current", which is what defaulting to METADATA_VERSION claimed.
 UNVERSIONED_METADATA = "v0"

@@ -95,7 +95,7 @@ class TiledAcquisitionRunner:
         self.microscope = microscope
         self.settings = settings
         self.stop_event = stop_event
-        # _setup()        → _image_settings, _cryo, _prev_path, _prev_label,
+        # _setup()        → _image_settings, _prev_path, _prev_label,
         #                   _focus_stack_settings, _af_mode
         # _compute_grid() → _tiles, _ordered, _centre_position, _start_state,
         #                   _tile_stage_positions, _canvas, _dx_step, _dy_step
@@ -166,12 +166,9 @@ class TiledAcquisitionRunner:
     def _setup(self) -> None:
         """Prepare image settings and paths; emit initial progress signal."""
         image_settings = self.settings.image_settings
-        self._cryo = image_settings.autogamma  # capture before clearing below
         self._focus_stack_settings = self.settings.focus_stack_settings
         self._af_mode = self.settings.autofocus_settings.mode
 
-        # autogamma is applied post-stitch for cryo; disable during tile acquisition
-        image_settings.autogamma = False
         image_settings.autocontrast = False
         image_settings.save = True
         image_settings.reduced_area = None
@@ -349,12 +346,6 @@ class TiledAcquisitionRunner:
 
         filename = os.path.join(image.metadata.image_settings.path, self._prev_label)  # type: ignore
         image.save(filename)
-
-        if self._cryo:
-            from fibsem.autofunctions.gamma import auto_gamma
-            image = auto_gamma(image, method="autogamma")
-            filename = os.path.join(image.metadata.image_settings.path, f"{self._prev_label}-autogamma")  # type: ignore
-            image.save(filename)
 
         signal.emit({"msg": "Done", "counter": total_tiles, "total": total_tiles, "finished": True})
         return image

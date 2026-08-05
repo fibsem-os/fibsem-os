@@ -99,7 +99,6 @@ OVERVIEW_IMAGE_PARAMETERS = {
     "fov": 500, # um
     "dwell_time": 1.0, # us
     "autocontrast": True,
-    "autogamma": False,
 }
 
 # Crosshair layer configuration constants
@@ -154,7 +153,6 @@ DEFAULT_OVERVIEW_ACQUISITION_SETTINGS = OverviewAcquisitionSettings(
         hfw=OVERVIEW_IMAGE_PARAMETERS["fov"] * constants.MICRO_TO_SI,
         dwell_time=OVERVIEW_IMAGE_PARAMETERS["dwell_time"] * constants.MICRO_TO_SI,
         autocontrast=OVERVIEW_IMAGE_PARAMETERS["autocontrast"],
-        autogamma=OVERVIEW_IMAGE_PARAMETERS["autogamma"],
         beam_type=BeamType.ELECTRON,
         save=True,
         path=None,  # will be set to experiment path when overview acquisition widget is initialized

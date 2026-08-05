@@ -22,7 +22,7 @@ class OverviewAcquisitionSettingsWidget(QWidget):
 
     Composes a tile-grid section (beam type, rows, cols, total FOV) on top of
     an embedded ImageSettingsWidget (resolution, dwell time, tile FOV,
-    autocontrast, autogamma, save, path, filename).
+    autocontrast, save, path, filename).
     """
 
     settings_changed = pyqtSignal()

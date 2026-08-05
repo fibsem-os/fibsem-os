@@ -194,7 +194,6 @@ def from_odemis_image(image: model.DataArray, path: str = None) -> FibsemImage:
         filename=filename,
         save = True,
         autocontrast=False,
-        autogamma=False,
     )
 
     image_md = FibsemImageMetadata(

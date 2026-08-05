@@ -52,7 +52,6 @@ imaging:
     dwell_time:                 1.0e-06                     
     imaging_current:            2.0e-11                     
     autocontrast:               false                        
-    autogamma:                  false                       
     save:                       false                       
 milling:
     milling_voltage:            30000                       

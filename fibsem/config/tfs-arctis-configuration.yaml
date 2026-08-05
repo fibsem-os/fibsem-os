@@ -51,7 +51,6 @@ imaging:
     dwell_time:                 1.0e-06                     # the default imaging dwell time                        [second][USER]
     imaging_current:            2.0e-11                     # the default imaging current                           [amp]   [USER]
     autocontrast:               true                        # use autocontrast                                              [USER]
-    autogamma:                  false                       # use autogamma                                                 [USER]
     save:                       false                       # auto save images                                              [USER]
 milling:
     milling_voltage:            30000                       # the default milling voltage       (Thermo)            [volt]  [USER]

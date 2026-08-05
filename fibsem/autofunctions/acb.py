@@ -200,7 +200,6 @@ def run_auto_contrast_brightness(
         hfw=hfw,
         beam_type=beam_type,
         autocontrast=False,
-        autogamma=False,
         save=False,
         reduced_area=FibsemRectangle(0.25, 0.25, 0.5, 0.5)
     )

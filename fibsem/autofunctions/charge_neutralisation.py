@@ -40,7 +40,6 @@ def auto_charge_neutralisation(
             beam_type=BeamType.ELECTRON,
             save=False,
             autocontrast=False,
-            autogamma=False,
             filename=None,
         )
 
