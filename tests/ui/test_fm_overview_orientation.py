@@ -1,9 +1,17 @@
-"""The overview tab, from a stage that is not posed for fluorescence (FIB-436).
+"""The overview tab, from a stage the FM cannot work at (FIB-436).
 
 An overview acquired at the wrong orientation is not merely unhelpful: the canvas frame
 is built from the origin's rotation and tilt, so the tiles would be placed against a
 projection that does not describe them. The tab used to let you configure and start one
-from anywhere.
+from anywhere, and the one orientation check it did have -- before a click-to-move --
+asked `fm.has_valid_orientation()`, which the `ALLOW_UNKNOWN_ORIENTATIONS` escape hatch
+answers yes to unconditionally.
+
+Two different questions are asked, and which one goes where is most of what is tested
+here: `acquisition_orientations` (where the objective can image the sample) gates
+acquiring and driving the stage; `default_orientation` (the single pose a fluorescence
+position is written down as) gates marking. Neither is `valid_orientations`, which is
+the looser "FM control is allowed here" and still includes the beam poses.
 """
 import os
 
@@ -35,7 +43,9 @@ def widget(qapp):
 # sample, 0° is where the electron beam does. Posed directly rather than through
 # `move_to_microscope("FIBSEM")`, whose compustage path still goes via the deprecated
 # `move_flat_to_beam` and so cannot be called from a suite that errors on warnings.
-_TILT_DEG = {"FM": -180.0, "SEM": 0.0, "MILLING": 20.0}
+#
+# "NONE" is what `get_stage_orientation` returns for a pose it cannot name at all.
+_TILT_DEG = {"FM": -180.0, "SEM": 0.0, "MILLING": 20.0, "NONE": -90.0}
 
 
 def _pose(widget, orientation: str) -> None:
@@ -98,23 +108,23 @@ class TestTheGate:
         assuming: a gate that was open because nothing could close it would look
         exactly like a gate that works."""
         assert widget.microscope.get_stage_orientation() == "FM"
-        assert widget.at_fm_orientation() is True
+        assert widget.at_acquisition_orientation() is True
 
     def test_the_wrong_pose_closes_it(self, widget):
-        _pose(widget, "SEM")
+        _pose(widget, "NONE")
 
-        assert widget.at_fm_orientation() is False
+        assert widget.at_acquisition_orientation() is False
 
     def test_acquire_is_disabled_from_the_wrong_pose(self, widget, qapp):
         assert widget.button_acquire.isEnabled() is True
 
-        _pose(widget, "SEM")
+        _pose(widget, "NONE")
         qapp.processEvents()
 
         assert widget.button_acquire.isEnabled() is False
 
     def test_acquire_comes_back_on_the_way_home(self, widget, qapp):
-        _pose(widget, "SEM")
+        _pose(widget, "NONE")
         qapp.processEvents()
         assert widget.button_acquire.isEnabled() is False, "nothing to come back from"
 
@@ -126,26 +136,46 @@ class TestTheGate:
     def test_display_and_navigation_are_left_alone(self, widget):
         """Looking at an already-acquired overview from the wrong pose is harmless, and
         the settings stay editable so a run can be set up while the stage is moving."""
-        _pose(widget, "SEM")
+        _pose(widget, "NONE")
 
         assert widget.settings_widget.isEnabled() is True
         assert widget.channel_widget.isEnabled() is True
 
-    def test_the_stage_can_still_be_driven_from_the_wrong_pose(self, widget):
-        """What the deleted `has_valid_orientation` check claimed to stop.
+    @pytest.mark.parametrize("orientation", ["SEM", "MILLING", "NONE"])
+    def test_every_beam_pose_closes_it(self, widget, qapp, orientation):
+        """MILLING especially: it is in `valid_orientations`, so a gate asking that
+        question let a full tileset be started from it -- and on every mount we support
+        the sample is flipped or translated away from the objective there, so the tiles
+        would be of nothing."""
+        _pose(widget, orientation)
+        qapp.processEvents()
 
-        The whole scene is re-placed through whatever pose the stage is in, so a click
-        still lands on the feature it points at.
-        """
+        assert widget.at_acquisition_orientation() is False
+        assert widget.button_acquire.isEnabled() is False
+        assert widget._may_move() is False
+
+    def test_the_list_is_what_decides_not_a_hard_coded_pose(self, widget, qapp):
+        """A system whose objective sees the sample from more than one pose widens
+        `acquisition_orientations`; nothing here compares against `default_orientation`."""
+        widget.fm.acquisition_orientations = ["FM", "SEM"]
         _pose(widget, "SEM")
+        qapp.processEvents()
 
+        assert widget.at_acquisition_orientation() is True
+        assert widget.button_acquire.isEnabled() is True
         assert widget._may_move() is True
 
-    def test_marking_is_still_refused_from_the_wrong_pose(self, widget):
-        """Stricter than moving, and unchanged: a marked position becomes a lamella's
-        fluorescence pose, and one carrying SEM rotation and tilt is not one."""
+    def test_marking_stays_on_the_fluorescence_pose_alone(self, widget):
+        """The distinction the gate rests on. Stricter than acquiring or moving: a
+        marked position becomes a lamella's *fluorescence* pose, and one carrying SEM
+        rotation and tilt is not one, however right it looked on screen -- so widening
+        `acquisition_orientations` must not widen this."""
+        widget.fm.acquisition_orientations = ["FM", "SEM"]
         _pose(widget, "SEM")
 
+        assert widget.at_acquisition_orientation() is True
+        assert widget.at_fluorescence_pose() is False
+        assert widget._may_move() is True, "the looser check should still pass here"
         assert widget._position_menu(0.0, 0.0) is None
 
 
@@ -153,14 +183,14 @@ class TestTheRefusal:
     def test_acquire_refuses_from_the_wrong_pose(self, widget, accept_dialog, no_worker):
         """The button is not the guard: a host can call this, and the stage can move
         between the click and here."""
-        _pose(widget, "SEM")
+        _pose(widget, "NONE")
 
         widget.acquire()
 
         assert accept_dialog == [], "asked the user to confirm a run it then refused"
 
     def test_acquire_runs_once_the_stage_is_posed(self, widget, accept_dialog, no_worker):
-        _pose(widget, "SEM")
+        _pose(widget, "NONE")
         _pose(widget, "FM")
 
         widget.acquire()
@@ -172,18 +202,34 @@ class TestTheBanner:
     def test_it_is_hidden_when_the_pose_is_right(self, widget):
         assert widget.orientation_banner.isVisibleTo(widget) is False
 
-    def test_it_appears_and_names_both_orientations(self, widget):
-        _pose(widget, "SEM")
+    def test_it_appears_and_names_where_the_stage_is_and_what_would_do(self, widget):
+        _pose(widget, "NONE")
 
         assert widget.orientation_banner.isVisibleTo(widget) is True
-        notice = widget.orientation_notice.text()
-        assert "SEM" in notice, notice
-        assert "FM" in notice, notice
+        assert widget.orientation_notice.text() == (
+            "Stage is at NONE — an overview needs FM."
+        )
+
+    def test_it_names_every_orientation_that_would_do(self, widget):
+        """Not only the one the button goes to: on a system configured for more than one
+        the stage may already be a shorter move from a different one."""
+        widget.fm.acquisition_orientations = ["FM", "SEM"]
+        _pose(widget, "NONE")
+
+        assert widget.orientation_notice.text() == (
+            "Stage is at NONE — an overview needs one of: FM, SEM."
+        )
+
+    def test_it_stays_hidden_at_a_valid_but_non_fluorescence_pose(self, widget):
+        widget.fm.acquisition_orientations = ["FM", "SEM"]
+        _pose(widget, "SEM")
+
+        assert widget.orientation_banner.isVisibleTo(widget) is False
 
     def test_the_button_names_where_it_goes(self, widget):
         """From `default_orientation`, which the control widget can change at runtime --
         a button naming one orientation while going to another is worse than none."""
-        _pose(widget, "SEM")
+        _pose(widget, "NONE")
 
         assert widget.button_move_to_fm.text() == "Move to FM"
 
@@ -193,7 +239,7 @@ class TestTheBanner:
         assert widget.button_move_to_fm.text() == "Move to SEM-ish"
 
     def test_it_goes_away_again(self, widget):
-        _pose(widget, "SEM")
+        _pose(widget, "NONE")
         assert widget.orientation_banner.isVisibleTo(widget) is True
 
         _pose(widget, "FM")
@@ -204,7 +250,7 @@ class TestTheBanner:
 class TestTheMoveAction:
     def test_it_asks_before_moving(self, widget, no_worker, monkeypatch):
         """A real stage move, so it gets the same confirmation as the others here."""
-        _pose(widget, "SEM")
+        _pose(widget, "NONE")
         monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.No)
 
         widget.move_to_fm_orientation()
@@ -212,7 +258,7 @@ class TestTheMoveAction:
         assert no_worker == [], "moved the stage without asking"
 
     def test_it_moves_when_confirmed(self, widget, no_worker, monkeypatch):
-        _pose(widget, "SEM")
+        _pose(widget, "NONE")
         monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.Yes)
 
         widget.move_to_fm_orientation()
@@ -223,7 +269,7 @@ class TestTheMoveAction:
         assert args == ("FM",)
 
     def test_the_worker_drives_the_stage(self, widget):
-        _pose(widget, "SEM")
+        _pose(widget, "NONE")
 
         widget._move_to_orientation_worker("FM")
 

@@ -627,6 +627,17 @@ class FluorescenceMicroscope(ABC):
         ]  # valid orientations for fluorescence acquisition
         self._allow_unknown_orientations: bool = ALLOW_UNKNOWN_ORIENTATIONS
         self.default_orientation: str = "FM"  # orientation used when computing fluorescence pose for new lamellas
+        # Orientations the objective can actually image the sample from -- a stricter
+        # question than `valid_orientations`, which asks only whether FM control is
+        # allowed. Turning the light on and watching the camera from a beam pose is
+        # harmless and sometimes useful, so `valid_orientations` includes SEM and
+        # MILLING; driving the stage across a grid and stitching the result from one is
+        # not, since on a compustage the sample is flipped away from the objective there
+        # and on an offset mount it is translated out from under it.
+        #
+        # A list rather than `default_orientation` alone: a system whose objective sees
+        # the sample from more than one pose says so here, and has somewhere to say it.
+        self.acquisition_orientations: list[str] = [self.default_orientation]
 
     def has_valid_orientation(
         self, stage_position: Optional["FibsemStagePosition"] = None
@@ -636,6 +647,22 @@ class FluorescenceMicroscope(ABC):
             return True
         orientation = self.parent.get_stage_orientation(stage_position)
         return orientation in self.valid_orientations
+
+    def is_acquisition_orientation(
+        self, stage_position: Optional["FibsemStagePosition"] = None
+    ) -> bool:
+        """Return True if the objective can image the sample at the current (or given) pose.
+
+        The question anything that drives the stage should ask, and stricter than
+        `has_valid_orientation` in two ways: it asks the narrower
+        `acquisition_orientations`, and it has no `ALLOW_UNKNOWN_ORIENTATIONS` escape
+        hatch. The hatch exists so live FM control works from anywhere while a system is
+        being set up; an unrecognised pose is not an inconvenience to a tileset, which
+        would walk the stage across a grid and stitch the result against a frame nobody
+        has checked.
+        """
+        orientation = self.parent.get_stage_orientation(stage_position)
+        return orientation in self.acquisition_orientations
 
     def __repr__(self):
         """Return a string representation of the fluorescence microscope.

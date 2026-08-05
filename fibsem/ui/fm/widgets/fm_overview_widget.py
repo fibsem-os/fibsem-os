@@ -1163,19 +1163,29 @@ class FMOverviewWidget(QWidget):
 
     # ── stage orientation ────────────────────────────────────────────────
 
-    def at_fm_orientation(self) -> bool:
-        """Whether the stage is posed for fluorescence acquisition.
+    def at_acquisition_orientation(self) -> bool:
+        """Whether the stage is somewhere the objective can image the sample from.
 
-        Asked of `fm.default_orientation` rather than a constant of our own, because
-        that is the orientation `build_lamella_poses` derives a fluorescence pose
-        *into*. Two names for the same thing could drift; one cannot.
+        `fm.acquisition_orientations`, and not a single pose of our own choosing: a
+        system whose objective sees the sample from more than one orientation says so
+        there, and hard-coding one here would lock the other out.
 
-        Not `fm.has_valid_orientation()`, which asks a looser question -- whether FM
-        acquisition is allowed at all, which SEM and MILLING both are -- and which
-        `ALLOW_UNKNOWN_ORIENTATIONS` currently answers yes to unconditionally. An
-        overview is not merely unhelpful from the wrong pose: the canvas frame is built
-        from the origin's rotation and tilt (see `_posed`), so the tiles would be placed
-        against a projection that does not describe them.
+        Not `fm.has_valid_orientation()`, which asks the looser question of whether FM
+        *control* is allowed -- true at SEM and MILLING, where a compustage has flipped
+        the sample away from the objective -- and which `ALLOW_UNKNOWN_ORIENTATIONS`
+        answers yes to unconditionally anyway. The canvas frame is built from the pose
+        (see `_posed`), so tiles acquired somewhere the code cannot name are placed
+        against a projection nobody has checked.
+        """
+        return self.fm.is_acquisition_orientation()
+
+    def at_fluorescence_pose(self) -> bool:
+        """Whether the stage is at *the* fluorescence orientation, not merely a workable one.
+
+        Stricter than `at_acquisition_orientation`, and asked only where something is written
+        down. Asked of `fm.default_orientation` because that is the orientation
+        `build_lamella_poses` derives a fluorescence pose *into*: two names for the same
+        thing could drift, one cannot.
         """
         return self.microscope.get_stage_orientation() == self.fm.default_orientation
 
@@ -1219,13 +1229,25 @@ class FMOverviewWidget(QWidget):
         # arrives at `_on_stage_moved` and re-derives everything the pose feeds.
 
     def _refresh_orientation_banner(self) -> None:
-        """Say where the stage is, when it is not where an overview needs it."""
-        wrong = not self.at_fm_orientation()
+        """Say where the stage is, when it is not somewhere an overview can be acquired.
+
+        Names every orientation that would do, not only the one the button goes to: on a
+        system configured for more than one the stage may already be a shorter move from
+        a different one, and a banner naming only `default_orientation` would be sending
+        the user further than they have to go.
+        """
+        wrong = not self.at_acquisition_orientation()
         self.orientation_banner.setVisible(wrong)
         if wrong:
+            allowed = self.fm.acquisition_orientations
+            # "needs FM" reads better than "needs one of: FM", which is what a plain
+            # join gives on the single-orientation systems that are all of them today.
+            needed = (
+                allowed[0] if len(allowed) == 1 else f"one of: {', '.join(allowed)}"
+            )
             self.orientation_notice.setText(
-                f"Stage is at {self.microscope.get_stage_orientation()} — "
-                f"{self.fm.default_orientation} is needed to acquire an overview."
+                f"Stage is at {self.microscope.get_stage_orientation()} — an overview "
+                f"needs {needed}."
             )
             self.button_move_to_fm.setText(f"Move to {self.fm.default_orientation}")
 
@@ -1371,16 +1393,23 @@ class FMOverviewWidget(QWidget):
     def _may_move(self) -> bool:
         """Whether driving the stage from this tab is allowed right now, and say if not.
 
-        Deliberately not gated on the orientation. Moving works from any pose: the whole
-        scene -- images, markers, grid -- is re-placed through the pose the stage is in
-        (see `_posed`), so a click still lands on the feature it points at. What used to
-        be here asked `fm.has_valid_orientation()`, which `ALLOW_UNKNOWN_ORIENTATIONS`
-        answers yes to unconditionally -- so it refused nothing, and would have refused
-        the wrong thing if it ever started working (FIB-436).
+        The orientation check here used to be `fm.has_valid_orientation()`, which
+        `ALLOW_UNKNOWN_ORIENTATIONS` answers yes to unconditionally -- so it refused
+        nothing. It now asks the same question with the escape hatch off, which is what
+        it was always meant to mean: a click is a stage move computed through a frame
+        built from the current pose, and from a pose the code cannot name there is
+        nothing that has checked where it would send the stage (FIB-436).
         """
         if self.is_acquiring:
             notification_service.show_toast(
                 "Cannot move the stage during an acquisition.", "warning"
+            )
+            return False
+        if not self.at_acquisition_orientation():
+            notification_service.show_toast(
+                f"Cannot move the stage from the "
+                f"{self.microscope.get_stage_orientation()} orientation.",
+                "warning",
             )
             return False
         return True
@@ -1442,11 +1471,11 @@ class FMOverviewWidget(QWidget):
                 "Cannot mark positions while an acquisition is running.", "warning"
             )
             return None
-        # Stricter than the double-click's check, and deliberately so -- see `_may_move`
-        # for why moving is allowed from anywhere. Marking has to survive being written
-        # down: the position becomes a lamella's *fluorescence* pose, and one carrying
-        # SEM rotation and tilt is not one, however right it looked on screen.
-        if not self.at_fm_orientation():
+        # Stricter than the double-click's check, and deliberately so. Moving needs only
+        # a pose the FM can work from; marking has to survive being written down, since
+        # the position becomes a lamella's *fluorescence* pose -- and one carrying SEM
+        # rotation and tilt is not one, however right it looked on screen.
+        if not self.at_fluorescence_pose():
             notification_service.show_toast(
                 f"Move to the fluorescence position before marking on the overview "
                 f"(the stage is at {self.microscope.get_stage_orientation()}).",
@@ -1649,7 +1678,9 @@ class FMOverviewWidget(QWidget):
         # overview that has already been acquired is harmless wherever the stage is, and
         # the settings panel stays editable so a run can be set up while the stage is on
         # its way (FIB-436).
-        self.button_acquire.setEnabled(idle and has_tiles and self.at_fm_orientation())
+        self.button_acquire.setEnabled(
+            idle and has_tiles and self.at_acquisition_orientation()
+        )
         # Cancel is deliberately not gated on `_interactive`: a host locking the tab
         # mid-run must not take away the only way to stop the stage. Once a cancel has
         # been asked for, the button goes and stays away -- the stop event is the record
@@ -1681,15 +1712,16 @@ class FMOverviewWidget(QWidget):
         # Not only on the button, which `_apply_enabled_state` disables from the wrong
         # pose -- the button is not the guard, and a host calling this directly, or a
         # stage that moved between the click and here, is exactly what this is for.
-        if not self.at_fm_orientation():
+        if not self.at_acquisition_orientation():
             orientation = self.microscope.get_stage_orientation()
+            allowed = ", ".join(self.fm.acquisition_orientations)
             logging.warning(
-                f"Cannot acquire an overview: the stage is at {orientation}, not "
-                f"{self.fm.default_orientation}."
+                f"Cannot acquire an overview: the stage is at {orientation}, which is "
+                f"not one of {allowed}."
             )
             notification_service.show_toast(
-                f"Move the stage to {self.fm.default_orientation} before acquiring an "
-                f"overview (it is at {orientation}).",
+                f"Move the stage to one of {allowed} before acquiring an overview "
+                f"(it is at {orientation}).",
                 "warning",
             )
             return
