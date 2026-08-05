@@ -1860,6 +1860,17 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 stylesheets.SECONDARY_BUTTON_STYLESHEET
             )
         else:
+            # The third place in the app that can start a live stream, and so the third
+            # that has to ask whether the microscope is free -- an overview tileset does
+            # not show up in `is_acquiring` (FIB-441).
+            if fm.is_busy:
+                QMessageBox.warning(
+                    self,
+                    "Fluorescence Microscope In Use",
+                    f"The fluorescence microscope is in use ({fm.busy_reason}).\n\n"
+                    f"Wait for it to finish before starting acquisition.",
+                )
+                return
             selected_channel_settings = self.fm_channel_widget.selected_channel
             if selected_channel_settings is None:
                 QMessageBox.warning(

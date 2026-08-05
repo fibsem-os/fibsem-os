@@ -586,6 +586,10 @@ class FluorescenceMicroscope(ABC):
     # live acquisition signals (psygnal binds these per-instance on access)
     acquisition_signal = Signal(FluorescenceImage)
     acquisition_progress_signal = Signal(dict)
+    # Raised when something starts or stops driving the FM, so a widget that did not
+    # start it can grey its controls out. Emitted from whichever thread set the flag --
+    # connect with `@ensure_main_thread` if the slot touches widgets.
+    busy_changed = Signal(bool)
 
     def __init__(self, parent: Optional["FibsemMicroscope"] = None):
         """Initialize the fluorescence microscope with default components.
@@ -600,6 +604,10 @@ class FluorescenceMicroscope(ABC):
         # per-instance acquisition state (previously shared class attributes)
         self._stop_acquisition_event = threading.Event()
         self._acquisition_thread: Optional[threading.Thread] = None
+        # Something other than the live stream is driving the FM: an overview tileset,
+        # a z-stack, an autofocus sweep. Set by whoever is driving it. See `is_busy`.
+        self._busy: bool = False
+        self._busy_reason: str = ""
 
         self.channel_name: str = "channel-01"
         self.channel_color: str = "gray"
@@ -647,6 +655,38 @@ class FluorescenceMicroscope(ABC):
         if not self._acquisition_thread:
             return False
         return self._acquisition_thread and self._acquisition_thread.is_alive()
+
+    @property
+    def is_busy(self) -> bool:
+        """Whether anything is driving the FM: a live stream, or some other acquisition.
+
+        The question a widget deciding what to enable should be asking. `is_acquiring`
+        reports the live stream alone, which an overview tileset drops between every
+        pair of tiles while it moves the stage -- so a widget watching that flag sees an
+        idle microscope for most of somebody else's run (FIB-441).
+        """
+        return self.is_acquiring or self._busy
+
+    @property
+    def busy_reason(self) -> str:
+        """What is driving the FM, phrased for a warning, or "" if nothing is."""
+        if self._busy:
+            return self._busy_reason
+        if self.is_acquiring:
+            return "live acquisition"
+        return ""
+
+    def set_busy(self, busy: bool, reason: str = "") -> None:
+        """Mark the FM as driven, or not. Call in a `finally` when the work ends.
+
+        Args:
+            busy: Whether something is now driving the microscope.
+            reason: What it is, e.g. "overview acquisition". Shown to the user by
+                whatever gets refused, so it should read as a noun phrase.
+        """
+        self._busy = busy
+        self._busy_reason = reason if busy else ""
+        self.busy_changed.emit(self.is_busy)
 
     def set_channel(self, channel_settings: ChannelSettings):
         """Configure the microscope for a specific fluorescence channel.
@@ -991,6 +1031,10 @@ class FluorescenceMicroscope(ABC):
             target=self._acquisition_worker, args=(channel_settings,), daemon=True
         )
         self._acquisition_thread.start()
+        # A live stream makes the FM busy just as anything else does, so it announces
+        # itself the same way -- a widget deriving its controls from `is_busy` would
+        # otherwise notice tilesets and never notice streaming.
+        self.busy_changed.emit(self.is_busy)
 
     def stop_acquisition(self) -> None:
         """Stop the continuous live image acquisition.
@@ -1006,6 +1050,9 @@ class FluorescenceMicroscope(ABC):
             self._stop_acquisition_event.set()
             if self._acquisition_thread:
                 self._acquisition_thread.join(timeout=2)
+            # Asked rather than asserted: the join has a timeout, so a thread that has
+            # not stopped yet must not be announced as stopped.
+            self.busy_changed.emit(self.is_busy)
 
     def _acquisition_worker(self, channel_settings: Optional[ChannelSettings] = None):
         """Internal worker thread for continuous image acquisition.
