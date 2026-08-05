@@ -390,7 +390,7 @@ def _inverse_y_corrected_stage_movement_tescan(
     in the chamber frame, so the inversion uses the full chamber-frame sample inclination
     (stage tilt + pre-tilt) rather than just the pre-tilt. Mirror of
     TescanMicroscope._inverse_y_corrected_stage_movement; see
-    docs/design/tescan-stable-move.md for the derivation.
+    https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414 for the derivation.
 
     Args:
         dy (float): actual y stage movement (raw stage frame)

@@ -2,7 +2,7 @@
 
 Tescan stages have the z-axis below the tilt axis (chamber-fixed y/z translation
 axes), so stable_move decomposes the sample-plane move using the full chamber-frame
-sample inclination. See docs/design/tescan-stable-move.md for the derivation.
+sample inclination. See https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414 for the derivation.
 
 These tests lock in the derived math and the internal sign contracts
 (stable_move <-> inverse round trips).

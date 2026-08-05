@@ -578,7 +578,7 @@ class TescanMicroscope(FibsemMicroscope):
         base_position: FibsemStagePosition,
     ) -> FibsemStagePosition:
         """Project an image-space displacement into a stage position, without moving.
-        Pure-math equivalent of stable_move (see docs/design/tescan-stable-move.md)."""
+        Pure-math equivalent of stable_move (see https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414)."""
 
         # adjust for scan rotation (radians, codebase convention)
         scan_rotation = self.get_scan_rotation(beam_type)
@@ -667,7 +667,7 @@ class TescanMicroscope(FibsemMicroscope):
             dy *= -1.0
 
         # calculate the sample-plane move in the chamber frame
-        # (see docs/design/tescan-stable-move.md)
+        # (see https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414)
         yz_move = self._y_corrected_stage_movement(
             expected_y=dy,
             beam_type=beam_type,
@@ -714,7 +714,7 @@ class TescanMicroscope(FibsemMicroscope):
         # z move — no y compensation needed (unlike ThermoFisher).
         # Perspective: the FIB views the vertical axis at the column tilt (55 deg),
         # so the image dy projects onto the vertical with factor sin(column_tilt).
-        # See docs/design/tescan-stable-move.md.
+        # See https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414.
         fib_column_tilt = np.deg2rad(self.system.ion.column_tilt)
         dz = dy / np.sin(fib_column_tilt)
 
@@ -741,7 +741,7 @@ class TescanMicroscope(FibsemMicroscope):
         ThermoFisher, where y/z ride on the tilt module and only the pre-tilt
         appears in the decomposition). The sample-plane move must therefore be
         decomposed using the full chamber-frame inclination of the sample.
-        See docs/design/tescan-stable-move.md for the derivation.
+        See https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414 for the derivation.
 
         Args:
             expected_y (float): distance along the image y-axis.
