@@ -819,6 +819,12 @@ class TescanMicroscope(FibsemMicroscope):
         stage movements, as applied by stable_move (including the stage-axis
         inversion), and returns the image-space dy that would produce them.
 
+        Thin adapter over the shared core in reprojection.py — the live-microscope
+        counterpart of _inverse_y_corrected_stage_movement_tescan (which reads image
+        metadata). Both feed the same maths, so they cannot drift apart. hardware_geometry()
+        returns the same column-tilt / pre-tilt / rotation terms this used to read straight
+        off self.system.
+
         Args:
             dy (float): actual y stage movement (raw stage frame)
             dz (float): actual z stage movement (raw stage frame)
@@ -827,58 +833,17 @@ class TescanMicroscope(FibsemMicroscope):
         Returns:
             float: expected_y input that would produce the given dy, dz movements
         """
+        from fibsem.imaging.tiling.reprojection import (
+            inverse_y_corrected_stage_movement_tescan_from_geometry,
+        )
 
-        # undo the stage-axis inversion applied in stable_move (y_stage = -y_chamber)
-        # TODO(hardware-verify): keep in sync with the x/y inversion in stable_move.
-        dy = -dy
-
-        # all angles in radians
-        sem_column_tilt = np.deg2rad(self.system.electron.column_tilt)
-        fib_column_tilt = np.deg2rad(self.system.ion.column_tilt)
-
-        stage_pretilt = np.deg2rad(self.system.stage.shuttle_pre_tilt)
-
-        stage_rotation_flat_to_eb = np.deg2rad(
-            self.system.stage.rotation_reference
-        ) % (2 * np.pi)
-        stage_rotation_flat_to_ion = np.deg2rad(
-            self.system.stage.rotation_180
-        ) % (2 * np.pi)
-
-        # current stage position
-        current_stage_position = self.get_stage_position()
-        stage_rotation = current_stage_position.r % (2 * np.pi) if current_stage_position.r is not None else 0.0
-        stage_tilt = current_stage_position.t if current_stage_position.t is not None else 0.0
-
-        PRETILT_SIGN = 1.0
-        from fibsem import movement
-        if movement.rotation_angle_is_smaller(
-            stage_rotation, stage_rotation_flat_to_eb, atol=5
-        ):
-            PRETILT_SIGN = 1.0
-        if movement.rotation_angle_is_smaller(
-            stage_rotation, stage_rotation_flat_to_ion, atol=5
-        ):
-            PRETILT_SIGN = -1.0
-
-        corrected_pretilt_angle = PRETILT_SIGN * (stage_pretilt + sem_column_tilt)
-        sample_inclination = stage_tilt - corrected_pretilt_angle
-
-        beam_tilt = sem_column_tilt if beam_type is BeamType.ELECTRON else fib_column_tilt
-
-        # invert: forward is y = d*cos(incl), z = -d*sin(incl);
-        # recover d from the larger component for numerical stability
-        cos_incl = np.cos(sample_inclination)
-        sin_incl = np.sin(sample_inclination)
-        if abs(cos_incl) > abs(sin_incl):
-            y_sample_move = dy / cos_incl
-        else:
-            y_sample_move = -dz / sin_incl
-
-        # re-project the sample-plane distance into the image plane
-        expected_y = y_sample_move * np.cos(sample_inclination - beam_tilt)
-
-        return expected_y
+        return inverse_y_corrected_stage_movement_tescan_from_geometry(
+            geometry=self.hardware_geometry(),
+            stage_position=self.get_stage_position(),
+            dy=dy,
+            dz=dz,
+            beam_type=beam_type,
+        )
 
     def get_manipulator_state(self) -> bool:
 
