@@ -24,7 +24,7 @@ def create_circle_mask(
     mask = distance <= radius
 
     if sigma:
-        mask = ndi.filters.gaussian_filter(mask, sigma=sigma)
+        mask = ndi.gaussian_filter(mask, sigma=sigma)
 
     return mask
 
@@ -51,7 +51,7 @@ def create_bandpass_mask(
 
     mask = (lowpass * highpass).astype(np.float32)
     if sigma:
-        mask = ndi.filters.gaussian_filter(mask, sigma=sigma)
+        mask = ndi.gaussian_filter(mask, sigma=sigma)
 
     return mask
 
@@ -123,7 +123,7 @@ def create_rect_mask(
     mask[y_min:y_max, x_min:x_max] = 1
 
     if sigma:
-        mask = ndi.filters.gaussian_filter(mask, sigma=sigma)
+        mask = ndi.gaussian_filter(mask, sigma=sigma)
 
     return mask
 

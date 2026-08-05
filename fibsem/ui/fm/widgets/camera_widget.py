@@ -36,15 +36,14 @@ CAMERA_CONFIG = {
     },
 }
 
-# Mapping for transform display names
+# Mapping for transform display names.
+# Rotations are not offered: a fixed rotation between sensor and stage is a property
+# of how the camera is mounted, and is corrected inside the driver before this runs.
 TRANSFORM_DISPLAY_NAMES = {
     CameraImageTransform.NONE: "None",
     CameraImageTransform.FLIP_X: "Flip X",
     CameraImageTransform.FLIP_Y: "Flip Y",
     CameraImageTransform.FLIP_XY: "Flip X+Y",
-    CameraImageTransform.ROTATE_90_CW: "Rotate 90° CW",
-    CameraImageTransform.ROTATE_90_CCW: "Rotate 90° CCW",
-    CameraImageTransform.ROTATE_180: "Rotate 180°"
 }
 
 

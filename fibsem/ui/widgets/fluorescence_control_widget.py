@@ -24,9 +24,9 @@ from fibsem import conversions, utils
 from fibsem import config as fcfg
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.calibration import run_autofocus
+from fibsem.fm.config import record_recent_channels
 from fibsem.fm.structures import (
     AutoFocusSettings,
-    CameraImageTransform,
     ChannelSettings,
     FluorescenceImage,
     FluorescenceConfiguration,
@@ -51,6 +51,7 @@ from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     TitledPanel,
@@ -92,7 +93,7 @@ class FMControlWidget(QWidget):
         self.channel_settings = ChannelSettings()
 
         # Consolidated acquisition threading
-        self._acquisition_thread: Optional[threading.Thread] = None
+        self._acquisition_thread: Optional[FunctionWorker] = None
         self._acquisition_stop_event = threading.Event()
         self._current_acquisition_type: Optional[str] = None
 
@@ -404,27 +405,16 @@ class FMControlWidget(QWidget):
             f"Coordinates: {coords} - {point_clicked} - Movement Type {movement_type} - Alt Modifier {ALT_MODIFIER}"
         )
         if movement_type == "FM":
-            point_clicked = (
-                point_clicked[0],
-                -point_clicked[1],
-            )  # Y-inverse when t=0, need to make this more robust
-            # Apply inverse transform to account for image transformation
-            if self.fm._transform is CameraImageTransform.FLIP_X:
-                point_clicked = (-point_clicked[0], point_clicked[1])
-            elif self.fm._transform is CameraImageTransform.FLIP_Y:
-                point_clicked = (point_clicked[0], -point_clicked[1])
-            elif self.fm._transform is CameraImageTransform.FLIP_XY:
-                point_clicked = (-point_clicked[0], -point_clicked[1])
-            elif self.fm._transform is CameraImageTransform.ROTATE_90_CW:
-                point_clicked = (point_clicked[1], -point_clicked[0])
-            elif self.fm._transform is CameraImageTransform.ROTATE_90_CCW:
-                point_clicked = (-point_clicked[1], point_clicked[0])
-            elif self.fm._transform is CameraImageTransform.ROTATE_180:
-                point_clicked = (-point_clicked[0], -point_clicked[1])
-
-            self.microscope.move_stage_relative(
-                FibsemStagePosition(x=point_clicked[0], y=point_clicked[1])
-            )
+            # fm_stable_move undoes the display transform and projects onto the tilted
+            # sample plane, so the move is foreshortening-correct and holds focus.
+            # Previously this was a raw relative move with neither correction.
+            #
+            # The click keeps the sign convention the beam paths use (y up-positive,
+            # straight out of image_to_microscope_image_coordinates2). There used to be
+            # a `-point_clicked[1]` here, calibrated at t=0; on a compustage the
+            # projection already reverses y between t=0 and t=-180, so a constant
+            # negation can only ever be right at one of them.
+            self.microscope.fm_stable_move(dx=point_clicked[0], dy=point_clicked[1])
         logging.info(f"-" * 50)
 
     def _on_channel_field_changed(self, channel, field: str, value) -> None:
@@ -484,6 +474,7 @@ class FMControlWidget(QWidget):
         progress_total = progress.get("total", None)
         channel_name = progress.get("channel", None)
         progress_state = progress.get("state", None)
+        progress_task = progress.get("task", None)
 
         if progress_state == "moving":
             self.progressText.setText("Moving stage...")
@@ -503,7 +494,14 @@ class FMControlWidget(QWidget):
             return
 
         # set progress message
-        if channel_name is not None:
+        if progress_task == "autofocus":
+            # Handled before the channel branch, not inside it: a sweep with no channel
+            # reports an empty name, which used to render "Acquiring  (1/1)..." and now
+            # would leave the previous message sitting there instead.
+            self.progressText.setText(
+                f"Focusing on {channel_name}..." if channel_name else "Focusing..."
+            )
+        elif channel_name:
             channel_index = progress.get("channel_index", 1)
             total_channels = progress.get("total_channels", 1)
             msg = f"Acquiring {channel_name} ({channel_index}/{total_channels})..."
@@ -517,9 +515,18 @@ class FMControlWidget(QWidget):
                 else 0
             )
             self.progressBar_current_acquisition.setValue(percentage_zlevel)
-            self.progressBar_current_acquisition.setFormat(
-                f"Z-level {progress_zlevels}/{progress_total_zlevels}"
-            )
+            if progress_task == "autofocus":
+                # A focus sweep steps the objective through a search range. Calling
+                # those positions "Z-level" names the z-stack, which is not running --
+                # and says which pass, so a coarse sweep followed by a fine one does
+                # not look like the same bar inexplicably starting over.
+                total_passes = progress.get("total_passes", 1)
+                which = (f" · pass {progress.get('pass_index', 1)}/{total_passes}"
+                         if total_passes > 1 else "")
+                label = f"Focus {progress_zlevels}/{progress_total_zlevels}{which}"
+            else:
+                label = f"Z-level {progress_zlevels}/{progress_total_zlevels}"
+            self.progressBar_current_acquisition.setFormat(label)
 
         # set total acquisition task progress
         if progress_current is not None and progress_total is not None:
@@ -603,6 +610,7 @@ class FMControlWidget(QWidget):
         logging.info(
             f"Starting acquisition with channel settings: {selected_channel_settings}"
         )
+        record_recent_channels(selected_channel_settings)
         self.fm.start_acquisition(channel_settings=selected_channel_settings)
         self._update_acquisition_button_states()
 
@@ -804,11 +812,11 @@ class FMControlWidget(QWidget):
             self._update_acquisition_button_states()
             return
 
+        record_recent_channels(channel_settings)
+
         # Start acquisition thread
-        self._acquisition_thread = threading.Thread(
-            target=self._image_acquistion_worker,
-            args=(channel_settings, z_parameters, filename),
-            daemon=True,
+        self._acquisition_thread = FunctionWorker(
+            self._image_acquistion_worker, channel_settings, z_parameters, filename
         )
         self._acquisition_thread.start()
 
@@ -916,10 +924,8 @@ class FMControlWidget(QWidget):
         autofocus_settings = settings["autofocus_settings"]
 
         # Start auto-focus thread
-        self._acquisition_thread = threading.Thread(
-            target=self._autofocus_worker,
-            args=(channel_settings, autofocus_settings),
-            daemon=True,
+        self._acquisition_thread = FunctionWorker(
+            self._autofocus_worker, channel_settings, autofocus_settings
         )
         self._acquisition_thread.start()
 

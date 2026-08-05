@@ -1,4 +1,5 @@
 import datetime
+import os
 
 import pytest
 
@@ -195,7 +196,7 @@ def test_autofocus_settings_round_trip():
     for mode in AutoFocusMode:
         s = AutoFocusSettings(mode=mode)
         d = s.to_dict()
-        assert d["mode"] == mode.name
+        assert d["mode"] == mode.value
         restored = AutoFocusSettings.from_dict(d)
         assert restored.mode is mode
 
@@ -435,3 +436,131 @@ def test_reference_image_parameters_estimated_time_no_images():
         imaging=img, acquire_sem=False, acquire_fib=False, acquire_image1=True, acquire_image2=True
     )
     assert ref.estimated_time == 0.0
+
+
+# FibsemImage.filepath — the file an image is associated with on disk
+
+
+def test_fibsem_image_filepath_is_none_until_written_or_read():
+    """An image that has never been saved or loaded has no file."""
+    import numpy as np
+    image = FibsemImage(data=np.zeros((10, 10), dtype=np.uint8))
+    assert image.filepath is None
+
+
+def test_fibsem_image_save_sets_filepath_to_the_resolved_file(tmp_path):
+    """save() records the path it actually wrote, extension included."""
+    import numpy as np
+    image = FibsemImage(data=np.zeros((10, 10), dtype=np.uint8))
+
+    # deliberately passed without a suffix: save() resolves it to .tif, and the
+    # recorded path must be the resolved one, not the argument.
+    returned = image.save(str(tmp_path / "ref_image"))
+
+    assert image.filepath == returned
+    assert image.filepath.endswith(".tif")
+    assert os.path.isfile(image.filepath)
+
+
+def test_fibsem_image_load_sets_filepath(tmp_path):
+    """load() records where the image came from."""
+    import numpy as np
+    written = FibsemImage(data=np.zeros((10, 10), dtype=np.uint8)).save(
+        str(tmp_path / "ref_image")
+    )
+
+    loaded = FibsemImage.load(written)
+
+    assert loaded.filepath == written
+
+
+# fibsem_revision — the running commit, recorded alongside fibsem_version
+
+
+def test_only_system_info_carries_the_software_versions():
+    """SystemInfo owns what software is running; the experiment reference carries
+    identity only. They both did until FIB-448, with no rule about which won if
+    they disagreed -- and they could, being built at different moments."""
+    from fibsem.structures import FibsemExperimentRef, SystemInfo
+
+    ref = FibsemExperimentRef().to_dict()
+    info = SystemInfo.from_dict({}).to_dict()
+
+    for key in ("fibsem_version", "fibsem_revision", "application"):
+        assert key in info, f"SystemInfo should own {key}"
+        assert key not in ref, f"the experiment reference should not duplicate {key}"
+
+    # Identity, at both rates: which experiment (set once at registration) and where
+    # in it (set per task, FIB-466). Nothing about the software or the instrument.
+    assert set(ref) == {
+        "id",
+        "name",
+        "date",
+        "item_id",
+        "item_name",
+        "task_id",
+        "task_name",
+    }
+    # Neither, since v5: it was declared in both and populated in neither. An
+    # application inside fibsem has no version of its own, and fibsem_revision
+    # already pins the commit doing the work.
+    assert "application_version" not in info
+    assert "application_version" not in ref
+
+
+def test_metadata_from_dict_accepts_pre_change_files():
+    """Saved data written before fibsem_revision existed must still load."""
+    from fibsem.structures import FibsemExperimentRef, SystemInfo
+
+    legacy_experiment = {
+        "id": "exp-1",
+        "method": "autolamella",
+        "date": 1700000000.0,
+        "application": "fibsemOS",
+        "fibsem_version": "0.5.1",
+        "application_version": "0.5.1",
+    }
+    # Keys this build no longer reads must not stop the file loading. The versions
+    # are still in the file; a reader wanting them looks at system.info, or at the
+    # raw dict for a file old enough to lack one. See FIB-448.
+    experiment = FibsemExperimentRef.from_dict(legacy_experiment)
+    assert experiment.id == "exp-1"
+    assert experiment.date == 1700000000.0
+
+    # `application_version` is here because SystemInfo declared it up to v4. It is
+    # constructed field by field, so a key it no longer knows is ignored rather than
+    # raising -- which is what makes dropping the field safe for existing files.
+    legacy_info = {
+        "name": "Test",
+        "manufacturer": "Demo",
+        "fibsem_version": "0.5.1",
+        "application_version": "0.5.1",
+    }
+    info = SystemInfo.from_dict(legacy_info)
+    assert info.name == "Test"
+    assert info.fibsem_version == "0.5.1"
+
+
+def test_metadata_round_trips_fibsem_revision():
+    from fibsem.structures import SystemInfo
+
+    info = SystemInfo.from_dict({"fibsem_revision": "v0.5.1-48-g4cd11d9c"})
+    assert info.fibsem_revision == "v0.5.1-48-g4cd11d9c"
+    assert (
+        SystemInfo.from_dict(info.to_dict()).fibsem_revision == "v0.5.1-48-g4cd11d9c"
+    )
+
+
+def test_experiment_date_is_creation_time_not_import_time():
+    """A plain dataclass default would freeze this at module-import time."""
+    import time
+
+    from fibsem.structures import FibsemExperimentRef
+
+    before = datetime.datetime.timestamp(datetime.datetime.now())
+    time.sleep(0.01)
+    experiment = FibsemExperimentRef()
+    time.sleep(0.01)
+    after = datetime.datetime.timestamp(datetime.datetime.now())
+
+    assert before < experiment.date < after

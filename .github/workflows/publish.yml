@@ -14,8 +14,9 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - run: pip install .
-      - run: pytest tests/
+      - run: pip install ".[test]"
+      - name: Test with pytest
+        run: pytest tests/ -n auto --dist worksteal --timeout=300
 
   publish:
     needs: test

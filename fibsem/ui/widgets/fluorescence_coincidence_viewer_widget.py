@@ -27,18 +27,16 @@ import logging
 import math
 import os
 import time
-import threading
 from collections import deque
 from datetime import timedelta
-from pprint import pformat
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QAction,
+    QDialog,
     QFileDialog,
-    QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -56,36 +54,39 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import ensure_main_thread, QDoubleSlider
+from superqt import ensure_main_thread
 from fibsem.ui.icon import fibsem_icon
 
 from fibsem import conversions
-from fibsem.autofunctions.gamma import apply_gamma
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
-from fibsem.fm.structures import CameraImageTransform, FluorescenceImage
+from fibsem.fm.structures import FluorescenceImage
 from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
 from fibsem.structures import BeamType, FibsemImage, Point
 from fibsem.ui import notification_service, stylesheets
+from fibsem.ui.stylesheets import CANVAS_BG, SURFACE_COLOR
 from fibsem.ui.fm.widgets import LinePlotWidget
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.custom_widgets import (
     IntegerValueSpinBox,
     LamellaNameListWidget,
     TitledPanel,
 )
-from fibsem.ui.widgets.selected_lamella_widget import SelectedLamellaWidget
-from fibsem.ui.widgets.image_canvas import (
-    FibsemImageCanvas,
-    RectOverlay,
-    ScanDirectionArrowOverlay,
+from fibsem.ui.widgets.coincidence_milling_confirmation_dialog import (
+    CoincidenceMillingConfirmationDialog,
 )
+from fibsem.ui.widgets.selected_lamella_widget import SelectedLamellaWidget
+from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.overlays import RectOverlay, ScanDirectionArrowOverlay
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella
     from fibsem.microscope import FibsemMicroscope
     from fibsem.milling.tasks import FibsemMillingTaskConfig
 
-_BG = "#262930"
-_HEADER_BG = "#1e2124"
+# Short local names for the shared palette. These appear inside dozens of
+# f-strings below, where the full names would wrap every one of them.
+_BG = SURFACE_COLOR
+_HEADER_BG = CANVAS_BG
 
 # name used for the coincidence entry in the lamella review panel / task history
 COINCIDENCE_REVIEW_TASK_NAME = "Coincidence Milling"
@@ -108,80 +109,6 @@ def _fmt_timestamp(ts: float) -> str:
     return f"{h}:{dt.strftime('%M:%S')}{ampm}"
 
 
-_HISTOGRAM_PANEL_STYLE = (
-    "QFrame { background: rgba(30,33,36,230); border: 1px solid #555;"
-    " border-radius: 4px; }"
-    "QLabel { color: #d1d2d4; font-size: 10px; background: transparent; border: none; }"
-    "QPushButton { background: rgba(60,63,70,200); border: 1px solid #666;"
-    " border-radius: 3px; color: #d1d2d4; font-size: 10px; padding: 2px 8px; }"
-    "QPushButton:hover { background: rgba(80,83,90,220); }"
-)
-
-
-def _build_histogram_panel(canvas, on_min, on_max, on_gamma, on_reset):
-    """Create a floating histogram/contrast panel parented to *canvas*.
-
-    Returns (panel, sld_min, lbl_min, sld_max, lbl_max, sld_gamma, lbl_gamma).
-    """
-    panel = QFrame(canvas)
-    panel.setStyleSheet(_HISTOGRAM_PANEL_STYLE)
-    panel.setFixedWidth(240)
-
-    outer = QVBoxLayout(panel)
-    outer.setContentsMargins(8, 6, 8, 6)
-    outer.setSpacing(4)
-
-    title = QLabel("Contrast / Gamma")
-    title.setStyleSheet(
-        "color: #aaa; font-size: 10px; font-weight: bold;"
-        " background: transparent; border: none;"
-    )
-    outer.addWidget(title)
-
-    form = QFormLayout()
-    form.setContentsMargins(0, 0, 0, 0)
-    form.setSpacing(3)
-    form.setLabelAlignment(Qt.AlignRight)  # type: ignore[attr-defined]
-
-    def _make_row(lo, hi, default, step):
-        slider = QDoubleSlider(Qt.Horizontal)  # type: ignore[attr-defined]
-        slider.setRange(lo, hi)
-        slider.setSingleStep(step)
-        slider.setValue(default)
-        lbl = QLabel(f"{default:.2f}")
-        lbl.setFixedWidth(32)
-        lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)  # type: ignore[attr-defined]
-        row = QWidget()
-        row.setStyleSheet("background: transparent; border: none;")
-        rl = QHBoxLayout(row)
-        rl.setContentsMargins(0, 0, 0, 0)
-        rl.setSpacing(4)
-        rl.addWidget(slider)
-        rl.addWidget(lbl)
-        return slider, lbl, row
-
-    sld_min, lbl_min, row_min = _make_row(0.0, 1.0, 0.0, 0.01)
-    sld_max, lbl_max, row_max = _make_row(0.0, 1.0, 1.0, 0.01)
-    sld_gamma, lbl_gamma, row_gamma = _make_row(0.1, 3.0, 1.0, 0.05)
-
-    form.addRow(QLabel("Min"), row_min)
-    form.addRow(QLabel("Max"), row_max)
-    form.addRow(QLabel("Gamma"), row_gamma)
-    outer.addLayout(form)
-
-    btn_reset = QPushButton("Reset")
-    btn_reset.clicked.connect(on_reset)
-    outer.addWidget(btn_reset, alignment=Qt.AlignRight)  # type: ignore[attr-defined]
-
-    sld_min.valueChanged.connect(on_min)
-    sld_max.valueChanged.connect(on_max)
-    sld_gamma.valueChanged.connect(on_gamma)
-
-    panel.setVisible(False)
-    panel.adjustSize()
-    return panel, sld_min, lbl_min, sld_max, lbl_max, sld_gamma, lbl_gamma
-
-
 # ---------------------------------------------------------------------------
 # FIB quadrant — FibsemImageCanvas + yellow drag-only RectOverlay
 # ---------------------------------------------------------------------------
@@ -192,10 +119,6 @@ class _FibImageCanvas(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._contrast_min: float = 0.0
-        self._contrast_max: float = 1.0
-        self._gamma: float = 1.0
-        self._raw_frame: Optional[np.ndarray] = None
         self._setup_ui()
 
     def _setup_ui(self):
@@ -220,103 +143,10 @@ class _FibImageCanvas(QWidget):
 
         layout.addWidget(self.canvas)
 
-        self.btn_histogram = self.canvas._add_overlay_button(
-            "mdi:contrast-box", "Histogram Controls", self._toggle_histogram_panel, checkable=True
-        )
-        (
-            self._histogram_panel,
-            self._sld_min, self._lbl_min,
-            self._sld_max, self._lbl_max,
-            self._sld_gamma, self._lbl_gamma,
-        ) = _build_histogram_panel(
-            self.canvas,
-            self._on_min_changed,
-            self._on_max_changed,
-            self._on_gamma_changed,
-            self._reset_histogram_controls,
-        )
-
-    def _on_min_changed(self, val: float) -> None:
-        if val >= self._contrast_max:
-            val = max(0.0, self._contrast_max - 0.01)
-            self._sld_min.setValue(val)
-        self._contrast_min = val
-        self._lbl_min.setText(f"{val:.2f}")
-        self._refresh_display()
-
-    def _on_max_changed(self, val: float) -> None:
-        if val <= self._contrast_min:
-            val = min(1.0, self._contrast_min + 0.01)
-            self._sld_max.setValue(val)
-        self._contrast_max = val
-        self._lbl_max.setText(f"{val:.2f}")
-        self._refresh_display()
-
-    def _on_gamma_changed(self, val: float) -> None:
-        self._gamma = val
-        self._lbl_gamma.setText(f"{val:.2f}")
-        self._refresh_display()
-
-    def _process_frame(self, frame: np.ndarray) -> np.ndarray:
-        fmin, fmax = float(frame.min()), float(frame.max())
-        if fmax > fmin:
-            norm = (frame.astype(np.float32) - fmin) / (fmax - fmin)
-        else:
-            norm = np.zeros_like(frame, dtype=np.float32)
-        lo, hi = self._contrast_min, self._contrast_max
-        norm = np.clip(norm, lo, hi)
-        if hi > lo:
-            norm = (norm - lo) / (hi - lo)
-        if self._gamma != 1.0:
-            norm = apply_gamma(norm, self._gamma)
-        return norm
-
-    def _refresh_display(self) -> None:
-        if self._raw_frame is not None:
-            processed = self._process_frame(self._raw_frame)
-            self.canvas.update_display(processed)
-            imgs = self.canvas._ax.get_images()
-            if imgs:
-                imgs[0].set_clim(0.0, 1.0)
-            self.canvas.draw_idle()
-
-    def _reset_histogram_controls(self) -> None:
-        self._contrast_min = 0.0
-        self._contrast_max = 1.0
-        self._gamma = 1.0
-        self._sld_min.setValue(0.0)
-        self._sld_max.setValue(1.0)
-        self._sld_gamma.setValue(1.0)
-        self._refresh_display()
-
-    def _toggle_histogram_panel(self) -> None:
-        visible = not self._histogram_panel.isVisible()
-        self._histogram_panel.setVisible(visible)
-        if visible:
-            self._position_histogram_panel()
-            self._histogram_panel.raise_()
-
-    def _position_histogram_panel(self) -> None:
-        btn = self.btn_histogram
-        panel = self._histogram_panel
-        panel.adjustSize()
-        x = self.canvas.width() - panel.width() - 4
-        y = btn.y() + btn.height() + 4
-        panel.move(x, y)
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        if self._histogram_panel.isVisible():
-            self._position_histogram_panel()
-
     def set_image(self, image: FibsemImage):
-        self._raw_frame = image.filtered_data
+        # Contrast/gamma is the canvas' own (btn_contrast + ContrastGammaControl); it
+        # normalises and clims internally, so hand it the raw frame.
         self.canvas.set_image(image)
-        processed = self._process_frame(image.filtered_data)
-        self.canvas.update_display(processed)
-        imgs = self.canvas._ax.get_images()
-        if imgs:
-            imgs[0].set_clim(0.0, 1.0)
 
     def set_scan_direction(
         self, cx: float, cy: float, h_px: float, scan_direction: str
@@ -325,7 +155,6 @@ class _FibImageCanvas(QWidget):
         self.arrow_overlay.set_arrow(cx, cy, h_px, scan_direction)
 
     def clear(self):
-        self._raw_frame = None
         self.canvas.clear()
 
 
@@ -346,10 +175,6 @@ class _FmImageCanvas(QWidget):
         self._image: Optional[FluorescenceImage] = None
         self._data: Optional[np.ndarray] = None
         self._img_shape: Optional[tuple] = None  # (H, W)
-        self._contrast_min: float = 0.0
-        self._contrast_max: float = 1.0
-        self._gamma: float = 1.0
-        self._raw_frame: Optional[np.ndarray] = None
         self._setup_ui()
         self._connect_signals()
 
@@ -370,23 +195,6 @@ class _FmImageCanvas(QWidget):
         self.canvas.add_overlay(self.rect_overlay)
         self.canvas.set_crosshair_visible(True)
         layout.addWidget(self.canvas, 1)
-
-        # Histogram controls button (4th from right, after reset/scalebar/crosshair)
-        self.btn_histogram = self.canvas._add_overlay_button(
-            "mdi:contrast-box", "Histogram Controls", self._toggle_histogram_panel, checkable=True
-        )
-        (
-            self._histogram_panel,
-            self._sld_min, self._lbl_min,
-            self._sld_max, self._lbl_max,
-            self._sld_gamma, self._lbl_gamma,
-        ) = _build_histogram_panel(
-            self.canvas,
-            self._on_min_changed,
-            self._on_max_changed,
-            self._on_gamma_changed,
-            self._reset_histogram_controls,
-        )
 
         # Timelapse scrubber row (hidden until frames accumulate)
         scrubber_row = QHBoxLayout()
@@ -420,80 +228,6 @@ class _FmImageCanvas(QWidget):
         self.time_slider.valueChanged.connect(self._on_scrub)
         self.btn_live.clicked.connect(self.reset_live_requested.emit)
 
-    def _on_min_changed(self, val: float) -> None:
-        if val >= self._contrast_max:
-            val = max(0.0, self._contrast_max - 0.01)
-            self._sld_min.setValue(val)
-        self._contrast_min = val
-        self._lbl_min.setText(f"{val:.2f}")
-        self._refresh_display()
-
-    def _on_max_changed(self, val: float) -> None:
-        if val <= self._contrast_min:
-            val = min(1.0, self._contrast_min + 0.01)
-            self._sld_max.setValue(val)
-        self._contrast_max = val
-        self._lbl_max.setText(f"{val:.2f}")
-        self._refresh_display()
-
-    def _on_gamma_changed(self, val: float) -> None:
-        self._gamma = val
-        self._lbl_gamma.setText(f"{val:.2f}")
-        self._refresh_display()
-
-    def _process_frame(self, frame: np.ndarray) -> np.ndarray:
-        """Normalize frame, apply contrast limits and gamma; returns float32 [0, 1]."""
-        fmin, fmax = float(frame.min()), float(frame.max())
-        if fmax > fmin:
-            norm = (frame.astype(np.float32) - fmin) / (fmax - fmin)
-        else:
-            norm = np.zeros_like(frame, dtype=np.float32)
-        lo, hi = self._contrast_min, self._contrast_max
-        norm = np.clip(norm, lo, hi)
-        if hi > lo:
-            norm = (norm - lo) / (hi - lo)
-        if self._gamma != 1.0:
-            norm = apply_gamma(norm, self._gamma)
-        return norm
-
-    def _refresh_display(self) -> None:
-        if self._raw_frame is not None:
-            processed = self._process_frame(self._raw_frame)
-            self.canvas.update_display(processed)
-            imgs = self.canvas._ax.get_images()
-            if imgs:
-                imgs[0].set_clim(0.0, 1.0)
-            self.canvas.draw_idle()
-
-    def _reset_histogram_controls(self) -> None:
-        self._contrast_min = 0.0
-        self._contrast_max = 1.0
-        self._gamma = 1.0
-        self._sld_min.setValue(0.0)
-        self._sld_max.setValue(1.0)
-        self._sld_gamma.setValue(1.0)
-        self._refresh_display()
-
-    def _toggle_histogram_panel(self) -> None:
-        visible = not self._histogram_panel.isVisible()
-        self._histogram_panel.setVisible(visible)
-        if visible:
-            self._position_histogram_panel()
-            self._histogram_panel.raise_()
-
-    def _position_histogram_panel(self) -> None:
-        btn = self.btn_histogram
-        panel = self._histogram_panel
-        panel.adjustSize()
-        x = self.canvas.width() - panel.width() - 4
-        y = btn.y() + btn.height() + 4
-        panel.move(x, y)
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        if self._histogram_panel.isVisible():
-            self._position_histogram_panel()
-
     def _on_scrub(self, idx: int) -> None:
         self.scrub_requested.emit(idx)
 
@@ -507,11 +241,7 @@ class _FmImageCanvas(QWidget):
         self, arr: np.ndarray, idx: int, total: int, ts: float = 0.0
     ) -> None:
         """Show a pre-processed timelapse frame without disrupting the live canvas state."""
-        processed = self._process_frame(arr)
-        self.canvas.update_display(processed)
-        imgs = self.canvas._ax.get_images()
-        if imgs:
-            imgs[0].set_clim(0.0, 1.0)
+        self.canvas.update_display(arr)
         self.frame_label.setText(f"{_fmt_timestamp(ts)} ({idx}/{total - 1})")
 
     def set_image(self, image: FluorescenceImage):
@@ -538,45 +268,19 @@ class _FmImageCanvas(QWidget):
             return
         try:
             frame = np.max(self._data[:, z, :, :], axis=0)  # (Y, X)
-            self._raw_frame = frame
-            processed = self._process_frame(frame)
             nz = self._data.shape[1]
+            # FluorescenceImageMetadata uses pixel_size_x, not pixel_size.x, so the
+            # FibsemImage path can't source it — pass it to the canvas explicitly.
+            px = getattr(getattr(self._image, "metadata", None), "pixel_size_x", None)
 
-            def _apply_processed(p: np.ndarray) -> None:
-                self.canvas.update_display(p)
-                _imgs = self.canvas._ax.get_images()
-                if _imgs:
-                    _imgs[0].set_clim(0.0, 1.0)
-
+            # set_array takes the raw frame directly (no uint8/uint16 FibsemImage
+            # wrapper needed) and the canvas applies its own contrast/gamma.
             if reset_overlays:
-                # FibsemImage requires uint8/uint16 — use the raw frame for
-                # overlay/scalebar setup, then swap in the processed display data.
-                wrapped = FibsemImage(
-                    data=frame,
-                    metadata=self._image.metadata
-                    if hasattr(self._image, "metadata")
-                    else None,
-                )
-                self.canvas.set_image(wrapped)
-                _apply_processed(processed)
-                # FluorescenceImageMetadata uses pixel_size_x, not pixel_size.x —
-                # set _pixel_size directly so the scalebar is rendered.
-                px = getattr(
-                    getattr(self._image, "metadata", None), "pixel_size_x", None
-                )
-                if px:
-                    self.canvas._pixel_size = px
-                    self.canvas._refresh_scalebar()
-                self.canvas._ax.set_title(
-                    f"FM  z={z}/{nz - 1}", color="white", fontsize=10
-                )
-                self.canvas.draw_idle()
+                self.canvas.set_array(frame, pixel_size=px)
             else:
-                _apply_processed(processed)
-                self.canvas._ax.set_title(
-                    f"FM  z={z}/{nz - 1}", color="white", fontsize=10
-                )
-                self.canvas.draw_idle()
+                self.canvas.update_display(frame, pixel_size=px)
+            self.canvas.set_title(f"FM  z={z}/{nz - 1}")
+            self.canvas.draw_idle()
         except Exception:
             logging.exception("Error plotting FM z-slice")
 
@@ -584,7 +288,6 @@ class _FmImageCanvas(QWidget):
         self._image = None
         self._data = None
         self._img_shape = None
-        self._raw_frame = None
         self.canvas.clear()
 
 
@@ -1667,7 +1370,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             except Exception:
                 logging.exception("Error moving objective to stored position")
 
-        threading.Thread(target=_move, daemon=True).start()
+        worker = FunctionWorker(_move)
+        worker.start()
 
     def _on_slw_pose_move_to(self, pose_name: str):
         """Move the stage to the given pose of the selected lamella."""
@@ -1698,7 +1402,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             except Exception:
                 logging.exception("Error moving to pose position")
 
-        threading.Thread(target=_move, daemon=True).start()
+        worker = FunctionWorker(_move)
+        worker.start()
 
     def _on_slw_pose_update(self, pose_name: str):
         """Set the current stage position as the given pose of the selected lamella."""
@@ -1755,7 +1460,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             except Exception:
                 logging.exception("Error moving to lamella position")
 
-        threading.Thread(target=_move, daemon=True).start()
+        worker = FunctionWorker(_move)
+        worker.start()
 
     def _acquire_fib_image(self):
         """Acquire a FIB image using current microscope settings and display it."""
@@ -1771,7 +1477,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             finally:
                 self._fib_acquire_done.emit()
 
-        threading.Thread(target=_worker, daemon=True).start()
+        worker = FunctionWorker(_worker)
+        worker.start()
 
     def _acquire_fm_image(self):
         """Acquire a single FM image in a background thread and display it."""
@@ -1799,7 +1506,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             finally:
                 self._fm_acquire_done.emit()
 
-        threading.Thread(target=_worker, daemon=True).start()
+        worker = FunctionWorker(_worker)
+        worker.start()
 
     def _set_fib_buttons_enabled(self, enabled: bool) -> None:
         for btn in [
@@ -1829,9 +1537,11 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 logging.exception("Error running FIB autocontrast")
             finally:
                 self._fib_acquire_done.emit()
-                self.btn_autocontrast_fib.setText("AutoContrast")
 
-        threading.Thread(target=_worker, daemon=True).start()
+        worker = FunctionWorker(_worker)
+        # reset the label on the GUI thread; setText from the worker thread is unsafe
+        worker.finished.connect(lambda: self.btn_autocontrast_fib.setText("AutoContrast"))
+        worker.start()
 
     def _run_fib_autofocus(self) -> None:
         from fibsem.structures import FibsemRectangle
@@ -1853,9 +1563,11 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 logging.exception("Error running FIB autofocus")
             finally:
                 self._fib_acquire_done.emit()
-                self.btn_autofocus_fib.setText("AutoFocus")
 
-        threading.Thread(target=_worker, daemon=True).start()
+        worker = FunctionWorker(_worker)
+        # reset the label on the GUI thread; setText from the worker thread is unsafe
+        worker.finished.connect(lambda: self.btn_autofocus_fib.setText("AutoFocus"))
+        worker.start()
 
     def _on_fib_acquire_done(self):
         self._set_fib_buttons_enabled(True)
@@ -2267,27 +1979,26 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                     )
                     return
 
-        # Build confirmation summary
-        lines = [f"Lamella: {self._selected_lamella.name}"]
-        if selected_channel_settings is not None:
-            lines.append(f"Channel: {selected_channel_settings.pretty}")
-        lines.append(f"Field of View: {milling_task_config.field_of_view * 1e6:.1f} µm")
-        stage_names = [s.pretty_name for s in milling_task_config.stages if s.enabled]
-        if stage_names:
-            lines.append("Stages: " + ", ".join(stage_names))
-
-        dlg = QMessageBox(self)
-        dlg.setWindowTitle("Confirm Coincidence Milling")
-        dlg.setIcon(QMessageBox.Question)
-        dlg.setText("Review milling parameters before starting.")
-        dlg.setInformativeText("\n".join(lines))
-        dlg.setDetailedText(
-            pformat(milling_task_config.to_dict(), width=80, compact=True)
+        # Pre-flight summary. Supervision is read off the strategy config rather than
+        # self._supervised, because the config is what governs the run:
+        # _connect_coincidence_strategies seeds the button from it a few lines below,
+        # so before the first mill a toggled button and the config can disagree and the
+        # config wins. A confirmation dialog has to describe what will happen.
+        dlg = CoincidenceMillingConfirmationDialog(
+            task_config=milling_task_config,
+            lamella_name=self._selected_lamella.name,
+            channel_name=(
+                selected_channel_settings.pretty
+                if selected_channel_settings is not None
+                else None
+            ),
+            parent=self,
         )
-        dlg.setStandardButtons(QMessageBox.Yes | QMessageBox.Cancel)
-        dlg.setDefaultButton(QMessageBox.Yes)
-        if dlg.exec_() != QMessageBox.Yes:
-            return
+        try:
+            if dlg.exec_() != QDialog.Accepted:
+                return
+        finally:
+            dlg.deleteLater()
 
         if selected_channel_settings is not None and self.microscope is not None:
             self.microscope.fm.set_channel(selected_channel_settings)
@@ -2392,11 +2103,16 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
     def _record_coincidence_result(self) -> None:
         """Record the latest coincidence run against the selected lamella.
 
-        Saves the post-milling FIB with the review-panel naming (overwriting, so
-        the panel shows the latest) and appends a 'Coincidence Milling' entry to
-        the lamella's task history so the Review tab picks it up. Every run is
+        Saves the post-milling FIB and appends a 'Coincidence Milling' entry to the
+        lamella's task history, recording the image under `final_fib` so the Review
+        tab finds it the same way it finds any other task's output. Every run is
         recorded (the panel dedups by name); per-run images stay archived in the
         strategy's own coincidence-images folders.
+
+        The file keeps the review-panel naming, and is overwritten each run, purely
+        so experiments opened by a build predating task outputs still resolve it
+        through the filename convention. Once that fallback is no longer needed the
+        name is free to become per-run, and runs will stop overwriting each other.
         """
         lamella = self._selected_lamella
         image = self._latest_fib_image
@@ -2412,17 +2128,18 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 lamella.path,
                 f"ref_{COINCIDENCE_REVIEW_TASK_NAME}_final_res_01_ib.tif",
             )
-            image.save(filename)
+            written = image.save(filename)
 
             now = datetime.datetime.now().timestamp()
             lamella.task_history.append(
                 AutoLamellaTaskState(
                     name=COINCIDENCE_REVIEW_TASK_NAME,
                     task_type="MILL_COINCIDENT",
-                    lamella_id=lamella._id,
+                    lamella_id=lamella.id,
                     end_timestamp=now,
                     status=AutoLamellaTaskStatus.Completed,
                     status_message="Coincidence milling (recorded from viewer)",
+                    outputs={"final_fib": [os.path.relpath(written, lamella.path)]},
                 )
             )
             self.experiment.save()
@@ -2451,7 +2168,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         stage = self._get_selected_stage()
         if stage is None:
             return
-        pixel_size = self.fib_canvas.canvas._pixel_size
+        pixel_size = self.fib_canvas.canvas.pixel_size
         img_w = self.fib_canvas.canvas.img_width
         img_h = self.fib_canvas.canvas.img_height
         if not pixel_size or not img_w or not img_h:
@@ -2479,7 +2196,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         """Translate a FIB rect drag into a pattern position update via _move_patterns."""
         if self.milling_viewer_widget is None:
             return
-        pixel_size = self.fib_canvas.canvas._pixel_size
+        pixel_size = self.fib_canvas.canvas.pixel_size
         img_w = self.fib_canvas.canvas.img_width
         img_h = self.fib_canvas.canvas.img_height
         if not pixel_size or not img_w or not img_h:
@@ -2567,19 +2284,17 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         """Stable-move the stage to the double-clicked position on the FIB canvas."""
         if self._is_milling_active:
             return
-        pixel_size = self.fib_canvas.canvas._pixel_size
+        pixel_size = self.fib_canvas.canvas.pixel_size
         img_w = self.fib_canvas.canvas.img_width
         img_h = self.fib_canvas.canvas.img_height
         if not pixel_size or not img_w or not img_h:
             return
         dx = (x - img_w / 2) * pixel_size
         dy = -(y - img_h / 2) * pixel_size
-        threading.Thread(
-            target=lambda: self.microscope.stable_move(
-                dx=dx, dy=dy, beam_type=BeamType.ION
-            ),
-            daemon=True,
-        ).start()
+        worker = FunctionWorker(
+            self.microscope.stable_move, dx=dx, dy=dy, beam_type=BeamType.ION
+        )
+        worker.start()
 
     def _on_fm_double_clicked(self, x: float, y: float) -> None:
         """Stable-move the stage to the double-clicked position on the FM canvas."""
@@ -2606,26 +2321,14 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             image_shape=image_shape,
             pixelsize=pixelsize,
         )
-        px, py = point[0], -point[1]  # Y-inversion (mirrors FMControlWidget)
-        transform = self.microscope.fm._transform
-        if transform is CameraImageTransform.FLIP_X:
-            px = -px
-        elif transform is CameraImageTransform.FLIP_Y:
-            py = -py
-        elif transform is CameraImageTransform.FLIP_XY:
-            px, py = -px, -py
-        elif transform is CameraImageTransform.ROTATE_90_CW:
-            px, py = py, -px
-        elif transform is CameraImageTransform.ROTATE_90_CCW:
-            px, py = -py, px
-        elif transform is CameraImageTransform.ROTATE_180:
-            px, py = -px, -py
-        threading.Thread(
-            target=lambda: self.microscope.stable_move(
-                dx=px, dy=py, beam_type=BeamType.ELECTRON
-            ),
-            daemon=True,
-        ).start()
+        px, py = point[0], point[1]
+        # fm_stable_move undoes the display transform and projects through the
+        # camera's own axis tilt, so the sample is not foreshortened by the wrong beam.
+        # No hand-applied y-inversion: the projection owns the tilt-dependent sign (it
+        # reverses between t=0 and t=-180 on a compustage) and fm_stable_move undoes
+        # the display transform. Mirrors FMControlWidget.
+        worker = FunctionWorker(self.microscope.fm_stable_move, dx=px, dy=py)
+        worker.start()
 
     # Public API
     # ------------------------------------------------------------------

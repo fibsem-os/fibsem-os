@@ -224,11 +224,18 @@ class MillCoincidentTask(AutoLamellaTask):
 
         # QUERY: can we just use milling ui?
         # wait for user to complete coincidence milling
+        # NOTE: this used to pass coincidence_milling=True, which ask_user has never
+        # accepted — the task raised TypeError here, after moving the stage and objective
+        # and acquiring. Nothing consumed the flag either: its siblings `mill` and
+        # `spot_burn` both have handlers in handle_workflow_update that surface the right
+        # controls, and `coincidence_milling` had none. Dropped rather than plumbed
+        # through, so the task reaches its wait state; whether the workflow should surface
+        # the coincidence viewer here is an open question (FIB-454), and the operator
+        # opens it by hand today.
         ask_user(
             self.parent_ui,
             msg=f"Run coincidence milling for {self.lamella.name}. Press Continue when done.",
             pos="Continue",
-            coincidence_milling=True,
         )
 
         # clear the coincidence milling config from the milling widget
@@ -256,6 +263,10 @@ class MillCoincidentTask(AutoLamellaTask):
                 stop_event=self._stop_event,
                 filename=filename,
             )
+            # acquire_image swallows save failures, so the requested filename is not
+            # proof the file was written; an unwritten image has no filepath and is
+            # skipped. See AcquireFluorescenceImageTask for the same pattern.
+            self._record_output("fluorescence", image)
 
         # acquire reference images
         self._acquire_set_of_reference_images(image_settings)

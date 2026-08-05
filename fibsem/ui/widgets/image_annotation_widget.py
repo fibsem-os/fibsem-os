@@ -96,8 +96,8 @@ def _get_metadata_text(image: FibsemImage) -> str:
     detector_name = detector_name or "N/A"
 
     device = None
-    if image.metadata and getattr(image.metadata, "system", None):
-        device = getattr(getattr(image.metadata.system, "info", None), "model", None)
+    if image.metadata is not None:
+        device = getattr(image.metadata.system_info, "model", None)
     device = device or "N/A"
 
     metadata_text = f"{beam_name} | {beam_voltage_str}, {beam_current_str}, {detector_name} | {acq_date} | {device}"

@@ -206,7 +206,6 @@ def image_settings_from_adorned_image(
         hfw=image.width * image.metadata.binary_result.pixel_size.x,
         autocontrast=True,
         beam_type=beam_type,
-        autogamma=True,
         save=False,
         path="path",
         filename=current_timestamp(),

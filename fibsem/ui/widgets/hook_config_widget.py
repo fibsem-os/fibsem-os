@@ -24,14 +24,18 @@ from PyQt5.QtWidgets import (
 )
 from fibsem.ui.icon import fibsem_icon
 
-from fibsem.applications.autolamella.workflows.tasks.hooks import (
+from fibsem.hooks import (
+    DEFAULT_MESSAGE_TEMPLATE,
+    EVENT_GROUPS,
     FunctionHook,
     Hook,
     HookEvent,
     HookManager,
     LoggingHook,
     NotificationHook,
+    SlackHook,
     WebhookHook,
+    resolve_events,
 )
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
@@ -41,30 +45,29 @@ from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
 # Constants
 # ---------------------------------------------------------------------------
 
-_ALL_EVENTS = [
-    HookEvent.TASK_STARTED,
-    HookEvent.TASK_COMPLETED,
-    HookEvent.TASK_FAILED,
-    HookEvent.WORKFLOW_STARTED,
-    HookEvent.WORKFLOW_COMPLETED,
-]
+# Derived from the enum so a new HookEvent is configurable without editing this list
+# (task_cancelled was missing here for exactly that reason).
+_ALL_EVENTS = list(HookEvent)
 
 _HOOK_DISPLAY_NAMES = {
     "LoggingHook": "Logging",
     "NotificationHook": "Notification",
     "WebhookHook": "Webhook",
+    "SlackHook": "Slack",
 }
 
 _HOOK_CLASSES: dict[str, Type[Hook]] = {
     "LoggingHook": LoggingHook,
     "NotificationHook": NotificationHook,
     "WebhookHook": WebhookHook,
+    "SlackHook": SlackHook,
 }
 
 _TYPE_COLORS = {
     "LoggingHook":      "#50a6ff",
     "NotificationHook": stylesheets.GREEN_COLOR,
     "WebhookHook":      stylesheets.ORANGE_COLOR,
+    "SlackHook":        "#a67cff",
 }
 
 
@@ -110,6 +113,25 @@ class HookEditDialog(QDialog):
 
         layout.addWidget(TitledPanel("General", content=common_w, collapsible=False))
 
+        # --- Event groups ---
+        # Offered above the individual events, and first for a reason: a group keeps
+        # covering events added in later versions, where an enumerated list silently
+        # stops. See FIB-494.
+        groups_w = QWidget()
+        groups_layout = QVBoxLayout(groups_w)
+        groups_layout.setContentsMargins(4, 4, 4, 4)
+        groups_layout.setSpacing(2)
+        self._group_checks: dict[str, QCheckBox] = {}
+        for group_name in EVENT_GROUPS:
+            chk = QCheckBox(group_name.replace("_", " "))
+            chk.setToolTip(
+                "Currently covers: " + ", ".join(resolve_events([group_name]))
+                + "\nIncludes matching events added in future versions."
+            )
+            self._group_checks[group_name] = chk
+            groups_layout.addWidget(chk)
+        layout.addWidget(TitledPanel("Event groups", content=groups_w, collapsible=False))
+
         # --- Events ---
         events_w = QWidget()
         events_layout = QVBoxLayout(events_w)
@@ -120,7 +142,7 @@ class HookEditDialog(QDialog):
             chk = QCheckBox(event.value)
             self._event_checks[event.value] = chk
             events_layout.addWidget(chk)
-        layout.addWidget(TitledPanel("Events", content=events_w, collapsible=False))
+        layout.addWidget(TitledPanel("Individual events", content=events_w, collapsible=False))
 
         # --- Type-specific fields ---
         specific_w = QWidget()
@@ -144,7 +166,7 @@ class HookEditDialog(QDialog):
             self._specific_widgets["notification_type"] = type_combo
 
             tmpl = QLineEdit()
-            tmpl.setPlaceholderText("Task {task_name} {event} for {lamella_name}")
+            tmpl.setPlaceholderText(DEFAULT_MESSAGE_TEMPLATE)
             specific_form.addRow("Message template", tmpl)
             self._specific_widgets["message_template"] = tmpl
 
@@ -166,6 +188,19 @@ class HookEditDialog(QDialog):
             specific_form.addRow("Timeout", timeout_spin)
             self._specific_widgets["timeout"] = timeout_spin
 
+        elif cls_name == "SlackHook":
+            # Only the two fields a user actually sets. Slack incoming webhooks are
+            # always POST, and the timeout default is fine, so neither is worth asking.
+            url_edit = QLineEdit()
+            url_edit.setPlaceholderText("https://hooks.slack.com/services/...")
+            specific_form.addRow("Webhook URL", url_edit)
+            self._specific_widgets["url"] = url_edit
+
+            tmpl = QLineEdit()
+            tmpl.setPlaceholderText(DEFAULT_MESSAGE_TEMPLATE)
+            specific_form.addRow("Message", tmpl)
+            self._specific_widgets["message_template"] = tmpl
+
         if self._specific_widgets:
             layout.addWidget(TitledPanel(
                 _HOOK_DISPLAY_NAMES.get(cls_name, cls_name),
@@ -182,8 +217,14 @@ class HookEditDialog(QDialog):
     def _load(self, hook: Hook):
         self._name_edit.setText(hook.name)
         self._enabled_chk.setChecked(hook.enabled)
+        # Load groups and events separately. Ticking the events a group *covers*
+        # would turn the group into its expansion on save, which is the drift
+        # FIB-494 exists to prevent -- reintroduced by the editor.
+        subscribed = {e.value if hasattr(e, "value") else e for e in hook.events}
+        for group_name, chk in self._group_checks.items():
+            chk.setChecked(group_name in subscribed)
         for event_val, chk in self._event_checks.items():
-            chk.setChecked(event_val in hook.events)
+            chk.setChecked(event_val in subscribed)
 
         cls_name = type(hook).__name__
         if cls_name == "LoggingHook":
@@ -195,12 +236,17 @@ class HookEditDialog(QDialog):
             self._specific_widgets["url"].setText(hook.url)
             self._specific_widgets["method"].setCurrentText(hook.method)
             self._specific_widgets["timeout"].setValue(hook.timeout)
+        elif cls_name == "SlackHook":
+            self._specific_widgets["url"].setText(hook.url)
+            self._specific_widgets["message_template"].setText(hook.message_template)
 
     def get_hook(self) -> Hook:
         """Return a new hook instance with the current dialog values."""
         name = self._name_edit.text().strip()
         enabled = self._enabled_chk.isChecked()
-        events = [v for v, chk in self._event_checks.items() if chk.isChecked()]
+        # Groups first, and stored as group names rather than expanded.
+        events = [g for g, chk in self._group_checks.items() if chk.isChecked()]
+        events += [v for v, chk in self._event_checks.items() if chk.isChecked()]
 
         cls_name = self._hook_cls.__name__
 
@@ -214,7 +260,7 @@ class HookEditDialog(QDialog):
                 name=name, enabled=enabled, events=events,
                 notification_type=self._specific_widgets["notification_type"].currentText(),
                 message_template=self._specific_widgets["message_template"].text()
-                    or "Task {task_name} {event} for {lamella_name}",
+                    or DEFAULT_MESSAGE_TEMPLATE,
             )
         elif cls_name == "WebhookHook":
             return WebhookHook(
@@ -222,6 +268,13 @@ class HookEditDialog(QDialog):
                 url=self._specific_widgets["url"].text().strip(),
                 method=self._specific_widgets["method"].currentText(),
                 timeout=self._specific_widgets["timeout"].value(),
+            )
+        elif cls_name == "SlackHook":
+            return SlackHook(
+                name=name, enabled=enabled, events=events,
+                url=self._specific_widgets["url"].text().strip(),
+                message_template=self._specific_widgets["message_template"].text()
+                    or DEFAULT_MESSAGE_TEMPLATE,
             )
         return LoggingHook(name=name, enabled=enabled, events=events)
 

@@ -452,8 +452,10 @@ def multi_step_alignment_v2(
     """Runs the beam shift alignment multiple times."""
 
     alignment_results = []
+    aborted = False
     for i in range(steps):
         if stop_event is not None and stop_event.is_set():
+            aborted = True
             break
         # only use autocontrast on first step
         use_autocontrast = use_autocontrast if i == 0 else False
@@ -467,6 +469,20 @@ def multi_step_alignment_v2(
             method=method,
         )
         alignment_results.append(result)
+
+    # Cancelled before any step completed: there is nothing meaningful to
+    # persist. Skip the final-image acquisition (which would touch the
+    # microscope after a stop request) and the save (which would otherwise
+    # dump an empty AlignmentResult directory, into the CWD when no path is
+    # set), and return an empty result.
+    if aborted and not alignment_results:
+        return AlignmentResult(
+            name=run_name,
+            reference_image=ref_image,
+            subsystem=subsystem,
+            method=method,
+            results=[],
+        )
 
     if validate:
         acquire_final_image = True

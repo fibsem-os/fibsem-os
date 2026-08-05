@@ -15,7 +15,7 @@ from fibsem.structures import (
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemDetectorSettings,
-    FibsemExperiment,
+    FibsemExperimentRef,
     FibsemImage,
     FibsemImageMetadata,
     FibsemLineSettings,
@@ -194,7 +194,6 @@ def from_odemis_image(image: model.DataArray, path: str = None) -> FibsemImage:
         filename=filename,
         save = True,
         autocontrast=False,
-        autogamma=False,
     )
 
     image_md = FibsemImageMetadata(
@@ -266,7 +265,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         self._last_imaging_settings: ImageSettings = ImageSettings()
 
         self.user = FibsemUser.from_environment()
-        self.experiment = FibsemExperiment()
+        self.experiment = FibsemExperimentRef()
 
         self.fm = None
         try:
@@ -825,10 +824,10 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         return ThermoMicroscope.stable_move(self, dx=dx, dy=dy, beam_type=beam_type, static_wd=static_wd)
 
     def vertical_move(
-        self, dy: float, dx: float = 0.0, static_wd: bool = True
+        self, dy: float, dx: float = 0.0
     ) -> FibsemStagePosition:
         """Move the stage vertically by the specified amount."""
-        return ThermoMicroscope.vertical_move(self, dy=dy, dx=dx, static_wd=static_wd)
+        return ThermoMicroscope.vertical_move(self, dy=dy, dx=dx)
 
     def move_coincident_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
         """Correct coincident point from SEM to FIB stage position."""

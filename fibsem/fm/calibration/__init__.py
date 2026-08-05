@@ -70,6 +70,8 @@ def run_autofocus(
     stop_event: Optional[threading.Event] = None,
     roi: Optional[FibsemRectangle] = None,
     save_plot: bool = False,
+    pass_index: int = 1,
+    total_passes: int = 1,
 ) -> Optional[AutoFocusResult]:
     """Run autofocus by acquiring images at different z positions and finding the best focus.
 
@@ -85,6 +87,10 @@ def run_autofocus(
         roi: Optional region of interest (0-1 relative coordinates) to measure focus on.
             If provided, only the cropped region is used for focus evaluation.
         save_plot: Whether to save a diagnostic plot of the autofocus results (default: False).
+        pass_index: Which pass of a multi-pass sweep this is, 1-based. Reported in the
+            progress payload so a viewer can say "pass 1/2" rather than restarting an
+            apparently identical bar.
+        total_passes: How many passes the caller is running in total.
 
     Returns:
         AutoFocusResult with all acquired data, or None if cancelled
@@ -134,6 +140,19 @@ def run_autofocus(
             logging.info("Autofocus cancelled")
             microscope.objective.move_absolute(initial_z)
             return None
+
+        # Same payload shape the z-stack and channel loops emit, so a viewer that
+        # renders within-tile progress renders this too. Without it the bars froze for
+        # the whole sweep -- which on per-tile autofocus is most of the run.
+        microscope.acquisition_progress_signal.emit({
+            "state": "acquiring",
+            "task": "autofocus",
+            "channel": channel_settings.name if channel_settings is not None else "",
+            "zlevel": i + 1,
+            "total_zlevels": len(z_positions),
+            "pass_index": pass_index,
+            "total_passes": total_passes,
+        })
 
         microscope.objective.move_absolute(z_pos)
         image = microscope.acquire_image()
@@ -216,6 +235,8 @@ def run_coarse_fine_autofocus(
             method=autofocus_settings.method.value,
             roi=roi,
             stop_event=stop_event,
+            pass_index=pass_index + 1,
+            total_passes=len(active_passes),
         )
         if result is None:
             if last_result is None:

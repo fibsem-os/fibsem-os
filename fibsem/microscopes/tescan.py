@@ -47,7 +47,7 @@ from fibsem.structures import ( #noqa
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemDetectorSettings,
-    FibsemExperiment,
+    FibsemExperimentRef,
     FibsemGasInjectionSettings,
     FibsemImage,
     FibsemImageMetadata,
@@ -283,7 +283,7 @@ class TescanMicroscope(FibsemMicroscope):
         # user, experiment metadata
         # TODO: remove once db integrated
         self.user = FibsemUser.from_environment()
-        self.experiment = FibsemExperiment()
+        self.experiment = FibsemExperimentRef()
 
         # initialise last images
         self.last_image_eb: Optional[FibsemImage] = None
@@ -466,9 +466,9 @@ class TescanMicroscope(FibsemMicroscope):
             self.system.info.serial_number = image.Header["MAIN"]["SerialNumber"]
             self.system.info.software_version = image.Header["MAIN"]["SoftwareVersion"]
 
-        fibsem_image.metadata.user = self.user
-        fibsem_image.metadata.experiment = self.experiment 
-        fibsem_image.metadata.system = self.system
+        # After the header read above, so the model/serial/version it just wrote onto
+        # self.system.info are the ones stamped on the image.
+        self._set_additional_metadata(fibsem_image)
 
         return fibsem_image
 
@@ -516,10 +516,8 @@ class TescanMicroscope(FibsemMicroscope):
             raise ValueError(f"Unknown beam type: {beam_type}")
 
         if image is not None:
-            image.metadata.user = self.user
-            image.metadata.experiment = self.experiment 
-            image.metadata.system = self.system
-        
+            self._set_additional_metadata(image)
+
         return image
 
     def acquire_chamber_image(self) -> FibsemImage:
@@ -697,7 +695,6 @@ class TescanMicroscope(FibsemMicroscope):
         self,
         dy: float,
         dx: float = 0.0,
-        static_wd: bool = True,
     ) -> None:
         """
         Move the stage vertically to correct coincidence point

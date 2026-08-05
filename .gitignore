@@ -86,3 +86,14 @@ sashimi/*
 fibsem/applications/sashimi/log/*
 # Refractive-index LUT (downloaded on demand from the data release)
 fibsem/correlation/data/
+# Belt-and-braces: a path built from an unset (None) save path lands here
+None/
+publications/*
+# Real acquisition images used to generate the metadata fixtures. The images stay
+# local: they embed the acquiring site's directory layout, hostname and instrument
+# serial number, and this remote is public. Only the scrubbed metadata is committed
+# -- see tests/fixtures/metadata/README.md.
+tests/data/
+# Those scrubbed fixtures are the committed artifact, so they have to be re-included
+# against the blanket `*.json` above.
+!tests/fixtures/metadata/*.json

@@ -1,0 +1,1580 @@
+"""Acquire a fluorescence overview: settings, run control, and live result.
+
+Standalone, and embeddable as a tab. It owns nothing the acquisition needs -- it is
+handed a microscope and drives `FMTiledAcquisitionRunner` -- so it can be dropped into
+the AutoLamella UI or opened on its own against a simulator.
+
+Layout follows the house convention: canvas on the left, controls on the right,
+actions along the bottom.
+"""
+
+import logging
+import threading
+from typing import List, Optional, Tuple
+
+import numpy as np
+from PyQt5.QtCore import QPoint, Qt, pyqtSignal
+from PyQt5.QtGui import QFontMetrics
+from PyQt5.QtWidgets import (
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
+
+from fibsem import constants
+from fibsem.fm.acquisition import FMTiledAcquisitionRunner, OverviewDestination
+from fibsem.fm.structures import (
+    AutoFocusMode,
+    AutoFocusSettings,
+    ChannelSettings,
+    FluorescenceImage,
+    OverviewParameters,
+)
+from fibsem.microscope import FibsemMicroscope
+from fibsem.structures import FibsemStagePosition
+from fibsem.ui import notification_service, stylesheets
+from fibsem.ui.fm.widgets.fm_multi_channel_widget import FluorescenceMultiChannelWidget
+from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
+    FMOverviewConfirmationDialog,
+)
+from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
+from fibsem.ui.fm.widgets.tile_grid_options_panel import TileGridOptionsPanel
+from fibsem.ui.qt.threading import FunctionWorker
+from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
+from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
+    MinimapShapesOverlay,
+    ShapeSpec,
+)
+from fibsem.ui.widgets.canvas.overlays.point_overlay import PointsOverlay
+from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import TileGridOverlay
+from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.ui.widgets.progress_widget import (
+    FibsemProgressWidget,
+    ProgressUpdate,
+)
+from fibsem.ui.widgets.canvas.fm_canvas import FMRealSpaceCanvasWidget
+from fibsem.ui.widgets.canvas.stage_frame import FMStageProjection, StageFrame
+
+TEXT_MUTED = stylesheets.TEXT_MUTED_COLOR
+PROGRESS_FONT_PX = 10
+# Inset for chrome drawn over the canvas, matching the toolbar buttons' own margin so
+# the cursor readout in the top left lines up with the buttons in the top right.
+CANVAS_CHROME_MARGIN = 4
+
+
+def shrink_progress_text(progress: FibsemProgressWidget) -> FibsemProgressWidget:
+    """Fit a progress bar to a narrow column: smaller text, and no say in the width.
+
+    The font goes on via a stylesheet rather than `setFont`, which does not reach the
+    bar, and rather than touching the widget's private `_bar`. The bar's own sheet sets
+    no font-size, so this applies without disturbing the chunk colouring it relies on to
+    tell finished from failed.
+
+    The size policy is the same trap as :class:`ElidedLabel`, one level down: a bar
+    reports its *message* width as its hint, so a long failure ran off the end of the
+    column and out of the window. Ignored horizontally, it takes the width it is given.
+    """
+    progress.setStyleSheet(f"QProgressBar {{ font-size: {PROGRESS_FONT_PX}px; }}")
+    progress.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+    return progress
+
+
+class ElidedLabel(QLabel):
+    """A label that shortens its text to fit, instead of forcing its parent wider.
+
+    A plain `QLabel` reports the full width of its text as its size hint, and in a
+    layout that hint becomes a minimum: a 132-character acquisition failure dragged this
+    widget's minimum width from 1030 px to 1728 px, so a message pushed the window
+    around. Here the text gives way instead.
+
+    `text()` still returns what was set, not what is drawn -- callers compare against it
+    to decide whether the line is theirs to overwrite, and eliding is presentation.
+    """
+
+    def __init__(self, text: str = "", parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._full_text = ""
+        # Ignored horizontally: the label neither asks for room nor refuses to shrink,
+        # which is the whole point -- its content must not set anyone's minimum.
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setText(text)
+
+    def setText(self, text: Optional[str]) -> None:
+        self._full_text = text or ""
+        # The full message, for anything too long to show. Set before the caller gets a
+        # chance to override it: `_finish` follows its own `setText` with a tooltip of
+        # its own, and that one should win.
+        self.setToolTip(self._full_text)
+        self._elide()
+
+    def text(self) -> str:
+        return self._full_text
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._elide()
+
+    def _elide(self) -> None:
+        metrics = QFontMetrics(self.font())
+        super().setText(
+            metrics.elidedText(self._full_text, Qt.ElideRight, max(0, self.width() - 2))
+        )
+
+
+# Key the in-progress mosaic is drawn under. Distinct from a finished overview's
+# position-derived key, so the preview can be dropped when the real stitch lands.
+PREVIEW_KEY = "fm-preview"
+
+# Radius of the specimen grid, for the boundary circle. Matches the minimap's.
+GRID_RADIUS_M = 1000e-6
+
+# Yellow for "you are here", against the red grid origin and the amber of saved
+# positions -- three markers that must not be mistaken for each other.
+CURRENT_POSITION_COLOUR = "#ffee58"
+# Cyan for positions a user saved, against the yellow of where the stage is.
+SAVED_POSITION_COLOUR = "#26c6da"
+# Muted, because the holder slots are structural context like the limits rather
+# than something anyone marked -- and they would otherwise read as saved positions.
+SLOT_COLOUR = "#90a4ae"
+
+# Wide enough for millimetre-scale coordinates without the row re-laying out as the
+# cursor moves -- a readout that shoves the buttons sideways is worse than none.
+CURSOR_READOUT_WIDTH = 210
+
+
+class FMOverviewWidget(QWidget):
+    """Configure, run and view a fluorescence overview acquisition."""
+
+    overview_acquired = pyqtSignal(FluorescenceImage)
+
+    # Internal hop from the acquisition thread to the GUI thread. The microscope's
+    # progress signal is a psygnal, which calls its callbacks synchronously on
+    # whichever thread emitted -- here, the worker. Touching widgets from there is a
+    # cross-thread GUI access (Qt says so: "Cannot set parent, new parent is in a
+    # different thread"). Re-emitting as a Qt signal gets it queued onto the GUI
+    # thread, because this widget lives there.
+    _progress_received = pyqtSignal(dict)
+    # Same hop for stage moves: `stage_position_changed` is a psygnal, so it fires
+    # on whichever thread moved the stage -- a worker, during an acquisition.
+    _stage_moved = pyqtSignal(object)
+
+    def __init__(
+        self,
+        microscope: FibsemMicroscope,
+        channel_settings: Optional[List[ChannelSettings]] = None,
+        parent: Optional[QWidget] = None,
+    ):
+        super().__init__(parent)
+        if microscope.fm is None:
+            raise ValueError("This microscope has no fluorescence detector.")
+        self.microscope = microscope
+        self.fm = microscope.fm
+
+        self._stop_event = threading.Event()
+        self._worker: Optional[FunctionWorker] = None
+        self._runner: Optional[FMTiledAcquisitionRunner] = None
+        self._mosaic: Optional[FluorescenceImage] = None
+        self._displayed_image: Optional[FluorescenceImage] = None
+        # Stage position the canvas frame is built around. Everything shown -- images,
+        # the planned grid, position markers -- is placed relative to it, so it has to
+        # be fixed once and kept: re-deriving it from the newest image would shift the
+        # whole scene each time one arrived. Taken from the first image displayed.
+        self._origin: Optional[FibsemStagePosition] = None
+        self._positions: List[FibsemStagePosition] = []
+        self._grid_footprint: Optional[tuple] = None
+        self._enabled_channels: Optional[List[ChannelSettings]] = None
+        # Where the stage is, as far as anyone has told us. Cached rather than polled
+        # per use so that everything drawn from it -- the marker, the planned grid --
+        # agrees by construction instead of because two callers happened to poll
+        # together. See `_current_stage_position` for why polling is the odd one out.
+        self._stage_position: Optional[FibsemStagePosition] = None
+        # Where the next overview will be centred, once a user has dragged the grid
+        # somewhere. None means "wherever the stage is", which is what the runner does
+        # by default -- so an untouched grid describes exactly what would be acquired.
+        self._target: Optional[FibsemStagePosition] = None
+        # Where acquired overviews are written. None means nowhere: the widget opens
+        # standalone against a simulator as often as it runs inside an experiment, and
+        # inventing a directory for those runs would scatter files through whatever
+        # working directory it happened to be launched from. A host that has somewhere
+        # to put them says so -- see `set_save_directory`.
+        self._save_directory: Optional[str] = None
+        self._destination: Optional[OverviewDestination] = None
+        self._saved_path: Optional[str] = None
+        # Whether a run is under way, and whether a host is allowing one to be started.
+        # Two independent facts kept apart on purpose: a workflow ending must not
+        # re-enable a tab whose acquisition is still going, nor the reverse. See
+        # `_apply_enabled_state`, which is the only thing that reads them.
+        self._running = False
+        self._interactive = True
+
+        self._init_ui(channel_settings or self._default_channels())
+        self._sync_tile_fov()
+        self._on_settings_changed()
+
+        self._progress_received.connect(self._apply_progress)
+        self.fm.acquisition_progress_signal.connect(self._on_progress)
+        self._stage_moved.connect(self._on_stage_moved)
+        # A plain bound method, not `self._stage_moved.emit`, matching how the progress
+        # signal is subscribed just above. psygnal holds bound methods weakly and drops
+        # them when the owner is collected, which a Qt signal's `emit` does not get: PyQt
+        # builds a new wrapper on every access, so psygnal cannot weakref it, cannot
+        # match it at disconnect time -- and says nothing when the disconnect therefore
+        # removes nothing. Emitting into a widget Qt had already torn down was a segfault.
+        self.microscope.stage_position_changed.connect(self._on_stage_signal)
+        self._refresh_current_position()
+
+    def _default_channels(self) -> List[ChannelSettings]:
+        """The saved FM configuration if there is one, otherwise a single channel."""
+        try:
+            from fibsem.fm.config import load_fm_configuration
+
+            config = load_fm_configuration()
+            if config is not None and config.channel_settings:
+                return list(config.channel_settings)
+        except Exception as e:
+            logging.debug(f"Could not load the saved FM configuration: {e}")
+        return [ChannelSettings(name="Channel-01")]
+
+    # ── layout ───────────────────────────────────────────────────────────
+
+    def _init_ui(self, channels: List[ChannelSettings]) -> None:
+        self.canvas = FMRealSpaceCanvasWidget()
+
+        # The planned grid, drawn on the canvas and clickable. A second view of the
+        # mask `TileMaskWidget` owns, not a second copy: clicks are routed through the
+        # settings widget so there is one place the selection lives.
+        self.tile_grid_overlay = TileGridOverlay()
+        self.canvas.canvas.add_overlay(self.tile_grid_overlay)
+
+        # Grid display options live on the canvas toolbar, beside the layers control:
+        # they are about reading the image, not about what gets acquired, so they do
+        # not belong in the settings column with the parameters of the run.
+        self.btn_tile_grid = self.canvas.canvas.add_toolbar_button(
+            "mdi:grid", "Tile grid", self._toggle_tile_grid_panel, checkable=True
+        )
+        self.canvas.canvas._reposition_overlay_buttons()
+        self.tile_grid_panel = TileGridOptionsPanel(self)
+        self.tile_grid_panel.hide()
+        self.tile_grid_panel.visibility_changed.connect(
+            self.tile_grid_overlay.set_grid_visible
+        )
+        self.tile_grid_panel.color_changed.connect(self.tile_grid_overlay.set_color)
+        self.tile_grid_panel.fill_alpha_changed.connect(
+            self.tile_grid_overlay.set_fill_alpha
+        )
+        self.tile_grid_panel.centre_requested.connect(self.clear_target)
+
+        # Stage positions -- the current pose, lamellae, anything a host hands over --
+        # projected onto whatever image is displayed. Non-interactive: this shows where
+        # things are, it does not move them.
+        # Where the sample and the stage can physically go -- the context an overview
+        # is read against. Added before the position markers so it sits beneath them.
+        self.stage_overlay = MinimapShapesOverlay(zorder=4.0, crosshair_half_px=24)
+        self.canvas.canvas.add_overlay(self.stage_overlay)
+
+        # Where the stage is now. Distinct from the red origin marker the canvas
+        # draws: the origin explains why everything sits where it does, this is what
+        # you steer by. They coincide until the stage moves, then diverge.
+        self.current_position_overlay = PointsOverlay(
+            color=CURRENT_POSITION_COLOUR, marker="+", size=13
+        )
+        self.canvas.canvas.add_overlay(self.current_position_overlay)
+
+        self.position_overlay = PointsOverlay(
+            color=SAVED_POSITION_COLOUR, marker="o", size=7
+        )
+        self.canvas.canvas.add_overlay(self.position_overlay)
+
+        # The list alone shows only name/excitation/emission, with no way to set the
+        # exposure, power or gain a tile is actually acquired at. This composes the
+        # list with the detail panel for the selected channel, and is a drop-in for it.
+        self.channel_widget = FluorescenceMultiChannelWidget(self.fm, channels)
+        # Every overview setting lives in one widget, z-stack included, so their order
+        # is decided in one place rather than split across two.
+        self.settings_widget = FMOverviewSettingsWidget(
+            channel_settings=channels
+        )
+
+        controls = QWidget()
+        controls_layout = QVBoxLayout(controls)
+        controls_layout.setContentsMargins(8, 8, 8, 8)
+        controls_layout.setSpacing(10)
+        controls_layout.addWidget(self._section("Channels", self.channel_widget))
+        controls_layout.addWidget(self.settings_widget)
+        controls_layout.addStretch()
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(controls)
+        # A channel row needs 446px before its name field hits its own minimum and the
+        # excitation combo falls off the right edge; group-box margins and the vertical
+        # scrollbar eat ~50px on the way in, so the column itself needs ~500. 510 leaves
+        # a little room for wider fonts. The horizontal bar is off below, so anything
+        # that overflows here is unreachable rather than merely cramped.
+        scroll.setMinimumWidth(510)
+        scroll.setMaximumWidth(560)
+        # Vertical only: a horizontal bar here means a control is refusing to shrink,
+        # and scrolling sideways to reach a spinbox is worse than a cramped one.
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        # Where a double-click would take the stage, read off continuously rather than
+        # on demand: the canvas is a map, and a map you have to click to get a
+        # coordinate out of cannot be used to decide whether to click.
+        #
+        # Drawn over the canvas rather than beside it, in the one free corner -- the
+        # toolbar owns the top right, the scalebar the bottom right, and the stage info
+        # bar the bottom left. A Qt label rather than the canvas's own text chrome
+        # because this updates on every mouse motion, and `set_info_text` costs ~4.9 ms
+        # against a label's 0.08 ms; at motion-event rates that is the difference
+        # between a readout and a stutter.
+        self.cursor_readout = QLabel(self.canvas.canvas)
+        self.cursor_readout.setAttribute(Qt.WA_TransparentForMouseEvents)
+        # Monospaced so the digits sit still while the cursor moves. A proportional
+        # font makes the whole readout shuffle on every pixel of travel.
+        self.cursor_readout.setStyleSheet(
+            "color: #e8e8e8; font-size: 10px; font-family: monospace;"
+            "background: rgba(26, 26, 26, 160); border-radius: 3px; padding: 2px 5px;"
+        )
+        self.cursor_readout.move(CANVAS_CHROME_MARGIN, CANVAS_CHROME_MARGIN)
+        self.cursor_readout.hide()  # nothing to say until the pointer is over the canvas
+
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.addWidget(self.canvas)
+
+        # Two bars: across the grid, and within the tile being acquired. Both are
+        # `FibsemProgressWidget`, which distinguishes finished from failed -- a failed
+        # run used to paint the same full green bar as a successful one.
+        # Hidden until a run starts: they are empty most of the time, and stacked in a
+        # column there is nothing beside them to shift when they come and go.
+        self.progress_tiles = shrink_progress_text(FibsemProgressWidget())
+        self.progress_tile_detail = shrink_progress_text(FibsemProgressWidget())
+
+        self.status = ElidedLabel("")
+        self.status.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
+
+        self.button_acquire = QPushButton("Acquire Overview")
+        self.button_acquire.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+        self.button_acquire.setMinimumHeight(30)
+        self.button_acquire.clicked.connect(self.acquire)
+
+        self.button_cancel = QPushButton("Cancel")
+        self.button_cancel.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.button_cancel.setMinimumHeight(30)
+        self.button_cancel.clicked.connect(self.cancel)
+        self.button_cancel.setEnabled(False)
+
+        buttons = QWidget()
+        buttons_layout = QHBoxLayout(buttons)
+        buttons_layout.setContentsMargins(0, 0, 0, 0)
+        buttons_layout.setSpacing(6)
+        buttons_layout.addWidget(self.button_cancel)
+        buttons_layout.addWidget(self.button_acquire, stretch=1)
+
+        # The actions live at the foot of the settings column, not in a row spanning the
+        # whole widget. Spanning cost 1030 px of minimum width -- all of it, the canvas
+        # asked for 10 -- because a horizontal row cannot give anything up. Stacked in
+        # the column the floor is the column's own, and the canvas can be as narrow as
+        # the window allows. Same shape as `FibsemMinimapWidget`, which stacks its run
+        # controls under its settings for the same reason.
+        self.status_row = QWidget()
+        actions_layout = QVBoxLayout(self.status_row)
+        actions_layout.setContentsMargins(8, 4, 8, 8)
+        actions_layout.setSpacing(5)
+        actions_layout.addWidget(self.status)
+        actions_layout.addWidget(self.progress_tiles)
+        actions_layout.addWidget(self.progress_tile_detail)
+        actions_layout.addWidget(buttons)
+
+        side = QWidget()
+        side_layout = QVBoxLayout(side)
+        side_layout.setContentsMargins(0, 0, 0, 0)
+        side_layout.setSpacing(0)
+        side_layout.addWidget(scroll, stretch=1)
+        side_layout.addWidget(self.status_row)
+
+        splitter.addWidget(side)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 0)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(splitter, stretch=1)
+
+        self._set_progress_visible(False)
+
+        self.channel_widget.settings_changed.connect(self._on_channels_changed)
+        self.channel_widget.enabled_changed.connect(self._on_enabled_changed)
+        self.settings_widget.changed.connect(self._on_settings_changed)
+        self.tile_grid_overlay.tile_toggled.connect(self._on_tile_toggled)
+        self.tile_grid_overlay.grid_resize_requested.connect(self._on_grid_resize)
+        self.tile_grid_overlay.grid_move_requested.connect(self._on_grid_move)
+        self.canvas.canvas.canvas_double_clicked.connect(self._on_canvas_double_clicked)
+        self.canvas.canvas.cursor_moved.connect(self._on_cursor_moved)
+
+    def _section(self, title: str, widget: QWidget) -> QWidget:
+        return TitledPanel(title, content=widget)
+
+    # ── state ────────────────────────────────────────────────────────────
+
+    @property
+    def is_acquiring(self) -> bool:
+        return self._worker is not None and self._worker.is_alive()
+
+    @property
+    def channels(self) -> List[ChannelSettings]:
+        """The channels that will be acquired: those ticked, or all of them.
+
+        `ChannelListWidget` reports ticks through `enabled_changed` rather than
+        exposing them, so they are tracked here. Before any tick has been touched the
+        list is every channel, which is what the widget shows.
+        """
+        if self._enabled_channels is None:
+            return list(self.channel_widget.channel_settings)
+        return list(self._enabled_channels)
+
+    def _sync_tile_fov(self) -> None:
+        """Tell the settings widget one tile's field of view, for the area readout."""
+        try:
+            pixel_size_x, pixel_size_y = self.fm.camera.pixel_size
+            width, height = self.fm.camera.resolution
+            self.settings_widget.set_tile_fov(width * pixel_size_x, height * pixel_size_y)
+        except Exception as e:
+            logging.debug(f"Could not read the camera field of view: {e}")
+
+    def _on_channels_changed(self, channels: List[ChannelSettings]) -> None:
+        self.settings_widget.set_channel_settings(channels)
+        self._on_settings_changed()
+
+    def _on_enabled_changed(self, channels: List[ChannelSettings]) -> None:
+        self._enabled_channels = list(channels)
+        self._on_settings_changed()
+
+    def _update_grid_summary(self) -> None:
+        """Describe the grid on the canvas-side panel.
+
+        Built from the settings widget's own formatted values rather than recomputed,
+        so the two cannot end up quoting different numbers for the same grid.
+        """
+        parameters = self.settings_widget.parameters
+        total = parameters.rows * parameters.cols
+        parts = [
+            f"{parameters.rows} × {parameters.cols}",
+            f"{parameters.overlap:.0%} overlap",
+        ]
+        parts.append(f"{parameters.n_enabled_tiles}/{total} tiles")
+
+        # The field of view goes on its own line rather than into the join: the panel
+        # is narrow, and wrapping a "287 × 287 µm" mid-value reads as two numbers.
+        summary = "  ·  ".join(parts)
+        fov = self.settings_widget.label_total_fov.text()
+        if fov and fov != "—":
+            summary = f"{summary}\n{fov}"
+        # Said in words as well as drawn, because a grid sitting away from the stage
+        # marker is only obvious while both are on screen -- zoom into the grid and
+        # the one thing that would tell you it is offset scrolls out of view.
+        offset = self._target_offset()
+        if offset is not None:
+            summary = (
+                f"{summary}\nOffset {offset[0] * constants.SI_TO_MICRO:+.0f}, "
+                f"{offset[1] * constants.SI_TO_MICRO:+.0f} µm from the stage"
+            )
+        self.tile_grid_panel.set_summary(summary)
+
+    def _target_offset(self) -> Optional[Tuple[float, float]]:
+        """How far the target sits from the stage, in metres, or None if not set.
+
+        Measured in the displayed plane, not by subtracting stage axes. Everything on
+        this canvas is drawn in that plane, so a readout in stage coordinates describes
+        the same gap in a frame the user cannot see: on a compustage at t = -180 it
+        reports the y offset with the sign reversed, and on a pre-tilted mount it hides
+        the z entirely -- a 100 µm step down the screen carried 70 µm of z and the
+        readout said nothing.
+        """
+        if self._target is None:
+            return None
+        frame = self._frame()
+        position = self._current_stage_position()
+        if frame is None or position is None:
+            return None
+        try:
+            here = frame.offset(position)
+            there = frame.offset(self._target)
+        except Exception as e:
+            logging.debug(f"Could not measure the target offset: {e}")
+            return None
+        return (there[0] - here[0], there[1] - here[1])
+
+    def _refresh_tile_grid(self) -> None:
+        """Redraw the planned grid on the canvas.
+
+        Needs a tile field of view and the camera geometry. It does *not* need an image:
+        the grid is anchored to the canvas origin -- the stage position the tileset is
+        planned around -- so it can be drawn before anything is acquired, which is when
+        a planned grid is worth the most.
+        """
+        fov = self.settings_widget._tile_fov
+        if fov is None:
+            self.tile_grid_overlay.clear()
+            return
+
+        try:
+            width, height = self.fm.camera.resolution
+            pixel_size = self.fm.camera.pixel_size[0]
+        except Exception as e:
+            logging.debug(f"Could not read the camera geometry for the tile grid: {e}")
+            self.tile_grid_overlay.clear()
+            return
+
+        parameters = self.settings_widget.parameters
+        tiles = compute_tile_grid_from_fov(
+            nrows=parameters.rows,
+            ncols=parameters.cols,
+            fov_x=fov[0],
+            fov_y=fov[1],
+            image_width=width,
+            image_height=height,
+            overlap=parameters.overlap,
+            mask=parameters.tile_mask,
+        )
+        # Give the canvas a scale before the first image, so the grid has a real frame
+        # to be drawn in rather than arbitrary units. No-op once an image has landed --
+        # by then the image has set it, and changing it would move what is already drawn.
+        self.canvas.canvas.set_reference_pixel_size(pixel_size)
+        # Centred on the position the run will be centred on -- a dragged target, or
+        # the stage itself -- not on whatever happens to be displayed. It used to be
+        # pinned to the canvas origin, which is where the stage was the *first* time
+        # anything was drawn: correct until the stage moved, and then quietly not.
+        offset = self._grid_offset()
+        self.tile_grid_overlay.set_anchor(
+            self.canvas.canvas.metres_to_canvas(*offset)
+        )
+
+        # No `display_pixel_size`: the overlay reads it from the canvas at draw time.
+        # Pinning it here would freeze the scale at whatever was displayed when the
+        # settings last changed, and the image underneath changes without them -- the
+        # live preview swaps in a decimated mosaic mid-run.
+        self.tile_grid_overlay.set_grid(
+            tiles, (height, width), pixel_size, overlap=parameters.overlap
+        )
+        # Same camera geometry, so it can be drawn at the same time rather than
+        # waiting for an image the tile grid does not wait for either.
+        self._refresh_stage_metadata()
+
+        span_x = parameters.cols * fov[0] * (1 - parameters.overlap) + fov[0]
+        span_y = parameters.rows * fov[1] * (1 - parameters.overlap) + fov[1]
+
+        # Measured against the area as it stands, before the line below moves it.
+        left_area = self._grid_has_left_the_working_area(offset, span_x, span_y)
+
+        # Keep the declared working area on the grid, always and silently. It is what
+        # the zoom limiter measures against, so an area left behind stretches the
+        # content across the gap and caps how far the view can zoom in. `refit=False`
+        # is what makes doing this continuously safe: re-declaring used to re-frame,
+        # so dragging the grid snapped the view onto it on every motion event.
+        self.canvas.set_world_extent(span_x, span_y, offset, refit=False)
+
+        # Re-frame only for a reason the user would expect to move the view: the grid's
+        # footprint changed, or it has ended up outside what was framed (a stage move to
+        # an offset FM mount travels 48 mm). Never mid-gesture -- a drag emits on every
+        # motion event, and re-framing each time zooms the canvas out from under the
+        # cursor. Toggling a tile comes through here too, and re-framing on one threw
+        # away the user's zoom, which is what made clicking a tile look like zooming.
+        # The footprint is recorded either way, so a suppressed refit does not leave it
+        # stale and jump the view on the next unrelated settings change.
+        footprint = (parameters.rows, parameters.cols, parameters.overlap)
+        changed = footprint != self._grid_footprint
+        self._grid_footprint = footprint
+        if (changed or left_area) and not self.tile_grid_overlay.is_dragging:
+            self.tile_grid_overlay.fit_view()
+
+    def _grid_has_left_the_working_area(
+        self, offset: Tuple[float, float], span_x: float, span_y: float
+    ) -> bool:
+        """Whether the declared working area has stopped describing where the grid is.
+
+        The working area is centred on the grid rather than on the canvas origin. The
+        two coincide until the stage travels far from wherever the frame was anchored
+        -- moving to an offset FM mount steps 48 mm -- and an area left behind at the
+        origin then frames empty space *and* stretches the content extent across the
+        gap, which is what caps how far the view can zoom in: the limiter is relative
+        to the content, so it read the span as 48 mm when what mattered was 0.1 mm.
+
+        Re-declaring it re-frames the view, though, so it cannot simply follow every
+        move -- a double-click to somewhere 100 µm away would throw the zoom away, the
+        same failure a tile toggle used to cause. It follows only once the grid has
+        left the area outright, at which point what is framed and what is planned no
+        longer overlap at all.
+        """
+        declared = self.canvas.canvas.world_extent
+        if declared is None:
+            return True  # nothing declared yet, so nothing describes the grid
+        width, height, cx, cy = declared
+        return abs(offset[0] - cx) > width / 2 or abs(offset[1] - cy) > height / 2
+
+    def _toggle_tile_grid_panel(self) -> None:
+        if not self.btn_tile_grid.isChecked():
+            self.tile_grid_panel.hide()
+            return
+
+        self.tile_grid_panel.adjustSize()
+        # Anchored in global coordinates: the panel is a top-level tool window, so it
+        # cannot be placed relative to the canvas in widget coordinates.
+        canvas = self.canvas.canvas
+        anchor = canvas.mapToGlobal(QPoint(canvas.width() - 8, 44))
+        self.tile_grid_panel.move(anchor.x() - self.tile_grid_panel.width(), anchor.y())
+        self.tile_grid_panel.show()
+        self.tile_grid_panel.raise_()
+
+    def set_image(self, image: FluorescenceImage) -> None:
+        """Show an image at the stage position it was acquired at.
+
+        Overlays are positioned against the canvas frame, not against whatever is
+        currently displayed, so the image has to be recorded when it is set rather than
+        fetched from the canvas later -- the canvas keeps channel stacks, not the
+        `FluorescenceImage` and its metadata, and the metadata is what carries the pose.
+        """
+        self._displayed_image = image
+        if self._origin is None:
+            self._origin = self._position_of(image)
+        self.canvas.set_composite_key(self._key_for(image))
+        self.canvas.set_placement(self._offset_of(image))
+        self.canvas.set_fm_image(image)
+        self._refresh_positions()
+        self._refresh_stage_metadata()
+        self._refresh_tile_grid()
+
+    @staticmethod
+    def _position_of(image: FluorescenceImage) -> Optional[FibsemStagePosition]:
+        return getattr(image.metadata, "stage_position", None)
+
+    @staticmethod
+    def _key_for(image: FluorescenceImage) -> str:
+        """Identify an overview by when it was acquired.
+
+        Not by position: a small overview and a wider one taken over the same area at
+        different times are both worth keeping, and keying on position would silently
+        drop the first. `stitch_tileset` carries the first tile's acquisition date onto
+        the mosaic, so this is unique per run.
+
+        A property of the image rather than a counter, so showing the same image twice
+        replaces it instead of drawing a second copy on top of itself.
+        """
+        stamp = getattr(image.metadata, "acquisition_date", None)
+        return f"overview@{stamp}" if stamp else "overview"
+
+    def _offset_of(self, image: FluorescenceImage) -> Tuple[float, float]:
+        """Where *image*'s centre sits relative to the canvas origin, in metres.
+
+        Projected through the image's *own* geometry rather than the live one, which is
+        the whole reason this is not :meth:`_offset_from_origin`: an image may have been
+        acquired under a configuration the instrument is no longer in, and it has to be
+        placed as it was taken.
+
+        Falls back to the origin when it cannot be projected -- acquired before the
+        geometry was recorded, or with no pose at all -- which puts it in the middle of
+        the view rather than refusing to show it.
+        """
+        position = self._position_of(image)
+        projection = FMStageProjection.from_image(image)
+        if self._origin is None or position is None or projection is None:
+            return (0.0, 0.0)
+        try:
+            # The image's own *geometry*, but the shared *pose* -- the same base
+            # `_frame` places everything else against. Two different bases put the
+            # image and the grid describing it in different places: a stale t = 0
+            # origin against a stage at t = -180 landed them 300 um apart, mirrored
+            # in y, which is a mosaic that disagrees with the grid that planned it.
+            return projection.to_plane(position, self._posed(self._origin))
+        except Exception as e:
+            logging.debug(f"Could not place the image in stage space: {e}")
+            return (0.0, 0.0)
+
+    def _offset_from_origin(
+        self, position: FibsemStagePosition
+    ) -> Tuple[float, float]:
+        """Where a stage position sits relative to the canvas origin, in metres.
+
+        The live-position counterpart of :meth:`_offset_of`, which answers the same
+        question for an image out of its own metadata -- and has to, since an image may
+        have been acquired under a configuration the instrument is no longer in.
+        """
+        frame = self._frame()
+        if frame is None:
+            return (0.0, 0.0)
+        try:
+            return frame.offset(position)
+        except Exception as e:
+            logging.debug(f"Could not place {position} in the canvas frame: {e}")
+            return (0.0, 0.0)
+
+    def set_positions(self, positions: List[FibsemStagePosition]) -> None:
+        """Stage positions to mark on the overview, e.g. saved lamella positions.
+
+        Names are carried onto the markers, so a caller does not have to keep a
+        parallel list of labels in the order it happened to pass them.
+        """
+        self._positions = list(positions)
+        self._refresh_positions()
+
+    def set_save_directory(self, path: Optional[str]) -> None:
+        """Write acquired overviews under *path*, or None to keep them in memory only.
+
+        Each run claims its own subdirectory under this one, named for when it started,
+        so consecutive runs accumulate instead of overwriting each other -- pointing
+        straight at an experiment directory and letting the runner write `tile-00-00`
+        into it would mean every overview replaced the last.
+
+        Told rather than discovered, because this widget knows nothing about
+        experiments: it is handed a microscope, and its tests construct it that way.
+        """
+        self._save_directory = path
+
+    @property
+    def saved_path(self) -> Optional[str]:
+        """Where the last acquired overview was written, if it was."""
+        return self._saved_path
+
+    def set_interactive(self, enabled: bool) -> None:
+        """Allow or forbid starting work, without touching a run already in progress.
+
+        For a host that owns the instrument for a while -- an AutoLamella workflow --
+        and needs the tab to stop competing for it. Cancel stays live regardless, so a
+        lock arriving mid-run cannot strand an acquisition with no way to stop it.
+
+        Deliberately not `setEnabled(False)` on the whole widget: greying out the canvas
+        would also stop you *reading* the overview you just acquired, and looking at it
+        costs the workflow nothing.
+        """
+        self._interactive = enabled
+        self._apply_enabled_state()
+
+    def set_origin(self, position: Optional[FibsemStagePosition]) -> None:
+        """Anchor the canvas frame at *position*, or None to go back to automatic.
+
+        The origin decides only where canvas zero sits -- everything is drawn relative
+        to it, so any stage position serves. Left alone it is fixed to wherever the
+        stage was the first time anything was drawn, which is right for a widget opened
+        where the work is and wrong for one that should always describe the same place:
+        an FM canvas anchored at the offset mount while a FIB/SEM canvas is anchored at
+        the column, 48 mm away, each correctly framed (FIB-418).
+
+        Raises:
+            ValueError: if anything has been placed. Images are positioned relative to
+                the origin as it stood when they were added, so re-anchoring afterwards
+                would leave every one of them describing a position it was never
+                acquired at. Clear them first if that is really what you want --
+                silently reprojecting them would be a different feature.
+        """
+        placed = self.canvas.placed_overviews()
+        if placed:
+            raise ValueError(
+                f"Cannot re-anchor the canvas: {len(placed)} image(s) are already "
+                f"placed against the current origin. Call clear_overviews() first."
+            )
+        self._origin = position
+        self._refresh_current_position()
+        self._refresh_positions()
+        self._refresh_tile_grid()
+
+    @property
+    def origin(self) -> Optional[FibsemStagePosition]:
+        """The stage position canvas zero corresponds to, once one has been fixed."""
+        return self._origin
+
+    def _frame(self) -> Optional[StageFrame]:
+        """The mapping between stage space and the canvas, or None if it cannot be had.
+
+        The one place the two meet. Everything drawn from a stage position goes through
+        it -- marked positions, the stage and grid limits, the current pose, the planned
+        grid -- and so does every click, so they share a frame by construction rather
+        than by six callers agreeing to do the same arithmetic.
+
+        Anchored on the canvas origin rather than on whichever image happens to be
+        displayed, so a marker names the same piece of sample no matter what is on
+        screen. The origin's rotation and tilt are what put the drawing in the current
+        stage orientation -- t = -180 for FM.
+        """
+        projection = FMStageProjection.from_microscope(self.microscope)
+        if projection is None:
+            return None
+
+        origin = self._origin or self._current_stage_position()
+        if origin is None:
+            return None
+        self._origin = origin  # fix it now, so later drawing shares this frame
+
+        return StageFrame(self.canvas.canvas, self._posed(origin), projection)
+
+    def _posed(self, origin: FibsemStagePosition) -> FibsemStagePosition:
+        """The origin, re-stated in the pose the stage is actually in.
+
+        Canvas zero is a *place* -- x, y, z -- and stays fixed, which is what lets
+        images accumulate against a common frame. The rotation and tilt are not part of
+        that anchor: they are how stage space maps onto the canvas at all, and they
+        change when the stage re-poses.
+
+        Carrying the pose the origin happened to be captured in was a real bug, and a
+        dangerous one. The tab is built when a microscope connects, so the origin
+        recorded whatever pose the stage was in then -- usually t = 0. Moving to the FM
+        position afterwards left every click resolved through the old pose: the y
+        component came out with the wrong sign, so the stage went to the wrong place,
+        and the target inherited t = 0, so it also flipped 180 degrees getting there.
+        """
+        current = self._current_stage_position()
+        if current is None:
+            return origin
+        return FibsemStagePosition(
+            x=origin.x, y=origin.y, z=origin.z,
+            r=current.r, t=current.t,
+            coordinate_system=origin.coordinate_system,
+        )
+
+    def _refresh_stage_metadata(self) -> None:
+        """Draw where the sample and the stage can physically go.
+
+        The context an overview is read against: which grid you are on, how far from its
+        centre, and how much travel is left. Same shapes the minimap draws, but placed
+        straight into the canvas frame -- on a real-space canvas there is no stitched
+        image to reproject onto, so the indirection disappears.
+        """
+        frame = self._frame()
+        if frame is None:
+            self.stage_overlay.set_shapes([])
+            return
+
+        specs = []
+        try:
+            centre = frame.to_canvas(
+                FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=0.0)
+            )
+        except Exception as e:
+            logging.debug(f"Cannot place the grid centre: {e}")
+            self.stage_overlay.set_shapes([])
+            return
+
+        limits = getattr(self.microscope._stage, "limits", None)
+        if limits and self.microscope.stage_is_compustage:
+            # The travel envelope, as a box around the grid centre. Sized from the
+            # limits rather than projected corner-by-corner: the projection is flips
+            # and a tilt, which keep an axis-aligned box axis-aligned.
+            specs.append(ShapeSpec(
+                kind="rect", cx=centre[0], cy=centre[1], color="yellow",
+                width=frame.length(limits["x"].max - limits["x"].min),
+                height=frame.length(limits["y"].max - limits["y"].min),
+                label="Stage limits",
+            ))
+            specs.append(ShapeSpec(
+                kind="circle", cx=centre[0], cy=centre[1], color="red",
+                radius=frame.length(GRID_RADIUS_M), label="Grid boundary",
+            ))
+
+        holder = getattr(self.microscope._stage, "holder", None)
+        for slot in getattr(holder, "slots", {}).values():
+            position = getattr(slot, "position", None)
+            if position is None:
+                continue
+            try:
+                point = frame.to_canvas(position)
+            except Exception as e:
+                logging.debug(f"Cannot place slot {position.name!r}: {e}")
+                continue
+            specs.append(ShapeSpec(
+                kind="crosshair", cx=point[0], cy=point[1], color=SLOT_COLOUR,
+                label=position.name or "",
+            ))
+
+        self.stage_overlay.set_shapes(specs)
+
+    def _refresh_current_position(self) -> None:
+        """Mark where the stage is now."""
+        frame = self._frame()
+        position = self._current_stage_position()
+        if frame is None or position is None:
+            self.current_position_overlay.set_points([])
+            return
+        try:
+            point = frame.to_canvas(position)
+        except Exception as e:
+            logging.debug(f"Could not mark the current stage position: {e}")
+            self.current_position_overlay.set_points([])
+            return
+        # Unlabelled on purpose: the crosshair sits on top of the data, and a caption
+        # riding along with it obscures the sample it is pointing at. What it is gets
+        # said in the info bar below instead, which costs the image nothing.
+        self.current_position_overlay.set_points([point], labels=[""])
+        self._refresh_stage_info()
+
+    def _refresh_stage_info(self) -> None:
+        """Say where the stage is, in the canvas's bottom-left info bar.
+
+        The marker shows *where*; this says the numbers, which is what you need to
+        write one down or check you are where you meant to be. On the canvas rather
+        than in the settings column because it describes what is being looked at.
+
+        The objective position rides along because on a fluorescence system it is part
+        of the pose -- focus depends on it, and it is not visible anywhere else on this
+        tab. The milling angle deliberately does not: it is a beam-side quantity,
+        meaningless while looking through the camera, and it belongs on the FIB/SEM
+        overview if anywhere.
+
+        The objective may be unavailable -- a microscope with none, or one that will not
+        answer -- and is dropped on its own rather than losing the stage position with it.
+        """
+        position = self._current_stage_position()
+        if position is None:
+            self.canvas.canvas.set_info_text(None)
+            return
+
+        parts = [position.pretty]
+
+        try:
+            parts.append(
+                f"objective {self.fm.objective.position * constants.SI_TO_MILLI:.3f} mm"
+                f" ({self.fm.objective.state.lower()})"
+            )
+        except Exception as e:
+            logging.debug(f"No objective position for the info bar: {e}")
+
+        self.canvas.canvas.set_info_text("   |   ".join(parts))
+
+    def _current_stage_position(self) -> Optional[FibsemStagePosition]:
+        """Where the stage is, polling the microscope only when nothing has said yet.
+
+        `stage_position_changed` fires from *inside* `get_stage_position`, so it means
+        "a poll found it had moved" rather than "the stage moved". Polling here on
+        every use would therefore add a round trip per keystroke on a spin box without
+        making the answer any fresher than the last poll anyone did -- so this reads
+        what the signal delivered, and everything drawn from the stage position stays
+        in agreement instead of drifting between callers who polled at different
+        moments.
+        """
+        if self._stage_position is None:
+            try:
+                self._stage_position = self.microscope.get_stage_position()
+            except Exception as e:
+                logging.debug(f"Could not read the stage position: {e}")
+        return self._stage_position
+
+    def _grid_centre(self) -> Optional[FibsemStagePosition]:
+        """The stage position the next overview will be centred on.
+
+        A target if one has been set by dragging the grid, otherwise wherever the
+        stage is -- which is what the runner falls back to, so the drawn grid and the
+        acquisition agree without either having to be told about the other.
+        """
+        return self._target or self._current_stage_position()
+
+    def _grid_offset(self) -> Tuple[float, float]:
+        """Where the planned grid's centre sits relative to the canvas origin, in metres.
+
+        Falls back to the origin when the centre cannot be projected, which draws the
+        grid in the middle of the frame rather than not at all.
+        """
+        frame = self._frame()
+        centre = self._grid_centre()
+        if frame is not None and centre is not None:
+            try:
+                return frame.offset(centre)
+            except Exception as e:
+                logging.debug(f"Could not place the planned grid: {e}")
+        return (0.0, 0.0)
+
+    def _grid_anchor(self) -> Tuple[float, float]:
+        """Where on the canvas the planned grid is centred.
+
+        The same place :meth:`_grid_offset` names, in canvas pixels rather than metres
+        -- derived from it rather than projected again, so the drawn grid and the
+        declared working area cannot end up centred on different points.
+        """
+        return self.canvas.canvas.metres_to_canvas(*self._grid_offset())
+
+    def _refresh_positions(self) -> None:
+        """Mark the stage positions in the canvas frame."""
+        frame = self._frame()
+        if not self._positions or frame is None:
+            self.position_overlay.set_points([])
+            return
+
+        points, labels = [], []
+        for position in self._positions:
+            try:
+                points.append(frame.to_canvas(position))
+            except Exception as e:
+                logging.debug(f"Cannot mark {position.name!r}: {e}")
+                continue
+            labels.append(position.name or "")
+
+        self.position_overlay.set_points(points, labels=labels)
+
+    # ── canvas interaction ───────────────────────────────────────────────
+
+    def _on_stage_signal(self, position: FibsemStagePosition) -> None:
+        """Called by psygnal, on whichever thread polled. Touches no widgets.
+
+        The counterpart of :meth:`_on_progress`, and a real method rather than the Qt
+        signal's `emit` for a reason beyond symmetry -- see the note where it is
+        connected.
+        """
+        self._stage_moved.emit(position)
+
+    def _on_stage_moved(self, position: FibsemStagePosition) -> None:
+        """A poll found the stage somewhere new.
+
+        The position comes from the signal rather than a fresh read: it is the value
+        the poll that raised the signal saw, so taking it costs nothing and cannot
+        disagree with what prompted the update.
+        """
+        self._stage_position = position
+        self._refresh_current_position()
+        # The grid follows the stage only when it is not pinned to a target and not
+        # mid-run. During a run the stage visits every tile in turn, and a grid that
+        # followed would crawl across the canvas describing nothing.
+        if self._target is None and not self.is_acquiring:
+            self._refresh_tile_grid()
+
+    def _on_canvas_double_clicked(self, x: float, y: float, modifiers=None) -> None:
+        """Move the stage to the double-clicked point.
+
+        Double-click rather than a single click, matching the minimap and the
+        coincidence viewer: a single click is how the canvas is explored, and a stage
+        that moved on every stray click would be unusable.
+        """
+        if self.is_acquiring:
+            notification_service.show_toast(
+                "Cannot move the stage during an acquisition.", "warning"
+            )
+            return
+        if not self.fm.has_valid_orientation():
+            notification_service.show_toast(
+                f"Stage must be in a valid FM orientation to move via the overview "
+                f"(currently {self.microscope.get_stage_orientation()}).",
+                "warning",
+            )
+            return
+
+        frame = self._frame()
+        if frame is None:
+            return
+        try:
+            target = frame.to_stage(x, y)
+        except Exception as e:
+            logging.debug(f"Could not resolve the clicked position: {e}")
+            return
+
+        limits = getattr(self.microscope._stage, "limits", None)
+        if limits and not target.is_within_limits(limits, axes=["x", "y"]):
+            notification_service.show_toast(
+                "That position is outside the stage limits.", "warning"
+            )
+            return
+
+        self.status.setText(f"Moving to {self._describe(target)}…")
+        worker = FunctionWorker(self._move_worker, target)
+        worker.start()
+
+    def _move_worker(self, target: FibsemStagePosition) -> None:
+        """Runs off the GUI thread. Only signals may cross back."""
+        try:
+            self.microscope.safe_absolute_stage_movement(target)
+        except Exception as e:
+            logging.error(f"Could not move the stage: {e}", exc_info=True)
+        # Publishes the new position through `stage_position_changed`, which is what
+        # re-marks it -- rather than assuming the stage arrived exactly where it was
+        # asked to, which on a real instrument it does not.
+        try:
+            self.microscope.get_stage_position()
+        except Exception as e:
+            logging.debug(f"Could not confirm the stage position after moving: {e}")
+
+    def _on_grid_move(self, x: float, y: float) -> None:
+        """The grid was dragged: plan the next overview around the point it landed on.
+
+        Deliberately does *not* move the stage. Setting up a run and driving the
+        instrument are separate acts, and a drag is exploratory -- you push the grid
+        around to see what it would cover. The stage goes there when the acquisition
+        does.
+        """
+        frame = self._frame()
+        if frame is None:
+            return
+        try:
+            self._target = frame.to_stage(x, y)
+        except Exception as e:
+            logging.debug(f"Could not resolve the dragged grid position: {e}")
+            return
+        self.tile_grid_panel.set_centre_enabled(True)
+        self._refresh_tile_grid()
+        self._update_grid_summary()
+
+    def clear_target(self) -> None:
+        """Plan the next overview around the stage position again."""
+        if self._target is None:
+            return
+        self._target = None
+        self.tile_grid_panel.set_centre_enabled(False)
+        self._refresh_tile_grid()
+        self._update_grid_summary()
+
+    def _on_cursor_moved(self, x: Optional[float], y: Optional[float]) -> None:
+        """Report the stage position under the cursor, or hide once it leaves."""
+        if x is None or y is None:
+            self._set_cursor_readout("")
+            return
+        frame = self._frame()
+        if frame is None:
+            self._set_cursor_readout("")
+            return
+        try:
+            self._set_cursor_readout(self._describe(frame.to_stage(x, y)))
+        except Exception as e:
+            logging.debug(f"Could not resolve the cursor position: {e}")
+            self._set_cursor_readout("")
+
+    def _set_cursor_readout(self, text: str) -> None:
+        """Show the readout over the canvas, sized to its text, or hide it when empty.
+
+        Hidden rather than blanked: it sits on top of the image, and an empty plaque
+        floating over the data is worse than nothing there. `adjustSize` because the
+        label is positioned rather than laid out, so nothing else will size it.
+        """
+        self.cursor_readout.setText(text)
+        if not text:
+            self.cursor_readout.hide()
+            return
+        self.cursor_readout.adjustSize()
+        self.cursor_readout.show()
+
+    @staticmethod
+    def _describe(position: FibsemStagePosition) -> str:
+        """A stage position as microns, for a readout.
+
+        z included because it is not decoration: on an offset mount a sideways move in
+        the image carries a real z component, and a readout that hid it would make the
+        focal-plane change invisible.
+        """
+        return (
+            f"x {position.x * constants.SI_TO_MICRO:.1f}  "
+            f"y {position.y * constants.SI_TO_MICRO:.1f}  "
+            f"z {position.z * constants.SI_TO_MICRO:.1f} µm"
+        )
+
+    def _on_grid_resize(self, rows: int, cols: int) -> None:
+        """An edge of the grid was dragged.
+
+        Writes to the settings widget, which owns rows and columns, for the same reason
+        a tile click does: the canvas is a view of that state, not a second copy.
+        """
+        # One call rather than two spin boxes: a drag emits on every motion event, and
+        # setting them separately would refresh twice per step and pass through a grid
+        # size that was never requested.
+        self.settings_widget.set_grid_size(rows, cols)
+
+    def _on_tile_toggled(self, row: int, col: int, enabled: bool) -> None:
+        """A tile was clicked on the canvas.
+
+        The mask belongs to the settings widget, so this writes there and lets the
+        resulting `changed` redraw the overlay -- rather than updating the overlay
+        directly, which would leave the two views to drift apart on any path that
+        touched only one of them.
+        """
+        mask = self.settings_widget.tile_mask.mask
+        parameters = self.settings_widget.parameters
+        if mask is None:
+            mask = [[True] * parameters.cols for _ in range(parameters.rows)]
+        if not (0 <= row < len(mask) and 0 <= col < len(mask[row])):
+            return
+
+        mask[row][col] = enabled
+        self.settings_widget.tile_mask.mask = mask
+
+    def _on_settings_changed(self) -> None:
+        if self.is_acquiring:
+            return
+        self._refresh_tile_grid()
+        self._update_grid_summary()
+        self._apply_enabled_state()
+        # Only own the status line while it has something of its own to say. Re-enabling
+        # the controls at the end of a run makes children emit `changed`, which landed
+        # here and wiped the result message the moment it was set.
+        if self.settings_widget.parameters.n_enabled_tiles == 0:
+            self.status.setText("No tiles selected.")
+        elif self.status.text() == "No tiles selected.":
+            self.status.setText("")
+
+    def _apply_enabled_state(self) -> None:
+        """One place decides what is clickable, from three independent facts.
+
+        A run in progress, a host that has locked the tab, and a grid with nothing
+        selected each disable different things, and they overlap: a workflow finishing
+        while an overview runs must not re-enable Acquire, and a run finishing inside a
+        locked tab must not either. Two places each setting the buttons from their own
+        half of the truth is how a control gets stuck; deriving all of it from all three
+        every time is the version that cannot.
+        """
+        idle = self._interactive and not self._running
+        has_tiles = self.settings_widget.parameters.n_enabled_tiles > 0
+        self.button_acquire.setEnabled(idle and has_tiles)
+        # Cancel is deliberately not gated on `_interactive`: a host locking the tab
+        # mid-run must not take away the only way to stop the stage. Once a cancel has
+        # been asked for, the button goes and stays away -- the stop event is the record
+        # of that, so asking it beats a second flag that could disagree.
+        self.button_cancel.setEnabled(self._running and not self._stop_event.is_set())
+        self.settings_widget.setEnabled(idle)
+        self.channel_widget.setEnabled(idle)
+
+    # ── acquisition ──────────────────────────────────────────────────────
+
+    def acquire(self) -> None:
+        """Confirm, then run the overview on a worker thread."""
+        if self.is_acquiring:
+            logging.warning("An overview acquisition is already running.")
+            return
+        if self.fm.is_acquiring:
+            logging.warning("Stop live acquisition before acquiring an overview.")
+            return
+
+        parameters = self.settings_widget.parameters
+        channels = self.channels
+        if not channels:
+            self.status.setText("No channels enabled.")
+            return
+
+        zparams = self.settings_widget.z_parameters
+        # Method, channel and sweep passes all come from the settings panel now,
+        # rather than being defaulted with only the channel filled in. Resolved before
+        # the dialog, because the dialog reports what will run.
+        autofocus_settings = self.settings_widget.autofocus_settings
+
+        dialog = FMOverviewConfirmationDialog(
+            parameters=parameters,
+            channel_settings=channels,
+            zparams=zparams,
+            tile_fov=self.settings_widget._tile_fov,
+            autofocus_settings=autofocus_settings,
+            parent=self,
+        )
+        if dialog.exec_() != QDialog.Accepted:
+            logging.info("Overview acquisition cancelled before starting")
+            return
+
+        # Claimed on the GUI thread, before the worker starts: it makes a directory, so
+        # an unwritable path is reported now rather than after the stage has moved.
+        self._destination = self._claim_destination()
+
+        self._stop_event.clear()
+        self._set_running(True)
+        self._runner = FMTiledAcquisitionRunner(
+            microscope=self.microscope,
+            channel_settings=channels,
+            overview_parameters=parameters,
+            zparams=zparams,
+            autofocus_settings=autofocus_settings,
+            stop_event=self._stop_event,
+            # None means "where the stage is", which the runner resolves itself. The
+            # stage still returns to where it started afterwards -- the target is the
+            # grid's centre, not a new home.
+            centre_position=self._target,
+            # None when no save directory has been set -- the standalone default. The
+            # runner writes each tile as it lands, so a cancelled run keeps what it got.
+            save_directory=self._destination.tiles_directory if self._destination else None,
+        )
+        self._worker = FunctionWorker(self._acquire_worker)
+        self._worker.start()
+
+    def _claim_destination(self) -> Optional["OverviewDestination"]:
+        """Where this run's files go, or None if nowhere.
+
+        Failing to claim one is not fatal: an overview you can see is worth more than
+        no overview at all, so the run goes ahead unsaved and says so.
+        """
+        if self._save_directory is None:
+            return None
+        try:
+            return OverviewDestination.create(self._save_directory)
+        except OSError as e:
+            logging.error(f"Cannot save into {self._save_directory}: {e}")
+            notification_service.show_toast(
+                f"Could not prepare a save directory; this overview will not be "
+                f"saved.\n{e}",
+                "warning",
+            )
+            return None
+
+    def _acquire_worker(self) -> None:
+        """Runs off the GUI thread. Only signals may cross back."""
+        from fibsem.cancellation import OperationCancelledError
+
+        try:
+            runner = self._runner
+            mosaic = runner.run_and_stitch()
+            self._mosaic = mosaic
+            # Saved here rather than after the signal: a consumer of `overview_acquired`
+            # may want the file, and the mosaic carries the run's name once written.
+            if self._destination is not None:
+                self._saved_path = self._destination.save_mosaic(mosaic)
+            self.overview_acquired.emit(mosaic)
+            self.fm.acquisition_progress_signal.emit(
+                {"state": "overview-finished", "task": "tileset"}
+            )
+        except OperationCancelledError:
+            logging.info("Overview acquisition cancelled")
+            self.fm.acquisition_progress_signal.emit(
+                {"state": "overview-cancelled", "task": "tileset"}
+            )
+        except Exception as e:
+            logging.error(f"Overview acquisition failed: {e}", exc_info=True)
+            self.fm.acquisition_progress_signal.emit(
+                {"state": "overview-failed", "task": "tileset", "error": str(e)}
+            )
+
+    def cancel(self) -> None:
+        if not self.is_acquiring:
+            return
+        logging.info("Cancelling overview acquisition")
+        self._stop_event.set()
+        self._apply_enabled_state()
+        self.status.setText("Cancelling…")
+
+    def _set_progress_visible(self, visible: bool) -> None:
+        """Show the progress bars only while there is progress to show.
+
+        They spend most of their life empty. Stacked in the settings column nothing sits
+        beside them, so they can come and go without moving anything -- which is what
+        made this possible: they used to be inline with the buttons, where hiding one
+        slid the actions sideways, and a fixed-size holder existed purely to stop that.
+        """
+        self.progress_tiles.setVisible(visible)
+        self.progress_tile_detail.setVisible(visible)
+
+    def _set_running(self, running: bool) -> None:
+        self._running = running
+        self._apply_enabled_state()
+        if running:
+            # Cleared at the start, so a run that fails to save cannot inherit the
+            # previous run's path and report itself saved.
+            self._saved_path = None
+            # Left empty rather than shown as indeterminate, which would paint a full
+            # bar before a single tile had been acquired.
+            self.progress_tiles.reset()
+            self.progress_tile_detail.reset()
+            self.status.setText("Starting…")
+
+        # After the resets above, not before: `FibsemProgressWidget.reset()` hides
+        # itself, so showing the bars first and resetting them second leaves them
+        # hidden for the whole run.
+        self._set_progress_visible(running)
+
+    # ── progress ─────────────────────────────────────────────────────────
+
+    def _on_progress(self, payload: dict) -> None:
+        """Called by psygnal, on whichever thread emitted. Touches no widgets."""
+        self._progress_received.emit(payload)
+
+    def _apply_progress(self, payload: dict) -> None:
+        """Runs on the GUI thread, queued via `_progress_received`.
+
+        One signal carries both scales -- the tileset runner's and, from inside each
+        tile, `acquire_z_stack`/`acquire_channels` -- so `task` decides which bar a
+        payload belongs to. Anything else is ignored rather than shown twice.
+        """
+        state = payload.get("state")
+
+        if state in ("overview-finished", "overview-cancelled", "overview-failed"):
+            self._finish(state, payload.get("error"))
+            return
+
+        task = payload.get("task")
+        if task == "tileset":
+            self._apply_tile_progress(payload, state)
+        elif task in ("z-stack", "channels", "autofocus"):
+            self.progress_tile_detail.update_progress(self._tile_detail_update(payload))
+
+    def _apply_tile_progress(self, payload: dict, state: Optional[str]) -> None:
+        if state == "moving":
+            # Deliberately not `indeterminate`: that paints a *full* bar with a
+            # spinner, so every stage move looked like the run had just completed.
+            # The bar keeps the last tile count -- which is still true between tiles --
+            # and the transient state goes to the status label instead.
+            self.status.setText("Moving stage…")
+            return
+
+        self.status.setText("")
+
+        if state == "tile":
+            # Deliberately does *not* clear the within-tile bar. It used to, which made
+            # it vanish and reappear at every tile boundary -- a flicker for the whole
+            # run. The next tile's first payload overwrites it a moment later anyway.
+            self._show_preview(payload)
+
+        current, total = payload.get("current", 0), payload.get("total", 1)
+        remaining = payload.get("estimated_remaining_time")
+        # The widget renders the count itself, so the message says what is being
+        # counted and nothing more -- otherwise it reads "Tile 4/9 — 4/9".
+        message = "Tiles"
+        if remaining:
+            self.progress_tiles.update_progress(ProgressUpdate.combined(
+                current=current, total=total,
+                remaining_seconds=remaining,
+                total_seconds=payload.get("estimated_total_time", 0.0),
+                message=message,
+            ))
+        else:
+            self.progress_tiles.update_progress(
+                ProgressUpdate.numeric(current=current, total=total, message=message)
+            )
+
+    def _tile_detail_update(self, payload: dict) -> ProgressUpdate:
+        """Progress within the tile currently being acquired.
+
+        A z-stack counts planes and a plain multi-channel acquisition counts channels,
+        so the same bar reads sensibly either way rather than sitting empty whenever
+        z-stacking happens to be off.
+        """
+        channel = payload.get("channel", "")
+        zlevel, total_z = payload.get("zlevel"), payload.get("total_zlevels")
+        if zlevel and total_z:
+            if payload.get("task") == "autofocus":
+                # Say which pass, so a coarse sweep followed by a fine one does not
+                # look like the same bar inexplicably starting over.
+                total_passes = payload.get("total_passes", 1)
+                which = (f" {payload.get('pass_index', 1)}/{total_passes}"
+                         if total_passes > 1 else "")
+                return ProgressUpdate.numeric(
+                    current=zlevel, total=total_z, message=f"{channel} focus{which}"
+                )
+            return ProgressUpdate.numeric(
+                current=zlevel, total=total_z, message=f"{channel} z-stack"
+            )
+        index = payload.get("channel_index", 1)
+        total = payload.get("total_channels", 1)
+        return ProgressUpdate.numeric(
+            current=index, total=total, message=f"{channel} channels"
+        )
+
+    def _show_preview(self, payload: dict) -> None:
+        """Paint the mosaic-so-far onto the canvas.
+
+        The runner publishes the whole preview canvas each tile, so this stays
+        stateless -- it redisplays what it is given rather than accumulating tiles of
+        its own, which is also what makes it correct if a frame is dropped.
+        """
+        image = payload.get("image")
+        if image is None:
+            return
+        try:
+            planes = np.asarray(image)
+            if planes.ndim == 2:
+                planes = planes[np.newaxis]
+
+            # Where, and at what scale, *before* any pixels: `set_channel` composites
+            # and places immediately, so anything established after it applies a tick
+            # late -- the first frame of a run would land under the previous run's key
+            # at the previous run's pixel size, which drew it at the wrong size on top
+            # of a finished overview.
+            #
+            # Its own key, so the in-progress preview neither replaces a finished
+            # overview nor survives as one: it is swapped for the real stitch at the end.
+            self.canvas.set_composite_key(PREVIEW_KEY)
+            # The preview mosaic spans the whole planned grid, so it goes wherever the
+            # grid's centre is. Read off the runner rather than recomputed: the runner
+            # resolved "wherever the stage is" to a concrete position when it started,
+            # and the stage has been moving from tile to tile ever since.
+            centre = getattr(self._runner, "centre_position", None)
+            self.canvas.set_placement(
+                self._offset_from_origin(centre) if centre is not None else (0.0, 0.0)
+            )
+            # The preview is decimated to keep it a sane size, so its pixels are
+            # `preview_stride` times coarser than a tile's. Placement is by pixel size,
+            # so saying so is all that is needed: coarser pixels over the same count
+            # cover the same ground, and the mosaic lands at the size it represents.
+            stride = payload.get("preview_stride", 1) or 1
+            self.canvas.set_pixel_size(self.fm.camera.pixel_size[0] * stride)
+
+            # This run's channels, and only these. `set_channel` upserts, so a channel
+            # switched off since the last run would otherwise keep its layer -- still
+            # holding the previous overview's pixels -- and be blended into this one.
+            channels = self.channels
+            self.canvas.retain_channels([channel.name for channel in channels])
+            for channel, plane in zip(channels, planes):
+                self.canvas.set_channel(channel.name, plane, channel.color)
+        except Exception as e:
+            logging.debug(f"Could not display the overview preview: {e}")
+
+    def _describe_save(self) -> Tuple[str, str]:
+        """Status suffix and tooltip for whether the overview reached disk.
+
+        Silent when nothing was meant to be saved, so the standalone app does not report
+        a failure every run. When a destination *was* claimed and the mosaic did not
+        land, that is worth saying: otherwise a failed save reads exactly like a
+        successful one, and the difference only turns up when someone goes looking for
+        the file.
+        """
+        if self._saved_path:
+            return "  ·  saved", self._saved_path
+        if self._destination is not None:
+            return "  ·  not saved", "Could not be written to disk — see the log."
+        return "", ""
+
+    def _finish(self, state: str, error: Optional[str]) -> None:
+        # Hides both bars. The per-tile one stays hidden -- there is no tile in progress
+        # to describe -- but the overall bar is shown again below whenever it has a
+        # terminal state worth reading: `FibsemProgressWidget` paints finished and
+        # failed differently, and that colour is the at-a-glance answer.
+        self._set_running(False)
+        self._worker = None
+        self.progress_tile_detail.reset()
+
+        if state == "overview-finished" and self._mosaic is not None:
+            # Swap the decimated preview for the real thing. Dropped rather than left
+            # underneath: it covers the same ground at a coarser scale, so keeping it
+            # would only be a blurred copy hidden behind the stitch.
+            self.set_image(self._mosaic)
+            self.canvas.canvas.remove_image(PREVIEW_KEY)
+            shape = self._mosaic.data.shape
+            suffix, tooltip = self._describe_save()
+            self.status.setText(f"Overview acquired — {shape[-1]} × {shape[-2]} px{suffix}")
+            self.status.setToolTip(tooltip)
+            self.progress_tiles.update_progress(ProgressUpdate.done())
+            self.progress_tiles.show()
+        elif state == "overview-cancelled":
+            self.status.setText("Cancelled. Tiles acquired so far are still shown.")
+            # Nothing to show: a cancel has no terminal state of its own, and the status
+            # line already says what happened.
+            self.progress_tiles.reset()
+        else:
+            self.status.setText(f"Failed: {error}" if error else "Failed.")
+            # Failed, not done: the widget paints these differently, and a failure
+            # showing a full green bar reads as success in everything but the text.
+            # The bar carries the *fact*, not the reason -- a stage-limits rejection
+            # names every offending tile, and a bar is a worse place to read that than
+            # the status line above it, which elides and keeps the whole thing in its
+            # tooltip.
+            self.progress_tiles.update_progress(ProgressUpdate.failed("Failed"))
+            self.progress_tiles.show()
+
+    # ── lifecycle ────────────────────────────────────────────────────────
+
+    def closeEvent(self, event) -> None:
+        if self.is_acquiring:
+            self._stop_event.set()
+        # Every psygnal this widget subscribed to, without exception. They outlive the
+        # widget -- they belong to the microscope -- and they hold bound methods of Qt
+        # objects that `close` has already torn down on the C++ side, so the next emit
+        # writes into freed memory. Closing the tab and then moving the stage from
+        # anywhere else in the application was a hard segfault, not an exception.
+        for signal, slot in (
+            (self.fm.acquisition_progress_signal, self._on_progress),
+            (self.microscope.stage_position_changed, self._on_stage_signal),
+        ):
+            try:
+                signal.disconnect(slot)
+            except (TypeError, RuntimeError, ValueError, KeyError):
+                pass
+        super().closeEvent(event)

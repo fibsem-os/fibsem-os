@@ -98,7 +98,8 @@ def test_metadata_consistency(demo_microscope):
     image1 = microscope.acquire_image(image_settings=settings.image)
     assert image1.metadata.user == microscope.user
     assert image1.metadata.experiment == microscope.experiment
-    assert image1.metadata.system == microscope.system
+    assert image1.metadata.system_info == microscope.system.info
+    assert image1.metadata.hardware_geometry == microscope.hardware_geometry()
     assert image1.metadata.image_settings is not None
     assert image1.metadata.microscope_state is not None
     
@@ -106,7 +107,8 @@ def test_metadata_consistency(demo_microscope):
     image2 = microscope.acquire_image(beam_type=BeamType.ELECTRON)
     assert image2.metadata.user == microscope.user
     assert image2.metadata.experiment == microscope.experiment
-    assert image2.metadata.system == microscope.system
+    assert image2.metadata.system_info == microscope.system.info
+    assert image2.metadata.hardware_geometry == microscope.hardware_geometry()
     assert image2.metadata.image_settings is not None
     assert image2.metadata.microscope_state is not None
     

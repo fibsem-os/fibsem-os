@@ -308,3 +308,297 @@ def test_task_protocol_estimated_time_per_task():
         assert isinstance(task.estimated_time, float)
         assert task.estimated_time >= 0.0
 
+
+
+def test_task_protocol_carries_correlation_config():
+    """FIB-298: the protocol holds an experiment-global CorrelationConfig as a
+    peer field, round-trips it, and a legacy protocol without the key defaults."""
+    from fibsem.correlation.config import CorrelationConfig
+
+    protocol = AutoLamellaTaskProtocol()
+    assert isinstance(protocol.correlation, CorrelationConfig)
+
+    # a customised config survives a to_dict / from_dict round-trip
+    protocol.correlation.fit.fm_poi_channel = "RFP"
+    protocol.correlation.ri.na = 0.9
+    protocol.correlation.load_spot_burns = False
+    restored = AutoLamellaTaskProtocol.from_dict(protocol.to_dict())
+    assert restored.correlation.fit.fm_poi_channel == "RFP"
+    assert restored.correlation.ri.na == 0.9
+    assert restored.correlation.load_spot_burns is False
+
+    # a protocol saved before this field existed loads with a default config
+    legacy = protocol.to_dict()
+    del legacy["correlation"]
+    assert AutoLamellaTaskProtocol.from_dict(legacy).correlation == CorrelationConfig()
+
+
+# ── AutoLamellaTaskState.outputs ──────────────────────────────────────────────
+
+
+def test_task_state_outputs_defaults_to_empty():
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+
+    assert AutoLamellaTaskState().outputs == {}
+
+
+def test_task_state_outputs_survive_an_experiment_round_trip(tmp_path):
+    """The experiment is written with yaml.safe_dump, which refuses anything but
+    plain types. Recording paths as strings is what keeps the save working."""
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+
+    exp = _make_experiment(tmp_path)
+    exp.add_new_lamella(MicroscopeState(), EventedDict())
+    exp.positions[0].task_history.append(
+        AutoLamellaTaskState(
+            name="MillRough",
+            outputs={
+                "final_sem": ["ref_MillRough_final_res_01_eb.tif"],
+                "final_fib": ["ref_MillRough_final_res_01_ib.tif"],
+            },
+        )
+    )
+
+    exp.save()
+    loaded = Experiment.load(os.path.join(exp.path, "experiment.yaml"))
+
+    assert loaded.positions[0].task_history[0].outputs == {
+        "final_sem": ["ref_MillRough_final_res_01_eb.tif"],
+        "final_fib": ["ref_MillRough_final_res_01_ib.tif"],
+    }
+
+
+def test_task_state_from_dict_without_outputs_defaults(tmp_path):
+    """Experiments written before outputs existed must still load."""
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+
+    legacy = {"name": "MillRough", "status": "Completed"}
+
+    assert AutoLamellaTaskState.from_dict(legacy).outputs == {}
+
+
+def test_task_state_from_dict_ignores_unknown_keys():
+    """An experiment written by a newer build must load in an older one.
+
+    from_dict expands the dict into the constructor, so an unrecognised key would
+    otherwise raise TypeError and make the whole experiment unloadable.
+    """
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+
+    future = {"name": "MillRough", "status": "Completed", "metrics": {"focus": 1.0}}
+
+    state = AutoLamellaTaskState.from_dict(future)
+
+    assert state.name == "MillRough"
+    assert not hasattr(state, "metrics")
+
+
+# ── Lamella paths follow a moved experiment (FIB-367) ────────────────────────
+
+def _experiment_on_disk(root: Path, with_milling: bool = False) -> Experiment:
+    """A saved experiment with one lamella, optionally carrying a milling task."""
+    exp = Experiment(path=root, name="exp")
+    exp.task_protocol = AutoLamellaTaskProtocol()
+    Path(exp.path).mkdir(parents=True, exist_ok=True)
+
+    task_config = EventedDict()
+    if with_milling:
+        task_config["basic"] = _make_task_config()
+    exp.add_new_lamella(MicroscopeState(), task_config)
+    exp.save(save_protocol=True)
+    return exp
+
+
+def test_lamella_path_follows_a_copied_experiment(tmp_path):
+    """`path` is persisted as the directory the lamella was *created* in, so a
+    copied experiment would otherwise point back at the machine it came from.
+
+    That is worse than an error whenever the original directory still exists
+    locally, because reads silently succeed against the wrong experiment.
+    """
+    import shutil
+
+    src = tmp_path / "src"
+    exp = _experiment_on_disk(src)
+    original = Path(exp.positions[0].path)
+
+    dst = tmp_path / "dst"
+    shutil.copytree(exp.path, dst / "exp")
+    shutil.rmtree(src)
+
+    loaded = Experiment.load(str(dst / "exp" / "experiment.yaml"))
+    lamella = loaded.positions[0]
+
+    assert Path(lamella.path) == Path(loaded.path) / lamella.name
+    assert Path(lamella.path) != original
+    assert Path(lamella.path).exists()
+
+
+def _root_handler_files() -> List[str]:
+    """The files the root logger is currently writing to."""
+    import logging
+
+    return [
+        getattr(h, "baseFilename", "")
+        for h in logging.getLogger().handlers
+        if getattr(h, "baseFilename", None)
+    ]
+
+
+def test_load_does_not_touch_the_calling_process_logging(tmp_path):
+    """Reading an experiment must not reach into global logging.
+
+    configure_logging calls basicConfig(force=True), which closes and replaces
+    every root handler. Calling it from load() meant any process that read an
+    experiment lost its own logging configuration and had its output redirected
+    into that experiment's logfile -- including the load dialog, which calls
+    load() on every single click to preview a recent entry. See FIB-421.
+    """
+    import logging
+
+    exp = _experiment_on_disk(tmp_path / "src")
+
+    own = logging.FileHandler(tmp_path / "caller.log")
+    logging.basicConfig(handlers=[own], level=logging.INFO, force=True)
+    try:
+        before = _root_handler_files()
+
+        Experiment.load(os.path.join(exp.path, "experiment.yaml"))
+
+        assert _root_handler_files() == before
+        assert not own.stream.closed, "the caller's own handler was closed"
+    finally:
+        logging.basicConfig(handlers=[logging.NullHandler()], force=True)
+
+
+def test_create_does_not_touch_the_calling_process_logging(tmp_path):
+    """Same rule for create(): the app configures logging when it adopts an
+    experiment, not as a side effect of the object existing."""
+    import logging
+
+    own = logging.FileHandler(tmp_path / "caller.log")
+    logging.basicConfig(handlers=[own], level=logging.INFO, force=True)
+    try:
+        before = _root_handler_files()
+
+        Experiment.create(path=tmp_path / "root", name="exp")
+
+        assert _root_handler_files() == before
+    finally:
+        logging.basicConfig(handlers=[logging.NullHandler()], force=True)
+
+
+def test_configure_logging_sends_output_to_the_experiment_logfile(tmp_path):
+    """The explicit opt-in that replaces the old side effect.
+
+    A headless script gets no experiment logfile from load()/create() any more,
+    and with no handler configured Python discards anything below WARNING -- so
+    without this the output does not go somewhere else, it disappears.
+    """
+    import logging
+
+    exp = _experiment_on_disk(tmp_path / "src")
+    root = logging.getLogger()
+    saved = list(root.handlers)
+    try:
+        logfile = exp.configure_logging()
+
+        logging.info("from a standalone script")
+        for handler in root.handlers:
+            handler.flush()
+
+        assert Path(logfile) == Path(exp.path) / "logfile.log"
+        assert "from a standalone script" in Path(logfile).read_text()
+    finally:
+        for handler in list(root.handlers):
+            if handler not in saved:
+                handler.close()
+        root.handlers = saved
+
+
+def test_milling_imaging_paths_follow_a_copied_experiment(tmp_path):
+    """Milling configs carry their own acquisition imaging path, copied from the
+    lamella in __post_init__. Correcting `path` alone would leave acquisitions
+    still writing back to the original location.
+    """
+    import shutil
+
+    src = tmp_path / "src"
+    exp = _experiment_on_disk(src, with_milling=True)
+
+    dst = tmp_path / "dst"
+    shutil.copytree(exp.path, dst / "exp")
+    shutil.rmtree(src)
+
+    loaded = Experiment.load(str(dst / "exp" / "experiment.yaml"))
+    lamella = loaded.positions[0]
+
+    imaging_paths = [
+        mtc.acquisition.imaging.path
+        for tc in lamella.task_config.values()
+        for mtc in tc.milling.values()
+    ]
+    assert imaging_paths, "expected the lamella to carry a milling task config"
+    for path in imaging_paths:
+        assert Path(path) == Path(lamella.path)
+        assert str(src) not in str(path)
+
+
+# ── Reading an experiment does not write to disk (FIB-420) ───────────────────
+
+def test_loading_a_copy_creates_nothing_at_the_original_path(tmp_path):
+    """Loading an experiment must not write to the filesystem.
+
+    __post_init__ used to makedirs(path). On the load path it runs from
+    from_dict with the as-created path out of the yaml -- *before*
+    Experiment.load calls relocate -- so loading a copy recreated the lamella
+    directories under the original experiment, at a path the caller never named.
+
+    The two tests above rmtree the source, so between them they only cover the
+    case where the original is already gone. This is the case FIB-367's own
+    docstring calls the dangerous one: the original still exists locally.
+    """
+    import shutil
+
+    src = tmp_path / "src"
+    exp = _experiment_on_disk(src)
+    original = Path(exp.positions[0].path)
+
+    dst = tmp_path / "dst"
+    shutil.copytree(exp.path, dst / "exp")
+    shutil.rmtree(original)  # the lamella directory goes; its parent stays
+
+    Experiment.load(str(dst / "exp" / "experiment.yaml"))
+
+    assert not original.exists(), f"loading a copy recreated {original}"
+
+
+def test_constructing_a_lamella_does_not_create_its_directory(tmp_path):
+    """The same rule stated narrowly, independent of Experiment.load."""
+    path = tmp_path / "lam"
+
+    Lamella(path=path, number=1, petname="lam")
+
+    assert not path.exists()
+
+
+def test_add_new_lamella_creates_the_lamella_directory(tmp_path):
+    """Creation still makes the directory -- tasks write reference images
+    straight into it, so the creating site owns that, not __post_init__."""
+    exp = _experiment_on_disk(tmp_path / "root")
+
+    assert Path(exp.positions[0].path).is_dir()
+
+
+def test_save_thumbnail_creates_the_lamella_directory(tmp_path):
+    """save_thumbnail writes directly rather than through FibsemImage.save, so it
+    makes its own directory now that construction does not."""
+    import numpy as np
+
+    from fibsem.structures import FibsemImage
+
+    lamella = Lamella(path=tmp_path / "lam", number=1, petname="lam")
+
+    lamella.save_thumbnail(FibsemImage(data=np.zeros((8, 8), dtype=np.uint8)))
+
+    assert (Path(lamella.path) / "thumbnail.png").is_file()

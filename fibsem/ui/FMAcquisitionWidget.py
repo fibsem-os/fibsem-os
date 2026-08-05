@@ -85,6 +85,7 @@ from fibsem.ui.stylesheets import (
 )
 from fibsem.ui.widgets.custom_widgets import LamellaNameListWidget, TitledPanel
 from fibsem.utils import format_duration
+from fibsem.ui.qt.threading import FunctionWorker
 
 
 # Overlay layer configuration constants
@@ -385,7 +386,7 @@ class FMAcquisitionWidget(QWidget):
         self.histogramWidget: HistogramWidget
 
         # Consolidated acquisition threading
-        self._acquisition_thread: Optional[threading.Thread] = None
+        self._acquisition_thread: Optional[FunctionWorker] = None
         self._acquisition_stop_event = threading.Event()
         self._current_acquisition_type: Optional[str] = None
 
@@ -887,10 +888,8 @@ class FMAcquisitionWidget(QWidget):
         self._update_acquisition_button_states()
         self._acquisition_stop_event.clear()
 
-        self._acquisition_thread = threading.Thread(
-            target=self._stage_movement_worker,
-            args=(stage_position, objective_position),
-            daemon=True,
+        self._acquisition_thread = FunctionWorker(
+            self._stage_movement_worker, stage_position, objective_position
         )
         self._acquisition_thread.start()
 
@@ -1569,6 +1568,7 @@ class FMAcquisitionWidget(QWidget):
         progress_total = progress.get("total", None)
         channel_name = progress.get("channel", None)
         progress_state = progress.get("state", None)
+        progress_task = progress.get("task", None)
 
         if progress_state == "moving":
             self.progressText.setText("Moving stage...")
@@ -1581,7 +1581,14 @@ class FMAcquisitionWidget(QWidget):
             self.progressBar_current_acquisition.setFormat("")
 
         # set progress message
-        if channel_name is not None:
+        if progress_task == "autofocus":
+            # Handled before the channel branch, not inside it: a sweep with no channel
+            # reports an empty name, which used to render "Acquiring  (1/1)..." and now
+            # would leave the previous message sitting there instead.
+            self.progressText.setText(
+                f"Focusing on {channel_name}..." if channel_name else "Focusing..."
+            )
+        elif channel_name:
             channel_index = progress.get("channel_index", 1)
             total_channels = progress.get("total_channels", 1)
             msg = f"Acquiring {channel_name} ({channel_index}/{total_channels})..."
@@ -1595,9 +1602,18 @@ class FMAcquisitionWidget(QWidget):
                 else 0
             )
             self.progressBar_current_acquisition.setValue(percentage_zlevel)
-            self.progressBar_current_acquisition.setFormat(
-                f"Z-level {progress_zlevels}/{progress_total_zlevels}"
-            )
+            if progress_task == "autofocus":
+                # A focus sweep steps the objective through a search range. Calling
+                # those positions "Z-level" names the z-stack, which is not running --
+                # and says which pass, so a coarse sweep followed by a fine one does
+                # not look like the same bar inexplicably starting over.
+                total_passes = progress.get("total_passes", 1)
+                which = (f" · pass {progress.get('pass_index', 1)}/{total_passes}"
+                         if total_passes > 1 else "")
+                label = f"Focus {progress_zlevels}/{progress_total_zlevels}{which}"
+            else:
+                label = f"Z-level {progress_zlevels}/{progress_total_zlevels}"
+            self.progressBar_current_acquisition.setFormat(label)
 
         # set total acquisition task progress
         if progress_current is not None and progress_total is not None:
@@ -1797,10 +1813,8 @@ class FMAcquisitionWidget(QWidget):
             z_parameters = settings["z_parameters"]
 
         # Start acquisition thread
-        self._acquisition_thread = threading.Thread(
-            target=self._image_acquistion_worker,
-            args=(channel_settings, z_parameters),
-            daemon=True,
+        self._acquisition_thread = FunctionWorker(
+            self._image_acquistion_worker, channel_settings, z_parameters
         )
         self._acquisition_thread.start()
 
@@ -1939,16 +1953,13 @@ class FMAcquisitionWidget(QWidget):
         positions = None  # self.experiment.positions
 
         # Start acquisition thread
-        self._acquisition_thread = threading.Thread(
-            target=self._overview_worker,
-            args=(
-                channel_settings,
-                overview_parameters,
-                z_parameters,
-                autofocus_settings,
-                positions,
-            ),
-            daemon=True,
+        self._acquisition_thread = FunctionWorker(
+            self._overview_worker,
+            channel_settings,
+            overview_parameters,
+            z_parameters,
+            autofocus_settings,
+            positions,
         )
         self._acquisition_thread.start()
 
@@ -2100,10 +2111,8 @@ class FMAcquisitionWidget(QWidget):
         z_parameters = settings["z_parameters"]
 
         # Start auto-focus thread
-        self._acquisition_thread = threading.Thread(
-            target=self._autofocus_worker,
-            args=(channel_settings, z_parameters),
-            daemon=True,
+        self._acquisition_thread = FunctionWorker(
+            self._autofocus_worker, channel_settings, z_parameters
         )
         self._acquisition_thread.start()
 

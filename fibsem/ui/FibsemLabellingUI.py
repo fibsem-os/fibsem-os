@@ -17,6 +17,7 @@ from PyQt5 import QtWidgets
 from PyQt5.QtGui import QFont
 
 import fibsem
+from fibsem.versioning import get_version_string
 from fibsem.segmentation import utils as seg_utils
 from fibsem.segmentation.config import (
     CLASS_COLORS,
@@ -757,7 +758,7 @@ def main():
         fibsem_labelling_ui,
         area="right",
         add_vertical_stretch=True,
-        name=f"OpenFIBSEM v{fibsem.__version__} - Image Labelling",
+        name=f"OpenFIBSEM v{get_version_string()} - Image Labelling",
 
     )
     napari.run()

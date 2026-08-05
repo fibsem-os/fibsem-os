@@ -182,7 +182,6 @@ class MicroscopeConfigWidget(QWidget):
         self._dsb_imaging_dwell = _dsb(0, 10000, 4, suffix=" µs")
         self._dsb_imaging_current = _dsb(0, 1e6, 4, suffix=" nA")
         self._chk_autocontrast = QCheckBox()
-        self._chk_autogamma = QCheckBox()
         self._chk_autosave = QCheckBox()
         form.addRow("Beam Type", self._cb_imaging_beam_type)
         form.addRow("Resolution X (px)", self._sb_imaging_res_x)
@@ -191,7 +190,6 @@ class MicroscopeConfigWidget(QWidget):
         form.addRow("Dwell Time (µs)", self._dsb_imaging_dwell)
         form.addRow("Imaging Current (nA)", self._dsb_imaging_current)
         form.addRow("Autocontrast", self._chk_autocontrast)
-        form.addRow("Autogamma", self._chk_autogamma)
         form.addRow("Auto-save", self._chk_autosave)
         return w
 
@@ -341,7 +339,6 @@ class MicroscopeConfigWidget(QWidget):
         self._dsb_imaging_dwell.setValue(float(imaging.get("dwell_time", 1e-6)) * constants.SI_TO_MICRO)
         self._dsb_imaging_current.setValue(float(imaging.get("imaging_current", 0)) * constants.SI_TO_NANO)
         self._chk_autocontrast.setChecked(bool(imaging.get("autocontrast", True)))
-        self._chk_autogamma.setChecked(bool(imaging.get("autogamma", False)))
         self._chk_autosave.setChecked(bool(imaging.get("save", False)))
 
         milling = c.get("milling", {})
@@ -414,7 +411,6 @@ class MicroscopeConfigWidget(QWidget):
         c["imaging"]["dwell_time"] = self._dsb_imaging_dwell.value() * constants.MICRO_TO_SI
         c["imaging"]["imaging_current"] = self._dsb_imaging_current.value() * constants.NANO_TO_SI
         c["imaging"]["autocontrast"] = self._chk_autocontrast.isChecked()
-        c["imaging"]["autogamma"] = self._chk_autogamma.isChecked()
         c["imaging"]["save"] = self._chk_autosave.isChecked()
 
         c.setdefault("milling", {})

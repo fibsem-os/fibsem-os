@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, List, Tuple, Optional, Union
 
 import yaml
-from packaging import version
 from PIL import Image
 
 from fibsem import config as cfg
@@ -498,93 +497,36 @@ def save_positions(positions: list, path: str = None, overwrite: bool = False) -
 # TODO: re-think this, dont like the pop ups
 def _register_metadata(microscope: 'FibsemMicroscope',
                        application_software: str,
-                       application_software_version: str,
                        experiment_name: str,
-                       experiment_method: str) -> None:
-    import fibsem
-    from fibsem.structures import FibsemExperiment, FibsemUser
+                       experiment_id: Optional[str] = None) -> None:
+    """Stamp user, experiment and application identity onto what ``microscope`` acquires.
 
-    user = FibsemUser.from_environment()
+    ``experiment_id`` is the stable join key and should always be supplied; it is
+    optional only so a caller that has no ID yet still registers something. It used
+    to be omitted entirely and ``id`` carried the name, which meant a rename silently
+    broke the link from every image written before it. See FIB-446.
 
-    experiment = FibsemExperiment(
-        id = experiment_name,
-        method=experiment_method,
-        application=application_software, 
-        fibsem_version=fibsem.__version__,
-        application_version=application_software_version,
+    Which application is running goes on ``SystemInfo``, not on the experiment
+    reference. It is a property of the running system, and putting it in one place
+    is what lets the reference carry identity only (FIB-445 D1, FIB-448).
+
+    There is no application *version* to record. An application shipped inside
+    fibsem has no version of its own -- passing ``fibsem.__version__`` for it only
+    made two fields tautologically equal -- and ``info.fibsem_revision`` already
+    pins the exact commit doing the work. See FIB-448.
+    """
+    from fibsem.structures import FibsemExperimentRef, FibsemUser
+
+    microscope.user = FibsemUser.from_environment()
+    microscope.experiment = FibsemExperimentRef(
+        id=experiment_id,
+        name=experiment_name,
     )
-    microscope.user = user
-    microscope.experiment = experiment
 
-
-def get_pypi_versions(package_name: str = "fibsem") -> List[str]:
-    """Get all available versions from PyPI for the specified package.
-    
-    Args:
-        package_name: Name of the package to check. Defaults to "fibsem".
-        
-    Returns:
-        List of available versions sorted by version number (latest first).
-        Returns empty list if unable to fetch versions.
-    """
-    try:
-        import requests
-        url = f'https://pypi.org/pypi/{package_name}/json'
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        versions = list(data['releases'].keys())
-        # Filter out pre-releases and dev versions for cleaner output
-        stable_versions = [v for v in versions if not any(pre in v.lower() for pre in ['a', 'b', 'rc', 'dev'])]
-        return sorted(stable_versions, key=version.parse, reverse=True)
-    except Exception as e:
-        logging.warning(f'Error fetching PyPI data for {package_name}: {e}')
-        return []
-
-
-def check_for_updates(package_name: str = "fibsem") -> dict:
-    """Check if a newer version of the package is available on PyPI.
-    
-    Args:
-        package_name: Name of the package to check. Defaults to "fibsem".
-        
-    Returns:
-        Dictionary containing:
-        - 'current_version': Currently installed version
-        - 'latest_version': Latest version on PyPI (None if unable to fetch)
-        - 'update_available': Boolean indicating if update is available
-        - 'status': Text description of the status
-    """
-    import fibsem
-    
-    result = {
-        'current_version': fibsem.__version__,
-        'latest_version': None,
-        'update_available': False,
-        'status': 'Unknown'
-    }
-    
-    # Get PyPI versions
-    pypi_versions = get_pypi_versions(package_name)
-    if pypi_versions:
-        result['latest_version'] = pypi_versions[0]
-    
-    # Compare versions
-    if result['latest_version']:
-        try:
-            current_ver = version.parse(result['current_version'])
-            latest_ver = version.parse(result['latest_version'])
-            
-            if current_ver < latest_ver:
-                result['update_available'] = True
-                result['status'] = f'Newer version available: {result["latest_version"]} (you have {result["current_version"]})'
-            elif current_ver == latest_ver:
-                result['status'] = f'You have the latest version: {result["current_version"]}'
-            else:
-                result['status'] = f'You have a newer version than PyPI: {result["current_version"]} > {result["latest_version"]}'
-        except Exception as e:
-            result['status'] = f'Error comparing versions: {e}'
-    else:
-        result['status'] = f'Could not fetch PyPI versions for {package_name}'
-    
-    return result
+    # info carries fibsem_version and fibsem_revision already, set when it is built.
+    # Reached defensively at both levels: a stand-in microscope (a test double, or a
+    # caller wiring up a run without hardware) may have neither attribute, and
+    # failing to record the application is not worth an AttributeError.
+    info = getattr(getattr(microscope, "system", None), "info", None)
+    if info is not None:
+        info.application = application_software

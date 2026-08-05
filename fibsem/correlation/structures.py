@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from enum import auto, Enum
 from typing import Optional
@@ -110,6 +111,9 @@ class CorrelationInputData:
     # (images absent) can still convert corrected pixels to px / px_m
     stored_fib_image_shape: Optional[tuple] = None
     stored_fib_image_pixel_size: Optional[float] = None
+    # FM z-step, likewise restored from JSON: lets a seed's FM z be rescaled to a
+    # re-acquired volume with a different z-sampling (FIB-299).
+    stored_fm_pixel_size_z: Optional[float] = None
 
     def to_dict(self):
         return {
@@ -126,6 +130,7 @@ class CorrelationInputData:
             "fm_image_shape": self.fm_image_shape,
             "fib_image_shape": self.fib_image_shape,
             "fib_image_pixel_size": self.fib_image_pixel_size,
+            "fm_pixel_size_z": self.fm_pixel_size_z,
             "fib_image_filename": self.fib_image_filename,
             "fm_image_filename": self.fm_image_filename,
             "method": self.method,
@@ -133,15 +138,26 @@ class CorrelationInputData:
 
     @property
     def fib_image_pixel_size(self) -> Optional[float]:
+        """Pixel size in metres, falling back to the value restored from JSON.
+
+        A plain (non-OME) TIFF loads with ``metadata = None``, and this property is
+        read by ``to_dict`` — i.e. by every auto-save. Dereferencing it blindly
+        turned "the user browsed to a bare TIFF" into "nothing is ever saved this
+        session", because the auto-save swallows exceptions (FIB-316).
+        """
         if self.fib_image is None:
             return self.stored_fib_image_pixel_size
-        return self.fib_image.metadata.pixel_size.x  # type: ignore[union-attr]
+        pixel_size = getattr(getattr(self.fib_image, "metadata", None), "pixel_size", None)
+        if pixel_size is None:
+            return self.stored_fib_image_pixel_size
+        return getattr(pixel_size, "x", None)
 
     @property
     def fib_image_shape(self) -> Optional[tuple[int, int]]:
-        if self.fib_image is None or self.fib_image.data is None:
+        data = getattr(self.fib_image, "data", None)
+        if data is None:
             return self.stored_fib_image_shape
-        return self.fib_image.data.shape
+        return data.shape
 
     @property
     def fm_image_shape(self) -> Optional[tuple[int, int, int, int]]:
@@ -150,14 +166,23 @@ class CorrelationInputData:
         return self.fm_image.data.shape
 
     @property
+    def fm_pixel_size_z(self) -> Optional[float]:
+        if self.fm_image is None:
+            return self.stored_fm_pixel_size_z
+        return getattr(self.fm_image.metadata, "pixel_size_z", None)
+
+    @property
     def fib_image_filename(self) -> Optional[str]:
-        return (
-            self.fib_image.metadata.image_settings.filename if self.fib_image else None
+        # Also read by to_dict, so it must tolerate an image without metadata
+        # rather than take the auto-save down with it (FIB-316).
+        settings = getattr(
+            getattr(self.fib_image, "metadata", None), "image_settings", None
         )
+        return getattr(settings, "filename", None)
 
     @property
     def fm_image_filename(self) -> Optional[str]:
-        return self.fm_image.metadata.filename if self.fm_image else None
+        return getattr(getattr(self.fm_image, "metadata", None), "filename", None)
 
     @staticmethod
     def from_dict(data: dict) -> CorrelationInputData:
@@ -169,7 +194,7 @@ class CorrelationInputData:
             hint = (
                 " This looks like a correlation result — load it with"
                 " Load Correlation Result instead."
-                if ("poi" in data or "input_data" in data)
+                if ("poi" in data or "computed_from" in data or "input_data" in data)
                 else ""
             )
             raise ValueError(
@@ -210,6 +235,7 @@ class CorrelationInputData:
             method=data.get("method", "multi-point"),
             stored_fib_image_shape=tuple(stored_shape) if stored_shape else None,
             stored_fib_image_pixel_size=data.get("fib_image_pixel_size"),
+            stored_fm_pixel_size_z=data.get("fm_pixel_size_z"),
         )
 
     def save(self, filename: str):
@@ -325,7 +351,13 @@ class CorrelationResult:
             "mean_absolute_error": self.mean_absolute_error,
             "delta_2d": [p.to_dict() for p in self.delta_2d],
             "reprojected_3d": [p.to_dict() for p in self.reprojected_3d],
-            "input_data": self.input_data.to_dict() if self.input_data else None,
+            # Serialized as "computed_from", not "input_data": it is a snapshot of
+            # the points this transform was FITTED to, not the current inputs.
+            # The distinction is invisible in a standalone result file but matters
+            # in the consolidated correlation.json (FIB-264), which also carries a
+            # top-level input_data for the current points. The Python attribute
+            # stays `input_data`; only the wire key differs.
+            "computed_from": self.input_data.to_dict() if self.input_data else None,
             "refractive_index_correction_factor": self.refractive_index_correction_factor,
             "refractive_index_correction_mode": self.refractive_index_correction_mode,
             "updated_at": self.updated_at,
@@ -359,8 +391,10 @@ class CorrelationResult:
             reprojected_3d=[
                 PointXYZ.from_dict(p) for p in data.get("reprojected_3d", [])
             ],
-            input_data=CorrelationInputData.from_dict(data["input_data"])
-            if data.get("input_data")
+            # "computed_from" is the current key; "input_data" is read for
+            # back-compat with result files written before FIB-264.
+            input_data=CorrelationInputData.from_dict(snapshot)
+            if (snapshot := data.get("computed_from") or data.get("input_data"))
             else None,
             refractive_index_correction_factor=data.get(
                 "refractive_index_correction_factor"
@@ -411,6 +445,20 @@ class CorrelationResult:
         surface_y = self.input_data.surface_coordinate.point.y
         fib_shape = self.input_data.fib_image_shape
         pixel_size = self.input_data.fib_image_pixel_size
+        # Refuse rather than half-apply. px_m is exactly what Continue commits to
+        # the experiment, so correcting only image_px moved the marker on screen
+        # and recorded factor + mode while the committed number stayed
+        # uncorrected — a wrong result presented as a corrected one, flagged only
+        # by a log warning (FIB-321). Both properties fall back to the values
+        # restored from JSON, so this is reachable only for a result that was
+        # never associated with an image at all.
+        if fib_shape is None or pixel_size is None:
+            raise ValueError(
+                "fib image shape and pixel size are required to apply refractive "
+                "index correction: without them poi.px_m cannot be corrected, and "
+                "px_m is the value committed to the experiment"
+            )
+
         poi0 = self.poi[0]
         # Snapshot the uncorrected position for the ghost overlay
         self.poi_uncorrected = [
@@ -422,15 +470,9 @@ class CorrelationResult:
         ]
         corrected_y = scale_about_surface(poi0.image_px.y, surface_y, correction_factor)
         poi0.image_px.y = corrected_y
-        if fib_shape is not None and pixel_size is not None:
-            cy = fib_shape[0] / 2.0
-            poi0.px.y = -(corrected_y - cy)
-            poi0.px_m.y = poi0.px.y * pixel_size
-        else:
-            logging.warning(
-                "RI correction: fib image shape/pixel size unavailable — "
-                "poi.px / poi.px_m were NOT updated (only image_px)."
-            )
+        cy = fib_shape[0] / 2.0
+        poi0.px.y = -(corrected_y - cy)
+        poi0.px_m.y = poi0.px.y * pixel_size
         self.refractive_index_correction_factor = correction_factor
         self.refractive_index_correction_mode = "post"
         self.updated_at = time.time()
@@ -519,9 +561,11 @@ class CorrelationResult:
 
           * ``fitted`` — provenance on a Coordinate, not a position;
           * ``method`` — not read by ``run_correlation_from_data``;
-          * anything image-derived — a deserialized result carries no images, so
-            e.g. ``fm_image_shape`` is None on this side and populated on the
-            live side, which would report every reloaded result as stale.
+          * anything image-derived — see below.
+
+        Image parameters are *not* compared: changing the image now clears the
+        coordinates outright (see ``_confirm_image_change``), so a result can no
+        longer outlive the image it was fitted to by this route.
 
         A result with no snapshot can't be shown to match, so it reports False.
         """
@@ -537,3 +581,100 @@ class CorrelationResult:
     def load(filename: str) -> CorrelationResult:
         with open(filename, "r") as f:
             return CorrelationResult.from_dict(json.load(f))
+
+
+# Current on-disk container version. Bump only on a breaking layout change; the
+# loader keys migration off this, and off the shape of legacy files that predate it.
+CORRELATION_FILE_VERSION = 1
+
+
+@dataclass
+class CorrelationState:
+    """The whole correlation state for a project directory, in one file (FIB-264).
+
+    Supersedes the split ``correlation_data.json`` (a bare
+    :class:`CorrelationInputData`) + ``correlation_result.json`` (a bare
+    :class:`CorrelationResult`). Those two sat side by side with near-identical
+    names and could silently disagree — see :meth:`CorrelationResult.matches_inputs`
+    and the FIB-295 fix. This carries both, with ``input_data`` as the single
+    source of truth for the current points and ``result`` optional (``None``
+    until the first run).
+    """
+
+    input_data: CorrelationInputData = field(default_factory=CorrelationInputData)
+    result: Optional[CorrelationResult] = None
+    version: int = CORRELATION_FILE_VERSION
+
+    def to_dict(self) -> dict:
+        return {
+            "version": self.version,
+            "input_data": self.input_data.to_dict(),
+            "result": self.result.to_dict() if self.result is not None else None,
+        }
+
+    @staticmethod
+    def from_dict(data: dict) -> CorrelationState:
+        """Parse a container dict.
+
+        Only the container shape (has ``version``) is accepted here; legacy files
+        are handled by :func:`load_correlation_file`, which dispatches on shape.
+        """
+        result_data = data.get("result")
+        return CorrelationState(
+            input_data=CorrelationInputData.from_dict(data["input_data"]),
+            result=CorrelationResult.from_dict(result_data) if result_data else None,
+            version=data.get("version", CORRELATION_FILE_VERSION),
+        )
+
+    def save(self, filename: str) -> None:
+        with open(filename, "w") as f:
+            json.dump(self.to_dict(), f, indent=4)
+
+    @staticmethod
+    def load(filename: str) -> CorrelationState:
+        with open(filename, "r") as f:
+            return CorrelationState.from_dict(json.load(f))
+
+
+def load_correlation_file(filename: str) -> CorrelationState:
+    """Load any correlation JSON — new container or either legacy file — as a
+    :class:`CorrelationState`.
+
+    Dispatches on the payload shape, so the caller never has to know which of the
+    three a file is. This is the one place the sniff lives; the ``from_dict``
+    guards on the two legacy classes only reject the *wrong* legacy file when a
+    caller asks for a specific type by name.
+
+      * container      → has ``version``            → parse as-is
+      * legacy result  → has ``poi``/``computed_from``/``input_data`` → wrap
+      * legacy data    → has ``fib_coordinates``    → wrap, no result
+
+    A result file carries its own ``input_data`` snapshot, which becomes the
+    project's current points — the same behaviour the old result loader had.
+    """
+    with open(filename, "r") as f:
+        data = json.load(f)
+
+    if "version" in data:
+        return CorrelationState.from_dict(data)
+
+    if "poi" in data or "computed_from" in data or "input_data" in data:
+        result = CorrelationResult.from_dict(data)
+        # Deep-copy rather than share: the result's input_data is the *snapshot*
+        # the transform was fitted to, while the state's is the live, editable
+        # set. Aliasing them makes every later edit mutate the snapshot too, so
+        # matches_inputs can never report stale — FIB-295 defeated by identity.
+        current = (
+            copy.deepcopy(result.input_data)
+            if result.input_data is not None
+            else CorrelationInputData()
+        )
+        return CorrelationState(input_data=current, result=result)
+
+    if "fib_coordinates" in data:
+        return CorrelationState(input_data=CorrelationInputData.from_dict(data))
+
+    raise ValueError(
+        f"{filename!r} is not a correlation file: no 'version', 'poi', or "
+        "'fib_coordinates' key."
+    )

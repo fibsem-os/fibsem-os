@@ -492,6 +492,42 @@ def test_fluorescence_image_creation():
     assert image.metadata.channels[0].name == "GFP"
 
 
+def test_fluorescence_image_save_creates_the_directory(tmp_path):
+    """save() names a file, so it owns the directory that file lands in.
+
+    FibsemImage.save has always done this. The FM sibling did not, and
+    AcquireFluorescenceTask writes its z-stack into the lamella directory
+    without acquiring a beam image first -- so this is the only thing that
+    creates it. acquire_image swallows save failures, so a missing directory
+    would have lost the stack silently rather than raising. See FIB-420.
+    """
+    channel = FluorescenceChannelMetadata(
+        name="GFP",
+        excitation_wavelength=488.0,
+        emission_wavelength=520.0,
+        power=0.3,
+        exposure_time=0.05,
+        gain=1.0,
+        offset=0.0,
+    )
+    metadata = FluorescenceImageMetadata(
+        acquisition_date=datetime.now().isoformat(),
+        pixel_size_x=100e-9,
+        pixel_size_y=100e-9,
+        resolution=(16, 16),
+        channels=[channel],
+    )
+    image = FluorescenceImage(
+        data=np.zeros((1, 1, 16, 16), dtype=np.uint8), metadata=metadata
+    )
+    filename = tmp_path / "does" / "not" / "exist" / "stack.ome.tiff"
+
+    written = image.save(str(filename))
+
+    assert filename.is_file()
+    assert written == str(filename)
+
+
 def test_fluorescence_image_save_load_roundtrip():
     """Test save/load roundtrip with structured annotations."""
     # Create test data
@@ -634,6 +670,9 @@ def test_fluorescence_image_load_fallback():
         assert loaded_image.metadata.resolution == (512, 512)
         assert loaded_image.metadata.pixel_size_x == 1e-6
         assert loaded_image.metadata.pixel_size_y == 1e-6
+
+        # the fallback path is a separate return point — it must record the file too
+        assert loaded_image.filepath == filename
 
     finally:
         import os
@@ -2010,21 +2049,42 @@ def test_estimate_tileset_acquisition_time_stage_movement_calculation():
         exposure_time=0.2,
     )
 
-    # 3x3 grid should have specific movement pattern
+    # One absolute move per tile after the first. The runner projects every tile
+    # position up front and drives straight to each one, so the separate row-advance
+    # and row-reset moves this used to count (6 + 2 + 2 = 10 for a 3x3) no longer
+    # happen -- the estimate described a sweep the acquisition stopped doing when
+    # tiles moved to absolute positions.
     result = estimate_tileset_acquisition_time(channel, grid_size=(3, 3))
 
-    # For 3x3 grid:
-    # - 2 horizontal moves per row × 3 rows = 6 horizontal moves
-    # - 2 vertical moves (to next row) = 2 moves
-    # - 2 row resets (return to first column) = 2 moves
-    # Total: 6 + 2 + 2 = 10 moves
-    expected_moves = 10
-    expected_stage_time = expected_moves * DEFAULT_STAGE_MOVE_TIME  # Using DEFAULT_STAGE_MOVE_TIME
-
+    expected_moves = 8  # 9 tiles, already at the first
     assert result["breakdown"]["stage_movement"]["total_moves"] == expected_moves
-    assert result["stage_movement_time"] == expected_stage_time
+    assert result["stage_movement_time"] == expected_moves * DEFAULT_STAGE_MOVE_TIME
 
-    # Note: Stage move time is now a constant in the timing module
+
+def test_estimate_tileset_acquisition_time_counts_only_enabled_tiles():
+    """A masked run visits its enabled tiles, and only the rows containing one.
+
+    Estimating the full grid reports roughly three times the real duration for a
+    typical sparse selection, and the estimate is what the confirmation dialog and
+    the remaining-time readout are built on.
+    """
+    channel = ChannelSettings(name="Cy5", exposure_time=0.2)
+    plus = [[(i == 2 or j == 2) for j in range(5)] for i in range(5)]
+
+    full = estimate_tileset_acquisition_time(channel, grid_size=(5, 5))
+    sparse = estimate_tileset_acquisition_time(channel, grid_size=(5, 5), tile_mask=plus)
+
+    assert full["tiles"] == 25
+    assert sparse["tiles"] == 9
+    assert sparse["total_time"] < full["total_time"]
+
+    # per-row autofocus fires once per row that actually gets visited
+    masked_rows = [[(i == 0) for j in range(4)] for i in range(4)]
+    one_row = estimate_tileset_acquisition_time(
+        channel, grid_size=(4, 4), autofocus_mode=AutoFocusMode.EACH_ROW,
+        tile_mask=masked_rows,
+    )
+    assert one_row["breakdown"]["autofocus"]["operations"] == 1
 
 
 def test_estimate_tileset_acquisition_time_comprehensive():
@@ -2268,3 +2328,139 @@ def test_fluorescence_configuration_yaml_roundtrip_fm():
         import os
         if os.path.exists(filename):
             os.unlink(filename)
+
+
+# FluorescenceImage.filepath — the file an image is associated with on disk
+
+
+def _make_image() -> FluorescenceImage:
+    """A minimal two-channel image that round-trips through OME-TIFF cleanly."""
+    data = np.zeros((2, 1, 16, 16), dtype=np.uint8)  # C, Z, Y, X
+    metadata = FluorescenceImageMetadata(
+        acquisition_date="2025-01-01T12:00:00",
+        pixel_size_x=100e-9,
+        pixel_size_y=100e-9,
+        resolution=(16, 16),
+        channels=[
+            FluorescenceChannelMetadata(
+                name=name,
+                excitation_wavelength=excitation,
+                power=0.5,
+                exposure_time=0.1,
+                gain=1.0,
+                offset=0.0,
+            )
+            for name, excitation in (("DAPI", 365.0), ("GFP", 488.0))
+        ],
+    )
+    return FluorescenceImage(data=data, metadata=metadata)
+
+
+def test_fluorescence_image_filepath_is_none_until_written_or_read():
+    """An image that has never been saved or loaded has no file."""
+    assert _make_image().filepath is None
+
+
+def test_fluorescence_image_save_and_load_set_filepath(tmp_path):
+    """save() records where it wrote; load() records where it read."""
+    filename = str(tmp_path / "zstack.ome.tiff")
+
+    image = _make_image()
+    returned = image.save(filename)
+    assert returned == filename
+    assert image.filepath == filename
+
+    loaded = FluorescenceImage.load(filename)
+    assert loaded.filepath == filename
+
+
+def test_fluorescence_image_filepath_excluded_from_compare_and_repr():
+    """filepath describes where the image lives, not what it contains.
+
+    Guards the compare=False/repr=False on the field: without them, adding it
+    would change dataclass equality and repr for every FluorescenceImage.
+    """
+    import dataclasses
+
+    compared = [f.name for f in dataclasses.fields(FluorescenceImage) if f.compare]
+    assert compared == ["data", "metadata"]
+
+    image = _make_image()
+    image.filepath = "/somewhere/on/disk.ome.tiff"
+    assert "filepath" not in repr(image)
+
+
+class TestCombiningImagesKeepsTheirMetadata:
+    """`create_z_stack` and `create_multi_channel_image` used to rebuild the metadata
+    field by field, so every field added to the dataclass afterwards had to be
+    remembered in two more places. `geometry` was not, and went missing from every
+    z-stacked and multi-channel acquisition — and so from every stitched mosaic, which
+    inherits the reference tile's metadata. Nothing consumed it there until the overview
+    canvas began projecting stage positions, at which point they all vanished on
+    acquisition.
+    """
+
+    @staticmethod
+    def _image(**overrides):
+        from fibsem.fm.structures import (
+            CameraImageTransform,
+            FluorescenceChannelMetadata,
+            FluorescenceImage,
+            FluorescenceImageMetadata,
+            FibsemHardwareGeometry,
+        )
+
+        metadata = FluorescenceImageMetadata(
+            acquisition_date="2026-07-31T12:00:00",
+            pixel_size_x=1e-7,
+            pixel_size_y=1e-7,
+            channels=[FluorescenceChannelMetadata(
+                name=overrides.pop("name", "GFP"),
+                excitation_wavelength=488.0,
+                power=0.5,
+                exposure_time=0.1,
+                gain=1.0,
+                offset=0.0,
+                objective_position=1e-3,
+            )],
+            geometry=FibsemHardwareGeometry(
+                transform=CameraImageTransform.FLIP_XY,
+                camera_tilt=180.0,
+                is_compustage=True,
+            ),
+            description="carried through",
+            **overrides,
+        )
+        return FluorescenceImage(data=np.zeros((1, 8, 8), dtype=np.uint16), metadata=metadata)
+
+    def test_a_z_stack_keeps_the_geometry(self):
+        from fibsem.fm.structures import FluorescenceImage
+
+        stack = FluorescenceImage.create_z_stack([self._image(), self._image()])
+
+        assert stack.metadata.geometry is not None
+        assert stack.metadata.geometry.camera_tilt == 180.0
+        assert stack.metadata.geometry.is_compustage is True
+        assert stack.metadata.z_positions is not None  # what stacking is *for*
+
+    def test_a_multi_channel_image_keeps_the_geometry(self):
+        from fibsem.fm.structures import FluorescenceImage
+
+        combined = FluorescenceImage.create_multi_channel_image(
+            [self._image(name="GFP"), self._image(name="RFP")]
+        )
+
+        assert combined.metadata.geometry is not None
+        assert combined.metadata.geometry.is_compustage is True
+        assert [c.name for c in combined.metadata.channels] == ["GFP", "RFP"]
+
+    def test_unrelated_fields_survive_too(self):
+        """The point is not `geometry` specifically — it is that nothing is dropped."""
+        from fibsem.fm.structures import FluorescenceImage
+
+        stack = FluorescenceImage.create_z_stack([self._image(), self._image()])
+        combined = FluorescenceImage.create_multi_channel_image([self._image()])
+
+        for metadata in (stack.metadata, combined.metadata):
+            assert metadata.description == "carried through"
+            assert metadata.pixel_size_x == 1e-7

@@ -7,11 +7,9 @@ similar to the BasePattern plugin system in fibsem.milling.patterning.
 
 import logging
 import typing
-try:
-    from functools import cache
-except ImportError:  # Python < 3.9 fallback
-    from functools import lru_cache as cache
-from typing import TYPE_CHECKING, Any, Dict, Type
+from typing import TYPE_CHECKING, Any, Dict, Tuple, Type
+
+from fibsem.plugins.loader import PluginRecord, load_entry_point_group, plugin_classes
 
 if TYPE_CHECKING:
     from psygnal.containers import EventedDict
@@ -59,6 +57,8 @@ from fibsem.applications.autolamella.workflows.tasks.manager import (
     TaskManager,
 )
 from fibsem.applications.autolamella.workflows.tasks.queue import (
+    QueueOp,
+    QueueResult,
     TaskQueue,
     WorkItem,
 )
@@ -110,48 +110,33 @@ def register_task(task_cls: Type[AutoLamellaTask]) -> None:
     logging.info("Registered task '%s'", task_type)
 
 
-@cache
-def _get_plugin_tasks() -> Dict[str, Type[AutoLamellaTask]]:
-    """
-    Discover and import task plugins via entry points.
+TASK_ENTRY_POINT_GROUP = "fibsem.tasks"
 
-    The plugin logic is based on:
-    https://packaging.python.org/en/latest/guides/creating-and-discovering-plugins/#using-package-metadata
+
+def get_task_plugin_records() -> Tuple[PluginRecord, ...]:
+    """Every ``fibsem.tasks`` entry point and what became of it.
+
+    Loading happens once per process, on the first call. Includes the plugins
+    that failed and the ones a built-in later shadows, neither of which
+    survives into :func:`get_tasks` -- see ``fibsem.plugins.report``.
 
     To add a plugin task, add to your package's pyproject.toml:
 
     [project.entry-points.'fibsem.tasks']
     my_task = "my_package.tasks:MyCustomTask"
     """
-    import sys
+    return load_entry_point_group(
+        group=TASK_ENTRY_POINT_GROUP,
+        base_cls=AutoLamellaTask,
+        # A task registers under its config's task_type, not its own name.
+        name_of=lambda cls: cls.config_cls.task_type,
+        kind="task",
+    )
 
-    if sys.version_info < (3, 10):
-        from importlib_metadata import entry_points
-    else:
-        from importlib.metadata import entry_points
 
-    tasks: Dict[str, Type[AutoLamellaTask]] = {}
-
-    for task_entry_point in entry_points(group="fibsem.tasks"):
-        try:
-            task = task_entry_point.load()
-            if not issubclass(task, AutoLamellaTask):
-                raise TypeError(
-                    f"'{task_entry_point.value}' is not a subclass of AutoLamellaTask"
-                )
-            task_type = task.config_cls.task_type
-            logging.info("Loaded task plugin '%s'", task_type)
-            tasks[task_type] = task
-        except TypeError as e:
-            logging.warning("Invalid task plugin found: %s", str(e))
-        except Exception:
-            logging.error(
-                "Unexpected error raised while attempting to import task from '%s'",
-                task_entry_point.value,
-                exc_info=True,
-            )
-
-    return tasks
+def _get_plugin_tasks() -> Dict[str, Type[AutoLamellaTask]]:
+    """Plugin tasks that loaded, as ``{task_type: class}``."""
+    return plugin_classes(get_task_plugin_records())
 
 
 def get_tasks() -> Dict[str, Type[AutoLamellaTask]]:

@@ -260,7 +260,7 @@ class LamellaCardContainer(QWidget):
 
     def __init__(self, columns: int = _N_COLS, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self._cards: Dict[str, LamellaCardWidget] = {}   # lamella._id → card
+        self._cards: Dict[str, LamellaCardWidget] = {}   # lamella.id → card
         self._selected_id: Optional[str] = None
         self._n_cols: int = max(1, columns)
 
@@ -280,18 +280,18 @@ class LamellaCardContainer(QWidget):
         card.move_to_requested.connect(self.move_to_requested)
         card.update_position_requested.connect(self.update_position_requested)
         card.remove_requested.connect(self._on_card_remove_requested)
-        self._cards[lamella._id] = card
+        self._cards[lamella.id] = card
         self._rebuild_grid()
         return card
 
     def remove_lamella(self, lamella: Lamella) -> None:
-        card = self._cards.pop(lamella._id, None)
+        card = self._cards.pop(lamella.id, None)
         if card is not None:
             card.deleteLater()
             self._rebuild_grid()
 
     def refresh_lamella(self, lamella: Lamella) -> None:
-        card = self._cards.get(lamella._id)
+        card = self._cards.get(lamella.id)
         if card is not None:
             card.refresh()
 
@@ -325,7 +325,7 @@ class LamellaCardContainer(QWidget):
 
     def _on_card_clicked(self, lamella: Lamella) -> None:
         prev_id = self._selected_id
-        new_id = lamella._id
+        new_id = lamella.id
 
         if prev_id and prev_id in self._cards:
             self._cards[prev_id].set_selected(False)

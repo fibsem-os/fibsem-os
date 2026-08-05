@@ -15,6 +15,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
 from fibsem.structures import MillingState
 from fibsem.ui import stylesheets
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.utils import format_duration
 
 if TYPE_CHECKING:
@@ -37,7 +38,7 @@ class FibsemMillingWidget2(QWidget):
         self.microscope = microscope
         self.parent_widget = parent
 
-        self._milling_thread: Optional[threading.Thread] = None
+        self._milling_thread: Optional[FunctionWorker] = None
         self._milling_stop_event = threading.Event()
         self._has_stages = False
         layout = QGridLayout()
@@ -176,10 +177,8 @@ class FibsemMillingWidget2(QWidget):
             config = self.parent_widget.get_config()
 
         # Start the milling task in a separate thread
-        self._milling_thread = threading.Thread(
-            target=self._milling_worker,
-            args=(self.microscope, config),
-            daemon=True,
+        self._milling_thread = FunctionWorker(
+            self._milling_worker, self.microscope, config
         )
 
         self._milling_thread.start()

@@ -1,7 +1,8 @@
 import json
 import logging
+import os
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from enum import Enum
 from typing import Any, List, Optional, Tuple, Union
@@ -37,17 +38,26 @@ from ome_types.model import (
     Detector as OME_Detector,
 )
 
-from fibsem.structures import FibsemRectangle, FibsemStagePosition
-
-
-class AutoFocusMode(Enum):
-    """Auto-focus modes for tileset acquisition."""
-
-    NONE = "none"
-    ONCE = "once"
-    EACH_ROW = "each_row"
-    EACH_TILE = "each_tile"
-
+# AutoFocusMode is canonical in fibsem.structures -- there was a second, identical
+# enum of the same name here, so the two tilers held different objects for the same
+# concept and `is` comparisons across them silently failed. Imported (and so
+# re-exported) rather than redefined, to keep that from happening again.
+#
+# CameraImageTransform, its parser and FibsemHardwareGeometry are canonical there for
+# the same reason: the geometry record is one structure for both modalities, it needs
+# the enum, and core cannot import from this package -- this module imports from it, so
+# the reverse is a cycle. Imported (and so re-exported) here, which is where every
+# consumer of them still is. FMImageGeometry was the FM-only half until FIB-481.
+from fibsem.structures import (  # noqa: F401
+    AutoFocusMode,
+    CameraImageTransform,
+    FibsemExperimentRef,
+    FibsemHardwareGeometry,
+    FibsemRectangle,
+    FibsemStagePosition,
+    TileOrderStrategy,
+    _parse_image_transform,
+)
 
 # Autofocus types are canonical in fibsem.autofunctions.autofocus; re-export here
 # so existing `from fibsem.fm.structures import ...` imports keep working.
@@ -57,18 +67,6 @@ from fibsem.autofunctions.autofocus import (  # noqa: E402,F401
     FocusMethod,
     FocusSweepPass,
 )
-
-
-class CameraImageTransform(Enum):
-    """Image transformations for aligning fluorescence images with SEM/FIB coordinate systems."""
-
-    NONE = None
-    FLIP_X = "flip-x"
-    FLIP_Y = "flip-y"
-    FLIP_XY = "flip-xy"
-    ROTATE_90_CW = "rotate-90-cw"
-    ROTATE_90_CCW = "rotate-90-ccw"
-    ROTATE_180 = "rotate-180"
 
 
 class ZStackOrder(Enum):
@@ -324,6 +322,10 @@ class ZParameters:
 class FluorescenceImage:
     data: np.ndarray  # TCZYX format (Time, Channels, Z, Y, X)
     metadata: "FluorescenceImageMetadata"
+    # the file this image is associated with on disk, set by save() and load().
+    # excluded from compare/repr: it describes where the image lives, not what it contains,
+    # so two images of the same data read from different paths are still equal.
+    filepath: Optional[str] = field(default=None, compare=False, repr=False)
 
     def save(self, filename: str) -> str:
         """
@@ -349,12 +351,24 @@ class FluorescenceImage:
         else:
             tifffile_image = self.data
 
+        # Mirrors FibsemImage.save: the caller names a file, so the directory it
+        # lands in is this method's to create. AcquireFluorescenceTask writes a
+        # z-stack into the lamella directory without acquiring a beam image
+        # first, so this is the only thing that creates it -- and acquire_image
+        # swallows save failures, so a missing directory would lose the stack
+        # silently. dirname is empty for a bare filename, which makedirs rejects.
+        directory = os.path.dirname(filename)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+
         # TODO: add overwrite protection to prevent overwriting existing files
         with tff.TiffWriter(filename) as tif:
             tif.write(data=tifffile_image, contiguous=True)
             tif.overwrite_description(ome_xml)
 
-        return filename
+        # set only after a successful write, so a recorded path is always a path that exists
+        self.filepath = str(filename)
+        return self.filepath
 
     def get_ome_metadata(self) -> OMEMetadata:
         """Generate OME metadata for the FluorescenceImage."""
@@ -613,7 +627,7 @@ class FluorescenceImage:
                             # Single channel, single Z: YX -> CZYX
                             data = data[np.newaxis, np.newaxis, :, :]
 
-                        return cls(data=data, metadata=metadata)
+                        return cls(data=data, metadata=metadata, filepath=str(filename))
 
         except Exception as e:
             logging.warning(f"Failed to load structured annotations: {e}")
@@ -628,7 +642,7 @@ class FluorescenceImage:
                 # Fallback to basic metadata
                 metadata = cls._create_basic_metadata(data.shape)
 
-        return cls(data=data, metadata=metadata)
+        return cls(data=data, metadata=metadata, filepath=str(filename))
 
     @classmethod
     def _create_basic_metadata(cls, data_shape: tuple) -> "FluorescenceImageMetadata":
@@ -706,20 +720,11 @@ class FluorescenceImage:
         first_metadata = ch_images[0].metadata
         z_positions = [img.metadata.channels[0].objective_position for img in ch_images]
 
-        # Create new metadata with z-positions
-        md = FluorescenceImageMetadata(
-            acquisition_date=first_metadata.acquisition_date,
-            pixel_size_x=first_metadata.pixel_size_x,
-            pixel_size_y=first_metadata.pixel_size_y,
-            pixel_size_z=first_metadata.pixel_size_z,
-            resolution=first_metadata.resolution,
-            channels=first_metadata.channels,
-            z_positions=z_positions,
-            stage_position=first_metadata.stage_position,
-            filename=first_metadata.filename,
-            description=first_metadata.description,
-            system_info=first_metadata.system_info,
-        )
+        # Carry the first plane's metadata over and change only what stacking changes.
+        # Listing the fields to copy instead means every field added to the dataclass
+        # later has to be remembered here too -- which is how `geometry` came to be
+        # silently dropped from every z-stacked and multi-channel acquisition.
+        md = replace(first_metadata, z_positions=z_positions)
 
         return FluorescenceImage(data=arrs, metadata=md)
 
@@ -758,19 +763,8 @@ class FluorescenceImage:
         for img in images:
             channels.extend(img.metadata.channels)
 
-        mds = FluorescenceImageMetadata(
-            acquisition_date=first_img.metadata.acquisition_date,
-            pixel_size_x=first_img.metadata.pixel_size_x,
-            pixel_size_y=first_img.metadata.pixel_size_y,
-            pixel_size_z=first_img.metadata.pixel_size_z,
-            resolution=first_img.metadata.resolution,
-            channels=channels,
-            z_positions=first_img.metadata.z_positions,
-            stage_position=first_img.metadata.stage_position,
-            filename=first_img.metadata.filename,
-            description=first_img.metadata.description,
-            system_info=first_img.metadata.system_info,
-        )
+        # As above: copy and override, so a new metadata field cannot go missing here.
+        mds = replace(first_img.metadata, channels=channels)
 
         return FluorescenceImage(data=stacked_data, metadata=mds)
 
@@ -855,6 +849,10 @@ class FluorescenceImage:
             filename=self.metadata.filename,
             description=self.metadata.description,
             system_info=self.metadata.system_info,
+            # A projection of a lamella's image is still that lamella's. Carried
+            # forward so a derived image does not lose what produced it (FIB-466).
+            experiment=self.metadata.experiment,
+            geometry=self.metadata.geometry,
             dimension_order=self.metadata.dimension_order,
         )
 
@@ -987,6 +985,10 @@ class FluorescenceImage:
             filename=self.metadata.filename,
             description=self.metadata.description,
             system_info=self.metadata.system_info,
+            # A projection of a lamella's image is still that lamella's. Carried
+            # forward so a derived image does not lose what produced it (FIB-466).
+            experiment=self.metadata.experiment,
+            geometry=self.metadata.geometry,
             dimension_order=self.metadata.dimension_order,
         )
 
@@ -1218,6 +1220,19 @@ class FluorescenceImageMetadata:
     # Stage position (optional, for correlative imaging)
     stage_position: Optional[FibsemStagePosition] = None
 
+    # Geometry the image was captured under, for reprojecting stage positions onto it.
+    # None on images written before this was recorded; reprojection raises rather than
+    # guessing, since a marker drawn in the wrong place looks exactly like one drawn in
+    # the right place.
+    geometry: Optional[FibsemHardwareGeometry] = None
+
+    # Which experiment, item and task produced this. The same record the beam path
+    # carries, for the same reason: a forwarded file should say what produced it
+    # without the surrounding directory (FIB-466). None on images written before this
+    # was recorded, on ones acquired outside a workflow, and on ones written by other
+    # software -- `from_ome` reconstructs from OME's own fields and cannot recover it.
+    experiment: Optional[FibsemExperimentRef] = None
+
     # File information
     filename: Optional[str] = None  # original filename
     description: Optional[str] = None  # image description/notes
@@ -1276,6 +1291,8 @@ class FluorescenceImageMetadata:
             "filename": self.filename,
             "description": self.description,
             "system_info": self.system_info,
+            "geometry": self.geometry.to_dict() if self.geometry else None,
+            "experiment": self.experiment.to_dict() if self.experiment else None,
             "channels": [
                 {
                     "name": ch.name,
@@ -1344,11 +1361,29 @@ class FluorescenceImageMetadata:
             filename=metadata_dict.get("filename"),
             description=metadata_dict.get("description"),
             system_info=metadata_dict.get("system_info"),
+            geometry=(
+                FibsemHardwareGeometry.from_dict(metadata_dict["geometry"])
+                if metadata_dict.get("geometry")
+                else None
+            ),
+            experiment=(
+                FibsemExperimentRef.from_dict(metadata_dict["experiment"])
+                if metadata_dict.get("experiment")
+                else None
+            ),
         )
     
     @classmethod
     def from_ome(cls, ome: OMEMetadata) -> 'FluorescenceImageMetadata':
-        """Convert OME metadata to FluorescenceImageMetadata with availability checks."""
+        """Convert OME metadata to FluorescenceImageMetadata with availability checks.
+
+        For importing images from **external software**. `load` prefers the
+        `FluorescenceImageMetadata` map annotation, which is what this package writes
+        and which round-trips everything; this reconstructs from OME's own structured
+        fields, so anything with no OME equivalent -- `system_info`, `geometry`,
+        `experiment` -- comes back None. That is the honest answer for a file another
+        program produced, not a gap to fill in with defaults.
+        """
 
         # TODO: add test cases for this function
         # TODO: support loading power, gain, offset from OME if available
@@ -1480,14 +1515,29 @@ class FluorescenceImageMetadata:
 
 @dataclass
 class OverviewParameters:
-    """Parameters for FM overview/tileset acquisition."""
-    
+    """Parameters for FM overview/tileset acquisition.
+
+    Attributes:
+        rows: Number of tile rows.
+        cols: Number of tile columns.
+        overlap: Fractional overlap between adjacent tiles.
+        use_zstack: Acquire a z-stack at each tile.
+        autofocus_mode: When to autofocus during the traversal.
+        tile_order: Traversal strategy over the grid.
+        tile_mask: Optional per-tile enable mask, `tile_mask[row][col]`. None acquires
+            every tile. Disabled tiles are skipped but keep their place: the mosaic is
+            still the full grid size and acquired tiles land at the same canvas
+            coordinates they would have in a dense overview.
+    """
+
     rows: int = 3
     cols: int = 3
     overlap: float = 0.1
     use_zstack: bool = False
     autofocus_mode: AutoFocusMode = AutoFocusMode.NONE
-    
+    tile_order: TileOrderStrategy = TileOrderStrategy.TYPEWRITER
+    tile_mask: Optional[List[List[bool]]] = None
+
     def to_dict(self) -> dict:
         """Convert to dictionary representation."""
         return {
@@ -1496,18 +1546,34 @@ class OverviewParameters:
             "overlap": self.overlap,
             "use_zstack": self.use_zstack,
             "autofocus_mode": self.autofocus_mode.value,
+            "tile_order": self.tile_order.value,
+            # plain bools: np.bool_ does not survive yaml.safe_dump
+            "tile_mask": None if self.tile_mask is None
+            else [[bool(v) for v in row] for row in self.tile_mask],
         }
-    
+
     @classmethod
     def from_dict(cls, ddict: dict) -> "OverviewParameters":
         """Create OverviewParameters from dictionary."""
+        mask = ddict.get("tile_mask")
         return cls(
             rows=ddict.get("rows", 3),
             cols=ddict.get("cols", 3),
             overlap=ddict.get("overlap", 0.1),
             use_zstack=ddict.get("use_zstack", False),
             autofocus_mode=AutoFocusMode(ddict.get("autofocus_mode", AutoFocusMode.NONE.value)),
+            tile_order=TileOrderStrategy(
+                ddict.get("tile_order", TileOrderStrategy.TYPEWRITER.value)
+            ),
+            tile_mask=None if mask is None else [[bool(v) for v in row] for row in mask],
         )
+
+    @property
+    def n_enabled_tiles(self) -> int:
+        """How many tiles will actually be acquired."""
+        if self.tile_mask is None:
+            return self.rows * self.cols
+        return sum(bool(v) for row in self.tile_mask for v in row)
 
 
 @dataclass
@@ -1534,7 +1600,7 @@ class CameraSettings:
             gain=ddict.get("gain", 1.0),
             offset=ddict.get("offset", 0.0),
             binning=ddict.get("binning", 1),
-            transform=CameraImageTransform(ddict.get("transform", CameraImageTransform.NONE.value)),
+            transform=_parse_image_transform(ddict.get("transform")),
         )
 
 

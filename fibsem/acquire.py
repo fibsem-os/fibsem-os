@@ -4,7 +4,6 @@ import copy
 import os
 from typing import Optional, Tuple
 
-from fibsem.autofunctions import gamma as autogamma
 from fibsem.autofunctions.acb import run_auto_contrast_brightness
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
@@ -48,9 +47,6 @@ def new_image(
     image = microscope.acquire_image(
         image_settings=settings,
     )
-
-    if settings.autogamma:
-        image = autogamma.auto_gamma(image, method="autogamma")
 
     # save image
     if settings.save:

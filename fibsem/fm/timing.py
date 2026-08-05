@@ -145,6 +145,7 @@ def estimate_tileset_acquisition_time(
     grid_size: Tuple[int, int],
     zparams: Optional[ZParameters] = None,
     autofocus_mode: AutoFocusMode = AutoFocusMode.NONE,
+    tile_mask: Optional[List[List[bool]]] = None,
 ) -> dict:
     """Estimate the total time required for tileset acquisition.
 
@@ -197,7 +198,15 @@ def estimate_tileset_acquisition_time(
             f"Grid dimensions must be positive integers, got rows={rows}, cols={cols}"
         )
 
-    total_tiles = rows * cols
+    # A masked run visits only the enabled tiles, and only the rows that contain one.
+    # Estimating the full grid instead reports roughly three times the real duration
+    # for a typical sparse selection -- and the estimate is what the confirmation
+    # dialog and the remaining-time readout are built on.
+    if tile_mask is not None:
+        total_tiles = sum(bool(v) for row in tile_mask for v in row)
+        rows = sum(1 for row in tile_mask if any(row))
+    else:
+        total_tiles = rows * cols
 
     # Calculate image acquisition time per tile
     tile_acquisition_time = estimate_acquisition_time(channel_settings, zparams)
@@ -206,17 +215,11 @@ def estimate_tileset_acquisition_time(
     # Calculate total images
     total_images = calculate_total_images_count(channel_settings, zparams) * total_tiles
 
-    # Calculate stage movement time
-    # For a grid pattern: (cols-1) horizontal moves per row + (rows-1) vertical moves + row resets
-    if total_tiles <= 1:
-        # No movement needed for 0 or 1 tiles
-        total_stage_moves = 0
-    else:
-        horizontal_moves = (cols - 1) * rows  # Moves within each row
-        vertical_moves = rows - 1  # Moves to next row
-        # Row resets only needed when there are multiple columns
-        row_resets = (rows - 1) if cols > 1 else 0  # Return to first column of next row
-        total_stage_moves = horizontal_moves + vertical_moves + row_resets
+    # Calculate stage movement time. One absolute move per tile: the runner projects
+    # every tile position up front and drives straight to each one, so there are no
+    # separate row-advance or row-reset moves to count. (The previous model counted
+    # those, and also assumed a full rectangular sweep, which a mask breaks.)
+    total_stage_moves = max(0, total_tiles - 1)
 
     total_stage_movement_time = total_stage_moves * DEFAULT_STAGE_MOVE_TIME
 

@@ -277,13 +277,13 @@ def calculate_statistics_dataframe(path: Path, encoding: str = "cp1252"):
     df_milling["exp_name"] = experiment.name
 
     # add experiment id to all df
-    df_history["exp_id"] = experiment._id if experiment._id is not None else "NO_ID"
-    df_beam_shift["exp_id"] = experiment._id if experiment._id is not None else "NO_ID"
-    df_steps["exp_id"] = experiment._id if experiment._id is not None else "NO_ID"
-    df_stage["exp_id"] = experiment._id if experiment._id is not None else "NO_ID"
-    df_det["exp_id"] = experiment._id if experiment._id is not None else "NO_ID"
-    df_click["exp_id"] = experiment._id if experiment._id is not None else "NO_ID"
-    df_milling["exp_id"] = experiment._id if experiment._id is not None else "NO_ID"
+    df_history["exp_id"] = experiment.id if experiment.id is not None else "NO_ID"
+    df_beam_shift["exp_id"] = experiment.id if experiment.id is not None else "NO_ID"
+    df_steps["exp_id"] = experiment.id if experiment.id is not None else "NO_ID"
+    df_stage["exp_id"] = experiment.id if experiment.id is not None else "NO_ID"
+    df_det["exp_id"] = experiment.id if experiment.id is not None else "NO_ID"
+    df_click["exp_id"] = experiment.id if experiment.id is not None else "NO_ID"
+    df_milling["exp_id"] = experiment.id if experiment.id is not None else "NO_ID"
 
     # write dataframes to csv, overwrite
     filename = os.path.join(path, 'history.csv')
@@ -486,12 +486,16 @@ def format_pretty_dataframes(dfs: dict[str, pd.DataFrame]) -> dict[str, pd.DataF
     # WORKFLOW
     df_workflow = dfs["workflow"]
     # rename cols
+    # errors="raise" so a column that stops existing fails loudly. This rename
+    # asked for "task" while workflow_dataframe() produces "task_name", and pandas
+    # ignores unknown labels by default -- so the PDF quietly showed the raw column
+    # name instead. See FIB-458.
     df_workflow = df_workflow.rename(columns={
         "order": "Order",
-        "task": "Task Name",
+        "task_name": "Task Name",
         "required": "Required",
         "supervised": "Supervised",
-    })
+    }, errors="raise")
 
     # TASK HISTORY
     df_task_history = dfs["task_history"]

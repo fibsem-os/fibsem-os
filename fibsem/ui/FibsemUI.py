@@ -3,6 +3,7 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import pyqtSignal
 import napari.utils.notifications
 import fibsem
+from fibsem.versioning import get_version_string
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, MicroscopeSettings
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
@@ -20,10 +21,10 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
         super().__init__()
         self.setupUi(self)
 
-        self.label_title.setText(f"fibsemOS v{fibsem.__version__}")
+        self.label_title.setText(f"fibsemOS v{get_version_string()}")
 
         self.viewer = viewer
-        self.viewer.title = f"fibsemOS v{fibsem.__version__}"
+        self.viewer.title = f"fibsemOS v{get_version_string()}"
 
         self.microscope: FibsemMicroscope = None
         self.settings: MicroscopeSettings = None
@@ -157,7 +158,7 @@ def main():
     viewer.window.add_dock_widget(fibsem_ui, 
                                   area="right", 
                                   add_vertical_stretch=False, 
-                                  name=f"fibsemOS v{fibsem.__version__}")
+                                  name=f"fibsemOS v{get_version_string()}")
     napari.run()
 
 

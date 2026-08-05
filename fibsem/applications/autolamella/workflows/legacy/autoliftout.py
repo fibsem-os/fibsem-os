@@ -292,7 +292,6 @@ def land_needle_on_milled_lamella(
             beam_type=BeamType.ION,
             save=False,
             autocontrast=False,
-            autogamma=False,
             filename=None,
         )
     )
@@ -312,7 +311,6 @@ def land_needle_on_milled_lamella(
     microscope.move_manipulator_corrected(dx=0, dy=dz, beam_type=BeamType.ION)
 
     # restore imaging settings
-    settings.image.autogamma = True
     settings.image.reduced_area = None
 
     acquire.take_set_of_reference_images(
@@ -334,7 +332,6 @@ def _liftout_contact_detection(microscope: FibsemMicroscope, settings: Microscop
     settings.image.hfw = fcfg.REFERENCE_HFW_SUPER
     settings.image.filename = f"ref_{lamella.state.stage.name}_manipulator_land_initial"
     settings.image.save = True
-    settings.image.autogamma = False
     reduced_area = FibsemRectangle(
         0.2, 0.2, 0.70, 0.70
     )  # TODO: improve contact detection

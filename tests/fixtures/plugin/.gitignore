@@ -1,0 +1,6 @@
+# Installing this fixture (see tests/test_plugin_entry_points.py) writes build
+# artefacts here. The repo-root .gitignore does not cover them: its `build/*`
+# and `*.egg-info/*` patterns contain a non-trailing slash, so git anchors them
+# to the root and they never match this directory.
+build/
+*.egg-info/

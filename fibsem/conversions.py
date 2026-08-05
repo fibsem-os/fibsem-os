@@ -210,3 +210,29 @@ def convert_point_from_metres_to_pixel(point: Point, pixelsize: float) -> Point:
         y=convert_metres_to_pixels(point.y, pixelsize),
     )
     return point_px
+
+
+def is_inside_image_bounds(coords: Tuple[float, float], shape: Tuple[int, int]) -> bool:
+    """Check if the coordinates are inside the image bounds.
+
+    Args:
+        coords (Tuple[float, float]): y, x coordinates
+        shape (Tuple[int, int]): image shape (y, x)
+
+    Returns:
+        bool: True if inside image bounds, False otherwise.
+
+    NOTE: the lower bound is exclusive, so row/column 0 reports as outside even
+    though it is a real pixel. This is intentional -- callers use it to decide
+    whether to draw a marker, and widening the region would change what they
+    render. It reads like an off-by-one, so it is pinned by test to stop it being
+    tidied away.
+    """
+    ycoord, xcoord = coords
+
+    if (ycoord > 0 and ycoord < shape[0]) and (
+        xcoord > 0 and xcoord < shape[1]
+    ):
+        return True
+
+    return False

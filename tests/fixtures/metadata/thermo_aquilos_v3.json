@@ -1,0 +1,180 @@
+{
+  "experiment": {
+    "application": "autolamella",
+    "application_version": "0.5.1.dev0",
+    "date": 1784188826.620654,
+    "fibsem_version": "0.5.1.dev0",
+    "id": "test-experiment",
+    "method": "null"
+  },
+  "image": {
+    "autocontrast": false,
+    "autogamma": false,
+    "beam_type": "ELECTRON",
+    "drift_correction": false,
+    "dwell_time": 1e-06,
+    "filename": "ref_Mill Fiducial_start",
+    "frame_integration": null,
+    "hfw": 4.9999999999999996e-05,
+    "line_integration": null,
+    "path": "D:\\SharedData\\user\\test-experiment\\01-test-lamella",
+    "reduced_area": null,
+    "resolution": [
+      1536,
+      1024
+    ],
+    "save": true,
+    "scan_interlacing": null
+  },
+  "microscope_state": {
+    "electron_beam": {
+      "beam_current": 5e-11,
+      "beam_type": "ELECTRON",
+      "dwell_time": 5e-07,
+      "hfw": 4.9999999999999996e-05,
+      "preset": null,
+      "resolution": [
+        1536,
+        1024
+      ],
+      "scan_rotation": 3.141592653589793,
+      "shift": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "stigmation": {
+        "x": 0.0007350985034412339,
+        "y": -0.00028516460339771674
+      },
+      "voltage": 5000.0,
+      "working_distance": 0.007
+    },
+    "electron_detector": {
+      "brightness": 0.33552499542378617,
+      "contrast": 0.7881260104734966,
+      "mode": "SecondaryElectrons",
+      "type": "ETD"
+    },
+    "ion_beam": null,
+    "ion_detector": null,
+    "objective_position": null,
+    "stage_position": {
+      "coordinate_system": "RAW",
+      "name": null,
+      "r": 1.9199378812145955,
+      "t": 0.10468250101574306,
+      "x": -0.0032723333333333337,
+      "y": 0.0034050833333333337,
+      "z": 0.03238159079218107
+    },
+    "timestamp": "07/16/2026 11:07:27"
+  },
+  "pixel_size": {
+    "x": 3.255208333333333e-08,
+    "y": 3.255208333333333e-08
+  },
+  "system": {
+    "electron": {
+      "beam_type": "ELECTRON",
+      "column_tilt": 0,
+      "current": 5e-11,
+      "detector_brightness": 0.0,
+      "detector_contrast": 0.0,
+      "detector_mode": "Unknown",
+      "detector_type": "Unknown",
+      "dwell_time": 1e-06,
+      "enabled": true,
+      "eucentric_height": 0.007,
+      "hfw": 0.00015,
+      "plasma": false,
+      "plasma_gas": null,
+      "preset": null,
+      "resolution": [
+        1536,
+        1024
+      ],
+      "scan_rotation": 0.0,
+      "shift": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "stigmation": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "voltage": 2000,
+      "working_distance": 0.007
+    },
+    "gis": {
+      "enabled": true,
+      "multichem": false,
+      "sputter_coater": false
+    },
+    "info": {
+      "application": null,
+      "application_version": null,
+      "fibsem_version": "0.5.1.dev0",
+      "hardware_version": "32.1.1.21605",
+      "ip_address": "127.0.0.1",
+      "manufacturer": "Thermo",
+      "model": "Aquilos",
+      "name": "test-configuration",
+      "serial_number": "0000000",
+      "software_version": "4.9.0.902"
+    },
+    "ion": {
+      "beam_type": "ION",
+      "column_tilt": 52,
+      "current": 2e-11,
+      "detector_brightness": 0.0,
+      "detector_contrast": 0.0,
+      "detector_mode": "Unknown",
+      "detector_type": "Unknown",
+      "dwell_time": 1e-06,
+      "enabled": true,
+      "eucentric_height": 0.019,
+      "hfw": 0.00015,
+      "plasma": false,
+      "plasma_gas": "None",
+      "preset": null,
+      "resolution": [
+        1536,
+        1024
+      ],
+      "scan_rotation": 0.0,
+      "shift": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "stigmation": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "voltage": 30000,
+      "working_distance": 0.019
+    },
+    "manipulator": {
+      "enabled": true,
+      "rotation": false,
+      "tilt": false
+    },
+    "sim": {},
+    "stage": {
+      "enabled": true,
+      "manipulator_height_limit": 0.0037,
+      "milling_angle": 9.0,
+      "rotation": true,
+      "rotation_180": 290,
+      "rotation_reference": 110,
+      "shuttle_pre_tilt": 35.0,
+      "tilt": true
+    }
+  },
+  "user": {
+    "email": "null",
+    "hostname": "TEST-PC",
+    "name": "user",
+    "organization": "null"
+  },
+  "version": "v3"
+}

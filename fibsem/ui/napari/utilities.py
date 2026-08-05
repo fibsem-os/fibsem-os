@@ -192,23 +192,6 @@ def draw_scalebar_in_napari(
         viewer.layers[SCALEBAR_LAYER_NAME].text = scale_bar_txt
 
 
-def is_inside_image_bounds(coords: Tuple[float, float], shape: Tuple[int, int]) -> bool:
-    """Check if the coordinates are inside the image bounds.
-    Args:
-        coords (Tuple[float, float]): y, x coordinates
-        shape (Tuple[int, int]): image shape (y, x)
-    Returns:
-        bool: True if inside image bounds, False otherwise."""
-    ycoord, xcoord = coords
-
-    if (ycoord > 0 and ycoord < shape[0]) and (
-        xcoord > 0 and xcoord < shape[1]
-    ):
-        return True
-    
-    return False
-
-
 def is_position_inside_layer(position: Tuple[float, float], target_layer) -> bool:
     """Check if the position of the event is inside the bounds of the target layer.
     Args:
@@ -421,6 +404,17 @@ def update_text_overlay(viewer: napari.Viewer, microscope: FibsemMicroscope,
         viewer: napari viewer object
         microscope: FibsemMicroscope instance
     """
+    if microscope is None:
+        # Expected before a microscope is connected, not an error. FibsemUI builds the
+        # minimap widget during setup, and that widget's `microscope` property reads
+        # through to its parent, which is None until connect. The widget already
+        # treats that as a normal state (`if self.microscope is None: return`); this
+        # was the one path that passed it through to be dereferenced, so every launch
+        # logged "Error updating text overlay: 'NoneType' object has no attribute
+        # '_stage_position'".
+        viewer.text_overlay.text = "<STAGE POSITION UNAVAILABLE>"
+        return
+
     try:
 
         if isinstance(microscope, TescanMicroscope):

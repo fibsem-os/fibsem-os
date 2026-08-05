@@ -4,11 +4,13 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+import threading
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
+from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
 from fibsem.structures import BeamType
 
 import numpy as np
@@ -284,6 +286,7 @@ def _run_sweep(
     sweep_pass: FocusSweepPass,
     pass_index: int,
     beam_type: BeamType,
+    stop_event: Optional[threading.Event] = None,
 ) -> "tuple[list[AutoFocusIteration], float]":
     """Acquire images across a WD range and return iterations + best WD."""
     half_range = sweep_pass.search_range / 2
@@ -291,6 +294,7 @@ def _run_sweep(
 
     iterations = []
     for i, wd in enumerate(wds):
+        raise_if_cancelled(stop_event, "AutoFocus cancelled by user.")  # abort between WD steps
         microscope.set_working_distance(wd, beam_type)
         probe = microscope.acquire_image(image_settings=probe_settings)
         score = float(np.mean(focus_fn(probe.filtered_data.astype(np.float32))))
@@ -315,6 +319,7 @@ def run_auto_focus(
     beam_type: BeamType = BeamType.ELECTRON,
     hfw: float = 150e-6,
     settings: AutoFocusSettings = None,
+    stop_event: Optional[threading.Event] = None,
 ) -> AutoFocusResult:
     """Multi-pass image-based auto-focus sweep.
 
@@ -328,10 +333,16 @@ def run_auto_focus(
         beam_type: Which beam to focus.
         hfw: Horizontal field width for probe images (metres).
         settings: ``AutoFocusSettings``; defaults constructed if ``None``.
+        stop_event: Cancellation event, polled between passes and between working
+            distance steps. On cancel the starting working distance is restored and
+            ``OperationCancelledError`` is raised.
 
     Returns:
         ``AutoFocusResult`` with the best probe image, winning working
         distance, focus score, and full per-pass iteration history.
+
+    Raises:
+        OperationCancelledError: if ``stop_event`` is set during the sweep.
     """
     from fibsem.autofunctions.metrics import get_focus_measure_function
     from fibsem.structures import BeamType, ImageSettings
@@ -349,7 +360,6 @@ def run_auto_focus(
         hfw=hfw,
         beam_type=beam_type,
         autocontrast=False,
-        autogamma=False,
         save=False,
         reduced_area=settings.reduced_area,
     )
@@ -378,11 +388,17 @@ def run_auto_focus(
 
     try:
         for pass_index, sweep_pass in enumerate(active_passes):
+            raise_if_cancelled(stop_event, "AutoFocus cancelled by user.")  # abort between passes
             pass_iters, centre_wd = _run_sweep(
                 microscope, probe_settings, focus_fn,
                 centre_wd, sweep_pass, pass_index, beam_type,
+                stop_event=stop_event,
             )
             iterations.extend(pass_iters)
+    except OperationCancelledError:
+        logger.info("AutoFocus cancelled — restoring initial WD %.4e", initial_wd)
+        microscope.set_working_distance(initial_wd, beam_type)
+        raise
     except Exception:
         logger.exception("AutoFocus failed — restoring initial WD %.4e", initial_wd)
         microscope.set_working_distance(initial_wd, beam_type)

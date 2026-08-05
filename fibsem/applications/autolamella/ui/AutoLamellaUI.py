@@ -15,8 +15,7 @@ from copy import deepcopy
 from typing import List, Optional, TYPE_CHECKING
 import numpy as np
 import napari
-import fibsem
-from fibsem import conversions, utils
+from fibsem import conversions
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
 from fibsem.ui import notification_service
 from fibsem.microscope import FibsemMicroscope
@@ -40,6 +39,7 @@ from fibsem.ui import (
     stylesheets,
 )
 from fibsem.ui.FMAcquisitionWidget import open_fm_acquisition_dialog
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui import utils as fui
 from PyQt5.QtCore import pyqtSignal
@@ -82,12 +82,12 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
-from fibsem.applications.autolamella.workflows.tasks.hooks import (
-    HookEvent,
-    HookManager,
-    LoggingHook,
-    NotificationHook,
-)
+# Paired with the disabled completion_summary hook in setup_hooks; FunctionHook and
+# HookEvent come back from fibsem.hooks below at the same time.
+# from fibsem.applications.autolamella.tools.artifacts import write_completion_summary
+import fibsem.config as fibsem_cfg
+from fibsem.applications.autolamella.hook_defaults import build_hook_manager
+from fibsem.hooks import HookManager
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
 from psygnal import EmissionInfo
@@ -151,6 +151,11 @@ INSTRUCTIONS = {
 
 class AutoLamellaUI(QMainWindow):
     workflow_update_signal = pyqtSignal(dict)
+    # Kept separate from workflow_update_signal on purpose: that one drives
+    # handle_workflow_update, which reconfigures the interaction UI and clears
+    # WAITING_FOR_UI_UPDATE on every emission. A queue edit is not a step in the
+    # task lifecycle and must not disturb any of that.
+    queue_changed_signal = pyqtSignal(dict)
     step_update_signal = pyqtSignal(str)  # emits human-readable step label
     detection_confirmed_signal = pyqtSignal(bool)
     _workflow_finished_signal = pyqtSignal(bool)
@@ -209,7 +214,7 @@ class AutoLamellaUI(QMainWindow):
         self.SELECTED_POI: Optional[Point] = None
         self._poi_layer = None
         self._workflow_stop_event: threading.Event = threading.Event()
-        self._task_worker_thread: Optional[threading.Thread] = None
+        self._task_worker_thread: Optional[FunctionWorker] = None
         self._task_manager: Optional[TaskManager] = None
         self._last_run_summary: Optional["pd.DataFrame"] = None
 
@@ -297,6 +302,16 @@ class AutoLamellaUI(QMainWindow):
         return (
             self._task_worker_thread is not None and self._task_worker_thread.is_alive()
         )
+
+    def _script_runner_is_busy(self) -> bool:
+        """Whether a user script is currently driving the microscope (FIB-340).
+
+        Reached through the parent window, which owns the Scripts menu. Absent in
+        the tests and in any host that never built one, so this stays optional
+        rather than asserting the attribute exists.
+        """
+        controller = getattr(self.parent_widget, "script_menu_controller", None)
+        return bool(controller is not None and controller.runner.is_running)
 
     def setup_connections(self):
 
@@ -389,123 +404,6 @@ class AutoLamellaUI(QMainWindow):
             self.movement_widget.update_ui(stage_position=stage_position)
 
         self._update_minimap_data(stage_position=stage_position)
-        self._update_lamella_display()
-
-    def _update_lamella_display(self, selected_name: Optional[str] = None) -> None:
-        """Update the lamella display in the live fib view."""
-
-        if not cfg.FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED:
-            return
-
-        if self.experiment is None:
-            return
-
-        if self.image_widget is None:
-            return
-
-        if self.image_widget.ib_image is None or self.image_widget.ib_layer is None:
-            return
-
-        from fibsem.imaging.tiled import reproject_stage_positions_onto_image2
-        from fibsem.ui.napari.utilities import (
-            NapariShapeOverlay,
-            create_crosshair_shape,
-        )
-        from fibsem.ui.FibsemMinimapWidget import CROSSHAIR_CONFIG
-
-        if selected_name is None:
-            selected_name = self.lamella_list.selected_name
-
-        try:
-            # image.metadata.image_settings.beam_type = BeamType.ION # WHYYY
-            points = reproject_stage_positions_onto_image2(
-                image=self.image_widget.ib_image,
-                positions=self.experiment.get_milling_positions(),
-                bound=True,
-            )
-
-            # NOTE: this displayes the previous lamella position when using workflow becasue when the stage position moves, the image is still the previous one
-            # so the reprojected position is wrong until a new image is acquired. but this doesn't trigger a new render until the next stage move. so its always 'one behind'
-            # should disable until we can fix this properly
-
-            layer_scale = None
-            overlays: List[NapariShapeOverlay] = []
-            for pt in points:
-                saved_lines = create_crosshair_shape(
-                    pt, CROSSHAIR_CONFIG["crosshair_size"], layer_scale
-                )
-
-                # Use lime for selected position, cyan for others
-                color = CROSSHAIR_CONFIG["colors"]["saved_unselected"]
-                if pt.name == selected_name:
-                    color = CROSSHAIR_CONFIG["colors"]["saved_selected"]
-
-                # Show position name on crosshair if saved position FOV is disabled
-                # label = saved_pos.name if not self.show_saved_positions_fov else ""
-
-                for line, txt in zip(saved_lines, [pt.name, ""]):
-                    overlays.append(
-                        NapariShapeOverlay(
-                            shape=line, color=color, label=txt, shape_type="line"
-                        )
-                    )
-
-            crosshair_overlays = overlays
-
-            # TODO: use a common function for this?
-            # QUERY: also do it for the SEM?
-            # Collect all crosshair overlays
-            layer_name = CROSSHAIR_CONFIG["layer_name"]
-
-            if len(crosshair_overlays) == 0:
-                logging.info("No crosshair overlays to display.")
-                # Remove existing layer if no overlays to display
-                if layer_name in self.viewer.layers:
-                    self.viewer.layers.remove(layer_name)
-                return
-
-            # Extract data for napari
-            crosshair_lines = [overlay.shape for overlay in crosshair_overlays]
-            colors = [overlay.color for overlay in crosshair_overlays]
-            labels = [overlay.label for overlay in crosshair_overlays]
-
-            # Prepare text properties for labels
-            text_properties = {"string": labels, **CROSSHAIR_CONFIG["text_properties"]}
-            # text_properties["color"] = colors # displays the text the same color as the line
-
-            # Update or create the napari layer
-            if layer_name in self.viewer.layers:
-                # Update existing layer
-                layer = self.viewer.layers[layer_name]
-                layer.data = crosshair_lines
-                # Note: edge_color and text updates may not work with all napari versions
-                try:
-                    layer.edge_color = colors
-                    layer.edge_width = CROSSHAIR_CONFIG["line_style"]["edge_width"]
-                    layer.face_color = CROSSHAIR_CONFIG["line_style"]["face_color"]
-                    layer.text = text_properties
-                    layer.visible = True
-                    layer.translate = self.image_widget.ib_layer.translate
-                except AttributeError:
-                    logging.warning("Could not update layer properties directly")
-            else:
-                # Create new layer
-                self.viewer.add_shapes(
-                    data=crosshair_lines,
-                    name=layer_name,
-                    shape_type="line",
-                    edge_color=colors,
-                    edge_width=CROSSHAIR_CONFIG["line_style"]["edge_width"],
-                    face_color=CROSSHAIR_CONFIG["line_style"]["face_color"],
-                    scale=layer_scale,
-                    text=text_properties,
-                    translate=self.image_widget.ib_layer.translate,
-                )
-
-        except Exception as e:
-            logging.warning(f"Could not update lamella display: {e}")
-        finally:
-            self.image_widget.restore_active_layer_for_movement()
 
     def _disconnect_experiment_events(self) -> None:
         """Disconnect existing experiment and microscope event subscribers.
@@ -558,13 +456,7 @@ class AutoLamellaUI(QMainWindow):
 
         # Register metadata
         if self.microscope is not None:
-            utils._register_metadata(
-                microscope=self.microscope,
-                application_software="autolamella",
-                application_software_version=fibsem.__version__,
-                experiment_name=self.experiment.name,
-                experiment_method="null",
-            )
+            self.experiment.register_metadata(self.microscope)
 
         # Update UI
         self.update_lamella_combobox()
@@ -588,16 +480,7 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast("Experiment creation cancelled.", "info")
             return
 
-        # Disconnect existing event subscribers if there's an existing experiment
-        self._disconnect_experiment_events()
-
-        # Assign the experiment
-        self.experiment = experiment
-
-        # Setup experiment connections and update UI
-        self._setup_experiment_connections()
-
-        self.experiment_update_signal.emit()
+        self._adopt_experiment(experiment)
 
     def load_experiment(self) -> None:
         """Load an existing experiment using the experiment loading dialog."""
@@ -614,11 +497,27 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast("Experiment loading cancelled.", "info")
             return
 
+        self._adopt_experiment(experiment)
+
+    def _adopt_experiment(self, experiment: Experiment) -> None:
+        """Make ``experiment`` the current one, and point logging at its logfile.
+
+        The single place the app takes ownership of an experiment, whether it was
+        just created or loaded from disk. Logging is configured here rather than in
+        Experiment.load/create because those are also called to *read* an
+        experiment -- the load dialog calls load() on every single click to preview
+        a recent entry, which previously repointed the app's root logger at each one
+        in turn, and closed the previous handler, even when the dialog was then
+        cancelled. See FIB-421.
+        """
         # Disconnect existing event subscribers if there's an existing experiment
         self._disconnect_experiment_events()
 
         # Assign the experiment
         self.experiment = experiment
+
+        experiment.configure_logging()
+        logging.info(f"Logging to experiment {experiment.name} at {experiment.path}")
 
         # Setup experiment connections and update UI
         self._setup_experiment_connections()
@@ -808,13 +707,10 @@ class AutoLamellaUI(QMainWindow):
     #### PROTOCOL EDITOR
 
     def open_information_dialog(self) -> None:
-        if self.microscope is None:
-            notification_service.show_toast(
-                "Please connect to a microscope first... [No Microscope Connected]",
-                "warning",
-            )
-            return
-        fui.open_information_dialog(self.microscope, self)
+        # No connection guard: checking which version you are running is exactly
+        # what you want to do *before* connecting. The dialog drops the
+        # microscope section when there is nothing to report.
+        fui.open_information_dialog(self.microscope, self, application="AutoLamella")
 
     def _open_experiment_directory(self) -> None:
         """Open the experiment directory in the system file explorer."""
@@ -835,6 +731,45 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast(
                 "Failed to open experiment directory.", "error"
             )
+
+    def export_targeting_ml_data(self) -> None:
+        """Export the experiment's lamella targets as targeting ML training data.
+
+        One sample per lamella: the final FIB reference image from its Select Milling
+        Position task, labelled with the operator's point of interest. Writes to
+        <experiment>/targeting-export. See
+        fibsem.applications.autolamella.tools.ml_export for the layout.
+        """
+        from fibsem.applications.autolamella.tools import ml_export
+
+        if self.experiment is None:
+            notification_service.show_toast(
+                "Please load an experiment first... [No Experiment Loaded]", "warning"
+            )
+            return
+
+        # no directory prompt: the destination is a subfolder of the experiment that
+        # does not exist yet, which an existing-directory dialog cannot select. The
+        # folder is opened afterwards so the location is still discoverable.
+        output_path = ml_export.default_output_path(self.experiment)
+
+        try:
+            summary = ml_export.export_experiment(self.experiment, output_path)
+        except Exception as e:
+            logging.error(f"Failed to export targeting ML data: {e}", exc_info=True)
+            notification_service.show_toast(f"Export failed: {e}", "error")
+            return
+
+        if summary.n_samples == 0:
+            reason = summary.skipped[0] if summary.skipped else "nothing to export"
+            notification_service.show_toast(f"Nothing exported: {reason}", "warning")
+            return
+
+        message = f"Exported {summary.n_samples} lamella target(s)."
+        if summary.skipped:
+            message += f" Skipped {len(summary.skipped)}."
+        notification_service.show_toast(message, "success")
+        fui.open_path_in_file_explorer(output_path)
 
     #### FLUORESCENCE MINIMAP
 
@@ -940,7 +875,8 @@ class AutoLamellaUI(QMainWindow):
                     resolution=(2048, 2048), hfw=4000e-6
                 )
                 image.metadata.microscope_state = ms  # type: ignore
-                image.metadata.system = self.microscope.system  # type: ignore
+                image.metadata.system_info = self.microscope.system.info  # type: ignore
+                image.metadata.hardware_geometry = self.microscope.hardware_geometry()  # type: ignore
                 self.minimap_plot_widget.image = image
 
             beam_type = self.minimap_plot_widget.image.metadata.beam_type  # type: ignore
@@ -973,14 +909,21 @@ class AutoLamellaUI(QMainWindow):
     ) -> None:
         """Start the workflow thread with the selected tasks and lamella, and update the UI accordingly."""
 
+        # A user script may be driving the microscope right now. Scripts are already
+        # blocked while a workflow runs; this is the other direction, so the two
+        # cannot end up moving the stage at the same time (FIB-340).
+        if self._script_runner_is_busy():
+            msg = "A microscope script is running. Stop it before starting a workflow."
+            logging.warning(msg)
+            notification_service.show_toast(msg, "warning")
+            return
+
         # clear milling task config
         self.milling_task_config_widget.clear()  # type: ignore
 
         # Start acquisition thread
-        self._task_worker_thread = threading.Thread(
-            target=self._run_tasks_worker,
-            args=(selected_tasks, selected_lamella),
-            daemon=True,
+        self._task_worker_thread = FunctionWorker(
+            self._run_tasks_worker, selected_tasks, selected_lamella
         )
         self._task_worker_thread.start()
 
@@ -1036,44 +979,55 @@ class AutoLamellaUI(QMainWindow):
         self._stop_workflow_thread()
 
     def setup_hooks(self) -> HookManager:
-        """Build the default HookManager for task lifecycle events."""
-        manager = HookManager()
-        manager.register(
-            LoggingHook(
-                name="task_logger",
-                events=[
-                    HookEvent.TASK_STARTED,
-                    HookEvent.TASK_COMPLETED,
-                    HookEvent.TASK_FAILED,
-                    HookEvent.TASK_CANCELLED,
-                ],
-            )
-        )
-        manager.register(
-            NotificationHook(
-                name="completion_toast",
-                events=[HookEvent.TASK_COMPLETED],
-                notification_type="success",
-                message_template="Task {task_name} complete for {lamella_name}",
-            )
-        )
-        manager.register(
-            NotificationHook(
-                name="failure_toast",
-                events=[HookEvent.TASK_FAILED],
-                notification_type="error",
-                message_template="Task {task_name} FAILED: {error}",
-            )
-        )
-        manager.register(
-            NotificationHook(
-                name="cancellation_toast",
-                events=[HookEvent.TASK_CANCELLED],
-                notification_type="warning",
-                message_template="Task {task_name} cancelled for {lamella_name}",
-            )
-        )
-        manager.wire(self)
+        """Build the HookManager for one workflow run.
+
+        Called per run from the workflow worker, not once at startup, so the hook set is
+        rebuilt each time — which is what will let a user's saved configuration take
+        effect on the next run without a restart, and means the config dialog can never
+        be editing a manager a running workflow is holding. See FIB-497.
+
+        The hook set comes from the user's saved configuration when there is one, and
+        from hook_defaults.default_hooks() when there is not. Re-read here rather than
+        cached at startup, so editing user-preferences.yaml by hand takes effect on the
+        next run of a workflow instead of needing a restart.
+
+        Code-registered hooks go after: a configuration load replaces the *defaults*,
+        and must never be able to remove a hook that only exists in Python.
+        """
+        preferences = fibsem_cfg.load_user_preferences()
+        manager = build_hook_manager(preferences.hooks)
+
+        # Deliberately not registered yet. The trigger is proven end to end and the
+        # writer is tested, but completion-summary.json is a placeholder for the real
+        # artifacts (the PDF and the overview PNG), and turning it on here would start
+        # writing a throwaway file into every user's lamella directories. Re-enable when
+        # the artifact is the one people actually want -- see FIB-461. Three imports at
+        # the top of this file come back with it: write_completion_summary, and
+        # FunctionHook + HookEvent from fibsem.hooks.
+        #
+        # Per lamella, not per experiment: a lamella is what gets delivered, and an
+        # experiment with one abandoned lamella never reaches completion at all, so
+        # hanging the artifact off the experiment would mean it was almost never
+        # written.
+        #
+        # A FunctionHook rather than a template-driven one because this needs the
+        # experiment itself, which the context deliberately does not carry -- the path
+        # is derivable from the record, and in-process hooks can reach the record. A
+        # webhook could not, which is the distinction.
+        #
+        # HookManager.fire contains what this raises, so a summary that cannot be
+        # written is logged and the run carries on. FIB-461 asks for exactly that, and
+        # it comes for free rather than needing a second guard here.
+        #
+        # manager.register(
+        #     FunctionHook(
+        #         name="completion_summary",
+        #         events=[HookEvent.ITEM_COMPLETED],
+        #         callback=lambda ctx: write_completion_summary(self.experiment, ctx),
+        #     )
+        # )
+        # Signals are thread-safe to emit; hooks fire on the task worker thread.
+        manager.set_notifier(self._hook_toast_signal.emit)
         return manager
 
     #### UI UPDATES
@@ -1198,7 +1152,6 @@ class AutoLamellaUI(QMainWindow):
         self.selected_lamella_widget.set_lamella(lamella)
 
         self._update_minimap_data(selected_name=lamella.name)
-        self._update_lamella_display(selected_name=lamella.name)
 
     def set_spot_burn_widget_active(self, active: bool = True) -> None:
         """Set the spot burn widget active (sets the tab visible, activate point layer)."""
@@ -1777,15 +1730,28 @@ class AutoLamellaUI(QMainWindow):
         if self.det_widget is not None:
             self.det_widget.confirm_button_clicked()
 
+    def stop_current_operations(self) -> None:
+        """Interrupt whatever the microscope is doing right now.
+
+        Shared by Stop Workflow and Stop Task, which have to bring the hardware to
+        a halt identically and differ only in what the queue does afterwards.
+
+        A task raising is not enough on its own: milling runs on its own thread
+        with its own stop event, owned by the milling widget, and the task merely
+        waits for it. Unwinding the task without this stops the waiting, not the
+        mill.
+        """
+        if self.milling_task_config_widget is not None:
+            self.milling_task_config_widget.milling_widget.stop_milling()
+        if self.spot_burn_widget is not None:
+            self.spot_burn_widget.cancel_spot_burn()
+
     def _stop_workflow_thread(self):
         if self._task_manager is not None:
             self._task_manager.stop()
         else:
             self._workflow_stop_event.set()
-        if self.milling_task_config_widget is not None:
-            self.milling_task_config_widget.milling_widget.stop_milling()
-        if self.spot_burn_widget is not None:
-            self.spot_burn_widget.cancel_spot_burn()
+        self.stop_current_operations()
 
     def _workflow_finished(self):
         """Handle the completion of the workflow."""

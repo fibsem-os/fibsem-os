@@ -82,6 +82,7 @@ from fibsem.structures import (
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+    from fibsem.fm.structures import FluorescenceImage
 
 TAutoLamellaTaskConfig = TypeVar(
     "TAutoLamellaTaskConfig", bound="AutoLamellaTaskConfig"
@@ -110,7 +111,9 @@ class AutoLamellaTask(ABC):
         self.parent_ui = parent_ui
         self.task_manager = task_manager
         self.task_id = str(uuid.uuid4())
-        self._stop_event = task_manager._stop_event if task_manager else None
+        # The manager's token, not its raw event: what counts as "cancelled" is
+        # the manager's to decide, and a task should not have to know.
+        self._stop_event = task_manager.abort_token if task_manager else None
         self._last_fib_image: Optional[FibsemImage] = None
 
     @property
@@ -141,48 +144,111 @@ class AutoLamellaTask(ABC):
         except Exception as e:
             # A user Stop is a cancellation, not a failure — fire the distinct hook so it
             # notifies as "cancelled" (warning) rather than "FAILED" (error).
-            self._fire_hook("task_cancelled" if self._is_cancellation(e) else "task_failed",
-                            error=str(e))
+            cancelled = self._is_cancellation(e)
+            # Record before announcing. The hook payload carries task_state, which
+            # still reads InProgress from pre_task until this runs.
+            #
+            # Guarded: anything raising in here would replace the task's own
+            # exception with this one, losing what actually went wrong.
+            try:
+                self.lamella.task_state.status = (
+                    AutoLamellaTaskStatus.Cancelled if cancelled else AutoLamellaTaskStatus.Failed
+                )
+                self.lamella.task_state.status_message = (
+                    "Cancelled by user." if cancelled else str(e)
+                )
+                self._record_outcome()
+            except Exception:
+                logging.exception(f"Could not record the outcome of {self.task_name}")
+            self._fire_hook("task_cancelled" if cancelled else "task_failed", error=str(e))
             raise
+        finally:
+            # In a finally, not in post_task, which never runs when _run() raises. Left
+            # set, the next thing acquired -- an operator looking at what went wrong,
+            # a supervision step -- would be stamped with the task that just failed.
+            # That is silently wrong, and wrong exactly when the record matters most.
+            self.microscope.experiment.clear_workflow_metadata()
         self.post_task()
         self._fire_hook("task_completed")
+
+    def _record_outcome(self) -> None:
+        """Freeze the finished task_state into task_history.
+
+        Runs on every terminal path, not just success. task_state is a single object
+        that the next task's pre_task overwrites, so an outcome that isn't frozen here
+        is gone from the experiment as soon as that lamella starts its next task --
+        leaving the logfile as the only record that the task ever failed. See FIB-490.
+        """
+        if self.lamella.task_state is None:
+            raise ValueError("Task state is not set. Did you run pre_task()?")
+        self.lamella.task_state.end_timestamp = datetime.timestamp(datetime.now())
+        self.lamella.task_history.append(deepcopy(self.lamella.task_state))
 
     def _is_cancellation(self, exc: Exception) -> bool:
         """Whether ``exc`` is a user Stop rather than a genuine failure: it surfaces as
         OperationCancelledError (milling / autofocus) or InterruptedError (_check_for_abort),
-        or the task manager's stop event is set."""
+        or the task manager says this task should be unwinding.
+
+        should_abort, not is_stopped: abandoning one task is as much a cancellation
+        as ending the run, and an exception thrown on the way out of one should not
+        be recorded as a failure."""
         if isinstance(exc, (OperationCancelledError, InterruptedError)):
             return True
-        return bool(getattr(getattr(self, "task_manager", None), "is_stopped", False))
+        return bool(getattr(getattr(self, "task_manager", None), "should_abort", False))
 
     def _fire_hook(self, event: str, error: Optional[str] = None) -> None:
-        hook_manager = getattr(self.task_manager, "hook_manager", None)
-        if hook_manager is None:
-            return
-        from fibsem.applications.autolamella.workflows.tasks.hooks import HookContext
-        hook_manager.fire(HookContext(
-            event=event,
+        from fibsem.hooks import fire_event
+        # Which experiment, and how much of the queue is left. Only the manager knows
+        # either, and a task can run without one -- a script driving a task directly, or
+        # a stand-in -- so those fields are simply absent then. Fetched the same
+        # defensive way as hook_manager below, rather than requiring a real TaskManager.
+        get_run_context = getattr(self.task_manager, "hook_run_context", None)
+        run_context = get_run_context() if callable(get_run_context) else {}
+        fire_event(
+            getattr(self.task_manager, "hook_manager", None),
+            event,
             task_name=self.task_name,
             task_type=self.task_type,
-            lamella_name=self.lamella.name,
+            item_name=self.lamella.name,
+            item_id=self.lamella.id,
+            task_id=self.task_id,
             task_state=self.lamella.task_state,
             error=error,
-        ))
+            **run_context,
+        )
 
     @abstractmethod
     def _run(self) -> None:
         pass
 
     def pre_task(self) -> None:
-        logging.info(f"Running {self.task_name}, {self.task_type} ({self.task_id}) for {self.lamella.name} ({self.lamella._id})")
+        logging.info(f"Running {self.task_name}, {self.task_type} ({self.task_id}) for {self.lamella.name} ({self.lamella.id})")
 
         # pre-task
+        # task_state is a single object reused across every run, so each per-run field
+        # has to be cleared here or the next run inherits the previous one's value.
+        # NOTE: do not "fix" this by assigning a fresh AutoLamellaTaskState. The lamella
+        # list and card widgets connect psygnal handlers to this instance and use them as
+        # their only refresh trigger; replacing the object orphans those connections and
+        # they silently stop updating mid-workflow. See FIB-325 for the real fix.
         self.lamella.task_state.name = self.task_name
         self.lamella.task_state.start_timestamp = datetime.timestamp(datetime.now())
+        self.lamella.task_state.end_timestamp = None
         self.lamella.task_state.task_id = self.task_id
         self.lamella.task_state.task_type = self.task_type
         self.lamella.task_state.status = AutoLamellaTaskStatus.InProgress
         self.lamella.task_state.status_message = ""
+        self.lamella.task_state.outputs = {}
+
+        # Stamp onto everything acquired from here until run() clears it, so an image
+        # says which lamella and task produced it rather than relying on which folder
+        # it happens to sit in (FIB-466).
+        self.microscope.experiment.set_workflow_metadata(
+            item_id=self.lamella.id,
+            item_name=self.lamella.name,
+            task_id=self.task_id,
+            task_name=self.task_name,
+        )
         self.log_status_message(message="STARTED",
                                 display_message="Started",
                                 workflow_display_message=f"{self.lamella.name} [{self.display_name}]")
@@ -191,15 +257,14 @@ class AutoLamellaTask(ABC):
         # post-task
         if self.lamella.task_state is None:
             raise ValueError("Task state is not set. Did you run pre_task()?")
-        self.lamella.task_state.end_timestamp = datetime.timestamp(datetime.now())
         self.lamella.task_state.status = AutoLamellaTaskStatus.Completed
         self.lamella.task_state.status_message = ""
         self.log_status_message(message="FINISHED", display_message="Finished")
         self.log_task_config()
         self.lamella.task_config[self.task_name] = deepcopy(self.config)
-        self.lamella.task_history.append(deepcopy(self.lamella.task_state))
+        self._record_outcome()
         if self._last_fib_image is not None:
-            self.lamella.save_thumbnail(self._last_fib_image) # TODO: append to the history if task fails?
+            self.lamella.save_thumbnail(self._last_fib_image)
 
     def log_task_config(self) -> None:
         """Log the task configuration to the log file. This can be used for debugging or reporting."""
@@ -208,7 +273,7 @@ class AutoLamellaTask(ABC):
                 "msg": "task_config",
                 "timestamp": datetime.now().isoformat(),
                 "lamella": self.lamella.name,
-                "lamella_id": self.lamella._id,
+                "lamella_id": self.lamella.id,
                 "task_id": self.task_id,
                 "task_type": self.task_type,
                 "task_name": self.task_name,
@@ -223,7 +288,7 @@ class AutoLamellaTask(ABC):
         logging.debug({"msg": "status",
                        "timestamp": datetime.now().isoformat(),
                        "lamella": self.lamella.name,
-                       "lamella_id": self.lamella._id,
+                       "lamella_id": self.lamella.id,
                        "task_id": self.task_id,
                        "task_type": self.task_type,
                        "task_name": self.task_name,
@@ -245,7 +310,12 @@ class AutoLamellaTask(ABC):
                          workflow_info=workflow_info)
 
     def _check_for_abort(self) -> None:
-        """Check if the workflow has been aborted from the UI, and raise an InterruptedError if so."""
+        """Raise InterruptedError if this task should stop.
+
+        Polls the manager's token, which already answers for every kind of stop —
+        so this needs no second way to ask, and neither do the inline token checks
+        in the fluorescence, coincidence-milling and grid tasks.
+        """
         if self._stop_event is not None and self._stop_event.is_set():
             raise InterruptedError("Workflow aborted by user.")
 
@@ -379,8 +449,19 @@ class AutoLamellaTask(ABC):
                                         stop_event=self._stop_event,
                                         run_name=f"{self.lamella.name} - {self.task_name}")
 
-    def _run_autofocus(self, beam_type, hfw: float = None) -> None:
-        """Run the image-based autofocus sweep, saving diagnostics to the lamella path."""
+    def _run_autofocus(self, beam_type: BeamType, hfw: Optional[float] = None) -> None:
+        """Run the image-based autofocus sweep, saving diagnostics to the lamella path.
+
+        Args:
+            beam_type: which beam to focus.
+            hfw: field width for the probe images. Defaults to the task's configured
+                imaging hfw. Pass the field of view the task actually images at, so the
+                sweep is scored on the same view the task goes on to use.
+
+        A user Stop raises OperationCancelledError out of run_auto_focus (which restores
+        the starting working distance first); _is_cancellation treats that as a
+        cancellation rather than a task failure, so it is deliberately not caught here.
+        """
         from fibsem.autofunctions.autofocus import run_auto_focus, AutoFocusSettings, FocusSweepPass
         settings = AutoFocusSettings(
             method="tenengrad",
@@ -390,12 +471,18 @@ class AutoLamellaTask(ABC):
             ],
             reduced_area=FibsemRectangle(0.25, 0.25, 0.5, 0.5),
             use_autocontrast=True)
+        # NOTE: config.imaging, not self.image_settings -- only two subclasses define
+        # that attribute, and only partway through their own _run().
+        # `is None` rather than `or`, so an explicit hfw=0 is not silently replaced.
+        if hfw is None:
+            hfw = self.config.imaging.hfw
         self.log_status_message("AUTOFOCUS", f"Running autofocus ({beam_type.name})...")
         result = run_auto_focus(
             self.microscope,
             beam_type=beam_type,
-            hfw=hfw or self.image_settings.hfw,
+            hfw=hfw,
             settings=settings,
+            stop_event=self._stop_event,
         )
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         result.save(path=os.path.join(self.lamella.path, "autofunctions"), name=f"{self.task_name}_autofocus_{ts}")
@@ -431,6 +518,30 @@ class AutoLamellaTask(ABC):
                                                 acquire_sem=acquire_sem,
                                                 acquire_fib=acquire_fib)
 
+    def _record_output(self, role: str, image: Optional[Union[FibsemImage, "FluorescenceImage"]]) -> None:
+        """Record where an acquired image was written, under the given role.
+
+        Stored relative to the lamella directory so the record survives the
+        experiment being copied off the microscope. Images that were never
+        written to disk carry no filepath and are skipped.
+        """
+        if image is None or image.filepath is None:
+            return
+        path = os.path.relpath(image.filepath, self.lamella.path)
+        paths = self.lamella.task_state.outputs.setdefault(role, [])
+        # a run can acquire the same set more than once -- MillCoincidentTask does,
+        # before and after milling -- and the default filename means the second write
+        # overwrites the first. The record describes files, not writes, so the same
+        # path recorded twice is still one file.
+        if path not in paths:
+            paths.append(path)
+
+    def _record_channel_outputs(self, phase: str, images: List[Tuple[Optional[FibsemImage], Optional[FibsemImage]]]) -> None:
+        """Record a set of (sem, fib) pairs under `{phase}_sem` / `{phase}_fib`."""
+        for sem_image, fib_image in images:
+            self._record_output(f"{phase}_sem", sem_image)
+            self._record_output(f"{phase}_fib", fib_image)
+
     def _acquire_channels(self,
                           image_settings: ImageSettings,
                           filename: Optional[str] = None,
@@ -438,6 +549,10 @@ class AutoLamellaTask(ABC):
                           acquire_sem: bool = True,
                           acquire_fib: bool = True) -> None:
         """Acquire images for sem/fib channels at given field of view."""
+        # only the default filename is the conventional start-of-task reference set.
+        # tasks that pass their own name are recorded separately, so consumers asking
+        # for the conventional sets don't silently pick up one-off acquisitions.
+        phase = "start" if filename is None else "other"
         if filename is None:
             filename = f"ref_{self.task_name}_start"
 
@@ -449,6 +564,7 @@ class AutoLamellaTask(ABC):
                                                         image_settings,
                                                         acquire_sem=acquire_sem,
                                                         acquire_fib=acquire_fib)
+        self._record_channel_outputs(phase, [(sem_image, fib_image)])
         if fib_image is not None:
             self._last_fib_image = fib_image
         set_images_ui(self.parent_ui, sem_image, fib_image)
@@ -462,6 +578,9 @@ class AutoLamellaTask(ABC):
 
         if field_of_views is None:
             field_of_views = (fcfg.REFERENCE_HFW_HIGH, fcfg.REFERENCE_HFW_SUPER)
+        # only the default filename is the conventional final reference set; see
+        # _acquire_channels for why one-off acquisitions are recorded separately.
+        phase = "final" if filename is None else "other"
         if filename is None:
             filename = f"ref_{self.task_name}_final"
 
@@ -474,11 +593,34 @@ class AutoLamellaTask(ABC):
             acquire_sem=acquire_sem,
             acquire_fib=acquire_fib,
         )
+        self._record_channel_outputs(phase, images)
 
         sem_image, fib_image = images[-1] # last acquired image
         if fib_image is not None:
             self._last_fib_image = fib_image
         set_images_ui(self.parent_ui, sem_image, fib_image)  # show the last acquired image
+
+    def _retract_objective(self) -> None:
+        """Retract the FM objective if it is inserted.
+
+        Called at the end of tasks that insert the objective, so it is clear of the
+        stage before any subsequent move or tilt. The task manager also retracts at
+        the end of a run, but that is once for the whole queue -- without this the
+        objective stays inserted across every task in between.
+
+        Failures are logged, not raised: a task that has otherwise completed should
+        not be reported as failed because the retract did not take.
+        """
+        if self.microscope.fm is None:
+            return
+        try:
+            if self.microscope.fm.objective.state != "Inserted":
+                return
+            self.log_status_message("RETRACT_OBJECTIVE", "Retracting Objective...")
+            self.microscope.fm.objective.retract()
+        except Exception as e:
+            logging.warning(f"Failed to retract the objective after {self.task_name}: {e}",
+                            exc_info=True)
 
     def _move_to_milling_pose(self) -> None:
         """Move to the lamella milling pose."""

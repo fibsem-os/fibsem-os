@@ -18,6 +18,7 @@ from psygnal.containers import EventedDict, EventedList
 
 from fibsem.applications.autolamella import config as cfg
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
+from fibsem.correlation.config import CorrelationConfig
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MICROEXPANSION_KEY,
@@ -40,7 +41,8 @@ from fibsem.structures import (
     Point,
     ReferenceImageParameters,
 )
-from fibsem.utils import configure_logging, format_duration
+from fibsem.utils import configure_logging as _configure_logging
+from fibsem.utils import format_duration
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -55,68 +57,15 @@ class AutoLamellaTaskStatus(Enum):
     Failed = auto()
     Skipped = auto()
     Cancelled = auto()  # aborted by the user (Stop), distinct from a genuine Failure
+    Removed = auto()    # pulled from the queue by the user before it ran
 
 
-@dataclass
-class AutoLamellaUser:
-    """Application-level user identity. Maps to the DB user table."""
-    _id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    username: str = ""          # login handle / OS username
-    name: str = ""              # display name
-    email: str = ""
-    organization: str = ""
-    role: str = "user"          # "admin" | "user" | "guest"
-    is_default: bool = False    # loaded automatically at startup
-    preferences: dict = field(default_factory=dict)
-    created_at: float = field(default_factory=lambda: datetime.timestamp(datetime.now()))
-
-    def to_fibsem_user(self) -> "FibsemUser":
-        """Convert to a FibsemUser snapshot for image TIFF metadata."""
-        from fibsem.structures import FibsemUser
-        return FibsemUser(
-            name=self.name or self.username,
-            email=self.email,
-            organization=self.organization,
-        )
-
-    def to_dict(self) -> dict:
-        return {
-            "_id": self._id,
-            "username": self.username,
-            "name": self.name,
-            "email": self.email,
-            "organization": self.organization,
-            "role": self.role,
-            "is_default": self.is_default,
-            "preferences": self.preferences,
-            "created_at": self.created_at,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "AutoLamellaUser":
-        user = cls(
-            username=data.get("username", ""),
-            name=data.get("name", ""),
-            email=data.get("email", ""),
-            organization=data.get("organization", ""),
-            role=data.get("role", "user"),
-            is_default=data.get("is_default", False),
-            preferences=data.get("preferences", {}),
-            created_at=data.get("created_at", datetime.timestamp(datetime.now())),
-        )
-        if "_id" in data:
-            user._id = data["_id"]
-        return user
-
-    @staticmethod
-    def from_environment() -> "AutoLamellaUser":
-        """Create a default user from the OS environment."""
-        import platform
-        import socket
-        username = os.environ.get("USERNAME") or os.environ.get("USER", "user")
-        hostname = socket.gethostname() if platform.system() in ("Linux", "Darwin") \
-            else os.environ.get("COMPUTERNAME", "hostname")
-        return AutoLamellaUser(username=username, name=username, is_default=True)
+# AutoLamellaUser lived here: a richer user identity (role, preferences, is_default)
+# with a to_fibsem_user() bridge into image metadata. Nothing ever constructed one --
+# not the app, not a script, not a test -- so the bridge was never called and the
+# extra fields never had a reader. Removed rather than left dormant, because half a
+# user model is worse than either answer. fibsem.structures.FibsemUser is the only
+# user model now; see FIB-450 and the ownership rule on FibsemImageMetadata.
 
 
 @evented
@@ -131,6 +80,13 @@ class AutoLamellaTaskState:
     end_timestamp: Optional[float] = None
     status: AutoLamellaTaskStatus = AutoLamellaTaskStatus.NotStarted
     status_message: str = ""
+    # files this run produced, keyed by role, as paths relative to lamella.path.
+    # roles mirror the naming convention the files already carry: phase x modality,
+    # i.e. final_sem / final_fib / start_sem / start_fib, plus fluorescence.
+    # paths only -- the experiment is written with yaml.safe_dump, which refuses
+    # numpy scalars and enums and would fail the whole save. measured values belong
+    # in a separate field, not here.
+    outputs: Dict[str, List[str]] = field(default_factory=dict)
 
     @property
     def completed(self) -> str:
@@ -169,7 +125,10 @@ class AutoLamellaTaskState:
             return cls()
         data = data.copy()
         data["status"] = AutoLamellaTaskStatus[data.get("status", "NotStarted")]
-        return cls(**data)
+        # drop keys this build doesn't know about: an experiment written by a newer
+        # version must still load in an older one rather than raising TypeError.
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in known})
 
 
 @evented
@@ -308,9 +267,18 @@ class AutoLamellaWorkflowConfig:
         return []
 
     def get_completed_tasks(self, lamella: 'Lamella', with_timestamps: bool = False) -> List[str]:
-        """Get the list of completed tasks for a given lamella."""
+        """Get the list of completed tasks for a given lamella.
+
+        Filtered on status for the same reason as Lamella.completed_tasks:
+        task_history holds every terminal outcome since FIB-490. Unfiltered, a
+        failed required task would make is_completed() true, which drives the
+        ITEM_COMPLETED / EXPERIMENT_COMPLETED events and the is_completed column
+        in the experiment summary.
+        """
         completed_tasks = []
         for task in lamella.task_history:
+            if task.status is not AutoLamellaTaskStatus.Completed:
+                continue
             if task.name in self.workflow:
                 txt = task.name
                 if with_timestamps:
@@ -426,15 +394,18 @@ class AutoLamellaTaskProtocol:
     name: str = "AutoLamella Task Protocol"
     description: str = "Protocol for AutoLamella"
     version: str = "1.0"
-    _id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
     task_config: EventedDict[str, AutoLamellaTaskConfig] = field(default_factory=lambda: EventedDict())   # unique_name: AutoLamellaTaskConfig
     workflow_config: AutoLamellaWorkflowConfig = field(default_factory=AutoLamellaWorkflowConfig)
     options: AutoLamellaWorkflowOptions = field(default_factory=AutoLamellaWorkflowOptions)
     lamella_defaults: LamellaDefaultConfig = field(default_factory=LamellaDefaultConfig)
+    # Experiment-global correlation config (FIB-298): a user-step config, not an
+    # automated task, so a peer field rather than an entry in task_config.
+    correlation: CorrelationConfig = field(default_factory=CorrelationConfig)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "_id": self._id,
+            "_id": self.id,
             "name": self.name,
             "description": self.description,
             "version": self.version,
@@ -442,6 +413,7 @@ class AutoLamellaTaskProtocol:
             "workflow": self.workflow_config.to_dict(),
             "options": self.options.to_dict(),
             "lamella_defaults": self.lamella_defaults.to_dict(),
+            "correlation": self.correlation.to_dict(),
         }
 
     @classmethod
@@ -458,9 +430,11 @@ class AutoLamellaTaskProtocol:
             workflow_config=workflow_config,
             options=AutoLamellaWorkflowOptions.from_dict(data.get("options", {})),
             lamella_defaults=LamellaDefaultConfig.from_dict(data.get("lamella_defaults", {})),
+            # Missing on protocols saved before this field -> a default config.
+            correlation=CorrelationConfig.from_dict(data.get("correlation")),
         )
         if "_id" in data:
-            protocol._id = data["_id"]
+            protocol.id = data["_id"]
         return protocol
 
     @classmethod
@@ -699,7 +673,7 @@ class Lamella:
     number: int                                                             # TODO: deprecate, use petname instead
     petname: str
     alignment_area: FibsemRectangle = field(default_factory=lambda: FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA))
-    _id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
     task_config: EventedDict[str, 'AutoLamellaTaskConfig'] = field(default_factory=lambda: EventedDict())
     poses: Dict[str, MicroscopeState] = field(default_factory=dict)
     task_state: AutoLamellaTaskState = field(default_factory=AutoLamellaTaskState)
@@ -710,19 +684,41 @@ class Lamella:
     description: str = ""  # free-text note about the lamella
 
     def __post_init__(self):
-        # only make the dir, if the base path is actually set, 
-        # prevents creating path on other computer..
-        if os.path.exists(os.path.dirname(self.path)):
-            os.makedirs(self.path, exist_ok=True)
+        # Deliberately does not create ``path``. Constructing a Lamella is not a
+        # request to write to disk, and on the load path this runs from
+        # ``from_dict`` with the as-created path out of the yaml -- before
+        # ``Experiment.load`` calls ``relocate``. Creating the directory here
+        # therefore wrote into whatever machine the experiment came from, at a
+        # path the caller never named. Directories are created where a lamella is
+        # actually created (``Experiment.add_new_lamella``) and where files are
+        # actually written (``FibsemImage.save``, ``save_thumbnail``). See FIB-420.
+        if self.id is None:
+            self.id = str(uuid.uuid4())
+        self.task_state.lamella_id = self.id
 
-        if self._id is None:
-            self._id = str(uuid.uuid4())
-        self.task_state.lamella_id = self._id
+        self._sync_imaging_paths()
 
-        # assign the imaging path to the task config
-        for task_name, tc in self.task_config.items():
-            for name, milling_task_config in tc.milling.items():
+    def _sync_imaging_paths(self) -> None:
+        """Point every milling task's acquisition at this lamella's directory.
+
+        Milling configs carry their own imaging path, so it has to be re-derived
+        whenever ``path`` changes or acquisitions are written to the old location.
+        """
+        for tc in self.task_config.values():
+            for milling_task_config in tc.milling.values():
                 milling_task_config.acquisition.imaging.path = self.path
+
+    def relocate(self, experiment_path: Path) -> None:
+        """Re-point this lamella at ``experiment_path``.
+
+        ``path`` is persisted in experiment.yaml as the absolute path the lamella
+        was *created* at, so a lamella loaded from a moved or copied experiment
+        still points at the original machine. Worse, when that directory happens
+        to still exist locally, reads silently succeed against the wrong data.
+        ``Experiment.load`` calls this so paths follow the experiment. See FIB-367.
+        """
+        self.path = os.path.join(experiment_path, self.name)
+        self._sync_imaging_paths()
 
     @property
     def name(self) -> str:
@@ -734,6 +730,19 @@ class Lamella:
 
     @property
     def is_failure(self) -> bool:
+        """Whether a human has judged this lamella defective.
+
+        Deliberately not set by a failing task, and it should stay that way. A
+        task failing is a fact about one attempt; a defect is a judgement about
+        the lamella. TaskManager._should_skip skips a lamella marked failed for
+        *every* remaining task, so auto-setting this on a stage timeout or a
+        momentary comms drop would permanently abandon a lamella that only
+        needed retrying.
+
+        Whether a failed task blocks dependent work is a separate question,
+        answered by completed_tasks -- which filters on task status, so a failed
+        prerequisite does not license the task that requires it. See FIB-490.
+        """
         return self.defect.state is DefectType.FAILURE
 
     @property
@@ -750,14 +759,30 @@ class Lamella:
 
     @property
     def completed_tasks(self) -> List[str]:
-        """Return a list of completed task names."""
-        return [task.name for task in self.task_history]
+        """Return a list of completed task names.
+
+        Filtered on status: task_history records every terminal outcome, not just
+        successes (FIB-490), so an unfiltered read would count a failed task as
+        done. That matters most in TaskManager._should_skip, where this gates
+        prerequisites -- a failed trench would otherwise license an undercut.
+        """
+        return [
+            task.name
+            for task in self.task_history
+            if task.status is AutoLamellaTaskStatus.Completed
+        ]
 
     @property
     def last_completed_task(self) -> Optional['AutoLamellaTaskState']:
-        """Return the last completed task state."""
-        if self.task_history:
-            return self.task_history[-1]
+        """Return the last completed task state.
+
+        The last *completed* one, not the last recorded: a failure landing last
+        would otherwise be reported as the lamella's latest progress in the
+        experiment summary.
+        """
+        for task in reversed(self.task_history):
+            if task.status is AutoLamellaTaskStatus.Completed:
+                return task
         return None
 
     @property
@@ -823,7 +848,7 @@ class Lamella:
             "path": str(self.path),
             "alignment_area": self.alignment_area.to_dict(),
             "number": self.number,
-            "id": str(self._id),
+            "id": str(self.id),
             "poses": {k: v.to_dict() for k, v in self.poses.items()},
             "task_config": {k: v.to_dict() for k, v in self.task_config.items()},
             "task_state": self.task_state.to_dict(),
@@ -869,7 +894,7 @@ class Lamella:
             path=data["path"],
             alignment_area=alignment_area,
             number=data.get("number", data.get("number", 0)),
-            _id=data.get("id", ""),
+            id=data.get("id", ""),
             poses=poses,
             task_config=load_task_config(data.get("task_config", {})),
             task_state=AutoLamellaTaskState.from_dict(data.get("task_state", {})),
@@ -917,6 +942,9 @@ class Lamella:
         data = image.filtered_data
         if data.ndim == 2:
             data = np.stack([data, data, data], axis=2)
+        # writes directly rather than through FibsemImage.save, so it makes its
+        # own directory -- construction no longer does (FIB-420).
+        os.makedirs(self.path, exist_ok=True)
         Image.fromarray(data.astype(np.uint8)).save(os.path.join(self.path, "thumbnail.png"))
 
     # def get_task_config_by_type(self, task_type: Type['AutoLamellaTaskConfig']) -> Dict[str, AutoLamellaTaskConfig]:
@@ -957,7 +985,7 @@ class Lamella:
 @dataclass
 class Experiment:
     name: str
-    _id: str
+    id: str
     path: Path
     positions: EventedList[Lamella] = field(default_factory=EventedList)
     landing_positions: List[FibsemStagePosition] = field(default_factory=list)
@@ -976,7 +1004,7 @@ class Experiment:
             metadata: Optional dictionary containing experiment metadata (e.g., description, user, project, organisation).
         """
         self.name: str = name
-        self._id = str(uuid.uuid4())
+        self.id = str(uuid.uuid4())
         self.path: Path = os.path.join(path, name)
         self.created_at: float = datetime.timestamp(datetime.now())
 
@@ -990,7 +1018,7 @@ class Experiment:
 
         state_dict = {
             "name": self.name,
-            "_id": self._id,
+            "_id": self.id,
             "path": self.path,
             "positions": [deepcopy(lamella.to_dict()) for lamella in self.positions],
             "landing_positions": [pos.to_dict() for pos in self.landing_positions],
@@ -1010,7 +1038,7 @@ class Experiment:
         name = ddict["name"]
         experiment = Experiment(path=path, name=name)
         experiment.created_at = ddict.get("created_at", None)
-        experiment._id = ddict.get("_id", "NULL")
+        experiment.id = ddict.get("_id", "NULL")
 
         experiment.metadata = ddict.get("metadata", {})
 
@@ -1104,8 +1132,18 @@ class Experiment:
         experiment = Experiment.from_dict(ddict)
         experiment.path = os.path.dirname(fname)
 
-        # configure experiment logging
-        configure_logging(path=experiment.path, log_filename="logfile")
+        # lamella paths are stored as-created, so re-point them at wherever the
+        # experiment actually is now. otherwise a moved or copied experiment
+        # reads and writes against the original location. (FIB-367)
+        for lamella in experiment.positions:
+            lamella.relocate(experiment.path)
+
+        # NOTE: deliberately does not configure logging. configure_logging calls
+        # basicConfig(force=True), which closes and replaces every root handler --
+        # so reading an experiment would reach into the calling process's global
+        # logging and redirect its output into this experiment's logfile. Callers
+        # that want that ask for it: the app does so when it adopts an experiment.
+        # See FIB-421.
 
         # attempt to load task protocol from the same directory
         protocol_path = os.path.join(experiment.path, "protocol.yaml")
@@ -1281,9 +1319,11 @@ class Experiment:
         # create the experiment
         experiment = Experiment(path=path, name=name, metadata=metadata)
 
-        # configure experiment logging
         os.makedirs(experiment.path, exist_ok=True)
-        configure_logging(path=experiment.path, log_filename="logfile")
+
+        # NOTE: as with load(), creating an experiment does not reconfigure the
+        # calling process's logging -- the app does that when it adopts one.
+        # See FIB-421.
 
         # save the experiment
         experiment.save()
@@ -1291,6 +1331,52 @@ class Experiment:
         logging.info(f"Created new experiment {experiment.name} at {experiment.path}")
 
         return experiment
+
+    def configure_logging(self) -> str:
+        """Send this process's log output to the experiment's logfile.
+
+        Note this reconfigures the *root* logger: it is process-global, not
+        scoped to this experiment, and it replaces whatever handlers were set up
+        before. Two consequences worth knowing before calling it:
+
+        * a process that logs elsewhere stops doing so
+        * a second call points logging at the second experiment
+
+        ``load`` and ``create`` deliberately do not call this. Reading an
+        experiment must not reach into the caller's logging -- the load dialog
+        reads one on every click to preview it -- so the callers that do want it
+        say so. The app calls this when it adopts an experiment; a headless
+        script that wants its output in the experiment folder calls it after
+        loading or creating one. See FIB-421.
+
+        Returns:
+            The path of the logfile being written to.
+        """
+        return _configure_logging(path=self.path, log_filename="logfile")
+
+    def register_metadata(self, microscope: "FibsemMicroscope") -> None:
+        """Stamp this experiment's identity onto the images ``microscope`` acquires.
+
+        Which experiment produced an image is a property of the run, not of the GUI.
+        This previously happened only in AutoLamellaUI, so images acquired from a
+        script, a headless run, or the standalone FibsemUI carried the microscope's
+        default ``FibsemExperimentRef()`` -- id ``None`` -- and could not be associated
+        with an experiment afterwards. See FIB-449.
+
+        Mirrors ``configure_logging``: ``load`` and ``create`` deliberately do not
+        call it, because reading an experiment must not reach into the caller's
+        microscope. Callers that own the run say so. The app calls it when it adopts
+        an experiment, TaskManager calls it when it takes one to run, and a script
+        driving the microscope directly calls it itself.
+        """
+        from fibsem.utils import _register_metadata
+
+        _register_metadata(
+            microscope=microscope,
+            application_software="autolamella",
+            experiment_id=self.id,
+            experiment_name=self.name,
+        )
 
     def save_protocol(self) -> None:
         """Save the task protocol to disk in the experiment directory."""
@@ -1364,9 +1450,9 @@ class Experiment:
                 "experiment_name": self.name,
                 "experiment_path": self.path,
                 "experiment_created_at": self.created_at,
-                "experiment_id": self._id,
+                "experiment_id": self.id,
                 "lamella_name": p.name,
-                "lamella_id": p._id,
+                "lamella_id": p.id,
                 "last_completed": p.last_completed_task.completed if p.last_completed_task else None,
                 "last_completed_task": p.last_completed_task.name if p.last_completed_task else None,
                 "last_completed_at": p.last_completed_task.completed_at if p.last_completed_task else None,

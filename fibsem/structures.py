@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 from abc import ABC, abstractmethod
@@ -17,7 +18,12 @@ from numpy.typing import NDArray
 from scipy.ndimage import median_filter, gaussian_filter
 
 import fibsem
-from fibsem.config import METADATA_VERSION, SUPPORTED_COORDINATE_SYSTEMS
+from fibsem.versioning import get_revision
+from fibsem.config import (
+    METADATA_VERSION,
+    SUPPORTED_COORDINATE_SYSTEMS,
+    UNVERSIONED_METADATA,
+)
 
 
 TFibsemPatternSettings = TypeVar(
@@ -152,10 +158,43 @@ class ManipulatorState(Enum):
 
 
 class AutoFocusMode(Enum):
-    NONE = 0
-    ONCE = 1
-    EVERY_ROW = 2
-    EVERY_TILE = 3
+    """When to run autofocus during a tiled acquisition.
+
+    One vocabulary for both tilers. There used to be two enums of this name --
+    this one, and an identical set of concepts in `fibsem.fm.structures` -- which
+    meant `AutoFocusMode.NONE is AutoFocusMode.NONE` was False across the two
+    import paths, with no type error to catch it. `fibsem.fm.structures` now
+    re-exports this one.
+
+    Every spelling either enum was ever written in still resolves: the `EVERY_*`
+    aliases below (this side persisted by name), the lowercase values (the FM side
+    persisted by value), and the integers 0-3 that used to be this enum's values.
+    """
+
+    NONE = "none"
+    ONCE = "once"
+    EACH_ROW = "each_row"
+    EACH_TILE = "each_tile"
+
+    # Aliases, not new members: `AutoFocusMode.EVERY_ROW is AutoFocusMode.EACH_ROW`,
+    # `AutoFocusMode["EVERY_ROW"]` resolves, and `list(AutoFocusMode)` still yields
+    # exactly the four modes above -- which is what the mode combo boxes iterate.
+    EVERY_ROW = "each_row"
+    EVERY_TILE = "each_tile"
+
+    @classmethod
+    def _missing_(cls, value):
+        """Resolve the older spellings, so nothing already written stops loading."""
+        if isinstance(value, str):
+            # Member names ("EVERY_ROW", "NONE"). Values are lowercase and names are
+            # uppercase, so this cannot collide with a real value.
+            return cls.__members__.get(value.upper())
+        # The integers this enum used to be, in declaration order. bool is excluded
+        # deliberately: True == 1 would otherwise silently resolve to ONCE.
+        if isinstance(value, int) and not isinstance(value, bool):
+            order = (cls.NONE, cls.ONCE, cls.EACH_ROW, cls.EACH_TILE)
+            return order[value] if 0 <= value < len(order) else None
+        return None
 
 
 class TileOrderStrategy(Enum):
@@ -522,7 +561,6 @@ class ImageSettings:
         beam_type (BeamType): The type of beam to use for image acquisition.
         save (bool): Whether or not to save the acquired image to disk.
         filename (str): The filename to use when saving the acquired image.
-        autogamma (bool): Whether or not to apply gamma correction to the acquired image.
         path (Path): The path to the directory where the acquired image should be saved.
         reduced_area (FibsemRectangle): The rectangular region of interest within the acquired image, if any.
 
@@ -533,6 +571,12 @@ class ImageSettings:
             Converts the ImageSettings object to a dictionary of image settings.
     """
 
+    # There was an `autogamma` flag here, which applied gamma correction to the pixels
+    # after acquisition. It was removed (FIB-505): unlike `autocontrast`, which
+    # configures the detector *before* the image exists, gamma is a display correction
+    # applied to the array afterwards -- and baking it into the stored data is
+    # destructive and unrecoverable. The canvas's ContrastGammaControl does it at
+    # display time instead, where it is adjustable and reversible.
     resolution: Tuple[int, int] = (1536, 1024)
     dwell_time: float = 1e-6
     hfw: float = 150e-6
@@ -540,7 +584,6 @@ class ImageSettings:
     beam_type: BeamType = BeamType.ELECTRON
     save: bool = False
     filename: str = "default_image"
-    autogamma: bool = False
     path: Optional[Union[Path, str]] = None
     reduced_area: Optional[FibsemRectangle] = None
     line_integration: Optional[int] = None  # (int32) 2 - 255
@@ -571,9 +614,6 @@ class ImageSettings:
             isinstance(self.filename, str) or self.filename is None
         ), f"filename must b str, currently is {type(self.filename)}"
         assert (
-            isinstance(self.autogamma, bool) or self.autogamma is None
-        ), f"gamma enabled setting must be bool, currently is {type(self.autogamma)}"
-        assert (
             isinstance(self.path, (Path, str)) or self.path is None
         ), f"save path must be Path or str, currently is {type(self.path)}"
         assert (
@@ -598,7 +638,6 @@ class ImageSettings:
             hfw=settings.get("hfw", 150e-6),
             autocontrast=settings.get("autocontrast", False),
             beam_type=BeamType[beam_name.upper()],
-            autogamma=settings.get("autogamma", False),
             save=settings.get("save", False),
             path=settings.get("path", os.getcwd()),
             filename=settings.get("filename", "default_image"),
@@ -619,9 +658,6 @@ class ImageSettings:
             "hfw": self.hfw if self.hfw is not None else None,
             "autocontrast": self.autocontrast
             if self.autocontrast is not None
-            else None,
-            "autogamma": self.autogamma
-            if self.autogamma is not None
             else None,
             "save": self.save if self.save is not None else None,
             "path": str(self.path) if self.path is not None else None,
@@ -715,19 +751,21 @@ class AutoFocusSettings:
     """Settings for autofocus in tiled overview acquisition.
 
     Attributes:
-        mode: When to apply autofocus (NONE, ONCE, EVERY_ROW, EVERY_TILE).
+        mode: When to apply autofocus (NONE, ONCE, EACH_ROW, EACH_TILE).
               beam_type and reduced_area are taken from image_settings at acquisition time.
     """
 
     mode: AutoFocusMode = AutoFocusMode.NONE
 
     def to_dict(self) -> dict:
-        return {"mode": self.mode.name}
+        # By value, matching how the fluorescence side has always written this mode.
+        # Files that stored the old member name ("EVERY_ROW") still load.
+        return {"mode": self.mode.value}
 
     @staticmethod
     def from_dict(d: dict) -> "AutoFocusSettings":
         return AutoFocusSettings(
-            mode=AutoFocusMode[d.get("mode", "NONE")]
+            mode=AutoFocusMode(d.get("mode", AutoFocusMode.NONE.value))
         )
 
 
@@ -1618,6 +1656,29 @@ class GISSystemSettings:
 
 @dataclass
 class SystemInfo:
+    """Which instrument, and what software is running on it. Provenance.
+
+    Owns both facts, and is the only place either belongs (FIB-445 D1).
+    ``serial_number`` is the instrument identity -- the key any per-instrument
+    aggregation joins on, and the only field that distinguishes two of the same
+    model in one facility.
+
+    The version fields were duplicated on ``FibsemExperimentRef`` until v5, which
+    removed them from there (FIB-448). What software is running is a property of
+    the running system, not of an experiment.
+
+    An experiment spanning a software upgrade will therefore disagree with its own
+    images -- the experiment record captured v0.5.1 at creation, day-2 images say
+    v0.5.2 here. That is two true facts, not a duplication bug: it says the run
+    spanned an upgrade, which is worth knowing.
+
+    There is deliberately no ``application_version``. It existed up to v4 and was
+    never once populated: an application shipped inside fibsem has no version of its
+    own, and ``fibsem_revision`` already pins the exact commit doing the work. An
+    out-of-tree application wanting to stamp its own version needs a public
+    registration API first -- the field can come back alongside one.
+    """
+
     name: str
     ip_address: str
     manufacturer: str
@@ -1627,7 +1688,10 @@ class SystemInfo:
     software_version: str
     fibsem_version: str = fibsem.__version__
     application: Optional[str] = None
-    application_version: Optional[str] = None
+    # The commit actually running, when installed from a source checkout. None
+    # for a wheel install. default_factory, not a plain default, so the lookup
+    # happens on first use rather than at import of this module.
+    fibsem_revision: Optional[str] = field(default_factory=get_revision)
 
     def to_dict(self):
         return {
@@ -1640,7 +1704,7 @@ class SystemInfo:
             "software_version": self.software_version,
             "fibsem_version": self.fibsem_version,
             "application": self.application,
-            "application_version": self.application_version,
+            "fibsem_revision": self.fibsem_revision,
         }
 
     @staticmethod
@@ -1655,7 +1719,10 @@ class SystemInfo:
             software_version=settings.get("software_version", "Unknown"),
             fibsem_version=settings.get("fibsem_version", fibsem.__version__),
             application=settings.get("application", None),
-            application_version=settings.get("application_version", None),
+            # `application_version` is not read: files up to v4 carry it, always null.
+            # `or`, not a .get() default: settings.get(k, get_revision()) would
+            # evaluate the lookup eagerly on every call.
+            fibsem_revision=settings.get("fibsem_revision") or get_revision(),
         )
 
 @dataclass
@@ -1694,6 +1761,171 @@ class SystemSettings:
             gis=GISSystemSettings.from_dict(settings["gis"]),
             info=SystemInfo.from_dict(settings["info"]),
             sim=settings.get("sim", {}),
+        )
+
+
+class CameraImageTransform(Enum):
+    """Image transformations for aligning fluorescence images with SEM/FIB coordinate systems.
+
+    Flips only. Any fixed rotation between the sensor and the stage belongs to the
+    mount, not to user preference, and is corrected inside the driver
+    (``FluorescenceMicroscope.mount_transform``) before this is applied.
+
+    Restricting the set to flips makes it the Klein four-group: every member is its
+    own inverse and composition is order-independent, so mapping a displacement
+    between the displayed image and the stage is two sign flips with no axis swap
+    and no inverse to get backwards. Flips also preserve the array shape, so the
+    image and its geometry metadata always describe the same frame.
+
+    Lives here rather than in ``fibsem.fm.structures`` only because
+    ``FibsemHardwareGeometry`` needs it and core cannot import from the FM package --
+    ``fm.structures`` imports from this module, so the reverse is a cycle. Re-exported
+    there, which is where every consumer of it still is.
+    """
+
+    NONE = None
+    FLIP_X = "flip-x"
+    FLIP_Y = "flip-y"
+    FLIP_XY = "flip-xy"
+
+    def apply_to_delta(self, dx: float, dy: float) -> Tuple[float, float]:
+        """Map a displacement between the raw and displayed frames.
+
+        Every member is its own inverse, so this maps in both directions: use it to
+        take a delta measured in the displayed image back to the underlying frame,
+        and vice versa.
+        """
+        flip_x = self in (CameraImageTransform.FLIP_X, CameraImageTransform.FLIP_XY)
+        flip_y = self in (CameraImageTransform.FLIP_Y, CameraImageTransform.FLIP_XY)
+        return (-dx if flip_x else dx, -dy if flip_y else dy)
+
+
+# Transforms that stored configurations may still hold. A half turn is the same
+# element as flipping both axes, so it maps across without losing the setting; the
+# quarter turns describe a mount, which the driver now corrects, and have no
+# equivalent here.
+_LEGACY_IMAGE_TRANSFORMS = {"rotate-180": CameraImageTransform.FLIP_XY}
+
+
+def _parse_image_transform(value: Any) -> CameraImageTransform:
+    """Read a stored transform, tolerating values that are no longer members.
+
+    Rotations were removed once mount rotation moved into the driver. A half turn is
+    migrated to the equivalent flip so the setting survives; anything else falls back
+    to no transform with a warning rather than raising.
+    """
+    if value is None:
+        return CameraImageTransform.NONE
+    try:
+        return CameraImageTransform(value)
+    except ValueError:
+        pass
+
+    migrated = _LEGACY_IMAGE_TRANSFORMS.get(value)
+    if migrated is not None:
+        logging.info(
+            f"Camera image transform {value!r} is now {migrated.value!r}; migrated."
+        )
+        return migrated
+
+    logging.warning(
+        f"Unsupported camera image transform {value!r}; falling back to none. "
+        "Rotations are now applied as a fixed mount correction inside the driver."
+    )
+    return CameraImageTransform.NONE
+
+
+@dataclass
+class FibsemHardwareGeometry:
+    """The instrument's fixed physical arrangement: column tilts, stage reference angles.
+
+    Recorded on an image so a stage position can be projected onto it without a live
+    microscope -- and, more to the point, without *assuming* the live microscope still
+    matches. Reprojecting a saved image against the current pose is silently wrong the
+    moment the stage has moved or the instrument has been reconfigured.
+
+    Distinct from its two neighbours. ``MicroscopeState`` is dynamic observation, what
+    the instrument was *doing*; ``SystemSettings`` is the config file, the whole of it.
+    This is what the instrument *is*, in the terms a projection actually needs.
+
+    **One record for both modalities.** The beam and fluorescence paths were given
+    separate structures that named the same six terms identically, free to drift with
+    nothing to catch it. ``camera_tilt`` and ``transform`` describe the fluorescence
+    camera and stay at their defaults on a beam image; that is two dormant fields on a
+    SEM picture, accepted deliberately so there is exactly one definition of how this
+    instrument is arranged rather than two that merely agree today (FIB-481).
+
+    Angles are in degrees, matching ``SystemSettings``. Both reprojection paths convert
+    at the point of use.
+
+    ``is_compustage`` is stored rather than derived. The live value is ground truth --
+    ThermoFisher reads it from ``connection.specimen.compustage.is_installed`` -- but
+    an image had no field for it, so the beam path inferred it by matching the model
+    name against "Arctis", with a TODO against the line. A capability is not a name.
+
+    Note this is deliberately *not* grouped this way in ``SystemSettings`` itself: that
+    maps onto ``microscope-configuration.yaml``, a user-facing file, and regrouping it
+    would mean migrating every site's config for a cosmetic gain. The scatter stays
+    there; ``from_system_settings`` is the one place that knows about it.
+    """
+
+    column_tilt: float = 0.0            # electron column
+    fib_column_tilt: float = 52.0       # ion column; fixes the compustage FIB pose
+    shuttle_pre_tilt: float = 0.0
+    rotation_reference: float = 0.0
+    rotation_180: float = 180.0
+    is_compustage: bool = False
+    # Fluorescence only; left at these defaults for a beam image.
+    camera_tilt: float = 0.0            # viewing axis, from the electron column
+    transform: CameraImageTransform = CameraImageTransform.NONE
+
+    @classmethod
+    def from_system_settings(
+        cls, system: SystemSettings, is_compustage: bool = False
+    ) -> "FibsemHardwareGeometry":
+        """Gather the geometry terms out of a full system configuration.
+
+        ``is_compustage`` is a parameter because ``SystemSettings`` does not carry it:
+        it is a property of the installed hardware, which only the connected
+        microscope knows. Callers holding one should pass ``microscope.stage_is_compustage``.
+        """
+        return cls(
+            column_tilt=system.electron.column_tilt,
+            fib_column_tilt=system.ion.column_tilt,
+            shuttle_pre_tilt=system.stage.shuttle_pre_tilt,
+            rotation_reference=system.stage.rotation_reference,
+            rotation_180=system.stage.rotation_180,
+            is_compustage=is_compustage,
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "column_tilt": self.column_tilt,
+            "fib_column_tilt": self.fib_column_tilt,
+            "shuttle_pre_tilt": self.shuttle_pre_tilt,
+            "rotation_reference": self.rotation_reference,
+            "rotation_180": self.rotation_180,
+            "is_compustage": self.is_compustage,
+            "camera_tilt": self.camera_tilt,
+            "transform": self.transform.value,
+        }
+
+    @classmethod
+    def from_dict(cls, ddict: dict) -> "FibsemHardwareGeometry":
+        # `.get` throughout, with the field defaults repeated rather than referenced:
+        # a file written before this record existed has none of these keys, and the
+        # point of the record is that such a file still loads.
+        return cls(
+            column_tilt=ddict.get("column_tilt", 0.0),
+            fib_column_tilt=ddict.get("fib_column_tilt", 52.0),
+            shuttle_pre_tilt=ddict.get("shuttle_pre_tilt", 0.0),
+            rotation_reference=ddict.get("rotation_reference", 0.0),
+            rotation_180=ddict.get("rotation_180", 180.0),
+            is_compustage=ddict.get("is_compustage", False),
+            camera_tilt=ddict.get("camera_tilt", 0.0),
+            # Not a bare CameraImageTransform(...): stored configurations may hold a
+            # rotation that is no longer a member, which the parser migrates.
+            transform=_parse_image_transform(ddict.get("transform")),
         )
 
 
@@ -1758,43 +1990,152 @@ class MicroscopeSettings:
 
 
 @dataclass
-class FibsemExperiment:
+class FibsemExperimentRef:
+    """A reference to the experiment an image was acquired for. Provenance.
+
+    Not an experiment. The experiment itself is the application's own record --
+    AutoLamella's ``Experiment``, with positions, protocol and history -- and this
+    is a denormalised pointer to it, embedded in every image so the file can say
+    what produced it without the surrounding directory. Named ``...Ref`` because
+    the two types are otherwise a single import apart and easily confused.
+
+    **Defers to the record.** Authoritative only in the absence of the experiment
+    record, which wins on conflict (FIB-445 D2). That rule needs a stable key: with
+    only a name, a renamed experiment is indistinguishable from a different one, so
+    there is no conflict to detect, just two strings that disagree.
+
+    The deference rule applies here because a richer record exists to defer to. It
+    does not apply to every embedded copy -- see ``FibsemUser``.
+
+    **Identity only.** Which experiment, which item, which task, and when. What
+    software was running is a property of the running system, not of an experiment,
+    so it lives on ``SystemInfo`` and only there (FIB-445 D1, FIB-448). This carried
+    duplicates of it until v5.
+
+    **Two write rates, one record.** The experiment is set once at registration; the
+    item and task change as a run progresses and are written and cleared around each
+    one (FIB-466). They are kept together because they are one answer to one question
+    -- *what produced this image* -- and a reader wants "experiment X, lamella Y, task
+    Z" in one place rather than assembled from two.
+
+    That only works because every image gets its **own copy**: `_set_additional_metadata`
+    deepcopies this. It used to be shared by reference, which was harmless while
+    nothing mutated it, and would have silently rewritten the item on every
+    already-acquired image the moment one did.
+    """
+
+    # Experiment.id, a UUID -- stable, the join key. Held the experiment *name* up to
+    # and including v0.5.2; a file whose `name` is absent is from that era and its `id`
+    # is a name. See FIB-446.
     id: Optional[str] = None
-    method: Optional[str] = None
-    date: float = datetime.timestamp(datetime.now())
-    application: str = "fibsemOS"
-    fibsem_version: str = fibsem.__version__
-    application_version: Optional[str] = None
+    name: Optional[str] = None
+    # default_factory, not a plain default: a plain default is evaluated once at
+    # class definition, so every experiment recorded the interpreter's import
+    # time rather than its own creation time.
+    date: float = field(default_factory=lambda: datetime.timestamp(datetime.now()))
+
+    # Where in the run. None outside a workflow -- the minimap, a manual acquisition,
+    # a script -- which is a real answer rather than missing information.
+    #
+    # "item" rather than "lamella": the core library has no reason to know what an
+    # application works through one at a time, and ``HookContext`` settled on the same
+    # word for the same reason. IDs *and* names because they answer different
+    # questions -- the name is what a person reads, the id is what a reader joins on
+    # and it survives a rename. Recording only names is the mistake FIB-446 fixed for
+    # the experiment itself.
+    item_id: Optional[str] = None
+    item_name: Optional[str] = None
+    task_id: Optional[str] = None
+    task_name: Optional[str] = None
+
+    def set_workflow_metadata(
+        self,
+        item_id: Optional[str] = None,
+        item_name: Optional[str] = None,
+        task_id: Optional[str] = None,
+        task_name: Optional[str] = None,
+    ) -> None:
+        """Record what subsequent images should say about where in the run they were
+        taken, leaving experiment identity alone.
+
+        Named ``..._metadata`` because that is all it does. It does not start, select
+        or configure a workflow -- several widgets have a ``set_workflow*`` that does
+        something along those lines, and this is not one of them.
+        """
+        self.item_id = item_id
+        self.item_name = item_name
+        self.task_id = task_id
+        self.task_name = task_name
+
+    def clear_workflow_metadata(self) -> None:
+        """Stop stamping an item and task, keeping the experiment.
+
+        A method rather than four assignments at the call site: this has to run on
+        every path out of a task, and the one thing it must never do is take the
+        experiment's own identity with it.
+        """
+        self.set_workflow_metadata()
 
     def to_dict(self) -> dict:
         """Converts to a dictionary."""
         return {
             "id": self.id,
-            "method": self.method,
+            "name": self.name,
             "date": self.date,
-            "application": self.application,
-            "fibsem_version": self.fibsem_version,
-            "application_version": self.application_version,
+            "item_id": self.item_id,
+            "item_name": self.item_name,
+            "task_id": self.task_id,
+            "task_name": self.task_name,
         }
 
     @staticmethod
-    def from_dict(settings: dict) -> "FibsemExperiment":
-        """Converts from a dictionary."""
-        return FibsemExperiment(
+    def from_dict(settings: dict) -> "FibsemExperimentRef":
+        """Converts from a dictionary.
+
+        Files written before v5 also carry `application`, `application_version`,
+        `fibsem_version`, `fibsem_revision` and `method` here. None are read.
+        `application`, `fibsem_version` and `fibsem_revision` live on ``SystemInfo``,
+        which is where a reader should look; `application_version` was never
+        populated anywhere; `method` never held anything but the string "null". The
+        values are still in those files if anyone needs to dig them out by hand.
+        """
+        return FibsemExperimentRef(
             id=settings.get("id", "Unknown"),
-            method=settings.get("method", "Unknown"),
+            # Absent in files written before v0.5.3, where `id` holds the name. Left
+            # as None rather than backfilled from `id`, so a reader can tell the two
+            # eras apart instead of being handed a name that claims to be an ID.
+            name=settings.get("name"),
             date=settings.get("date", "Unknown"),
-            application=settings.get("application", "fibsemOS"),
-            fibsem_version=settings.get("fibsem_version", fibsem.__version__),
-            application_version=settings.get("application_version", None),
+            # Absent before v8, and in any image acquired outside a workflow.
+            item_id=settings.get("item_id"),
+            item_name=settings.get("item_name"),
+            task_id=settings.get("task_id"),
+            task_name=settings.get("task_name"),
         )
 
 
 @dataclass
 class FibsemUser:
+    """Who acquired an image. Provenance, and the only user model there is.
+
+    Unlike ``FibsemExperimentRef``, this is not a reference to anything: there is
+    no richer user record for it to defer to, so the "the record wins on conflict"
+    rule (FIB-445 D2) does not apply -- this *is* the record, and it happens to be
+    stored embedded in every image.
+
+    That would change if a user table ever lands (the DB work models one), at which
+    point this becomes a snapshot of it and the deference rule starts to apply.
+    Worth knowing before treating the two structures as the same kind of thing.
+
+    Practical consequence of being embedded: it cannot be corrected retroactively.
+    A wrong name here is wrong in every file already written.
+    """
+
     name: Optional[str] = None
     email: Optional[str] = None
     organization: Optional[str] = None
+    # Which machine, not which person -- host identity sitting on the user record.
+    # Left here rather than moved, because moving it changes the serialised shape.
     hostname: Optional[str] = None
     # TODO: add host_ip_address
 
@@ -1819,9 +2160,20 @@ class FibsemUser:
 
     @staticmethod
     def from_environment() -> "FibsemUser":
+        import getpass
         import platform
         import socket
-        username = os.environ.get("USERNAME", "username")
+
+        # getpass covers every platform: USERNAME is Windows-only, so reading it
+        # directly meant Linux and macOS fell through to the literal string
+        # "username" -- wrong rather than absent, and silently so. That affects
+        # Odemis/METEOR sites, which run on Linux. See FIB-447.
+        try:
+            username = getpass.getuser()
+        except Exception:
+            # getpass raises if it cannot resolve a name (no passwd entry, no
+            # environment). Nothing here is worth failing an acquisition over.
+            username = "unknown"
 
         if platform.system() == "Windows":
             hostname = os.environ.get("COMPUTERNAME", "hostname")
@@ -1837,15 +2189,49 @@ class FibsemUser:
 
 @dataclass
 class FibsemImageMetadata:
-    """Metadata for a FibsemImage."""
+    """Metadata for a FibsemImage.
+
+    Three kinds of claim live here, and they are easy to mistake for each other
+    (FIB-445 D1). Anything added should be placed deliberately in one of them:
+
+    **Provenance** -- what produced this image. ``system_info`` (which instrument),
+    ``user`` (who), ``experiment`` (which run). Constant for a run. The same
+    question at a finer grain -- which lamella, which task -- is not recorded yet;
+    see FIB-466. It varies *within* a run, which changes the mechanism that writes
+    it, but not the kind of fact it is.
+
+    **Configuration** -- what the instrument *is*. ``hardware_geometry``: the fixed
+    physical arrangement a projection needs. Up to v5 this was the entire
+    ``SystemSettings``, 1683 bytes of it, to deliver six numbers -- and it carried
+    the manipulator configuration and the simulator flags into every picture. See
+    FIB-481.
+
+    **Observation** -- what the instrument was doing. ``microscope_state``,
+    ``pixel_size``. Measured at acquisition.
+
+    **Request** -- what was asked for. ``image_settings``. Note this is *intent*,
+    not outcome: if autocontrast ran, or the requested hfw was clamped, nothing
+    here records that the request was not honoured. See FIB-482.
+
+    The rule for provenance is one writer per fact, denormalised deliberately at
+    this boundary: an image is embedded in a file that may be copied, emailed or
+    read years later, so it carries enough to identify its source without the
+    surrounding directory. Whether an embedded copy *defers* to a richer record is
+    a separate question, answered per-structure -- see ``FibsemExperimentRef``
+    (defers) and ``FibsemUser`` (does not, because there is nothing to defer to).
+    """
 
     image_settings: ImageSettings
     pixel_size: Point
     microscope_state: MicroscopeState
-    system: Optional[SystemSettings] = None
+    # Both replaced `system: Optional[SystemSettings]` in v6 (FIB-481). Optional
+    # because a file written before v6 may carry neither in a recoverable form, and
+    # because a FibsemImage can be constructed without a microscope at all.
+    system_info: Optional[SystemInfo] = None
+    hardware_geometry: Optional[FibsemHardwareGeometry] = None
     version: str = METADATA_VERSION
     user: FibsemUser = field(default_factory=lambda: FibsemUser())
-    experiment: FibsemExperiment = field(default_factory=lambda: FibsemExperiment())
+    experiment: FibsemExperimentRef = field(default_factory=lambda: FibsemExperimentRef())
 
     @property
     def beam_type(self) -> BeamType:
@@ -1874,18 +2260,66 @@ class FibsemImageMetadata:
             settings_dict["pixel_size"] = self.pixel_size.to_dict()
         if self.microscope_state is not None:
             settings_dict["microscope_state"] = self.microscope_state.to_dict()
-            settings_dict["user"] = self.user.to_dict()
+        # Not nested under the microscope_state guard: who acquired an image is
+        # unrelated to whether the instrument's state was captured, and nesting it
+        # dropped the user silently -- from_dict defaults it back, so a reload
+        # produced a plausible empty FibsemUser rather than an error. See FIB-486.
+        settings_dict["user"] = self.user.to_dict()
         settings_dict["experiment"] = self.experiment.to_dict()
-        settings_dict["system"] = self.system.to_dict() if self.system is not None else {}
+        settings_dict["system_info"] = (
+            self.system_info.to_dict() if self.system_info is not None else {}
+        )
+        settings_dict["hardware_geometry"] = (
+            self.hardware_geometry.to_dict() if self.hardware_geometry is not None else {}
+        )
 
         return settings_dict
+
+    @staticmethod
+    def _geometry_from_legacy_system(system: dict) -> Optional[FibsemHardwareGeometry]:
+        """Recover the geometry from a pre-v6 `system` blob.
+
+        Read with `.get()` chains rather than by building a `SystemSettings` first.
+        That constructor is bracket-indexed throughout -- a blob missing any of
+        `stage`, `electron`, `ion`, `manipulator`, `gis` or `info` raises KeyError --
+        and inheriting that here would break exactly the old files this exists to
+        load. See `tests/test_metadata_fixtures.py`.
+
+        Compustage is recovered the way the reprojection used to detect it, by model
+        name, falling back to the simulator flag. That match is wrong -- a capability
+        inferred from a name -- which is why v6 records it instead. It survives here
+        only because a pre-v6 file has nothing better in it.
+        """
+        if not system:
+            return None
+
+        stage = system.get("stage") or {}
+        electron = system.get("electron") or {}
+        ion = system.get("ion") or {}
+        info = system.get("info") or {}
+        sim = system.get("sim") or {}
+
+        model = info.get("model") or ""
+        is_compustage = "Arctis" in model or bool(sim.get("is_compustage", False))
+
+        # Field defaults where a key is absent, so a partial blob degrades to the
+        # same values a freshly-constructed record would have.
+        default = FibsemHardwareGeometry()
+        return FibsemHardwareGeometry(
+            column_tilt=electron.get("column_tilt", default.column_tilt),
+            fib_column_tilt=ion.get("column_tilt", default.fib_column_tilt),
+            shuttle_pre_tilt=stage.get("shuttle_pre_tilt", default.shuttle_pre_tilt),
+            rotation_reference=stage.get("rotation_reference", default.rotation_reference),
+            rotation_180=stage.get("rotation_180", default.rotation_180),
+            is_compustage=is_compustage,
+        )
 
     @staticmethod
     def from_dict(settings: dict) -> "FibsemImageMetadata":
         """Converts a dictionary to metadata."""
 
         image_settings = ImageSettings.from_dict(settings["image"])
-        version = settings.get("version", METADATA_VERSION)
+        version = settings.get("version", UNVERSIONED_METADATA)
         if settings["pixel_size"] is not None:
             pixel_size = Point.from_dict(settings["pixel_size"])
         if settings["microscope_state"] is not None:
@@ -1893,11 +2327,21 @@ class FibsemImageMetadata:
                 settings["microscope_state"]
             )
 
-        # the system settings are optional
-        system_dict = settings.get("system", {})
-        system_settings = None
-        if system_dict:
-            system_settings = SystemSettings.from_dict(system_dict)
+        # Presence-detection, not a version switch (FIB-445 D3): v6 writes
+        # `system_info` and `hardware_geometry`, everything before it wrote a whole
+        # `system`. Both are optional -- an image may be built without a microscope.
+        legacy_system = settings.get("system") or {}
+
+        info_dict = settings.get("system_info") or legacy_system.get("info") or {}
+        system_info = SystemInfo.from_dict(info_dict) if info_dict else None
+
+        geometry_dict = settings.get("hardware_geometry") or {}
+        if geometry_dict:
+            hardware_geometry = FibsemHardwareGeometry.from_dict(geometry_dict)
+        else:
+            hardware_geometry = FibsemImageMetadata._geometry_from_legacy_system(
+                legacy_system
+            )
 
         metadata = FibsemImageMetadata(
             image_settings=image_settings,
@@ -1905,8 +2349,9 @@ class FibsemImageMetadata:
             pixel_size=pixel_size,
             microscope_state=microscope_state,
             user=FibsemUser.from_dict(settings.get("user", {})),
-            experiment=FibsemExperiment.from_dict(settings.get("experiment", {})),
-            system=system_settings
+            experiment=FibsemExperimentRef.from_dict(settings.get("experiment", {})),
+            system_info=system_info,
+            hardware_geometry=hardware_geometry,
         )
         return metadata
 
@@ -1963,11 +2408,18 @@ class FibsemImage:
             Returns:
                 FibsemImage: instance of FibsemImage
 
-        save(self, path: Path) -> None:
+        save(self, path: Path) -> str:
             Saves a FibsemImage to a tiff file.
 
             Inputs:
                 path (path): path to save directory and filename
+
+            Returns:
+                str: the resolved path written to
+
+    Attributes:
+        filepath (Optional[str]): the file this image is associated with on disk, set by
+            save() and load(). None for an image that has never been written or read.
     """
 
     def __init__(self, data: np.ndarray, metadata: Optional[FibsemImageMetadata] = None):
@@ -1981,6 +2433,9 @@ class FibsemImage:
             self.metadata = metadata
         else:
             self.metadata = None
+        # the file this image is associated with on disk, set by save() and load().
+        # not serialised: it describes where the image lives, not what it contains.
+        self.filepath: Optional[str] = None
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -2036,25 +2491,41 @@ class FibsemImage:
                 # print(f"Error: {e}")
                 # import traceback
                 # traceback.print_exc()
-        return cls(data=data, metadata=metadata)
+        image = cls(data=data, metadata=metadata)
+        image.filepath = str(tiff_path)
+        return image
 
-    def save(self, path: Optional[Union[Path, str]] = None) -> None:
+    def save(self, path: Optional[Union[Path, str]] = None) -> str:
         """Saves a FibsemImage to a tiff file.
 
         Inputs:
             path (path): path to save directory and filename
+
+        Returns:
+            str: the resolved path the image was written to (also set on self.filepath)
         """
-        
+
         if path is None:
             if self.metadata is None:
                 raise ValueError("No metadata provided, cannot determine save path. Please provide a path.")
             filename = self.metadata.image_settings.filename
-            path = self.metadata.image_settings.path
+            directory = self.metadata.image_settings.path
             if filename is None:
                 raise ValueError("No filename provided in metadata, cannot determine save path. Please provide a path.")
-            if path is None:
+            if directory is None:
                 raise ValueError("No path provided in metadata, cannot determine save path. Please provide a path.")
-            path = os.path.join(path, filename)
+            # The recorded path is an absolute directory on whichever machine acquired
+            # the image, and it travels inside the file. Creating it would mean loading
+            # a colleague's image and re-saving it silently reconstructs their directory
+            # tree here -- `D:\SharedData\<their name>\...` and all. A path the caller
+            # passes in is theirs to create; one that arrived in a file is not.
+            if not os.path.isdir(directory):
+                raise ValueError(
+                    f"The directory recorded in this image's metadata does not exist: "
+                    f"{directory}. It is from the machine that acquired the image. "
+                    f"Please provide a path."
+                )
+            path = os.path.join(directory, filename)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         path = Path(path).with_suffix(".tif")
 
@@ -2067,6 +2538,9 @@ class FibsemImage:
             self.data,
             metadata=metadata_dict,
         )
+        # set only after a successful write, so a recorded path is always a path that exists
+        self.filepath = str(path)
+        return self.filepath
 
     ### EXPERIMENTAL START ####
 
@@ -2089,9 +2563,12 @@ class FibsemImage:
 
         md = self.metadata
         microscope = Microscope(
-            manufacturer=md.system.info.manufacturer,
-            model=md.system.info.model,
-            serial_number=md.system.info.serial_number,
+            # md.system_info since FIB-481; this was md.system.info, which no longer
+            # exists. Nothing calls this -- see FIB-485 for whether it should live at
+            # all -- but leaving a known-broken reference is worse than fixing it.
+            manufacturer=md.system_info.manufacturer,
+            model=md.system_info.model,
+            serial_number=md.system_info.serial_number,
         )
         instrument = Instrument(microscope=microscope)
 

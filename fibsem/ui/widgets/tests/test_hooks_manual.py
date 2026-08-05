@@ -23,7 +23,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.ui.widgets.hook_config_widget import HookConfigWidget
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
-from fibsem.applications.autolamella.workflows.tasks.hooks import (
+from fibsem.hooks import (
     FunctionHook,
     HookContext,
     HookEvent,
@@ -54,14 +54,13 @@ class HookTestWindow(QMainWindow):
         self.manager = HookManager()
         self.manager.register(LoggingHook(
             name="task_logger",
-            events=[HookEvent.TASK_STARTED, HookEvent.TASK_COMPLETED, HookEvent.TASK_FAILED,
-                    HookEvent.WORKFLOW_STARTED, HookEvent.WORKFLOW_COMPLETED],
+            events=list(HookEvent),  # from the enum, so a new event is logged for free
         ))
         self.manager.register(NotificationHook(
             name="completion_toast",
             events=[HookEvent.TASK_COMPLETED],
             notification_type="success",
-            message_template="Task {task_name} complete for {lamella_name}",
+            message_template="Task {task_name} complete for {item_name}",
         ))
         self.manager.register(NotificationHook(
             name="failure_toast",
@@ -78,9 +77,9 @@ class HookTestWindow(QMainWindow):
         self.manager.register(FunctionHook(
             name="console_logger",
             events=[HookEvent.TASK_COMPLETED, HookEvent.TASK_FAILED],
-            callback=lambda ctx: print(f"[FunctionHook] {ctx.event} — {ctx.task_name} / {ctx.lamella_name}"),
+            callback=lambda ctx: print(f"[FunctionHook] {ctx.event} — {ctx.task_name} / {ctx.item_name}"),
         ))
-        self.manager.wire(self)
+        self.manager.set_notifier(self._hook_toast_signal.emit)
 
         # Layout
         central = QWidget()
@@ -97,11 +96,11 @@ class HookTestWindow(QMainWindow):
         layout.addWidget(self._section("Task events"))
         for label, ctx in [
             ("task_started  (no toast — logging only)",
-             HookContext(event=HookEvent.TASK_STARTED,    task_name="MillTrench",  lamella_name="Lamella-1", task_type="MILL_TRENCH")),
+             HookContext(event=HookEvent.TASK_STARTED,    task_name="MillTrench",  item_name="Lamella-1", task_type="MILL_TRENCH")),
             ("task_completed → success toast",
-             HookContext(event=HookEvent.TASK_COMPLETED,  task_name="MillTrench",  lamella_name="Lamella-1", task_type="MILL_TRENCH")),
+             HookContext(event=HookEvent.TASK_COMPLETED,  task_name="MillTrench",  item_name="Lamella-1", task_type="MILL_TRENCH")),
             ("task_failed    → error toast",
-             HookContext(event=HookEvent.TASK_FAILED,     task_name="MillTrench",  lamella_name="Lamella-2", task_type="MILL_TRENCH", error="Stage timeout")),
+             HookContext(event=HookEvent.TASK_FAILED,     task_name="MillTrench",  item_name="Lamella-2", task_type="MILL_TRENCH", error="Stage timeout")),
         ]:
             btn = QPushButton(label)
             btn.setStyleSheet(btn_style)
@@ -125,7 +124,7 @@ class HookTestWindow(QMainWindow):
             name="imaging_only",
             events=[HookEvent.TASK_COMPLETED],
             notification_type="warning",
-            message_template="Imaging done: {lamella_name}",
+            message_template="Imaging done: {item_name}",
             task_types=["IMAGING"],
             _notify=lambda msg, typ: self._hook_toast_signal.emit(msg, typ),
         )
@@ -133,9 +132,9 @@ class HookTestWindow(QMainWindow):
 
         for label, ctx in [
             ("task_completed  task_type=IMAGING  → warning toast",
-             HookContext(event=HookEvent.TASK_COMPLETED, task_name="Acquire", lamella_name="Lamella-3", task_type="IMAGING")),
+             HookContext(event=HookEvent.TASK_COMPLETED, task_name="Acquire", item_name="Lamella-3", task_type="IMAGING")),
             ("task_completed  task_type=MILL_TRENCH → no extra toast",
-             HookContext(event=HookEvent.TASK_COMPLETED, task_name="MillTrench", lamella_name="Lamella-3", task_type="MILL_TRENCH")),
+             HookContext(event=HookEvent.TASK_COMPLETED, task_name="MillTrench", item_name="Lamella-3", task_type="MILL_TRENCH")),
         ]:
             btn = QPushButton(label)
             btn.setStyleSheet(btn_style)
@@ -155,8 +154,9 @@ class HookTestWindow(QMainWindow):
         dlg.setWindowTitle("Hook Configuration")
         dlg.resize(500, 400)
         dlg_layout = QVBoxLayout(dlg)
+        # No re-wiring on change: the manager applies the notifier to hooks the widget
+        # registers, so a hook added here toasts without being wired again.
         widget = HookConfigWidget(manager=self.manager, parent=dlg)
-        widget.hooks_changed.connect(lambda hooks: self.manager.wire(self))
         dlg_layout.addWidget(widget)
         dlg.exec_()
 

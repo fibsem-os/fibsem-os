@@ -57,6 +57,7 @@ from fibsem.structures import (
 from fibsem.ui import FibsemMovementWidget, stylesheets
 from fibsem.ui import utils as ui_utils
 from fibsem.ui.napari.patterns import COLOURS as MILLING_PATTERN_COLOURS
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.napari.patterns import (
     MILLING_PATTERN_LAYER_NAME,
     draw_milling_patterns_in_napari,
@@ -66,12 +67,12 @@ from fibsem.ui.napari.properties import (
     GRIDBAR_IMAGE_LAYER_PROPERTIES,
     OVERVIEW_IMAGE_LAYER_PROPERTIES,
 )
+from fibsem.conversions import is_inside_image_bounds
 from fibsem.ui.napari.utilities import (
     NapariShapeOverlay,
     create_circle_shape,
     create_crosshair_shape,
     create_rectangle_shape,
-    is_inside_image_bounds,
     update_text_overlay,
 )
 from fibsem.ui.widgets.custom_widgets import (
@@ -98,7 +99,6 @@ OVERVIEW_IMAGE_PARAMETERS = {
     "fov": 500, # um
     "dwell_time": 1.0, # us
     "autocontrast": True,
-    "autogamma": False,
 }
 
 # Crosshair layer configuration constants
@@ -153,7 +153,6 @@ DEFAULT_OVERVIEW_ACQUISITION_SETTINGS = OverviewAcquisitionSettings(
         hfw=OVERVIEW_IMAGE_PARAMETERS["fov"] * constants.MICRO_TO_SI,
         dwell_time=OVERVIEW_IMAGE_PARAMETERS["dwell_time"] * constants.MICRO_TO_SI,
         autocontrast=OVERVIEW_IMAGE_PARAMETERS["autocontrast"],
-        autogamma=OVERVIEW_IMAGE_PARAMETERS["autogamma"],
         beam_type=BeamType.ELECTRON,
         save=True,
         path=None,  # will be set to experiment path when overview acquisition widget is initialized
@@ -207,7 +206,7 @@ class FibsemMinimapWidget(QWidget):
         self.correlation_mode_enabled: bool = False
 
         self._thread_stop_event = threading.Event()
-        self._acquisition_worker: Optional[threading.Thread] = None
+        self._acquisition_worker: Optional[FunctionWorker] = None
 
         # display options
         self.show_current_fov: bool = True
@@ -363,8 +362,9 @@ class FibsemMinimapWidget(QWidget):
         ms = self.microscope.get_microscope_state(beam_type=beam_type)
         image = FibsemImage.generate_blank_image(resolution=(4096, 4096), hfw=4000e-6)
         image.metadata.image_settings.beam_type = beam_type  # type: ignore
-        image.metadata.microscope_state = ms                # type: ignore
-        image.metadata.system = self.microscope.system      # type: ignore
+        image.metadata.microscope_state = ms                            # type: ignore
+        image.metadata.system_info = self.microscope.system.info        # type: ignore
+        image.metadata.hardware_geometry = self.microscope.hardware_geometry()  # type: ignore
         self.update_viewer(image=image)
 
     def set_experiment(self):
@@ -588,10 +588,8 @@ class FibsemMinimapWidget(QWidget):
         self._hide_overlay_layers()
 
         self._thread_stop_event.clear()
-        self._acquisition_worker = threading.Thread(
-            target=self._run_tile_collection,
-            args=(self.microscope, overview_settings),
-            daemon=True,
+        self._acquisition_worker = FunctionWorker(
+            self._run_tile_collection, self.microscope, overview_settings
         )
         self._acquisition_worker.start()
 

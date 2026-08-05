@@ -33,12 +33,14 @@ from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import (
     BeamSettings,
     BeamType,
+    FibsemHardwareGeometry,
     FibsemImage,
     FibsemImageMetadata,
     FibsemStagePosition,
     ImageSettings,
     MicroscopeState,
     Point,
+    SystemInfo,
 )
 
 TESCAN_CONFIG_PATH = os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
@@ -94,11 +96,18 @@ def make_image(
         electron_beam=BeamSettings(beam_type=BeamType.ELECTRON, scan_rotation=scan_rotation),
         ion_beam=BeamSettings(beam_type=BeamType.ION, scan_rotation=scan_rotation),
     )
+    # v6 (FIB-481) split the old `system` metadata into system_info (identity, carries
+    # manufacturer) + hardware_geometry (the tilt/rotation geometry the inverse needs).
+    system_info = SystemInfo(
+        name="test", ip_address="localhost", manufacturer="Tescan", model="test",
+        serial_number="test", hardware_version="test", software_version="test",
+    )
     md = FibsemImageMetadata(
         image_settings=ImageSettings(resolution=(shape[1], shape[0]), beam_type=beam_type),
         pixel_size=Point(pixel_size, pixel_size),
         microscope_state=state,
-        system=system,
+        system_info=system_info,
+        hardware_geometry=FibsemHardwareGeometry.from_system_settings(system),
     )
     return FibsemImage(data=np.zeros(shape, dtype=np.uint8), metadata=md)
 
@@ -291,12 +300,40 @@ def test_inverse_uses_sin_branch_past_45_degrees(beam_type):
 @pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
 @pytest.mark.parametrize("tilt_deg", [0.0, 17.0, 30.0])
 def test_standalone_inverse_matches_microscope(beam_type, tilt_deg):
-    """The metadata-based standalone inverse (tiled.py) matches the microscope method."""
+    """The metadata-based standalone inverse (reprojection.py) matches the microscope method."""
     stage_position = stage_at(tilt_deg)
     m = make_microscope(pretilt_deg=35.0, stage_position=stage_position)
     image = make_image(m.system, stage_position, beam_type=beam_type)
     dy_raw, dz_raw = -1.5e-6, 0.5e-6
 
+    from_microscope = m._inverse_y_corrected_stage_movement(dy=dy_raw, dz=dz_raw, beam_type=beam_type)
+    from_metadata = _inverse_y_corrected_stage_movement_tescan(
+        image, dy=dy_raw, dz=dz_raw, beam_type=beam_type
+    )
+
+    assert from_metadata == pytest.approx(from_microscope)
+
+
+@pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
+def test_standalone_inverse_matches_microscope_sin_branch(beam_type):
+    """The standalone must match the microscope method in the |sin| > |cos| branch too.
+
+    The standalone (reprojection.py) and the microscope method are mirror copies. The sin
+    branch — reachable only when |inclination| > 45 deg, i.e. facing the ion beam — encodes
+    the z sign independently, and it once diverged: the microscope method was fixed to
+    -dz/sin while the standalone kept dz/sin, silently placing reprojected positions at the
+    opposite corner. Every other reprojection fixture sits below 45 deg, so without this
+    case the two can drift apart again unnoticed.
+    """
+    tilt_deg, pretilt_deg = 30.0, 20.0
+    stage_position = stage_at(tilt_deg, ROTATION_FLAT_TO_ION)
+    m = make_microscope(pretilt_deg=pretilt_deg, stage_position=stage_position)
+    image = make_image(m.system, stage_position, beam_type=beam_type)
+
+    inclination = np.deg2rad(tilt_deg + pretilt_deg)  # 50 deg -> sin branch
+    assert abs(np.sin(inclination)) > abs(np.cos(inclination)), "fixture must hit the sin branch"
+
+    dy_raw, dz_raw = -1.5e-6, 0.5e-6
     from_microscope = m._inverse_y_corrected_stage_movement(dy=dy_raw, dz=dz_raw, beam_type=beam_type)
     from_metadata = _inverse_y_corrected_stage_movement_tescan(
         image, dy=dy_raw, dz=dz_raw, beam_type=beam_type
@@ -315,7 +352,7 @@ def test_inverse_dispatches_on_manufacturer(manufacturer):
     stage_position = stage_at(17.0)
     m = make_microscope(pretilt_deg=35.0, stage_position=stage_position)
     image = make_image(m.system, stage_position)
-    image.metadata.system.info.manufacturer = manufacturer
+    image.metadata.system_info.manufacturer = manufacturer
     dy_raw, dz_raw = -1.5e-6, 0.5e-6
 
     generic = _inverse_y_corrected_stage_movement(image, dy=dy_raw, dz=dz_raw, beam_type=BeamType.ELECTRON)
@@ -335,7 +372,7 @@ def test_reprojection_round_trip(beam_type, manufacturer):
     m = make_microscope(pretilt_deg=35.0, stage_position=base)
     pixel_size = 1e-7
     image = make_image(m.system, base, beam_type=beam_type, pixel_size=pixel_size)
-    image.metadata.system.info.manufacturer = manufacturer
+    image.metadata.system_info.manufacturer = manufacturer
     dx, dy = 1e-6, 2e-6
 
     pos = m.project_stable_move(dx=dx, dy=dy, beam_type=beam_type, base_position=base)

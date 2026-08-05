@@ -3,13 +3,31 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import yaml
 
 import fibsem
 
-METADATA_VERSION = "v3"
+# Documentation for a human reading a file, not a parsing switch -- from_dict does not
+# branch on it, and additive changes are detected from field presence instead (FIB-445
+# D3). Bumped to v4 when FibsemExperimentRef gained `name` and `id` became the UUID;
+# to v5 when it dropped its duplicates of the application/version fields, which
+# SystemInfo owns, and when `application_version` went entirely -- it was null in every
+# file ever written (FIB-448). Those keys are still present in v4-and-earlier files.
+# v6 replaced the embedded `system` (a whole SystemSettings, 1683 bytes) with
+# `system_info` and `hardware_geometry` (FIB-481). from_dict recovers both from a v5-
+# and-earlier `system` blob, so older files still load -- including their compustage
+# flag, which up to v5 had to be inferred from the model name.
+# v7 dropped `autogamma` from the recorded image settings along with the feature
+# itself (FIB-505). Older files still carry the key; it is ignored.
+# v8 added `workflow` -- which item and which task an image was acquired for
+# (FIB-466). Absent in earlier files, and absent in any image acquired outside a
+# workflow, which is a real answer rather than a missing one.
+METADATA_VERSION = "v8"
+# What an unversioned file is. Absent means written before versioning existed, i.e.
+# older than v1 -- not "current", which is what defaulting to METADATA_VERSION claimed.
+UNVERSIONED_METADATA = "v0"
 
 SUPPORTED_COORDINATE_SYSTEMS = [
     "RAW",
@@ -82,6 +100,7 @@ MICROSCOPE_CONFIGURATION_PATH = os.path.join(
 )
 # fluorescence settings persistence
 FM_CONFIGURATION_PATH = os.path.join(CONFIG_PATH, "fm-configuration.yaml")  # working state
+FM_RECENT_CHANNELS_PATH = os.path.join(CONFIG_PATH, "fm-recent-channels.yaml")  # recently-used channels
 COINCIDENCE_MILLING_CONFIG_PATH = os.path.join(CONFIG_PATH, "coincidence-milling-config.yaml")  # milling default
 SAMPLE_HOLDER_CONFIGURATION_PATH = os.path.join(
     CONFIG_PATH, "sample-holder.yaml"
@@ -167,6 +186,13 @@ if not os.path.exists(DEFAULT_CONFIGURATION_PATH):
         
 print(f"Default configuration {DEFAULT_CONFIGURATION_NAME}. Configuration Path: {DEFAULT_CONFIGURATION_PATH}")
 
+def _is_same_path(path: Optional[str], other: Optional[str]) -> bool:
+    """Compare two configuration paths, either of which may be unset."""
+    if path is None or other is None:
+        return False
+    return os.path.normpath(path) == os.path.normpath(other)
+
+
 def add_configuration(configuration_name: str, path: str):
     """Add a new configuration to the user configurations file."""
     if configuration_name in USER_CONFIGURATIONS:
@@ -176,6 +202,27 @@ def add_configuration(configuration_name: str, path: str):
     USER_CONFIGURATIONS_YAML["configurations"] = USER_CONFIGURATIONS
     with open(USER_CONFIGURATIONS_PATH, "w") as f:
         yaml.dump(USER_CONFIGURATIONS_YAML, f)
+
+
+def register_configuration(path: str, configuration_name: Optional[str] = None) -> str:
+    """Register a configuration file, and return the name it was registered under.
+
+    Registering is the only thing that makes a configuration selectable, so unlike
+    add_configuration this never refuses: a name already taken by a different file
+    is given a numeric suffix instead of raising.
+    """
+    if configuration_name is None:
+        configuration_name = os.path.splitext(os.path.basename(path))[0]
+
+    name, index = configuration_name, 2
+    while name in USER_CONFIGURATIONS:
+        if _is_same_path(USER_CONFIGURATIONS[name].get("path"), path):
+            return name  # already registered
+        name = f"{configuration_name} ({index})"
+        index += 1
+
+    add_configuration(configuration_name=name, path=path)
+    return name
 
 
 def remove_configuration(configuration_name: str):
@@ -252,12 +299,23 @@ class DisplayPreferences:
 
 @dataclass
 class FeatureFlags:
-    lamella_position_on_live_view: bool = False
     viewer_movement_events: bool = False
     coincidence_milling_enabled: bool = False
     sample_holder_widget: bool = False
     scheduled_tasks: bool = False
     bug_report_enabled: bool = False
+    # Tools -> Scripts. A user script runs with the application's own access to the
+    # microscope and none of its guard rails, so the menu is not offered to anyone
+    # who has not asked for it (FIB-338).
+    scripts_enabled: bool = False
+    # The FM Overview tab. Off while the rebuilt fluorescence overview UI is still
+    # being finished -- it sits beside the existing Overview tab and drives the same
+    # instrument, so it is offered only to people who have asked for it (FIB-432).
+    fm_overview_tab: bool = False
+    # Editing the workflow queue from the timeline while a run is in progress. The
+    # first thing that lets a user change what a running workflow will do, on a real
+    # sample, mid-session -- so it is offered only to people who ask (FIB-476).
+    edit_running_queue: bool = False
 
 @dataclass
 class MovementPreferences:
@@ -283,6 +341,13 @@ class ReportingPreferences:
     contact_email: str = ""
     crash_reporting_enabled: bool = False
     sentry_dsn: str = ""
+    # Grouped with crash reporting because it is the same question: may the
+    # application make outbound network calls? Opt-in for the same reason —
+    # these run on instrument PCs, sometimes on institutional networks where an
+    # unannounced connection at startup is a compliance question and the
+    # operator would have no idea it was happening. Skipped entirely for source
+    # installs regardless of this setting (see fibsem.update_check.is_enabled).
+    update_check_enabled: bool = False
 
 @dataclass
 class UserPreferences:
@@ -291,6 +356,17 @@ class UserPreferences:
     movement: MovementPreferences = field(default_factory=MovementPreferences)
     experiment: ExperimentPreferences = field(default_factory=ExperimentPreferences)
     reporting: ReportingPreferences = field(default_factory=ReportingPreferences)
+    # Serialized hooks, as HookManager.to_dict()["hooks"] produces them. Held as plain
+    # dicts rather than Hook objects on purpose: to_dict() below is dataclasses.asdict,
+    # which would recurse into a Hook, strip the "type" key that reconstructs it, and
+    # then hit NotificationHook._notify -- a callable, which yaml.safe_dump refuses.
+    # Keeping them opaque also keeps this module free of any hook imports.
+    #
+    # None and [] are different, and the difference is the whole feature: None means
+    # never configured, so the application uses its defaults, while [] means the user
+    # turned everything off. Conflating them either resurrects hooks someone deleted or
+    # silences a fresh install. See FIB-497.
+    hooks: Optional[List[dict]] = None
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
@@ -298,13 +374,16 @@ class UserPreferences:
     @classmethod
     def from_dict(cls, d: dict) -> "UserPreferences":
         """Reconstruct from a dict, handling both nested and legacy flat formats."""
-        if any(k in d for k in ("display", "features", "movement", "experiment", "reporting")):
+        if any(k in d for k in ("display", "features", "movement", "experiment",
+                                "reporting", "hooks")):
             return cls(
                 display=_sub_from_dict(DisplayPreferences, d.get("display", {})),
                 features=_sub_from_dict(FeatureFlags, d.get("features", {})),
                 movement=_sub_from_dict(MovementPreferences, d.get("movement", {})),
                 experiment=_sub_from_dict(ExperimentPreferences, d.get("experiment", {})),
                 reporting=_sub_from_dict(ReportingPreferences, d.get("reporting", {})),
+                # .get() rather than a default, so an absent key stays None
+                hooks=d.get("hooks"),
             )
         # Legacy flat format
         prefs = cls()
@@ -454,22 +533,23 @@ def get_recent_experiments(prune_missing: bool = True) -> List[RecentExperimentI
 def apply_feature_flags(prefs: UserPreferences) -> None:
     """Update module-level FEATURE_* constants from user preferences."""
     import fibsem.config as _self
-    global FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED
     global FEATURE_VIEWER_MOVEMENT_EVENTS
     global FEATURE_COINCIDENCE_MILLING_ENABLED
     global FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED
     global FEATURE_SCHEDULED_TASKS_ENABLED
+    global FEATURE_FM_OVERVIEW_TAB_ENABLED
+    global FEATURE_EDIT_RUNNING_QUEUE_ENABLED
     f = prefs.features
-    FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = f.lamella_position_on_live_view
     FEATURE_VIEWER_MOVEMENT_EVENTS = f.viewer_movement_events
     FEATURE_COINCIDENCE_MILLING_ENABLED = f.coincidence_milling_enabled
     FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = f.sample_holder_widget
     FEATURE_SCHEDULED_TASKS_ENABLED = f.scheduled_tasks
+    FEATURE_FM_OVERVIEW_TAB_ENABLED = f.fm_overview_tab
+    FEATURE_EDIT_RUNNING_QUEUE_ENABLED = f.edit_running_queue
 
     # Also update the autolamella config module which re-exports these
     try:
         import fibsem.applications.autolamella.config as al_cfg
-        al_cfg.FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = f.lamella_position_on_live_view
         al_cfg.FEATURE_COINCIDENCE_MILLING_ENABLED = f.coincidence_milling_enabled
         al_cfg.FEATURE_SCHEDULED_TASKS_ENABLED = f.scheduled_tasks
     except ImportError:
@@ -487,8 +567,9 @@ AUTOLAMELLA_EXPERIMENT_NAME = "AutoLamella"
 os.makedirs(AUTOLAMELLA_LOG_PATH, exist_ok=True)
 
 ####### FEATURE FLAGS
-FEATURE_LAMELLA_POSITION_ON_LIVE_VIEW_ENABLED = False
 FEATURE_VIEWER_MOVEMENT_EVENTS = False
 FEATURE_COINCIDENCE_MILLING_ENABLED = False
 FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = False
 FEATURE_SCHEDULED_TASKS_ENABLED = False
+FEATURE_FM_OVERVIEW_TAB_ENABLED = False
+FEATURE_EDIT_RUNNING_QUEUE_ENABLED = False

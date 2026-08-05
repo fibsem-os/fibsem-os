@@ -127,6 +127,13 @@ QMenu::item:selected {
     background-color: #3d4251;
 }
 
+/* Without this, `QMenu { color }` above also paints disabled items, so a greyed
+   action is indistinguishable from an available one. Matches the disabled
+   colour used by the button and field rules below. */
+QMenu::item:disabled {
+    color: #6b6b6b;
+}
+
 QTabWidget::pane {
     border: none;
     background-color: #262930;
@@ -438,6 +445,21 @@ MILLING_PROGRESS_BAR_STYLESHEET = """
             }
         """
 
+# same bar, error-coloured chunk: rendered when an operation finishes in a failed
+# state, so "Done" and "Failed" are not both a full green bar.
+FAILED_PROGRESS_BAR_STYLESHEET = """
+            QProgressBar {
+                border: 1px solid #3d4251;
+                border-radius: 3px;
+                text-align: center;
+                background-color: #1e2027;
+                color: #d6d6d6;
+            }
+            QProgressBar::chunk {
+                background-color: #99121F;
+            }
+        """
+
 USER_ATTENTION_BUTTON_STYLESHEET = """
             QPushButton {
                 background-color: #ff9800;
@@ -567,6 +589,24 @@ SECONDARY_BUTTON_STYLESHEET = """
     }
 """
 
+MESSAGE_BOX_STYLESHEET = """
+    QMessageBox {
+        background-color: #262930;
+    }
+    QMessageBox QLabel {
+        color: #d6d6d6;
+        font-size: 12px;
+    }
+    QMessageBox QLabel#qt_msgbox_label {
+        color: #f0f1f2;
+        font-size: 13px;
+        font-weight: 500;
+    }
+"""
+# The #qt_msgbox_label id is Qt's own name for the headline label, so it is only
+# a lift on top of the rule above -- if a future Qt renames it the text stays
+# readable rather than disappearing.
+
 STATUS_BAR_STYLESHEET = """
                 QStatusBar {
                     background-color: #1e2027;
@@ -615,6 +655,58 @@ RED_COLOR = "#99121F"
 ORANGE_COLOR = " #ff9800"
 DEFECT_ORANGE_COLOR = "#e8a020"
 DEFECT_RED_COLOR = "#d04040"
+
+# Shared canvas colours (image canvas / overlays / quad-view selection border)
+CANVAS_BG = "#1e2124"
+PRIMARY_ACCENT = "#3a6ea5"  # matches the quad-view selection border
+
+# ---------------------------------------------------------------------------
+# Napari-dark surface palette
+#
+# The tokens the hand-built dialogs style themselves from. Named for the role
+# they play rather than the shade they are, because that is what a caller is
+# choosing: a panel is a panel whether or not it stays #1e2027.
+#
+# Four of these already existed above under shade-derived names, and those are
+# deliberately left in place for their current callers rather than renamed --
+# the churn would reach well past the widgets that share this palette:
+#
+#     SURFACE_COLOR      == GRAY_BACKGROUND_COLOR
+#     TEXT_STRONG_COLOR  == GRAY_TEXT_COLOR
+#     TEXT_MUTED_COLOR   == GRAY_SECONDARY_COLOR
+#     OK_COLOR           == AUTOMATED_COLOR, GREEN_COLOR
+#     ERROR_COLOR        == DEFECT_RED_COLOR
+#
+# So: prefer these when styling a new dialog, and do not add a third spelling
+# of a colour that is already here twice.
+SURFACE_COLOR = "#262930"       # dialog background
+PANEL_COLOR = "#1e2027"         # inset panels, table headers
+ROW_ALT_COLOR = "#2b2f38"       # alternating row tint, hover
+BORDER_COLOR = "#3d4251"        # panel and control borders
+TEXT_COLOR = "#d6d6d6"          # body text
+TEXT_STRONG_COLOR = "#f0f1f2"   # titles, emphasis
+TEXT_MUTED_COLOR = "#868e93"    # secondary text, disabled
+ACCENT_COLOR = "#50a6ff"        # links, selected state, informational chips
+OK_COLOR = "#4caf50"            # success
+WARN_COLOR = "#e0a030"          # loaded but inactive, degraded, needs attention
+ERROR_COLOR = "#d04040"         # failure
+
+# The tooltip rule, for restating alongside a selector-less widget stylesheet.
+#
+# A stylesheet set on a widget with no selector applies to every type Qt renders
+# through it -- including the QToolTip shown over it -- and it wins over the
+# application sheet because it sits nearer. So `background: transparent` on a
+# table cell leaves that cell's tooltip as floating text with no panel behind it.
+# Prefer custom_widgets.style_with_tooltip() to using this constant directly.
+TOOLTIP_STYLESHEET = f"""
+QToolTip {{
+    background-color: {PANEL_COLOR};
+    color: {TEXT_COLOR};
+    border: 1px solid {BORDER_COLOR};
+    padding: 4px 8px;
+    border-radius: 3px;
+}}
+"""
 
 WORKFLOW_BORDER_STYLESHEET = """
     QFrame#workflow_border_frame[borderState="idle"]       { border: 4px solid #262930; }

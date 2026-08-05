@@ -191,6 +191,21 @@ class PDFReportGenerator:
 
 
 ###### NEW REPORTING FOR NEW TASK-WORKFLOW ######
+# The sections generate_report2 understands, in report order. Exported so callers
+# building a sections dict name them from here rather than by hand -- the report
+# widget spelled one of these "lamella_images" for as long as both existed, which
+# silently did nothing because an unmatched key just leaves the default in place.
+# See FIB-458.
+REPORT_SECTIONS = (
+    "overview",
+    "task_history",
+    "detection",
+    "lamella_workflow",
+    "lamella_workflow_images",
+    "lamella_milling",
+)
+
+
 def _add_lamella_section(pdf: PDFReportGenerator,
                          lamella: Lamella,
                          df_task_history: pd.DataFrame,
@@ -301,15 +316,19 @@ def generate_report2(experiment: Experiment,
         >>> exp = Experiment.load("path/to/experiment.yaml")
         >>> generate_report2(exp, "my_report.pdf", sections={"overview": True, "detection": False})
     """
-    # Set up default sections
-    default_sections = {
-        "overview": True,
-        "task_history": True,
-        "detection": True,
-        "lamella_workflow": True,
-        "lamella_workflow_images": True,
-        "lamella_milling": True
-    }
+    default_sections = dict.fromkeys(REPORT_SECTIONS, True)
+    # A key that matches nothing is a no-op that looks like a working control: the
+    # report widget asked for "lamella_images" while this expects
+    # "lamella_workflow_images", so unchecking that box did nothing for as long as
+    # both existed. Warn rather than raise, so an older caller still gets a report.
+    # See FIB-458.
+    unknown = set(sections or {}) - set(default_sections)
+    if unknown:
+        logging.warning(
+            f"Ignoring unknown report section(s): {sorted(unknown)}. "
+            f"Valid sections: {sorted(default_sections)}"
+        )
+
     sections = {**default_sections, **(sections or {})}
 
     report_data = generate_report_data2(experiment, encoding=encoding)
@@ -328,7 +347,6 @@ def generate_report2(experiment: Experiment,
     if sections["overview"]:
         try:
             filenames = glob.glob(os.path.join(experiment.path, "*overview*.tif"))
-            filenames = [f for f in filenames if "autogamma" not in f]
             if len(filenames) > 0:
                 pdf.add_page_break()
                 pdf.add_heading("Overview (Positions)")

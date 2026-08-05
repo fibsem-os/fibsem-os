@@ -19,6 +19,7 @@ from fibsem.applications.autolamella.workflows.ui import (
     clear_spot_burn_ui,
     update_spot_burn_parameters,
 )
+from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn
 from fibsem.structures import BeamType, Point
 
 
@@ -43,6 +44,14 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
             'scale': 1
         }
     )
+    autofocus: bool = field(
+        default=False,
+        metadata={
+            "help": "Run a FIB autofocus before acquiring the reference image, so the "
+                    "points are placed on (and burned into) a focused image",
+            "label": "Autofocus",
+        },
+    )
     coordinates: list[Point] = field(
         default_factory=list,
         metadata={"help": "Spot burn positions in normalised image coordinates (0-1)"},
@@ -58,6 +67,7 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
         ddict["parameters"] = {
             "milling_current": self.milling_current,
             "exposure_time": self.exposure_time,
+            "autofocus": self.autofocus,
         }
         ddict["milling"] = {k: v.to_dict() for k, v in self.milling.items()}
         if self.reference_imaging is not None:
@@ -77,8 +87,24 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
             # coerce numeric params: older protocols may have stored these as strings
             milling_current=float(params.get("milling_current", 60.0e-12)),
             exposure_time=int(float(params.get("exposure_time", 10))),
+            autofocus=bool(params.get("autofocus", False)),
             coordinates=coordinates,
         )
+
+    def to_settings(self) -> SpotBurnSettings:
+        """The run payload (coordinates + current + exposure) for this task."""
+        return SpotBurnSettings(
+            coordinates=list(self.coordinates),
+            milling_current=self.milling_current,
+            exposure_time=float(self.exposure_time),
+        )
+
+    def apply_settings(self, settings: SpotBurnSettings) -> None:
+        """Apply a run payload back onto this task config (coordinates + current + exposure)."""
+        self.coordinates = list(settings.coordinates)
+        self.milling_current = settings.milling_current
+        self.exposure_time = settings.exposure_time
+
 
 class SpotBurnFiducialTask(AutoLamellaTask):
     """Task to mill spot fiducial markers for correlation."""
@@ -98,8 +124,15 @@ class SpotBurnFiducialTask(AutoLamellaTask):
 
         self.config.exposure_time = float(self.config.exposure_time)
 
+        # focus before the reference image, not after: the points are placed on that
+        # image, and the burn lands where they were placed. Same field of view, so the
+        # sweep is scored on the view the user actually works in.
+        field_of_view = self.config.reference_imaging.field_of_view1
+        if self.config.autofocus:
+            self._run_autofocus(BeamType.ION, hfw=field_of_view)
+
         # acquire images, set ui
-        self._acquire_reference_image(image_settings, field_of_view=self.config.reference_imaging.field_of_view1)
+        self._acquire_reference_image(image_settings, field_of_view=field_of_view)
 
         self.log_status_message("SPOT_BURN_FIDUCIAL", "Running Spot Burn...")
 
@@ -122,11 +155,9 @@ class SpotBurnFiducialTask(AutoLamellaTask):
                     f"No spot burn coordinates set for {self.lamella.name}; skipping spot burn."
                 )
                 return
-            from fibsem.imaging.spot import run_spot_burn
+            # burn the stored coordinates directly (progress via the microscope signal)
             run_spot_burn(microscope=self.microscope,
-                          coordinates=self.config.coordinates,
-                          exposure_time=self.config.exposure_time,
-                          milling_current=self.config.milling_current,
+                          settings=self.config.to_settings(),
                           beam_type=BeamType.ION,
                           stop_event=self._stop_event)
             return
