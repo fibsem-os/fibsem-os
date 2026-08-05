@@ -1730,18 +1730,11 @@ class _StubHost:
 
     add_fm_overview_tab = _Real.add_fm_overview_tab
     _apply_fm_overview_visibility = _Real._apply_fm_overview_visibility
-    _build_fm_overview_widget = _Real._build_fm_overview_widget
-    _teardown_fm_overview_widget = _Real._teardown_fm_overview_widget
-    _update_fm_overview_experiment = _Real._update_fm_overview_experiment
-    _update_fm_overview_positions = _Real._update_fm_overview_positions
-    _update_fm_overview_selection = _Real._update_fm_overview_selection
+    _on_fm_overview_availability = _Real._on_fm_overview_availability
+    _refresh_fm_overview_positions = _Real._refresh_fm_overview_positions
     _set_minimap_workflow_enabled = _Real._set_minimap_workflow_enabled
     _rebuild_lamella_list = _Real._rebuild_lamella_list
     _wire_position_events = _Real._wire_position_events
-    # Connected by `_build_fm_overview_widget`, so every host needs them present.
-    _on_fm_overview_add_position = _Real._on_fm_overview_add_position
-    _on_fm_overview_move_position = _Real._on_fm_overview_move_position
-    _fm_overview_objective_position = _Real._fm_overview_objective_position
 
     def __init__(self, microscope=None, experiment=None, tab_enabled=True):
         import fibsem.config as fibsem_cfg
@@ -1766,8 +1759,32 @@ class _StubHost:
     @property
     def tab_enabled(self):
         return self.tab_widget.isTabEnabled(
-            self.tab_widget.indexOf(self._fm_overview_container)
+            self.tab_widget.indexOf(self.fm_overview_tab)
         )
+
+    # ── reading through to the tab ───────────────────────────────────────
+    # Test scaffolding, not production shims: these say "what the window can see of the
+    # tab" so the window-level tests below read as they did before the tab was split
+    # out, while still going through the real `FluorescenceOverviewTab`.
+
+    @property
+    def fm_overview_widget(self):
+        return self.fm_overview_tab.overview
+
+    def _build_fm_overview_widget(self):
+        self.fm_overview_tab.refresh_microscope()
+
+    def _teardown_fm_overview_widget(self):
+        self.fm_overview_tab._drop_overview()
+
+    def _update_fm_overview_experiment(self):
+        self.fm_overview_tab.refresh_experiment()
+
+    def _update_fm_overview_positions(self):
+        self._refresh_fm_overview_positions()
+
+    def _update_fm_overview_selection(self, lamella):
+        self.fm_overview_tab.set_selected(lamella)
 
 
 def _plain_microscope():
@@ -1813,7 +1830,7 @@ def test_a_microscope_without_fluorescence_hides_the_tab(qapp):
 
     host._apply_fm_overview_visibility()
 
-    index = host.tab_widget.indexOf(host._fm_overview_container)
+    index = host.tab_widget.indexOf(host.fm_overview_tab)
     assert not host.tab_widget.isTabVisible(index)
     assert host.fm_overview_widget is None
 
@@ -1825,7 +1842,7 @@ def test_no_microscope_yet_leaves_the_tab_visible_but_disabled(qapp):
 
     host._apply_fm_overview_visibility()
 
-    index = host.tab_widget.indexOf(host._fm_overview_container)
+    index = host.tab_widget.indexOf(host.fm_overview_tab)
     assert host.tab_widget.isTabVisible(index)
     assert not host.tab_widget.isTabEnabled(index)
     assert host.fm_overview_widget is None
@@ -1835,7 +1852,7 @@ def test_connecting_a_microscope_without_fluorescence_takes_the_tab_away(qapp):
     """Whether the system has an FM is only known once something is connected, so the
     tab starts visible and has to be withdrawn rather than never shown."""
     host = _StubHost(microscope=None)
-    index = host.tab_widget.indexOf(host._fm_overview_container)
+    index = host.tab_widget.indexOf(host.fm_overview_tab)
     assert host.tab_widget.isTabVisible(index)
 
     host.autolamella_ui.microscope = _plain_microscope()
@@ -1850,7 +1867,7 @@ def test_a_microscope_with_fluorescence_brings_the_tab_back(qapp):
 
     host = _StubHost(microscope=_plain_microscope())
     host._apply_fm_overview_visibility()
-    index = host.tab_widget.indexOf(host._fm_overview_container)
+    index = host.tab_widget.indexOf(host.fm_overview_tab)
     assert not host.tab_widget.isTabVisible(index)
 
     host.autolamella_ui.microscope = build_microscope()
@@ -1893,7 +1910,7 @@ def test_a_different_microscope_replaces_the_widget(qapp):
     host._build_fm_overview_widget()
 
     assert host.fm_overview_widget is not first
-    assert host._fm_overview_microscope is host.autolamella_ui.microscope
+    assert host.fm_overview_tab._microscope is host.autolamella_ui.microscope
 
     host._teardown_fm_overview_widget()
 
@@ -1980,7 +1997,7 @@ def test_the_fm_overview_tab_is_behind_a_preference(qapp):
     from fibsem.ui.fm.overview_app import build_microscope
 
     host = _StubHost(microscope=build_microscope(), tab_enabled=False)
-    index = host.tab_widget.indexOf(host._fm_overview_container)
+    index = host.tab_widget.indexOf(host.fm_overview_tab)
 
     assert not host.tab_widget.isTabVisible(index)
     assert host.fm_overview_widget is None
@@ -1991,7 +2008,7 @@ def test_switching_the_preference_on_shows_the_tab_without_a_restart(qapp):
     from fibsem.ui.fm.overview_app import build_microscope
 
     host = _StubHost(microscope=build_microscope(), tab_enabled=False)
-    index = host.tab_widget.indexOf(host._fm_overview_container)
+    index = host.tab_widget.indexOf(host.fm_overview_tab)
 
     host.set_flag(True)
 
@@ -2011,7 +2028,7 @@ def test_switching_it_off_again_releases_the_widget(qapp):
     microscope = build_microscope()
     before = len(microscope.stage_position_changed)
     host = _StubHost(microscope=microscope, tab_enabled=True)
-    index = host.tab_widget.indexOf(host._fm_overview_container)
+    index = host.tab_widget.indexOf(host.fm_overview_tab)
     assert len(microscope.stage_position_changed) == before + 1
 
     host.set_flag(False)
@@ -2908,7 +2925,7 @@ def test_adding_declares_the_fluorescence_orientation(qapp, tmp_path):
     host = _wired_host(qapp, tmp_path)
     position = _named("wherever", 120e-6, -60e-6)
 
-    host._on_fm_overview_add_position(position)
+    host.fm_overview_tab._on_add_requested(position)
 
     assert host.autolamella_ui.added[0]["marked_at"] == FLUORESCENCE_ORIENTATION
     assert host.autolamella_ui.added[0]["position"] is position
@@ -2927,7 +2944,7 @@ def test_adding_records_where_the_objective_actually_is(qapp, tmp_path):
     objective.move_absolute(objective.position + 50e-6)  # focused by hand
     assert objective.state == "Inserted"
 
-    host._on_fm_overview_add_position(_named("wherever", 0.0, 0.0))
+    host.fm_overview_tab._on_add_requested(_named("wherever", 0.0, 0.0))
 
     assert host.autolamella_ui.added[0]["objective_position"] == pytest.approx(
         objective.position
@@ -2944,7 +2961,7 @@ def test_a_retracted_objective_is_not_recorded_as_a_focus(qapp, tmp_path):
     objective.retract()
     assert objective.state == "Retracted"
 
-    host._on_fm_overview_add_position(_named("wherever", 0.0, 0.0))
+    host.fm_overview_tab._on_add_requested(_named("wherever", 0.0, 0.0))
 
     assert host.autolamella_ui.added[0]["objective_position"] is None
 
@@ -2957,7 +2974,7 @@ def test_adding_without_an_experiment_is_refused_not_crashed(qapp, tmp_path):
     host = _wired_host(qapp, tmp_path)
     host.autolamella_ui.experiment = None
 
-    host._on_fm_overview_add_position(_named("wherever", 0.0, 0.0))  # must not raise
+    host.fm_overview_tab._on_add_requested(_named("wherever", 0.0, 0.0))  # must not raise
 
     assert host.autolamella_ui.added == []
 
@@ -2974,7 +2991,7 @@ def test_a_refused_add_is_reported_rather_than_raised(qapp, tmp_path):
 
     host.autolamella_ui.add_new_lamella = refuse
 
-    host._on_fm_overview_add_position(_named("wherever", 0.0, 0.0))  # must not raise
+    host.fm_overview_tab._on_add_requested(_named("wherever", 0.0, 0.0))  # must not raise
 
     host._teardown_fm_overview_widget()
 
@@ -2982,7 +2999,7 @@ def test_a_refused_add_is_reported_rather_than_raised(qapp, tmp_path):
 def test_moving_asks_before_it_moves_anything(qapp, tmp_path, monkeypatch):
     """Moving one pose moves both, and the milling pose is not visible from this canvas.
     Said rather than assumed."""
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import fluorescence_overview_tab as module
     from fibsem.ui.fm.overview_app import build_microscope
 
     host = _wired_host(qapp, tmp_path)
@@ -2996,7 +3013,7 @@ def test_moving_asks_before_it_moves_anything(qapp, tmp_path, monkeypatch):
         module, "message_box_ui", lambda **kwargs: asked.append(kwargs) or False
     )
 
-    host._on_fm_overview_move_position("Lamella-01", _named("target", 400e-6, -200e-6))
+    host.fm_overview_tab._on_move_requested("Lamella-01", _named("target", 400e-6, -200e-6))
 
     assert len(asked) == 1, "moved without asking"
     assert lamella.poses["MILLING"].stage_position.x == before["MILLING"].stage_position.x
@@ -3011,7 +3028,7 @@ def test_moving_asks_before_it_moves_anything(qapp, tmp_path, monkeypatch):
 
 
 def test_confirming_a_move_moves_both_poses(qapp, tmp_path, monkeypatch):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import fluorescence_overview_tab as module
 
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
@@ -3020,7 +3037,7 @@ def test_confirming_a_move_moves_both_poses(qapp, tmp_path, monkeypatch):
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
     target = _named("target", 400e-6, -200e-6)
-    host._on_fm_overview_move_position("Lamella-01", target)
+    host.fm_overview_tab._on_move_requested("Lamella-01", target)
 
     # the fluorescence pose is where the user clicked...
     assert lamella.fluorescence_pose.stage_position.x == pytest.approx(400e-6)
@@ -3040,7 +3057,7 @@ def test_a_move_rewrites_the_stage_positions_and_nothing_else(qapp, tmp_path, mo
     """A move is a move. The poses are edited in place rather than replaced, so the beam
     settings the lamella was marked with survive -- and so does the objective position,
     because the user moved sideways, they did not refocus."""
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import fluorescence_overview_tab as module
 
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
@@ -3050,7 +3067,7 @@ def test_a_move_rewrites_the_stage_positions_and_nothing_else(qapp, tmp_path, mo
     host.autolamella_ui.experiment.positions = [lamella]
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
-    host._on_fm_overview_move_position("Lamella-01", _named("target", 400e-6, -200e-6))
+    host.fm_overview_tab._on_move_requested("Lamella-01", _named("target", 400e-6, -200e-6))
 
     assert lamella.milling_pose.electron_detector.brightness == pytest.approx(0.123)
     assert lamella.fluorescence_pose.objective_position == pytest.approx(7.7e-3)
@@ -3062,7 +3079,7 @@ def test_moving_a_lamella_that_has_no_fluorescence_pose_gives_it_one(
     """Possible on a lamella marked before there was an FM. It gets a whole new pose
     rather than an edit, and that one is built on what the lamella itself recorded --
     not on whatever the microscope happens to be set to now."""
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import fluorescence_overview_tab as module
 
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
@@ -3072,7 +3089,7 @@ def test_moving_a_lamella_that_has_no_fluorescence_pose_gives_it_one(
     host.autolamella_ui.experiment.positions = [lamella]
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
-    host._on_fm_overview_move_position("Lamella-01", _named("target", 400e-6, -200e-6))
+    host.fm_overview_tab._on_move_requested("Lamella-01", _named("target", 400e-6, -200e-6))
 
     assert lamella.fluorescence_pose is not None
     assert lamella.fluorescence_pose.stage_position.x == pytest.approx(400e-6)
@@ -3085,7 +3102,7 @@ def test_moving_a_lamella_that_has_no_fluorescence_pose_gives_it_one(
 def test_a_move_re_derives_the_milling_angle(qapp, tmp_path, monkeypatch):
     """It is computed from the milling-pose stage tilt, so a pose that moved without it
     would leave the lamella claiming an angle its own pose no longer implies."""
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import fluorescence_overview_tab as module
 
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
@@ -3094,7 +3111,7 @@ def test_a_move_re_derives_the_milling_angle(qapp, tmp_path, monkeypatch):
     host.autolamella_ui.experiment.positions = [lamella]
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
-    host._on_fm_overview_move_position("Lamella-01", _named("target", 400e-6, -200e-6))
+    host.fm_overview_tab._on_move_requested("Lamella-01", _named("target", 400e-6, -200e-6))
 
     assert lamella.milling_angle != pytest.approx(999.0)
     assert lamella.milling_angle == pytest.approx(
@@ -3107,7 +3124,7 @@ def test_a_move_re_derives_the_milling_angle(qapp, tmp_path, monkeypatch):
 def test_a_move_that_names_nothing_does_nothing(qapp, tmp_path, monkeypatch):
     """The canvas holds its selection by name and is rebuilt independently of the host's
     list, so a name can arrive for a lamella that is no longer there."""
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import fluorescence_overview_tab as module
 
     host = _wired_host(qapp, tmp_path)
     lamella = _real_lamella("Lamella-01", host.autolamella_ui.microscope, tmp_path)
@@ -3117,7 +3134,7 @@ def test_a_move_that_names_nothing_does_nothing(qapp, tmp_path, monkeypatch):
         module, "message_box_ui", lambda **kwargs: asked.append(kwargs) or True
     )
 
-    host._on_fm_overview_move_position("Lamella-99", _named("target", 0.0, 0.0))
+    host.fm_overview_tab._on_move_requested("Lamella-99", _named("target", 0.0, 0.0))
 
     assert asked == [], "asked about a lamella that is not there"
     assert host.autolamella_ui.experiment.saves == 0
@@ -3269,7 +3286,7 @@ def test_switching_experiments_lets_go_of_the_old_one(qapp, tmp_path):
 def test_a_confirmed_move_re_marks_the_canvas(qapp, tmp_path, monkeypatch):
     """Otherwise the marker stays where the lamella used to be until something else
     happens to refresh it."""
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.ui import fluorescence_overview_tab as module
 
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
@@ -3279,7 +3296,7 @@ def test_a_confirmed_move_re_marks_the_canvas(qapp, tmp_path, monkeypatch):
     before = host.fm_overview_widget._positions[0].x
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
-    host._on_fm_overview_move_position("Lamella-01", _named("target", 400e-6, -200e-6))
+    host.fm_overview_tab._on_move_requested("Lamella-01", _named("target", 400e-6, -200e-6))
 
     assert host.fm_overview_widget._positions[0].x == pytest.approx(400e-6)
     assert host.fm_overview_widget._positions[0].x != pytest.approx(before)
