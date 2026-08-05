@@ -163,6 +163,33 @@ def test_a_removed_row_stops_painting_immediately(widget, queue):
     assert ghost.parent() is None
 
 
+def test_a_cancelled_task_counts_as_resolved(widget, queue):
+    """Found on the microscope: the counter sat at 0/4 with a task cancelled, so it
+    could never reach the total. Cancelled is terminal — it just is not success."""
+    item = start_next(widget, queue)
+    finish(widget, queue, item, status=Status.Cancelled)
+
+    assert widget._header.text() == "Workflow — 1/4 (1 cancelled)"
+
+
+def test_failures_and_cancellations_are_both_named(widget, queue):
+    finish(widget, queue, start_next(widget, queue), status=Status.Failed)
+    finish(widget, queue, start_next(widget, queue), status=Status.Cancelled)
+
+    assert widget._header.text() == "Workflow — 1/4 (1 failed, 1 cancelled)"
+
+
+def test_a_cancelled_row_does_not_look_like_a_running_one(widget, queue):
+    """They were #e0a030 and #ff9800 — the same colour to the eye."""
+    from fibsem.ui.widgets.workflow_timeline_widget import (
+        _DOT_ACTIVE, _DOT_CANCELLED, _status_color,
+    )
+    from fibsem.ui.widgets.workflow_timeline_widget import StepStatus
+
+    assert _DOT_CANCELLED != _DOT_ACTIVE
+    assert _status_color(StepStatus.CANCELLED) == _DOT_CANCELLED
+
+
 def test_removed_item_leaves_both_sides_of_the_header_fraction(widget, queue):
     """It is not work that got done, so counting it as done would be a lie —
     and leaving it in the total would mean the counter could never finish."""

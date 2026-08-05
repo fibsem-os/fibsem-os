@@ -189,19 +189,45 @@ def test_record_output_does_not_record_the_same_file_twice(
     }
 
 
-def test_task_is_cancellation_classifies_stop_vs_failure():
+def test_task_is_cancellation_classifies_stop_vs_failure(tmp_path: Path):
     """AutoLamellaTask._is_cancellation decides which hook event a raise produces: a user
-    Stop (cancel exc / stop event) fires task_cancelled, a real failure fires task_failed."""
+    Stop (cancel exc / stopping manager) fires task_cancelled, a real failure fires
+    task_failed.
+
+    Driven off a real TaskManager: this asks the manager whether the task should be
+    unwinding, and a stand-in would only confirm whatever shape the test assumed.
+    """
     import types
 
+    from fibsem.applications.autolamella.structures import Experiment
     from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
+    from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
     from fibsem.cancellation import OperationCancelledError
 
-    def _isc(exc, stopped=False):
-        s = types.SimpleNamespace(task_manager=types.SimpleNamespace(is_stopped=stopped))
+    class _NoMicroscope:
+        fm = None
+
+    def _manager() -> TaskManager:
+        return TaskManager(microscope=_NoMicroscope(),
+                           experiment=Experiment(path=tmp_path, name="test-exp"),
+                           parent_ui=None)
+
+    def _isc(exc, manager=None):
+        s = types.SimpleNamespace(task_manager=manager)
         return AutoLamellaTask._is_cancellation(s, exc)
 
-    assert _isc(OperationCancelledError("x")) is True
-    assert _isc(InterruptedError("Workflow aborted by user.")) is True
-    assert _isc(ValueError("real bug")) is False
-    assert _isc(ValueError("real bug"), stopped=True) is True  # stop event set → cancelled
+    running = _manager()
+    assert _isc(OperationCancelledError("x"), running) is True
+    assert _isc(InterruptedError("Workflow aborted by user."), running) is True
+    assert _isc(ValueError("real bug"), running) is False
+
+    # Either kind of stop makes an exception thrown on the way out a cancellation,
+    # not a failure — abandoning one task is as much a user Stop as ending the run.
+    stopped_run = _manager()
+    stopped_run.stop()
+    assert _isc(ValueError("real bug"), stopped_run) is True
+
+    stopped_task = _manager()
+    stopped_task.stop_task()
+    assert _isc(ValueError("real bug"), stopped_task) is True
+    assert stopped_task.is_stopped is False  # ... and the run is untouched

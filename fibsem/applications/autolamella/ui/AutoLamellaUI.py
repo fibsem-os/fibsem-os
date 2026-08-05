@@ -1846,15 +1846,28 @@ class AutoLamellaUI(QMainWindow):
         if self.det_widget is not None:
             self.det_widget.confirm_button_clicked()
 
+    def stop_current_operations(self) -> None:
+        """Interrupt whatever the microscope is doing right now.
+
+        Shared by Stop Workflow and Stop Task, which have to bring the hardware to
+        a halt identically and differ only in what the queue does afterwards.
+
+        A task raising is not enough on its own: milling runs on its own thread
+        with its own stop event, owned by the milling widget, and the task merely
+        waits for it. Unwinding the task without this stops the waiting, not the
+        mill.
+        """
+        if self.milling_task_config_widget is not None:
+            self.milling_task_config_widget.milling_widget.stop_milling()
+        if self.spot_burn_widget is not None:
+            self.spot_burn_widget.cancel_spot_burn()
+
     def _stop_workflow_thread(self):
         if self._task_manager is not None:
             self._task_manager.stop()
         else:
             self._workflow_stop_event.set()
-        if self.milling_task_config_widget is not None:
-            self.milling_task_config_widget.milling_widget.stop_milling()
-        if self.spot_burn_widget is not None:
-            self.spot_burn_widget.cancel_spot_burn()
+        self.stop_current_operations()
 
     def _workflow_finished(self):
         """Handle the completion of the workflow."""

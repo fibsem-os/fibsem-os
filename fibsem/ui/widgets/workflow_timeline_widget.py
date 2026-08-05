@@ -30,7 +30,11 @@ _DOT_ACTIVE     = "#ff9800"
 _DOT_PENDING    = "#606060"
 _DOT_FAILED     = "#99121F"
 _DOT_SKIPPED    = "#9e9e9e"
-_DOT_CANCELLED  = "#e0a030"  # amber: user-aborted, not an error
+# Slate, not amber: the old #e0a030 was indistinguishable from the active orange,
+# so a cancelled row read as still running — especially when it was the last thing
+# to run and there was no active row beside it to compare against. Still not red:
+# a user abort is not an error.
+_DOT_CANCELLED  = "#6f7d8c"
 
 _LINE_COLOR     = "#3a3d42"
 
@@ -846,17 +850,21 @@ class WorkflowProgressWidget(QWidget):
         rank = pending.index(index) if index in pending else -1
         is_pending = rank >= 0
         is_finished = steps[index].status in self._FINISHED
+        is_active = steps[index].status is StepStatus.ACTIVE
 
         menu = QMenu(self)
         menu.setToolTipsVisible(True)
 
-        def add(action_id: str, label: str, icon: str, enabled: bool):
+        def add(action_id: str, label: str, icon: str, enabled: bool,
+                colour: Optional[str] = None):
             act = menu.addAction(
-                fibsem_icon(icon, color=stylesheets.GRAY_ICON_COLOR), label
+                fibsem_icon(icon, color=colour or stylesheets.GRAY_ICON_COLOR), label
             )
             act.setEnabled(enabled)
             act.setData(action_id)
-            if not (is_pending or is_finished):
+            # Explains why an entry is greyed, so only on the greyed ones — the
+            # running row now has one entry that is not.
+            if not enabled and is_active:
                 act.setToolTip("This task is already running")
             act.triggered.connect(
                 lambda _checked=False, a=action_id: self.queue_action_requested.emit(a, item_id)
@@ -872,6 +880,12 @@ class WorkflowProgressWidget(QWidget):
         if is_finished:
             menu.addSeparator()
             add("run_again", "Run again", "mdi:refresh", True)
+        if is_active:
+            # Red where Remove is grey: Remove edits a list, this interrupts an
+            # operation on the sample.
+            menu.addSeparator()
+            add("stop_task", "Stop Task", "mdi:stop-circle-outline", True,
+                colour=_DOT_FAILED)
         return menu
 
     def _show_row_menu(self, index: int, pos: QPoint) -> None:
@@ -906,14 +920,22 @@ class WorkflowProgressWidget(QWidget):
         if total == 0:
             self._header.setText("Workflow")
             return
-        # Removed items are already filtered out of the view, so they leave both
-        # sides of this fraction rather than counting as work done.
+        # Everything with a terminal status counts as resolved, whether or not it
+        # succeeded — otherwise the counter can never reach the total once anything
+        # is cancelled. Removed items are already filtered out of the view, so they
+        # leave both sides of the fraction rather than counting as work done.
         done = sum(1 for i in queue_items if i.status in (
-            AutoLamellaTaskStatus.Completed, AutoLamellaTaskStatus.Skipped))
+            AutoLamellaTaskStatus.Completed, AutoLamellaTaskStatus.Skipped,
+            AutoLamellaTaskStatus.Cancelled))
         failed = sum(1 for i in queue_items if i.status == AutoLamellaTaskStatus.Failed)
+        cancelled = sum(1 for i in queue_items
+                        if i.status == AutoLamellaTaskStatus.Cancelled)
         text = f"Workflow — {done}/{total}"
-        if failed:
-            text += f" ({failed} failed)"
+        # A run that ended with tasks abandoned should not read like one that did not.
+        notes = [f"{n} {label}" for n, label in
+                 ((failed, "failed"), (cancelled, "cancelled")) if n]
+        if notes:
+            text += f" ({', '.join(notes)})"
         self._header.setText(text)
 
     def _update_elapsed(self) -> None:

@@ -27,10 +27,13 @@ def _check_for_abort(parent_ui: Optional['AutoLamellaUI'], msg: str = "Workflow 
     if parent_ui is None:
         return False
 
-    # Use task_manager's stop event if available, fall back to legacy
+    # Ask the manager whether this task should unwind, rather than reading its
+    # stop event: the same predicate AutoLamellaTask._check_for_abort uses, so
+    # the two cannot disagree about what counts as cancelled. Falls back to the
+    # legacy UI event for the window before the manager exists.
     task_manager = getattr(parent_ui, '_task_manager', None)
     if task_manager is not None:
-        if task_manager.is_stopped:
+        if task_manager.should_abort:
             raise InterruptedError(msg)
     elif parent_ui._workflow_stop_event.is_set():
         raise InterruptedError(msg)

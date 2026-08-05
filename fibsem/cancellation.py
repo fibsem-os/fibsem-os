@@ -9,7 +9,7 @@ cleanly. Callers distinguish a cancel from a real failure — surface it as a ne
 from __future__ import annotations
 
 import threading
-from typing import Optional
+from typing import Optional, Union
 
 
 class OperationCancelledError(Exception):
@@ -24,8 +24,28 @@ class OperationCancelledError(Exception):
     """
 
 
+class AnyStopEvent:
+    """A stop signal that is set when any of its component events is set.
+
+    ``is_set()`` is the only thing :func:`raise_if_cancelled` and its callers ask of
+    a stop event, so this stands in wherever a bare :class:`threading.Event` does.
+    That lets several independent cancel signals — "stop the whole run", "abandon
+    just this task" — share one token, without every polling site having to know
+    there is more than one of them.
+
+    Read-only on purpose: there is no ``set()``, because setting a composite would
+    have to guess which underlying signal was meant. Set the one you mean.
+    """
+
+    def __init__(self, *events: threading.Event):
+        self._events = events
+
+    def is_set(self) -> bool:
+        return any(event.is_set() for event in self._events)
+
+
 def raise_if_cancelled(
-    stop_event: Optional[threading.Event],
+    stop_event: Optional[Union[threading.Event, AnyStopEvent]],
     msg: str = "Operation cancelled by user.",
 ) -> None:
     """Raise :class:`OperationCancelledError` if ``stop_event`` is set.

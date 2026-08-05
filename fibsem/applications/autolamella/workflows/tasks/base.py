@@ -111,7 +111,9 @@ class AutoLamellaTask(ABC):
         self.parent_ui = parent_ui
         self.task_manager = task_manager
         self.task_id = str(uuid.uuid4())
-        self._stop_event = task_manager._stop_event if task_manager else None
+        # The manager's token, not its raw event: what counts as "cancelled" is
+        # the manager's to decide, and a task should not have to know.
+        self._stop_event = task_manager.abort_token if task_manager else None
         self._last_fib_image: Optional[FibsemImage] = None
 
     @property
@@ -179,10 +181,14 @@ class AutoLamellaTask(ABC):
     def _is_cancellation(self, exc: Exception) -> bool:
         """Whether ``exc`` is a user Stop rather than a genuine failure: it surfaces as
         OperationCancelledError (milling / autofocus) or InterruptedError (_check_for_abort),
-        or the task manager's stop event is set."""
+        or the task manager says this task should be unwinding.
+
+        should_abort, not is_stopped: abandoning one task is as much a cancellation
+        as ending the run, and an exception thrown on the way out of one should not
+        be recorded as a failure."""
         if isinstance(exc, (OperationCancelledError, InterruptedError)):
             return True
-        return bool(getattr(getattr(self, "task_manager", None), "is_stopped", False))
+        return bool(getattr(getattr(self, "task_manager", None), "should_abort", False))
 
     def _fire_hook(self, event: str, error: Optional[str] = None) -> None:
         from fibsem.hooks import fire_event
@@ -288,7 +294,12 @@ class AutoLamellaTask(ABC):
                          workflow_info=workflow_info)
 
     def _check_for_abort(self) -> None:
-        """Check if the workflow has been aborted from the UI, and raise an InterruptedError if so."""
+        """Raise InterruptedError if this task should stop.
+
+        Polls the manager's token, which already answers for every kind of stop —
+        so this needs no second way to ask, and neither do the inline token checks
+        in the fluorescence, coincidence-milling and grid tasks.
+        """
         if self._stop_event is not None and self._stop_event.is_set():
             raise InterruptedError("Workflow aborted by user.")
 

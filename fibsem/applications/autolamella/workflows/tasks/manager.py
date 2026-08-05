@@ -11,7 +11,7 @@ from fibsem.constants import DATETIME_DISPLAY_AMPM
 import pandas as pd
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
-from fibsem.cancellation import OperationCancelledError
+from fibsem.cancellation import AnyStopEvent, OperationCancelledError
 from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue, WorkItem
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
@@ -60,6 +60,13 @@ class TaskManager:
         self.parent_ui = parent_ui
         self.hook_manager = hook_manager
         self._stop_event = threading.Event()
+        # Stopping one task is a different intent from stopping the run, so it is a
+        # different event. A flag on a single event would need care not to be
+        # downgraded when a run-wide Stop arrives mid-unwind; with two, there is no
+        # path by which cancelling a task can set is_stopped.
+        self._task_stop_event = threading.Event()
+        # Built once: the token's identity is captured by every task at construction.
+        self._abort_token = AnyStopEvent(self._stop_event, self._task_stop_event)
         self.queue = TaskQueue()
 
         # Stamp the experiment onto the images this run acquires. Done here rather
@@ -95,6 +102,10 @@ class TaskManager:
             item = self.queue.next()
             if item is None:
                 break
+
+            # A stop_task click that landed between two tasks was aimed at the one
+            # that has just finished, not at this one.
+            self._task_stop_event.clear()
 
             lamella = self.experiment.get_lamella_by_name(item.lamella_name)
             if lamella is None:
@@ -215,9 +226,50 @@ class TaskManager:
         """Signal the manager to stop after current task completes."""
         self._stop_event.set()
 
+    def stop_task(self) -> None:
+        """Abandon the task now running and carry on with the rest of the queue.
+
+        The task unwinds through the same path a run-wide Stop uses, so it ends
+        Cancelled and whatever it was doing to the hardware is undone the same
+        way. Only the loop's reaction differs: is_stopped is untouched, so
+        _run_queue moves to the next item instead of ending the run.
+
+        Cleared at the top of each task, so a click that lands between two tasks
+        is discarded rather than killing the next one.
+        """
+        self._task_stop_event.set()
+
     @property
     def is_stopped(self) -> bool:
+        """Whether the *run* should end. Only _run_queue's loop asks this.
+
+        Deliberately narrow. "Should this task unwind?" is a different question
+        with a different answer -- see `should_abort` -- and conflating the two
+        is what makes any cancel end the whole run.
+        """
         return self._stop_event.is_set()
+
+    @property
+    def should_abort(self) -> bool:
+        """Whether the task now running should unwind.
+
+        For the one caller with no token to poll: workflows.ui._check_for_abort
+        only ever gets a parent_ui. Everything task-side reads `abort_token`
+        instead, which answers the same question without a second route to it.
+        """
+        return self.abort_token.is_set()
+
+    @property
+    def abort_token(self) -> AnyStopEvent:
+        """What anything inside a task polls to know it has been cancelled.
+
+        Captured by AutoLamellaTask and GridTask, handed on to milling and
+        autofocus via `raise_if_cancelled`, and read directly by the fluorescence,
+        coincidence-milling and grid tasks. Only `is_set()` is ever called on it,
+        which is what lets it widen beyond a bare Event without touching any of
+        those call sites.
+        """
+        return self._abort_token
 
     def notify_queue_changed(self) -> None:
         """Tell the UI the queue's contents changed, outside the task lifecycle.
@@ -382,8 +434,12 @@ class TaskManager:
                               lamella: 'Lamella') -> None:
         """Block until ``scheduled_at`` is reached, emitting a periodic countdown.
 
-        The wait is interruptible: if ``stop()`` is called the loop exits early
-        and the caller skips running the task.
+        The wait is interruptible by either kind of stop. The item is already
+        InProgress by this point, so it is the row the user sees running and
+        stop_task has to reach it — otherwise a cancel would sit unanswered until
+        the scheduled time arrived. On a task stop the loop falls through and the
+        task aborts at its first checkpoint, taking the same path as any other
+        mid-task cancel rather than needing its own.
         """
         # Times are naive-local throughout, but a hand-edited/externally-produced
         # protocol may carry a tz-aware scheduled_at. Normalize to naive-local so
@@ -392,7 +448,7 @@ class TaskManager:
             scheduled_at = scheduled_at.astimezone().replace(tzinfo=None)
         target_str = scheduled_at.strftime(DATETIME_DISPLAY_AMPM)
         next_update = 0.0  # force an immediate first message
-        while not self.is_stopped:
+        while not self.should_abort:
             remaining = (scheduled_at - datetime.now()).total_seconds()
             if remaining <= 0:
                 break
@@ -496,7 +552,7 @@ class TaskManager:
             # an unknown task name, or a construction failure -- where nothing else has.
             # The predicate matches AutoLamellaTaskBase._is_cancellation so the frozen
             # history entry and the live task_state cannot disagree.
-            if self.is_stopped or isinstance(e, (OperationCancelledError, InterruptedError)):
+            if self.should_abort or isinstance(e, (OperationCancelledError, InterruptedError)):
                 logging.info(f"Task {task_name} for lamella {lamella.name} cancelled by user.")
                 lamella.task_state.status = AutoLamellaTaskStatus.Cancelled
                 lamella.task_state.status_message = "Cancelled by user."
