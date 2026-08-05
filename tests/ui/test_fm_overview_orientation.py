@@ -41,8 +41,8 @@ def widget(qapp):
 
 # Compustage tilts the whole orientation question: -180° is where the FM looks at the
 # sample, 0° is where the electron beam does. Posed directly rather than through
-# `move_to_microscope("FIBSEM")`, whose compustage path still goes via the deprecated
-# `move_flat_to_beam` and so cannot be called from a suite that errors on warnings.
+# `move_to_microscope`, which only knows FIBSEM and FM -- MILLING and NONE have to be
+# set here anyway, so all four come from one place.
 #
 # "NONE" is what `get_stage_orientation` returns for a pose it cannot name at all.
 _TILT_DEG = {"FM": -180.0, "SEM": 0.0, "MILLING": 20.0, "NONE": -90.0}

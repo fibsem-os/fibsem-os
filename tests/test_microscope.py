@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import pytest
 
@@ -82,6 +84,78 @@ def test_move_to_orientation_round_trip(orientation):
     microscope, _ = utils.setup_session(manufacturer="Demo")
     microscope.move_to_orientation(orientation)
     assert microscope.get_stage_orientation() == orientation
+
+
+# ---------------------------------------------------------------------------
+# move_to_microscope: FIBSEM <-> FM on a compustage
+# ---------------------------------------------------------------------------
+
+
+def _compustage_with_fm():
+    """A compustage Demo microscope with fluorescence attached."""
+    from fibsem.fm.microscope import FluorescenceMicroscope
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    microscope.stage_is_compustage = True
+    microscope.system.stage.shuttle_pre_tilt = 0
+    microscope._update_orientations()
+    if microscope.fm is None:
+        microscope.fm = FluorescenceMicroscope(parent=microscope)
+    return microscope
+
+
+@pytest.mark.parametrize("target,expected", [("FIBSEM", "SEM"), ("FM", "FM")])
+def test_move_to_microscope_compustage_lands_on_the_named_orientation(target, expected):
+    microscope = _compustage_with_fm()
+
+    microscope.move_to_microscope(target)
+
+    assert microscope.get_stage_orientation() == expected
+
+
+def test_move_to_microscope_compustage_round_trip():
+    microscope = _compustage_with_fm()
+    microscope.move_to_microscope("FM")
+    start = microscope.get_stage_position()
+
+    microscope.move_to_microscope("FIBSEM")
+    microscope.move_to_microscope("FM")
+
+    end = microscope.get_stage_position()
+    assert np.isclose(end.r, start.r, atol=1e-6)
+    assert np.isclose(end.t, start.t, atol=1e-6)
+
+
+def test_move_to_microscope_compustage_raises_no_deprecation_warning():
+    """It reached the beam pose through `move_flat_to_beam`, which is on its way out.
+
+    Left as a test rather than only a fix because the replacement has to agree with the
+    deprecated method exactly -- `move_to_orientation("SEM")` is what its docstring says
+    the electron branch means -- and the next caller reaching for the old one would
+    otherwise only be caught by a warning nobody reads.
+    """
+    microscope = _compustage_with_fm()
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        microscope.move_to_microscope("FIBSEM")
+
+
+def test_the_replacement_move_matches_the_deprecated_one():
+    """Same r and t, from the same starting pose."""
+    deprecated = _compustage_with_fm()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        deprecated.move_flat_to_beam(BeamType.ELECTRON)
+    expected = deprecated.get_stage_position()
+
+    microscope = _compustage_with_fm()
+    microscope.move_to_microscope("FIBSEM")
+
+    actual = microscope.get_stage_position()
+    assert np.isclose(actual.r, expected.r, atol=1e-6)
+    assert np.isclose(actual.t, expected.t, atol=1e-6)
+
 
 # ---------------------------------------------------------------------------
 # get_target_position: MILLING <-> FM conversions (FIB-234)

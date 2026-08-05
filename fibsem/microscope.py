@@ -1754,7 +1754,13 @@ class FibsemMicroscope(ABC):
         self.fm.objective.retract()  # retract objective (safety precaution)
 
         if target == "FIBSEM":
-            self.move_flat_to_beam(BeamType.ELECTRON) # or ION?
+            # The same move `move_flat_to_beam(BeamType.ELECTRON)` made -- the
+            # deprecated method's electron branch is `orientations["SEM"]` (measured:
+            # identical r, t and coordinate system on a compustage), and its one
+            # compustage special case applies to the ion beam only. `move_to_orientation`
+            # is now how the FM side reaches a beam pose, and the FM branch below has
+            # always gone through `get_orientation`.
+            self.move_to_orientation("SEM")
 
         if target == "FM":
             fm_orientation = self.get_orientation("FM")
