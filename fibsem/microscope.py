@@ -112,9 +112,9 @@ from fibsem.structures import (
     FibsemManipulatorPosition,
     FibsemMillingSettings,
     FibsemPatternSettings,
+    FibsemPolygonSettings,
     FibsemRectangle,
     FibsemRectangleSettings,
-    FibsemPolygonSettings,
     FibsemStagePosition,
     FibsemUser,
     ImageSettings,
@@ -123,7 +123,6 @@ from fibsem.structures import (
     Point,
     RangeLimit,
     SystemSettings,
-    RangeLimit,
 )
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.transformations import get_stage_tilt_from_milling_angle
@@ -1611,7 +1610,11 @@ class FibsemMicroscope(ABC):
         change to what an image records meant finding all eight.
         """
         image.metadata.user = self.user
-        image.metadata.experiment = self.experiment
+        # Copied, not referenced. This now carries the item and task as well as the
+        # experiment (FIB-466), and those change as the run progresses -- sharing one
+        # object would rewrite the item on every image already acquired. It was shared
+        # before, which was harmless only because nothing mutated it.
+        image.metadata.experiment = deepcopy(self.experiment)
         # Copied, not referenced. `hardware_geometry()` returns a fresh record, so
         # aliasing the live SystemInfo here would leave one field on the image a
         # snapshot and the other a window onto the microscope. TescanMicroscope

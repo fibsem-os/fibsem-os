@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 from abc import ABC
+from copy import deepcopy
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional, Tuple, Union, Literal
 
@@ -945,6 +946,11 @@ class FluorescenceMicroscope(ABC):
         # parent records nothing rather than recording a default that looks valid.
         geometry = self.parent.fm_image_geometry() if self.parent else None
 
+        # Which experiment, item and task, from the same place the beam path reads it.
+        # Copied rather than referenced: the workflow half is rewritten as the run
+        # moves on, and an image should keep saying where it was taken (FIB-466).
+        experiment = deepcopy(self.parent.experiment) if self.parent else None
+
         # Create complete image metadata
         return FluorescenceImageMetadata(
             acquisition_date=datetime.now().isoformat(),
@@ -953,6 +959,7 @@ class FluorescenceMicroscope(ABC):
             resolution=(self.camera.resolution[0], self.camera.resolution[1]),
             stage_position=stage_position,
             geometry=geometry,
+            experiment=experiment,
             channels=[channel_metadata],
         )
 
