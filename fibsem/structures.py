@@ -2432,12 +2432,23 @@ class FibsemImage:
             if self.metadata is None:
                 raise ValueError("No metadata provided, cannot determine save path. Please provide a path.")
             filename = self.metadata.image_settings.filename
-            path = self.metadata.image_settings.path
+            directory = self.metadata.image_settings.path
             if filename is None:
                 raise ValueError("No filename provided in metadata, cannot determine save path. Please provide a path.")
-            if path is None:
+            if directory is None:
                 raise ValueError("No path provided in metadata, cannot determine save path. Please provide a path.")
-            path = os.path.join(path, filename)
+            # The recorded path is an absolute directory on whichever machine acquired
+            # the image, and it travels inside the file. Creating it would mean loading
+            # a colleague's image and re-saving it silently reconstructs their directory
+            # tree here -- `D:\SharedData\<their name>\...` and all. A path the caller
+            # passes in is theirs to create; one that arrived in a file is not.
+            if not os.path.isdir(directory):
+                raise ValueError(
+                    f"The directory recorded in this image's metadata does not exist: "
+                    f"{directory}. It is from the machine that acquired the image. "
+                    f"Please provide a path."
+                )
+            path = os.path.join(directory, filename)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         path = Path(path).with_suffix(".tif")
 
@@ -2475,9 +2486,12 @@ class FibsemImage:
 
         md = self.metadata
         microscope = Microscope(
-            manufacturer=md.system.info.manufacturer,
-            model=md.system.info.model,
-            serial_number=md.system.info.serial_number,
+            # md.system_info since FIB-481; this was md.system.info, which no longer
+            # exists. Nothing calls this -- see FIB-485 for whether it should live at
+            # all -- but leaving a known-broken reference is worse than fixing it.
+            manufacturer=md.system_info.manufacturer,
+            model=md.system_info.model,
+            serial_number=md.system_info.serial_number,
         )
         instrument = Instrument(microscope=microscope)
 
