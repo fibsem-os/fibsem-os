@@ -84,6 +84,22 @@ class AutoLamellaFluorescenceAcquisitionTaskConfigWidget(QWidget):
 
         self.setLayout(layout)
 
+    def set_microscope(self, microscope: 'FibsemMicroscope') -> None:
+        """Point this widget at a different microscope after a reconnect.
+
+        The editors that own this widget are built once and survive
+        disconnect/reconnect, so without this the widget keeps the microscope it
+        was constructed with -- and its channel editor keeps offering that
+        microscope's excitation/emission filters. Connect to a non-FM system
+        first and it offers none at all, for the life of the process (FIB-525).
+
+        The captured ``fm`` matters as much as the microscope: it is a live
+        handle to hardware, not a value.
+        """
+        self.microscope = microscope
+        self.fm = microscope.fm
+        self.channelSettingsWidget.set_fm(microscope.fm)
+
     def get_task_config(self) -> AcquireFluorescenceImageConfig:
         self.config.orientation = self.orientation_combo.value()
         self.config.zparams = self.z_parameters_widget.z_parameters

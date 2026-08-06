@@ -95,6 +95,15 @@ class _DraggableChannelList(QListWidget):
         super().__init__(parent)
         self._fm = fm
 
+    def set_fm(self, fm) -> None:
+        """Point at a different microscope (FIB-525).
+
+        Only used to suppress selection changes during live acquisition, but a
+        stale reference here means asking the *previous* microscope whether it is
+        streaming.
+        """
+        self._fm = fm
+
     def resizeEvent(self, event) -> None:
         """Keep row widths pinned to the viewport as it changes.
 
@@ -682,6 +691,26 @@ class ChannelListWidget(QWidget):
     @property
     def channel_settings(self) -> List[ChannelSettings]:
         return [self._row(i).channel for i in range(self._list.count())]
+
+    def set_fm(self, fm) -> None:
+        """Point this list at a different fluorescence microscope.
+
+        The excitation/emission choices are read from the microscope once, at
+        construction, and handed to every row. On a reconnect that leaves each row
+        offering the previous microscope's filters -- or, if the first connection
+        had no FM at all, nothing (FIB-525).
+
+        Rebuilding the rows is how the new choices reach them: the rows take their
+        item lists as constructor arguments, and the channel objects themselves are
+        untouched, so the configured channels survive. Row selection and the
+        per-row enabled checkboxes do not, which is an acceptable cost for an event
+        as rare as swapping microscopes.
+        """
+        self.fm = fm
+        self._list.set_fm(fm)
+        self._emission_items = list(fm.filter_set.available_emission_wavelengths) if fm is not None else []
+        self._excitation_items = list(fm.filter_set.available_excitation_wavelengths) if fm is not None else []
+        self.channel_settings = list(self._channel_list)
 
     @channel_settings.setter
     def channel_settings(self, value: Union[ChannelSettings, List[ChannelSettings]]) -> None:

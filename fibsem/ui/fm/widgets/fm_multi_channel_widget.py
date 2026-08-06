@@ -163,6 +163,17 @@ class FluorescenceMultiChannelWidget(QWidget):
             self._selected_channel = None
             self._settings_widget.setVisible(False)
 
+    def set_fm(self, fm) -> None:
+        """Point this widget and both of its halves at a different microscope.
+
+        Both halves derive their wavelength choices from the microscope, and both
+        do it at construction, so both have to be told (FIB-525). The channel
+        objects are unaffected -- only the choices offered for them change.
+        """
+        self.fm = fm
+        self._list.set_fm(fm)
+        self._settings_widget.set_fm(fm)
+
     def set_live_acquisition_controls(self, enabled: bool) -> None:
         """Stub for ChannelSettingsWidget/ChannelListWidget compatibility."""
         pass
