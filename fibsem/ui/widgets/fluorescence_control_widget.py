@@ -236,11 +236,16 @@ class FMControlWidget(QWidget):
         self.setLayout(layout)
 
     @property
-    def is_acquiring(self) -> bool:
-        """Check if any acquisition is currently active."""
-        return self.fm.is_acquiring or bool(
-            self._acquisition_thread and self._acquisition_thread.is_alive()
-        )
+    def _has_worker(self) -> bool:
+        """Whether *this widget's* acquisition thread is still going.
+
+        All that is left of the old `is_acquiring` property, which was
+        `fm.is_acquiring or <my own worker>`. The microscope answers that now -- both
+        halves of it, since this widget marks its own work through `set_acquiring` --
+        and the only caller that wanted the local half is `cancel_acquisition`, which
+        joins the thread and would hit `None.join()` on somebody else's run (FIB-513).
+        """
+        return bool(self._acquisition_thread and self._acquisition_thread.is_alive())
 
     @property
     def is_acquisition_active(self) -> bool:
@@ -290,7 +295,7 @@ class FMControlWidget(QWidget):
         self.fm.acquisition_signal.connect(self.update_image)
         self.acquisition_finished_signal.connect(self._on_acquisition_finished)
         self.fm.acquisition_progress_signal.connect(self._on_acquisition_progress)
-        self.fm.busy_changed.connect(self._on_fm_busy_changed)
+        self.fm.acquiring_changed.connect(self._on_fm_acquiring_changed)
 
         # live parameter updates from channel list
         self.channelSettingsWidget.channel_field_changed.connect(
@@ -420,7 +425,7 @@ class FMControlWidget(QWidget):
 
     def _on_channel_field_changed(self, channel, field: str, value) -> None:
         """Update a single microscope parameter during live acquisition."""
-        if not self.fm.is_acquiring:
+        if not self.fm.is_streaming:
             return
         if channel is not self.channelSettingsWidget.selected_channel:
             return
@@ -589,25 +594,35 @@ class FMControlWidget(QWidget):
             )
             self.viewer.reset_view()
 
-    def _refuse_if_fm_busy(self, what: str) -> bool:
-        """Whether the FM is already in use, having logged why. True means "do not start".
+    def _refuse_to_start(self, what: str) -> bool:
+        """Whether *what* may not be started, having logged why. True means "do not".
 
-        Asks the microscope, not just this widget. `self.is_acquiring` sees the live
-        stream and this widget's own worker; it cannot see the overview tab's tileset,
-        which drops the stream between every pair of tiles while the stage moves -- so a
-        live stream could be started mid-run, and the remaining tiles would land at
-        whatever settings it applied on the way past (FIB-441).
+        Both reasons in one place, asked by all three ways in. The running check used to
+        be a union of three assembled here -- the widget's own worker, the live stream,
+        and everybody else -- and `fm.is_acquiring` covers all of them now, this widget's
+        own work included, since it marks that through `set_acquiring` like anyone else
+        (FIB-513).
+
+        The pose check used to live in `start_acquisition` alone, so an image, a z-stack
+        or an autofocus sweep could be started from a pose the FM cannot see anything
+        from. Nothing but the buttons stopped them, and the buttons are not the guard.
         """
-        if not (self.is_acquiring or self.fm.is_busy):
-            return False
-        reason = self.fm.busy_reason or "another acquisition"
-        logging.warning(
-            f"Cannot start {what}: the fluorescence microscope is in use ({reason})."
-        )
-        return True
+        if self.fm.is_acquiring:
+            reason = self.fm.acquiring_reason or "another acquisition"
+            logging.warning(
+                f"Cannot start {what}: the fluorescence microscope is in use ({reason})."
+            )
+            return True
+        if not self.fm.has_valid_orientation():
+            logging.warning(
+                f"Cannot start {what}: the stage is not in a valid FM orientation "
+                f"(currently {self.microscope.get_stage_orientation()})."
+            )
+            return True
+        return False
 
     @ensure_main_thread
-    def _on_fm_busy_changed(self, busy: bool) -> None:
+    def _on_fm_acquiring_changed(self, acquiring: bool) -> None:
         """Something started driving the FM, or stopped -- re-derive what is clickable.
 
         Marshalled, because the flag is cleared on whichever thread finished with the
@@ -618,11 +633,7 @@ class FMControlWidget(QWidget):
     def start_acquisition(self):
         """Start the fluorescence acquisition."""
 
-        if not self.microscope.fm.has_valid_orientation():
-            logging.warning(f"Stage is not in a valid FM orientation. Cannot start acquisition (current: {self.microscope.get_stage_orientation()})")
-            return
-
-        if self._refuse_if_fm_busy("live acquisition"):
+        if self._refuse_to_start("live acquisition"):
             return
 
         # Get current settings
@@ -652,7 +663,7 @@ class FMControlWidget(QWidget):
         """Cancel all ongoing acquisitions (single image, z-stack, overview, positions, autofocus)."""
 
         # Cancel consolidated acquisition (single image or future consolidated types)
-        if self.is_acquiring:
+        if self._has_worker:
             logging.info(f"Cancelling {self._current_acquisition_type} acquisition")
             self._acquisition_stop_event.set()
             self._acquisition_thread.join(timeout=5)  # type: ignore[union-attr]
@@ -661,7 +672,7 @@ class FMControlWidget(QWidget):
 
     def toggle_acquisition(self):
         """Toggle acquisition start/stop with F6 key."""
-        if self.fm.is_acquiring:
+        if self.fm.is_streaming:
             logging.info("F6 pressed: Stopping acquisition")
             self.stop_acquisition()
         else:
@@ -809,7 +820,7 @@ class FMControlWidget(QWidget):
     def acquire_image(self):
         """Start threaded image acquisition using the current Z parameters and channel settings."""
 
-        if self._refuse_if_fm_busy("image acquisition"):
+        if self._refuse_to_start("image acquisition"):
             return
 
         logging.info("Starting image acquisition")
@@ -842,7 +853,7 @@ class FMControlWidget(QWidget):
         # Marked busy as late as possible: everything above can still abort -- the
         # filename step opens a modal -- and an abort leaving the flag set would lock
         # out the overview tab with nothing running.
-        self.fm.set_busy(True, "z-stack" if z_parameters else "image acquisition")
+        self.fm.set_acquiring(True, "z-stack" if z_parameters else "image acquisition")
 
         # Start acquisition thread
         self._acquisition_thread = FunctionWorker(
@@ -884,73 +895,75 @@ class FMControlWidget(QWidget):
             logging.error(f"Error during image acquisition: {e}")
 
         finally:
-            self.fm.set_busy(False)
+            self.fm.set_acquiring(False)
             self.acquisition_finished_signal.emit()
 
     def _update_acquisition_button_states(self):
         """Update acquisition button states and control widgets based on live acquisition or specific acquisition status."""
-        if not self.microscope.fm.has_valid_orientation():
-            # If not in FM or SEM orientation, disable all acquisition buttons
-            self.pushButton_toggle_acquisition.setEnabled(False)
-            self.pushButton_acquire_zstack.setEnabled(False)
-            self.pushButton_cancel_acquisition.setEnabled(False)
-            return
+        # Every control below answers one of three questions, and the microscope owns
+        # all three -- this used to assemble its own union per line, which is how the
+        # objective panel came to ask the wrong one (FIB-513).
+        acquiring = self.fm.is_acquiring  # anything running, here or anywhere
+        streaming = self.fm.is_streaming  # the live view specifically
+        interactive = self.fm.is_interactive  # may the user drive the hardware
 
-        # Check if any acquisition is active (live or specific acquisitions), here or
-        # anywhere else on this microscope -- `fm.is_busy` is what covers the overview
-        # tab, whose tileset this widget has no other way of seeing.
-        any_acquisition_active = (
-            self.is_acquiring or self.fm.is_busy or self.is_acquisition_active
-        )
+        # A fourth input, not a fourth question: where the stage is does not change what
+        # is running, but it does stop new work being started -- `start_acquisition`
+        # refuses on it too -- and stops the hardware being driven by hand.
+        #
+        # Folded in rather than returned early. The early return here disabled three
+        # buttons and skipped every line below, so the objective panel and the channel
+        # settings kept whatever they were last set to, including enabled during
+        # somebody else's tileset. It also missed two of the buttons it claimed to
+        # cover. Dead as shipped -- `ALLOW_UNKNOWN_ORIENTATIONS` answers this yes
+        # unconditionally -- which is why nobody noticed.
+        posed = self.microscope.fm.has_valid_orientation()
+        may_start = posed and not acquiring
+        may_touch = posed and interactive
 
-        # Special case buttons with unique behavior
+        # Deliberately not gated on the pose, unlike everything else here: taking Cancel
+        # away from a run that is under way leaves no way to stop it, and a stage that
+        # has wandered somewhere unrecognised is exactly when you want it. The old early
+        # return disabled it.
         self.pushButton_cancel_acquisition.setVisible(self.is_acquisition_active)
 
         # Update toggle acquisition button text based on state
-        if self.fm.is_acquiring:
-            self.pushButton_toggle_acquisition.setText("Stop Acquisition")
-        else:
-            self.pushButton_toggle_acquisition.setText("Start Acquisition")
-
-        # Clickable while the live stream *is* what is running -- it is the only way to
-        # stop one -- but not while anything else has the microscope. This is the button
-        # FIB-441 is about: it was the one thing that stayed live through an overview
-        # run, and starting a stream mid-tileset changes the settings the remaining
-        # tiles are acquired at.
-        self.pushButton_toggle_acquisition.setEnabled(
-            self.fm.is_acquiring or not any_acquisition_active
+        self.pushButton_toggle_acquisition.setText(
+            "Stop Acquisition" if streaming else "Start Acquisition"
         )
+        # Clickable while the live stream *is* what is running -- it is the only way to
+        # stop one, and stopping is allowed from any pose -- but not while anything else
+        # has the microscope. This is the button FIB-441 was about: it stayed live
+        # through an overview run, and starting a stream mid-tileset changes the
+        # settings the remaining tiles are acquired at.
+        self.pushButton_toggle_acquisition.setEnabled(streaming or may_start)
 
-        # Enable/disable standard buttons based on acquisition state
+        # Anything that starts new work waits for whatever is running to finish.
         for button in (
             self.pushButton_acquire_single_image,
             self.pushButton_acquire_zstack,
             self.pushButton_run_autofocus,
+            self.objectiveControlWidget.pushButton_insert_objective,
+            self.objectiveControlWidget.pushButton_move_to_focus,
+            self.objectiveControlWidget.pushButton_retract_objective,
         ):
-            button.setEnabled(not any_acquisition_active)
+            button.setEnabled(may_start)
 
-        # Disable control widgets during acquisition
-        self.objectiveControlWidget.setEnabled(not self.is_acquisition_active)
-        self.zParametersWidget.setEnabled(not any_acquisition_active)
+        # Parameters for the *next* run, so they follow the same rule.
+        self.zParametersWidget.setEnabled(may_start)
 
-        # Disable channel settings during specific acquisitions (but allow during live imaging)
-        self.channelSettingsWidget.setEnabled(not self.is_acquisition_active)
-        self.objectiveControlWidget.pushButton_insert_objective.setEnabled(
-            not any_acquisition_active
-        )
-        self.objectiveControlWidget.pushButton_move_to_focus.setEnabled(
-            not any_acquisition_active
-        )
-        self.objectiveControlWidget.pushButton_retract_objective.setEnabled(
-            not any_acquisition_active
-        )
-
-        # Disable channel list selection during any acquisition to prevent switching channels mid-acquisition
-        # self.channelSettingsWidget.channel_list.setEnabled(not any_acquisition_active)
+        # Hardware the user drives by hand. Live during a stream -- focusing and tuning
+        # exposure while watching is the point of them -- and not while a tileset,
+        # z-stack or autofocus sweep is driving the same hardware itself. The objective
+        # panel used to ask `is_acquisition_active`, which is only *this* widget's work,
+        # so another tab's tileset left the position spinbox live against a runner that
+        # was stepping the objective per z-level.
+        self.objectiveControlWidget.setEnabled(may_touch)
+        self.channelSettingsWidget.setEnabled(may_touch)
 
     def run_autofocus(self):
         """Start threaded auto-focus using the current channel settings and Z parameters."""
-        if self._refuse_if_fm_busy("auto-focus"):
+        if self._refuse_to_start("auto-focus"):
             return
 
         logging.info("Starting auto-focus")
@@ -964,7 +977,7 @@ class FMControlWidget(QWidget):
         channel_settings = settings["selected_channel_settings"]
         autofocus_settings = settings["autofocus_settings"]
 
-        self.fm.set_busy(True, "auto-focus")
+        self.fm.set_acquiring(True, "auto-focus")
 
         # Start auto-focus thread
         self._acquisition_thread = FunctionWorker(
@@ -1009,7 +1022,7 @@ class FMControlWidget(QWidget):
         except Exception as e:
             logging.error(f"Auto-focus failed: {e}")
         finally:
-            self.fm.set_busy(False)
+            self.fm.set_acquiring(False)
             self.acquisition_finished_signal.emit()
 
     def closeEvent(self, event: QEvent):
@@ -1024,7 +1037,7 @@ class FMControlWidget(QWidget):
 
         # Stop live acquisition
         self.microscope.fm.acquisition_signal.disconnect(self.update_image)
-        if self.microscope.fm.is_acquiring:
+        if self.microscope.fm.is_streaming:
             try:
                 self.microscope.fm.stop_acquisition()
             except Exception as e:

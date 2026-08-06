@@ -487,8 +487,12 @@ class ObjectiveControlWidget(QWidget):
             event.handled = False  # Let napari handle zooming if Shift is not pressed
             return
 
-        # Prevent objective movement during acquisitions
-        if self.parent_widget.is_acquisition_active:
+        # Prevent objective movement while something is driving the objective itself.
+        # Asked of the microscope, not the parent widget: `is_acquisition_active` is only
+        # the parent's own work, so another tab's tileset let this through (FIB-513).
+        # Still allowed during a live stream -- shift-scrolling to focus while watching
+        # is what this handler is for.
+        if not self.fm.is_interactive:
             logging.info("Objective movement disabled during acquisition")
             event.handled = True
             return

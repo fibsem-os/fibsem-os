@@ -589,7 +589,7 @@ class FluorescenceMicroscope(ABC):
     # Raised when something starts or stops driving the FM, so a widget that did not
     # start it can grey its controls out. Emitted from whichever thread set the flag --
     # connect with `@ensure_main_thread` if the slot touches widgets.
-    busy_changed = Signal(bool)
+    acquiring_changed = Signal(bool)
 
     def __init__(self, parent: Optional["FibsemMicroscope"] = None):
         """Initialize the fluorescence microscope with default components.
@@ -605,9 +605,10 @@ class FluorescenceMicroscope(ABC):
         self._stop_acquisition_event = threading.Event()
         self._acquisition_thread: Optional[threading.Thread] = None
         # Something other than the live stream is driving the FM: an overview tileset,
-        # a z-stack, an autofocus sweep. Set by whoever is driving it. See `is_busy`.
-        self._busy: bool = False
-        self._busy_reason: str = ""
+        # a z-stack, an autofocus sweep. Set by whoever is driving it. The stream is not
+        # in here -- it reports itself through `_acquisition_thread`. See `is_acquiring`.
+        self._acquiring: bool = False
+        self._acquiring_reason: str = ""
 
         self.channel_name: str = "channel-01"
         self.channel_color: str = "gray"
@@ -683,48 +684,76 @@ class FluorescenceMicroscope(ABC):
         """
         return f"{self.__class__.__name__}(objective={self.objective}, filter_set={self.filter_set}, camera={self.camera}, light_source={self.light_source})"
 
-    @property
-    def is_acquiring(self) -> bool:
-        """Check if the microscope is currently in live acquisition mode.
+    # ── what is running ──────────────────────────────────────────────────
+    #
+    # Three questions, because widgets ask three. Assembling them at each call site is
+    # what produced six overlapping flags and one wrong answer (FIB-513):
+    #
+    #   is_streaming    the live view is on
+    #   is_acquiring    anything is running: the stream, or a claimed operation
+    #   is_interactive  the user may drive the hardware
 
-        Returns:
-            True if live acquisition is active, False otherwise
+    @property
+    def is_streaming(self) -> bool:
+        """Whether the live view is on -- a stream of frames off the camera.
+
+        Narrower than `is_acquiring`, and the difference matters twice: this is what
+        labels the start/stop button, since stopping is the one thing that must stay
+        possible while it runs, and it is what makes `is_interactive` true.
         """
         if not self._acquisition_thread:
             return False
         return self._acquisition_thread and self._acquisition_thread.is_alive()
 
     @property
-    def is_busy(self) -> bool:
-        """Whether anything is driving the FM: a live stream, or some other acquisition.
+    def is_acquiring(self) -> bool:
+        """Whether anything is driving the FM: the live stream, or some other operation.
 
-        The question a widget deciding what to enable should be asking. `is_acquiring`
-        reports the live stream alone, which an overview tileset drops between every
-        pair of tiles while it moves the stage -- so a widget watching that flag sees an
-        idle microscope for most of somebody else's run (FIB-441).
+        The question to ask before starting new work. A tileset moves the stage between
+        every pair of tiles with no stream running, so `is_streaming` reads idle for most
+        of somebody else's run -- which is how a live stream came to be startable
+        mid-tileset (FIB-441).
         """
-        return self.is_acquiring or self._busy
+        return self.is_streaming or self._acquiring
 
     @property
-    def busy_reason(self) -> str:
+    def is_interactive(self) -> bool:
+        """Whether the user may drive the hardware -- the objective, channel parameters.
+
+        True while idle, and true while streaming: focusing during live view is what the
+        objective control is *for*. False while a tileset, z-stack or autofocus sweep is
+        running, because those drive the objective themselves and a second hand on it
+        corrupts the run.
+
+        Widgets used to derive this per call site from two or three flags, and the
+        objective panel got it wrong -- it asked only whether *this* widget was busy, so
+        another tab's tileset left it live (FIB-513).
+        """
+        return not self.is_acquiring or self.is_streaming
+
+    @property
+    def acquiring_reason(self) -> str:
         """What is driving the FM, phrased for a warning, or "" if nothing is."""
-        if self._busy:
-            return self._busy_reason
-        if self.is_acquiring:
+        if self._acquiring:
+            return self._acquiring_reason
+        if self.is_streaming:
             return "live acquisition"
         return ""
 
-    def set_busy(self, busy: bool, reason: str = "") -> None:
-        """Mark the FM as driven, or not. Call in a `finally` when the work ends.
+    def set_acquiring(self, acquiring: bool, reason: str = "") -> None:
+        """Mark an operation as running, or finished. Call in a `finally` when it ends.
+
+        Not for the live stream, which reports itself through its thread: a flag that
+        outlived a dead thread would strand the instrument.
 
         Args:
-            busy: Whether something is now driving the microscope.
+            acquiring: Whether something is now driving the microscope.
             reason: What it is, e.g. "overview acquisition". Shown to the user by
                 whatever gets refused, so it should read as a noun phrase.
         """
-        self._busy = busy
-        self._busy_reason = reason if busy else ""
-        self.busy_changed.emit(self.is_busy)
+        self._acquiring = acquiring
+        self._acquiring_reason = reason if acquiring else ""
+        self.acquiring_changed.emit(self.is_acquiring)
 
     def set_channel(self, channel_settings: ChannelSettings):
         """Configure the microscope for a specific fluorescence channel.
@@ -1057,7 +1086,7 @@ class FluorescenceMicroscope(ABC):
             Images are emitted via the acquisition_signal. Connect to this signal
             to receive live images. Call stop_acquisition() to end the process.
         """
-        if self.is_acquiring:
+        if self.is_streaming:
             logging.warning("Acquisition thread is already running.")
             return
 
@@ -1069,10 +1098,10 @@ class FluorescenceMicroscope(ABC):
             target=self._acquisition_worker, args=(channel_settings,), daemon=True
         )
         self._acquisition_thread.start()
-        # A live stream makes the FM busy just as anything else does, so it announces
-        # itself the same way -- a widget deriving its controls from `is_busy` would
-        # otherwise notice tilesets and never notice streaming.
-        self.busy_changed.emit(self.is_busy)
+        # A live stream counts as acquiring just as anything else does, so it announces
+        # itself the same way -- a widget deriving its controls from `is_acquiring`
+        # would otherwise notice tilesets and never notice streaming.
+        self.acquiring_changed.emit(self.is_acquiring)
 
     def stop_acquisition(self) -> None:
         """Stop the continuous live image acquisition.
@@ -1090,7 +1119,7 @@ class FluorescenceMicroscope(ABC):
                 self._acquisition_thread.join(timeout=2)
             # Asked rather than asserted: the join has a timeout, so a thread that has
             # not stopped yet must not be announced as stopped.
-            self.busy_changed.emit(self.is_busy)
+            self.acquiring_changed.emit(self.is_acquiring)
 
     def _acquisition_worker(self, channel_settings: Optional[ChannelSettings] = None):
         """Internal worker thread for continuous image acquisition.
