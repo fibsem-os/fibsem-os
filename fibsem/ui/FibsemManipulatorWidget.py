@@ -191,16 +191,16 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
     def setup_connections(self):
 
         self.insertManipulator_button.clicked.connect(self.insert_retract_manipulator)
-        self.insertManipulator_button.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
+        self.insertManipulator_button.setStyleSheet(stylesheets.RUN_WORKFLOW_BUTTON_STYLESHEET)
         self.addSavedPosition_button.clicked.connect(self.add_saved_position)
-        self.addSavedPosition_button.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
+        self.addSavedPosition_button.setStyleSheet(stylesheets.RUN_WORKFLOW_BUTTON_STYLESHEET)
         self.goToPosition_button.clicked.connect(self.move_to_saved_position)
-        self.goToPosition_button.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
+        self.goToPosition_button.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
         self.moveRelative_button.clicked.connect(self.move_relative)
-        self.moveRelative_button.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
+        self.moveRelative_button.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
 
         self.pushButton_refresh_data.clicked.connect(self.refresh_data)
-        self.pushButton_refresh_data.setStyleSheet(stylesheets.GRAY_PUSHBUTTON_STYLE)
+        self.pushButton_refresh_data.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
 
 
     def refresh_data(self):
@@ -208,7 +208,7 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
         
         self._hide_show_buttons(self.manipulator_inserted)
         self.insertManipulator_button.setText("Retract" if self.manipulator_inserted else "Insert")
-        self.insertManipulator_button.setStyleSheet(stylesheets.RED_PUSHBUTTON_STYLE if self.manipulator_inserted else stylesheets.GREEN_PUSHBUTTON_STYLE)
+        self.insertManipulator_button.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET if self.manipulator_inserted else stylesheets.RUN_WORKFLOW_BUTTON_STYLESHEET)
         self.manipulatorStatus_label.setText("Manipulator Status: Inserted" if self.manipulator_inserted else "Manipulator Status: Retracted")        
         
 
@@ -269,7 +269,7 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
             self.microscope.retract_manipulator()
             self.insertManipulator_button.setText("Insert")
             self.manipulatorStatus_label.setText("Manipulator Status: Retracted")
-            self.insertManipulator_button.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
+            self.insertManipulator_button.setStyleSheet(stylesheets.RUN_WORKFLOW_BUTTON_STYLESHEET)
             self.update_ui()
             self._hide_show_buttons(show=False)
         
@@ -278,7 +278,7 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
             self.microscope.insert_manipulator()
             self.insertManipulator_button.setText("Retract")
             self.manipulatorStatus_label.setText("Manipulator Status: Inserted")
-            self.insertManipulator_button.setStyleSheet(stylesheets.RED_PUSHBUTTON_STYLE)
+            self.insertManipulator_button.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
             self.update_ui()
             self._hide_show_buttons(show=True)
 

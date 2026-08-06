@@ -52,74 +52,6 @@ from fibsem.ui.napari_style import NAPARI_STYLE  # noqa: F401
 
 _ICONS_DIR = _os.path.join(_os.path.dirname(__file__), "icons").replace("\\", "/")
 
-GREEN_PUSHBUTTON_STYLE = """
-QPushButton {
-    background-color: green;
-    }
-QPushButton:hover {
-    background-color: rgba(0, 255, 0, 125);
-    }"""
-
-RED_PUSHBUTTON_STYLE = """
-QPushButton {
-    background-color: red;
-    }
-QPushButton:hover {
-    background-color: rgba(255, 0, 0, 125);
-    }"""
-
-BLUE_PUSHBUTTON_STYLE = """
-QPushButton {
-    background-color: blue;
-    }
-QPushButton:hover {
-    background-color: rgba(0, 0, 255, 125);
-    }"""
-
-YELLOW_PUSHBUTTON_STYLE = """
-QPushButton {
-    background-color: yellow;
-    }
-QPushButton:hover {
-    background-color: rgba(255, 255, 0, 125);
-    }"""
-
-WHITE_PUSHBUTTON_STYLE = """
-QPushButton {
-    background-color: white;
-    color: black;
-    }
-QPushButton:hover {
-    background-color: rgba(255, 255, 255, 125);
-    }"""
-
-GRAY_PUSHBUTTON_STYLE = """
-QPushButton {
-    background-color: gray;
-    }
-QPushButton:hover {
-    background-color: rgba(125, 125, 125, 125);
-    }"""
-
-ORANGE_PUSHBUTTON_STYLE = """
-QPushButton {
-    background-color: orange;
-    color: black;
-    }
-QPushButton:hover {
-    background-color: rgba(255, 125, 0, 125);
-}"""
-
-DISABLED_PUSHBUTTON_STYLE = """
-QPushButton {
-    background-color: none;
-    }
-"""
-
-PROGRESS_BAR_GREEN_STYLE = "QProgressBar::chunk {background-color: green;}"
-PROGRESS_BAR_BLUE_STYLE = "QProgressBar::chunk {background-color: blue;}"
-
-
 # TODO: no token -- #68a0dd, #3a6ea5
 #
 # #3a6ea5 is the one left literal on purpose rather than for want of a token:
@@ -216,6 +148,10 @@ RUN_WORKFLOW_BUTTON_STYLESHEET = f"""
         """
 
 
+# The :disabled rule matches the primary/secondary/run sheets. Without it a
+# disabled stop or delete button stays full crimson and only stops responding,
+# which is what drove call sites to paint their own grey "off" state by hand.
+# TODO: no token -- #2d313b, #6b6b6b
 STOP_WORKFLOW_BUTTON_STYLESHEET = f"""
             QPushButton {{
                 background-color: {SEMANTIC_ERROR_COLOR};
@@ -229,6 +165,10 @@ STOP_WORKFLOW_BUTTON_STYLESHEET = f"""
             }}
             QPushButton:pressed {{
                 background-color: {SEMANTIC_ERROR_PRESSED_COLOR};
+            }}
+            QPushButton:disabled {{
+                background-color: #2d313b;
+                color: #6b6b6b;
             }}
         """
 

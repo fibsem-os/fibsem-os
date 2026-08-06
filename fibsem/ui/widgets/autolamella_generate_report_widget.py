@@ -10,9 +10,9 @@ from PyQt5 import QtWidgets, QtCore
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.tools.reporting import generate_report2
 from fibsem.ui.stylesheets import (
-    BLUE_PUSHBUTTON_STYLE,
-    GREEN_PUSHBUTTON_STYLE,
-    RED_PUSHBUTTON_STYLE,
+    PRIMARY_BUTTON_STYLESHEET,
+    RUN_WORKFLOW_BUTTON_STYLESHEET,
+    SECONDARY_BUTTON_STYLESHEET,
 )
 
 
@@ -89,7 +89,7 @@ class AutoLamellaGenerateReportWidget(QtWidgets.QDialog):
         output_button_layout = QtWidgets.QHBoxLayout()
         output_button_layout.addStretch()
         self.btn_select_output = QtWidgets.QPushButton("Select Output File")
-        self.btn_select_output.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.btn_select_output.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         output_button_layout.addWidget(self.btn_select_output)
         output_layout.addLayout(output_button_layout)
 
@@ -150,11 +150,11 @@ class AutoLamellaGenerateReportWidget(QtWidgets.QDialog):
         sections_button_layout.addStretch()
 
         self.btn_select_all = QtWidgets.QPushButton("Select All")
-        self.btn_select_all.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.btn_select_all.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         sections_button_layout.addWidget(self.btn_select_all)
 
         self.btn_deselect_all = QtWidgets.QPushButton("Deselect All")
-        self.btn_deselect_all.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.btn_deselect_all.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         sections_button_layout.addWidget(self.btn_deselect_all)
 
         sections_layout.addLayout(sections_button_layout)
@@ -166,12 +166,12 @@ class AutoLamellaGenerateReportWidget(QtWidgets.QDialog):
         button_box = QtWidgets.QDialogButtonBox()
 
         self.btn_generate = QtWidgets.QPushButton("Generate Report")
-        self.btn_generate.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
+        self.btn_generate.setStyleSheet(RUN_WORKFLOW_BUTTON_STYLESHEET)
         self.btn_generate.setDefault(True)
         self.btn_generate.setEnabled(False)  # Disabled until an experiment is attached
 
         self.btn_cancel = QtWidgets.QPushButton("Cancel")
-        self.btn_cancel.setStyleSheet(RED_PUSHBUTTON_STYLE)
+        self.btn_cancel.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
 
         button_box.addButton(self.btn_generate, QtWidgets.QDialogButtonBox.AcceptRole)
         button_box.addButton(self.btn_cancel, QtWidgets.QDialogButtonBox.RejectRole)

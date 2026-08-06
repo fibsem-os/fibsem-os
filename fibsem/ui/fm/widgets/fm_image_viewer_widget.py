@@ -14,7 +14,7 @@ from superqt import ensure_main_thread
 
 from fibsem.fm.structures import FluorescenceImage, FluorescenceChannelMetadata, FluorescenceImageMetadata
 from fibsem.ui.fm.widgets.load_image_dialog import LoadImageDialog
-from fibsem.ui.stylesheets import BLUE_PUSHBUTTON_STYLE
+from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET
 
 
 def _image_metadata_to_napari_image_layer(
@@ -75,7 +75,7 @@ class FMImageViewerWidget(QWidget):
         """Initialize the user interface."""
         # Create load button
         self.pushButton_load_image = QPushButton("Load Image...", self)
-        self.pushButton_load_image.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.pushButton_load_image.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.pushButton_load_image.clicked.connect(self.show_load_image_dialog)
 
         # Create layout

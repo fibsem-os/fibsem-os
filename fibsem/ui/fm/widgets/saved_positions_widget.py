@@ -15,10 +15,9 @@ from PyQt5.QtWidgets import (
 
 from fibsem.fm.structures import FMStagePosition
 from fibsem.ui.stylesheets import (
-    BLUE_PUSHBUTTON_STYLE,
-    GRAY_PUSHBUTTON_STYLE,
-    GREEN_PUSHBUTTON_STYLE,
-    RED_PUSHBUTTON_STYLE,
+    PRIMARY_BUTTON_STYLESHEET,
+    RUN_WORKFLOW_BUTTON_STYLESHEET,
+    STOP_WORKFLOW_BUTTON_STYLESHEET,
 )
 from fibsem.ui.utils import message_box_ui
 from fibsem.applications.autolamella.structures import Lamella
@@ -100,9 +99,9 @@ class SavedPositionsWidget(QWidget):
         self._update_widget_state()
 
         # Set button styles
-        self.pushButton_goto_position.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-        self.pushButton_delete_position.setStyleSheet(RED_PUSHBUTTON_STYLE)
-        self.pushButton_set_objective.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
+        self.pushButton_goto_position.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
+        self.pushButton_delete_position.setStyleSheet(STOP_WORKFLOW_BUTTON_STYLESHEET)
+        self.pushButton_set_objective.setStyleSheet(RUN_WORKFLOW_BUTTON_STYLESHEET)
 
     def update_positions(self, positions: List[Lamella]):
         """Update the combobox and checkbox list with current saved positions."""
@@ -150,14 +149,9 @@ class SavedPositionsWidget(QWidget):
         self.comboBox_objective_source.setEnabled(has_positions)
         self.comboBox_positions.setEnabled(has_positions)
 
-        if not has_positions:
-            self.pushButton_goto_position.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-            self.pushButton_delete_position.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-            self.pushButton_set_objective.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
-        else:
-            self.pushButton_goto_position.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
-            self.pushButton_delete_position.setStyleSheet(RED_PUSHBUTTON_STYLE)
-            self.pushButton_set_objective.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
+        # The buttons used to be repainted grey here as well. The semantic
+        # sheets carry their own :disabled rule, so setEnabled above is now the
+        # whole story and the styles can be set once, in __init__.
 
     def _update_position_info(self):
         """Update the position info label with details of the selected position."""

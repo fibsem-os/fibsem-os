@@ -20,7 +20,6 @@ from fibsem.structures import (
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.napari.utilities import update_text_overlay
 from fibsem.ui.stylesheets import (
-    DISABLED_PUSHBUTTON_STYLE,
     LABEL_INSTRUCTIONS_STYLE,
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
@@ -270,10 +269,11 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         if caller is None:
             # self.parent.milling_widget._toggle_interactions(enable, caller="movement")
             self.parent.image_widget._toggle_interactions(enable, caller="movement")
+        # No disabled branch: both sheets carry a :disabled rule, so setEnabled
+        # above is what greys these out.
         for btn in self._move_buttons:
-            btn.setStyleSheet(DISABLED_PUSHBUTTON_STYLE if not enable else
-                              PRIMARY_BUTTON_STYLESHEET if btn is self.pushButton_move else
-                              SECONDARY_BUTTON_STYLESHEET)
+            btn.setStyleSheet(PRIMARY_BUTTON_STYLESHEET if btn is self.pushButton_move
+                              else SECONDARY_BUTTON_STYLESHEET)
 
     def handle_movement_progress_update(self, ddict: dict) -> None:
         """Handle movement progress updates from the microscope"""

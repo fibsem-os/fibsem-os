@@ -323,10 +323,10 @@ class FibsemLabellingUI(QtWidgets.QDialog):
         self.pushButton_model_clear.setVisible(False)
 
         # style
-        self.pushButton_load_data.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
-        self.model_widget.pushButton_load_model.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
-        self.pushButton_model_confirm.setStyleSheet(stylesheets.GREEN_PUSHBUTTON_STYLE)
-        self.pushButton_model_clear.setStyleSheet(stylesheets.RED_PUSHBUTTON_STYLE)
+        self.pushButton_load_data.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+        self.model_widget.pushButton_load_model.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+        self.pushButton_model_confirm.setStyleSheet(stylesheets.RUN_WORKFLOW_BUTTON_STYLESHEET)
+        self.pushButton_model_clear.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
 
         # tooltips
         self.checkBox_autosave.setToolTip(CONFIGURATION["TOOLTIPS"]["AUTOSAVE"])
