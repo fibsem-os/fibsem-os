@@ -1,6 +1,7 @@
 import tempfile
 import pytest
 import numpy as np
+import yaml
 from datetime import datetime
 
 from fibsem.fm.structures import (
@@ -12,6 +13,7 @@ from fibsem.fm.structures import (
     FluorescenceImageMetadata,
     OverviewParameters,
     ZParameters,
+    ZStackOrder,
 )
 from fibsem.fm.timing import (
     DEFAULT_STAGE_MOVE_TIME,
@@ -108,6 +110,38 @@ def test_z_parameters():
     zparams.zstep = -1.0e-6
     with pytest.raises(ValueError):
         zparams.generate_positions(z_init=zinit)
+
+
+@pytest.mark.parametrize("order", list(ZStackOrder))
+def test_z_parameters_order_survives_a_disk_round_trip(order):
+    """The acquisition order has to come back off disk as it went on.
+
+    It decides a physically different acquisition -- whether the objective steps
+    once per plane or once per plane per channel -- so a serialisation that drops
+    it silently changes what happens at the microscope. Dumped through yaml
+    rather than compared in memory because it is stored as the enum's value, and
+    only a real dump proves that value is a plain scalar safe_dump will take.
+    """
+    zparams = ZParameters(zmin=-3e-6, zmax=3e-6, zstep=1e-6, order=order)
+
+    ddict = yaml.safe_load(yaml.safe_dump(zparams.to_dict()))
+
+    assert ddict["order"] == order.value
+    assert ZParameters.from_dict(ddict).order is order
+
+
+def test_z_parameters_without_a_saved_order_are_channel_wise():
+    """A protocol with no `order` key loads as channel-wise, by design.
+
+    Channel-wise is what every acquisition did before the field existed, so this
+    is the default that leaves an old protocol acquiring exactly as it always
+    has. Pinned so it cannot be "fixed" into z-level-wise, which would silently
+    change the behaviour of every stack saved before the field was added.
+    """
+    zparams = ZParameters.from_dict({"zmin": -3e-6, "zmax": 3e-6, "zstep": 1e-6})
+
+    assert zparams.order is ZStackOrder.CHANNEL
+    assert ZParameters().order is ZStackOrder.CHANNEL
 
 
 def test_fluorescence_channel_metadata():
