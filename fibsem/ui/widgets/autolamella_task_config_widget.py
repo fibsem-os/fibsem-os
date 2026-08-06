@@ -2,7 +2,17 @@ import inspect
 import logging
 from dataclasses import fields
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union, get_type_hints
+from typing import (
+    Any,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Union,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
@@ -46,6 +56,11 @@ def resolve_field_types(config: Any) -> Dict[str, Any]:
 
 class ParameterWidget:
     """Base class for parameter editing widgets."""
+
+    # Whether this widget's get_value() may be written back onto the config.
+    # False for widgets that can only display a value they cannot reconstruct
+    # (see ReadOnlyParameterWidget).
+    editable: bool = True
     
     def __init__(self, name: str, value: Any, annotation: type):
         self.name = name
@@ -181,6 +196,54 @@ class StringParameterWidget(ParameterWidget):
         self.widget.setText(str(value))
 
 
+class ReadOnlyParameterWidget(ParameterWidget):
+    """Read-only display for a field this form has no editor for.
+
+    The alternative used to be a plain ``QLineEdit`` holding ``str(value)``, on the
+    assumption that an unknown type could be round-tripped through its text. That
+    holds for almost nothing: for a nested dataclass such as ``ZParameters`` or
+    ``ChannelSettings`` the box shows a ``repr`` that cannot be parsed back, and
+    ``get_value()`` returns a ``str`` which was then written straight onto the
+    config -- destroying the object on a focus-out alone, no typing required. The
+    field then fails at run time (``'str' object has no attribute ...``) and again
+    when the experiment is saved.
+
+    Showing the value disabled keeps it visible -- these are real settings an
+    operator wants to read -- while ``editable = False`` stops anything writing the
+    displayed text back. Edit such fields through a config-specific widget, or the
+    protocol file.
+    """
+
+    editable = False
+
+    def create_widget(self) -> QWidget:
+        self.widget = QLineEdit()
+        self.widget.setText(str(self.value))
+        self.widget.setReadOnly(True)
+        self.widget.setEnabled(False)
+        self.widget.setToolTip(
+            f"{self._type_name()} is not editable in this form.\n"
+            "Edit it in this task's own settings panel, or in the protocol file."
+        )
+        return self.widget
+
+    def _type_name(self) -> str:
+        return getattr(self.annotation, "__name__", None) or str(self.annotation)
+
+    def get_value(self) -> Any:
+        """Return the original value, never the displayed text.
+
+        Nothing should call this -- `editable` is False -- but if something does,
+        handing back the untouched value is the answer that cannot corrupt the
+        config.
+        """
+        return self.value
+
+    def set_value(self, value: Any) -> None:
+        self.value = value
+        self.widget.setText(str(value))
+
+
 class EnumParameterWidget(ParameterWidget):
     """Widget for enum parameters."""
     
@@ -288,6 +351,71 @@ class ListParameterWidget(ParameterWidget):
         else:
             text = str(value)
         self.widget.setText(text)
+
+
+def create_parameter_widget(
+    name: str,
+    value: Any,
+    annotation: type,
+    metadata: Optional[dict] = None,
+) -> ParameterWidget:
+    """Pick the editing widget for one config field.
+
+    Shared by both config forms in this module, which each used to carry their own
+    copy of this dispatch -- and had already drifted apart. A field type handled in
+    one and not the other is the kind of divergence that shows up as a corrupted
+    config rather than as an error.
+    """
+    metadata = metadata or {}
+
+    # Handle Union types (e.g., Optional[T])
+    origin = get_origin(annotation)
+    if origin is Union:
+        # Find the non-None type for Optional[T]
+        non_none_types = [arg for arg in get_args(annotation) if arg is not type(None)]
+        if non_none_types:
+            annotation = non_none_types[0]
+            origin = get_origin(annotation)
+
+    # items metadata takes priority -- render as combobox regardless of type
+    items = metadata.get("items")
+    if items:
+        return ComboParameterWidget(name, value, annotation, items)
+
+    # A Literal is a fixed set of allowable values written in the type itself,
+    # which is the same thing the `items` metadata key expresses -- so render it
+    # the same way rather than as a free-text box the operator can mistype.
+    if origin is Literal:
+        return ComboParameterWidget(name, value, annotation, list(get_args(annotation)))
+
+    # Determine widget type based on annotation
+    if annotation is bool:
+        return BoolParameterWidget(name, value, annotation)
+    elif annotation is int:
+        return IntParameterWidget(name, value, annotation, metadata)
+    elif annotation is float:
+        return FloatParameterWidget(name, value, annotation, metadata)
+    elif annotation is str:
+        return StringParameterWidget(name, value, annotation)
+    elif inspect.isclass(annotation) and issubclass(annotation, Enum):
+        return EnumParameterWidget(name, value, annotation)
+    elif origin is list or (inspect.isclass(annotation) and issubclass(annotation, list)):
+        # Only lists of scalars survive the round trip through comma-separated
+        # text; a list of dataclasses comes back as a list of strings.
+        item_types = get_args(annotation)
+        if not item_types or item_types[0] in (bool, int, float, str):
+            return ListParameterWidget(name, value, annotation)
+
+    # Debug, not warning: the form itself now says this, visibly and in the right
+    # place -- the field is greyed out with a tooltip naming where to edit it. At
+    # warning level this fires every time a task carrying such a field is selected,
+    # including the built-in fluorescence config, whose three are read-only by
+    # design and whose form is hidden anyway. Nothing is going wrong.
+    logging.debug(
+        f"No editor for parameter type '{annotation}' (field '{name}'); "
+        "showing it read-only."
+    )
+    return ReadOnlyParameterWidget(name, value, annotation)
 
 
 class AutoLamellaTaskConfigWidget(QWidget):
@@ -404,42 +532,12 @@ class AutoLamellaTaskConfigWidget(QWidget):
 
     def _create_parameter_widget(self, name: str, value: Any, annotation: type, metadata: Optional[dict] = None) -> Optional[ParameterWidget]:
         """Create the appropriate parameter widget for the given type."""
-        metadata = metadata or {}
-
-        # Handle Union types (e.g., Optional[T])
-        origin = getattr(annotation, '__origin__', None)
-        if origin is Union:
-            args = getattr(annotation, '__args__', ())
-            # Find the non-None type for Optional[T]
-            non_none_types = [arg for arg in args if arg is not type(None)]
-            if non_none_types:
-                annotation = non_none_types[0]
-
-        # items metadata takes priority — render as combobox regardless of type
-        items = metadata.get("items")
-        if items:
-            return ComboParameterWidget(name, value, annotation, items)
-
-        # Determine widget type based on annotation
-        if annotation is bool:
-            return BoolParameterWidget(name, value, annotation)
-        elif annotation is int:
-            return IntParameterWidget(name, value, annotation, metadata)
-        elif annotation is float:
-            return FloatParameterWidget(name, value, annotation, metadata)
-        elif annotation is str:
-            return StringParameterWidget(name, value, annotation)
-        elif inspect.isclass(annotation) and issubclass(annotation, Enum):
-            return EnumParameterWidget(name, value, annotation)
-        elif origin is list or (inspect.isclass(annotation) and issubclass(annotation, list)):
-            return ListParameterWidget(name, value, annotation)
-        else:
-            logging.warning(f"Unsupported parameter type '{annotation}' for field '{name}'. Using string widget as fallback.")
-            # Fallback to string widget for unknown types
-            return StringParameterWidget(name, value, annotation)
+        return create_parameter_widget(name, value, annotation, metadata)
     
     def _connect_widget_signals(self, widget: QWidget, field_name: str):
         """Connect widget change signals to update the configuration."""
+        if not self.parameter_widgets[field_name].editable:
+            return
         if isinstance(widget, QCheckBox):
             widget.toggled.connect(lambda: self._on_parameter_changed(field_name))
         elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
@@ -453,6 +551,11 @@ class AutoLamellaTaskConfigWidget(QWidget):
         """Handle parameter value changes."""
         if field_name in self.parameter_widgets:
             param_widget = self.parameter_widgets[field_name]
+            # Never write back a value the widget cannot reconstruct -- see
+            # ReadOnlyParameterWidget. Checked here as well as at connection time
+            # because the cost of getting it wrong is a silently corrupted config.
+            if not param_widget.editable:
+                return
             new_value = param_widget.get_value()
 
             # Update the task config
@@ -580,41 +683,12 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
                                  annotation: type,
                                  metadata: Optional[dict] = None) -> Optional[ParameterWidget]:
         """Create the appropriate parameter widget for the given type."""
-        metadata = metadata or {}
-
-        # Handle Union types (e.g., Optional[T])
-        origin = getattr(annotation, '__origin__', None)
-        if origin is Union:
-            args = getattr(annotation, '__args__', ())
-            # Find the non-None type for Optional[T]
-            non_none_types = [arg for arg in args if arg is not type(None)]
-            if non_none_types:
-                annotation = non_none_types[0]
-
-        # items metadata takes priority — render as combobox regardless of type
-        items = metadata.get("items")
-        if items:
-            return ComboParameterWidget(name, value, annotation, items)
-
-        # Determine widget type based on annotation
-        if annotation == bool:
-            return BoolParameterWidget(name, value, annotation)
-        elif annotation == int:
-            return IntParameterWidget(name, value, annotation, metadata)
-        elif annotation == float:
-            return FloatParameterWidget(name, value, annotation, metadata)
-        elif annotation == str:
-            return StringParameterWidget(name, value, annotation)
-        elif inspect.isclass(annotation) and issubclass(annotation, Enum):
-            return EnumParameterWidget(name, value, annotation)
-        elif origin is list or (inspect.isclass(annotation) and issubclass(annotation, list)):
-            return ListParameterWidget(name, value, annotation)
-        else:
-            # Fallback to string widget for unknown types
-            return StringParameterWidget(name, value, annotation)
+        return create_parameter_widget(name, value, annotation, metadata)
     
     def _connect_widget_signals(self, widget: QWidget, field_name: str):
         """Connect widget change signals to update the configuration."""
+        if not self.parameter_widgets[field_name].editable:
+            return
         if isinstance(widget, QCheckBox):
             widget.toggled.connect(lambda: self._on_parameter_changed(field_name))
         elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
@@ -628,6 +702,11 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
         """Handle parameter value changes."""
         if field_name in self.parameter_widgets:
             param_widget = self.parameter_widgets[field_name]
+            # Never write back a value the widget cannot reconstruct -- see
+            # ReadOnlyParameterWidget. Checked here as well as at connection time
+            # because the cost of getting it wrong is a silently corrupted config.
+            if not param_widget.editable:
+                return
             new_value = param_widget.get_value()
 
             # Update the task config
