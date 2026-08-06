@@ -1,6 +1,54 @@
 # style sheets
-# TODO: TEMPLATE THIS CSS
 import os as _os
+
+# The colour palette lives in fibsem.ui.tokens and is imported here, at the top,
+# so the QSS constants below can interpolate it. Every name is re-exported for
+# the callers that import colours from this module rather than from tokens.
+from fibsem.ui.tokens import (  # noqa: F401  (re-exported for existing callers)
+    ACCENT_COLOR,
+    AUTOMATED_COLOR,
+    BORDER_COLOR,
+    CANVAS_BG,
+    DEFECT_ORANGE_COLOR,
+    DEFECT_RED_COLOR,
+    ERROR_COLOR,
+    GRAY_BACKGROUND_COLOR,
+    GRAY_CANVAS_COLOR,
+    GRAY_CONSOLE_COLOR,
+    GRAY_FOREGROUND_COLOR,
+    GRAY_HIGHLIGHT_COLOR,
+    GRAY_ICON_COLOR,
+    GRAY_PRIMARY_COLOR,
+    GRAY_SECONDARY_COLOR,
+    GRAY_TEXT_COLOR,
+    GRAY_WHITE_COLOR,
+    GREEN_COLOR,
+    OK_COLOR,
+    ORANGE_COLOR,
+    PANEL_COLOR,
+    PRIMARY_ACCENT,
+    PRIMARY_COLOR,
+    PRIMARY_COLOR_HOVER,
+    PRIMARY_COLOR_PRESSED,
+    PURPLE_COLOR,
+    RED_COLOR,
+    ROW_ALT_COLOR,
+    SEMANTIC_ERROR_COLOR,
+    SEMANTIC_ERROR_HOVER_COLOR,
+    SEMANTIC_ERROR_PRESSED_COLOR,
+    SEMANTIC_WARNING_COLOR,
+    SURFACE_COLOR,
+    TEXT_COLOR,
+    TEXT_MUTED_COLOR,
+    TEXT_STRONG_COLOR,
+    WARN_COLOR,
+    WHITE_ICON_COLOR,
+)
+
+# The application-level sheet moved to its own module; re-exported so that both
+# `from fibsem.ui.stylesheets import NAPARI_STYLE` and `stylesheets.NAPARI_STYLE`
+# keep resolving.
+from fibsem.ui.napari_style import NAPARI_STYLE  # noqa: F401
 
 _ICONS_DIR = _os.path.join(_os.path.dirname(__file__), "icons").replace("\\", "/")
 
@@ -72,6 +120,13 @@ PROGRESS_BAR_GREEN_STYLE = "QProgressBar::chunk {background-color: green;}"
 PROGRESS_BAR_BLUE_STYLE = "QProgressBar::chunk {background-color: blue;}"
 
 
+# TODO: no token -- #68a0dd, #3a6ea5
+#
+# #3a6ea5 is the one left literal on purpose rather than for want of a token:
+# PRIMARY_ACCENT holds that exact value, but it is documented as the quad-view
+# selection border, and pointing a checkbox at it would silently restyle this
+# widget the next time the canvas is retuned. Needs a decision, not a
+# substitution.
 CHECKBOX_STYLE = """
 QCheckBox::indicator {
         width: 16px;"
@@ -91,605 +146,209 @@ QCheckBox::indicator:checked {
 LABEL_INSTRUCTIONS_STYLE = """font-style: italic; color: gray; font-size: 12px;"""
 
 
-# Napari-style dark theme stylesheet
-NAPARI_STYLE = """
-QWidget {
-    background-color: #262930;
-    color: #d6d6d6;
-}
-
-QMainWindow {
-    background-color: #262930;
-}
-
-QMenuBar {
-    background-color: #262930;
-    color: #d6d6d6;
-    border-bottom: 1px solid #3d4251;
-}
-
-QMenuBar::item {
-    background-color: transparent;
-    padding: 4px 10px;
-}
-
-QMenuBar::item:selected {
-    background-color: #3d4251;
-}
-
-QMenu {
-    background-color: #262930;
-    color: #d6d6d6;
-    border: 1px solid #3d4251;
-}
-
-QMenu::item:selected {
-    background-color: #3d4251;
-}
-
-/* Without this, `QMenu { color }` above also paints disabled items, so a greyed
-   action is indistinguishable from an available one. Matches the disabled
-   colour used by the button and field rules below. */
-QMenu::item:disabled {
-    color: #6b6b6b;
-}
-
-QTabWidget::pane {
-    border: none;
-    background-color: #262930;
-}
-
-QTabBar::tab {
-    background-color: #1e2027;
-    color: #d6d6d6;
-    padding: 8px 16px;
-    border: none;
-    border-bottom: 2px solid transparent;
-}
-
-QTabBar::tab:selected {
-    background-color: #262930;
-    border-bottom: 2px solid #50a6ff;
-}
-
-QTabBar::tab:hover:!selected {
-    background-color: #2d313b;
-}
-
-QTabBar::tab:disabled {
-    color: #6b6b6b;
-}
-
-QPushButton {
-    background-color: #3d4251;
-    color: #d6d6d6;
-    border: none;
-    padding: 5px 12px;
-    border-radius: 3px;
-}
-
-QPushButton:hover {
-    background-color: #4a5168;
-}
-
-QPushButton:pressed {
-    background-color: #50a6ff;
-}
-
-QPushButton:disabled {
-    background-color: #2d313b;
-    color: #6b6b6b;
-}
-
-QStatusBar {
-    background-color: #1e2027;
-    color: #d6d6d6;
-    border-top: 1px solid #3d4251;
-}
-
-QLabel {
-    color: #d6d6d6;
-}
-
-QGroupBox {
-    background-color: #262930;
-    border: 1px solid #3d4251;
-    border-radius: 3px;
-    margin-top: 8px;
-    padding-top: 16px;
-    color: #d6d6d6;
-}
-
-QGroupBox::title {
-    subcontrol-origin: margin;
-    subcontrol-position: top left;
-    padding: 2px 8px;
-    color: #d6d6d6;
-}
-
-QLineEdit {
-    background-color: #1e2027;
-    color: #d6d6d6;
-    border: 1px solid #3d4251;
-    border-radius: 3px;
-    padding: 4px 8px;
-}
-
-QLineEdit:focus {
-    border: 1px solid #50a6ff;
-}
-
-QLineEdit:disabled {
-    color: #6b6b6b;
-    background-color: #2d313b;
-}
-
-QComboBox {
-    background-color: #3d4251;
-    color: #d6d6d6;
-    border: 1px solid #3d4251;
-    border-radius: 3px;
-    padding: 4px 8px;
-}
-
-QComboBox:hover {
-    border: 1px solid #50a6ff;
-}
-
-QComboBox:focus {
-    border: 1px solid #50a6ff;
-}
-
-QComboBox::drop-down {
-    border: none;
-    width: 20px;
-}
-
-QComboBox::down-arrow {
-    image: url("__ICONS_DIR__/chevron_down.svg");
-    width: 10px;
-    height: 10px;
-    margin-right: 6px;
-}
-
-QComboBox:disabled {
-    color: #6b6b6b;
-    background-color: #2d313b;
-}
-
-QComboBox QAbstractItemView {
-    background-color: #3d4251;
-    color: #d6d6d6;
-    border: 1px solid #3d4251;
-    selection-background-color: #4a5168;
-}
-
-QSpinBox, QDoubleSpinBox {
-    background-color: #1e2027;
-    color: #d6d6d6;
-    border: 1px solid #3d4251;
-    border-radius: 3px;
-    padding: 4px 8px;
-}
-
-QSpinBox:focus, QDoubleSpinBox:focus {
-    border: 1px solid #50a6ff;
-}
-
-QSpinBox:disabled, QDoubleSpinBox:disabled {
-    color: #6b6b6b;
-    background-color: #2d313b;
-}
-
-QSpinBox::up-button, QDoubleSpinBox::up-button {
-    subcontrol-origin: border;
-    subcontrol-position: center right;
-    background-color: #3d4251;
-    border: none;
-    border-left: 1px solid #3d4251;
-    border-top-right-radius: 3px;
-    border-bottom-right-radius: 3px;
-    width: 20px;
-    height: 100%;
-}
-
-QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover {
-    background-color: #4a5168;
-}
-
-QSpinBox::up-button:pressed, QDoubleSpinBox::up-button:pressed {
-    background-color: #50a6ff;
-}
-
-QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
-    image: url("__ICONS_DIR__/plus.svg");
-    width: 10px;
-    height: 10px;
-}
-
-QSpinBox::down-button, QDoubleSpinBox::down-button {
-    subcontrol-origin: border;
-    subcontrol-position: center left;
-    background-color: #3d4251;
-    border: none;
-    border-right: 1px solid #3d4251;
-    border-top-left-radius: 3px;
-    border-bottom-left-radius: 3px;
-    width: 20px;
-    height: 100%;
-}
-
-QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
-    background-color: #4a5168;
-}
-
-QSpinBox::down-button:pressed, QDoubleSpinBox::down-button:pressed {
-    background-color: #50a6ff;
-}
-
-QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
-    image: url("__ICONS_DIR__/minus.svg");
-    width: 10px;
-    height: 10px;
-}
-
-QSlider::groove:horizontal {
-    background-color: #3d4251;
-    height: 4px;
-    border-radius: 2px;
-}
-
-QSlider::handle:horizontal {
-    background-color: #3d4251;
-    width: 14px;
-    height: 14px;
-    margin: -5px 0;
-    border-radius: 7px;
-}
-
-QSlider::handle:horizontal:hover {
-    background-color: #4a5168;
-}
-
-QSlider::sub-page:horizontal {
-    background-color: #3d4251;
-    border-radius: 2px;
-}
-
-QCheckBox {
-    color: #d6d6d6;
-    spacing: 6px;
-}
-
-QCheckBox::indicator {
-    width: 14px;
-    height: 14px;
-    border: 1px solid #3d4251;
-    border-radius: 3px;
-    background-color: #1e2027;
-}
-
-QCheckBox::indicator:hover {
-    border: 1px solid #50a6ff;
-}
-
-QCheckBox::indicator:checked {
-    background-color: #3d4251;
-    image: url("__ICONS_DIR__/check.svg");
-}
-
-QListWidget {
-    background-color: #1e2027;
-    color: #d6d6d6;
-    border: 1px solid #3d4251;
-    border-radius: 3px;
-}
-
-QListWidget::item {
-    padding: 4px;
-    border-bottom: 1px solid #3d4251;
-}
-
-QListWidget::item:selected {
-    background-color: #3d4251;
-}
-
-QListWidget::item:hover {
-    background-color: #2d313b;
-}
-
-QToolButton {
-    background-color: #3d4251;
-    color: #d6d6d6;
-    border: none;
-    border-radius: 3px;
-    padding: 4px;
-}
-
-QToolButton:hover {
-    background-color: #4a5168;
-}
-
-QToolButton:pressed {
-    background-color: #50a6ff;
-}
-
-QDialog {
-    background-color: #262930;
-    color: #d6d6d6;
-}
-
-QDialogButtonBox QPushButton {
-    min-width: 70px;
-}
-
-QToolTip {
-    background-color: #1e2027;
-    color: #d6d6d6;
-    border: 1px solid #3d4251;
-    padding: 4px 8px;
-    border-radius: 3px;
-}
-""".replace("__ICONS_DIR__", _ICONS_DIR)
-
-MILLING_PROGRESS_BAR_STYLESHEET = """
-            QProgressBar {
-                border: 1px solid #3d4251;
+MILLING_PROGRESS_BAR_STYLESHEET = f"""
+            QProgressBar {{
+                border: 1px solid {BORDER_COLOR};
                 border-radius: 3px;
                 text-align: center;
-                background-color: #1e2027;
-                color: #d6d6d6;
-            }
-            QProgressBar::chunk {
-                background-color: #4caf50;
-            }
+                background-color: {PANEL_COLOR};
+                color: {TEXT_COLOR};
+            }}
+            QProgressBar::chunk {{
+                background-color: {OK_COLOR};
+            }}
         """
 
 # same bar, error-coloured chunk: rendered when an operation finishes in a failed
 # state, so "Done" and "Failed" are not both a full green bar.
-FAILED_PROGRESS_BAR_STYLESHEET = """
-            QProgressBar {
-                border: 1px solid #3d4251;
+FAILED_PROGRESS_BAR_STYLESHEET = f"""
+            QProgressBar {{
+                border: 1px solid {BORDER_COLOR};
                 border-radius: 3px;
                 text-align: center;
-                background-color: #1e2027;
-                color: #d6d6d6;
-            }
-            QProgressBar::chunk {
-                background-color: #99121F;
-            }
+                background-color: {PANEL_COLOR};
+                color: {TEXT_COLOR};
+            }}
+            QProgressBar::chunk {{
+                background-color: {SEMANTIC_ERROR_COLOR};
+            }}
         """
 
-USER_ATTENTION_BUTTON_STYLESHEET = """
-            QPushButton {
-                background-color: #ff9800;
+# TODO: no token -- #e65100, #f57c00
+# (the hover and pressed shades of ORANGE_COLOR)
+USER_ATTENTION_BUTTON_STYLESHEET = f"""
+            QPushButton {{
+                background-color: {ORANGE_COLOR};
                 color: white;
                 border: none;
                 padding: 4px 12px;
                 border-radius: 3px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
+            }}
+            QPushButton:hover {{
                 background-color: #f57c00;
-            }
-            QPushButton:pressed {
+            }}
+            QPushButton:pressed {{
                 background-color: #e65100;
-            }
+            }}
         """
 
-RUN_WORKFLOW_BUTTON_STYLESHEET = """
-            QPushButton {
-                background-color: #4caf50;
+# TODO: no token -- #2d313b, #2e7d32, #388e3c, #6b6b6b
+RUN_WORKFLOW_BUTTON_STYLESHEET = f"""
+            QPushButton {{
+                background-color: {OK_COLOR};
                 color: white;
                 border: none;
                 padding: 4px 12px;
                 border-radius: 3px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
+            }}
+            QPushButton:hover {{
                 background-color: #388e3c;
-            }
-            QPushButton:pressed {
+            }}
+            QPushButton:pressed {{
                 background-color: #2e7d32;
-            }
-            QPushButton:disabled {
+            }}
+            QPushButton:disabled {{
                 background-color: #2d313b;
                 color: #6b6b6b;
-            }
+            }}
         """
 
 
-STOP_WORKFLOW_BUTTON_STYLESHEET = """
-            QPushButton {
-                background-color: #99121F;
+STOP_WORKFLOW_BUTTON_STYLESHEET = f"""
+            QPushButton {{
+                background-color: {SEMANTIC_ERROR_COLOR};
                 color: white;
                 border: none;
                 padding: 5px 12px;
                 border-radius: 3px;
-            }
-            QPushButton:hover {
-                background-color: #BF2A38;
-            }
-            QPushButton:pressed {
-                background-color: #b71c1c;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {SEMANTIC_ERROR_HOVER_COLOR};
+            }}
+            QPushButton:pressed {{
+                background-color: {SEMANTIC_ERROR_PRESSED_COLOR};
+            }}
         """
 
-SUPERVISION_STATUS_SUPERVISED_STYLESHEET = """
-                QPushButton {
-                    background-color: #007ACC;
+# TODO: no token -- #1565c0, #1976d2
+SUPERVISION_STATUS_SUPERVISED_STYLESHEET = f"""
+                QPushButton {{
+                    background-color: {PRIMARY_COLOR};
                     color: white;
                     border: none;
                     padding: 5px 12px;
                     border-radius: 3px;
                     font-weight: bold;
-                }
-                QPushButton:hover {
+                }}
+                QPushButton:hover {{
                     background-color: #1976d2;
-                }
-                QPushButton:pressed {
+                }}
+                QPushButton:pressed {{
                     background-color: #1565c0;
-                }
+                }}
             """
 
-SUPERVISION_STATUS_AUTOMATED_STYLESHEET = """
-                QPushButton {
-                    background-color: #4caf50;
+# TODO: no token -- #2e7d32, #388e3c
+SUPERVISION_STATUS_AUTOMATED_STYLESHEET = f"""
+                QPushButton {{
+                    background-color: {OK_COLOR};
                     color: white;
                     border: none;
                     padding: 5px 12px;
                     border-radius: 3px;
                     font-weight: bold;
-                }
-                QPushButton:hover {
+                }}
+                QPushButton:hover {{
                     background-color: #388e3c;
-                }
-                QPushButton:pressed {
+                }}
+                QPushButton:pressed {{
                     background-color: #2e7d32;
-                }
+                }}
             """
 
-PRIMARY_BUTTON_STYLESHEET = """
-    QPushButton {
-        background-color: #007ACC;
+# TODO: no token -- #2d313b, #6b6b6b
+PRIMARY_BUTTON_STYLESHEET = f"""
+    QPushButton {{
+        background-color: {PRIMARY_COLOR};
         color: white;
         border: none;
         padding: 5px 12px;
         border-radius: 3px;
-    }
-    QPushButton:hover {
-        background-color: #118FE4;
-    }
-    QPushButton:pressed {
-        background-color: #2d72c4;
-    }
-    QPushButton:disabled {
+    }}
+    QPushButton:hover {{
+        background-color: {PRIMARY_COLOR_HOVER};
+    }}
+    QPushButton:pressed {{
+        background-color: {PRIMARY_COLOR_PRESSED};
+    }}
+    QPushButton:disabled {{
         background-color: #2d313b;
         color: #6b6b6b;
-    }
+    }}
 """
 
-SECONDARY_BUTTON_STYLESHEET = """
-    QPushButton {
-        background-color: #3d4251;
-        color: #d6d6d6;
+# TODO: no token -- #2d313b, #4a5168, #6b6b6b
+SECONDARY_BUTTON_STYLESHEET = f"""
+    QPushButton {{
+        background-color: {BORDER_COLOR};
+        color: {TEXT_COLOR};
         border: none;
         padding: 5px 12px;
         border-radius: 3px;
-    }
-    QPushButton:hover {
+    }}
+    QPushButton:hover {{
         background-color: #4a5168;
-    }
-    QPushButton:pressed {
-        background-color: #50a6ff;
-    }
-    QPushButton:disabled {
+    }}
+    QPushButton:pressed {{
+        background-color: {ACCENT_COLOR};
+    }}
+    QPushButton:disabled {{
         background-color: #2d313b;
         color: #6b6b6b;
-    }
+    }}
 """
 
-MESSAGE_BOX_STYLESHEET = """
-    QMessageBox {
-        background-color: #262930;
-    }
-    QMessageBox QLabel {
-        color: #d6d6d6;
+MESSAGE_BOX_STYLESHEET = f"""
+    QMessageBox {{
+        background-color: {SURFACE_COLOR};
+    }}
+    QMessageBox QLabel {{
+        color: {TEXT_COLOR};
         font-size: 12px;
-    }
-    QMessageBox QLabel#qt_msgbox_label {
-        color: #f0f1f2;
+    }}
+    QMessageBox QLabel#qt_msgbox_label {{
+        color: {TEXT_STRONG_COLOR};
         font-size: 13px;
         font-weight: 500;
-    }
+    }}
 """
 # The #qt_msgbox_label id is Qt's own name for the headline label, so it is only
 # a lift on top of the rule above -- if a future Qt renames it the text stays
 # readable rather than disappearing.
 
-STATUS_BAR_STYLESHEET = """
-                QStatusBar {
-                    background-color: #1e2027;
-                        color: #d6d6d6;
-                        border-top: 1px solid #3d4251;
-                    }
+STATUS_BAR_STYLESHEET = f"""
+                QStatusBar {{
+                    background-color: {PANEL_COLOR};
+                        color: {TEXT_COLOR};
+                        border-top: 1px solid {BORDER_COLOR};
+                    }}
                 """
 
 
-INDETERMINATE_PROGRESS_BAR_STYLESHEET = """
-            QProgressBar {
-                border: 1px solid #3d4251;
+INDETERMINATE_PROGRESS_BAR_STYLESHEET = f"""
+            QProgressBar {{
+                border: 1px solid {BORDER_COLOR};
                 border-radius: 3px;
                 text-align: center;
-                background-color: #1e2027;
-                color: #d6d6d6;
-            }
-            QProgressBar::chunk {
-                background-color: #50a6ff;
-            }
+                background-color: {PANEL_COLOR};
+                color: {TEXT_COLOR};
+            }}
+            QProgressBar::chunk {{
+                background-color: {ACCENT_COLOR};
+            }}
         """
-
-# Color palette
-PRIMARY_COLOR = "#007ACC"
-PRIMARY_COLOR_HOVER = "#118FE4"
-PRIMARY_COLOR_PRESSED = "#2d72c4"
-GRAY_CANVAS_COLOR = "#000000"
-GRAY_CONSOLE_COLOR = "#121212"
-GRAY_BACKGROUND_COLOR = "#262930"
-GRAY_FOREGROUND_COLOR = "#414851"
-GRAY_PRIMARY_COLOR = "#5a626C"
-GRAY_HIGHLIGHT_COLOR = "#6A7380"
-GRAY_SECONDARY_COLOR = "#868E93"
-GRAY_ICON_COLOR = "#D1D2D4"
-WHITE_ICON_COLOR = "#ffffff"
-GRAY_TEXT_COLOR = "#F0F1F2"
-GRAY_WHITE_COLOR = "#FFFFFF"
-SEMANTIC_ERROR_COLOR = "#99121F"
-SEMANTIC_ERROR_HOVER_COLOR = "#BF2A38"
-SEMANTIC_ERROR_PRESSED_COLOR = "#b71c1c"
-SEMANTIC_WARNING_COLOR = "#E3B617"
-AUTOMATED_COLOR = "#4caf50"
-PURPLE_COLOR = "#7C3AED"
-GREEN_COLOR = "#4caf50"
-RED_COLOR = "#99121F"
-ORANGE_COLOR = " #ff9800"
-DEFECT_ORANGE_COLOR = "#e8a020"
-DEFECT_RED_COLOR = "#d04040"
-
-# Shared canvas colours (image canvas / overlays / quad-view selection border)
-CANVAS_BG = "#1e2124"
-PRIMARY_ACCENT = "#3a6ea5"  # matches the quad-view selection border
-
-# ---------------------------------------------------------------------------
-# Napari-dark surface palette
-#
-# The tokens the hand-built dialogs style themselves from. Named for the role
-# they play rather than the shade they are, because that is what a caller is
-# choosing: a panel is a panel whether or not it stays #1e2027.
-#
-# Four of these already existed above under shade-derived names, and those are
-# deliberately left in place for their current callers rather than renamed --
-# the churn would reach well past the widgets that share this palette:
-#
-#     SURFACE_COLOR      == GRAY_BACKGROUND_COLOR
-#     TEXT_STRONG_COLOR  == GRAY_TEXT_COLOR
-#     TEXT_MUTED_COLOR   == GRAY_SECONDARY_COLOR
-#     OK_COLOR           == AUTOMATED_COLOR, GREEN_COLOR
-#     ERROR_COLOR        == DEFECT_RED_COLOR
-#
-# So: prefer these when styling a new dialog, and do not add a third spelling
-# of a colour that is already here twice.
-SURFACE_COLOR = "#262930"       # dialog background
-PANEL_COLOR = "#1e2027"         # inset panels, table headers
-ROW_ALT_COLOR = "#2b2f38"       # alternating row tint, hover
-BORDER_COLOR = "#3d4251"        # panel and control borders
-TEXT_COLOR = "#d6d6d6"          # body text
-TEXT_STRONG_COLOR = "#f0f1f2"   # titles, emphasis
-TEXT_MUTED_COLOR = "#868e93"    # secondary text, disabled
-ACCENT_COLOR = "#50a6ff"        # links, selected state, informational chips
-OK_COLOR = "#4caf50"            # success
-WARN_COLOR = "#e0a030"          # loaded but inactive, degraded, needs attention
-ERROR_COLOR = "#d04040"         # failure
 
 # The tooltip rule, for restating alongside a selector-less widget stylesheet.
 #
@@ -708,16 +367,18 @@ QToolTip {{
 }}
 """
 
-WORKFLOW_BORDER_STYLESHEET = """
-    QFrame#workflow_border_frame[borderState="idle"]       { border: 4px solid #262930; }
-    QFrame#workflow_border_frame[borderState="automated"]  { border: 4px solid #4caf50; }
-    QFrame#workflow_border_frame[borderState="supervised"] { border: 4px solid #007ACC; }
-    QFrame#workflow_border_frame[borderState="waiting"]    { border: 4px solid #ff9800; }
-    QFrame#workflow_border_frame[borderState="finished"]  { border: 4px solid #4caf50; }
-    QFrame#workflow_border_frame[borderState="stopped"]   { border: 4px solid #99121F; }
-    QFrame#workflow_border_frame[borderState="agent"]     { border: 4px solid #BF00FF; }
+# TODO: no token -- #BF00FF
+WORKFLOW_BORDER_STYLESHEET = f"""
+    QFrame#workflow_border_frame[borderState="idle"]       {{ border: 4px solid {SURFACE_COLOR}; }}
+    QFrame#workflow_border_frame[borderState="automated"]  {{ border: 4px solid {OK_COLOR}; }}
+    QFrame#workflow_border_frame[borderState="supervised"] {{ border: 4px solid {PRIMARY_COLOR}; }}
+    QFrame#workflow_border_frame[borderState="waiting"]    {{ border: 4px solid {ORANGE_COLOR}; }}
+    QFrame#workflow_border_frame[borderState="finished"]  {{ border: 4px solid {OK_COLOR}; }}
+    QFrame#workflow_border_frame[borderState="stopped"]   {{ border: 4px solid {SEMANTIC_ERROR_COLOR}; }}
+    QFrame#workflow_border_frame[borderState="agent"]     {{ border: 4px solid #BF00FF; }}
 """
 
+# TODO: no token -- #6a6a6a, #8a8a8a
 TOOLBUTTON_ICON_STYLESHEET = """
     QToolButton {
         border: 1px solid transparent;
@@ -735,6 +396,7 @@ TOOLBUTTON_ICON_STYLESHEET = """
     }
 """
 
+# TODO: no token -- #2b2d31, #2d3f5c, #3a3d42
 LIST_WIDGET_STYLESHEET = """
             QListWidget {
                 background: #2b2d31;
@@ -753,73 +415,74 @@ LIST_WIDGET_STYLESHEET = """
 # QDateTimeEdit with visible up/down step arrows (calendar popup must be OFF for
 # the buttons to appear). Stepping applies to whichever field has focus
 # (year / month / day / hour / minute), also via mouse-wheel and arrow keys.
-DATETIME_EDIT_STYLESHEET = """
-QDateTimeEdit {
-    background-color: #1e2027;
-    color: #d6d6d6;
-    border: 1px solid #3d4251;
+# TODO: no token -- #2d313b, #4a5168, #6b6b6b
+DATETIME_EDIT_STYLESHEET = f"""
+QDateTimeEdit {{
+    background-color: {PANEL_COLOR};
+    color: {TEXT_COLOR};
+    border: 1px solid {BORDER_COLOR};
     border-radius: 3px;
     padding: 4px 8px;
-}
+}}
 
-QDateTimeEdit:focus {
-    border: 1px solid #50a6ff;
-}
+QDateTimeEdit:focus {{
+    border: 1px solid {ACCENT_COLOR};
+}}
 
-QDateTimeEdit:disabled {
+QDateTimeEdit:disabled {{
     color: #6b6b6b;
     background-color: #2d313b;
-}
+}}
 
-QDateTimeEdit::up-button {
+QDateTimeEdit::up-button {{
     subcontrol-origin: border;
     subcontrol-position: center right;
-    background-color: #3d4251;
+    background-color: {BORDER_COLOR};
     border: none;
-    border-left: 1px solid #3d4251;
+    border-left: 1px solid {BORDER_COLOR};
     border-top-right-radius: 3px;
     border-bottom-right-radius: 3px;
     width: 20px;
     height: 100%;
-}
+}}
 
-QDateTimeEdit::up-button:hover {
+QDateTimeEdit::up-button:hover {{
     background-color: #4a5168;
-}
+}}
 
-QDateTimeEdit::up-button:pressed {
-    background-color: #50a6ff;
-}
+QDateTimeEdit::up-button:pressed {{
+    background-color: {ACCENT_COLOR};
+}}
 
-QDateTimeEdit::up-arrow {
+QDateTimeEdit::up-arrow {{
     image: url("__ICONS_DIR__/plus.svg");
     width: 10px;
     height: 10px;
-}
+}}
 
-QDateTimeEdit::down-button {
+QDateTimeEdit::down-button {{
     subcontrol-origin: border;
     subcontrol-position: center left;
-    background-color: #3d4251;
+    background-color: {BORDER_COLOR};
     border: none;
-    border-right: 1px solid #3d4251;
+    border-right: 1px solid {BORDER_COLOR};
     border-top-left-radius: 3px;
     border-bottom-left-radius: 3px;
     width: 20px;
     height: 100%;
-}
+}}
 
-QDateTimeEdit::down-button:hover {
+QDateTimeEdit::down-button:hover {{
     background-color: #4a5168;
-}
+}}
 
-QDateTimeEdit::down-button:pressed {
-    background-color: #50a6ff;
-}
+QDateTimeEdit::down-button:pressed {{
+    background-color: {ACCENT_COLOR};
+}}
 
-QDateTimeEdit::down-arrow {
+QDateTimeEdit::down-arrow {{
     image: url("__ICONS_DIR__/minus.svg");
     width: 10px;
     height: 10px;
-}
+}}
 """.replace("__ICONS_DIR__", _ICONS_DIR)
