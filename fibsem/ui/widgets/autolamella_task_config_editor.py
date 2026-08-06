@@ -196,7 +196,25 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             raise ValueError("Microscope is None, cannot open protocol editor.")
         self.microscope = self.parent_widget.microscope
         if self.milling_task_editor is not None:
+            # Reconnect: this editor is built once and survives disconnect, so every
+            # widget under it still holds the microscope it was built with, and each
+            # one has to be told. See FIB-525: updating only the milling editor left
+            # the fluorescence channel editor offering a disconnected microscope's
+            # filters -- or none at all, if the first connection had no FM.
+            #
+            # The milling subtree has the same fault and is deliberately not fixed
+            # here (FIB-530): the line below updates this widget but not the two
+            # children it handed the microscope to at construction.
             self.milling_task_editor.microscope = self.microscope
+            # Asked for by name rather than assumed present: the condition above
+            # tests one widget, but _create_widgets assigns it before the others and
+            # is not guarded, so a constructor raising midway leaves this branch
+            # reachable with the rest missing.
+            fluorescence_widget = getattr(
+                self, "fluorescence_acquisition_task_config_widget", None
+            )
+            if fluorescence_widget is not None:
+                fluorescence_widget.set_microscope(self.microscope)
         else:
             self._try_initialize()
 

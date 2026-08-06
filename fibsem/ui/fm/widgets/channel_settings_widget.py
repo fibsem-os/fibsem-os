@@ -141,6 +141,34 @@ class ChannelSettingsWidget(QWidget):
         self._panel.set_title(channel.name)
         self.refresh()
 
+    def set_fm(self, fm: Optional[FluorescenceMicroscope]) -> None:
+        """Point this widget at a different fluorescence microscope.
+
+        The available wavelengths are the microscope's, not the channel's, so they
+        have to be re-read when the microscope changes -- this widget keeps no
+        ``fm`` reference of its own, only the two lists derived from it, which is
+        why nothing looked stale from the outside while the combos were offering
+        a disconnected microscope's filters (FIB-525).
+
+        The selected value is preserved where the new microscope still offers it;
+        where it does not, ``set_values`` falls back to the closest match rather
+        than silently reporting a wavelength the hardware cannot produce.
+        """
+        self._emission_items = list(fm.filter_set.available_emission_wavelengths) if fm is not None else []
+        self._excitation_items = list(fm.filter_set.available_excitation_wavelengths) if fm is not None else []
+
+        blocked = self.blockSignals(True)
+        try:
+            self.excitation_combo.set_values(self._excitation_items)
+            self.emission_combo.set_values(self._emission_items)
+        finally:
+            self.blockSignals(blocked)
+
+        # Re-apply the channel so the controls show what it actually holds, not
+        # whatever survived repopulating the combos.
+        if self._channel is not None:
+            self.refresh()
+
     def refresh(self) -> None:
         """Re-sync controls from current channel without emitting signals."""
         if self._channel is None:
