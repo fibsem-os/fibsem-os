@@ -206,3 +206,26 @@ def test_reconnect_leaves_the_configured_channels_alone(qapp, editor_cls):
 
     after = [(ch.name, ch.excitation_wavelength) for ch in channels.channel_settings]
     assert after == before
+
+
+@pytest.mark.parametrize("editor_cls", EDITORS, ids=EDITOR_IDS)
+def test_a_half_built_editor_still_reconnects_what_it_has(qapp, editor_cls):
+    """A widget missing from a partial build is skipped, not fatal.
+
+    The reconnect branch is entered on `milling_task_editor` existing, but
+    `_create_widgets` assigns that first and is not wrapped in a try/except -- so a
+    constructor raising midway leaves the branch reachable with later widgets
+    absent. The fluorescence widget is exactly the one with previous form here
+    (5777bb35, "prevent crash when opening fluorescence config widget with no
+    FM"), and an AttributeError raised from this handler would mask whatever
+    actually failed during the build.
+    """
+    old = _microscope_without_fm()
+    editor, host = _build(editor_cls, old)
+    # the state a build that raised after the milling editor would leave behind
+    del editor.fluorescence_acquisition_task_config_widget
+
+    new = _microscope_with_fm()
+    _reconnect(editor, host, new)  # must not raise
+
+    assert editor.milling_task_editor.microscope is new

@@ -108,11 +108,19 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if hasattr(self, "milling_task_editor"):
             # Reconnect: this editor is built once and survives disconnect, so every
             # widget under it still holds the microscope it was built with. Each one
-            # that does has to be told -- see FIB-525, where updating only the line
-            # below left the fluorescence channel editor offering a disconnected
+            # that does has to be told -- see FIB-525, where updating only the milling
+            # editor left the fluorescence channel editor offering a disconnected
             # microscope's filters (or none, if the first connection had no FM).
-            self.milling_task_editor.set_microscope(self.microscope)
-            self.fluorescence_acquisition_task_config_widget.set_microscope(self.microscope)
+            #
+            # Asked for by name rather than assumed present: the condition above tests
+            # one widget, but _create_widgets assigns it before the others and is not
+            # guarded, so a constructor raising midway leaves this branch reachable
+            # with the rest missing. Skipping what is absent lets the original failure
+            # be the one that surfaces, instead of an AttributeError here.
+            for name in ("milling_task_editor", "fluorescence_acquisition_task_config_widget"):
+                widget = getattr(self, name, None)
+                if widget is not None:
+                    widget.set_microscope(self.microscope)
         else:
             # First connect: build the full UI
             self._create_widgets()
