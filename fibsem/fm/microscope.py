@@ -660,7 +660,18 @@ class FluorescenceMicroscope(ABC):
         being set up; an unrecognised pose is not an inconvenience to a tileset, which
         would walk the stage across a grid and stitch the result against a frame nobody
         has checked.
+
+        Answers True unconditionally on an offset mount, where the question cannot be
+        asked: `_update_orientations` gives a non-compustage system an FM orientation
+        copied from its FIB one, so `get_stage_orientation` at the fluorescence position
+        returns a beam orientation -- measured, "MILLING", since the milling tilt band
+        matches first. It cannot tell a fluorescence position from a beam one at all,
+        which is the same limitation `build_lamella_poses` refuses over (FIB-93).
+        Refusing on a question with no answer is not a guard, it is a lockout: it would
+        leave the overview tab permanently dead on every METEOR.
         """
+        if not self.parent.stage_is_compustage:
+            return True
         orientation = self.parent.get_stage_orientation(stage_position)
         return orientation in self.acquisition_orientations
 

@@ -179,6 +179,46 @@ class TestTheGate:
         assert widget._position_menu(0.0, 0.0) is None
 
 
+class TestOffsetMounts:
+    """Where the question cannot be asked, it must not be answered "no" (FIB-93).
+
+    `_update_orientations` gives a non-compustage system an FM orientation copied from
+    its FIB one, so `get_stage_orientation` at the fluorescence position comes back as a
+    beam orientation and never as "FM". A gate that refused on that would leave the tab
+    permanently dead on every METEOR rather than guarding anything.
+    """
+
+    @pytest.fixture()
+    def offset_widget(self, qapp):
+        from fibsem import utils
+        from fibsem.fm.microscope import FluorescenceMicroscope
+
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.stage_is_compustage = False
+        microscope._update_orientations()
+        if microscope.fm is None:
+            microscope.fm = FluorescenceMicroscope(parent=microscope)
+        return FMOverviewWidget(microscope)
+
+    def test_the_fluorescence_pose_does_not_report_itself_as_fm(self, offset_widget):
+        """The premise. If this ever starts returning "FM", the exemption below can go."""
+        microscope = offset_widget.microscope
+        microscope.move_stage_absolute(microscope.get_orientation("FM"))
+
+        assert microscope.get_stage_orientation() != "FM"
+
+    def test_acquisition_is_not_gated_there(self, offset_widget, qapp):
+        microscope = offset_widget.microscope
+        microscope.move_stage_absolute(microscope.get_orientation("FM"))
+        offset_widget._on_stage_moved(microscope.get_stage_position())
+        qapp.processEvents()
+
+        assert offset_widget.at_acquisition_orientation() is True
+        assert offset_widget.button_acquire.isEnabled() is True
+        assert offset_widget._may_move() is True
+        assert offset_widget.orientation_banner.isVisibleTo(offset_widget) is False
+
+
 class TestTheRefusal:
     def test_acquire_refuses_from_the_wrong_pose(self, widget, accept_dialog, no_worker):
         """The button is not the guard: a host can call this, and the stage can move
@@ -202,23 +242,39 @@ class TestTheBanner:
     def test_it_is_hidden_when_the_pose_is_right(self, widget):
         assert widget.orientation_banner.isVisibleTo(widget) is False
 
-    def test_it_appears_and_names_where_the_stage_is_and_what_would_do(self, widget):
-        _pose(widget, "NONE")
+    def test_it_names_where_the_stage_is_and_where_it_needs_to_be(self, widget):
+        _pose(widget, "SEM")
 
         assert widget.orientation_banner.isVisibleTo(widget) is True
         assert widget.orientation_notice.text() == (
-            "Stage is at NONE — an overview needs FM."
+            "Stage is at the SEM orientation — an overview needs to be at the FM "
+            "orientation."
         )
 
-    def test_it_names_every_orientation_that_would_do(self, widget):
-        """Not only the one the button goes to: on a system configured for more than one
-        the stage may already be a shorter move from a different one."""
-        widget.fm.acquisition_orientations = ["FM", "SEM"]
+    def test_an_unrecognised_pose_is_not_called_the_none_orientation(self, widget):
+        """`get_stage_orientation` returns "NONE" for a pose it cannot name, and "the
+        NONE orientation" is not a thing to say to anyone."""
         _pose(widget, "NONE")
 
         assert widget.orientation_notice.text() == (
-            "Stage is at NONE — an overview needs one of: FM, SEM."
+            "Stage is at a position that is not a recognised orientation — an overview "
+            "needs to be at the FM orientation."
         )
+
+    @pytest.mark.parametrize(
+        "allowed,expected",
+        [
+            (["FM", "SEM"], "the FM or SEM orientation"),
+            (["FM", "SEM", "MILLING"], "the FM, SEM or MILLING orientation"),
+        ],
+    )
+    def test_it_names_every_orientation_that_would_do(self, widget, allowed, expected):
+        """Not only the one the button goes to: on a system configured for more than one
+        the stage may already be a shorter move from a different one."""
+        widget.fm.acquisition_orientations = allowed
+        _pose(widget, "NONE")
+
+        assert widget.orientation_notice.text().endswith(f"needs to be at {expected}.")
 
     def test_it_stays_hidden_at_a_valid_but_non_fluorescence_pose(self, widget):
         widget.fm.acquisition_orientations = ["FM", "SEM"]

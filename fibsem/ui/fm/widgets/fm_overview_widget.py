@@ -1228,26 +1228,40 @@ class FMOverviewWidget(QWidget):
         # Not followed by a refresh: the move raises `stage_position_changed`, which
         # arrives at `_on_stage_moved` and re-derives everything the pose feeds.
 
-    def _refresh_orientation_banner(self) -> None:
-        """Say where the stage is, when it is not somewhere an overview can be acquired.
+    def _where_the_stage_is(self) -> str:
+        """The current orientation as a noun phrase, for a sentence.
 
-        Names every orientation that would do, not only the one the button goes to: on a
-        system configured for more than one the stage may already be a shorter move from
-        a different one, and a banner naming only `default_orientation` would be sending
-        the user further than they have to go.
+        "NONE" is what `get_stage_orientation` returns for a pose it cannot name, and
+        "the NONE orientation" is not a thing to say to anyone.
         """
+        orientation = self.microscope.get_stage_orientation()
+        if orientation == "NONE":
+            return "a position that is not a recognised orientation"
+        return f"the {orientation} orientation"
+
+    def _where_the_stage_needs_to_be(self) -> str:
+        """The orientations an overview may be acquired from, as a noun phrase.
+
+        Every one of them, not only the one the button goes to: on a system configured
+        for more than one the stage may already be a shorter move from a different one,
+        and naming only `default_orientation` would send the user further than they have
+        to go.
+        """
+        allowed = self.fm.acquisition_orientations
+        if len(allowed) == 1:
+            named = allowed[0]
+        else:
+            named = f"{', '.join(allowed[:-1])} or {allowed[-1]}"
+        return f"the {named} orientation"
+
+    def _refresh_orientation_banner(self) -> None:
+        """Say where the stage is, when it is not somewhere an overview can be acquired."""
         wrong = not self.at_acquisition_orientation()
         self.orientation_banner.setVisible(wrong)
         if wrong:
-            allowed = self.fm.acquisition_orientations
-            # "needs FM" reads better than "needs one of: FM", which is what a plain
-            # join gives on the single-orientation systems that are all of them today.
-            needed = (
-                allowed[0] if len(allowed) == 1 else f"one of: {', '.join(allowed)}"
-            )
             self.orientation_notice.setText(
-                f"Stage is at {self.microscope.get_stage_orientation()} — an overview "
-                f"needs {needed}."
+                f"Stage is at {self._where_the_stage_is()} — an overview needs to be at "
+                f"{self._where_the_stage_needs_to_be()}."
             )
             self.button_move_to_fm.setText(f"Move to {self.fm.default_orientation}")
 
@@ -1407,8 +1421,8 @@ class FMOverviewWidget(QWidget):
             return False
         if not self.at_acquisition_orientation():
             notification_service.show_toast(
-                f"Cannot move the stage from the "
-                f"{self.microscope.get_stage_orientation()} orientation.",
+                f"Cannot move the stage from {self._where_the_stage_is()} — the "
+                f"overview needs to be at {self._where_the_stage_needs_to_be()}.",
                 "warning",
             )
             return False
@@ -1713,15 +1727,14 @@ class FMOverviewWidget(QWidget):
         # pose -- the button is not the guard, and a host calling this directly, or a
         # stage that moved between the click and here, is exactly what this is for.
         if not self.at_acquisition_orientation():
-            orientation = self.microscope.get_stage_orientation()
-            allowed = ", ".join(self.fm.acquisition_orientations)
+            where, needed = self._where_the_stage_is(), self._where_the_stage_needs_to_be()
             logging.warning(
-                f"Cannot acquire an overview: the stage is at {orientation}, which is "
-                f"not one of {allowed}."
+                f"Cannot acquire an overview: the stage is at {where}, and an overview "
+                f"needs to be at {needed}."
             )
             notification_service.show_toast(
-                f"Move the stage to one of {allowed} before acquiring an overview "
-                f"(it is at {orientation}).",
+                f"Move the stage to {needed} before acquiring an overview "
+                f"(it is at {where}).",
                 "warning",
             )
             return
