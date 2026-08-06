@@ -278,14 +278,14 @@ class TestTheControlWidgetGuard:
         return FluorescenceMicroscope()
 
     def test_an_idle_instrument_is_not_refused(self, fm):
-        assert self._widget(fm)._refuse_if_acquiring("live acquisition") is False
+        assert self._widget(fm)._refuse_to_start("live acquisition") is False
 
     def test_an_overview_elsewhere_is_refused(self, fm):
         """The case the old per-widget union could not see."""
         fm.set_acquiring(True, "overview acquisition")
 
         assert fm.is_streaming is False  # the flag the old guard asked
-        assert self._widget(fm)._refuse_if_acquiring("live acquisition") is True
+        assert self._widget(fm)._refuse_to_start("live acquisition") is True
 
     def test_its_own_worker_is_still_refused(self, fm):
         """One question replacing a union must not drop what the union knew. This widget
@@ -294,7 +294,7 @@ class TestTheControlWidgetGuard:
         fm.set_acquiring(True, "z-stack")
         widget._acquisition_thread = _AliveThread()
 
-        assert widget._refuse_if_acquiring("image acquisition") is True
+        assert widget._refuse_to_start("image acquisition") is True
 
     def test_cancel_asks_about_its_own_thread(self, fm):
         """Not the microscope: `cancel_acquisition` joins `_acquisition_thread`, so on
@@ -348,7 +348,7 @@ class TestTheControlWidgetWiring:
         "name", ["start_acquisition", "acquire_image", "run_autofocus"]
     )
     def test_every_way_in_asks_first(self, name):
-        assert "_refuse_if_acquiring" in self._calls(self._functions()[name])
+        assert "_refuse_to_start" in self._calls(self._functions()[name])
 
     @pytest.mark.parametrize("name", ["acquire_image", "run_autofocus"])
     def test_every_worker_is_marked_for(self, name):
@@ -370,6 +370,34 @@ class TestTheControlWidgetWiring:
         )
         assert cleared
 
+    def test_it_refuses_a_pose_the_fm_cannot_see_from(self):
+        """`start_acquisition` had this check and the other two did not, so an image, a
+        z-stack or an autofocus sweep could be started from a beam pose with nothing but
+        the button stopping it."""
+        from fibsem.fm.microscope import FluorescenceMicroscope
+
+        fm = FluorescenceMicroscope()
+        fm._allow_unknown_orientations = False  # the escape hatch is on by default
+        fm.valid_orientations = []  # so no pose is a valid one
+        fm.parent = _StageAt("SEM")
+        widget = TestTheControlWidgetGuard._widget(fm)
+        widget.microscope = fm.parent
+
+        assert fm.is_acquiring is False, "refused for the pose, not for being busy"
+        assert widget._refuse_to_start("image acquisition") is True
+
+    def test_every_control_is_set_on_every_path(self):
+        """`_update_acquisition_button_states` returned early on a bad pose, setting
+        three buttons and skipping the rest -- so the objective panel and the channel
+        settings kept whatever they were last set to, including enabled during somebody
+        else's tileset. Dead as shipped, since `ALLOW_UNKNOWN_ORIENTATIONS` answers that
+        check yes unconditionally, which is why nobody noticed.
+        """
+        import ast
+
+        node = self._functions()["_update_acquisition_button_states"]
+        assert not [n for n in ast.walk(node) if isinstance(n, ast.Return)]
+
     def test_the_hardware_controls_ask_whether_the_user_may_drive(self):
         """The bug FIB-513 closes. The objective panel gated on `is_acquisition_active`
         -- this widget's own work -- so another tab's tileset left the position spinbox
@@ -380,8 +408,20 @@ class TestTheControlWidgetWiring:
         """
         source = self._source()
         for control in ("objectiveControlWidget", "channelSettingsWidget"):
-            assert f"self.{control}.setEnabled(interactive)" in source, control
+            assert f"self.{control}.setEnabled(may_touch)" in source, control
         assert "interactive = self.fm.is_interactive" in source
+        assert "may_touch = posed and interactive" in source
+
+
+class _StageAt:
+    """The parent microscope, for the two orientation questions the FM forwards."""
+
+    def __init__(self, orientation: str):
+        self._orientation = orientation
+        self.stage_is_compustage = True
+
+    def get_stage_orientation(self, stage_position=None) -> str:
+        return self._orientation
 
 
 class _AliveThread:

@@ -594,21 +594,32 @@ class FMControlWidget(QWidget):
             )
             self.viewer.reset_view()
 
-    def _refuse_if_acquiring(self, what: str) -> bool:
-        """Whether the FM is already in use, having logged why. True means "do not start".
+    def _refuse_to_start(self, what: str) -> bool:
+        """Whether *what* may not be started, having logged why. True means "do not".
 
-        One question to the microscope, where this used to be a union of three: the
-        widget's own worker, the live stream, and everybody else. `fm.is_acquiring`
-        covers all of them, this widget's own work included -- it marks that through
-        `set_acquiring` like anyone else (FIB-513).
+        Both reasons in one place, asked by all three ways in. The running check used to
+        be a union of three assembled here -- the widget's own worker, the live stream,
+        and everybody else -- and `fm.is_acquiring` covers all of them now, this widget's
+        own work included, since it marks that through `set_acquiring` like anyone else
+        (FIB-513).
+
+        The pose check used to live in `start_acquisition` alone, so an image, a z-stack
+        or an autofocus sweep could be started from a pose the FM cannot see anything
+        from. Nothing but the buttons stopped them, and the buttons are not the guard.
         """
-        if not self.fm.is_acquiring:
-            return False
-        reason = self.fm.acquiring_reason or "another acquisition"
-        logging.warning(
-            f"Cannot start {what}: the fluorescence microscope is in use ({reason})."
-        )
-        return True
+        if self.fm.is_acquiring:
+            reason = self.fm.acquiring_reason or "another acquisition"
+            logging.warning(
+                f"Cannot start {what}: the fluorescence microscope is in use ({reason})."
+            )
+            return True
+        if not self.fm.has_valid_orientation():
+            logging.warning(
+                f"Cannot start {what}: the stage is not in a valid FM orientation "
+                f"(currently {self.microscope.get_stage_orientation()})."
+            )
+            return True
+        return False
 
     @ensure_main_thread
     def _on_fm_acquiring_changed(self, acquiring: bool) -> None:
@@ -622,11 +633,7 @@ class FMControlWidget(QWidget):
     def start_acquisition(self):
         """Start the fluorescence acquisition."""
 
-        if not self.microscope.fm.has_valid_orientation():
-            logging.warning(f"Stage is not in a valid FM orientation. Cannot start acquisition (current: {self.microscope.get_stage_orientation()})")
-            return
-
-        if self._refuse_if_acquiring("live acquisition"):
+        if self._refuse_to_start("live acquisition"):
             return
 
         # Get current settings
@@ -813,7 +820,7 @@ class FMControlWidget(QWidget):
     def acquire_image(self):
         """Start threaded image acquisition using the current Z parameters and channel settings."""
 
-        if self._refuse_if_acquiring("image acquisition"):
+        if self._refuse_to_start("image acquisition"):
             return
 
         logging.info("Starting image acquisition")
@@ -893,13 +900,6 @@ class FMControlWidget(QWidget):
 
     def _update_acquisition_button_states(self):
         """Update acquisition button states and control widgets based on live acquisition or specific acquisition status."""
-        if not self.microscope.fm.has_valid_orientation():
-            # If not in FM or SEM orientation, disable all acquisition buttons
-            self.pushButton_toggle_acquisition.setEnabled(False)
-            self.pushButton_acquire_zstack.setEnabled(False)
-            self.pushButton_cancel_acquisition.setEnabled(False)
-            return
-
         # Every control below answers one of three questions, and the microscope owns
         # all three -- this used to assemble its own union per line, which is how the
         # objective panel came to ask the wrong one (FIB-513).
@@ -907,7 +907,24 @@ class FMControlWidget(QWidget):
         streaming = self.fm.is_streaming  # the live view specifically
         interactive = self.fm.is_interactive  # may the user drive the hardware
 
-        # Special case buttons with unique behavior
+        # A fourth input, not a fourth question: where the stage is does not change what
+        # is running, but it does stop new work being started -- `start_acquisition`
+        # refuses on it too -- and stops the hardware being driven by hand.
+        #
+        # Folded in rather than returned early. The early return here disabled three
+        # buttons and skipped every line below, so the objective panel and the channel
+        # settings kept whatever they were last set to, including enabled during
+        # somebody else's tileset. It also missed two of the buttons it claimed to
+        # cover. Dead as shipped -- `ALLOW_UNKNOWN_ORIENTATIONS` answers this yes
+        # unconditionally -- which is why nobody noticed.
+        posed = self.microscope.fm.has_valid_orientation()
+        may_start = posed and not acquiring
+        may_touch = posed and interactive
+
+        # Deliberately not gated on the pose, unlike everything else here: taking Cancel
+        # away from a run that is under way leaves no way to stop it, and a stage that
+        # has wandered somewhere unrecognised is exactly when you want it. The old early
+        # return disabled it.
         self.pushButton_cancel_acquisition.setVisible(self.is_acquisition_active)
 
         # Update toggle acquisition button text based on state
@@ -915,10 +932,11 @@ class FMControlWidget(QWidget):
             "Stop Acquisition" if streaming else "Start Acquisition"
         )
         # Clickable while the live stream *is* what is running -- it is the only way to
-        # stop one -- but not while anything else has the microscope. This is the button
-        # FIB-441 was about: it stayed live through an overview run, and starting a
-        # stream mid-tileset changes the settings the remaining tiles are acquired at.
-        self.pushButton_toggle_acquisition.setEnabled(streaming or not acquiring)
+        # stop one, and stopping is allowed from any pose -- but not while anything else
+        # has the microscope. This is the button FIB-441 was about: it stayed live
+        # through an overview run, and starting a stream mid-tileset changes the
+        # settings the remaining tiles are acquired at.
+        self.pushButton_toggle_acquisition.setEnabled(streaming or may_start)
 
         # Anything that starts new work waits for whatever is running to finish.
         for button in (
@@ -929,10 +947,10 @@ class FMControlWidget(QWidget):
             self.objectiveControlWidget.pushButton_move_to_focus,
             self.objectiveControlWidget.pushButton_retract_objective,
         ):
-            button.setEnabled(not acquiring)
+            button.setEnabled(may_start)
 
         # Parameters for the *next* run, so they follow the same rule.
-        self.zParametersWidget.setEnabled(not acquiring)
+        self.zParametersWidget.setEnabled(may_start)
 
         # Hardware the user drives by hand. Live during a stream -- focusing and tuning
         # exposure while watching is the point of them -- and not while a tileset,
@@ -940,12 +958,12 @@ class FMControlWidget(QWidget):
         # panel used to ask `is_acquisition_active`, which is only *this* widget's work,
         # so another tab's tileset left the position spinbox live against a runner that
         # was stepping the objective per z-level.
-        self.objectiveControlWidget.setEnabled(interactive)
-        self.channelSettingsWidget.setEnabled(interactive)
+        self.objectiveControlWidget.setEnabled(may_touch)
+        self.channelSettingsWidget.setEnabled(may_touch)
 
     def run_autofocus(self):
         """Start threaded auto-focus using the current channel settings and Z parameters."""
-        if self._refuse_if_acquiring("auto-focus"):
+        if self._refuse_to_start("auto-focus"):
             return
 
         logging.info("Starting auto-focus")
