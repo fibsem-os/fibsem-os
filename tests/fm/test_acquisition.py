@@ -29,6 +29,7 @@ from fibsem.fm.structures import (
     FMStagePosition,
     OverviewParameters,
     ZParameters,
+    ZStackOrder,
 )
 from fibsem.structures import FibsemStagePosition, TileOrderStrategy
 
@@ -436,6 +437,249 @@ def test_acquire_z_stack(demo_microscope):
 
     # Check that acquisition date is set
     assert result.metadata.acquisition_date is not None
+
+
+# --- z-stack acquisition order ----------------------------------------------
+# A z-stack of N channels over M planes can be walked two ways, and which one runs
+# is a real difference at the microscope, not an implementation detail: channel-wise
+# refocuses the objective M times per channel, z-level-wise moves it M times in
+# total and switches the filter/light source at every plane instead. The assembled
+# volume is required to come out identical either way.
+
+Z_ORDER_CHANNELS = [
+    ChannelSettings(name="DAPI", excitation_wavelength=358, emission_wavelength=461,
+                    power=0.1, exposure_time=0.01),
+    ChannelSettings(name="GFP", excitation_wavelength=488, emission_wavelength=509,
+                    power=0.2, exposure_time=0.01),
+    ChannelSettings(name="RFP", excitation_wavelength=555, emission_wavelength=580,
+                    power=0.3, exposure_time=0.01),
+]
+# 3 planes, the smallest stack that can be mis-transposed without it being a no-op.
+Z_ORDER_PARAMS = dict(zmin=-1e-6, zmax=1e-6, zstep=1e-6)
+N_CHANNELS, N_PLANES = len(Z_ORDER_CHANNELS), 3
+
+
+def _stamp_frames_with_acquisition_index(fm, monkeypatch):
+    """Make every frame carry the position it holds in the acquisition sequence.
+
+    Returns (sequence, objective_moves). Each frame's pixels are filled with the
+    index of the call that produced it, so the assembled volume can be checked
+    frame by frame rather than only by shape -- a swapped transpose keeps the
+    shape, the channel metadata and the z positions all correct.
+    """
+    sequence = []
+    objective_moves = []
+    real_acquire = fm.acquire_image
+    real_move = fm.objective.move_absolute
+
+    def acquire_image(channel_settings=None):
+        image = real_acquire(channel_settings)
+        image.data = np.full_like(image.data, len(sequence))
+        sequence.append((channel_settings.name, fm.objective.position))
+        return image
+
+    def move_absolute(position: float):
+        objective_moves.append(position)
+        return real_move(position)
+
+    monkeypatch.setattr(fm, "acquire_image", acquire_image)
+    monkeypatch.setattr(fm.objective, "move_absolute", move_absolute)
+    return sequence, objective_moves
+
+
+def test_z_level_order_acquires_every_channel_before_moving_the_objective(
+    fm_microscope, monkeypatch
+):
+    """Z-level-wise: one objective move per plane, all channels at each plane."""
+    fm = fm_microscope.fm
+    sequence, objective_moves = _stamp_frames_with_acquisition_index(fm, monkeypatch)
+    z_init = fm.objective.position
+
+    acquire_z_stack(
+        microscope=fm,
+        channel_settings=Z_ORDER_CHANNELS,
+        zparams=ZParameters(**Z_ORDER_PARAMS, order=ZStackOrder.Z_LEVEL),
+    )
+
+    names = [name for name, _ in sequence]
+    assert names == ["DAPI", "GFP", "RFP"] * N_PLANES
+
+    # The three frames of each plane share one objective position, and the plane
+    # advances only between groups.
+    positions = [round(pos, 12) for _, pos in sequence]
+    per_plane = [positions[i:i + N_CHANNELS] for i in range(0, len(positions), N_CHANNELS)]
+    assert all(len(set(group)) == 1 for group in per_plane)
+    assert [group[0] for group in per_plane] == sorted(set(positions))
+
+    # One move per plane, plus the restore to where the objective started.
+    assert len(objective_moves) == N_PLANES + 1
+    assert objective_moves[-1] == z_init
+
+
+def test_channel_order_acquires_a_whole_stack_before_changing_channel(
+    fm_microscope, monkeypatch
+):
+    """Channel-wise (the default): a full z-stack per channel, one channel at a time.
+
+    The contrast case for the test above -- it is what a stack acquires as when
+    `order` is absent from a saved protocol, so it needs to stay pinned too.
+    """
+    fm = fm_microscope.fm
+    sequence, objective_moves = _stamp_frames_with_acquisition_index(fm, monkeypatch)
+    z_init = fm.objective.position
+
+    acquire_z_stack(
+        microscope=fm,
+        channel_settings=Z_ORDER_CHANNELS,
+        zparams=ZParameters(**Z_ORDER_PARAMS, order=ZStackOrder.CHANNEL),
+    )
+
+    names = [name for name, _ in sequence]
+    assert names == ["DAPI"] * N_PLANES + ["GFP"] * N_PLANES + ["RFP"] * N_PLANES
+
+    # Every plane is refocused once per channel, not once in total.
+    assert len(objective_moves) == N_CHANNELS * N_PLANES + 1
+    assert objective_moves[-1] == z_init
+
+
+@pytest.mark.parametrize(
+    "order,frame_index",
+    [
+        # (channel, plane) -> the acquisition it must have come from
+        (ZStackOrder.CHANNEL, lambda c, z: c * N_PLANES + z),
+        (ZStackOrder.Z_LEVEL, lambda c, z: z * N_CHANNELS + c),
+    ],
+    ids=["channel", "z_level"],
+)
+def test_every_frame_lands_at_its_own_channel_and_plane(
+    fm_microscope, monkeypatch, order, frame_index
+):
+    """Each acquired frame ends up at data[channel, plane], in both orders.
+
+    Z-level-wise collects frames grouped by plane and transposes them back into
+    per-channel stacks. A transpose that is swapped -- or an order that silently
+    falls back to channel-wise -- produces a volume of exactly the right shape,
+    with the right channel names and z positions, holding the frames in the wrong
+    places. Only checking the frames themselves catches it.
+    """
+    fm = fm_microscope.fm
+    _stamp_frames_with_acquisition_index(fm, monkeypatch)
+
+    result = acquire_z_stack(
+        microscope=fm,
+        channel_settings=Z_ORDER_CHANNELS,
+        zparams=ZParameters(**Z_ORDER_PARAMS, order=order),
+    )
+
+    assert result.data.shape[:2] == (N_CHANNELS, N_PLANES)
+    for c in range(N_CHANNELS):
+        for z in range(N_PLANES):
+            expected = frame_index(c, z)
+            assert (result.data[c, z] == expected).all(), (
+                f"data[{c}, {z}] holds acquisition "
+                f"{result.data[c, z].flat[0]}, expected {expected}"
+            )
+
+
+def test_acquisition_order_does_not_change_the_assembled_stack(fm_microscope):
+    """The two orders differ in when frames are taken, not in what comes back."""
+    fm = fm_microscope.fm
+
+    results = {
+        order: acquire_z_stack(
+            microscope=fm,
+            channel_settings=Z_ORDER_CHANNELS,
+            zparams=ZParameters(**Z_ORDER_PARAMS, order=order),
+        )
+        for order in (ZStackOrder.CHANNEL, ZStackOrder.Z_LEVEL)
+    }
+    by_channel, by_z_level = results[ZStackOrder.CHANNEL], results[ZStackOrder.Z_LEVEL]
+
+    assert by_z_level.data.shape == by_channel.data.shape
+    assert [ch.name for ch in by_z_level.metadata.channels] == [
+        ch.name for ch in by_channel.metadata.channels
+    ] == ["DAPI", "GFP", "RFP"]
+    assert by_z_level.metadata.z_positions == by_channel.metadata.z_positions
+    assert len(by_z_level.metadata.z_positions) == N_PLANES
+
+
+@pytest.mark.parametrize(
+    "cancel_after",
+    # With 3 channels: frame 2 lands mid-plane (the check inside a plane's channel
+    # loop), frame 3 completes a plane (the check before the next plane's move).
+    # Both are on plane 1, deliberately not the plane that coincides with z_init --
+    # cancelling there would make "restore the objective" a no-op and the test
+    # would pass with the restore deleted.
+    [0, 2, 3],
+    ids=["before_first_frame", "mid_plane", "between_planes"],
+)
+def test_cancelling_a_z_level_stack_returns_the_objective(
+    fm_microscope, monkeypatch, cancel_after
+):
+    """Cancelling abandons the stack and puts the objective back where it started.
+
+    Z-level-wise checks the stop event in two places -- before each plane's move
+    and before each channel within a plane -- and both have to restore the
+    objective, or a cancelled acquisition leaves it parked at whatever plane it
+    had reached.
+    """
+    fm = fm_microscope.fm
+    z_init = fm.objective.position
+    stop_event = threading.Event()
+    if cancel_after == 0:
+        stop_event.set()
+
+    real_acquire = fm.acquire_image
+    acquired = []
+    position_at_cancel = []
+
+    def acquire_image(channel_settings=None):
+        acquired.append(channel_settings.name)
+        if len(acquired) >= cancel_after > 0:
+            stop_event.set()
+            position_at_cancel.append(fm.objective.position)
+        return real_acquire(channel_settings)
+
+    monkeypatch.setattr(fm, "acquire_image", acquire_image)
+
+    result = acquire_z_stack(
+        microscope=fm,
+        channel_settings=Z_ORDER_CHANNELS,
+        zparams=ZParameters(**Z_ORDER_PARAMS, order=ZStackOrder.Z_LEVEL),
+        stop_event=stop_event,
+    )
+
+    assert result is None
+    assert len(acquired) == cancel_after
+    if cancel_after:
+        # Guards the assertion below: it says nothing unless the objective had
+        # actually been moved off z_init by the time the stack was abandoned.
+        assert position_at_cancel[0] != z_init
+    assert fm.objective.position == z_init
+
+
+def test_acquire_image_passes_the_configured_order_through(fm_microscope, monkeypatch):
+    """acquire_image hands zparams to acquire_z_stack untouched.
+
+    The order is configured on ZParameters, several layers above the acquisition;
+    this pins the layer in between so it cannot quietly substitute a default.
+    """
+    fm = fm_microscope.fm
+    seen = {}
+
+    def acquire_z_stack_spy(microscope, channel_settings, zparams, stop_event=None):
+        seen["order"] = zparams.order
+        return Mock(spec=FluorescenceImage)
+
+    monkeypatch.setattr(acquisition, "acquire_z_stack", acquire_z_stack_spy)
+
+    acquire_image(
+        microscope=fm,
+        channel_settings=Z_ORDER_CHANNELS,
+        zparams=ZParameters(**Z_ORDER_PARAMS, order=ZStackOrder.Z_LEVEL),
+    )
+
+    assert seen["order"] is ZStackOrder.Z_LEVEL
 
 
 def test_acquire_image(fm_microscope):
