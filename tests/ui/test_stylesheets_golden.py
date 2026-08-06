@@ -42,6 +42,13 @@ UI_DIR = Path(__file__).resolve().parents[2] / "fibsem" / "ui"
 # should have been a substitution. Qt drops the malformed rule silently.
 _UNSUBSTITUTED = re.compile(r"\{[A-Z_][A-Z_0-9]*\}")
 
+# Stands in for the absolute icons directory, which is checkout-specific.
+_ICONS_PLACEHOLDER = "<ICONS_DIR>"
+
+# An absolute path anywhere else in a rendered sheet would make the recorded
+# value machine-specific the same way, so it is rejected rather than absorbed.
+_ABSOLUTE_PATH = re.compile(r"(?:[A-Za-z]:[\\/]|/(?:Users|home|opt|tmp|private|var)/)")
+
 _GOLDEN = {
     "ACCENT_COLOR": "5791fda913e64277",
     "AUTOMATED_COLOR": "af19d595dbe7669e",
@@ -49,7 +56,7 @@ _GOLDEN = {
     "BORDER_COLOR": "7a03f94fa9d76551",
     "CANVAS_BG": "2a9c18bc4e8c918a",
     "CHECKBOX_STYLE": "ee1027525c91f5ec",
-    "DATETIME_EDIT_STYLESHEET": "6093d98dda29a345",
+    "DATETIME_EDIT_STYLESHEET": "825dde4ebfb50eb7",
     "DEFECT_ORANGE_COLOR": "67fe9e13198b7262",
     "DEFECT_RED_COLOR": "fb3bf12cd8f86d6f",
     "DISABLED_PUSHBUTTON_STYLE": "f46d46fcd500df08",
@@ -73,7 +80,7 @@ _GOLDEN = {
     "LIST_WIDGET_STYLESHEET": "6f6a2df891282951",
     "MESSAGE_BOX_STYLESHEET": "5a9960a342c4e43c",
     "MILLING_PROGRESS_BAR_STYLESHEET": "621feff03128b0b6",
-    "NAPARI_STYLE": "2976b1de62be3bc2",
+    "NAPARI_STYLE": "769c3aa4de2aa9e2",
     "OK_COLOR": "af19d595dbe7669e",
     "ORANGE_COLOR": "30abb8ea87c6abf8",
     "ORANGE_PUSHBUTTON_STYLE": "8bf8fa4f934839fe",
@@ -146,15 +153,23 @@ def _digest(value):
 
 
 def _render():
-    """{name: value} for every public module-level string constant."""
+    """{name: value} for every public module-level string constant.
+
+    Two sheets embed ``_ICONS_DIR`` -- an absolute path -- in ``url(...)`` rules
+    for the spinbox and combobox arrows, so their rendered text differs between
+    a developer checkout and CI. Substituting a placeholder keeps the rest of
+    those sheets pinned while making the recorded value machine-independent;
+    hashing the raw text pins the checkout it was generated on and nothing else.
+    """
     with _leaf_import() as stylesheets:
+        icons_dir = stylesheets._ICONS_DIR
         values = {}
         for name in dir(stylesheets):
             if name.startswith("_"):
                 continue
             value = getattr(stylesheets, name)
             if isinstance(value, str):
-                values[name] = value
+                values[name] = value.replace(icons_dir, _ICONS_PLACEHOLDER)
         return values
 
 
@@ -189,6 +204,24 @@ def test_constant_renders_unchanged(rendered, name):
         f"{name} renders differently than recorded -- see this commit's "
         "stylesheets.py diff for what changed. If it is deliberate, regenerate "
         "with: python tests/ui/test_stylesheets_golden.py"
+    )
+
+
+def test_no_rendered_sheet_carries_an_absolute_path(rendered):
+    """The recorded values have to mean the same thing on every checkout.
+
+    ``_ICONS_DIR`` is normalised away in ``_render``; anything else absolute
+    would pin the machine the hashes were generated on, so CI would fail with a
+    digest mismatch that looks like a style regression and is not one.
+    """
+    offenders = {
+        name: _ABSOLUTE_PATH.search(value).group()
+        for name, value in rendered.items()
+        if _ABSOLUTE_PATH.search(value)
+    }
+    assert offenders == {}, (
+        "a rendered stylesheet embeds an absolute path, which differs between "
+        f"checkouts: {offenders}. Normalise it in _render() as _ICONS_DIR is."
     )
 
 
