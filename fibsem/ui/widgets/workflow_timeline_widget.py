@@ -26,7 +26,7 @@ from fibsem.ui.icon import fibsem_icon
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 _DOT_COMPLETED  = stylesheets.GREEN_COLOR
-_DOT_ACTIVE     = "#ff9800"
+_DOT_ACTIVE     = stylesheets.ORANGE_COLOR
 _DOT_PENDING    = "#606060"
 _DOT_FAILED     = stylesheets.RED_COLOR
 _DOT_SKIPPED    = "#9e9e9e"
