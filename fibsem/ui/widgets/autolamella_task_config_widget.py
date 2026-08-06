@@ -406,7 +406,12 @@ def create_parameter_widget(
         if not item_types or item_types[0] in (bool, int, float, str):
             return ListParameterWidget(name, value, annotation)
 
-    logging.warning(
+    # Debug, not warning: the form itself now says this, visibly and in the right
+    # place -- the field is greyed out with a tooltip naming where to edit it. At
+    # warning level this fires every time a task carrying such a field is selected,
+    # including the built-in fluorescence config, whose three are read-only by
+    # design and whose form is hidden anyway. Nothing is going wrong.
+    logging.debug(
         f"No editor for parameter type '{annotation}' (field '{name}'); "
         "showing it read-only."
     )
