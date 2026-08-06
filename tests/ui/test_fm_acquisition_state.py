@@ -1,10 +1,14 @@
-"""Two widgets, one fluorescence microscope, one flag saying it is in use (FIB-441).
+"""Three questions about the FM, asked in one place (FIB-441, FIB-513).
 
-The hazard: an overview tileset spends much of its time moving the stage between tiles,
-so the live-stream flag drops repeatedly during a run. A widget asking `fm.is_acquiring`
-about somebody else's tileset therefore sees "free" for most of it, and starting a live
-stream mid-run leaves the remaining tiles acquired at whatever settings it applied on
-the way past.
+    is_streaming    the live view is on
+    is_acquiring    anything is running: the stream, or a claimed operation
+    is_interactive  the user may drive the hardware
+
+They are not interchangeable, and every bug here came from asking the wrong one. A
+tileset moves the stage between every pair of tiles with no stream running, so
+`is_streaming` reads idle for most of somebody else's run -- which is how a live stream
+came to be startable mid-tileset, and how the objective panel came to stay live against
+a runner that was stepping the objective itself.
 """
 import os
 
@@ -58,7 +62,7 @@ def accept_dialog(monkeypatch):
 def no_worker(monkeypatch):
     """Stop `acquire` short of actually running a tileset.
 
-    The flag is set on the GUI thread before the worker starts, which is the part under
+    The FM is marked on the GUI thread before the worker starts, which is the part under
     test; running the acquisition would only add simulated stage travel to each of these.
     """
     from fibsem.ui.fm.widgets import fm_overview_widget as module
@@ -76,54 +80,97 @@ def no_worker(monkeypatch):
     monkeypatch.setattr(module, "FunctionWorker", _Worker)
 
 
-class TestBusy:
-    """`is_busy` is the union of both ways the FM can be in use, which is the point."""
-
+class TestTheThreeQuestions:
     @pytest.fixture()
     def fm(self):
         return FluorescenceMicroscope()
 
-    def test_a_free_microscope_is_not_busy(self, fm):
-        assert fm.is_busy is False
-        assert fm.busy_reason == ""
+    def test_an_idle_microscope(self, fm):
+        assert (fm.is_streaming, fm.is_acquiring, fm.is_interactive) == (
+            False,
+            False,
+            True,
+        )
+        assert fm.acquiring_reason == ""
 
-    def test_set_busy_says_why(self, fm):
-        fm.set_busy(True, "overview acquisition")
-        assert fm.is_busy is True
-        assert fm.busy_reason == "overview acquisition"
+    def test_a_claimed_operation(self, fm):
+        """A tileset, a z-stack, an autofocus sweep. Not a stream, and the hardware is
+        being driven by whatever claimed it."""
+        fm.set_acquiring(True, "overview acquisition")
 
-    def test_clearing_frees_it(self, fm):
-        fm.set_busy(True, "overview acquisition")
-        fm.set_busy(False)
-        assert fm.is_busy is False
-        assert fm.busy_reason == ""
+        assert (fm.is_streaming, fm.is_acquiring, fm.is_interactive) == (
+            False,
+            True,
+            False,
+        )
+        assert fm.acquiring_reason == "overview acquisition"
 
-    def test_a_live_stream_counts_as_busy(self, fm):
+    def test_a_live_stream(self, fm):
+        """The case the whole split exists for: acquiring, but the user may still focus
+        and tune exposure, because watching while adjusting is the point of live view."""
         fm.start_acquisition()
         try:
-            assert fm.is_busy is True
-            assert fm.busy_reason == "live acquisition"
+            assert (fm.is_streaming, fm.is_acquiring, fm.is_interactive) == (
+                True,
+                True,
+                True,
+            )
+            assert fm.acquiring_reason == "live acquisition"
         finally:
             fm.stop_acquisition()
-        assert fm.is_busy is False
+
+        assert (fm.is_streaming, fm.is_acquiring, fm.is_interactive) == (
+            False,
+            False,
+            True,
+        )
+
+    def test_finishing_gives_it_back(self, fm):
+        fm.set_acquiring(True, "overview acquisition")
+        fm.set_acquiring(False)
+
+        assert fm.is_acquiring is False
+        assert fm.is_interactive is True
+        assert fm.acquiring_reason == ""
 
     def test_it_announces_itself(self, fm):
         """So a widget that did not start it can grey out, not only refuse the click."""
         seen = []
-        fm.busy_changed.connect(seen.append)
+        fm.acquiring_changed.connect(seen.append)
 
-        fm.set_busy(True, "overview acquisition")
-        fm.set_busy(False)
+        fm.set_acquiring(True, "overview acquisition")
+        fm.set_acquiring(False)
 
         assert seen == [True, False]
+
+    def test_a_stream_announces_itself_too(self, fm):
+        """It does not go through `set_acquiring` -- it reports through its thread -- so
+        `start_acquisition` has to raise the signal itself."""
+        seen = []
+        fm.acquiring_changed.connect(seen.append)
+
+        fm.start_acquisition()
+        try:
+            assert seen == [True]
+        finally:
+            fm.stop_acquisition()
+        assert seen[-1] is False
 
 
 class TestTheOverviewMarksTheInstrument:
     def test_a_run_marks_the_microscope(self, widget, accept_dialog, no_worker):
         widget.acquire()
 
-        assert widget.fm.is_busy is True
-        assert widget.fm.busy_reason == "overview acquisition"
+        assert widget.fm.is_acquiring is True
+        assert widget.fm.acquiring_reason == "overview acquisition"
+
+    def test_a_run_is_not_a_stream(self, widget, accept_dialog, no_worker):
+        """The distinction the hazard rests on: a widget watching `is_streaming` sees an
+        idle microscope right through somebody else's tileset."""
+        widget.acquire()
+
+        assert widget.fm.is_streaming is False
+        assert widget.fm.is_interactive is False
 
     def test_the_worker_gives_it_back(self, widget, accept_dialog, no_worker):
         widget.acquire()
@@ -131,7 +178,7 @@ class TestTheOverviewMarksTheInstrument:
 
         widget._acquire_worker()
 
-        assert widget.fm.is_busy is False
+        assert widget.fm.is_acquiring is False
 
     def test_a_failed_run_gives_it_back(self, widget, accept_dialog, no_worker):
         """A run that dies holding the FM locks out every FM widget for the rest of the
@@ -141,7 +188,7 @@ class TestTheOverviewMarksTheInstrument:
 
         widget._acquire_worker()
 
-        assert widget.fm.is_busy is False
+        assert widget.fm.is_acquiring is False
 
     def test_a_cancelled_run_gives_it_back(self, widget, accept_dialog, no_worker):
         from fibsem.cancellation import OperationCancelledError
@@ -151,28 +198,26 @@ class TestTheOverviewMarksTheInstrument:
 
         widget._acquire_worker()
 
-        assert widget.fm.is_busy is False
+        assert widget.fm.is_acquiring is False
 
 
 class TestTheOverviewRespectsTheInstrument:
-    def test_it_will_not_start_while_something_else_has_it(
+    def test_it_will_not_start_while_something_else_is_running(
         self, widget, accept_dialog, no_worker
     ):
-        """What `fm.is_acquiring` could not answer.
+        """What `is_streaming` could not answer: a z-stack in the control widget is not
+        a stream, so the old guard saw an idle microscope and started a tileset straight
+        through it."""
+        widget.fm.set_acquiring(True, "z-stack")
 
-        A z-stack running in the control widget is not a live stream, so the old guard
-        saw an idle microscope and started a tileset straight through it.
-        """
-        widget.fm.set_busy(True, "z-stack")
-
-        assert widget.fm.is_acquiring is False  # the flag the old guard asked
+        assert widget.fm.is_streaming is False  # the flag the old guard asked
         widget.acquire()
 
         assert accept_dialog == [], "asked the user to confirm a run it then refused"
 
     def test_it_starts_once_the_instrument_is_free(self, widget, accept_dialog, no_worker):
-        widget.fm.set_busy(True, "z-stack")
-        widget.fm.set_busy(False)
+        widget.fm.set_acquiring(True, "z-stack")
+        widget.fm.set_acquiring(False)
 
         widget.acquire()
 
@@ -183,17 +228,17 @@ class TestTheAcquireButtonFollowsTheInstrument:
     def test_it_greys_out_when_something_else_starts(self, widget, qapp):
         assert widget.button_acquire.isEnabled() is True
 
-        widget.fm.set_busy(True, "z-stack")
+        widget.fm.set_acquiring(True, "z-stack")
         qapp.processEvents()
 
         assert widget.button_acquire.isEnabled() is False
 
     def test_it_comes_back_when_that_finishes(self, widget, qapp):
-        widget.fm.set_busy(True, "z-stack")
+        widget.fm.set_acquiring(True, "z-stack")
         qapp.processEvents()
         assert widget.button_acquire.isEnabled() is False, "nothing to come back from"
 
-        widget.fm.set_busy(False)
+        widget.fm.set_acquiring(False)
         qapp.processEvents()
 
         assert widget.button_acquire.isEnabled() is True
@@ -214,8 +259,8 @@ class TestTheControlWidgetGuard:
 
     Built without `__init__`. It takes a `napari.Viewer`, and constructing one under the
     offscreen platform segfaults this process (measured: SIGSEGV, no OpenGL) -- which is
-    why nothing else in the suite instantiates it either. The guard itself reads three
-    attributes and no widgets, so it is testable; that it is reached from each entry
+    why nothing else in the suite instantiates it either. The guard itself reads one
+    attribute and no widgets, so it is testable; that it is reached from each entry
     point is covered structurally below.
     """
 
@@ -233,40 +278,56 @@ class TestTheControlWidgetGuard:
         return FluorescenceMicroscope()
 
     def test_an_idle_instrument_is_not_refused(self, fm):
-        assert self._widget(fm)._refuse_if_fm_busy("live acquisition") is False
+        assert self._widget(fm)._refuse_if_acquiring("live acquisition") is False
 
     def test_an_overview_elsewhere_is_refused(self, fm):
-        """The case the old `self.is_acquiring` guard could not see."""
-        fm.set_busy(True, "overview acquisition")
+        """The case the old per-widget union could not see."""
+        fm.set_acquiring(True, "overview acquisition")
 
-        assert fm.is_acquiring is False  # the flag the old guard asked
-        assert self._widget(fm)._refuse_if_fm_busy("live acquisition") is True
+        assert fm.is_streaming is False  # the flag the old guard asked
+        assert self._widget(fm)._refuse_if_acquiring("live acquisition") is True
 
     def test_its_own_worker_is_still_refused(self, fm):
-        """Widening to the instrument must not drop what the widget already knew."""
+        """One question replacing a union must not drop what the union knew. This widget
+        marks its own work through `set_acquiring`, so the microscope answers for it."""
         widget = self._widget(fm)
+        fm.set_acquiring(True, "z-stack")
         widget._acquisition_thread = _AliveThread()
 
-        assert fm.is_busy is False  # nothing streaming, nothing marked
-        assert widget._refuse_if_fm_busy("image acquisition") is True
+        assert widget._refuse_if_acquiring("image acquisition") is True
+
+    def test_cancel_asks_about_its_own_thread(self, fm):
+        """Not the microscope: `cancel_acquisition` joins `_acquisition_thread`, so on
+        somebody else's run the old `is_acquiring` union sent it to `None.join()`."""
+        widget = self._widget(fm)
+        fm.set_acquiring(True, "overview acquisition")
+
+        assert widget._has_worker is False
+
+        widget._acquisition_thread = _AliveThread()
+        assert widget._has_worker is True
 
 
 class TestTheControlWidgetWiring:
-    """That the guard is reached, and the flag actually cleared.
+    """That the questions are asked where they should be.
 
-    Structural, because the widget cannot be instantiated here. It states the two
-    invariants a new acquisition path would have to keep: ask before starting, and
-    clear on every way out.
+    Structural, because the widget cannot be instantiated here. These state the
+    invariants a new acquisition path would have to keep.
     """
 
     @staticmethod
-    def _functions():
-        import ast
+    def _source():
         from pathlib import Path
 
         import fibsem.ui.widgets.fluorescence_control_widget as module
 
-        tree = ast.parse(Path(module.__file__).read_text())
+        return Path(module.__file__).read_text()
+
+    @classmethod
+    def _functions(cls):
+        import ast
+
+        tree = ast.parse(cls._source())
         return {
             node.name: node
             for node in ast.walk(tree)
@@ -287,11 +348,11 @@ class TestTheControlWidgetWiring:
         "name", ["start_acquisition", "acquire_image", "run_autofocus"]
     )
     def test_every_way_in_asks_first(self, name):
-        assert "_refuse_if_fm_busy" in self._calls(self._functions()[name])
+        assert "_refuse_if_acquiring" in self._calls(self._functions()[name])
 
     @pytest.mark.parametrize("name", ["acquire_image", "run_autofocus"])
     def test_every_worker_is_marked_for(self, name):
-        assert "set_busy" in self._calls(self._functions()[name])
+        assert "set_acquiring" in self._calls(self._functions()[name])
 
     @pytest.mark.parametrize(
         "name", ["_image_acquistion_worker", "_autofocus_worker"]
@@ -302,16 +363,29 @@ class TestTheControlWidgetWiring:
 
         node = self._functions()[name]
         cleared = any(
-            "set_busy"
+            "set_acquiring"
             in self._calls(ast.Module(body=block.finalbody, type_ignores=[]))
             for block in ast.walk(node)
             if isinstance(block, ast.Try)
         )
         assert cleared
 
+    def test_the_hardware_controls_ask_whether_the_user_may_drive(self):
+        """The bug FIB-513 closes. The objective panel gated on `is_acquisition_active`
+        -- this widget's own work -- so another tab's tileset left the position spinbox
+        live while `FMTiledAcquisitionRunner` was stepping the objective per z-level.
+
+        Not `any_acquisition_active` either: that includes the live stream, and focusing
+        during live view is what the panel is for.
+        """
+        source = self._source()
+        for control in ("objectiveControlWidget", "channelSettingsWidget"):
+            assert f"self.{control}.setEnabled(interactive)" in source, control
+        assert "interactive = self.fm.is_interactive" in source
+
 
 class _AliveThread:
-    """A worker that has not finished, for `is_acquiring`."""
+    """A worker that has not finished."""
 
     def is_alive(self) -> bool:
         return True

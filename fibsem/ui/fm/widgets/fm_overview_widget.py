@@ -147,9 +147,9 @@ class FMOverviewWidget(QWidget):
     # Same hop for stage moves: `stage_position_changed` is a psygnal, so it fires
     # on whichever thread moved the stage -- a worker, during an acquisition.
     _stage_moved = pyqtSignal(object)
-    # And for the FM being taken or given back by somebody else, which is cleared from
+    # And for something starting or finishing on the FM, which is reported from
     # whichever thread finished with it -- for our own runs, the acquisition worker.
-    _fm_busy_changed = pyqtSignal(bool)
+    _fm_acquiring_changed = pyqtSignal(bool)
 
     def __init__(
         self,
@@ -216,8 +216,8 @@ class FMOverviewWidget(QWidget):
         # match it at disconnect time -- and says nothing when the disconnect therefore
         # removes nothing. Emitting into a widget Qt had already torn down was a segfault.
         self.microscope.stage_position_changed.connect(self._on_stage_signal)
-        self._fm_busy_changed.connect(self._on_fm_busy_changed)
-        self.fm.busy_changed.connect(self._on_fm_busy_signal)
+        self._fm_acquiring_changed.connect(self._on_fm_acquiring_changed)
+        self.fm.acquiring_changed.connect(self._on_fm_acquiring_signal)
         self._refresh_current_position()
         self._refresh_orientation_banner()
 
@@ -1154,7 +1154,7 @@ class FMOverviewWidget(QWidget):
         widget -- and the same worker, since `move_to_microscope` blocks for as long as
         the stage takes.
         """
-        if self._running or self.fm.is_busy:
+        if self._running or self.fm.is_acquiring:
             notification_service.show_toast(
                 "Cannot move the stage during an acquisition.", "warning"
             )
@@ -1223,17 +1223,17 @@ class FMOverviewWidget(QWidget):
             )
             self.button_move_to_fm.setText(f"Move to {self.fm.default_orientation}")
 
-    def _on_fm_busy_signal(self, busy: bool) -> None:
+    def _on_fm_acquiring_signal(self, acquiring: bool) -> None:
         """Called by psygnal, on whichever thread started or stopped. No widgets here."""
-        self._fm_busy_changed.emit(busy)
+        self._fm_acquiring_changed.emit(acquiring)
 
-    def _on_fm_busy_changed(self, busy: bool) -> None:
+    def _on_fm_acquiring_changed(self, acquiring: bool) -> None:
         """Something started driving the fluorescence microscope, or stopped.
 
-        Only the controls need to know. Whether the FM is busy is not this widget's
-        state -- it is a fact about the microscope that `_apply_enabled_state` reads,
-        alongside the two that *are* this widget's -- so there is nothing to store here,
-        only a reason to re-derive.
+        Only the controls need to know. What the FM is doing is not this widget's state
+        -- it is a fact about the microscope that `_apply_enabled_state` reads, alongside
+        the two that *are* this widget's -- so there is nothing to store here, only a
+        reason to re-derive.
         """
         self._apply_enabled_state()
 
@@ -1641,10 +1641,10 @@ class FMOverviewWidget(QWidget):
         their own half of the truth is how a control gets stuck; deriving all of it from
         all five every time is the version that cannot.
 
-        `fm.is_busy` covers this widget's own run too, since it sets the flag for the
-        length of one -- harmless, because `_running` is true throughout that.
+        `fm.is_acquiring` covers this widget's own run too, since it marks the FM for
+        the length of one -- harmless, because `_running` is true throughout that.
         """
-        idle = self._interactive and not self._running and not self.fm.is_busy
+        idle = self._interactive and not self._running and not self.fm.is_acquiring
         has_tiles = self.settings_widget.parameters.n_enabled_tiles > 0
         # Acquisition only. Display and navigation stay live from any pose: looking at an
         # overview that has already been acquired is harmless wherever the stage is, and
@@ -1668,12 +1668,11 @@ class FMOverviewWidget(QWidget):
         if self.is_acquiring:
             logging.warning("An overview acquisition is already running.")
             return
-        # `is_busy`, not `is_acquiring`. The latter reports the live stream alone, so a
-        # z-stack or an autofocus sweep running in the control widget was invisible
-        # here -- and this widget's own tileset was invisible to that one, which is the
-        # direction that mattered (FIB-441).
-        if self.fm.is_busy:
-            reason = self.fm.busy_reason or "another acquisition"
+        # `is_acquiring`, not `is_streaming`: a z-stack or an autofocus sweep in the
+        # control widget is not a stream, and this widget's own tileset was invisible to
+        # that one, which is the direction that mattered (FIB-441).
+        if self.fm.is_acquiring:
+            reason = self.fm.acquiring_reason or "another acquisition"
             logging.warning(f"Cannot acquire an overview: the FM is in use ({reason}).")
             notification_service.show_toast(
                 f"The fluorescence microscope is in use ({reason}). "
@@ -1727,7 +1726,7 @@ class FMOverviewWidget(QWidget):
 
         # Held for the length of the run, so nothing else drives the FM while the stage
         # is walking the grid. Cleared in the worker's `finally` (FIB-441).
-        self.fm.set_busy(True, "overview acquisition")
+        self.fm.set_acquiring(True, "overview acquisition")
 
         self._stop_event.clear()
         self._set_running(True)
@@ -1795,11 +1794,11 @@ class FMOverviewWidget(QWidget):
                 {"state": "overview-failed", "task": "tileset", "error": str(e)}
             )
         finally:
-            # A run that ends still marked busy leaves the FM unusable for the rest of
-            # the session, with nothing on screen to say why -- so this goes in a
-            # `finally` rather than after the emits, and stays right if a future edit
-            # narrows one of the `except` clauses above.
-            self.fm.set_busy(False)
+            # A run that ends still marked as acquiring leaves the FM unusable for
+            # the rest of the session, with nothing on screen to say why -- so this goes
+            # in a `finally` rather than after the emits, and stays right if a future
+            # edit narrows one of the `except` clauses above.
+            self.fm.set_acquiring(False)
 
     def cancel(self) -> None:
         if not self.is_acquiring:

@@ -109,7 +109,7 @@ class _DraggableChannelList(QListWidget):
                 item.setSizeHint(QSize(width, item.sizeHint().height()))
 
     def mousePressEvent(self, event) -> None:
-        if self._fm is not None and self._fm.is_acquiring:
+        if self._fm is not None and self._fm.is_streaming:
             return  # swallow — prevent highlight change during live acquisition
         super().mousePressEvent(event)
 
@@ -960,7 +960,7 @@ class ChannelListWidget(QWidget):
         return True
 
     def _on_remove_clicked(self, channel: ChannelSettings) -> None:
-        if self.fm is not None and self.fm.is_acquiring and channel is self._selected_channel:
+        if self.fm is not None and self.fm.is_streaming and channel is self._selected_channel:
             self._show_status_warning("Cannot remove the active channel during live acquisition.")
             return
         for i in range(self._list.count()):
@@ -969,7 +969,7 @@ class ChannelListWidget(QWidget):
                 return
 
     def _on_row_clicked(self, channel: ChannelSettings) -> None:
-        if self.fm is not None and self.fm.is_acquiring and channel is not self._selected_channel:
+        if self.fm is not None and self.fm.is_streaming and channel is not self._selected_channel:
             self._show_status_warning("Cannot change channel selection during live acquisition.")
             return
         self._set_selected(channel)

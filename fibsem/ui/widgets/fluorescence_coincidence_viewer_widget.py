@@ -1853,7 +1853,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if self.microscope is None or self.microscope.fm is None:
             return
         fm = self.microscope.fm
-        if fm.is_acquiring:
+        if fm.is_streaming:
             fm.stop_acquisition()
             self.btn_toggle_fm_acquisition.setText("Start Acquisition")
             self.btn_toggle_fm_acquisition.setStyleSheet(
@@ -1861,13 +1861,13 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             )
         else:
             # The third place in the app that can start a live stream, and so the third
-            # that has to ask whether the microscope is free -- an overview tileset does
-            # not show up in `is_acquiring` (FIB-441).
-            if fm.is_busy:
+            # that has to ask whether the microscope is free -- a tileset never streams,
+            # so `is_streaming` would read idle right through one (FIB-441).
+            if fm.is_acquiring:
                 QMessageBox.warning(
                     self,
                     "Fluorescence Microscope In Use",
-                    f"The fluorescence microscope is in use ({fm.busy_reason}).\n\n"
+                    f"The fluorescence microscope is in use ({fm.acquiring_reason}).\n\n"
                     f"Wait for it to finish before starting acquisition.",
                 )
                 return
@@ -1903,7 +1903,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if self.microscope is None or self.microscope.fm is None:
             return
         fm = self.microscope.fm
-        if fm.is_acquiring:
+        if fm.is_streaming:
             fm.stop_acquisition()
             self._act_pause_acquisition.setText("Resume Acquisition")
         else:
@@ -1915,7 +1915,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if self.microscope is None or self.microscope.fm is None:
             return
         fm = self.microscope.fm
-        if not fm.is_acquiring:
+        if not fm.is_streaming:
             return
         if channel is not self.fm_channel_widget.selected_channel:
             return

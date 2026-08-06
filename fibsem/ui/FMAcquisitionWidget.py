@@ -422,7 +422,11 @@ class FMAcquisitionWidget(QWidget):
 
     @property
     def is_acquiring(self) -> bool:
-        """Check if any acquisition is currently active."""
+        """Check if any acquisition is currently active.
+
+        Still a union: this tab does not mark its work through `fm.set_acquiring`, so
+        the microscope cannot see its worker (FIB-513 leaves this tab alone).
+        """
         return self.fm.is_acquiring or bool(
             self._acquisition_thread and self._acquisition_thread.is_alive()
         )
@@ -1784,7 +1788,7 @@ class FMAcquisitionWidget(QWidget):
 
     def toggle_acquisition(self):
         """Toggle acquisition start/stop with F6 key."""
-        if self.fm.is_acquiring:
+        if self.fm.is_streaming:
             logging.info("F6 pressed: Stopping acquisition")
             self.stop_acquisition()
         else:
@@ -1872,7 +1876,7 @@ class FMAcquisitionWidget(QWidget):
         self.pushButton_cancel_acquisition.setVisible(self.is_acquisition_active)
 
         # Update toggle acquisition button text based on state
-        if self.fm.is_acquiring:
+        if self.fm.is_streaming:
             self.pushButton_toggle_acquisition.setText("Stop Acquisition")
         else:
             self.pushButton_toggle_acquisition.setText("Start Acquisition")
@@ -2033,7 +2037,7 @@ class FMAcquisitionWidget(QWidget):
 
     def _on_channel_field_changed(self, channel, field: str, value) -> None:
         """Update a single microscope parameter during live acquisition."""
-        if not self.fm.is_acquiring:
+        if not self.fm.is_streaming:
             return
         if channel is not self.channelSettingsWidget.selected_channel:
             return
@@ -2062,7 +2066,7 @@ class FMAcquisitionWidget(QWidget):
         )
         if self.experiment is not None:
             self.experiment.events.disconnect(self._on_experiment_positions_changed)
-        if self.fm.is_acquiring:
+        if self.fm.is_streaming:
             try:
                 self.stop_acquisition()
             except Exception as e:
