@@ -229,3 +229,34 @@ def test_a_half_built_editor_still_reconnects_what_it_has(qapp, editor_cls):
     _reconnect(editor, host, new)  # must not raise
 
     assert editor.milling_task_editor.microscope is new
+
+
+def test_milling_progress_slot_stays_on_the_main_thread():
+    """`_on_milling_progress` must keep its @ensure_main_thread decorator.
+
+    It is the slot for `milling_progress_signal`, which the milling worker emits
+    off the main thread, so it touches widgets from a background thread without
+    it -- the failure mode this codebase has crashed on before (PR #168, the
+    Windows vispy/gloo access violation, and the PyQt5 abort-on-slot-exception
+    work).
+
+    Worth asserting rather than trusting: adding a method immediately above this
+    one lands between the decorator and the function unless the insertion is
+    careful, which silently moves the decorator onto the new method. That is
+    exactly how it was lost while FIB-525 was being written, and nothing else in
+    the suite would have noticed -- the decorator changes which thread the slot
+    runs on, not whether it runs.
+    """
+    from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
+
+    slot = FibsemMillingWidget2._on_milling_progress
+    assert hasattr(slot, "__wrapped__"), (
+        "_on_milling_progress is not wrapped -- @ensure_main_thread has been lost "
+        "or displaced onto a neighbouring method"
+    )
+    assert slot.__wrapped__.__name__ == "_on_milling_progress"
+
+    # ...and the reconnect setter must NOT have taken it: it is called from the
+    # connected_signal handler, already on the main thread, and wrapping it would
+    # defer the propagation rather than doing it inline.
+    assert not hasattr(FibsemMillingWidget2.set_microscope, "__wrapped__")

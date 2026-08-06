@@ -98,7 +98,6 @@ class FibsemMillingWidget2(QWidget):
         """Check if a milling task is currently running."""
         return self._milling_thread is not None and self._milling_thread.is_alive()
 
-    @ensure_main_thread
     def set_microscope(self, microscope) -> None:
         """Point at a different microscope, moving the progress subscription with it.
 
@@ -118,6 +117,7 @@ class FibsemMillingWidget2(QWidget):
         if connected:
             self.microscope.milling_progress_signal.connect(self._on_milling_progress)
 
+    @ensure_main_thread
     def _on_milling_progress(self, progress: dict):
         logging.info(f"Milling progress: {progress}")
 
