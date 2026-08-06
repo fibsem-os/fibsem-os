@@ -12,8 +12,8 @@ from PyQt5.QtWidgets import (
 
 from fibsem.microscopes.simulator import FibsemMicroscope
 from fibsem.ui.stylesheets import (
-    BLUE_PUSHBUTTON_STYLE,
-    GRAY_PUSHBUTTON_STYLE,
+    PRIMARY_BUTTON_STYLESHEET,
+    SECONDARY_BUTTON_STYLESHEET,
 )
 from fibsem.ui.widgets.custom_widgets import (
     ValueSpinBox,
@@ -35,11 +35,11 @@ class StagePositionControlWidget(QWidget):
         """Initialize the stage position control UI."""
 
         self.button_sem_orientation = QPushButton("Move to SEM Orientation", self)
-        self.button_sem_orientation.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.button_sem_orientation.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.button_sem_orientation.clicked.connect(self.move_to_sem_orientation)
 
         self.button_fm_orientation = QPushButton("Move to FM Orientation", self)
-        self.button_fm_orientation.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.button_fm_orientation.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.button_fm_orientation.clicked.connect(self.move_to_fm_orientation)
 
         # Milling angle controls    
@@ -52,11 +52,11 @@ class StagePositionControlWidget(QWidget):
         self.milling_angle_spinbox.valueChanged.connect(self.update_milling_angle)
 
         self.button_move_to_milling = QPushButton("Move to Milling Angle", self)
-        self.button_move_to_milling.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.button_move_to_milling.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.button_move_to_milling.clicked.connect(self.move_to_milling_angle)
 
         self.button_refresh_stage_position = QPushButton("Refresh Stage Position Data", self)
-        self.button_refresh_stage_position.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+        self.button_refresh_stage_position.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.button_refresh_stage_position.clicked.connect(self.parent_widget.display_stage_position_overlay)
 
         orientation_layout = QGridLayout()

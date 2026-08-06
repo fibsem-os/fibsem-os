@@ -110,7 +110,7 @@ class FibsemSegmentationModelWidget(QtWidgets.QDialog):
 
         self.pushButton_load_model.setEnabled(False)
         self.pushButton_load_model.setText("Loading...")
-        self.pushButton_load_model.setStyleSheet(stylesheets.ORANGE_PUSHBUTTON_STYLE)
+        self.pushButton_load_model.setStyleSheet(stylesheets.USER_ATTENTION_BUTTON_STYLESHEET)
         self.pushButton_load_model.setToolTip("Downloading model... check terminal for progress...")
 
         worker = self.load_model_worker(model_type=model_type, checkpoint=checkpoint)
@@ -136,7 +136,7 @@ class FibsemSegmentationModelWidget(QtWidgets.QDialog):
 
         self.pushButton_load_model.setEnabled(True)
         self.pushButton_load_model.setText("Load Model")
-        self.pushButton_load_model.setStyleSheet(stylesheets.BLUE_PUSHBUTTON_STYLE)
+        self.pushButton_load_model.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
         self.pushButton_load_model.setToolTip("")
 
         if self.model is not None:

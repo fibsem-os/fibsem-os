@@ -13,8 +13,8 @@ from PyQt5.QtWidgets import (
 from fibsem.fm.structures import ChannelSettings, ZParameters, FMStagePosition
 from fibsem.fm.timing import estimate_positions_acquisition_time
 from fibsem.ui.stylesheets import (
-    GREEN_PUSHBUTTON_STYLE,
-    RED_PUSHBUTTON_STYLE,
+    RUN_WORKFLOW_BUTTON_STYLESHEET,
+    SECONDARY_BUTTON_STYLESHEET,
 )
 from fibsem.utils import format_duration
 
@@ -98,12 +98,12 @@ class AcquisitionSummaryDialog(QDialog):
         # Buttons
         button_layout = QGridLayout()
         self.button_start = QPushButton("Start Acquisition")
-        self.button_start.setStyleSheet(GREEN_PUSHBUTTON_STYLE)
+        self.button_start.setStyleSheet(RUN_WORKFLOW_BUTTON_STYLESHEET)
         self.button_start.clicked.connect(self.accept)
         button_layout.addWidget(self.button_start, 0, 0)
 
         self.button_cancel = QPushButton("Cancel")
-        self.button_cancel.setStyleSheet(RED_PUSHBUTTON_STYLE)
+        self.button_cancel.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.button_cancel.clicked.connect(self.reject)
         button_layout.addWidget(self.button_cancel, 0, 1)
 

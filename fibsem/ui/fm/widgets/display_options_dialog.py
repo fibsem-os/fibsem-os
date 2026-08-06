@@ -7,8 +7,8 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.ui.stylesheets import (
-    BLUE_PUSHBUTTON_STYLE,
-    GRAY_PUSHBUTTON_STYLE,
+    PRIMARY_BUTTON_STYLESHEET,
+    SECONDARY_BUTTON_STYLESHEET,
 )
 
 from typing import TYPE_CHECKING
@@ -59,12 +59,12 @@ class DisplayOptionsDialog(QDialog):
         button_layout = QGridLayout()
 
         self.button_ok = QPushButton("OK")
-        self.button_ok.setStyleSheet(BLUE_PUSHBUTTON_STYLE)
+        self.button_ok.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.button_ok.clicked.connect(self.accept)
         button_layout.addWidget(self.button_ok, 0, 0)
 
         self.button_cancel = QPushButton("Cancel")
-        self.button_cancel.setStyleSheet(GRAY_PUSHBUTTON_STYLE)
+        self.button_cancel.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.button_cancel.clicked.connect(self.reject)
         button_layout.addWidget(self.button_cancel, 0, 1)
 
