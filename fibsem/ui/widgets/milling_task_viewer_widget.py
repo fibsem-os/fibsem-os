@@ -577,6 +577,17 @@ class MillingTaskViewerWidget(QWidget):
     def get_settings(self) -> FibsemMillingTaskConfig:
         return self.config_widget.get_settings()
 
+    def set_microscope(self, microscope) -> None:
+        """Point this widget and its two children at a different microscope.
+
+        Assigning `.microscope` alone is what the editors used to do on reconnect,
+        and it is not enough: both children captured the microscope at construction
+        and never heard about the change (FIB-525).
+        """
+        self.microscope = microscope
+        self.config_widget.set_microscope(microscope)
+        self.milling_widget.set_microscope(microscope)
+
     def set_config(self, config: FibsemMillingTaskConfig) -> None:
         self.config_widget.set_config(config)
         self._schedule_pattern_update()

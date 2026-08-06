@@ -149,6 +149,27 @@ class FibsemMillingSettingsWidget(QWidget):
 
         return FibsemMillingSettings(**kwargs)
 
+    def set_microscope(self, microscope) -> None:
+        """Point at a different microscope and refresh its dynamic choices.
+
+        Only fields declaring `items: "dynamic"` are microscope-derived (currents,
+        presets, application files); everything else is static metadata. Repopulating
+        in place rather than rebuilding the form keeps the row/label wiring intact --
+        this form has no clear-and-rebuild path, and inventing one risks the
+        deleted-C++-wrapper crash the pattern and strategy forms document.
+        """
+        self.microscope = microscope
+        for row in self._rows:
+            meta = _META.get(row.field, {})
+            if meta.get("items") != "dynamic":
+                continue
+            cached = microscope.get_available_values_cached(
+                meta["microscope_parameter"], BeamType.ION
+            )
+            if cached:
+                row.control.set_values(cached)
+        self.set_settings(self._settings)
+
     def set_settings(self, settings: FibsemMillingSettings) -> None:
         self._settings = settings
 

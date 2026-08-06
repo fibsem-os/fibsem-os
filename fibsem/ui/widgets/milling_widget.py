@@ -99,6 +99,25 @@ class FibsemMillingWidget2(QWidget):
         return self._milling_thread is not None and self._milling_thread.is_alive()
 
     @ensure_main_thread
+    def set_microscope(self, microscope) -> None:
+        """Point at a different microscope, moving the progress subscription with it.
+
+        This widget does not merely read the microscope -- it drives milling and
+        subscribes to its progress signal. A stale reference here would run
+        start/stop/pause against the *previous* microscope, and progress from the
+        new one would never arrive because the subscription is still on the old
+        object (FIB-525).
+        """
+        connected = self.parent_widget._milling_enabled
+        if connected:
+            try:
+                self.microscope.milling_progress_signal.disconnect(self._on_milling_progress)
+            except TypeError:
+                pass  # never connected, or already dropped
+        self.microscope = microscope
+        if connected:
+            self.microscope.milling_progress_signal.connect(self._on_milling_progress)
+
     def _on_milling_progress(self, progress: dict):
         logging.info(f"Milling progress: {progress}")
 

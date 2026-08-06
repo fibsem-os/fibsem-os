@@ -293,6 +293,11 @@ class MillingTaskConfigWidget2(QWidget):
         self._on_alignment_checkbox_changed(settings.alignment.enabled)  # sync button state to loaded values
         self._on_acquisition_checkbox_changed()  # sync button state to loaded values
 
+    def set_microscope(self, microscope) -> None:
+        """Point at a different microscope, and pass it down (FIB-525)."""
+        self.microscope = microscope
+        self.milling_stages_widget.set_microscope(microscope)
+
     def set_config(self, config: FibsemMillingTaskConfig) -> None:
         self.update_from_settings(config)
 

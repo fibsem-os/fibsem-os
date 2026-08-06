@@ -315,6 +315,16 @@ class FibsemPatternSettingsWidget(QWidget):
                 )
         return pattern
 
+    def set_microscope(self, microscope: FibsemMicroscope) -> None:
+        """Point at a different microscope and rebuild the controls (FIB-525).
+
+        Reuses the same clear-and-rebuild path a pattern-type change takes, so the
+        microscope-derived choices (`_build_controls` reads cached available values)
+        are re-fetched exactly the way they were first populated.
+        """
+        self.microscope = microscope
+        self._build_controls(self._pattern)
+
     def set_pattern(self, pattern: BasePattern) -> None:
         type_changed = pattern.name != self._pattern.name
         self._pattern = pattern

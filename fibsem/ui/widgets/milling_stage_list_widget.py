@@ -569,6 +569,24 @@ class MillingStageListWidget(QWidget):
         self._selected_stage = None
         self._update_empty_state()
 
+    def set_available_values(
+        self,
+        current_values: Optional[List[float]] = None,
+        preset_values: Optional[List[str]] = None,
+        show_preset: bool = False,
+    ) -> None:
+        """Replace the choices offered by the inline current/preset editors.
+
+        These come from the microscope and are handed in at construction, so they
+        have to be replaced when the microscope changes rather than re-read
+        (FIB-525). `show_preset` moves with them: which column applies is itself a
+        property of the connected system, not a fixed layout choice.
+        """
+        self._current_values = current_values or []
+        self._preset_values = preset_values or []
+        self._show_preset = show_preset
+        self.set_stages(self.get_stages())  # re-render rows with the new choices
+
     def set_pattern_column_visible(self, visible: bool) -> None:
         """Show or hide the Pattern column in the header and all rows."""
         self._show_pattern = visible

@@ -257,6 +257,22 @@ class FibsemMillingStagesWidget(QWidget):
     def get_enabled_stages(self) -> List[FibsemMillingStage]:
         return self._list.get_enabled_stages()
 
+    def set_microscope(self, microscope) -> None:
+        """Point this widget and everything under it at a different microscope.
+
+        Three things here are the microscope's, not the stages': the available
+        currents, the available presets, and whether presets apply at all (Tescan
+        mills by preset). All three are read once at construction (FIB-525).
+        """
+        self.microscope = microscope
+        self._list.set_available_values(
+            current_values=microscope.get_available_values_cached("current", BeamType.ION),
+            preset_values=microscope.get_available_values_cached("preset", BeamType.ION),
+            show_preset=microscope.manufacturer.upper() == "TESCAN",
+        )
+        self._milling_widget.set_microscope(microscope)
+        self._pattern_widget.set_microscope(microscope)
+
     def set_manufacturer(self, manufacturer: Optional[str]) -> None:
         self._milling_widget.set_manufacturer(manufacturer)
 
