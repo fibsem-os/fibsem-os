@@ -346,6 +346,11 @@ class ScriptManagerDialog(QDialog):
         layout.addWidget(detail)
         # the summary is elided in the row, so the tooltip has to carry it in full
         widget.setToolTip(f"{summary}\n\n{script.path}\n{script.content_hash}")
+        # `ElidedLabel` gives itself one of its own full text, which is right where a
+        # label is on its own and wrong here: a child's tooltip shadows its parent's, so
+        # hovering the row would lose the path and the hash.
+        name.setToolTip("")
+        detail.setToolTip("")
         return widget
 
     def _type_cell(self, script: DiscoveredScript) -> QWidget:

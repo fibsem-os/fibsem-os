@@ -290,6 +290,7 @@ class FMControlWidget(QWidget):
         self.fm.acquisition_signal.connect(self.update_image)
         self.acquisition_finished_signal.connect(self._on_acquisition_finished)
         self.fm.acquisition_progress_signal.connect(self._on_acquisition_progress)
+        self.fm.busy_changed.connect(self._on_fm_busy_changed)
 
         # live parameter updates from channel list
         self.channelSettingsWidget.channel_field_changed.connect(
@@ -588,6 +589,32 @@ class FMControlWidget(QWidget):
             )
             self.viewer.reset_view()
 
+    def _refuse_if_fm_busy(self, what: str) -> bool:
+        """Whether the FM is already in use, having logged why. True means "do not start".
+
+        Asks the microscope, not just this widget. `self.is_acquiring` sees the live
+        stream and this widget's own worker; it cannot see the overview tab's tileset,
+        which drops the stream between every pair of tiles while the stage moves -- so a
+        live stream could be started mid-run, and the remaining tiles would land at
+        whatever settings it applied on the way past (FIB-441).
+        """
+        if not (self.is_acquiring or self.fm.is_busy):
+            return False
+        reason = self.fm.busy_reason or "another acquisition"
+        logging.warning(
+            f"Cannot start {what}: the fluorescence microscope is in use ({reason})."
+        )
+        return True
+
+    @ensure_main_thread
+    def _on_fm_busy_changed(self, busy: bool) -> None:
+        """Something started driving the FM, or stopped -- re-derive what is clickable.
+
+        Marshalled, because the flag is cleared on whichever thread finished with the
+        instrument, and this ends in `setEnabled` calls.
+        """
+        self._update_acquisition_button_states()
+
     def start_acquisition(self):
         """Start the fluorescence acquisition."""
 
@@ -595,8 +622,7 @@ class FMControlWidget(QWidget):
             logging.warning(f"Stage is not in a valid FM orientation. Cannot start acquisition (current: {self.microscope.get_stage_orientation()})")
             return
 
-        if self.is_acquiring:
-            logging.warning("Another acquisition is already in progress.")
+        if self._refuse_if_fm_busy("live acquisition"):
             return
 
         # Get current settings
@@ -783,8 +809,7 @@ class FMControlWidget(QWidget):
     def acquire_image(self):
         """Start threaded image acquisition using the current Z parameters and channel settings."""
 
-        if self.is_acquiring:
-            logging.warning("Another acquisition is already in progress.")
+        if self._refuse_if_fm_busy("image acquisition"):
             return
 
         logging.info("Starting image acquisition")
@@ -813,6 +838,11 @@ class FMControlWidget(QWidget):
             return
 
         record_recent_channels(channel_settings)
+
+        # Marked busy as late as possible: everything above can still abort -- the
+        # filename step opens a modal -- and an abort leaving the flag set would lock
+        # out the overview tab with nothing running.
+        self.fm.set_busy(True, "z-stack" if z_parameters else "image acquisition")
 
         # Start acquisition thread
         self._acquisition_thread = FunctionWorker(
@@ -854,6 +884,7 @@ class FMControlWidget(QWidget):
             logging.error(f"Error during image acquisition: {e}")
 
         finally:
+            self.fm.set_busy(False)
             self.acquisition_finished_signal.emit()
 
     def _update_acquisition_button_states(self):
@@ -865,8 +896,12 @@ class FMControlWidget(QWidget):
             self.pushButton_cancel_acquisition.setEnabled(False)
             return
 
-        # Check if any acquisition is active (live or specific acquisitions)
-        any_acquisition_active = self.is_acquiring or self.is_acquisition_active
+        # Check if any acquisition is active (live or specific acquisitions), here or
+        # anywhere else on this microscope -- `fm.is_busy` is what covers the overview
+        # tab, whose tileset this widget has no other way of seeing.
+        any_acquisition_active = (
+            self.is_acquiring or self.fm.is_busy or self.is_acquisition_active
+        )
 
         # Special case buttons with unique behavior
         self.pushButton_cancel_acquisition.setVisible(self.is_acquisition_active)
@@ -876,6 +911,15 @@ class FMControlWidget(QWidget):
             self.pushButton_toggle_acquisition.setText("Stop Acquisition")
         else:
             self.pushButton_toggle_acquisition.setText("Start Acquisition")
+
+        # Clickable while the live stream *is* what is running -- it is the only way to
+        # stop one -- but not while anything else has the microscope. This is the button
+        # FIB-441 is about: it was the one thing that stayed live through an overview
+        # run, and starting a stream mid-tileset changes the settings the remaining
+        # tiles are acquired at.
+        self.pushButton_toggle_acquisition.setEnabled(
+            self.fm.is_acquiring or not any_acquisition_active
+        )
 
         # Enable/disable standard buttons based on acquisition state
         for button in (
@@ -906,10 +950,7 @@ class FMControlWidget(QWidget):
 
     def run_autofocus(self):
         """Start threaded auto-focus using the current channel settings and Z parameters."""
-        if self.is_acquiring:
-            logging.warning(
-                "Cannot run auto-focus while another acquisition is in progress. Stop acquisition first."
-            )
+        if self._refuse_if_fm_busy("auto-focus"):
             return
 
         logging.info("Starting auto-focus")
@@ -922,6 +963,8 @@ class FMControlWidget(QWidget):
         settings = self._get_current_settings()
         channel_settings = settings["selected_channel_settings"]
         autofocus_settings = settings["autofocus_settings"]
+
+        self.fm.set_busy(True, "auto-focus")
 
         # Start auto-focus thread
         self._acquisition_thread = FunctionWorker(
@@ -966,6 +1009,7 @@ class FMControlWidget(QWidget):
         except Exception as e:
             logging.error(f"Auto-focus failed: {e}")
         finally:
+            self.fm.set_busy(False)
             self.acquisition_finished_signal.emit()
 
     def closeEvent(self, event: QEvent):

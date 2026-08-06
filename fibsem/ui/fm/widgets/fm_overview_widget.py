@@ -14,11 +14,11 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 from PyQt5.QtCore import QPoint, Qt, pyqtSignal
-from PyQt5.QtGui import QFontMetrics
 from PyQt5.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -56,6 +56,7 @@ from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import TileGridOverlay
 from fibsem.ui.widgets.custom_widgets import (
     ContextMenu,
     ContextMenuConfig,
+    ElidedLabel,
     TitledPanel,
 )
 from fibsem.ui.widgets.progress_widget import (
@@ -87,48 +88,6 @@ def shrink_progress_text(progress: FibsemProgressWidget) -> FibsemProgressWidget
     progress.setStyleSheet(f"QProgressBar {{ font-size: {PROGRESS_FONT_PX}px; }}")
     progress.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
     return progress
-
-
-class ElidedLabel(QLabel):
-    """A label that shortens its text to fit, instead of forcing its parent wider.
-
-    A plain `QLabel` reports the full width of its text as its size hint, and in a
-    layout that hint becomes a minimum: a 132-character acquisition failure dragged this
-    widget's minimum width from 1030 px to 1728 px, so a message pushed the window
-    around. Here the text gives way instead.
-
-    `text()` still returns what was set, not what is drawn -- callers compare against it
-    to decide whether the line is theirs to overwrite, and eliding is presentation.
-    """
-
-    def __init__(self, text: str = "", parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self._full_text = ""
-        # Ignored horizontally: the label neither asks for room nor refuses to shrink,
-        # which is the whole point -- its content must not set anyone's minimum.
-        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.setText(text)
-
-    def setText(self, text: Optional[str]) -> None:
-        self._full_text = text or ""
-        # The full message, for anything too long to show. Set before the caller gets a
-        # chance to override it: `_finish` follows its own `setText` with a tooltip of
-        # its own, and that one should win.
-        self.setToolTip(self._full_text)
-        self._elide()
-
-    def text(self) -> str:
-        return self._full_text
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._elide()
-
-    def _elide(self) -> None:
-        metrics = QFontMetrics(self.font())
-        super().setText(
-            metrics.elidedText(self._full_text, Qt.ElideRight, max(0, self.width() - 2))
-        )
 
 
 # Key the in-progress mosaic is drawn under. Distinct from a finished overview's
@@ -188,6 +147,9 @@ class FMOverviewWidget(QWidget):
     # Same hop for stage moves: `stage_position_changed` is a psygnal, so it fires
     # on whichever thread moved the stage -- a worker, during an acquisition.
     _stage_moved = pyqtSignal(object)
+    # And for the FM being taken or given back by somebody else, which is cleared from
+    # whichever thread finished with it -- for our own runs, the acquisition worker.
+    _fm_busy_changed = pyqtSignal(bool)
 
     def __init__(
         self,
@@ -254,7 +216,10 @@ class FMOverviewWidget(QWidget):
         # match it at disconnect time -- and says nothing when the disconnect therefore
         # removes nothing. Emitting into a widget Qt had already torn down was a segfault.
         self.microscope.stage_position_changed.connect(self._on_stage_signal)
+        self._fm_busy_changed.connect(self._on_fm_busy_changed)
+        self.fm.busy_changed.connect(self._on_fm_busy_signal)
         self._refresh_current_position()
+        self._refresh_orientation_banner()
 
     def _default_channels(self) -> List[ChannelSettings]:
         """The saved FM configuration if there is one, otherwise a single channel."""
@@ -397,6 +362,29 @@ class FMOverviewWidget(QWidget):
         self.status = ElidedLabel("")
         self.status.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
 
+        # Shown only when the stage is somewhere an overview cannot be acquired from.
+        # A line saying what is wrong and a button that fixes it, rather than a greyed
+        # Acquire button with no explanation -- which is what the old FM tab did, and
+        # which leaves you looking at a dead panel (FIB-436).
+        self.orientation_notice = ElidedLabel("")
+        self.orientation_notice.setStyleSheet(
+            f"color: {stylesheets.WARN_COLOR}; font-size: 11px;"
+        )
+        # Labelled in `_refresh_orientation_banner`, from the same `default_orientation`
+        # the move targets -- the control widget lets that be changed at runtime, and a
+        # button naming one orientation while going to another is worse than no button.
+        self.button_move_to_fm = QPushButton()
+        self.button_move_to_fm.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.button_move_to_fm.clicked.connect(self.move_to_fm_orientation)
+
+        self.orientation_banner = QWidget()
+        banner_layout = QHBoxLayout(self.orientation_banner)
+        banner_layout.setContentsMargins(0, 0, 0, 0)
+        banner_layout.setSpacing(6)
+        banner_layout.addWidget(self.orientation_notice, stretch=1)
+        banner_layout.addWidget(self.button_move_to_fm)
+        self.orientation_banner.setVisible(False)
+
         self.button_acquire = QPushButton("Acquire Overview")
         self.button_acquire.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
         self.button_acquire.setMinimumHeight(30)
@@ -426,6 +414,7 @@ class FMOverviewWidget(QWidget):
         actions_layout.setContentsMargins(8, 4, 8, 8)
         actions_layout.setSpacing(5)
         actions_layout.addWidget(self.status)
+        actions_layout.addWidget(self.orientation_banner)
         actions_layout.addWidget(self.progress_tiles)
         actions_layout.addWidget(self.progress_tile_detail)
         actions_layout.addWidget(buttons)
@@ -1130,6 +1119,124 @@ class FMOverviewWidget(QWidget):
             selected_points, labels=selected_labels
         )
 
+    # ── stage orientation ────────────────────────────────────────────────
+
+    def at_acquisition_orientation(self) -> bool:
+        """Whether the stage is somewhere the objective can image the sample from.
+
+        `fm.acquisition_orientations`, and not a single pose of our own choosing: a
+        system whose objective sees the sample from more than one orientation says so
+        there, and hard-coding one here would lock the other out.
+
+        Not `fm.has_valid_orientation()`, which asks the looser question of whether FM
+        *control* is allowed -- true at SEM and MILLING, where a compustage has flipped
+        the sample away from the objective -- and which `ALLOW_UNKNOWN_ORIENTATIONS`
+        answers yes to unconditionally anyway. The canvas frame is built from the pose
+        (see `_posed`), so tiles acquired somewhere the code cannot name are placed
+        against a projection nobody has checked.
+        """
+        return self.fm.is_acquisition_orientation()
+
+    def at_fluorescence_pose(self) -> bool:
+        """Whether the stage is at *the* fluorescence orientation, not merely a workable one.
+
+        Stricter than `at_acquisition_orientation`, and asked only where something is written
+        down. Asked of `fm.default_orientation` because that is the orientation
+        `build_lamella_poses` derives a fluorescence pose *into*: two names for the same
+        thing could drift, one cannot.
+        """
+        return self.microscope.get_stage_orientation() == self.fm.default_orientation
+
+    def move_to_fm_orientation(self) -> None:
+        """Drive the stage to the fluorescence orientation, having asked first.
+
+        A real stage move, so it gets the same confirmation as the other moves in this
+        widget -- and the same worker, since `move_to_microscope` blocks for as long as
+        the stage takes.
+        """
+        if self._running or self.fm.is_busy:
+            notification_service.show_toast(
+                "Cannot move the stage during an acquisition.", "warning"
+            )
+            return
+        orientation = self.fm.default_orientation
+        reply = QMessageBox.question(
+            self,
+            "Confirm Movement",
+            f"Move the stage to the {orientation} orientation?\n\n"
+            f"The stage is currently at {self.microscope.get_stage_orientation()}.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            logging.info("Move to FM orientation cancelled by user")
+            return
+
+        self.status.setText(f"Moving to {orientation}…")
+        worker = FunctionWorker(self._move_to_orientation_worker, orientation)
+        worker.start()
+
+    def _move_to_orientation_worker(self, orientation: str) -> None:
+        """Runs off the GUI thread. Only signals may cross back."""
+        try:
+            self.microscope.move_to_microscope(orientation)
+            logging.info(f"Moved to {orientation} orientation")
+        except Exception as e:
+            logging.error(f"Failed to move to {orientation} orientation: {e}")
+        # Not followed by a refresh: the move raises `stage_position_changed`, which
+        # arrives at `_on_stage_moved` and re-derives everything the pose feeds.
+
+    def _where_the_stage_is(self) -> str:
+        """The current orientation as a noun phrase, for a sentence.
+
+        "NONE" is what `get_stage_orientation` returns for a pose it cannot name, and
+        "the NONE orientation" is not a thing to say to anyone.
+        """
+        orientation = self.microscope.get_stage_orientation()
+        if orientation == "NONE":
+            return "a position that is not a recognised orientation"
+        return f"the {orientation} orientation"
+
+    def _where_the_stage_needs_to_be(self) -> str:
+        """The orientations an overview may be acquired from, as a noun phrase.
+
+        Every one of them, not only the one the button goes to: on a system configured
+        for more than one the stage may already be a shorter move from a different one,
+        and naming only `default_orientation` would send the user further than they have
+        to go.
+        """
+        allowed = self.fm.acquisition_orientations
+        if len(allowed) == 1:
+            named = allowed[0]
+        else:
+            named = f"{', '.join(allowed[:-1])} or {allowed[-1]}"
+        return f"the {named} orientation"
+
+    def _refresh_orientation_banner(self) -> None:
+        """Say where the stage is, when it is not somewhere an overview can be acquired."""
+        wrong = not self.at_acquisition_orientation()
+        self.orientation_banner.setVisible(wrong)
+        if wrong:
+            self.orientation_notice.setText(
+                f"Stage is at {self._where_the_stage_is()} — an overview needs to be at "
+                f"{self._where_the_stage_needs_to_be()}."
+            )
+            self.button_move_to_fm.setText(f"Move to {self.fm.default_orientation}")
+
+    def _on_fm_busy_signal(self, busy: bool) -> None:
+        """Called by psygnal, on whichever thread started or stopped. No widgets here."""
+        self._fm_busy_changed.emit(busy)
+
+    def _on_fm_busy_changed(self, busy: bool) -> None:
+        """Something started driving the fluorescence microscope, or stopped.
+
+        Only the controls need to know. Whether the FM is busy is not this widget's
+        state -- it is a fact about the microscope that `_apply_enabled_state` reads,
+        alongside the two that *are* this widget's -- so there is nothing to store here,
+        only a reason to re-derive.
+        """
+        self._apply_enabled_state()
+
     # ── canvas interaction ───────────────────────────────────────────────
 
     def _on_stage_signal(self, position: FibsemStagePosition) -> None:
@@ -1159,6 +1266,10 @@ class FMOverviewWidget(QWidget):
         if reposed:
             self._refresh_positions()
             self._refresh_stage_metadata()
+            # The orientation is read off rotation and tilt, so it can only have changed
+            # when they did -- the same reason the redraws above are gated on it.
+            self._refresh_orientation_banner()
+            self._apply_enabled_state()
         # The grid follows the stage only when it is not pinned to a target and not
         # mid-run. During a run the stage visits every tile in turn, and a grid that
         # followed would crawl across the canvas describing nothing.
@@ -1252,16 +1363,24 @@ class FMOverviewWidget(QWidget):
         self.move_to(target)
 
     def _may_move(self) -> bool:
-        """Whether driving the stage from this tab is allowed right now, and say if not."""
+        """Whether driving the stage from this tab is allowed right now, and say if not.
+
+        The orientation check here used to be `fm.has_valid_orientation()`, which
+        `ALLOW_UNKNOWN_ORIENTATIONS` answers yes to unconditionally -- so it refused
+        nothing. It now asks the same question with the escape hatch off, which is what
+        it was always meant to mean: a click is a stage move computed through a frame
+        built from the current pose, and from a pose the code cannot name there is
+        nothing that has checked where it would send the stage (FIB-436).
+        """
         if self.is_acquiring:
             notification_service.show_toast(
                 "Cannot move the stage during an acquisition.", "warning"
             )
             return False
-        if not self.fm.has_valid_orientation():
+        if not self.at_acquisition_orientation():
             notification_service.show_toast(
-                f"Stage must be in a valid FM orientation to move via the overview "
-                f"(currently {self.microscope.get_stage_orientation()}).",
+                f"Cannot move the stage from {self._where_the_stage_is()} — the "
+                f"overview needs to be at {self._where_the_stage_needs_to_be()}.",
                 "warning",
             )
             return False
@@ -1324,25 +1443,14 @@ class FMOverviewWidget(QWidget):
                 "Cannot mark positions while an acquisition is running.", "warning"
             )
             return None
-        # Stricter than the double-click's check, and deliberately so. Moving works from
-        # any pose: the whole scene -- images, markers, grid -- is re-placed through the
-        # pose the stage is in (see `_posed`), so a click still lands on the feature it
-        # points at. Marking has to survive being written down: the position becomes a
-        # lamella's *fluorescence* pose, and one carrying SEM rotation and tilt is not
-        # one, however right it looked on screen.
-        #
-        # `fm.has_valid_orientation()` is the wrong question here -- it asks whether FM
-        # acquisition is allowed, which SEM and MILLING both are, and which
-        # `ALLOW_UNKNOWN_ORIENTATIONS` currently answers yes to unconditionally.
-        #
-        # Asked of `fm.default_orientation` rather than a constant of our own, because
-        # that is the orientation `build_lamella_poses` derives a fluorescence pose
-        # *into*. Two names for the same thing could drift; one cannot.
-        orientation = self.microscope.get_stage_orientation()
-        if orientation != self.fm.default_orientation:
+        # Stricter than the double-click's check, and deliberately so. Moving needs only
+        # a pose the FM can work from; marking has to survive being written down, since
+        # the position becomes a lamella's *fluorescence* pose -- and one carrying SEM
+        # rotation and tilt is not one, however right it looked on screen.
+        if not self.at_fluorescence_pose():
             notification_service.show_toast(
                 f"Move to the fluorescence position before marking on the overview "
-                f"(the stage is at {orientation}).",
+                f"(the stage is at {self.microscope.get_stage_orientation()}).",
                 "warning",
             )
             return None
@@ -1523,18 +1631,28 @@ class FMOverviewWidget(QWidget):
             self.status.setText("")
 
     def _apply_enabled_state(self) -> None:
-        """One place decides what is clickable, from three independent facts.
+        """One place decides what is clickable, from five independent facts.
 
-        A run in progress, a host that has locked the tab, and a grid with nothing
-        selected each disable different things, and they overlap: a workflow finishing
-        while an overview runs must not re-enable Acquire, and a run finishing inside a
-        locked tab must not either. Two places each setting the buttons from their own
-        half of the truth is how a control gets stuck; deriving all of it from all three
-        every time is the version that cannot.
+        A run in progress, a host that has locked the tab, something else driving the
+        FM, a stage posed somewhere an overview cannot be acquired from, and a grid with
+        nothing selected each disable different things, and they overlap: a workflow
+        finishing while an overview runs must not re-enable Acquire, and a run finishing
+        inside a locked tab must not either. Two places each setting the buttons from
+        their own half of the truth is how a control gets stuck; deriving all of it from
+        all five every time is the version that cannot.
+
+        `fm.is_busy` covers this widget's own run too, since it sets the flag for the
+        length of one -- harmless, because `_running` is true throughout that.
         """
-        idle = self._interactive and not self._running
+        idle = self._interactive and not self._running and not self.fm.is_busy
         has_tiles = self.settings_widget.parameters.n_enabled_tiles > 0
-        self.button_acquire.setEnabled(idle and has_tiles)
+        # Acquisition only. Display and navigation stay live from any pose: looking at an
+        # overview that has already been acquired is harmless wherever the stage is, and
+        # the settings panel stays editable so a run can be set up while the stage is on
+        # its way (FIB-436).
+        self.button_acquire.setEnabled(
+            idle and has_tiles and self.at_acquisition_orientation()
+        )
         # Cancel is deliberately not gated on `_interactive`: a host locking the tab
         # mid-run must not take away the only way to stop the stage. Once a cancel has
         # been asked for, the button goes and stays away -- the stop event is the record
@@ -1550,8 +1668,33 @@ class FMOverviewWidget(QWidget):
         if self.is_acquiring:
             logging.warning("An overview acquisition is already running.")
             return
-        if self.fm.is_acquiring:
-            logging.warning("Stop live acquisition before acquiring an overview.")
+        # `is_busy`, not `is_acquiring`. The latter reports the live stream alone, so a
+        # z-stack or an autofocus sweep running in the control widget was invisible
+        # here -- and this widget's own tileset was invisible to that one, which is the
+        # direction that mattered (FIB-441).
+        if self.fm.is_busy:
+            reason = self.fm.busy_reason or "another acquisition"
+            logging.warning(f"Cannot acquire an overview: the FM is in use ({reason}).")
+            notification_service.show_toast(
+                f"The fluorescence microscope is in use ({reason}). "
+                f"Wait for it to finish before acquiring an overview.",
+                "warning",
+            )
+            return
+        # Not only on the button, which `_apply_enabled_state` disables from the wrong
+        # pose -- the button is not the guard, and a host calling this directly, or a
+        # stage that moved between the click and here, is exactly what this is for.
+        if not self.at_acquisition_orientation():
+            where, needed = self._where_the_stage_is(), self._where_the_stage_needs_to_be()
+            logging.warning(
+                f"Cannot acquire an overview: the stage is at {where}, and an overview "
+                f"needs to be at {needed}."
+            )
+            notification_service.show_toast(
+                f"Move the stage to {needed} before acquiring an overview "
+                f"(it is at {where}).",
+                "warning",
+            )
             return
 
         parameters = self.settings_widget.parameters
@@ -1581,6 +1724,10 @@ class FMOverviewWidget(QWidget):
         # Claimed on the GUI thread, before the worker starts: it makes a directory, so
         # an unwritable path is reported now rather than after the stage has moved.
         self._destination = self._claim_destination()
+
+        # Held for the length of the run, so nothing else drives the FM while the stage
+        # is walking the grid. Cleared in the worker's `finally` (FIB-441).
+        self.fm.set_busy(True, "overview acquisition")
 
         self._stop_event.clear()
         self._set_running(True)
@@ -1647,6 +1794,12 @@ class FMOverviewWidget(QWidget):
             self.fm.acquisition_progress_signal.emit(
                 {"state": "overview-failed", "task": "tileset", "error": str(e)}
             )
+        finally:
+            # A run that ends still marked busy leaves the FM unusable for the rest of
+            # the session, with nothing on screen to say why -- so this goes in a
+            # `finally` rather than after the emits, and stays right if a future edit
+            # narrows one of the `except` clauses above.
+            self.fm.set_busy(False)
 
     def cancel(self) -> None:
         if not self.is_acquiring:
