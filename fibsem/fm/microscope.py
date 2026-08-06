@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 from abc import ABC
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional, Tuple, Union, Literal
@@ -755,6 +756,22 @@ class FluorescenceMicroscope(ABC):
         self._acquiring_reason = reason if acquiring else ""
         self.acquiring_changed.emit(self.is_acquiring)
 
+    @contextmanager
+    def active_channel(self):
+        """Hold the microscope's imaging channel on the FM for the length of the block.
+
+        A no-op here, and on any system where the FM has a connection of its own. On a
+        TFS system the FM and the beams share one -- one active view, one active device,
+        last writer wins -- so the driver overrides this to point it at the FM and put it
+        back afterwards (FIB-517).
+
+        Wrap whole operations rather than individual reads. Each frame of a tileset
+        taking and returning the channel would flick the microscope's own UI between
+        views per tile; the run takes it once instead. Nesting is safe, so an inner
+        acquisition inside an outer run costs nothing.
+        """
+        yield
+
     def set_channel(self, channel_settings: ChannelSettings):
         """Configure the microscope for a specific fluorescence channel.
 
@@ -970,11 +987,11 @@ class FluorescenceMicroscope(ABC):
         Returns:
             A FluorescenceImage object containing the image data and metadata
         """
-        if channel_settings is not None:
-            self.set_channel(channel_settings)
-        data = self.camera.acquire_image()
-        img = self._construct_image(data)
-        return img
+        with self.active_channel():
+            if channel_settings is not None:
+                self.set_channel(channel_settings)
+            data = self.camera.acquire_image()
+        return self._construct_image(data)
 
     def _construct_image(
         self, data: np.ndarray, frame_metadata: Optional[dict] = None

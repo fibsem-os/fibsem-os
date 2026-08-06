@@ -183,6 +183,9 @@ class FMOverviewWidget(QWidget):
         # agrees by construction instead of because two callers happened to poll
         # together. See `_current_stage_position` for why polling is the odd one out.
         self._stage_position: Optional[FibsemStagePosition] = None
+        # The objective half of the canvas info bar, cached. Read from hardware only
+        # when something may have moved it -- see `_refresh_objective_info`.
+        self._objective_info: Optional[str] = None
         # Where the next overview will be centred, once a user has dragged the grid
         # somewhere. None means "wherever the stage is", which is what the runner does
         # by default -- so an untouched grid describes exactly what would be acquired.
@@ -219,6 +222,7 @@ class FMOverviewWidget(QWidget):
         self._fm_acquiring_changed.connect(self._on_fm_acquiring_changed)
         self.fm.acquiring_changed.connect(self._on_fm_acquiring_signal)
         self._refresh_current_position()
+        self._refresh_objective_info()
         self._refresh_orientation_banner()
 
     def _default_channels(self) -> List[ChannelSettings]:
@@ -1028,16 +1032,32 @@ class FMOverviewWidget(QWidget):
             return
 
         parts = [position.pretty]
+        if self._objective_info is not None:
+            parts.append(self._objective_info)
 
+        self.canvas.canvas.set_info_text("   |   ".join(parts))
+
+    def _refresh_objective_info(self) -> None:
+        """Re-read the objective for the info bar. Touches hardware -- call sparingly.
+
+        This used to happen inside `_refresh_stage_info`, which runs on every stage poll.
+        On a real system that is not a cheap read: the FM and the beams share one
+        connection, so reading the objective points it at the FM, and every poll was
+        doing it. It stopped a workflow task (FIB-517).
+
+        The driver now hands the connection back, so this is no longer dangerous -- but
+        it is still a round-trip per poll for a number that only changes when something
+        moves the objective, which is why it is cached rather than re-read.
+        """
         try:
-            parts.append(
+            self._objective_info = (
                 f"objective {self.fm.objective.position * constants.SI_TO_MILLI:.3f} mm"
                 f" ({self.fm.objective.state.lower()})"
             )
         except Exception as e:
             logging.debug(f"No objective position for the info bar: {e}")
-
-        self.canvas.canvas.set_info_text("   |   ".join(parts))
+            self._objective_info = None
+        self._refresh_stage_info()
 
     def _current_stage_position(self) -> Optional[FibsemStagePosition]:
         """Where the stage is, polling the microscope only when nothing has said yet.
@@ -1236,6 +1256,11 @@ class FMOverviewWidget(QWidget):
         reason to re-derive.
         """
         self._apply_enabled_state()
+        # Something that just finished may have moved the objective -- a z-stack and an
+        # autofocus sweep both do. One read when it stops, rather than one per stage poll
+        # while it runs.
+        if not acquiring:
+            self._refresh_objective_info()
 
     # ── canvas interaction ───────────────────────────────────────────────
 

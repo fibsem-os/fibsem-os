@@ -1,4 +1,6 @@
 import logging
+import threading
+from contextlib import contextmanager
 from typing import Literal, Tuple, Optional, Union, Dict, Any
 
 import numpy as np
@@ -113,7 +115,6 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
         Returns:
             The current magnification value
         """
-        self.parent.set_active_channel()
         return self._magnification
 
     @magnification.setter
@@ -123,7 +124,6 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
         Args:
             value: The magnification value to set
         """
-        self.parent.set_active_channel()
         self._magnification = value
 
     @property
@@ -133,10 +133,8 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
         Returns:
             The current focus position in metres
         """
-        active_view = self.parent.connection.imaging.get_active_view()
-        position = self.parent.fm_settings.focus.value
-        self.parent.connection.imaging.set_active_view(active_view)
-        return position
+        with self.parent.active_channel():
+            return self.parent.fm_settings.focus.value
 
     @property
     def limits(self) -> Tuple[float, float]:
@@ -145,9 +143,9 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
         Returns:
             A tuple of (minimum, maximum) focus position limits in metres
         """
-        self.parent.set_active_channel()
-        limits = self.parent.fm_settings.focus.limits
-        return (limits.min, limits.max)
+        with self.parent.active_channel():
+            limits = self.parent.fm_settings.focus.limits
+            return (limits.min, limits.max)
 
     def move_relative(self, delta: float):
         """Move the objective lens by a relative distance.
@@ -155,7 +153,6 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
         Args:
             delta: The distance to move in metres (positive = towards sample)
         """
-        self.parent.set_active_channel()
         current_position = self.position
         new_position = current_position + delta
         self.move_absolute(new_position)
@@ -174,29 +171,30 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
         if not position <= self._limit_position:
             logging.warning(f"Clipping position {position} to user-defined limits {self._limit_position}")
             position = np.clip(position, 0, self._limit_position)
-        self.parent.fm_settings.focus.value = position
+        with self.parent.active_channel():
+            self.parent.fm_settings.focus.value = position
 
     def insert(self) -> None:
         """Insert the objective lens into the working position.
 
         Moves the objective lens to the active/inserted position for imaging.
         """
-        self.parent.set_active_channel()
-        if self.state == "Inserted":
-            logging.warning("Objective lens is already inserted.")
-            return
-        self.parent.connection.detector.insert()
+        with self.parent.active_channel():
+            if self.state == "Inserted":
+                logging.warning("Objective lens is already inserted.")
+                return
+            self.parent.connection.detector.insert()
 
     def retract(self) -> None:
         """Retract the objective lens from the working position.
 
         Moves the objective lens to the inactive/retracted position for safety.
         """
-        self.parent.set_active_channel()
-        if self.state == "Retracted":
-            logging.warning("Objective lens is already retracted.")
-            return
-        self.parent.connection.detector.retract()
+        with self.parent.active_channel():
+            if self.state == "Retracted":
+                logging.warning("Objective lens is already retracted.")
+                return
+            self.parent.connection.detector.retract()
 
     @property
     def state(self) -> Literal["Inserted", "Retracted", "Busy", "Error", "Other"]:
@@ -206,8 +204,8 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
             The objective lens state (RetractableDeviceState) (e.g., 'Inserted', 'Retracted', 'Busy', 'Error', 'Other')
         """
         # TODO: migrate to standard enum, rather than string
-        self.parent.set_active_channel()
-        return self.parent.connection.detector.state
+        with self.parent.active_channel():
+            return self.parent.connection.detector.state
 
     def is_homed(self) -> bool:
         """Check if the objective lens is in the homed position.
@@ -215,16 +213,16 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
         Returns:
             True if the objective lens is homed, False otherwise
         """
-        self.parent.set_active_channel()
-        return self.parent.connection.detector.is_homed
+        with self.parent.active_channel():
+            return self.parent.connection.detector.is_homed
 
     def home(self) -> None:
         """Home the objective lens to its reference position.
 
         Moves the objective lens to its home/reference position for calibration.
         """
-        self.parent.set_active_channel()
-        self.parent.connection.detector.home()
+        with self.parent.active_channel():
+            self.parent.connection.detector.home()
 
 
 class ThermoFisherCamera(Camera):
@@ -259,12 +257,20 @@ class ThermoFisherCamera(Camera):
         frame_settings = GrabFrameSettings(emission_type=emission_type)
         # Uses current camera settings for binning and exposure time
 
+        # Deliberately unscoped: every path here comes through
+        # `FluorescenceMicroscope.acquire_image`, which holds the channel around the
+        # whole acquisition, and a tileset holds it around the whole run. Taking and
+        # returning it per frame would flick the microscope's own UI between views once
+        # per tile (FIB-517).
         self.parent.set_active_channel()
         image = self.parent.connection.imaging.grab_frame(frame_settings)
-
         return image.data  # AdornedImage.data -> np.ndarray
 
     def _start_fast_acquisition(self):
+        # The one place that deliberately keeps the channel rather than handing it back.
+        # A live stream owns the instrument for as long as it runs -- that is what it is
+        # -- and re-forces the channel each frame because something else may have taken
+        # it. Everything discrete goes through `active_channel()` instead (FIB-517).
         try:
             with self.parent.parent._threading_lock:
                 self.parent.set_active_channel()
@@ -318,7 +324,8 @@ class ThermoFisherCamera(Camera):
         Returns:
             The exposure time in seconds
         """
-        return self.parent.fm_settings.exposure_time.value
+        with self.parent.active_channel():
+            return self.parent.fm_settings.exposure_time.value
 
     @exposure_time.setter
     def exposure_time(self, value: float) -> None:
@@ -335,7 +342,8 @@ class ThermoFisherCamera(Camera):
             raise ValueError(
                 f"Exposure time must be between {limits[0]} and {limits[1]}, got {value}"
             )
-        self.parent.fm_settings.exposure_time.value = value
+        with self.parent.active_channel():
+            self.parent.fm_settings.exposure_time.value = value
 
     @property
     def exposure_time_limits(self) -> Tuple[float, float]:
@@ -344,8 +352,9 @@ class ThermoFisherCamera(Camera):
         Returns:
             A tuple of (minimum, maximum) exposure times in seconds
         """
-        limits = self.parent.fm_settings.exposure_time.limits
-        return (limits.min, limits.max)
+        with self.parent.active_channel():
+            limits = self.parent.fm_settings.exposure_time.limits
+            return (limits.min, limits.max)
 
     @property
     def binning(self) -> int:
@@ -354,7 +363,8 @@ class ThermoFisherCamera(Camera):
         Returns:
             The current binning value (e.g., 1, 2, 4, 8)
         """
-        return self.parent.fm_settings.binning.value
+        with self.parent.active_channel():
+            return self.parent.fm_settings.binning.value
 
     @binning.setter
     def binning(self, value: int) -> None:
@@ -370,7 +380,8 @@ class ThermoFisherCamera(Camera):
             raise ValueError(
                 f"Binning must be one of {self.available_binnings}, got {value}"
             )
-        self.parent.fm_settings.binning.value = value
+        with self.parent.active_channel():
+            self.parent.fm_settings.binning.value = value
 
     @property
     def available_binnings(self) -> Tuple[int, ...]:
@@ -379,7 +390,8 @@ class ThermoFisherCamera(Camera):
         Returns:
             A tuple of supported binning values (e.g., (1, 2, 4, 8))
         """
-        return self.parent.fm_settings.binning.available_values
+        with self.parent.active_channel():
+            return self.parent.fm_settings.binning.available_values
 
     @property
     def gain(self) -> float:
@@ -388,8 +400,8 @@ class ThermoFisherCamera(Camera):
         Returns:
             The current gain value
         """
-        self.parent.set_active_channel()
-        return self.parent.connection.detector.contrast.value
+        with self.parent.active_channel():
+            return self.parent.connection.detector.contrast.value
     
     @gain.setter
     def gain(self, value: float) -> None:
@@ -398,8 +410,8 @@ class ThermoFisherCamera(Camera):
         Args:
             value: The gain value to set
         """
-        self.parent.set_active_channel()
-        self.parent.connection.detector.contrast.value = value
+        with self.parent.active_channel():
+            self.parent.connection.detector.contrast.value = value
 
 
 class ThermoFisherLightSource(LightSource):
@@ -427,8 +439,8 @@ class ThermoFisherLightSource(LightSource):
         Returns:
             The current light source power as a percentage (0.0-1.0)
         """
-        self.parent.set_active_channel()
-        return self.parent.connection.detector.brightness.value
+        with self.parent.active_channel():
+            return self.parent.connection.detector.brightness.value
 
     @power.setter
     def power(self, value: float) -> None:
@@ -437,14 +449,14 @@ class ThermoFisherLightSource(LightSource):
         Args:
             value: The power level as a percentage (0.0-1.0)
         """
-        self.parent.set_active_channel()
-        # to set the power for a specific channel, we need to change to that emission type
-        # to change to that emission type we need to start emission...
-        # so we start, change power, stop
-        emission_color = self.parent.filter_set._emission_type
-        self.parent.light_source.start_emission(emission_type=emission_color)
-        self.parent.connection.detector.brightness.value = value
-        self.parent.light_source.stop_emission()
+        with self.parent.active_channel():
+            # to set the power for a specific channel, we need to change to that emission type
+            # to change to that emission type we need to start emission...
+            # so we start, change power, stop
+            emission_color = self.parent.filter_set._emission_type
+            self.parent.light_source.start_emission(emission_type=emission_color)
+            self.parent.connection.detector.brightness.value = value
+            self.parent.light_source.stop_emission()
 
     @property
     def power_limits(self) -> Tuple[float, float]:
@@ -453,9 +465,9 @@ class ThermoFisherLightSource(LightSource):
         Returns:
             A tuple of (minimum, maximum) power levels as percentages (0.0-1.0)
         """
-        self.parent.set_active_channel()
-        limits = self.parent.connection.detector.brightness.limits
-        return (limits.min, limits.max)
+        with self.parent.active_channel():
+            limits = self.parent.connection.detector.brightness.limits
+            return (limits.min, limits.max)
 
     @property
     def is_emitting(self) -> bool:
@@ -464,26 +476,26 @@ class ThermoFisherLightSource(LightSource):
         Returns:
             True if the light source is actively emitting, False otherwise
         """
-        self.parent.set_active_channel()
-        return self.parent.connection.detector.camera_settings.emission.is_on
+        with self.parent.active_channel():
+            return self.parent.connection.detector.camera_settings.emission.is_on
 
     def start_emission(self, emission_type: CameraEmissionType) -> None:
         """Start the light source emission.
 
         Begins light emission from the active light source for imaging.
         """
-        self.parent.set_active_channel()
-        self.parent.connection.detector.camera_settings.emission.start(
-            emission_type=emission_type
-        )
+        with self.parent.active_channel():
+            self.parent.connection.detector.camera_settings.emission.start(
+                emission_type=emission_type
+            )
 
     def stop_emission(self) -> None:
         """Stop the light source emission.
 
         Stops light emission from the active light source.
         """
-        self.parent.set_active_channel()
-        self.parent.connection.detector.camera_settings.emission.stop()
+        with self.parent.active_channel():
+            self.parent.connection.detector.camera_settings.emission.stop()
 
 
 class ThermoFisherFilterSet(FilterSet):
@@ -577,7 +589,8 @@ class ThermoFisherFilterSet(FilterSet):
             None for reflection mode, or the excitation wavelength for
             fluorescence mode (as the system uses multi-band filters)
         """
-        mode = self.parent.fm_settings.filter.type.value
+        with self.parent.active_channel():
+            mode = self.parent.fm_settings.filter.type.value
         if mode is CameraFilterType.REFLECTION:
             return None
         elif mode is CameraFilterType.FLUORESCENCE:
@@ -594,10 +607,11 @@ class ThermoFisherFilterSet(FilterSet):
             value: None for reflection mode, any non-None value for
                    fluorescence mode
         """
-        if value is None:
-            self.parent.fm_settings.filter.type.value = CameraFilterType.REFLECTION
-        else:
-            self.parent.fm_settings.filter.type.value = CameraFilterType.FLUORESCENCE
+        with self.parent.active_channel():
+            if value is None:
+                self.parent.fm_settings.filter.type.value = CameraFilterType.REFLECTION
+            else:
+                self.parent.fm_settings.filter.type.value = CameraFilterType.FLUORESCENCE
 
 
 class ThermoFisherFluorescenceMicroscope(FluorescenceMicroscope):
@@ -645,15 +659,72 @@ class ThermoFisherFluorescenceMicroscope(FluorescenceMicroscope):
 
         self._active_view = 3  # default active view for FLM (Arctis)
         self._active_device = ImagingDevice.FLUORESCENCE_LIGHT_MICROSCOPE
+        # Serialises `active_channel`. The parent's lock when there is one -- the live
+        # stream already takes it, so FM channel scopes and beam operations queue
+        # against each other rather than interleaving. `parent` is optional, and a
+        # parentless FM still needs a lock of its own to be internally consistent.
+        self._channel_lock = (
+            getattr(parent, "_threading_lock", None) or threading.RLock()
+        )
+        # How many scopes are open. Only the outermost captures and restores, so an
+        # acquisition inside a run does not put the view back mid-run.
+        self._channel_depth = 0
+        self._restore_view: Optional[int] = None
 
     def set_active_channel(self):
         """Set the active imaging channel for the fluorescence microscope.
 
         Configures the microscope to use the fluorescence light microscope
         device and the appropriate view for FLM operations.
+
+        Leaves the connection pointed at the FM. For anything that should hand it back
+        -- which is everything except an acquisition that owns it for its duration --
+        use :meth:`active_channel` instead.
         """
         self.connection.imaging.set_active_view(self._active_view)
         self.connection.imaging.set_active_device(self._active_device)
+
+    @contextmanager
+    def active_channel(self):
+        """Point the shared connection at the FM for the length of the block, then put
+        it back where it was.
+
+        The FM and the beams are one connection with one active view and one active
+        device, so whoever sets it last owns it. A property getter that sets it and
+        walks away steals the microscope from whatever else is using it -- which is what
+        `objective.state` did to a running workflow task: the stage is polled constantly,
+        every poll read the objective for the overview tab's info bar, and each read left
+        the connection on the FM. A beam acquisition that had set its own channel then
+        found the FM there instead (FIB-517).
+
+        The view is what is captured and put back, and that is sufficient: AutoScript
+        documents `set_active_device` as changing the device *in the active view*, so the
+        device belongs to the view and comes back with it.
+
+        The lock covers the bookkeeping only, and deliberately **not** the body. A scope
+        can span a whole tileset, and this is `FibsemMicroscope._threading_lock` -- a
+        class attribute every caller in the process shares. Holding it for minutes would
+        block all of them, and while the callers today are ones that should not overlap
+        an FM run anyway, a shared lock held that long makes a hostage of whoever takes
+        it next.
+
+        A depth count rather than a captured local, so the view is put back once, by the
+        outermost scope. A tileset holds the channel for the whole run; each tile's
+        acquisition opens a scope inside it and must not restore the beam view between
+        tiles.
+        """
+        with self._channel_lock:
+            if self._channel_depth == 0:
+                self._restore_view = self.connection.imaging.get_active_view()
+            self._channel_depth += 1
+            self.set_active_channel()
+        try:
+            yield
+        finally:
+            with self._channel_lock:
+                self._channel_depth -= 1
+                if self._channel_depth == 0:
+                    self.connection.imaging.set_active_view(self._restore_view)
 
     @property
     def fm_settings(self) -> "CameraSettings":
