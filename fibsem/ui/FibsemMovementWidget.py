@@ -212,18 +212,6 @@ class FibsemMovementWidget(QtWidgets.QWidget):
                     canvas.canvas_double_clicked.connect(slot)
                     self._canvas_dbl_click_conns.append((canvas, slot))
 
-    def _teardown_connections(self) -> None:
-        """Disconnect from the app-lifetime quad-view canvases before this widget is
-        destroyed. The canvases outlive the per-connection movement widget; without this a
-        stale double-click after teardown fires on a deleted widget and PyQt aborts the
-        process. Idempotent — safe to call more than once."""
-        for canvas, slot in getattr(self, "_canvas_dbl_click_conns", []):
-            try:
-                canvas.canvas_double_clicked.disconnect(slot)
-            except (TypeError, RuntimeError):
-                pass
-        self._canvas_dbl_click_conns = []
-
         # disable ui elements
         self.label_movement_instructions.setText(INSTRUCTIONS_TEXT)
         self.label_movement_instructions.setStyleSheet(LABEL_INSTRUCTIONS_STYLE)
@@ -312,6 +300,18 @@ class FibsemMovementWidget(QtWidgets.QWidget):
             self.gridLayout_2.addWidget(self.sample_holder_widget, 3, 0)
 
         self.update_ui()
+
+    def _teardown_connections(self) -> None:
+        """Disconnect from the app-lifetime quad-view canvases before this widget is
+        destroyed. The canvases outlive the per-connection movement widget; without this a
+        stale double-click after teardown fires on a deleted widget and PyQt aborts the
+        process. Idempotent — safe to call more than once."""
+        for canvas, slot in getattr(self, "_canvas_dbl_click_conns", []):
+            try:
+                canvas.canvas_double_clicked.disconnect(slot)
+            except (TypeError, RuntimeError):
+                pass
+        self._canvas_dbl_click_conns = []
 
     def _toggle_interactions(self, enable: bool, caller: Optional[str] = None):
         """Toggle the interactions in the widget depending on microscope state"""
@@ -456,8 +456,23 @@ class FibsemMovementWidget(QtWidgets.QWidget):
                 self._double_click(layer, event)
                 return
 
+    def _click_to_move_available(self) -> bool:
+        """Whether a click may start a stage move right now.
+
+        Click-to-move is the same action as the Move button, so it honours the same
+        enabled state — `_toggle_interactions` disables the buttons for the whole move
+        *and* the acquisition that follows it (`move_stage_finished` deliberately returns
+        early while `image_widget.is_acquiring`). Only the buttons were ever gated,
+        though: a click landing in that window started a second, overlapping stage move
+        and a second acquisition on the same microscope, which is how a SEM frame ended
+        up on the FIB canvas.
+        """
+        return self.pushButton_move.isEnabled()
+
     def _double_click(self, layer, event):
         """Callback for double-click mouse events on the image widget"""
+        if not self._click_to_move_available():
+            return
         self._toggle_interactions(enable= False)
 
         worker = self._double_click_worker(layer, event)
@@ -547,6 +562,8 @@ class FibsemMovementWidget(QtWidgets.QWidget):
 
     def _on_canvas_double_click(self, beam_type: BeamType, x: float, y: float, modifiers) -> None:
         """Quad-view canvas double-click -> move stage (mirrors ``_double_click``)."""
+        if not self._click_to_move_available():
+            return
         self._toggle_interactions(enable=False)
         worker = self._canvas_double_click_worker(beam_type, x, y, modifiers)
         worker.finished.connect(self.move_stage_finished)

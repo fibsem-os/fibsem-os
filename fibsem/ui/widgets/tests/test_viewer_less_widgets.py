@@ -84,6 +84,15 @@ def _image_widget(host) -> FibsemImageSettingsWidget:
     return widget
 
 
+def _movement_widget(host) -> FibsemMovementWidget:
+    """Both real hosts publish the widget as ``movement_widget``, and the image widget
+    reaches back through it when interactions are toggled — so a host that omits it
+    passes tests the app would fail."""
+    widget = FibsemMovementWidget(microscope=_session()[0], parent=host)
+    host.movement_widget = widget
+    return widget
+
+
 # --- napari stubs ------------------------------------------------------------
 
 
@@ -225,7 +234,7 @@ def test_a_viewer_wins_when_a_host_offers_both():
     assert widget.uses_napari is True
     assert widget._view_controller() is None, "both display paths active at once"
 
-    movement = FibsemMovementWidget(microscope=_session()[0], parent=host)
+    movement = _movement_widget(host)
     assert movement._view_controller() is None
     assert movement._canvas_dbl_click_conns == [], "a click here would move the stage twice"
 
@@ -401,7 +410,7 @@ def test_selecting_the_fm_view_leaves_the_beam_radios_alone():
 def test_movement_binds_double_click_to_both_canvases_viewer_less():
     host = _CanvasHost()
     _image_widget(host)
-    movement = FibsemMovementWidget(microscope=_session()[0], parent=host)
+    movement = _movement_widget(host)
     assert movement.uses_napari is False
     assert len(movement._canvas_dbl_click_conns) == 2
 
@@ -409,11 +418,74 @@ def test_movement_binds_double_click_to_both_canvases_viewer_less():
 def test_movement_keeps_napari_layer_callbacks_with_a_viewer():
     host = _NapariHost()
     image_widget = _image_widget(host)
-    movement = FibsemMovementWidget(microscope=_session()[0], parent=host)
+    movement = _movement_widget(host)
     assert movement.uses_napari is True
     assert movement._canvas_dbl_click_conns == [], "canvas input wired on the napari path"
     assert movement._double_click in image_widget.eb_layer.mouse_double_click_callbacks
     assert movement._double_click in image_widget.ib_layer.mouse_double_click_callbacks
+
+
+def test_a_second_double_click_during_a_move_is_ignored():
+    """Reported from the app: double-click FIB, then double-click again while the
+    post-move acquisition is still running, and a SEM frame lands on the FIB canvas.
+
+    Two overlapping stage moves each trigger their own acquisition on one microscope.
+    `_toggle_interactions` disabled the *buttons* for that whole window — including the
+    acquisition, which is why `move_stage_finished` returns early while
+    `is_acquiring` — but nothing gated canvas input, so the click got through."""
+    host = _CanvasHost()
+    _image_widget(host)
+    movement = _movement_widget(host)
+
+    started = []
+    movement._canvas_double_click_worker = lambda *a, **k: started.append(a) or _NoopWorker()
+
+    assert movement._click_to_move_available()
+    movement._on_canvas_double_click(BeamType.ION, 10.0, 10.0, set())
+    assert len(started) == 1, "first double-click did not start a move"
+
+    # the first move is in flight: interactions are off, so a second click must not fire
+    assert not movement._click_to_move_available()
+    movement._on_canvas_double_click(BeamType.ION, 20.0, 20.0, set())
+    assert len(started) == 1, "a second move started while the first was still running"
+
+
+def test_click_to_move_is_blocked_while_acquiring_after_a_move():
+    """The exact window in the report: the move itself has finished, but the images it
+    triggered have not. `move_stage_finished` leaves interactions off on purpose."""
+    host = _CanvasHost()
+    image_widget = _image_widget(host)
+    movement = _movement_widget(host)
+
+    movement._toggle_interactions(enable=False)
+    image_widget.is_acquiring = True
+    movement.move_stage_finished()  # move done, acquisition still running
+
+    assert not movement._click_to_move_available(), (
+        "click-to-move re-armed while the post-move acquisition was still running"
+    )
+
+
+def test_the_napari_double_click_honours_the_same_gate():
+    """Same guard on both paths — the napari one has the identical overlap."""
+    import inspect
+
+    # `from fibsem.ui import FibsemMovementWidget` yields the *class* (re-exported by
+    # fibsem/ui/__init__.py), not the module — read the method off the class directly.
+    source = inspect.getsource(FibsemMovementWidget._double_click)
+    assert "_click_to_move_available" in source
+
+
+class _NoopWorker:
+    """Stands in for a FunctionWorker without starting a thread."""
+
+    finished = property(lambda self: self)
+
+    def connect(self, *a, **k):
+        pass
+
+    def start(self):
+        pass
 
 
 # --- teardown: the process-abort guard ---------------------------------------
@@ -425,7 +497,7 @@ def test_movement_teardown_stops_canvas_double_clicks_reaching_a_dead_widget():
     that into qFatal — the process aborts rather than logging (FIB-329)."""
     host = _CanvasHost()
     _image_widget(host)
-    movement = FibsemMovementWidget(microscope=_session()[0], parent=host)
+    movement = _movement_widget(host)
 
     calls = []
     movement._toggle_interactions = lambda *a, **k: calls.append(1)
@@ -455,7 +527,7 @@ def test_teardown_is_idempotent():
     """Both ``closeEvent`` and the host's disconnect path call it, and either may run first."""
     host = _CanvasHost()
     widget = _image_widget(host)
-    movement = FibsemMovementWidget(microscope=_session()[0], parent=host)
+    movement = _movement_widget(host)
     for _ in range(3):
         widget._teardown_connections()
         movement._teardown_connections()
@@ -468,7 +540,7 @@ def test_teardown_on_the_napari_path_does_not_raise():
     """FibsemUI calls it unconditionally on disconnect, whichever path is live."""
     host = _NapariHost()
     widget = _image_widget(host)
-    movement = FibsemMovementWidget(microscope=_session()[0], parent=host)
+    movement = _movement_widget(host)
     widget._teardown_connections()
     movement._teardown_connections()
 
@@ -479,11 +551,81 @@ def test_teardown_on_the_napari_path_does_not_raise():
 def test_position_readout_goes_to_the_controller_info_bar():
     host = _CanvasHost()
     _image_widget(host)
-    movement = FibsemMovementWidget(microscope=_session()[0], parent=host)
+    movement = _movement_widget(host)
     seen = []
     host.view_controller.update_info = lambda *a, **k: seen.append((a, k))
     movement._update_position_readout()
     assert seen, "stage readout never reached the quad-view info bar"
+
+
+def test_the_stage_position_shows_without_touching_anything():
+    """``setup_connections`` ends with ``update_ui()``, which is the *only* thing that
+    puts a position on the canvas before the operator moves or acquires. Truncating that
+    method leaves the info bar blank on connect and everything else still looks fine —
+    which is exactly how it shipped and got caught by hand."""
+    host = _CanvasHost()
+    _image_widget(host)
+    _movement_widget(host)
+    info = host.view_controller._states[host.view_controller.sem_canvas].info
+    assert any(key == "stage" for key, _ in info), (
+        f"no stage readout after construction; info bar holds {info}"
+    )
+
+
+def test_setup_connections_wires_the_whole_widget():
+    """Guards the shape of the bug above rather than one symptom of it: every one of
+    these is set at a different point in ``setup_connections``, so a method truncated
+    anywhere shows up here."""
+    host = _CanvasHost()
+    image_widget = _image_widget(host)
+    movement = _movement_widget(host)
+
+    from fibsem.ui.FibsemMovementWidget import INSTRUCTIONS_TEXT
+
+    # early: the instructions label
+    assert movement.label_movement_instructions.text() == INSTRUCTIONS_TEXT
+    # middle: stage limits pushed onto the spinboxes, and the acquisition hook
+    assert movement.doubleSpinBox_movement_stage_x.maximum() != 99.99, "stage limits unset"
+    assert movement.saved_positions_widget.microscope is not None, "saved positions unwired"
+    # late: milling-angle controls
+    assert movement.doubleSpinBox_milling_angle.maximum() == 45
+    assert movement.doubleSpinBox_milling_angle.suffix(), "milling angle suffix unset"
+    # the acquisition signal must reach the widget (drives update_ui after each acquire)
+    image_widget.acquisition_progress_signal.emit({"finished": True})
+
+
+# --- click-to-move must not raise --------------------------------------------
+
+
+def test_milling_widget_reports_whether_it_is_milling():
+    """``FibsemMovementWidget`` blocks click-to-move on ``milling_widget.is_milling``.
+    That attribute lives on the embedded run controls, not on the task viewer the hosts
+    actually store, so the guard raised ``AttributeError`` inside the worker and every
+    double-click died there."""
+    from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
+
+    widget = MillingTaskViewerWidget(microscope=_session()[0])
+    assert widget.is_milling is False
+
+
+def test_double_click_to_move_survives_a_host_that_owns_a_milling_widget():
+    """``FibsemUI`` sets ``self.milling_widget``; ``AutoLamellaUI`` does not — which is
+    why only the standalone app hit this. The move must be dispatched, not swallowed."""
+    from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
+
+    host = _CanvasHost()
+    image_widget = _image_widget(host)
+    host.milling_widget = MillingTaskViewerWidget(microscope=_session()[0])
+    movement = _movement_widget(host)
+
+    image_widget._on_acquire(_image(BeamType.ELECTRON))
+    moves = []
+    movement._execute_stage_move = lambda *a, **k: moves.append((a, k))
+    # call the worker body directly — @thread_worker would swallow the raise onto a thread
+    movement._canvas_double_click_worker.__wrapped__(
+        movement, BeamType.ELECTRON, 100.0, 100.0, set()
+    )
+    assert moves, "double-click did not dispatch a stage move"
 
 
 def _main() -> int:

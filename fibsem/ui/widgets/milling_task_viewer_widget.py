@@ -567,6 +567,19 @@ class MillingTaskViewerWidget(QWidget):
     # Public API — required by FibsemMillingWidget2
     # ------------------------------------------------------------------
 
+    @property
+    def is_milling(self) -> bool:
+        """Whether a milling task is currently running.
+
+        Delegates to the embedded run controls, which own the milling thread. Hosts hold
+        *this* widget as ``milling_widget``, so callers asking "is it milling?" land here
+        rather than on ``FibsemMillingWidget2`` — ``FibsemMovementWidget`` blocks
+        click-to-move on it. That guard was written against the widget this class
+        replaced and had been raising ``AttributeError`` in ``FibsemUI`` ever since,
+        which is what broke click-to-move there.
+        """
+        return self.milling_widget.is_milling
+
     def get_config(self) -> FibsemMillingTaskConfig:
         return self.config_widget.get_config()
 
