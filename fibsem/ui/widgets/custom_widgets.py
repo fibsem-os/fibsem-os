@@ -1219,28 +1219,55 @@ def style_with_tooltip(widget: QWidget, css: str) -> None:
 class ElidedLabel(QLabel):
     """A QLabel that elides rather than clipping mid-glyph.
 
-    For a column that stretches, where the width is not known when the row is
-    built and any one-off elide would be wrong at the next size. The size policy
-    is Ignored so long unbreakable text -- a dotted class path, a file path --
-    cannot drive the column wider, which would defeat the point.
+    For a column that stretches, where the width is not known when the row is built and
+    any one-off elide would be wrong at the next size. The size policy is Ignored so long
+    unbreakable text -- a dotted class path, a file path, a 132-character acquisition
+    failure -- cannot drive the column wider, which would defeat the point. One such
+    message dragged the FM overview's minimum width from 1030 px to 1728 px.
+
+    `text()` returns what was set, not what is drawn: callers compare against it to
+    decide whether the line is theirs to overwrite, and eliding is presentation. The
+    tooltip carries the whole string, which is the only way to read one that does not
+    fit; a caller wanting a different tooltip sets it after `setText`.
     """
 
-    def __init__(self, text: str, parent: Optional[QWidget] = None) -> None:
-        super().__init__(text, parent)
-        self._full_text = text
+    def __init__(self, text: str = "", parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._full_text = ""
+        # Ignored horizontally: the label neither asks for room nor refuses to shrink,
+        # which is the whole point -- its content must not set anyone's minimum.
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setText(text)
+
+    def setText(self, text: Optional[str]) -> None:  # noqa: N802 - Qt naming
+        self._full_text = text or ""
+        self.setToolTip(self._full_text)
+        self._elide()
+
+    def text(self) -> str:
+        return self._full_text
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        super().resizeEvent(event)
+        self._elide()
 
     def paintEvent(self, event) -> None:  # noqa: N802 - Qt naming
-        # At paint time the width is always the real one. Doing this on resize
-        # instead misses a label that is laid out at its final size and never
-        # resized, which then clips. Re-eliding from _full_text rather than from
-        # the displayed text keeps it stable: setText schedules one more paint,
-        # the second computes the same string, and it settles.
-        metrics = QFontMetrics(self.font())
-        elided = metrics.elidedText(self._full_text, Qt.ElideRight, self.width())
-        if elided != self.text():
-            self.setText(elided)  # QLabel draws it, so the stylesheet colour survives
+        # Belt and braces with the resize: a label laid out at its final size and never
+        # resized after would otherwise keep whatever `setText` computed from a width it
+        # did not yet have, and clip.
+        self._elide()
         super().paintEvent(event)
+
+    def _elide(self) -> None:
+        metrics = QFontMetrics(self.font())
+        elided = metrics.elidedText(
+            self._full_text, Qt.ElideRight, max(0, self.width() - 2)
+        )
+        # `super().text()`, not ours: ours returns the full string, so this would differ
+        # on every paint of an elided label and schedule another one forever. QLabel
+        # draws the elided string, so the stylesheet colour survives.
+        if elided != super().text():
+            super().setText(elided)
 
 
 def chip(text: str, colour: str, font_size: int = 11) -> QLabel:

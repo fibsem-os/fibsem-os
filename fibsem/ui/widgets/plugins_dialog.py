@@ -269,6 +269,11 @@ class PluginsDialog(QDialog):
         layout.addWidget(name)
         layout.addWidget(detail)
         widget.setToolTip(_tooltip(extension))
+        # `ElidedLabel` gives itself one of its own full text, which is right where a
+        # label is on its own and wrong here: a child's tooltip shadows its parent's, so
+        # hovering the row would lose everything `_tooltip` says about the extension.
+        name.setToolTip("")
+        detail.setToolTip("")
         return widget
 
     def _source_cell(self, extension: Extension) -> QWidget:

@@ -31,7 +31,6 @@ from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
 )
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
 from fibsem.ui.fm.widgets.fm_overview_widget import (
-    ElidedLabel,
     FMOverviewWidget,
     shrink_progress_text,
 )

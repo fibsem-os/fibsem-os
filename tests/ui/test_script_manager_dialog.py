@@ -505,9 +505,17 @@ def test_a_long_description_elides_instead_of_clipping(qapp, tmp_path):
     dialog.grab()  # forces the paint pass that does the eliding
 
     from PyQt5.QtWidgets import QLabel
-    shown = dialog.table.cellWidget(0, 0).findChildren(QLabel)[1].text()
+    label = dialog.table.cellWidget(0, 0).findChildren(QLabel)[1]
+    # `QLabel.text`, not `ElidedLabel.text`: the latter returns what was set, so that a
+    # caller can tell whether a line is theirs to overwrite. What is *drawn* is the
+    # elided string, and eliding rather than clipping is what this is about.
+    shown = QLabel.text(label)
 
     assert shown.endswith("…") and shown != summary
+    assert label.text() == summary, "the label should still know its full text"
+    # A child's tooltip shadows its parent's, and the row's carries the path and hash
+    # as well as the summary.
+    assert label.toolTip() == ""
     assert summary in dialog.table.cellWidget(0, 0).toolTip()
 
 

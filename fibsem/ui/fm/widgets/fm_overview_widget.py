@@ -14,7 +14,6 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 from PyQt5.QtCore import QPoint, Qt, pyqtSignal
-from PyQt5.QtGui import QFontMetrics
 from PyQt5.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -57,6 +56,7 @@ from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import TileGridOverlay
 from fibsem.ui.widgets.custom_widgets import (
     ContextMenu,
     ContextMenuConfig,
+    ElidedLabel,
     TitledPanel,
 )
 from fibsem.ui.widgets.progress_widget import (
@@ -88,48 +88,6 @@ def shrink_progress_text(progress: FibsemProgressWidget) -> FibsemProgressWidget
     progress.setStyleSheet(f"QProgressBar {{ font-size: {PROGRESS_FONT_PX}px; }}")
     progress.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
     return progress
-
-
-class ElidedLabel(QLabel):
-    """A label that shortens its text to fit, instead of forcing its parent wider.
-
-    A plain `QLabel` reports the full width of its text as its size hint, and in a
-    layout that hint becomes a minimum: a 132-character acquisition failure dragged this
-    widget's minimum width from 1030 px to 1728 px, so a message pushed the window
-    around. Here the text gives way instead.
-
-    `text()` still returns what was set, not what is drawn -- callers compare against it
-    to decide whether the line is theirs to overwrite, and eliding is presentation.
-    """
-
-    def __init__(self, text: str = "", parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self._full_text = ""
-        # Ignored horizontally: the label neither asks for room nor refuses to shrink,
-        # which is the whole point -- its content must not set anyone's minimum.
-        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.setText(text)
-
-    def setText(self, text: Optional[str]) -> None:
-        self._full_text = text or ""
-        # The full message, for anything too long to show. Set before the caller gets a
-        # chance to override it: `_finish` follows its own `setText` with a tooltip of
-        # its own, and that one should win.
-        self.setToolTip(self._full_text)
-        self._elide()
-
-    def text(self) -> str:
-        return self._full_text
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._elide()
-
-    def _elide(self) -> None:
-        metrics = QFontMetrics(self.font())
-        super().setText(
-            metrics.elidedText(self._full_text, Qt.ElideRight, max(0, self.width() - 2))
-        )
 
 
 # Key the in-progress mosaic is drawn under. Distinct from a finished overview's
