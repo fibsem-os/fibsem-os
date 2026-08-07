@@ -106,6 +106,17 @@ class CorrelationCanvasWidget(QWidget):
     def reset_view(self) -> None:
         self.canvas.reset_view()
 
+    # ── chrome ────────────────────────────────────────────────────────────
+
+    def set_legend_visible(self, visible: bool) -> None:
+        """Show or hide the point-type legend (one swatch per type on screen)."""
+        self.points.set_legend_visible(visible)
+
+    def set_labels_visible(self, visible: bool) -> None:
+        """Show or hide the per-point names. Independent of marker visibility --
+        a crowded image often wants the points without the text."""
+        self.points.set_labels_visible(visible)
+
     # ── add menu ──────────────────────────────────────────────────────────
 
     def _show_add_menu(self, x: float, y: float) -> None:
