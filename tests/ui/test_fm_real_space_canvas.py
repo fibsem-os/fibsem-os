@@ -320,3 +320,68 @@ def test_the_single_image_canvas_drops_a_channel_outright():
     widget.retain_channels(["Channel-01"])
 
     assert [layer.name for layer in widget.layers] == ["Channel-01"]
+
+
+# ── placed images do not hide each other where they hold nothing (FIB-519) ──
+
+
+def _sparse_plane(h=128, w=128):
+    """A plane whose top half was never acquired.
+
+    `stitch_tileset` leaves a skipped tile as canvas zeros, so that is what an
+    unacquired region of a real mosaic holds.
+    """
+    plane = np.random.randint(120, 255, (h, w), dtype=np.uint8)
+    plane[: h // 2] = 0
+    return plane
+
+
+def test_a_placed_composite_carries_transparency():
+    """Placed images are drawn over each other, so an opaque one hides whatever it
+    covers -- including with pixels holding nothing."""
+    w = _widget()
+    w.set_composite_key("a")
+    w.set_channel("GFP", _plane(), "green")
+
+    placed = np.asarray(w.canvas._placed["a"].artist.get_array())
+
+    assert placed.shape[-1] == 4, "placed opaque, so it can only occlude"
+
+
+def test_an_unacquired_region_does_not_paint_over_the_overview_beneath():
+    """The reported bug: acquire a full overview, then a sparse one over the top, and
+    the second run's unacquired tiles were drawn as black over the first's real data."""
+    w = _widget()
+    w.set_composite_key("full")
+    w.set_placement((0.0, 0.0))
+    w.set_channel("GFP", _plane(), "green")
+
+    w.set_composite_key("sparse")
+    w.set_placement((0.0, 0.0))  # the same ground, drawn over it
+    w.set_channel("GFP", _sparse_plane(), "green")
+
+    alpha = np.asarray(w.canvas._placed["sparse"].artist.get_array())[..., 3]
+
+    assert alpha[:60].max() == 0, "the unacquired half still covers what is beneath"
+    assert alpha[68:].max() > 0, "the acquired half is not being shown"
+
+
+def test_restyling_the_others_keeps_their_transparency():
+    """`_restyle_others` re-renders every image except the current one, so it has to
+    make the same picture -- rendering one opaque would put the occlusion back, and
+    only on the images the user was not looking at."""
+    w = _widget()
+    for key in ("full", "sparse"):
+        w.set_composite_key(key)
+        w.set_placement((0.0, 0.0))
+        w.set_channel("GFP", _sparse_plane() if key == "sparse" else _plane(), "green")
+
+    # A colour change re-renders everything held, including "sparse".
+    w.set_composite_key("full")
+    w._layers[0].color = "red"
+    w._recomposite()
+
+    placed = np.asarray(w.canvas._placed["sparse"].artist.get_array())
+
+    assert placed.shape[-1] == 4, "restyled back to opaque"
+    assert placed[..., 3][:60].max() == 0, "the unacquired half lost its transparency"

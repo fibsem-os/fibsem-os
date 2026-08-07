@@ -25,7 +25,7 @@ from superqt import QRangeSlider
 
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.widgets.canvas.fm_composite import (
-    AVAILABLE_COLORS, FMLayer, auto_clim, composite_fm_layers,
+    AVAILABLE_COLORS, FMLayer, auto_clim, composite_fm_layers, to_rgba,
 )
 from fibsem.ui.widgets.canvas.canvas_base import FibsemCanvasBase, _downsample
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
@@ -612,9 +612,14 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         self._held[key] = {
             layer.name: layer.data for layer in self._layers if layer.data is not None
         }
+        # Placed over other images rather than over a background, so it goes on as
+        # colour plus coverage: an opaque frame hides whatever it covers, including
+        # where it holds nothing itself. That is what painted a sparse overview's
+        # unacquired tiles black over the full one beneath it (FIB-519).
+        placed = to_rgba(rgb)
         if reshaped or key not in self.canvas.placed_keys:
             self.canvas.add_image(
-                rgb,
+                placed,
                 centre=self._placement,
                 pixel_size=self._pixel_size,
                 key=key,
@@ -624,7 +629,7 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
                 zorder=self._detail_zorder(self._pixel_size),
             )
         else:
-            self.canvas.update_image(key, rgb)
+            self.canvas.update_image(key, placed)
         self._restyle_others(key)
 
     def _reduce(self, plane: np.ndarray) -> np.ndarray:
@@ -686,7 +691,10 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
             shape = layers[0].data.shape[:2]
             rgb = composite_fm_layers(layers, shape)
             if rgb is not None:
-                self.canvas.update_image(key, rgb)
+                # Same transform as the image that triggered this: these are placed
+                # over each other too, and re-rendering one opaque would put back the
+                # occlusion `_show_composite` just avoided.
+                self.canvas.update_image(key, to_rgba(rgb))
 
     def set_pixel_size(self, pixel_size: Optional[float]) -> None:
         """Record the scale without touching the canvas's own.

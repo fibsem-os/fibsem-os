@@ -129,3 +129,48 @@ def composite_fm_layers(
         tint = np.asarray(tint_rgb(layer.color), dtype=np.float32) * float(layer.opacity)
         rgb += norm[..., None] * tint
     return (np.clip(rgb, 0.0, 1.0) * 255.0).astype(np.uint8)
+
+
+def to_rgba(rgb: np.ndarray) -> np.ndarray:
+    """Re-express an opaque composite as colour plus coverage, for placing over others.
+
+    A composite drawn over black loses nothing by being opaque, which is why
+    :func:`composite_fm_layers` returns RGB. But a canvas holding several images at
+    once draws them over *each other*, and there an opaque frame hides whatever it
+    covers -- including with pixels that hold nothing. A sparse overview acquired over
+    a full one painted its unacquired tiles as black over real data (FIB-519).
+
+    Splitting the same picture into a colour and how much of it there is fixes that
+    without anyone having to say which pixels were acquired. Signal strength becomes
+    alpha, so a region with none is transparent and the image beneath shows through,
+    and the colour is divided back out so that colour x alpha still reconstructs the
+    original. Over the canvas's black background the result is the same picture to
+    within a rounding step; over another image it reveals it exactly.
+
+    The consequence is that a genuinely dark region is transparent too, so this cannot
+    distinguish "imaged, and dark" from "not imaged". For display that is the better
+    answer -- what you see is the union of the signal -- but it is why this is a
+    display transform and not a substitute for knowing which tiles were acquired.
+
+    Not folded into `composite_fm_layers`, because the un-premultiplied colour is
+    saturated: the brightness has moved into alpha, and a caller that reads the RGB
+    channels without applying it gets a different image. `fm.preview.load_projection`
+    is exactly such a caller. So this is asked for, by the one canvas that composites.
+
+    Args:
+        rgb: ``(H, W, 3)`` uint8, as returned by :func:`composite_fm_layers`.
+
+    Returns:
+        ``(H, W, 4)`` uint8 RGBA.
+    """
+    values = np.asarray(rgb, dtype=np.float32) / 255.0
+    # The brightest channel, rather than a luminance weighting: this is asking how
+    # much signal is here, and a lone blue channel is no less present than a green one.
+    alpha = values.max(axis=-1)
+    # Where there is nothing, the colour is arbitrary -- alpha is zero, so it is never
+    # drawn -- and dividing by zero to find it would only produce warnings and NaNs.
+    divisor = np.where(alpha > 0.0, alpha, 1.0)[..., None]
+    out = np.empty((*values.shape[:2], 4), dtype=np.uint8)
+    out[..., :3] = np.clip(values / divisor, 0.0, 1.0) * 255.0
+    out[..., 3] = alpha * 255.0
+    return out

@@ -19,6 +19,7 @@ from fibsem.fm.composite import (
     auto_clim,
     composite_fm_layers,
     tint_rgb,
+    to_rgba,
 )
 
 __all__ = [
@@ -27,4 +28,5 @@ __all__ = [
     "auto_clim",
     "composite_fm_layers",
     "tint_rgb",
+    "to_rgba",
 ]
