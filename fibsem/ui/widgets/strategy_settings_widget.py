@@ -24,6 +24,9 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueSpinBox,
     IntegerValueSpinBox,
 )
+from fibsem.ui.tokens import (
+    NEUTRAL_700,
+)
 
 
 class FibsemStrategySettingsWidget(QWidget):
@@ -75,7 +78,7 @@ class FibsemStrategySettingsWidget(QWidget):
 
         # Empty-state label (shown when strategy has no config fields)
         self._empty_label = QLabel("No configuration options.")
-        self._empty_label.setStyleSheet("color: #606060; font-style: italic;")
+        self._empty_label.setStyleSheet(f"color: {NEUTRAL_700}; font-style: italic;")
         self._empty_label.setVisible(False)
         outer.addWidget(self._empty_label)
 

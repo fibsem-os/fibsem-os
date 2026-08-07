@@ -42,6 +42,9 @@ from fibsem.ui.widgets.autolamella_protocol_information_widget import ProtocolIn
 from fibsem.ui.widgets.autolamella_task_config_widget import AutoLamellaTaskParametersConfigWidget
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 from fibsem.ui.widgets.reference_image_parameters_widget import ReferenceImageParametersWidget
+from fibsem.ui.tokens import (
+    TEXT_MUTED_COLOR,
+)
 
 # Frame used by the spot-burn coordinate dialog when the task's stored reference
 # imaging is unusable (missing/zero). Matches ImageSettings' own defaults.
@@ -515,7 +518,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             "Right-click the frame to add a point, drag to move, Delete to remove."
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #8a9099; font-size: 11px;")
+        hint.setStyleSheet(f"color: {TEXT_MUTED_COLOR}; font-size: 11px;")
         layout.addWidget(hint)
 
         btn_row = QHBoxLayout()

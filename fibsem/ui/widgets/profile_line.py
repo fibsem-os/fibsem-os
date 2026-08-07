@@ -23,6 +23,10 @@ from PyQt5.QtCore import QPoint, QRect, Qt
 from PyQt5.QtGui import QColor, QFont, QPainter, QPen
 
 from fibsem.ui.widgets.drag_distance import _MeasureOverlayBase, _fmt_distance
+from fibsem.ui.tokens import (
+    NEUTRAL_900,
+    PANEL_COLOR,
+)
 
 try:
     from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
@@ -43,13 +47,13 @@ class _ProfilePlotWidget(QtWidgets.QWidget):
         super().__init__(parent)
         self.setMinimumHeight(160)
         self.setMaximumHeight(200)
-        self.setStyleSheet("background: #1a1b1e;")
+        self.setStyleSheet(f"background: {NEUTRAL_900};")
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
         if _MPL:
-            self._fig = Figure(figsize=(4, 1.8), facecolor="#1a1b1e")
+            self._fig = Figure(figsize=(4, 1.8), facecolor=NEUTRAL_900)
             self._ax  = self._fig.add_subplot(111)
             self._canvas = FigureCanvasQTAgg(self._fig)
             layout.addWidget(self._canvas)
@@ -70,7 +74,7 @@ class _ProfilePlotWidget(QtWidgets.QWidget):
     def _style_axes(self):
         ax = self._ax
         self._fig.patch.set_alpha(0)
-        ax.set_facecolor("#23242a")
+        ax.set_facecolor(PANEL_COLOR)
         ax.tick_params(colors="#999", labelsize=8)
         for spine in ax.spines.values():
             spine.set_color("#444")

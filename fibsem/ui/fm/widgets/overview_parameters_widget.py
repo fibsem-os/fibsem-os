@@ -21,6 +21,9 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
     ValueSpinBox,
 )
+from fibsem.ui.tokens import (
+    NEUTRAL_650,
+)
 
 if TYPE_CHECKING:
     from fibsem.ui.FMAcquisitionWidget import FMAcquisitionWidget
@@ -94,7 +97,7 @@ class OverviewParametersWidget(QWidget):
 
         # Z-stack planes info (shown when z-stack is enabled)
         self.label_zstack_planes_value = QLabel(self._calculate_zstack_planes(), self)
-        self.label_zstack_planes_value.setStyleSheet("QLabel { color: #666666; }")
+        self.label_zstack_planes_value.setStyleSheet(f"QLabel {{ color: {NEUTRAL_650}; }}")
         self.label_zstack_planes_value.setAlignment(Qt.AlignmentFlag.AlignRight)
         
         # Auto-focus mode selection
@@ -122,7 +125,7 @@ class OverviewParametersWidget(QWidget):
         # Total area (calculated, read-only)
         self.label_total_area = QLabel("Total Area", self)
         self.label_total_area_value = QLabel(self._calculate_total_area(), self)
-        self.label_total_area_value.setStyleSheet("QLabel { color: #666666; }")
+        self.label_total_area_value.setStyleSheet(f"QLabel {{ color: {NEUTRAL_650}; }}")
 
         # Create the layout
         layout = QGridLayout()

@@ -112,6 +112,9 @@ from fibsem.ui.widgets.custom_widgets import (
 from fibsem.correlation.ui.widgets.refractive_index_widget import RefractiveIndexWidget
 from fibsem.ui.tokens import (
     CANVAS_BG,
+    NEUTRAL_200,
+    SURFACE_COLOR,
+    TEXT_MUTED_COLOR,
 )
 
 _FIT_METHODS = ["None", "Hole", "Gaussian"]
@@ -468,9 +471,9 @@ class _ImagesTab(QWidget):
         fib_form.setContentsMargins(0, 0, 0, 0)
         fib_form.setSpacing(2)
         self._lbl_fib_shape = QLabel("—")
-        self._lbl_fib_shape.setStyleSheet("color: #e0e0e0; font-size: 11px;")
+        self._lbl_fib_shape.setStyleSheet(f"color: {NEUTRAL_200}; font-size: 11px;")
         self._lbl_fib_px = QLabel("—")
-        self._lbl_fib_px.setStyleSheet("color: #e0e0e0; font-size: 11px;")
+        self._lbl_fib_px.setStyleSheet(f"color: {NEUTRAL_200}; font-size: 11px;")
         fib_form.addRow(_form_label("Shape:"), self._lbl_fib_shape)
         fib_form.addRow(_form_label("Pixel size:"), self._lbl_fib_px)
         fib_layout.addLayout(fib_form)
@@ -493,14 +496,14 @@ class _ImagesTab(QWidget):
         fm_form.setContentsMargins(0, 0, 0, 0)
         fm_form.setSpacing(2)
         self._lbl_fm_shape = QLabel("—")
-        self._lbl_fm_shape.setStyleSheet("color: #e0e0e0; font-size: 11px;")
+        self._lbl_fm_shape.setStyleSheet(f"color: {NEUTRAL_200}; font-size: 11px;")
         self._lbl_fm_ch = QLabel("—")
-        self._lbl_fm_ch.setStyleSheet("color: #e0e0e0; font-size: 11px;")
+        self._lbl_fm_ch.setStyleSheet(f"color: {NEUTRAL_200}; font-size: 11px;")
         self._lbl_fm_ch.setWordWrap(True)
         self._lbl_fm_z = QLabel("—")
-        self._lbl_fm_z.setStyleSheet("color: #e0e0e0; font-size: 11px;")
+        self._lbl_fm_z.setStyleSheet(f"color: {NEUTRAL_200}; font-size: 11px;")
         self._lbl_fm_px = QLabel("—")
-        self._lbl_fm_px.setStyleSheet("color: #e0e0e0; font-size: 11px;")
+        self._lbl_fm_px.setStyleSheet(f"color: {NEUTRAL_200}; font-size: 11px;")
         self._lbl_fm_px.setWordWrap(True)
         fm_form.addRow(_form_label("Shape (C×Z×Y×X):"), self._lbl_fm_shape)
         fm_form.addRow(_form_label("Channels:"), self._lbl_fm_ch)
@@ -725,10 +728,10 @@ class _CoordinatesTab(QWidget):
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("background: #2b2d31; border: none;")
+        scroll.setStyleSheet(f"background: {SURFACE_COLOR}; border: none;")
 
         container = QWidget()
-        container.setStyleSheet("background: #2b2d31;")
+        container.setStyleSheet(f"background: {SURFACE_COLOR};")
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
@@ -834,7 +837,7 @@ class _CoordinatesTab(QWidget):
             "(failed or far-off fits still ask)."
         )
         fit_help.setWordWrap(True)
-        fit_help.setStyleSheet("color: #8a8d93; font-size: 11px; padding-top: 4px;")
+        fit_help.setStyleSheet(f"color: {TEXT_MUTED_COLOR}; font-size: 11px; padding-top: 4px;")
         fit_form.addRow(fit_help)
 
         self._fit_panel = TitledPanel("Fit Settings", collapsible=True)
@@ -931,7 +934,7 @@ class _ResultsTab(QWidget):
     @staticmethod
     def _val(text: str = "—") -> QLabel:
         lbl = QLabel(text)
-        lbl.setStyleSheet("color: #e0e0e0; font-size: 12px;")
+        lbl.setStyleSheet(f"color: {NEUTRAL_200}; font-size: 12px;")
         return lbl
 
     def set_result(self, result: CorrelationResult) -> None:

@@ -25,8 +25,10 @@ from fibsem.ui.stylesheets import (
     DISABLED_TEXT_COLOR,
     PRIMARY_BUTTON_STYLESHEET,
     PRIMARY_COLOR_PRESSED,
+    ROW_ALT_COLOR,
     SECONDARY_BUTTON_STYLESHEET,
     TEXT_COLOR,
+    TEXT_MUTED_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 
@@ -128,7 +130,7 @@ QListWidget::item:selected {{
     background-color: {PRIMARY_COLOR_PRESSED};
 }}
 QListWidget::item:hover:!selected {{
-    background-color: #2a2e39;
+    background-color: {ROW_ALT_COLOR};
 }}
 """
 
@@ -616,7 +618,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
             date_str = datetime.fromtimestamp(info.created_at).strftime("%Y-%m-%d")
         else:
             date_str = "unknown date"
-        date_color = "#8a8f99" if available else RECENT_UNAVAILABLE_COLOR
+        date_color = TEXT_MUTED_COLOR if available else RECENT_UNAVAILABLE_COLOR
         date_label = QtWidgets.QLabel(date_str)
         date_label.setStyleSheet(
             f"color: {date_color}; font-size: 11px; background: transparent;"
@@ -637,7 +639,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         """Build a small rounded pill showing a layers icon and the lamella count."""
         pill = QtWidgets.QFrame()
         pill.setObjectName("lamellaPill")
-        pill.setStyleSheet("#lamellaPill { background: #2a2e39; border-radius: 9px; }")
+        pill.setStyleSheet(f"#lamellaPill {{ background: {ROW_ALT_COLOR}; border-radius: 9px; }}")
 
         pill_layout = QtWidgets.QHBoxLayout(pill)
         pill_layout.setContentsMargins(7, 2, 8, 2)

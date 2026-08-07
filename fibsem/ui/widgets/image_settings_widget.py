@@ -21,6 +21,9 @@ from fibsem.structures import ImageSettings
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import IconToolButton, QDirectoryLineEdit
 from fibsem.ui import stylesheets
+from fibsem.ui.tokens import (
+    NEUTRAL_400,
+)
 
 # GUI Configuration Constants
 WIDGET_CONFIG = {
@@ -86,7 +89,7 @@ class ImageSettingsWidget(QWidget):
         # --- Header row ---
         self.btn_advanced = IconToolButton(
             icon="mdi:tune",
-            color="#c0c0c0",
+            color=NEUTRAL_400,
             checked_icon="mdi:tune-variant",
             checked_color=stylesheets.GRAY_WHITE_COLOR,
             tooltip="Show advanced settings",

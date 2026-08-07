@@ -14,6 +14,9 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
     ValueSpinBox,
 )
+from fibsem.ui.tokens import (
+    NEUTRAL_650,
+)
 
 Z_PARAMETERS_CONFIG = {
     "step_size": 0.1,  # µm
@@ -82,7 +85,7 @@ class ZParametersWidget(QWidget):
         # Number of planes (calculated, read-only)
         self.label_num_planes = QLabel("Planes", self)
         self.label_num_planes_value = QLabel(self._calculate_num_planes(), self)
-        self.label_num_planes_value.setStyleSheet("QLabel { color: #666666; }")
+        self.label_num_planes_value.setStyleSheet(f"QLabel {{ color: {NEUTRAL_650}; }}")
 
         # Acquisition order
         self.label_order = QLabel("Order", self)

@@ -38,6 +38,7 @@ from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, ValueSpinBox
 from fibsem.ui.tokens import (
     CANVAS_BG,
+    NEUTRAL_700,
     ORANGE_COLOR,
 )
 
@@ -666,7 +667,7 @@ class ChannelListWidget(QWidget):
         layout.addWidget(self._list)
 
         self._empty_label = QLabel("No channels. Click + to add one.")
-        self._empty_label.setStyleSheet("color: #606060; font-style: italic; padding: 12px;")
+        self._empty_label.setStyleSheet(f"color: {NEUTRAL_700}; font-style: italic; padding: 12px;")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._empty_label)
 

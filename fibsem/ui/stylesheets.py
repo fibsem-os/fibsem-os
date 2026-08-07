@@ -51,6 +51,10 @@ from fibsem.ui.tokens import (  # noqa: F401  (re-exported for existing callers)
 # `from fibsem.ui.stylesheets import NAPARI_STYLE` and `stylesheets.NAPARI_STYLE`
 # keep resolving.
 from fibsem.ui.napari_style import NAPARI_STYLE  # noqa: F401
+from fibsem.ui.tokens import (
+    NEUTRAL_650,
+    SURFACE_COLOR,
+)
 
 _ICONS_DIR = _os.path.join(_os.path.dirname(__file__), "icons").replace("\\", "/")
 
@@ -319,37 +323,37 @@ WORKFLOW_BORDER_STYLESHEET = f"""
 """
 
 # TODO: no token -- #6a6a6a, #8a8a8a
-TOOLBUTTON_ICON_STYLESHEET = """
-    QToolButton {
+TOOLBUTTON_ICON_STYLESHEET = f"""
+    QToolButton {{
         border: 1px solid transparent;
         border-radius: 4px;
         padding: 2px 6px;
         background-color: transparent;
-    }
-    QToolButton:hover {
-        border: 1px solid #6a6a6a;
+    }}
+    QToolButton:hover {{
+        border: 1px solid {NEUTRAL_650};
         background-color: rgba(255, 255, 255, 25);
-    }
-    QToolButton:checked {
+    }}
+    QToolButton:checked {{
         border: 1px solid #8a8a8a;
         background-color: rgba(255, 255, 255, 35);
-    }
+    }}
 """
 
-# TODO: no token -- #2b2d31, #2d3f5c, #3a3d42
-LIST_WIDGET_STYLESHEET = """
-            QListWidget {
-                background: #2b2d31;
+# TODO: no token -- #2d3f5c, #3a3d42
+LIST_WIDGET_STYLESHEET = f"""
+            QListWidget {{
+                background: {SURFACE_COLOR};
                 border: none;
                 outline: none;
-            }
-            QListWidget::item {
-                background: #2b2d31;
+            }}
+            QListWidget::item {{
+                background: {SURFACE_COLOR};
                 border-bottom: 1px solid #3a3d42;
-            }
-            QListWidget::item:selected {
+            }}
+            QListWidget::item:selected {{
                 background: #2d3f5c;
-            }
+            }}
         """
 
 # QDateTimeEdit with visible up/down step arrows (calendar popup must be OFF for

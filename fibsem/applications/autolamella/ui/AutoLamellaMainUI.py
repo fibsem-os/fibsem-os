@@ -77,6 +77,7 @@ from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
 from fibsem.ui.widgets.workflow_timeline_widget import WorkflowProgressWidget
 from fibsem.utils import format_duration
 from fibsem.ui.tokens import (
+    SURFACE_COLOR,
     TEXT_COLOR,
 )
 
@@ -1564,7 +1565,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
 
         self.workflow_right_panel = QWidget()
-        self.workflow_right_panel.setStyleSheet("background: #2b2d31;")
+        self.workflow_right_panel.setStyleSheet(f"background: {SURFACE_COLOR};")
 
         _rp_layout = QVBoxLayout(self.workflow_right_panel)
         _rp_layout.setContentsMargins(0, 0, 0, 0)

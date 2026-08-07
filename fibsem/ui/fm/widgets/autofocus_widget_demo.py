@@ -18,6 +18,9 @@ from PyQt5.QtWidgets import (
 
 from fibsem.fm.structures import ChannelSettings
 from fibsem.ui.fm.widgets.autofocus_widget import AutofocusWidget
+from fibsem.ui.tokens import (
+    SURFACE_COLOR,
+)
 
 
 def _format(settings) -> str:
@@ -43,7 +46,7 @@ def main() -> None:
 
     win = QWidget()
     win.setWindowTitle("AutofocusWidget — demo")
-    win.setStyleSheet("background: #2b2d31; color: #d1d2d4;")
+    win.setStyleSheet(f"background: {SURFACE_COLOR}; color: #d1d2d4;")
     root = QVBoxLayout(win)
     root.setContentsMargins(12, 12, 12, 12)
     root.setSpacing(10)

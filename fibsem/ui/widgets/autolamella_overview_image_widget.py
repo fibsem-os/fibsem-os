@@ -34,6 +34,10 @@ from fibsem.imaging.tiled import plot_minimap
 from fibsem.structures import FibsemImage
 import glob
 from fibsem.ui.tokens import (
+    NEUTRAL_400,
+    NEUTRAL_750,
+    NEUTRAL_800,
+    NEUTRAL_850,
     SURFACE_COLOR,
 )
 if TYPE_CHECKING:
@@ -41,84 +45,84 @@ if TYPE_CHECKING:
 
 
 # Stylesheet constants
-LINEEDIT_STYLESHEET = """
-    QLineEdit {
-        background-color: #3a3a3a;
+LINEEDIT_STYLESHEET = f"""
+    QLineEdit {{
+        background-color: {NEUTRAL_800};
         color: white;
         border: 1px solid #555;
         padding: 4px 8px;
         font-size: 10px;
-    }
-    QLineEdit:hover {
-        background-color: #4a4a4a;
-    }
+    }}
+    QLineEdit:hover {{
+        background-color: {NEUTRAL_750};
+    }}
 """
 
-SPINBOX_STYLESHEET = """
-    QSpinBox {
-        background-color: #3a3a3a;
+SPINBOX_STYLESHEET = f"""
+    QSpinBox {{
+        background-color: {NEUTRAL_800};
         color: white;
         border: 1px solid #555;
         padding: 4px 8px;
         font-size: 10px;
-    }
-    QSpinBox:hover {
-        background-color: #4a4a4a;
-    }
+    }}
+    QSpinBox:hover {{
+        background-color: {NEUTRAL_750};
+    }}
 """
 
-COMBOBOX_STYLESHEET = """
-    QComboBox {
-        background-color: #3a3a3a;
+COMBOBOX_STYLESHEET = f"""
+    QComboBox {{
+        background-color: {NEUTRAL_800};
         color: white;
         border: 1px solid #555;
         padding: 4px 8px;
         font-size: 10px;
         min-width: 150px;
-    }
-    QComboBox:hover {
-        background-color: #4a4a4a;
-    }
-    QComboBox::drop-down {
+    }}
+    QComboBox:hover {{
+        background-color: {NEUTRAL_750};
+    }}
+    QComboBox::drop-down {{
         border: none;
-    }
-    QComboBox QAbstractItemView {
-        background-color: #3a3a3a;
+    }}
+    QComboBox QAbstractItemView {{
+        background-color: {NEUTRAL_800};
         color: white;
-        selection-background-color: #4a4a4a;
-    }
+        selection-background-color: {NEUTRAL_750};
+    }}
 """
 
-BUTTON_STYLESHEET = """
-    QPushButton {
-        background-color: #3a3a3a;
+BUTTON_STYLESHEET = f"""
+    QPushButton {{
+        background-color: {NEUTRAL_800};
         color: white;
         border: 1px solid #555;
         padding: 4px 8px;
         font-size: 10px;
-    }
-    QPushButton:hover {
-        background-color: #4a4a4a;
-    }
-    QPushButton:pressed {
-        background-color: #2a2a2a;
-    }
+    }}
+    QPushButton:hover {{
+        background-color: {NEUTRAL_750};
+    }}
+    QPushButton:pressed {{
+        background-color: {NEUTRAL_850};
+    }}
 """
 
-CHECKBOX_STYLESHEET = """
-    QCheckBox {
+CHECKBOX_STYLESHEET = f"""
+    QCheckBox {{
         color: white;
         font-size: 10px;
-    }
-    QCheckBox::indicator {
+    }}
+    QCheckBox::indicator {{
         width: 15px;
         height: 15px;
         border: 1px solid #555;
-        background-color: #3a3a3a;
-    }
-    QCheckBox::indicator:checked {
+        background-color: {NEUTRAL_800};
+    }}
+    QCheckBox::indicator:checked {{
         background-color: #4a90e2;
-    }
+    }}
 """
 
 
@@ -275,7 +279,7 @@ class OverviewImageWidget(QWidget):
 
         # Info label
         self.info_label = QLabel("No experiment loaded")
-        self.info_label.setStyleSheet("color: #bbbbbb; font-size: 10px;")
+        self.info_label.setStyleSheet(f"color: {NEUTRAL_400}; font-size: 10px;")
         self.info_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
         # main layout
@@ -313,7 +317,7 @@ class OverviewImageWidget(QWidget):
             verticalalignment="center",
             transform=ax.transAxes,
             fontsize=12,
-            color="#bbbbbb",
+            color=NEUTRAL_400,
         )
         ax.set_title("Overview Image Preview", color="white")
         ax.axis("off")

@@ -18,6 +18,8 @@ from PyQt5.QtWidgets import (
 )
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
+    NEUTRAL_400,
+    NEUTRAL_450,
     ORANGE_COLOR,
     SURFACE_COLOR,
 )
@@ -131,7 +133,7 @@ class LinePlotWidget(QWidget):
         # ── Overlay buttons (parented to canvas, stacked right-to-left) ──────
         def _obtn(icon_name: str, tooltip: str, checkable: bool = False) -> QPushButton:
             btn = QPushButton(self.canvas)
-            btn.setIcon(fibsem_icon(icon_name, color="#aaaaaa"))
+            btn.setIcon(fibsem_icon(icon_name, color=NEUTRAL_450))
             btn.setIconSize(_OVERLAY_ICON_SIZE)
             btn.setFixedSize(_OVERLAY_BTN_SIZE, _OVERLAY_BTN_SIZE)
             btn.setToolTip(tooltip)
@@ -178,7 +180,7 @@ class LinePlotWidget(QWidget):
         # Stats label (below canvas — text, not a button)
         self.label_stats = QLabel("No data", self)
         self.label_stats.setStyleSheet(
-            "QLabel { color: #bbbbbb; font-size: 10px; background-color: transparent; }"
+            f"QLabel {{ color: {NEUTRAL_400}; font-size: 10px; background-color: transparent; }}"
         )
         self.label_stats.setWordWrap(True)
         self.label_stats.setVisible(False)
@@ -200,7 +202,7 @@ class LinePlotWidget(QWidget):
             verticalalignment="center",
             transform=self.ax.transAxes,
             fontsize=12,
-            color="#bbbbbb",
+            color=NEUTRAL_400,
         )
         self.ax.set_xlabel("Time" if self.use_datetime_axis else "Sample")
         self.ax.set_ylabel("Value")
@@ -497,7 +499,7 @@ class LinePlotWidget(QWidget):
             self.pause_button.setIcon(fibsem_icon("mdi:play", color=ORANGE_COLOR))
             self.pause_button.setToolTip("Resume live updates")
         else:
-            self.pause_button.setIcon(fibsem_icon("mdi:pause", color="#aaaaaa"))
+            self.pause_button.setIcon(fibsem_icon("mdi:pause", color=NEUTRAL_450))
             self.pause_button.setToolTip("Pause live updates")
             # Trigger a plot update with the current data when resuming
             if len(self.data_buffer) > 0:
@@ -507,10 +509,10 @@ class LinePlotWidget(QWidget):
         """Toggle between datetime and sample index x-axis."""
         self.use_datetime_axis = not self.use_datetime_axis
         if self.use_datetime_axis:
-            self.xaxis_button.setIcon(fibsem_icon("mdi:clock-outline", color="#aaaaaa"))
+            self.xaxis_button.setIcon(fibsem_icon("mdi:clock-outline", color=NEUTRAL_450))
             self.xaxis_button.setToolTip("X axis: Time — click to switch to Sample index")
         else:
-            self.xaxis_button.setIcon(fibsem_icon("mdi:numeric", color="#aaaaaa"))
+            self.xaxis_button.setIcon(fibsem_icon("mdi:numeric", color=NEUTRAL_450))
             self.xaxis_button.setToolTip("X axis: Sample index — click to switch to Time")
 
         # Force axes re-setup and replot

@@ -20,6 +20,9 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueSpinBox,
 )
 from fibsem.ui.widgets.lamella_pose_list_widget import LamellaPoseListWidget
+from fibsem.ui.tokens import (
+    NEUTRAL_550,
+)
 
 
 class SelectedLamellaWidget(QWidget):
@@ -46,7 +49,7 @@ class SelectedLamellaWidget(QWidget):
         self.description_label = QLabel()
         self.description_label.setWordWrap(True)
         self.description_label.setStyleSheet(
-            "color: #909090; font-style: italic; background: transparent;"
+            f"color: {NEUTRAL_550}; font-style: italic; background: transparent;"
         )
         self.description_label.setToolTip("Free-text note (edit in the Lamella editor)")
 

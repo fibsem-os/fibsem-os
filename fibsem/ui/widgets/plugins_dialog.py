@@ -41,6 +41,7 @@ from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import (
     ACCENT_COLOR,
     BORDER_COLOR,
+    DISABLED_BG_COLOR,
     ERROR_COLOR,
     GRAY_ICON_COLOR,
     OK_COLOR,
@@ -121,7 +122,7 @@ QHeaderView::section {{
     padding: 6px 8px;
     font-size: 11px;
 }}
-QTableWidget::item {{ padding: 6px 8px; border-bottom: 1px solid #31353f; }}
+QTableWidget::item {{ padding: 6px 8px; border-bottom: 1px solid {DISABLED_BG_COLOR}; }}
 QTableWidget::item:selected {{ background-color: #2d3947; color: {_TEXT_STRONG}; }}
 """
 

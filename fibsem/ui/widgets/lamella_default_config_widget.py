@@ -21,6 +21,7 @@ from fibsem.ui.widgets.canvas.overlays.point_overlay import PointOverlay
 from fibsem.structures import DEFAULT_ALIGNMENT_AREA, FibsemRectangle, Point
 from fibsem.ui.stylesheets import NAPARI_STYLE
 from fibsem.ui.tokens import (
+    NEUTRAL_500,
     SEMANTIC_WARNING_COLOR,
 )
 
@@ -31,7 +32,7 @@ _SECTION_STYLE = (
     "font-size: 10px; font-weight: bold; color: #707070;"
     " padding: 4px 0px 2px 0px; letter-spacing: 0.5px;"
 )
-_LABEL_STYLE = "color: #a0a0a0; min-width: 80px; font-size: 11px; background: transparent;"
+_LABEL_STYLE = f"color: {NEUTRAL_500}; min-width: 80px; font-size: 11px; background: transparent;"
 _INVALID_STYLE = f"color: {SEMANTIC_WARNING_COLOR}; font-size: 10px; background: transparent;"
 _HINT_STYLE = (
     "color: #808080; font-size: 10px; background: transparent;"

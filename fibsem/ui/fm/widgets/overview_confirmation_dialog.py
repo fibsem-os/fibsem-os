@@ -13,6 +13,7 @@ from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings, ZParameters, OverviewParameters
 from fibsem.fm.timing import estimate_tileset_acquisition_time
 from fibsem.ui.stylesheets import (
+    NEUTRAL_650,
     RUN_WORKFLOW_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
@@ -60,7 +61,7 @@ class OverviewConfirmationDialog(QDialog):
 
         for i, channel in enumerate(channel_settings):  # Show all channels
             channel_info = QLabel(f"  • {channel.pretty_name}")
-            channel_info.setStyleSheet("font-size: 10px; color: #666666;")
+            channel_info.setStyleSheet(f"font-size: 10px; color: {NEUTRAL_650};")
             params_layout.addWidget(channel_info)
 
         # Z-stack parameters

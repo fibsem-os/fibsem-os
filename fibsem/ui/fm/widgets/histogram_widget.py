@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from fibsem.ui.tokens import (
+    NEUTRAL_400,
     SURFACE_COLOR,
     WHITE_ICON_COLOR,
 )
@@ -74,7 +75,7 @@ class HistogramWidget(QWidget):
             
             # Info label for statistics with napari-style colors
             self.label_stats = QLabel("No image selected", self)
-            self.label_stats.setStyleSheet("QLabel { color: #bbbbbb; font-size: 10px; background-color: transparent; }")
+            self.label_stats.setStyleSheet(f"QLabel {{ color: {NEUTRAL_400}; font-size: 10px; background-color: transparent; }}")
             self.label_stats.setWordWrap(True)
             layout.addWidget(self.label_stats)
         
@@ -91,7 +92,7 @@ class HistogramWidget(QWidget):
         
         self.ax.text(0.5, 0.5, 'No image selected', 
                     horizontalalignment='center', verticalalignment='center',
-                    transform=self.ax.transAxes, fontsize=12, color='#bbbbbb')
+                    transform=self.ax.transAxes, fontsize=12, color=NEUTRAL_400)
         self.ax.set_xlabel('Intensity')
         self.ax.set_ylabel('Frequency')
         self.ax.set_title('Image Histogram')

@@ -62,6 +62,9 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (
 from fibsem.ui.widgets.spot_burn_coordinates_widget import (
     SpotBurnCoordinatesWidget,
 )
+from fibsem.ui.tokens import (
+    NEUTRAL_200,
+)
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
@@ -261,7 +264,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         self.label_lamella_name = QLabel("")
         self.label_lamella_name.setStyleSheet(
-            "font-size: 14px; font-weight: bold; color: #e0e0e0; background: transparent;"
+            f"font-size: 14px; font-weight: bold; color: {NEUTRAL_200}; background: transparent;"
         )
 
         # free-text lamella description (this editor is the source of truth for it)

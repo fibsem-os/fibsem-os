@@ -30,6 +30,10 @@ from fibsem.applications.autolamella.tools.reporting import (
     plot_lamella_task_workflow_summary,
 )
 from fibsem.ui.tokens import (
+    NEUTRAL_400,
+    NEUTRAL_750,
+    NEUTRAL_800,
+    NEUTRAL_850,
     SURFACE_COLOR,
 )
 
@@ -38,42 +42,42 @@ if TYPE_CHECKING:
 
 
 # Stylesheet constants
-COMBOBOX_STYLESHEET = """
-    QComboBox {
-        background-color: #3a3a3a;
+COMBOBOX_STYLESHEET = f"""
+    QComboBox {{
+        background-color: {NEUTRAL_800};
         color: white;
         border: 1px solid #555;
         padding: 4px 8px;
         font-size: 10px;
         min-width: 150px;
-    }
-    QComboBox:hover {
-        background-color: #4a4a4a;
-    }
-    QComboBox::drop-down {
+    }}
+    QComboBox:hover {{
+        background-color: {NEUTRAL_750};
+    }}
+    QComboBox::drop-down {{
         border: none;
-    }
-    QComboBox QAbstractItemView {
-        background-color: #3a3a3a;
+    }}
+    QComboBox QAbstractItemView {{
+        background-color: {NEUTRAL_800};
         color: white;
-        selection-background-color: #4a4a4a;
-    }
+        selection-background-color: {NEUTRAL_750};
+    }}
 """
 
-BUTTON_STYLESHEET = """
-    QPushButton {
-        background-color: #3a3a3a;
+BUTTON_STYLESHEET = f"""
+    QPushButton {{
+        background-color: {NEUTRAL_800};
         color: white;
         border: 1px solid #555;
         padding: 4px 8px;
         font-size: 10px;
-    }
-    QPushButton:hover {
-        background-color: #4a4a4a;
-    }
-    QPushButton:pressed {
-        background-color: #2a2a2a;
-    }
+    }}
+    QPushButton:hover {{
+        background-color: {NEUTRAL_750};
+    }}
+    QPushButton:pressed {{
+        background-color: {NEUTRAL_850};
+    }}
 """
 
 SUMMARY_MODE_TASK = "task"
@@ -139,7 +143,7 @@ class ExperimentTaskSummaryWidget(QWidget):
         """)
 
         self.summary_mode_label = QLabel("Summary:")
-        self.summary_mode_label.setStyleSheet("color: #bbbbbb; font-size: 10px;")
+        self.summary_mode_label.setStyleSheet(f"color: {NEUTRAL_400}; font-size: 10px;")
 
         self.summary_mode_selector = QComboBox(self)
         self.summary_mode_selector.setStyleSheet(COMBOBOX_STYLESHEET)
@@ -148,14 +152,14 @@ class ExperimentTaskSummaryWidget(QWidget):
         self.summary_mode_selector.currentIndexChanged.connect(self._on_summary_mode_changed)
 
         self.task_label = QLabel("Task:")
-        self.task_label.setStyleSheet("color: #bbbbbb; font-size: 10px;")
+        self.task_label.setStyleSheet(f"color: {NEUTRAL_400}; font-size: 10px;")
 
         self.task_selector = QComboBox(self)
         self.task_selector.setStyleSheet(COMBOBOX_STYLESHEET)
         self.task_selector.currentIndexChanged.connect(self._on_task_changed)
 
         self.lamella_label = QLabel("Lamella:")
-        self.lamella_label.setStyleSheet("color: #bbbbbb; font-size: 10px;")
+        self.lamella_label.setStyleSheet(f"color: {NEUTRAL_400}; font-size: 10px;")
 
         self.lamella_selector = QComboBox(self)
         self.lamella_selector.setStyleSheet(COMBOBOX_STYLESHEET)
@@ -171,7 +175,7 @@ class ExperimentTaskSummaryWidget(QWidget):
         self.export_button.clicked.connect(self._on_export_clicked)
 
         self.info_label = QLabel("No experiment loaded")
-        self.info_label.setStyleSheet("color: #bbbbbb; font-size: 10px;")
+        self.info_label.setStyleSheet(f"color: {NEUTRAL_400}; font-size: 10px;")
         self.info_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
         # Right side selector panels
@@ -269,7 +273,7 @@ class ExperimentTaskSummaryWidget(QWidget):
             verticalalignment="center",
             transform=ax.transAxes,
             fontsize=12,
-            color="#bbbbbb",
+            color=NEUTRAL_400,
         )
         ax.set_title("Experiment Task Summary", color="white")
         ax.axis("off")

@@ -7,6 +7,9 @@ from PyQt5.QtWidgets import QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QPalette
 from fibsem.ui.tokens import (
+    NEUTRAL_200,
+    NEUTRAL_850,
+    NEUTRAL_900,
     PRIMARY_ACCENT,
     WHITE_ICON_COLOR,
 )
@@ -47,9 +50,9 @@ class DataFrameTableWidget(QWidget):
 
         # Apply dark theme palette (matching autolamella_workflow_widget)
         palette = self.table_widget.palette()
-        palette.setColor(QPalette.ColorRole.Base, QColor("#202020"))
-        palette.setColor(QPalette.ColorRole.AlternateBase, QColor("#2c2c2c"))
-        palette.setColor(QPalette.ColorRole.Text, QColor("#dddddd"))
+        palette.setColor(QPalette.ColorRole.Base, QColor(NEUTRAL_900))
+        palette.setColor(QPalette.ColorRole.AlternateBase, QColor(NEUTRAL_850))
+        palette.setColor(QPalette.ColorRole.Text, QColor(NEUTRAL_200))
         palette.setColor(QPalette.ColorRole.Highlight, QColor(PRIMARY_ACCENT))
         palette.setColor(QPalette.ColorRole.HighlightedText, QColor(WHITE_ICON_COLOR))
         self.table_widget.setPalette(palette)

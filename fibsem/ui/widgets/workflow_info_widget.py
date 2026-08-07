@@ -17,24 +17,27 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowOptions,
 )
 from fibsem.ui.tokens import (
+    NEUTRAL_500,
+    PANEL_COLOR,
+    SURFACE_COLOR,
     TEXT_COLOR,
 )
 
-_LABEL_STYLE = "color: #a0a0a0; min-width: 80px; font-size: 11px;"
+_LABEL_STYLE = f"color: {NEUTRAL_500}; min-width: 80px; font-size: 11px;"
 _SECTION_STYLE = (
     "font-size: 10px; font-weight: bold; color: #707070;"
     " padding: 4px 0px 2px 0px; letter-spacing: 0.5px;"
 )
-_LINE_EDIT_STYLE = """
-QLineEdit {
-    background: #2b2d31;
+_LINE_EDIT_STYLE = f"""
+QLineEdit {{
+    background: {SURFACE_COLOR};
     color: #d6d6d6;
     border: 1px solid #3a3d42;
     border-radius: 3px;
     padding: 3px 6px;
     font-size: 11px;
-}
-QLineEdit:focus { border-color: #007ACC; }
+}}
+QLineEdit:focus {{ border-color: #007ACC; }}
 """
 
 
@@ -47,7 +50,7 @@ class WorkflowInfoWidget(QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setStyleSheet("background: #23252a;")
+        self.setStyleSheet(f"background: {PANEL_COLOR};")
 
         self._config: Optional[AutoLamellaWorkflowConfig] = None
         self._options: Optional[AutoLamellaWorkflowOptions] = None

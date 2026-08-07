@@ -22,6 +22,10 @@ import fibsem.config as fcfg
 from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.ui.tokens import (
+    NEUTRAL_500,
+    NEUTRAL_700,
+)
 
 _ROW_HEIGHT = 40
 # Requirements list shows up to this many rows before it starts to scroll.
@@ -107,7 +111,7 @@ class WorkflowTaskEditorWidget(QWidget):
         header_row = QHBoxLayout()
         header_row.setSpacing(8)
         icon_lbl = QLabel()
-        icon_lbl.setPixmap(fibsem_icon("mdi:pencil", color="#a0a0a0").pixmap(18, 18))
+        icon_lbl.setPixmap(fibsem_icon("mdi:pencil", color=NEUTRAL_500).pixmap(18, 18))
         icon_lbl.setStyleSheet("background: transparent;")
         header_row.addWidget(icon_lbl)
 
@@ -337,7 +341,7 @@ class WorkflowTaskEditorWidget(QWidget):
                 self._req_rows.append(row)
         else:
             empty = QLabel("No other tasks available")
-            empty.setStyleSheet("color: #606060; font-size: 11px; padding: 6px;")
+            empty.setStyleSheet(f"color: {NEUTRAL_700}; font-size: 11px; padding: 6px;")
             empty.setAlignment(Qt.AlignCenter)
             item = QListWidgetItem()
             item.setSizeHint(QSize(0, _ROW_HEIGHT))
