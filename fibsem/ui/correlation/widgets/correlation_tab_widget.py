@@ -17,7 +17,7 @@ Tabs
 ----
   Images      — browse / load FIB and FM images
   Coordinates — coordinate lists (FIB, FM, POI, Surface FIB/FM) + fit settings + load/save
-  Results     — run correlation + CorrelationResultWidget overlay
+  Results     — correlation summary + per-marker error table
   RI          — refractive-index depth correction; mode follows the surface point:
                 FIB surface → post-correlation (corrects the correlated POI 1),
                 FM surface  → pre-correlation (corrects every input POI z, applied

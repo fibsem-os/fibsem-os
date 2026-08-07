@@ -547,8 +547,8 @@ def test_hiding_the_legend_hides_the_result_entries_too():
 
 
 def test_a_result_with_no_picked_points_still_gets_a_legend():
-    """correlation_result_widget shows a saved result on a canvas with nothing
-    picked. The base suppresses the legend when it holds no points of its own, so
+    """A result overlay carries legend entries that its host's own points do not
+    back. The base suppresses the legend when it holds no points of its own, so
     that rule has to key off the entries rather than the points."""
     _, points, results = _with_results([])
     _add_reprojected(results)

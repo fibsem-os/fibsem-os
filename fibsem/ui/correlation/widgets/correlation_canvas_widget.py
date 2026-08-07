@@ -4,10 +4,10 @@
 and methods as :class:`ImagePointCanvas` so the eventual swap in
 ``correlation_tab_widget`` is a construction-site change and nothing more.
 
-**Not wired in yet.** `ImagePointCanvas` remains what the correlation tab uses;
-this is built alongside so each piece can be reviewed and tested on its own. The
-old canvas is deleted only in the last PR of the series, once all three of its
-consumers have moved.
+**Not wired in yet.** `ImagePointCanvas` remains what the correlation tab and the
+FM display use; this is built alongside so each piece can be reviewed and tested
+on its own. The old canvas is deleted only in the last PR of the series, once
+both have moved.
 
 Scope so far — image display, points, selection, the add-menu, the legend and
 labels, and the reprojected-result markers. Still to come: the two-panel Save
@@ -29,7 +29,6 @@ from PyQt5.QtGui import QCursor
 from PyQt5.QtWidgets import QAction, QMenu, QVBoxLayout, QWidget
 
 from fibsem.correlation.structures import Coordinate, PointType
-from fibsem.structures import FibsemImage
 from fibsem.ui.correlation.widgets.correlation_point_overlay import (
     CorrelationPointOverlay,
     CorrelationResultOverlay,
@@ -51,13 +50,13 @@ class CorrelationCanvasWidget(QWidget):
 
     def __init__(
         self,
-        allowed_point_types: Optional[List[PointType]] = None,
         parent: Optional[QWidget] = None,
+        allowed_point_types: Optional[List[PointType]] = None,
     ) -> None:
         super().__init__(parent)
         # None means "every type"; an empty list means "adding is off" -- the same
-        # convention ImagePointCanvas uses, kept so the swap does not silently
-        # re-enable adding in the result widget, which passes [].
+        # convention ImagePointCanvas uses, kept so a read-only canvas cannot
+        # silently regain an add menu across the swap.
         self._allowed_types = allowed_point_types
 
         self.canvas = FibsemImageCanvas()
@@ -94,8 +93,15 @@ class CorrelationCanvasWidget(QWidget):
 
     # ── image ─────────────────────────────────────────────────────────────
 
-    def set_image(self, image: FibsemImage, cmap: str = "gray") -> None:
-        self.canvas.set_image(image, cmap=cmap)
+    def set_image(self, image: np.ndarray, *, cmap: str = "gray") -> None:
+        """Display a raw image array, as ``ImagePointCanvas.set_image`` does.
+
+        An array rather than a ``FibsemImage`` because that is what both
+        correlation consumers hold here -- a filtered FIB frame, an additive FM
+        channel composite -- and neither has a FibsemImage to hand.
+        ``self.canvas.set_image`` still takes one, for a caller that does.
+        """
+        self.canvas.set_array(np.asarray(image), cmap=cmap)
 
     def update_display(
         self, image: np.ndarray, pixel_size: Optional[float] = None
