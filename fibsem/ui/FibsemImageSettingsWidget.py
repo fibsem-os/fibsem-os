@@ -322,7 +322,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         beam_type = self.dual_beam_widget.beam_type
         self.microscope.start_acquisition(beam_type)
         self.pushButton_start_acquisition.setText("Stop Acquisition")
-        self.pushButton_start_acquisition.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
+        self.pushButton_start_acquisition.setStyleSheet(stylesheets.DANGER_BUTTON_STYLESHEET)
 
     def update_ruler(self):
         """Initialise the ruler in the viewer"""

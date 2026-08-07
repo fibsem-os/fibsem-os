@@ -341,7 +341,7 @@ class FibsemSpotBurnWidget(QWidget):
         self.stop_event.clear()
         self._is_burning = True
         self.pushButton_run_spot_burn.setText("Cancel")
-        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
+        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.DANGER_BUTTON_STYLESHEET)
         self.pushButton_run_spot_burn.clicked.disconnect()
         self.pushButton_run_spot_burn.clicked.connect(self.cancel_spot_burn)
         # in workflow mode the button is hidden when idle — show it as "Cancel" while burning

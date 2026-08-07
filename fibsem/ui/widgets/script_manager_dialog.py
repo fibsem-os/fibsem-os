@@ -45,7 +45,7 @@ from fibsem.ui.stylesheets import (
     PANEL_COLOR,
     PRIMARY_BUTTON_STYLESHEET,
     ROW_ALT_COLOR,
-    STOP_WORKFLOW_BUTTON_STYLESHEET,
+    DANGER_BUTTON_STYLESHEET,
     SURFACE_COLOR,
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
@@ -618,7 +618,7 @@ class ScriptManagerDialog(QDialog):
         running = self.runner.is_running
         self.run_button.setText("Stop script" if running else "Run script")
         self.run_button.setStyleSheet(
-            STOP_WORKFLOW_BUTTON_STYLESHEET if running else PRIMARY_BUTTON_STYLESHEET
+            DANGER_BUTTON_STYLESHEET if running else PRIMARY_BUTTON_STYLESHEET
         )
         if running:
             self.run_button.setEnabled(True)  # Stop must never be the disabled one

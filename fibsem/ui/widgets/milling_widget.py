@@ -51,7 +51,7 @@ class FibsemMillingWidget2(QWidget):
         self.pushButton_stop_milling = QPushButton("Stop Milling")
         self.pushButton_stop_milling.clicked.connect(self.stop_milling)
         self.pushButton_stop_milling.setStyleSheet(
-            stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET
+            stylesheets.DANGER_BUTTON_STYLESHEET
         )
         self.pushButton_stop_milling.setVisible(False)
 
@@ -67,10 +67,10 @@ class FibsemMillingWidget2(QWidget):
         self.progressBar_milling.setVisible(False)
         self.progressBar_milling_stages.setVisible(False)
         self.progressBar_milling_stages.setStyleSheet(
-            stylesheets.MILLING_PROGRESS_BAR_STYLESHEET
+            stylesheets.PROGRESS_BAR_STYLESHEET
         )
         self.progressBar_milling.setStyleSheet(
-            stylesheets.MILLING_PROGRESS_BAR_STYLESHEET
+            stylesheets.PROGRESS_BAR_STYLESHEET
         )
 
         self.start_milling_signal.connect(self.run_milling, Qt.BlockingQueuedConnection)  # type: ignore

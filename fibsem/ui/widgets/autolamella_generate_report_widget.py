@@ -11,7 +11,7 @@ from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.tools.reporting import generate_report2
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
-    RUN_WORKFLOW_BUTTON_STYLESHEET,
+    CONFIRM_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
 
@@ -166,7 +166,7 @@ class AutoLamellaGenerateReportWidget(QtWidgets.QDialog):
         button_box = QtWidgets.QDialogButtonBox()
 
         self.btn_generate = QtWidgets.QPushButton("Generate Report")
-        self.btn_generate.setStyleSheet(RUN_WORKFLOW_BUTTON_STYLESHEET)
+        self.btn_generate.setStyleSheet(CONFIRM_BUTTON_STYLESHEET)
         self.btn_generate.setDefault(True)
         self.btn_generate.setEnabled(False)  # Disabled until an experiment is attached
 

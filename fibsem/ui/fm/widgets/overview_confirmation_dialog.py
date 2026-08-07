@@ -14,7 +14,7 @@ from fibsem.fm.structures import ChannelSettings, ZParameters, OverviewParameter
 from fibsem.fm.timing import estimate_tileset_acquisition_time
 from fibsem.ui.stylesheets import (
     NEUTRAL_650,
-    RUN_WORKFLOW_BUTTON_STYLESHEET,
+    CONFIRM_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
 from fibsem.utils import format_duration
@@ -90,7 +90,7 @@ class OverviewConfirmationDialog(QDialog):
         # Buttons
         button_layout = QGridLayout()
         self.button_start = QPushButton("Start Acquisition")
-        self.button_start.setStyleSheet(RUN_WORKFLOW_BUTTON_STYLESHEET)
+        self.button_start.setStyleSheet(CONFIRM_BUTTON_STYLESHEET)
         self.button_start.clicked.connect(self.accept)
         button_layout.addWidget(self.button_start, 0, 0)
 

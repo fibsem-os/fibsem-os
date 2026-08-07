@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.fm.structures import FluorescenceImage
-from fibsem.ui.stylesheets import RUN_WORKFLOW_BUTTON_STYLESHEET, SECONDARY_BUTTON_STYLESHEET
+from fibsem.ui.stylesheets import CONFIRM_BUTTON_STYLESHEET, SECONDARY_BUTTON_STYLESHEET
 from fibsem.ui.tokens import (
     NEUTRAL_650,
 )
@@ -87,7 +87,7 @@ class LoadImageDialog(QDialog):
         button_layout = QHBoxLayout()
 
         self.load_button = QPushButton("Load Images")
-        self.load_button.setStyleSheet(RUN_WORKFLOW_BUTTON_STYLESHEET)
+        self.load_button.setStyleSheet(CONFIRM_BUTTON_STYLESHEET)
         self.load_button.clicked.connect(self.load_images)
         self.load_button.setEnabled(False)
         button_layout.addWidget(self.load_button)

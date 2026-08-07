@@ -100,6 +100,6 @@ def test_reset_if_finished_resets_after_a_failure(widget):
 
 def test_failed_stylesheet_is_the_bar_with_an_error_chunk():
     """The failed sheet should differ from the normal one only in chunk colour."""
-    normal = stylesheets.MILLING_PROGRESS_BAR_STYLESHEET
+    normal = stylesheets.PROGRESS_BAR_STYLESHEET
     failed = stylesheets.FAILED_PROGRESS_BAR_STYLESHEET
     assert failed.replace(RED, GREEN) == normal

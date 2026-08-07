@@ -1081,7 +1081,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
         self.progressBar_stages = QProgressBar()
         self.progressBar_stages.setStyleSheet(
-            stylesheets.MILLING_PROGRESS_BAR_STYLESHEET
+            stylesheets.PROGRESS_BAR_STYLESHEET
         )
         self.progressBar_stages.setFixedHeight(24)
         self.progressBar_stages.setFixedWidth(180)
@@ -1089,7 +1089,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
         self.progressBar_stage = QProgressBar()
         self.progressBar_stage.setStyleSheet(
-            stylesheets.MILLING_PROGRESS_BAR_STYLESHEET
+            stylesheets.PROGRESS_BAR_STYLESHEET
         )
         self.progressBar_stage.setFixedHeight(24)
         self.progressBar_stage.setFixedWidth(180)
@@ -1099,7 +1099,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.btn_milling.setIcon(
             fibsem_icon("mdi:play-circle", color=stylesheets.GRAY_ICON_COLOR)
         )
-        self.btn_milling.setStyleSheet(stylesheets.RUN_WORKFLOW_BUTTON_STYLESHEET)
+        self.btn_milling.setStyleSheet(stylesheets.CONFIRM_BUTTON_STYLESHEET)
 
         # single pause control: tool button with milling/acquisition menu options
         self._milling_paused = False
@@ -1882,7 +1882,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             fm.start_acquisition(channel_settings=selected_channel_settings)
             self.btn_toggle_fm_acquisition.setText("Stop Acquisition")
             self.btn_toggle_fm_acquisition.setStyleSheet(
-                stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET
+                stylesheets.DANGER_BUTTON_STYLESHEET
             )
 
     def _on_pause_milling_action(self):
@@ -2053,7 +2053,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             self.btn_milling.setIcon(
                 fibsem_icon("mdi:stop-circle", color=stylesheets.GRAY_ICON_COLOR)
             )
-            self.btn_milling.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
+            self.btn_milling.setStyleSheet(stylesheets.DANGER_BUTTON_STYLESHEET)
             # reveal the run-time controls (hidden until milling starts)
             self.btn_pause.setVisible(True)
             self.btn_supervised.setVisible(True)
@@ -2100,7 +2100,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.btn_milling.setIcon(
             fibsem_icon("mdi:play-circle", color=stylesheets.GRAY_ICON_COLOR)
         )
-        self.btn_milling.setStyleSheet(stylesheets.RUN_WORKFLOW_BUTTON_STYLESHEET)
+        self.btn_milling.setStyleSheet(stylesheets.CONFIRM_BUTTON_STYLESHEET)
         # hide the run-time-only controls again
         self.btn_pause.setVisible(False)
         self.btn_supervised.setVisible(False)

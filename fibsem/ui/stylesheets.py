@@ -58,33 +58,10 @@ from fibsem.ui.tokens import (
 
 _ICONS_DIR = _os.path.join(_os.path.dirname(__file__), "icons").replace("\\", "/")
 
-# TODO: no token -- #68a0dd, #3a6ea5
-#
-# #3a6ea5 is the one left literal on purpose rather than for want of a token:
-# PRIMARY_ACCENT holds that exact value, but it is documented as the quad-view
-# selection border, and pointing a checkbox at it would silently restyle this
-# widget the next time the canvas is retuned. Needs a decision, not a
-# substitution.
-CHECKBOX_STYLE = """
-QCheckBox::indicator {
-        width: 16px;"
-        height: 16px;
-        border: 1px solid rgba(220, 220, 220, 0.7);
-        border-radius: 3px;
-        background-color: rgba(255, 255, 255, 0.05);
-        }
-QCheckBox::indicator:hover {
-        border: 1px solid rgba(120, 180, 255, 0.9);
-}
-QCheckBox::indicator:checked {
-        background-color: #3a6ea5;
-        border: 1px solid #68a0dd;
-}"""
-
 LABEL_INSTRUCTIONS_STYLE = """font-style: italic; color: gray; font-size: 12px;"""
 
 
-MILLING_PROGRESS_BAR_STYLESHEET = f"""
+PROGRESS_BAR_STYLESHEET = f"""
             QProgressBar {{
                 border: 1px solid {BORDER_COLOR};
                 border-radius: 3px;
@@ -132,7 +109,7 @@ USER_ATTENTION_BUTTON_STYLESHEET = f"""
         """
 
 # TODO: no token -- #2e7d32, #388e3c
-RUN_WORKFLOW_BUTTON_STYLESHEET = f"""
+CONFIRM_BUTTON_STYLESHEET = f"""
             QPushButton {{
                 background-color: {OK_COLOR};
                 color: white;
@@ -157,7 +134,7 @@ RUN_WORKFLOW_BUTTON_STYLESHEET = f"""
 # The :disabled rule matches the primary/secondary/run sheets. Without it a
 # disabled stop or delete button stays full crimson and only stops responding,
 # which is what drove call sites to paint their own grey "off" state by hand.
-STOP_WORKFLOW_BUTTON_STYLESHEET = f"""
+DANGER_BUTTON_STYLESHEET = f"""
             QPushButton {{
                 background-color: {SEMANTIC_ERROR_COLOR};
                 color: white;
@@ -430,3 +407,17 @@ QDateTimeEdit::down-arrow {{
     height: 10px;
 }}
 """.replace("__ICONS_DIR__", _ICONS_DIR)
+
+# ---------------------------------------------------------------------------
+# Deprecated aliases.
+#
+# These three were named for the first thing that used them, and then used for
+# everything else. Only one of the progress bar's four consumers was milling;
+# the "run workflow" green ended up on Load Images, Set Objective and Acquire;
+# the "stop workflow" red ended up on Delete Position and Retract Manipulator.
+#
+# Kept so an out-of-tree plugin importing the old name still works. Prefer the
+# names above in new code.
+MILLING_PROGRESS_BAR_STYLESHEET = PROGRESS_BAR_STYLESHEET
+RUN_WORKFLOW_BUTTON_STYLESHEET = CONFIRM_BUTTON_STYLESHEET
+STOP_WORKFLOW_BUTTON_STYLESHEET = DANGER_BUTTON_STYLESHEET
