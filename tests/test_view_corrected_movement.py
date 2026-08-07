@@ -779,6 +779,10 @@ class TestFmConsumersUseTheFmProjection:
 
         _configure(microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True)
         microscope.fm = FluorescenceMicroscope(parent=microscope)
+        # A fresh objective is retracted, and a run refuses that (FIB-417) before it
+        # projects anything. This test is about which projection tiles are placed with,
+        # so it needs a run that gets as far as placing them.
+        microscope.fm.objective.insert()
 
         fm_calls, beam_calls = [], []
         real_project_fm = microscope.project_fm_stable_move
