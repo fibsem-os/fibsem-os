@@ -2,7 +2,6 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-import napari
 from PyQt5 import QtWidgets
 from PyQt5.QtGui import QFont
 
@@ -119,15 +118,25 @@ class FibsemCryoDepositionWidget(QtWidgets.QDialog):
 
 
 def main():
+    """Standalone harness: show the dialog in a plain Qt window.
 
-    viewer = napari.Viewer(ndisplay=2)
+    napari was only ever hosting the dialog here (FIB-407). It also supplied the
+    QApplication and the dark theme the dialog is shown against in the app, so
+    both are set up explicitly.
+    """
+    import sys
+
+    from fibsem.ui import stylesheets
+
+    app = QtWidgets.QApplication(sys.argv)
+    app.setStyleSheet(stylesheets.NAPARI_STYLE)
+
     microscope, settings = utils.setup_session()
     cryo_sputter_widget = FibsemCryoDepositionWidget(microscope)
-    viewer.window.add_dock_widget(
-        cryo_sputter_widget, area="right", add_vertical_stretch=False
-    )
-    napari.run()
+    cryo_sputter_widget.show()
+
+    sys.exit(app.exec_())
 
 
 if __name__ == "__main__":
-    main()  
+    main()
