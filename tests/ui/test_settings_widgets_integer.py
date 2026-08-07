@@ -45,7 +45,8 @@ def _row(widget, field):
 def test_integer_fields_use_integer_spinbox(qapp, microscope):
     widget = FibsemPatternSettingsWidget(microscope=microscope, pattern=_array_pattern())
     for field in _INT_FIELDS:
-        assert isinstance(_row(widget, field).control, IntegerValueSpinBox), field
+        # `.control` is the builder's Control adapter; `.widget` is the Qt control.
+        assert isinstance(_row(widget, field).control.widget, IntegerValueSpinBox), field
 
 
 def test_get_pattern_returns_int_not_float(qapp, microscope):

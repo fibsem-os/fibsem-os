@@ -2,31 +2,33 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
+from dataclasses import dataclass
 from typing import Any, List, Optional
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
-    QCheckBox,
     QFormLayout,
     QLabel,
     QVBoxLayout,
     QWidget,
 )
 
-from fibsem import utils
 from fibsem.milling.base import MillingStrategy, get_strategy
 from fibsem.milling.strategy import get_strategy_names
-from fibsem.ui.widgets.custom_widgets import (
-    FormRow,
-    QLineEdit,
-    QFilePathLineEdit,
-    ValueComboBox,
-    ValueSpinBox,
-    IntegerValueSpinBox,
-)
+from fibsem.ui.widgets.custom_widgets import ValueComboBox
+from fibsem.ui.widgets.form_builder import Control, build_control
 from fibsem.ui.tokens import (
     NEUTRAL_700,
 )
+
+
+@dataclass
+class _Row:
+    """One built form row: the label, the control, and whether it is advanced."""
+    label: QLabel
+    control: Control
+    field: str
+    advanced: bool
 
 
 class FibsemStrategySettingsWidget(QWidget):
@@ -46,7 +48,7 @@ class FibsemStrategySettingsWidget(QWidget):
         super().__init__(parent)
         self._strategy = strategy
         self._advanced_visible = False
-        self._rows: List[FormRow] = []
+        self._rows: List[_Row] = []
 
         self._setup_ui()
         self._connect_signals()
@@ -114,102 +116,29 @@ class FibsemStrategySettingsWidget(QWidget):
         while self._config_form.rowCount():
             self._config_form.removeRow(0)
 
-        meta = strategy.config.field_metadata
-        hidden_fields = {name for name, m in meta.items() if m.get("hidden", False)}
-
-        for field_name, m in meta.items():
-            if field_name in hidden_fields or m.get("hidden", False):
+        for field_name, m in strategy.config.field_metadata.items():
+            if m.get("hidden", False):
                 continue
 
-            value = getattr(strategy.config, field_name)
-            advanced = m.get("advanced", False)
-            items = m.get("items")
-            type_ = m.get("type")
-            base_scale = m.get("scale")
-            dims = m.get("dimensions")
-            effective_scale = (
-                (base_scale**dims) if (base_scale and dims) else base_scale
-            )
-
-            if effective_scale is None:
-                effective_scale = 1
-
-            if items:
-                control = ValueComboBox(
-                    items, value, m.get("unit"), format_fn=m.get("format_fn")
-                )
-            elif type_ is str:
-                if m.get("filepath"):
-                    control = QFilePathLineEdit()
-                else:
-                    control = QLineEdit()
-                control.setText(str(value) if value else "")
-            elif type_ is bool or isinstance(value, bool):
-                control = QCheckBox()
-                control.setChecked(bool(value))
-            elif type_ is int:
-                effective_scale = int(round(effective_scale))
-                suffix = (
-                    utils._get_display_unit(base_scale, m.get("unit"))
-                    if base_scale
-                    else (m.get("unit") or "")
-                )
-                # Ensure integer types don't have a step size under the effective scale or 1
-                step = max(m.get("step", 1), effective_scale)
-                control = IntegerValueSpinBox(
-                    suffix,
-                    m.get("minimum"),
-                    m.get("maximum"),
-                    step,
-                )
-                control.setValue(int(round(value * effective_scale)))
-            elif isinstance(value, (float, int)) or type_ is float:
-                suffix = (
-                    utils._get_display_unit(base_scale, m.get("unit"))
-                    if base_scale
-                    else (m.get("unit") or "")
-                )
-                control = ValueSpinBox(
-                    suffix,
-                    m.get("minimum"),
-                    m.get("maximum"),
-                    m.get("step"),
-                    m.get("decimals"),
-                )
-                control.setValue(value * effective_scale)
-            else:
+            control = build_control(m, getattr(strategy.config, field_name))
+            if control is None:
                 logging.warning("Control for '%s' is unsupported", field_name)
-                continue  # unsupported type
+                continue
 
-            label_text = m.get("label") or field_name.replace("_", " ").title()
+            label = QLabel(m.get("label") or field_name.replace("_", " ").title())
             tooltip = m.get("tooltip", "")
-            label = QLabel(label_text)
             if tooltip:
                 label.setToolTip(tooltip)
-                control.setToolTip(tooltip)
+                control.widget.setToolTip(tooltip)
 
-            self._config_form.addRow(label, control)
-
-            if isinstance(control, ValueComboBox):
-                control.currentIndexChanged.connect(self._on_changed)
-            elif isinstance(control, (ValueSpinBox, IntegerValueSpinBox)):
-                control.valueChanged.connect(self._on_changed)
-            elif isinstance(control, QCheckBox):
-                control.toggled.connect(self._on_changed)
-            elif isinstance(control, QFilePathLineEdit):
-                control.editingFinished.connect(self._on_changed)
-            else:
-                raise TypeError(
-                    f"Unsupported control type '{type(control)}' in FibsemStrategySettingsWidget"
-                )
-
+            self._config_form.addRow(label, control.widget)
+            control.connect(self._on_changed)
             self._rows.append(
-                FormRow(
+                _Row(
                     label=label,
                     control=control,
                     field=field_name,
-                    advanced=advanced,
-                    scale=effective_scale,
+                    advanced=m.get("advanced", False),
                 )
             )
 
@@ -240,7 +169,7 @@ class FibsemStrategySettingsWidget(QWidget):
         for row in self._rows:
             adv_ok = (not row.advanced) or self._advanced_visible
             row.label.setVisible(adv_ok)
-            row.control.setVisible(adv_ok)
+            row.control.widget.setVisible(adv_ok)
 
     def set_advanced_visible(self, show: bool) -> None:
         self._advanced_visible = show
@@ -253,30 +182,11 @@ class FibsemStrategySettingsWidget(QWidget):
     def get_strategy(self) -> MillingStrategy[Any]:
         strategy = deepcopy(self._strategy)
         for row in self._rows:
-            if isinstance(row.control, ValueComboBox):
-                data = row.control.value()
-                if data is not None:
-                    setattr(strategy.config, row.field, data)
-            elif isinstance(row.control, ValueSpinBox):
-                val = row.control.value()
-                setattr(
-                    strategy.config, row.field, val / row.scale if row.scale else val
-                )
-            elif isinstance(row.control, IntegerValueSpinBox):
-                val = row.control.value()
-                setattr(
-                    strategy.config,
-                    row.field,
-                    int(round(val / row.scale if row.scale else val)),
-                )
-            elif isinstance(row.control, QCheckBox):
-                setattr(strategy.config, row.field, row.control.isChecked())
-            elif isinstance(row.control, QFilePathLineEdit):
-                setattr(strategy.config, row.field, row.control.text())
-            else:
-                raise TypeError(
-                    f"Unsupported control type '{type(row.control)}' in FibsemStrategySettingsWidget"
-                )
+            value = row.control.read()
+            # A combobox with nothing selected reads None; writing that would
+            # replace a real setting with nothing.
+            if value is not None:
+                setattr(strategy.config, row.field, value)
         return strategy
 
     def set_strategy(self, strategy: MillingStrategy[Any]) -> None:
@@ -288,25 +198,13 @@ class FibsemStrategySettingsWidget(QWidget):
             self._build_controls(strategy)
             return  # _build_controls reads values from strategy.config directly
 
+        # Every control is blocked before any is written, so a mid-write signal
+        # cannot read a form that is half updated.
         for row in self._rows:
-            row.control.blockSignals(True)
-        for row in self._rows:
-            value = getattr(strategy.config, row.field)
-            if isinstance(row.control, ValueComboBox):
-                row.control.set_value(value)
-            elif isinstance(row.control, ValueSpinBox):
-                row.control.setValue(value * row.scale if row.scale else value)
-            elif isinstance(row.control, IntegerValueSpinBox):
-                row.control.setValue(
-                    int(round(value * row.scale if row.scale else value))
-                )
-            elif isinstance(row.control, QCheckBox):
-                row.control.setChecked(bool(value))
-            elif isinstance(row.control, QFilePathLineEdit):
-                row.control.setText(str(value) if value else "")
-            else:
-                raise TypeError(
-                    f"Unsupported control type '{type(row.control)}' in FibsemStrategySettingsWidget"
-                )
-        for row in self._rows:
-            row.control.blockSignals(False)
+            row.control.set_blocked(True)
+        try:
+            for row in self._rows:
+                row.control.write(getattr(strategy.config, row.field))
+        finally:
+            for row in self._rows:
+                row.control.set_blocked(False)
