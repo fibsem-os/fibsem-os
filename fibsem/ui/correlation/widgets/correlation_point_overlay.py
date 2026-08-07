@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
+import matplotlib.patheffects as pe
 from PyQt5.QtCore import pyqtSignal
 
 from fibsem.correlation.structures import Coordinate, PointType
@@ -54,6 +55,14 @@ POINT_MARKERS: Dict[PointType, str] = {
     PointType.SURFACE_FM: "+",
 }
 MARKER_SIZE = 5.0  # the base draws the selected marker at size * 1.4 = 7.0
+
+# Every label colour above is a bright saturated hue, so a dark stroke is the
+# complement of all of them: it rescues SURFACE and FM-SURFACE against a bright
+# image, where they otherwise disappear entirely. A *white* stroke is the wrong
+# choice for the same reason -- it merges into a bright background, which is
+# exactly where the outline has to work. 0.5 matches the old canvas; heavier
+# starts eating the glyph at this font size.
+LABEL_OUTLINE = [pe.withStroke(linewidth=0.5, foreground="black")]
 
 
 def generate_names(coordinates: List[Coordinate]) -> List[str]:
@@ -224,9 +233,11 @@ class CorrelationPointOverlay(PointOverlay):
 
     def _append_artist(self, idx: int) -> None:
         super()._append_artist(idx)
-        # a point added while labels are off must not arrive with its name showing
-        if self._anns and self._anns[-1] is not None:
-            self._anns[-1].set_visible(self._labels_visible and self._visible)
+        ann = self._anns[-1] if self._anns else None
+        if ann is not None:
+            # a point added while labels are off must not arrive showing its name
+            ann.set_visible(self._labels_visible and self._visible)
+            ann.set_path_effects(LABEL_OUTLINE)
 
     def _legend_entries(self):
         """One swatch per PointType currently on screen.

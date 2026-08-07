@@ -313,3 +313,34 @@ def test_labels_renumber_and_stay_hidden_after_a_removal():
     ov.remove_coordinate(a)
     assert [ov._point_label(i) for i in range(2)] == ["FIB 1", "FIB 2"]
     assert _label_states(ov) == [False, False]
+
+
+# ── label legibility ──────────────────────────────────────────────────────
+
+
+def test_labels_carry_a_dark_outline():
+    """Every label colour is a bright saturated hue, so SURFACE and FM-SURFACE
+    vanish against a bright image without a dark stroke behind them. Matches the
+    old canvas, which applies the same effect at three sites."""
+    import matplotlib.patheffects as pe
+
+    _, ov = _attached([_coord(10, 10, PointType.SURFACE), _coord(20, 20)])
+    for ann in ov._anns:
+        assert ann is not None
+        effects = ann.get_path_effects()
+        assert effects, "label has no outline"
+        assert any(isinstance(e, pe.withStroke) for e in effects)
+
+
+def test_the_outline_is_dark_not_light():
+    """A white stroke would merge into a bright background -- exactly where the
+    outline has to work -- so the foreground must be dark."""
+    _, ov = _attached([_coord(10, 10)])
+    stroke = ov._anns[0].get_path_effects()[0]
+    assert stroke._gc.get("foreground") == "black"
+
+
+def test_a_point_added_later_gets_the_outline_too():
+    _, ov = _attached([_coord(10, 10)])
+    ov.add_coordinate(_coord(20, 20, PointType.POI))
+    assert all(a.get_path_effects() for a in ov._anns if a is not None)
