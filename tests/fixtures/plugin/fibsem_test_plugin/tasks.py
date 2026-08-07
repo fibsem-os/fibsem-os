@@ -14,11 +14,7 @@ class FixtureTaskConfig(AutoLamellaTaskConfig):
     task_type: ClassVar[str] = TASK_TYPE
     display_name: ClassVar[str] = "Fixture Task"
 
-    # Deliberately the alias spelling, not the canonical `tooltip`. The in-tree
-    # configs were all renamed to canonical (FIB-384), so without this nothing in
-    # CI would exercise the alias path -- and that path exists precisely for
-    # out-of-tree plugins, which are the code CI cannot see. Do not "fix" this.
-    number: int = field(default=7, metadata={"help": "A round-trippable parameter"})
+    number: int = field(default=7, metadata={"tooltip": "A round-trippable parameter"})
 
 
 class FixtureTask(AutoLamellaTask):

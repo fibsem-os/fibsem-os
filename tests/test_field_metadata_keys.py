@@ -1,15 +1,15 @@
-"""One metadata vocabulary, two spellings accepted.
+"""One metadata vocabulary, and a diagnostic for anything outside it.
 
-`DEFAULT_FIELD_METADATA` is the canonical set, and the pattern, strategy and
-milling-settings forms all read it. The AutoLamella task-parameters form grew its
-own spellings for two of those keys -- `help` for `tooltip`, `units` for `unit` --
-and reads only those, so a field written for one form renders half-blank in the
-other: right value, no tooltip, no unit suffix, nothing logged.
+`DEFAULT_FIELD_METADATA` is the vocabulary every config form reads. The
+AutoLamella task configs used to spell two of those keys differently -- `help`
+for `tooltip`, `units` for `unit` -- and the form rendering them read only those
+spellings, so a field written for one form rendered half-blank in the other:
+right value, no tooltip, no unit suffix, nothing logged.
 
-Both spellings are now accepted everywhere (FIB-384). Deliberately *not* a
-rename-and-drop: installed out-of-tree plugins declare `help` and `units` between
-them dozens of times, and dropping the aliases would silently strip their
-tooltips and suffixes.
+All in-tree declarations were converted and the old spellings are **not**
+accepted (FIB-384). What makes that safe rather than silent is the warning: a
+field still declaring a superseded key is told which key replaced it, instead of
+simply losing its tooltip.
 """
 
 import logging
@@ -19,9 +19,8 @@ import pytest
 
 from fibsem.structures import (
     DEFAULT_FIELD_METADATA,
-    METADATA_KEY_ALIASES,
+    RENAMED_METADATA_KEYS,
     get_fields_with_metadata,
-    metadata_value,
 )
 import fibsem.structures as fstructures
 
@@ -30,23 +29,20 @@ import fibsem.structures as fstructures
 class MetadataProbe:
     """One field per spelling situation the forms have to cope with."""
 
-    task_dialect: float = field(
-        default=1.0, metadata={"help": "task spelling", "units": "m", "scale": 1e6}
+    superseded: float = field(
+        default=1.0, metadata={"help": "old spelling", "units": "m", "scale": 1e6}
     )
     canonical: float = field(
-        default=1.0, metadata={"tooltip": "canonical spelling", "unit": "m"}
-    )
-    both_spellings: float = field(
-        default=1.0, metadata={"tooltip": "canonical wins", "help": "alias loses"}
+        default=1.0, metadata={"tooltip": "current spelling", "unit": "m"}
     )
     neither: float = field(default=1.0, metadata={"label": "No text at all"})
 
 
-def test_every_alias_points_at_a_canonical_key():
-    """The alias map cannot name a key the vocabulary does not define."""
-    for alias, canonical in METADATA_KEY_ALIASES.items():
-        assert canonical in DEFAULT_FIELD_METADATA, f"{alias!r} -> unknown key {canonical!r}"
-        assert alias not in DEFAULT_FIELD_METADATA, f"{alias!r} is both an alias and canonical"
+def test_every_renamed_key_points_at_a_real_one():
+    """The diagnostic map cannot advise a key the vocabulary does not define."""
+    for old, new in RENAMED_METADATA_KEYS.items():
+        assert new in DEFAULT_FIELD_METADATA, f"{old!r} -> unknown key {new!r}"
+        assert old not in DEFAULT_FIELD_METADATA, f"{old!r} is both superseded and current"
 
 
 def test_filepath_is_part_of_the_vocabulary():
@@ -62,31 +58,24 @@ def test_filepath_is_part_of_the_vocabulary():
     assert not get_fields_with_metadata(MetadataProbe)["neither"]["filepath"]
 
 
-def test_the_task_dialect_fills_the_canonical_keys():
-    """A config written with `help`/`units` renders in the canonical-reading forms."""
-    meta = get_fields_with_metadata(MetadataProbe)["task_dialect"]
+def test_a_superseded_key_is_not_resolved():
+    """The old spellings are gone, not aliased.
 
-    assert meta["tooltip"] == "task spelling"
-    assert meta["unit"] == "m"
-
-
-def test_the_aliases_survive_for_readers_that_still_use_them():
-    """Normalising must not remove the original keys.
-
-    The task-parameters form reads a field's raw metadata in places, and existing
-    plugins declare the alias spellings. Filling the canonical key is additive.
+    This is the whole point of the decision: one vocabulary, not two accepted
+    forever. A field still declaring `help` renders without a tooltip -- and is
+    warned about, which is what makes dropping them safe rather than silent.
     """
-    meta = get_fields_with_metadata(MetadataProbe)["task_dialect"]
+    meta = get_fields_with_metadata(MetadataProbe)["superseded"]
 
-    assert meta["help"] == "task spelling"
-    assert meta["units"] == "m"
+    assert meta["tooltip"] is None
+    assert meta["unit"] is None
 
 
-def test_canonical_wins_when_a_field_declares_both():
-    """Otherwise the winner would depend on dict iteration order."""
-    meta = get_fields_with_metadata(MetadataProbe)["both_spellings"]
+def test_the_current_spellings_are_read():
+    meta = get_fields_with_metadata(MetadataProbe)["canonical"]
 
-    assert meta["tooltip"] == "canonical wins"
+    assert meta["tooltip"] == "current spelling"
+    assert meta["unit"] == "m"
 
 
 def test_a_field_declaring_neither_spelling_gets_the_default():
@@ -96,24 +85,20 @@ def test_a_field_declaring_neither_spelling_gets_the_default():
     assert meta["unit"] is None
 
 
-@pytest.mark.parametrize(
-    "metadata,expected",
-    [
-        ({"tooltip": "canonical"}, "canonical"),
-        ({"help": "alias"}, "alias"),
-        ({"tooltip": "canonical", "help": "alias"}, "canonical"),
-        ({}, None),
-        ({"tooltip": None, "help": "alias"}, "alias"),
-    ],
-    ids=["canonical", "alias", "both", "neither", "canonical_is_none"],
-)
-def test_metadata_value_reads_either_spelling(metadata, expected):
-    """For consumers reading raw field metadata rather than the normalised dict."""
-    assert metadata_value(metadata, "tooltip") == expected
+def test_a_superseded_key_is_told_what_replaced_it(caplog):
+    """A generic "no form reads this" line is useless to someone with `help`.
 
+    Out-of-tree configs are the ones that still declare the old spellings, and
+    their authors cannot see this vocabulary. The warning names the replacement
+    so the fix is obvious from the log alone.
+    """
+    fstructures._warned_metadata_keys.clear()
+    with caplog.at_level(logging.WARNING):
+        get_fields_with_metadata(MetadataProbe)
 
-def test_metadata_value_returns_the_default_rather_than_none():
-    assert metadata_value({}, "unit", "") == ""
+    messages = [r.message for r in caplog.records]
+    assert any("'help'" in m and "renamed to 'tooltip'" in m for m in messages)
+    assert any("'units'" in m and "renamed to 'unit'" in m for m in messages)
 
 
 def test_an_unreadable_metadata_key_is_reported_once(caplog):
@@ -141,32 +126,37 @@ def test_an_unreadable_metadata_key_is_reported_once(caplog):
 
 
 def test_a_known_key_is_never_reported(caplog):
-    """Including the aliases and the keys read by forms but absent from the dict."""
+    """Every key in the vocabulary, including ones added late like `filepath`."""
 
     @dataclass
     class Fine:
-        a: float = field(default=1.0, metadata={"help": "alias", "units": "m"})
-        b: str = field(default="", metadata={"filepath": True, "tooltip": "t"})
+        a: float = field(default=1.0, metadata={"tooltip": "t", "unit": "m"})
+        b: str = field(default="", metadata={"filepath": True, "label": "L"})
 
     fstructures._warned_metadata_keys.clear()
     with caplog.at_level(logging.WARNING):
         get_fields_with_metadata(Fine)
 
-    assert [r.message for r in caplog.records if "no form reads" in r.message] == []
+    assert [r.message for r in caplog.records if "declares metadata key" in r.message] == []
 
 
 def test_in_tree_configs_declare_no_unreadable_keys(caplog):
-    """Every registered task config, rendered through the real vocabulary.
+    """Every built-in task config, rendered through the real vocabulary.
 
     Catches a typo in a config that no test opens a form for -- which is most of
     them.
+
+    Deliberately `BUILTIN_TASKS` rather than `get_tasks()`: the latter includes
+    whatever plugins happen to be pip-installed, so this would pass or fail on
+    the contents of the developer's environment. Plugin configs are exactly the
+    ones we cannot fix from here -- the warning is what serves them.
     """
-    from fibsem.applications.autolamella.workflows.tasks import get_tasks
+    from fibsem.applications.autolamella.workflows.tasks import BUILTIN_TASKS
 
     fstructures._warned_metadata_keys.clear()
     with caplog.at_level(logging.WARNING):
-        for task in get_tasks().values():
+        for task in BUILTIN_TASKS.values():
             get_fields_with_metadata(task.config_cls)
 
-    offenders = [r.message for r in caplog.records if "no form reads" in r.message]
+    offenders = [r.message for r in caplog.records if "declares metadata key" in r.message]
     assert offenders == []

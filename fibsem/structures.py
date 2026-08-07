@@ -52,18 +52,16 @@ DEFAULT_FIELD_METADATA: Dict[str, Any] = {
     "filepath": None,               # render a string field as a file picker rather than a line edit
 }
 
-# Alias -> canonical key. The AutoLamella task configs grew their own spellings
-# for two keys the rest of the codebase already had, and the form that renders
-# them reads only those spellings, so neither side is "the mistake" from the
-# other's point of view. The canonical names are the ones in
-# DEFAULT_FIELD_METADATA; the aliases are accepted so that a config written in
-# either dialect renders correctly in any form.
+# Superseded spelling -> the key that replaced it. Used **only** to make the
+# warning below say something useful; nothing resolves these at runtime, so a
+# field still declaring one renders without a tooltip or a unit suffix.
 #
-# Deliberately not a rename-and-drop: `help` and `units` are used by installed
-# out-of-tree plugins (the example repo and a lab CLEM plugin between them
-# declare `help` 21 times and `units` 9), and dropping the aliases would
-# silently strip their tooltips and unit suffixes. See FIB-384.
-METADATA_KEY_ALIASES: Dict[str, str] = {
+# The AutoLamella task configs used to spell two keys differently from the rest
+# of the codebase, and the form that rendered them read only those spellings. All
+# in-tree declarations were converted (FIB-384); this map exists so an
+# out-of-tree config that has not been converted is told exactly what to change,
+# rather than getting the generic "no form reads this" line.
+RENAMED_METADATA_KEYS: Dict[str, str] = {
     "help": "tooltip",
     "units": "unit",
 }
@@ -71,43 +69,33 @@ METADATA_KEY_ALIASES: Dict[str, str] = {
 _warned_metadata_keys: set = set()
 
 
-def _warn_unknown_metadata_keys(struct_cls: Type[Any], field_name: str, metadata: Dict[str, Any]) -> None:
+def _warn_unknown_metadata_keys(struct_cls: Type[Any], field_name: str, metadata: Mapping[str, Any]) -> None:
     """Log once for a metadata key nothing will ever read.
 
-    A mis-keyed field is silent today: the form renders, the value is right, and
-    the label or suffix is simply missing. Plugin authors have no way to discover
-    the vocabulary, so a typo costs an afternoon. Warned once per
+    A mis-keyed field is otherwise silent: the form renders, the value is right,
+    and the label or suffix is simply missing. Plugin authors have no way to
+    discover the vocabulary, so a typo costs an afternoon. Warned once per
     (class, field, key) because form metadata is re-read on every rebuild.
     """
-    known = set(DEFAULT_FIELD_METADATA) | set(METADATA_KEY_ALIASES)
     for key in metadata:
-        if key in known:
+        if key in DEFAULT_FIELD_METADATA:
             continue
         marker = (struct_cls.__qualname__, field_name, key)
         if marker in _warned_metadata_keys:
             continue
         _warned_metadata_keys.add(marker)
-        logging.warning(
-            f"{struct_cls.__name__}.{field_name} declares metadata key {key!r}, which no "
-            f"form reads. Known keys: {', '.join(sorted(known))}."
-        )
-
-
-def metadata_value(metadata: Mapping[str, Any], key: str, default: Any = None) -> Any:
-    """Read one metadata key, accepting either spelling.
-
-    For consumers that read a field's raw ``metadata`` rather than going through
-    ``get_fields_with_metadata`` -- the AutoLamella task-parameters form does, so
-    it never saw the normalised keys. Pass the canonical name; the alias is
-    consulted only if the canonical key is absent or ``None``.
-    """
-    value = metadata.get(key)
-    if value is None:
-        for alias, canonical in METADATA_KEY_ALIASES.items():
-            if canonical == key and metadata.get(alias) is not None:
-                value = metadata[alias]
-                break
-    return default if value is None else value
+        replacement = RENAMED_METADATA_KEYS.get(key)
+        if replacement is not None:
+            logging.warning(
+                f"{struct_cls.__name__}.{field_name} declares metadata key {key!r}, which was "
+                f"renamed to {replacement!r} and is no longer read. The field will render "
+                f"without it until the declaration is updated."
+            )
+        else:
+            logging.warning(
+                f"{struct_cls.__name__}.{field_name} declares metadata key {key!r}, which no "
+                f"form reads. Known keys: {', '.join(sorted(DEFAULT_FIELD_METADATA))}."
+            )
 
 
 def get_fields_with_metadata(struct_cls: Type[Any]) -> Dict[str, Dict[str, Any]]:
@@ -122,12 +110,6 @@ def get_fields_with_metadata(struct_cls: Type[Any]) -> Dict[str, Dict[str, Any]]
     for f in fields(struct_cls):
         declared = dict(f.metadata)
         _warn_unknown_metadata_keys(struct_cls, f.name, declared)
-        # An alias fills its canonical key only when the canonical one is absent,
-        # so a field declaring both keeps the canonical value rather than having
-        # it overwritten by whichever happens to be iterated last.
-        for alias, canonical in METADATA_KEY_ALIASES.items():
-            if alias in declared and declared.get(canonical) is None:
-                declared[canonical] = declared[alias]
         merged_metadata = {**default_metadata, **declared}
         field_metadata[f.name] = merged_metadata
     return field_metadata
