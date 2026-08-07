@@ -590,6 +590,16 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         """Keys of everything this widget has composited, oldest first."""
         return list(self._held)
 
+    def forget_overview(self, key: str) -> bool:
+        """Drop the channel planes held for one image. False if none were held.
+
+        The counterpart to the canvas's `remove_image`, and it has to be called with it:
+        the planes are what `_restyle_others` re-renders from, so keeping them for an
+        image no longer placed leaks the pixels and leaves `_channel_still_shown`
+        answering for a channel nothing displays.
+        """
+        return self._held.pop(key, None) is not None
+
     def clear_overviews(self) -> None:
         """Drop every composited image, leaving overlays and the channel model alone."""
         for key in list(self._held):
