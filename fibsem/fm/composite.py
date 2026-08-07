@@ -7,10 +7,9 @@ the colocalised multi-channel result.
 Qt-free by design, so it can be imported and tested without the UI extras (CI has
 no napari or PyQt5, and anything reaching through `fibsem.ui` is skipped there).
 
-Originally written for the quad-view FM canvas on PR #111 and lifted here
-unchanged so the review panel can use it too. When #111 lands, its copy at
-`fibsem/ui/widgets/canvas/fm_composite.py` should become a re-export of this
-module rather than a second implementation.
+Originally written for the quad-view FM canvas on PR #111 and lifted here so the
+review panel could use it too; `fibsem/ui/widgets/canvas/fm_composite.py` is now a
+re-export of this module rather than the second copy it used to be.
 """
 from __future__ import annotations
 
