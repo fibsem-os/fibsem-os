@@ -19,14 +19,28 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-# napari-dark palette, matching the rest of the app's chrome
-BACKGROUND = QColor("#262930")
-PANEL = QColor("#1e2027")
-BORDER = QColor("#3d4251")
-ENABLED_FILL = QColor("#50a6ff")
+from fibsem.ui.tokens import (
+    ACCENT_COLOR,
+    BORDER_COLOR,
+    PANEL_COLOR,
+    SURFACE_COLOR,
+    TEXT_MUTED_COLOR,
+)
+
+# napari-dark palette, matching the rest of the app's chrome. Taken from the
+# shared tokens rather than restated, so retuning the palette reaches this
+# widget too -- these were copies of the same five values.
+BACKGROUND = QColor(SURFACE_COLOR)
+PANEL = QColor(PANEL_COLOR)
+BORDER = QColor(BORDER_COLOR)
+ENABLED_FILL = QColor(ACCENT_COLOR)
+TEXT_MUTED = QColor(TEXT_MUTED_COLOR)
+
+# No token: the enabled/disabled tile edges are this widget's own, and the two
+# other widgets that draw tile state disagree with them (see tiled_overview_widget
+# and tile_grid_overlay). Needs one shared decision, not three local ones.
 ENABLED_EDGE = QColor("#7cc0ff")
 DISABLED_EDGE = QColor("#4a4f5c")
-TEXT_MUTED = QColor("#868e93")
 
 MIN_CELL_PX = 10
 MAX_CELL_PX = 44
