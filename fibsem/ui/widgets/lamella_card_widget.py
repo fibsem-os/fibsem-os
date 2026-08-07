@@ -21,26 +21,29 @@ from fibsem.ui.icon import fibsem_icon
 from fibsem.applications.autolamella.structures import DefectState, DefectType, Lamella
 from fibsem.ui.widgets.lamella_list_widget import _defect_icon, _status_text
 from fibsem.ui import stylesheets
+from fibsem.ui.tokens import (
+    SURFACE_COLOR,
+)
 
 _CARD_WIDTH = 300
 _THUMB_PADDING = 6        # inset from card edges so rounded corners stay visible
 _THUMB_HEIGHT = 170
 _BTN_SIZE = 24
 
-_CARD_STYLE = """
-QFrame#LamellaCard {
-    background: #2b2d31;
+_CARD_STYLE = f"""
+QFrame#LamellaCard {{
+    background: {SURFACE_COLOR};
     border: 1px solid #3a3d42;
     border-radius: 8px;
-}
+}}
 """
 
-_CARD_SELECTED_STYLE = """
-QFrame#LamellaCard {
-    background: #2b2d31;
+_CARD_SELECTED_STYLE = f"""
+QFrame#LamellaCard {{
+    background: {SURFACE_COLOR};
     border: 2px solid #007ACC;
     border-radius: 8px;
-}
+}}
 """
 
 _BTN_STYLE = """

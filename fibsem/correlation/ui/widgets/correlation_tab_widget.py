@@ -112,6 +112,8 @@ from fibsem.ui.widgets.custom_widgets import (
 from fibsem.correlation.ui.widgets.refractive_index_widget import RefractiveIndexWidget
 from fibsem.ui.tokens import (
     CANVAS_BG,
+    SURFACE_COLOR,
+    TEXT_MUTED_COLOR,
 )
 
 _FIT_METHODS = ["None", "Hole", "Gaussian"]
@@ -725,10 +727,10 @@ class _CoordinatesTab(QWidget):
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("background: #2b2d31; border: none;")
+        scroll.setStyleSheet(f"background: {SURFACE_COLOR}; border: none;")
 
         container = QWidget()
-        container.setStyleSheet("background: #2b2d31;")
+        container.setStyleSheet(f"background: {SURFACE_COLOR};")
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
@@ -834,7 +836,7 @@ class _CoordinatesTab(QWidget):
             "(failed or far-off fits still ask)."
         )
         fit_help.setWordWrap(True)
-        fit_help.setStyleSheet("color: #8a8d93; font-size: 11px; padding-top: 4px;")
+        fit_help.setStyleSheet(f"color: {TEXT_MUTED_COLOR}; font-size: 11px; padding-top: 4px;")
         fit_form.addRow(fit_help)
 
         self._fit_panel = TitledPanel("Fit Settings", collapsible=True)

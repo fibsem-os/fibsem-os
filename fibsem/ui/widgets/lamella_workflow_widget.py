@@ -31,6 +31,7 @@ from fibsem.ui.widgets.custom_widgets import (
 )
 from fibsem.ui.tokens import (
     PRIMARY_COLOR,
+    SURFACE_COLOR,
     TEXT_COLOR,
 )
 
@@ -115,7 +116,7 @@ class _TaskEditorDialog(QDialog):
         self.setModal(True)
         self.setMinimumWidth(470)
         self.setMinimumHeight(520)
-        self.setStyleSheet(f"background: #2b2d31; color: {TEXT_COLOR};")
+        self.setStyleSheet(f"background: {SURFACE_COLOR}; color: {TEXT_COLOR};")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)

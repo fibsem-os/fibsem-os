@@ -32,6 +32,13 @@ from PyQt5.QtWidgets import (
 
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
+    BORDER_COLOR,
+    DISABLED_BG_COLOR,
+    GRAY_PRIMARY_COLOR,
+    PANEL_COLOR,
+    ROW_ALT_COLOR,
+    TEXT_COLOR,
+    TEXT_MUTED_COLOR,
     WHITE_ICON_COLOR,
 )
 
@@ -52,18 +59,18 @@ def _color_icon(color: str, size: int = 12) -> QIcon:
     return QIcon(pixmap)
 
 
-_PANEL_QSS = """
-QFrame#tileGridPanel { background: #1e2027; border: 1px solid #3d4251; border-radius: 6px; }
-QLabel { color: #d6d6d6; font-size: 11px; background: transparent; }
-QLabel#panelTitle { color: #9aa0a6; font-size: 10px; font-weight: 600; letter-spacing: 1px; }
-QCheckBox { color: #d6d6d6; font-size: 11px; background: transparent; }
-QLabel#gridSummary { color: #868e93; font-size: 10px; background: transparent; }
-QPushButton#centreButton {
-    background: #2a2d38; color: #d6d6d6; font-size: 11px;
-    border: 1px solid #3d4251; border-radius: 4px; padding: 4px 8px;
-}
-QPushButton#centreButton:hover:enabled { background: #333744; }
-QPushButton#centreButton:disabled { color: #5c6169; border-color: #2e323d; }
+_PANEL_QSS = f"""
+QFrame#tileGridPanel {{ background: {PANEL_COLOR}; border: 1px solid {BORDER_COLOR}; border-radius: 6px; }}
+QLabel {{ color: {TEXT_COLOR}; font-size: 11px; background: transparent; }}
+QLabel#panelTitle {{ color: #9aa0a6; font-size: 10px; font-weight: 600; letter-spacing: 1px; }}
+QCheckBox {{ color: {TEXT_COLOR}; font-size: 11px; background: transparent; }}
+QLabel#gridSummary {{ color: {TEXT_MUTED_COLOR}; font-size: 10px; background: transparent; }}
+QPushButton#centreButton {{
+    background: {ROW_ALT_COLOR}; color: {TEXT_COLOR}; font-size: 11px;
+    border: 1px solid {BORDER_COLOR}; border-radius: 4px; padding: 4px 8px;
+}}
+QPushButton#centreButton:hover:enabled {{ background: #333744; }}
+QPushButton#centreButton:disabled {{ color: {GRAY_PRIMARY_COLOR}; border-color: {DISABLED_BG_COLOR}; }}
 """
 
 

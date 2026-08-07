@@ -51,6 +51,9 @@ from fibsem.ui.tokens import (  # noqa: F401  (re-exported for existing callers)
 # `from fibsem.ui.stylesheets import NAPARI_STYLE` and `stylesheets.NAPARI_STYLE`
 # keep resolving.
 from fibsem.ui.napari_style import NAPARI_STYLE  # noqa: F401
+from fibsem.ui.tokens import (
+    SURFACE_COLOR,
+)
 
 _ICONS_DIR = _os.path.join(_os.path.dirname(__file__), "icons").replace("\\", "/")
 
@@ -336,20 +339,20 @@ TOOLBUTTON_ICON_STYLESHEET = """
     }
 """
 
-# TODO: no token -- #2b2d31, #2d3f5c, #3a3d42
-LIST_WIDGET_STYLESHEET = """
-            QListWidget {
-                background: #2b2d31;
+# TODO: no token -- #2d3f5c, #3a3d42
+LIST_WIDGET_STYLESHEET = f"""
+            QListWidget {{
+                background: {SURFACE_COLOR};
                 border: none;
                 outline: none;
-            }
-            QListWidget::item {
-                background: #2b2d31;
+            }}
+            QListWidget::item {{
+                background: {SURFACE_COLOR};
                 border-bottom: 1px solid #3a3d42;
-            }
-            QListWidget::item:selected {
+            }}
+            QListWidget::item:selected {{
                 background: #2d3f5c;
-            }
+            }}
         """
 
 # QDateTimeEdit with visible up/down step arrows (calendar popup must be OFF for

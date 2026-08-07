@@ -40,6 +40,7 @@ from fibsem.scripting import DiscoveredScript, ScriptResult
 from fibsem.ui.stylesheets import (
     ACCENT_COLOR,
     BORDER_COLOR,
+    DISABLED_BG_COLOR,
     ERROR_COLOR,
     PANEL_COLOR,
     PRIMARY_BUTTON_STYLESHEET,
@@ -132,7 +133,7 @@ QHeaderView::section {{
     padding: 6px 8px;
     font-size: {_FS_SMALL}px;
 }}
-QTableWidget::item {{ padding: 6px 8px; border-bottom: 1px solid #31353f; }}
+QTableWidget::item {{ padding: 6px 8px; border-bottom: 1px solid {DISABLED_BG_COLOR}; }}
 QTableWidget::item:selected {{ background-color: #2d3947; color: {_TEXT_STRONG}; }}
 """
 

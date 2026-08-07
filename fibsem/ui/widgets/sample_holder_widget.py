@@ -22,6 +22,7 @@ from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueSpinBox
 from fibsem.ui.tokens import (
     CANVAS_BG,
+    SURFACE_COLOR,
 )
 
 _ROW_HEIGHT = 40
@@ -499,7 +500,7 @@ if __name__ == "__main__":
     holder = microscope._stage.holder
 
     widget = SampleHolderWidget(microscope=microscope)
-    widget.setStyleSheet("background: #2b2d31; color: #d1d2d4;")
+    widget.setStyleSheet(f"background: {SURFACE_COLOR}; color: #d1d2d4;")
     widget.set_holder(holder)
 
     def on_holder_changed(h: SampleHolder) -> None:

@@ -28,6 +28,7 @@ from fibsem.correlation.structures import Coordinate, PointXYZ
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import (
     CANVAS_BG,
+    TEXT_MUTED_COLOR,
 )
 
 # Per-axis displacement below which a fit is treated as "no change" (the fit
@@ -159,7 +160,7 @@ def _kv(key: str, value: str, value_color: str = "#d0d0d0") -> QWidget:
     row = QHBoxLayout(w)
     row.setContentsMargins(0, 0, 0, 0)
     k = QLabel(key)
-    k.setStyleSheet("color: #8a8d93; font-size: 12px;")
+    k.setStyleSheet(f"color: {TEXT_MUTED_COLOR}; font-size: 12px;")
     v = QLabel(value)
     v.setStyleSheet(f"color: {value_color}; font-size: 12px;")
     v.setTextFormat(Qt.TextFormat.PlainText)

@@ -21,6 +21,9 @@ from superqt import QFlowLayout
 from fibsem.ui.icon import fibsem_icon
 
 from fibsem.structures import FibsemImage
+from fibsem.ui.tokens import (
+    SURFACE_COLOR,
+)
 
 _CARD_WIDTH = 320
 _CARD_HEIGHT = 240
@@ -145,11 +148,11 @@ class FibsemImageFlowWidget(QWidget):
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._scroll.setStyleSheet("QScrollArea { border: none; background: #2b2d31; }")
+        self._scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {SURFACE_COLOR}; }}")
         outer.addWidget(self._scroll)
 
         self._content = QWidget()
-        self._content.setStyleSheet("background: #2b2d31;")
+        self._content.setStyleSheet(f"background: {SURFACE_COLOR};")
         self._content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         self._flow = QFlowLayout(self._content)

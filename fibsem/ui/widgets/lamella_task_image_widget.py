@@ -33,6 +33,9 @@ from fibsem.applications.autolamella.task_outputs import (
 from fibsem.fm.preview import is_fluorescence_image, load_projection
 from fibsem.imaging.drawing import draw_image_overlays
 from fibsem.structures import FibsemImage
+from fibsem.ui.tokens import (
+    SURFACE_COLOR,
+)
 
 _TARGET_WIDTH = 1024//2
 _PLACEHOLDER_HEIGHT = 768//2  # estimated height for placeholder labels
@@ -228,12 +231,12 @@ class LamellaTaskImageWidget(QWidget):
         self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._scroll.setStyleSheet(
-            "QScrollArea { border: none; background: #2b2d31; }"
+            f"QScrollArea {{ border: none; background: {SURFACE_COLOR}; }}"
         )
         outer.addWidget(self._scroll)
 
         self._content = QWidget()
-        self._content.setStyleSheet("background: #2b2d31;")
+        self._content.setStyleSheet(f"background: {SURFACE_COLOR};")
         self._content_layout = QVBoxLayout(self._content)
         self._content_layout.setContentsMargins(16, 16, 16, 16)
         self._content_layout.setSpacing(12)
