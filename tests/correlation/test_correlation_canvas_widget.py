@@ -53,10 +53,55 @@ def test_adapter_surface_matches_the_canvas_it_replaces():
 
 
 def test_image_methods_match_the_canvas_it_replaces():
-    for name in ("set_image", "update_display", "set_pixel_size", "reset_view",
-                 "set_legend_visible", "set_labels_visible"):
+    """Signatures, not just callability.
+
+    `set_image` used to take a FibsemImage here while both remaining consumers
+    pass a numpy array -- either would have raised AttributeError on the swap. A
+    callable-only check sailed straight past it, so this compares each
+    parameter's position, annotation and default against the old canvas.
+    """
+    for name in ("__init__", "set_image", "update_display", "set_coordinates",
+                 "set_selected", "refresh_coordinate", "set_pixel_size",
+                 "reset_view", "set_legend_visible", "set_labels_visible",
+                 "clear_overlay"):
         assert callable(getattr(CorrelationCanvasWidget, name, None)), name
         assert callable(getattr(ImagePointCanvas, name, None)), name
+        _assert_accepts_old_calls(name)
+
+
+def _assert_accepts_old_calls(name: str) -> None:
+    """Every call the old canvas accepts, the new one must accept identically.
+
+    Extra *optional* parameters appended on the end are fine -- that is how the
+    shared canvas's pixel_size reaches `update_display` -- but a rename, a
+    reorder, a changed default or a changed type is a broken swap.
+    """
+    import inspect
+
+    old = list(inspect.signature(getattr(ImagePointCanvas, name)).parameters.values())
+    new = list(inspect.signature(getattr(CorrelationCanvasWidget, name)).parameters.values())
+    assert len(new) >= len(old), f"{name}: parameters dropped"
+
+    for want, got in zip(old, new):
+        assert got.name == want.name, f"{name}: {want.name} -> {got.name}"
+        assert got.kind == want.kind, f"{name}.{want.name}: {want.kind} -> {got.kind}"
+        assert got.default == want.default, f"{name}.{want.name}: default changed"
+        assert got.annotation == want.annotation, (
+            f"{name}.{want.name}: {want.annotation} -> {got.annotation}"
+        )
+
+    for extra in new[len(old):]:
+        assert extra.default is not inspect.Parameter.empty, (
+            f"{name}.{extra.name}: new required parameter breaks existing callers"
+        )
+
+
+def test_set_image_takes_the_array_its_consumers_pass():
+    """The signature check above is only as good as the annotation. This is the
+    behaviour: both consumers hold a derived array, never a FibsemImage."""
+    w = CorrelationCanvasWidget()
+    w.set_image(np.zeros((32, 48), dtype=np.uint8))
+    assert w.canvas._img_w == 48 and w.canvas._img_h == 32
 
 
 def test_result_overlay_signature_matches_the_canvas_it_replaces():
@@ -124,13 +169,29 @@ def test_refresh_picks_up_an_external_edit():
 
 
 def test_adding_is_off_when_no_types_are_allowed(monkeypatch):
-    """correlation_result_widget passes [] to make its overlay read-only."""
-    w = _widget(allowed=[])
+    """[] means adding is off, for a canvas that only displays a result.
+
+    The stub is menu-shaped and dismisses itself. A bare lambda lets the
+    AttributeError escape the slot when this regresses, and PyQt5 turns that into
+    a hard abort (FIB-329) -- taking the whole run down instead of failing here.
+    """
     called = []
+
+    class _DismissedMenu:
+        def __init__(self, *a, **k):
+            called.append(self)
+
+        def addAction(self, action):
+            pass
+
+        def exec_(self, pos):
+            return None
+
     monkeypatch.setattr(
         "fibsem.ui.correlation.widgets.correlation_canvas_widget.QMenu",
-        lambda *a, **k: called.append(1),
+        _DismissedMenu,
     )
+    w = _widget(allowed=[])
     seen = []
     w.point_add_requested.connect(lambda *a: seen.append(a))
 
