@@ -1388,6 +1388,14 @@ class _CanvasAdapter:
     stack (fibsem.ui.widgets.canvas, PR #111, index-based PointOverlay
     signals) therefore means new adapters PLUS an inbound translation layer;
     what stays untouched is the registry, exclusivity, and lifecycle logic.
+
+    Superseded in part (FIB-535): the translation layer above is no longer the
+    plan. A CorrelationPointOverlay subclassing PointOverlay carries Coordinate
+    identity in its own signals, so nothing has to be translated back from an
+    index — and it also resolves the second mismatch this note misses, that one
+    canvas shows several PointTypes at once while PointOverlay is a single flat
+    list. The last sentence still holds: registry, exclusivity and lifecycle
+    stay untouched.
     """
 
     def __init__(
