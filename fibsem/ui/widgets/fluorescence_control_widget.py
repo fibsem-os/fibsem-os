@@ -3,7 +3,6 @@ import os
 import threading
 from typing import List, Optional, Union
 
-import napari
 from PyQt5.QtCore import QEvent, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
     QCheckBox,
@@ -19,7 +18,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from superqt import ensure_main_thread
-from napari.layers import Image as NapariImageLayer
 from fibsem import conversions, utils
 from fibsem import config as fcfg
 from fibsem.fm.acquisition import acquire_image
@@ -34,10 +32,7 @@ from fibsem.fm.structures import (
     ZParameters,
 )
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import (
-    FibsemStagePosition,
-    Point,
-)
+from fibsem.structures import Point
 from fibsem.ui.fm.widgets import (
     AutofocusWidget,
     CameraWidget,
@@ -46,7 +41,7 @@ from fibsem.ui.fm.widgets import (
     ObjectiveControlWidget,
     ZParametersWidget,
 )
-from fibsem.ui.napari.utilities import is_position_inside_layer, update_text_overlay
+from fibsem.ui import notification_service
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
@@ -67,7 +62,7 @@ class FMControlWidget(QWidget):
     def __init__(
         self,
         microscope: FibsemMicroscope,
-        viewer: napari.Viewer,
+        viewer=None,  # optional: quad-view hosts run viewer-less
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
@@ -97,14 +92,19 @@ class FMControlWidget(QWidget):
         self._acquisition_stop_event = threading.Event()
         self._current_acquisition_type: Optional[str] = None
 
+        # FM canvas click context (quad-view): retained from the latest image so a
+        # double-click can convert pixel -> stage without napari layer metadata
+        self._fm_pixelsize: Optional[float] = None
+        self._fm_image_shape: Optional[tuple] = None
+        self._fm_canvas = None  # quad-view FM canvas we connect to (for teardown)
+        self._fm_move_lock = threading.Lock()  # serialize canvas-driven stage moves
+
         # guards the debounced working-state autosave while applying a config
         self._loading_config = False
 
         self.initUI()
         self.connect_signals()
         self._update_acquisition_button_states()
-
-        update_text_overlay(self.viewer, self.microscope)
 
     def initUI(self):
         """Initialize the user interface."""
@@ -320,7 +320,18 @@ class FMControlWidget(QWidget):
             self._on_fm_settings_changed
         )
 
-        self.viewer.mouse_double_click_callbacks.append(self.on_mouse_double_click)
+        # Route FM canvas double-click (-> relative move) and Shift+scroll (-> objective)
+        # to the matplotlib canvas, replacing the napari viewer's double-click hook.
+        controller = self._view_controller()
+        if controller is not None:
+            # bound methods (not lambdas) so they can be disconnected on teardown; the
+            # canvas outlives this widget, so a leaked connection would drive a stale
+            # stage move through a destroyed widget
+            self._fm_canvas = controller.fm_canvas
+            self._fm_canvas.canvas_double_clicked.connect(self._on_canvas_fm_double_click)
+            self._fm_canvas.canvas_scrolled.connect(
+                self.objectiveControlWidget._on_canvas_scroll
+            )
 
         # Update checkbox text when lamella selection changes
         if self.parent_widget is not None and hasattr(
@@ -333,14 +344,32 @@ class FMControlWidget(QWidget):
         # Initialize checkbox text
         self._update_checkbox_text()
 
-    def close_widget(self):
-        """Close the widget."""
+    def _teardown_connections(self):
+        """Disconnect every external signal/callback wired in connect_signals.
 
-        # disconnect signals
-        self.fm.acquisition_signal.disconnect(self.update_image)
-        self.viewer.mouse_double_click_callbacks.remove(self.on_mouse_double_click)
+        Idempotent and fully guarded, so it can be called from ``closeEvent`` AND from
+        the host's teardown (the ``deleteLater`` path, where ``closeEvent`` never
+        fires). The quad-view ``fm_canvas`` outlives this widget, so its connections
+        MUST come down or a stale double-click/scroll drives the stage or objective
+        through a destroyed widget — and PyQt turns that into qFatal (FIB-329).
+        """
+        try:
+            self.fm.acquisition_signal.disconnect(self.update_image)
+        except (TypeError, RuntimeError):
+            pass
 
-        # Disconnect lamella list signal if connected
+        if self._fm_canvas is not None:
+            for signal, slot in (
+                (self._fm_canvas.canvas_double_clicked, self._on_canvas_fm_double_click),
+                (self._fm_canvas.canvas_scrolled, self.objectiveControlWidget._on_canvas_scroll),
+            ):
+                try:
+                    signal.disconnect(slot)
+                except (TypeError, RuntimeError):
+                    pass
+            self._fm_canvas = None
+        self.objectiveControlWidget.cleanup()
+
         if self.parent_widget is not None and hasattr(
             self.parent_widget, "lamella_list"
         ):
@@ -348,80 +377,73 @@ class FMControlWidget(QWidget):
                 self.parent_widget.lamella_list.lamella_selected.disconnect(
                     self._update_checkbox_text
                 )
-            except Exception:
+            except (TypeError, RuntimeError):
                 pass
 
+    def close_widget(self):
+        """Disconnect external signals and close the widget."""
+        self._teardown_connections()
         self.close()
 
-    def on_mouse_double_click(self, viewer, event):
-        # only left clicks
-        if event.button != 1:
-            return
+    def _fm_relative_move_from_pixel(self, x, y, image_shape, pixelsize):
+        """Convert an FM-image pixel (x=col, y=row) into a relative stage move that
+        recentres that point, then move via ``fm_stable_move``.
 
-        # Prevent stage movement during acquisitions
-        if self.is_acquisition_active:
-            logging.info("Stage movement disabled during acquisition")
-            event.handled = True
-            return
+        ``fm_stable_move`` undoes the display transform itself (``FluorescenceMicroscope
+        ._transform``) and projects through the camera's axis tilt, so the move is
+        foreshortening-correct and holds focus. Do NOT pre-apply the camera transform
+        here — that would double-apply it (see #198 / FIB-133).
 
-        logging.info(f"-" * 50)
-
-        selected_layer: Optional[NapariImageLayer] = None
-        movement_type = None
-        ALT_MODIFIER = "Alt" in event.modifiers
-
-        fm_image_layers = []
-        for layer in self.viewer.layers:
-            if isinstance(layer, NapariImageLayer) and "FM Image" in layer.name:
-                fm_image_layers.append(layer.name)
-
-        for fm_layer in fm_image_layers:
-            if is_position_inside_layer(event.position, self.viewer.layers[fm_layer]):
-                selected_layer = self.viewer.layers[fm_layer]
-                pixelsize = selected_layer.metadata.get("pixel_size_x", None)
-                image_shape = selected_layer.data.shape[-2:]
-                movement_type = "FM"
-                break
-
-        if selected_layer is None:
-            logging.info(f"Position {event.position} is not in any valid layer")
-            return
-
-        if pixelsize is None:
-            logging.info("Pixelsize is None")
-            return
-
-        if not self.microscope.fm.has_valid_orientation():
-            logging.info(f"Stage must be in a valid FM orientation to move stage via FM (current: {self.microscope.get_stage_orientation()})")
-            event.handled = True
-            return
-
-        # convert from image coordinates to microscope coordinates
-        coords = selected_layer.world_to_data(event.position)
-        if len(coords) in [3, 4]:
-            coords = coords[-2:]
-
+        The click keeps the sign convention the beam paths use (y up-positive, straight
+        out of ``image_to_microscope_image_coordinates2``). There used to be a
+        ``-point_clicked[1]`` here, calibrated at t=0; on a compustage the projection
+        already reverses y between t=0 and t=-180, so a constant negation can only ever
+        be right at one of them.
+        """
         point_clicked = conversions.image_to_microscope_image_coordinates2(
-            coord=Point(x=coords[1], y=coords[0]),  # yx required
+            coord=Point(x=x, y=y),
             image_shape=image_shape,
             pixelsize=pixelsize,
         )
+        logging.info(f"FM relative move: {point_clicked}")
+        self.microscope.fm_stable_move(dx=point_clicked[0], dy=point_clicked[1])
 
-        logging.info(
-            f"Coordinates: {coords} - {point_clicked} - Movement Type {movement_type} - Alt Modifier {ALT_MODIFIER}"
-        )
-        if movement_type == "FM":
-            # fm_stable_move undoes the display transform and projects onto the tilted
-            # sample plane, so the move is foreshortening-correct and holds focus.
-            # Previously this was a raw relative move with neither correction.
-            #
-            # The click keeps the sign convention the beam paths use (y up-positive,
-            # straight out of image_to_microscope_image_coordinates2). There used to be
-            # a `-point_clicked[1]` here, calibrated at t=0; on a compustage the
-            # projection already reverses y between t=0 and t=-180, so a constant
-            # negation can only ever be right at one of them.
-            self.microscope.fm_stable_move(dx=point_clicked[0], dy=point_clicked[1])
-        logging.info(f"-" * 50)
+    def _on_canvas_fm_double_click(self, x, y, modifiers):
+        """Quad-view FM canvas double-click -> relative stage move that recentres the
+        clicked point. Every guard runs here on the UI thread, so a rejected click never
+        starts a thread; the move itself runs off-thread. Modifiers are ignored.
+        """
+        if self.is_acquisition_active:
+            logging.info("Stage movement disabled during acquisition")
+            return
+        if not self.microscope.fm.has_valid_orientation():
+            logging.info(
+                "Stage must be in a valid FM orientation to move via FM "
+                f"(current: {self.microscope.get_stage_orientation()})"
+            )
+            return
+        shape, pixelsize = self._fm_image_shape, self._fm_pixelsize
+        if shape is None or pixelsize is None:
+            logging.info("No FM image available to move from")
+            return
+        if not (0 <= x < shape[1] and 0 <= y < shape[0]):
+            return  # click landed outside the image area
+        # serialize: drop the click if a stage move is already running
+        if not self._fm_move_lock.acquire(blocking=False):
+            logging.info("FM stage move already in progress; ignoring click")
+            return
+        FunctionWorker(self._canvas_fm_move_worker, x, y, shape, pixelsize).start()
+
+    def _canvas_fm_move_worker(self, x, y, shape, pixelsize):
+        try:
+            self._fm_relative_move_from_pixel(x, y, shape, pixelsize)
+        except Exception as exc:
+            logging.exception("FM stage move failed")
+            notification_service.show_toast(
+                f"FM stage move failed: {exc}", notification_type="error"
+            )
+        finally:
+            self._fm_move_lock.release()
 
     def _on_channel_field_changed(self, channel, field: str, value) -> None:
         """Update a single microscope parameter during live acquisition."""
@@ -560,39 +582,29 @@ class FMControlWidget(QWidget):
         if not isinstance(image, FluorescenceImage):
             return
 
-        # Add to napari viewer
-        layer_name = f"FM Image {image.metadata.channels[0].name}"
-        colormap = (
-            image.metadata.channels[0].color if image.metadata.channels else "gray"
-        )
-        translation = (0, 0)
         data = image.data
         if data.ndim == 4 and data.shape[0] == 1 and data.shape[1] == 1:
-            data = data.squeeze(
-                axis=(0, 1)
-            )  # squish to 2D (required by napari for now)
+            data = data.squeeze(axis=(0, 1))  # squish to 2D
 
-        # get translation from eb_image layer if it exists
-        if "ELECTRON" in self.viewer.layers:
-            eb_layer = self.viewer.layers["ELECTRON"]
-            translation = (eb_layer.data.shape[0], 0)  # move it below the SEM image...
+        # retain click context for the FM canvas double-click -> move. The canvas emits
+        # data coords, so this is all the geometry that path needs — no layer metadata.
+        self._fm_pixelsize = getattr(image.metadata, "pixel_size_x", None)
+        self._fm_image_shape = data.shape[-2:]
 
-        if layer_name in self.viewer.layers:
-            self.viewer.layers[layer_name].data = data
-            self.viewer.layers[layer_name].metadata = image.metadata.to_dict()
-            self.viewer.layers[layer_name].translate = translation
-            self.viewer.layers[layer_name].colormap = colormap
-            self.viewer.layers[layer_name].blending = "additive"
-        else:
-            self.viewer.add_image(
-                data,
-                name=layer_name,
-                metadata=image.metadata.to_dict(),
-                colormap=colormap,
-                translate=translation,
-                blending="additive",
-            )
-            self.viewer.reset_view()
+        # Composite the acquired image onto the FM canvas via the controller. It handles
+        # per-channel colour and blending, which the napari layer stack used to do.
+        controller = self._view_controller()
+        if controller is not None:
+            controller.set_fm_image(image)
+
+    def _view_controller(self):
+        """The quad-view ``MicroscopeViewController`` on the main Microscope tab, or
+        ``None`` otherwise. Chain: this widget's ``parent_widget`` is the
+        ``AutoLamellaUI``, whose ``parent_widget`` is the main UI that owns the
+        ``view_controller``."""
+        autolamella_ui = self.parent_widget
+        main_ui = getattr(autolamella_ui, "parent_widget", None)
+        return getattr(main_ui, "view_controller", None)
 
     def _refuse_to_start(self, what: str) -> bool:
         """Whether *what* may not be started, having logged why. True means "do not".
@@ -1035,8 +1047,8 @@ class FMControlWidget(QWidget):
             event.accept()
             return
 
-        # Stop live acquisition
-        self.microscope.fm.acquisition_signal.disconnect(self.update_image)
+        # Disconnect every external signal/callback (idempotent), then stop live
+        self._teardown_connections()
         if self.microscope.fm.is_streaming:
             try:
                 self.microscope.fm.stop_acquisition()
@@ -1153,7 +1165,7 @@ class FMControlWidget(QWidget):
 
 def create_widget(
     microscope: FibsemMicroscope,
-    viewer: napari.Viewer,
+    viewer=None,
     parent: Optional[QWidget] = None,
 ) -> FMControlWidget:
     """Create the FMControlWidget with a demo microscope."""
@@ -1162,8 +1174,29 @@ def create_widget(
     return widget
 
 
+class _DemoHost(QWidget):
+    """Minimal stand-in for the AutoLamella chain this widget resolves through.
+
+    ``FMControlWidget._view_controller`` walks parent -> ``parent_widget`` -> the UI
+    holding ``view_controller``, so the harness has to present that shape or the FM
+    canvas stays empty and the demo looks broken.
+    """
+
+    def __init__(self):
+        from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
+
+        super().__init__()
+        self.view_controller = MicroscopeViewController(parent=self)
+        self.parent_widget = self
+
+
 def main():
     """Main function to run the widget standalone."""
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtWidgets import QApplication, QSplitter
+
+    from fibsem.ui.stylesheets import NAPARI_STYLE
+
     microscope, settings = utils.setup_session()
 
     if microscope.fm is None:
@@ -1176,10 +1209,20 @@ def main():
     assert microscope.system.stage.shuttle_pre_tilt == 0
     assert microscope.stage_is_compustage is True
 
-    viewer = napari.Viewer()
-    widget = create_widget(microscope, viewer)
-    viewer.window.add_dock_widget(widget, area="right")
-    napari.run()
+    app = QApplication.instance() or QApplication([])
+    app.setStyle("Fusion")
+
+    host = _DemoHost()
+    widget = create_widget(microscope, parent=host)
+
+    window = QSplitter(Qt.Horizontal)
+    window.setStyleSheet(NAPARI_STYLE)
+    window.addWidget(host.view_controller.widget)
+    window.addWidget(widget)
+    window.setSizes([720, 460])
+    window.resize(1280, 800)
+    window.show()
+    app.exec_()
     return
 
 

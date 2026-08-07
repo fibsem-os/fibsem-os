@@ -13,7 +13,6 @@ import os
 import threading
 from copy import deepcopy
 from typing import List, Optional, TYPE_CHECKING
-import numpy as np
 import napari
 from fibsem import conversions
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
@@ -42,7 +41,7 @@ from fibsem.ui.FMAcquisitionWidget import open_fm_acquisition_dialog
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui import utils as fui
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QGridLayout,
     QLabel,
@@ -55,6 +54,7 @@ from PyQt5.QtWidgets import (
     QTabWidget,
     QWidget,
 )
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.custom_widgets import LamellaNameListWidget
 from fibsem.ui.widgets.selected_lamella_widget import SelectedLamellaWidget
 
@@ -180,10 +180,8 @@ class AutoLamellaUI(QMainWindow):
 
         self._protocol_lock = threading.RLock()
 
+        # The main tab runs viewer-less; display is via the controller.
         self.viewer = viewer
-
-        # add placeholder layer
-        self.viewer.add_image(np.zeros((10, 10)), name="Placeholder", visible=False)
 
         self.experiment: Optional[Experiment] = None
         self.microscope: Optional[FibsemMicroscope] = None
@@ -198,16 +196,12 @@ class AutoLamellaUI(QMainWindow):
         self.milling_task_config_widget: Optional[MillingTaskViewerWidget] = None
         self.det_widget: Optional["FibsemEmbeddedDetectionWidget"] = None
 
-        # minimap plot widget
+        # minimap plot widget — a floating tool window, shown on demand (was a
+        # napari dock; relocated here so it no longer needs a viewer).
         self.minimap_plot_widget = MinimapPlotWidget(self)
-        self.minimap_plot_dock = self.viewer.window.add_dock_widget(
-            self.minimap_plot_widget,
-            name="Minimap Plot",
-            area="left",
-            add_vertical_stretch=False,
-            tabify=True,
-        )
-        self.minimap_plot_dock.setVisible(False)
+        self.minimap_plot_widget.setWindowFlags(Qt.Tool)
+        self.minimap_plot_widget.setWindowTitle("Minimap Plot")
+        self.minimap_plot_widget.hide()
 
         # add widgets to tabs
         self.tabWidget.insertTab(0, self.system_widget, "Connection")
@@ -620,10 +614,14 @@ class AutoLamellaUI(QMainWindow):
 
             # remove tabs
             if self.fm_control_widget is not None:
+                # deleteLater fires neither closeEvent nor close_widget, so tear
+                # down the FM widget's external signal connections explicitly
+                self.fm_control_widget._teardown_connections()
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.fm_control_widget))
                 self.fm_control_widget.deleteLater()
                 self.fm_control_widget = None
             if self.det_widget is not None:
+                self.det_widget._teardown_connections()
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.det_widget))
                 self.det_widget.deleteLater()
                 self.det_widget = None
@@ -639,12 +637,13 @@ class AutoLamellaUI(QMainWindow):
                 self.milling_task_config_widget.deleteLater()
                 self.milling_task_config_widget = None
             if self.movement_widget is not None:
+                self.movement_widget._teardown_connections()
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.movement_widget))
                 self.movement_widget.deleteLater()
                 self.movement_widget = None
             if self.image_widget is not None:
+                self.image_widget._teardown_connections()
                 self.tabWidget.removeTab(self.tabWidget.indexOf(self.image_widget))
-                self.image_widget.clear_viewer()
                 self.image_widget.acquisition_progress_signal.disconnect(
                     self.handle_acquisition_update
                 )
@@ -1805,9 +1804,6 @@ class AutoLamellaUI(QMainWindow):
             self.microscope.turn_off(BeamType.ELECTRON)
             self.microscope.turn_off(BeamType.ION)
 
-        # set electron image as active layer
-        self.image_widget.restore_active_layer_for_movement()
-
         self.set_current_workflow_message(msg=None, show=False)
 
         # show the post-workflow summary of tasks run this session
@@ -1879,6 +1875,9 @@ class AutoLamellaUI(QMainWindow):
         if isinstance(alignment_area, FibsemRectangle):
             self.image_widget.toggle_alignment_area(alignment_area)
         if alignment_area == "clear":
+            # `clear` here means hide-but-keep: update_alignment_area_ui reads
+            # get_alignment_area() straight after, so the rect has to survive.
+            # (#111 renamed this to hide_alignment_area; 4a kept main's name.)
             self.image_widget.clear_alignment_area()
 
         # POI selection
@@ -1895,9 +1894,9 @@ class AutoLamellaUI(QMainWindow):
             if self.spot_burn_widget is not None:
                 # hide the widget's own Burn button; the burn is run from the workflow control
                 self.spot_burn_widget.set_workflow_mode(True)
-        spot_burn_parameters = info.get("spot_burn_parameters", None)
-        if spot_burn_parameters is not None and self.spot_burn_widget is not None:
-            self.spot_burn_widget.update_parameters(spot_burn_parameters)
+        spot_burn_settings = info.get("spot_burn_settings", None)
+        if spot_burn_settings is not None and self.spot_burn_widget is not None:
+            self.spot_burn_widget.set_settings(spot_burn_settings)
         if info.get("clear_spot_burn", False) and self.spot_burn_widget is not None:
             self.spot_burn_widget.clear_points_layer()
             self.spot_burn_widget.set_workflow_mode(False)
@@ -1927,51 +1926,49 @@ class AutoLamellaUI(QMainWindow):
     _POI_LAYER_NAME = "Point of Interest"
 
     def _show_poi_selection_layer(self, initial_poi: Optional[Point] = None) -> None:
-        """Add a draggable point marker on the FIB image for POI selection.
+        """Show a draggable POI marker on the FIB canvas (via the controller)."""
+        controller = getattr(self.parent_widget, "view_controller", None)
+        if controller is not None:
+            self._show_poi_overlay(controller, initial_poi)
 
-        Positions the marker at initial_poi (milling coords) if provided, otherwise image center.
-        """
-        ib_translate = self.image_widget.ib_layer.translate
+    def _show_poi_overlay(self, controller, initial_poi: Optional[Point]) -> None:
+        """Quad-view POI: a magenta '+' point on the FIB canvas (move-only), via the reducer."""
+        from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
+
         ib_image = self.image_widget.ib_image
         if initial_poi is not None:
             px = conversions.microscope_image_to_image_coordinates(
                 initial_poi, ib_image.data.shape, ib_image.metadata.pixel_size.x
             )
-            row = ib_translate[0] + px.y
-            col = ib_translate[1] + px.x
+            col, row = px.x, px.y
         else:
-            row = ib_translate[0] + ib_image.data.shape[0] / 2
-            col = ib_translate[1] + ib_image.data.shape[1] / 2
-        data = [[row, col]]
-        from fibsem.ui.napari.utilities import add_points_layer
-
-        self._poi_layer = add_points_layer(
-            viewer=self.viewer,
-            data=data,
-            name=self._POI_LAYER_NAME,
-            size=20,
-            face_color="magenta",
-            border_color="white",
-            symbol="cross",
-            blending="additive",
-            border_width=None,
-            border_width_is_relative=False,
+            row = ib_image.data.shape[0] / 2
+            col = ib_image.data.shape[1] / 2
+        controller.set_overlay(
+            BeamType.ION,
+            PointsSpec(
+                id="poi", points=[(col, row)],
+                color="magenta", selected_color="magenta", marker="+", size=18,
+                add_on_right_click=False, removable=False,
+            ),
         )
-        self._poi_layer.mode = "select"
-        self.viewer.layers.selection.active = self._poi_layer
+        # POI owns FIB-canvas input: stage-move + milling menu stand down. The toolbar
+        # toggle lets the user drop to Move and back. (See active-overlay model.)
+        controller.arm_overlay(BeamType.ION, "poi", label="POI", icon="mdi:map-marker")
+        controller.fib_canvas.set_hint("drag to move")
 
     def _compute_and_clear_poi_layer(self) -> None:
-        """Compute POI from current layer position, remove the layer, store in SELECTED_POI."""
-        if self._poi_layer is not None and self._POI_LAYER_NAME in self.viewer.layers:
-            pos = self._poi_layer.data[0]  # [row, col] napari coords
-            ib_translate = self.image_widget.ib_layer.translate
-            py = pos[0] - ib_translate[0]  # pixel y in IB image
-            px = pos[1] - ib_translate[1]  # pixel x in IB image
+        """Compute POI from the current marker position, clear it, store in SELECTED_POI."""
+        controller = getattr(self.parent_widget, "view_controller", None)
+        if controller is None:
+            return
+        pts = controller.overlay_points(BeamType.ION, "poi")
+        if pts:
+            col, row = pts[0]
             ib_image = self.image_widget.ib_image
             self.SELECTED_POI = conversions.image_to_microscope_image_coordinates(
-                Point(x=px, y=py),
-                ib_image.data,
-                ib_image.metadata.pixel_size.x,
+                Point(x=col, y=row), ib_image.data, ib_image.metadata.pixel_size.x
             )
-            self.viewer.layers.remove(self._poi_layer)
-            self._poi_layer = None
+        controller.arm_overlay(BeamType.ION, None)  # restore Move
+        controller.remove_overlay(BeamType.ION, "poi")
+        controller.fib_canvas.set_hint(None)

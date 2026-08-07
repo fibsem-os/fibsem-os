@@ -14,6 +14,7 @@ import warnings
 
 import napari
 from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
@@ -72,6 +73,8 @@ from fibsem.ui.widgets.autolamella_task_config_editor import (
 )
 from fibsem.ui.widgets.lamella_card_widget import LamellaCardContainer
 from fibsem.ui.widgets.lamella_task_image_widget import LamellaTaskImageWidget
+from fibsem.structures import BeamType
+from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui.widgets.lamella_workflow_widget import LamellaWorkflowWidget
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
 from fibsem.ui.widgets.workflow_timeline_widget import WorkflowProgressWidget
@@ -330,13 +333,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         layer_controls_menu = view_menu.addMenu("Show Layer Controls")
 
-        self.action_layer_controls_microscope = QAction("Microscope", self)
-        self.action_layer_controls_microscope.setCheckable(True)
-        self.action_layer_controls_microscope.setChecked(True)
-        self.action_layer_controls_microscope.triggered.connect(
-            lambda checked: self._on_toggle_viewer_layer_controls(checked, "microscope")
-        )
-
         self.action_layer_controls_overview = QAction("Overview", self)
         self.action_layer_controls_overview.setCheckable(True)
         self.action_layer_controls_overview.setChecked(True)
@@ -344,13 +340,66 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             lambda checked: self._on_toggle_viewer_layer_controls(checked, "overview")
         )
 
-        # No "Lamella Editor" entry: that tab renders on the matplotlib canvas now and
-        # has no napari layer docks to show. The submenu goes entirely once the last
-        # napari viewer does.
-        layer_controls_menu.addAction(self.action_layer_controls_microscope)
+        # Overview is the only entry left: the Lamella Editor and now the Microscope tab
+        # both render on the matplotlib canvas and have no napari layer docks to show.
+        # The submenu goes entirely when the minimap migrates (FIB-405).
         layer_controls_menu.addAction(self.action_layer_controls_overview)
 
         view_menu.addAction(self.action_show_minimap)
+
+        # Quad-view display controls. The F5/Esc shortcuts live on these QActions — one
+        # source of truth for the menu item and its keybinding (Qt renders the shortcut
+        # text in the menu automatically). They are scoped to the Microscope tab via
+        # setShortcutContext + container.addAction (see _create_main_tab), so they only
+        # fire when focus is inside that tab.
+        view_menu.addSeparator()
+        self.action_toggle_fullscreen = QAction("Full Screen", self)
+        self.action_toggle_fullscreen.setCheckable(True)
+        self.action_toggle_fullscreen.setShortcut(QKeySequence(Qt.Key_F5))
+        self.action_toggle_fullscreen.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+        self.action_toggle_fullscreen.triggered.connect(self._hotkey_toggle_fullscreen)
+        view_menu.addAction(self.action_toggle_fullscreen)
+
+        self.action_exit_fullscreen = QAction("Exit Full Screen", self)
+        self.action_exit_fullscreen.setShortcut(QKeySequence(Qt.Key_Escape))
+        self.action_exit_fullscreen.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+        self.action_exit_fullscreen.triggered.connect(self._hotkey_exit_fullscreen)
+        view_menu.addAction(self.action_exit_fullscreen)
+
+        fullscreen_menu = view_menu.addMenu("Full Screen View")
+        for label, key in (
+            ("SEM", BeamType.ELECTRON),
+            ("FIB", BeamType.ION),
+            ("Fluorescence", "fm"),
+        ):
+            act = QAction(label, self)
+            act.triggered.connect(
+                lambda _checked=False, k=key: self.view_controller.set_fullscreen(k)
+            )
+            fullscreen_menu.addAction(act)
+
+        # keep the checkable / enabled state honest each time the menu opens
+        view_menu.aboutToShow.connect(self._sync_view_menu)
+
+        # Imaging hotkeys (Microscope tab; scoped via container.addAction). Live / auto
+        # contrast / auto focus act on the selected beam — the view <-> radio sync keeps
+        # dual_beam_widget.beam_type aligned with the selected view.
+        imaging_menu = menu_bar.addMenu("Imaging")
+        if imaging_menu is None:
+            raise RuntimeError("Failed to create Imaging menu in AutoLamella UI.")
+        self._imaging_actions: list = []  # added to the Microscope-tab container for scoping
+        for label, key, handler in (
+            ("Acquire", Qt.Key_F2, self._hotkey_acquire),
+            ("Live Acquisition", Qt.Key_F6, self._hotkey_toggle_live),
+            ("Auto Contrast", Qt.Key_F9, self._hotkey_autocontrast),
+            ("Auto Focus", Qt.Key_F11, self._hotkey_autofocus),
+        ):
+            action = QAction(label, self)
+            action.setShortcut(QKeySequence(key))
+            action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+            action.triggered.connect(handler)
+            imaging_menu.addAction(action)
+            self._imaging_actions.append(action)
 
         # add tools menu, reporting submenu
         tools_menu = menu_bar.addMenu("Tools")
@@ -720,6 +769,84 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.minimap_plot_dock.setVisible(checked)
             self.autolamella_ui.minimap_plot_dock.activateWindow()
 
+    def _sync_view_menu(self) -> None:
+        """Refresh the View menu's dynamic state right before it opens: reflect whether a
+        view is full-screened (check + Exit-enabled)."""
+        if getattr(self, "view_controller", None) is None:
+            return
+        fullscreen = self.view_controller.fullscreen is not None
+        self.action_toggle_fullscreen.setChecked(fullscreen)
+        self.action_exit_fullscreen.setEnabled(fullscreen)
+
+    def _hotkey_toggle_fullscreen(self) -> None:
+        """F5: toggle full screen for the selected view."""
+        self.view_controller.toggle_fullscreen()
+
+    def _hotkey_exit_fullscreen(self) -> None:
+        """Esc: exit full screen (no-op when already showing the grid)."""
+        self.view_controller.set_fullscreen(None)
+
+    def _hotkey_acquire(self) -> None:
+        """F2: acquire the selected view (SEM / FIB / FM), if a microscope is connected
+        and an acquisition isn't already running."""
+        view = self.view_controller.selected_view
+        ui = self.autolamella_ui
+        if view in (BeamType.ELECTRON, BeamType.ION):
+            image_widget = getattr(ui, "image_widget", None)
+            if image_widget is None:
+                logging.info("F2 acquire: no image widget (microscope not connected)")
+                return
+            if getattr(image_widget, "is_acquiring", False):
+                logging.info("F2 acquire: acquisition already in progress")
+                return
+            if view is BeamType.ELECTRON:
+                image_widget.acquire_sem_image()
+            else:
+                image_widget.acquire_fib_image()
+        elif view == "fm":
+            fm_widget = getattr(ui, "fm_control_widget", None)
+            if fm_widget is None:
+                logging.info("F2 acquire: no fluorescence widget")
+                return
+            # `is_acquisition_active`, not `is_acquiring` — the latter does not exist on
+            # this widget, so a getattr default of False would make the guard inert and
+            # let F2 start a second FM acquisition mid-run (cf. FIB-441 / FIB-436).
+            if fm_widget.is_acquisition_active:
+                logging.info("F2 acquire: fluorescence acquisition already in progress")
+                return
+            fm_widget.acquire_image()
+
+    def _selected_em_image_widget(self):
+        """The image widget when a SEM/FIB view is selected, else None (FM / not
+        connected). Backs the EM-only imaging hotkeys (live / auto contrast / auto focus)."""
+        if self.view_controller.selected_view not in (BeamType.ELECTRON, BeamType.ION):
+            return None
+        return getattr(self.autolamella_ui, "image_widget", None)
+
+    def _hotkey_toggle_live(self) -> None:
+        """F6: toggle live acquisition on the selected SEM/FIB beam."""
+        image_widget = self._selected_em_image_widget()
+        if image_widget is None:
+            logging.info("F6 live: only SEM/FIB support live acquisition")
+            return
+        image_widget.toggle_live_acquisition()
+
+    def _hotkey_autocontrast(self) -> None:
+        """F9: auto-contrast the selected SEM/FIB beam."""
+        image_widget = self._selected_em_image_widget()
+        if image_widget is None:
+            logging.info("F9 autocontrast: only SEM/FIB supported")
+            return
+        image_widget.run_autocontrast()
+
+    def _hotkey_autofocus(self) -> None:
+        """F11: auto-focus the selected SEM/FIB beam."""
+        image_widget = self._selected_em_image_widget()
+        if image_widget is None:
+            logging.info("F11 autofocus: only SEM/FIB supported")
+            return
+        image_widget.run_autofocus()
+
     def _on_toggle_viewer_layer_controls(self, checked: bool, viewer_key: str):
         """Toggle the layer list and layer controls for a specific viewer.
 
@@ -730,7 +857,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         under PyQt5 (FIB-329).
         """
         viewer_map = {
-            "microscope": getattr(self, "main_viewer", None),
             "overview": getattr(self, "minimap_viewer", None),
         }
         viewer = viewer_map.get(viewer_key)
@@ -1197,14 +1323,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Create napari viewer for main UI
-        self.main_viewer = napari.Viewer(show=False, title="AutoLamella Main")
-        self.main_viewer.window._qt_window.menuBar().hide()
-        self.main_viewer.window._qt_window.statusBar().hide()
-        self.viewers.append(self.main_viewer)
+        # Viewer-less: the quad-view controller is the display, so no napari viewer is
+        # created here. (The minimap keeps its own until FIB-405.)
+        self.main_viewer = None
 
         # Create the AutoLamellaUI widget
-        self.autolamella_ui = AutoLamellaUI(viewer=self.main_viewer, parent_ui=self)
+        self.autolamella_ui = AutoLamellaUI(viewer=None, parent_ui=self)
 
         # Connect to workflow update signal from AutoLamellaUI
         self.autolamella_ui.workflow_update_signal.connect(self._on_workflow_update)
@@ -1230,11 +1354,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.autolamella_ui.menuBar().setVisible(False)
         self.autolamella_ui.setMinimumWidth(550)
 
-        # Layout: napari viewer (left) | autolamella controls (right) via splitter
+        # Layout: quad view (left) | autolamella controls (right) via splitter.
+        # The controller's SEM/FIB/FM canvases are the display and drive the control
+        # widgets, which resolve it through parent -> parent_widget -> view_controller.
         splitter = QSplitter(Qt.Horizontal)
         splitter.setChildrenCollapsible(False)
 
-        splitter.addWidget(self.main_viewer.window._qt_window)
+        self.view_controller = MicroscopeViewController(parent=self)
+        splitter.addWidget(self.view_controller.widget)
         splitter.addWidget(self.autolamella_ui)
 
         splitter.setSizes([700, 550])
@@ -1246,6 +1373,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             fibsem_icon("mdi:microscope", color=GRAY_ICON_COLOR),
             "Microscope",
         )
+        # The F5/Esc (View) and F2/F6/F9/F11 (Imaging) shortcuts are defined on QActions —
+        # one source of truth for the menu item and its keybinding. Adding those actions to
+        # the Microscope-tab container makes their WidgetWithChildrenShortcut scope resolve
+        # against this tab, so the keys only fire when focus is inside it (not the minimap,
+        # editor or workflow tabs).
+        for action in (
+            self.action_toggle_fullscreen,
+            self.action_exit_fullscreen,
+            *self._imaging_actions,
+        ):
+            container.addAction(action)
 
     def create_tabs(self):
         """Create the tabs for the AutoLamella UI."""
