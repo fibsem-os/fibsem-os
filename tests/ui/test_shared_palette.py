@@ -29,7 +29,17 @@ TOKENS = PACKAGE / "ui" / "tokens.py"
 # declares one is duplicating them.
 PALETTE_SOURCES = (TOKENS, STYLESHEETS)
 
-_DECLARATION = re.compile(r'^(_?[A-Z][A-Z_0-9]*) *= *"(#[0-9a-fA-F]{3,8})"', re.M)
+# Matches `NAME = "#hex"` and the wrapped form `NAME = QColor("#hex")`.
+#
+# The wrapper is not cosmetic: matching only the bare form left this test blind
+# to a whole file. tile_mask_widget.py declared five colours as QColor("...")
+# -- four of them exact copies of SURFACE_COLOR, PANEL_COLOR, BORDER_COLOR and
+# ACCENT_COLOR -- and the build stayed green, which is the exact outcome this
+# test exists to prevent.
+_DECLARATION = re.compile(
+    r'^(_?[A-Z][A-Z_0-9]*) *= *(?:[A-Za-z_][\w.]* *\( *)?"(#[0-9a-fA-F]{3,8})"',
+    re.M,
+)
 
 
 def _shared_colours():

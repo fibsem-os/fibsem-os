@@ -26,6 +26,9 @@ from PyQt5.QtWidgets import (
 
 from fibsem.correlation.structures import Coordinate, PointXYZ
 from fibsem.ui import stylesheets
+from fibsem.ui.tokens import (
+    CANVAS_BG,
+)
 
 # Per-axis displacement below which a fit is treated as "no change" (the fit
 # fell back to the input). Well under the 3-decimal coordinate precision, so
@@ -183,7 +186,7 @@ class FitConfirmationDialog(QDialog):
         self._result = result
         self.setWindowTitle("Confirm fit")
         self.setModal(True)
-        self.setStyleSheet("background: #1e2124; color: #d0d0d0;")
+        self.setStyleSheet(f"background: {CANVAS_BG}; color: #d0d0d0;")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 14, 14, 12)

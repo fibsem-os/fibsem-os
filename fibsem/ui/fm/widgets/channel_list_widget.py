@@ -36,6 +36,10 @@ from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, ValueSpinBox
+from fibsem.ui.tokens import (
+    CANVAS_BG,
+    ORANGE_COLOR,
+)
 
 _DRAG_HANDLE_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
@@ -541,7 +545,7 @@ class _ChannelListHeader(QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setStyleSheet("background: #1e2124;")
+        self.setStyleSheet(f"background: {CANVAS_BG};")
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 4, 6, 4)
@@ -667,7 +671,7 @@ class ChannelListWidget(QWidget):
         layout.addWidget(self._empty_label)
 
         self._status_label = QLabel("")
-        self._status_label.setStyleSheet("color: #ff9800; font-style: italic; padding: 2px 12px;")
+        self._status_label.setStyleSheet(f"color: {ORANGE_COLOR}; font-style: italic; padding: 2px 12px;")
         self._status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self._status_label.setVisible(False)
         layout.addWidget(self._status_label)

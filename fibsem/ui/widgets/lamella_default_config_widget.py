@@ -20,6 +20,9 @@ from fibsem.ui.widgets.canvas.overlays.alignment_overlay import AlignmentAreaOve
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointOverlay
 from fibsem.structures import DEFAULT_ALIGNMENT_AREA, FibsemRectangle, Point
 from fibsem.ui.stylesheets import NAPARI_STYLE
+from fibsem.ui.tokens import (
+    SEMANTIC_WARNING_COLOR,
+)
 
 _DEFAULT_AA = FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA)
 _DEFAULT_POI = Point(0, 0)
@@ -29,7 +32,7 @@ _SECTION_STYLE = (
     " padding: 4px 0px 2px 0px; letter-spacing: 0.5px;"
 )
 _LABEL_STYLE = "color: #a0a0a0; min-width: 80px; font-size: 11px; background: transparent;"
-_INVALID_STYLE = "color: #E3B617; font-size: 10px; background: transparent;"
+_INVALID_STYLE = f"color: {SEMANTIC_WARNING_COLOR}; font-size: 10px; background: transparent;"
 _HINT_STYLE = (
     "color: #808080; font-size: 10px; background: transparent;"
     " border-top: 1px solid #4a4a4a; padding-top: 6px;"

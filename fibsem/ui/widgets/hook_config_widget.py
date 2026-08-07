@@ -39,6 +39,10 @@ from fibsem.hooks import (
 )
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
+from fibsem.ui.tokens import (
+    ACCENT_COLOR,
+    TEXT_COLOR,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +68,7 @@ _HOOK_CLASSES: dict[str, Type[Hook]] = {
 }
 
 _TYPE_COLORS = {
-    "LoggingHook":      "#50a6ff",
+    "LoggingHook":      ACCENT_COLOR,
     "NotificationHook": stylesheets.GREEN_COLOR,
     "WebhookHook":      stylesheets.ORANGE_COLOR,
     "SlackHook":        "#a67cff",
@@ -302,7 +306,7 @@ class _HookRowWidget(QWidget):
         layout.addWidget(self._chk_enabled)
 
         name_lbl = QLabel(hook.name or "<unnamed>")
-        name_lbl.setStyleSheet("color: #d6d6d6; font-weight: bold;")
+        name_lbl.setStyleSheet(f"color: {TEXT_COLOR}; font-weight: bold;")
         layout.addWidget(name_lbl)
 
         cls_name = type(hook).__name__

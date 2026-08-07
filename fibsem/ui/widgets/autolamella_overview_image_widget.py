@@ -33,6 +33,9 @@ from fibsem.ui.widgets.custom_widgets import (
 from fibsem.imaging.tiled import plot_minimap
 from fibsem.structures import FibsemImage
 import glob
+from fibsem.ui.tokens import (
+    SURFACE_COLOR,
+)
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
 
@@ -287,7 +290,7 @@ class OverviewImageWidget(QWidget):
         """Create an empty canvas with placeholder text."""
         # Create empty figure
         self.figure = Figure(figsize=(10, 6), dpi=80)
-        self.figure.patch.set_facecolor("#262930")
+        self.figure.patch.set_facecolor(SURFACE_COLOR)
 
         # Create canvas from figure
         if self.canvas is not None:
@@ -338,7 +341,7 @@ class OverviewImageWidget(QWidget):
         self.figure = new_figure
 
         # Apply dark theme to the figure
-        self.figure.patch.set_facecolor("#262930")
+        self.figure.patch.set_facecolor(SURFACE_COLOR)
 
         # Create new canvas with the figure
         self.canvas = FigureCanvas(self.figure)

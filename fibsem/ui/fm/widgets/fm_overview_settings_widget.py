@@ -39,8 +39,11 @@ from fibsem.ui.fm.widgets.tile_mask_widget import TileMaskWidget
 from fibsem.ui.fm.widgets.z_parameters_widget import ZParametersWidget
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox
+from fibsem.ui.tokens import (
+    TEXT_MUTED_COLOR,
+)
 
-MUTED = "color: #868e93; font-size: 11px;"
+MUTED = f"color: {TEXT_MUTED_COLOR}; font-size: 11px;"
 
 AUTOFOCUS_LABELS = {
     AutoFocusMode.NONE: "Don't auto-focus",

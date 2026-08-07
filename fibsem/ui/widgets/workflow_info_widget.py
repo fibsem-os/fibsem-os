@@ -16,6 +16,9 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowConfig,
     AutoLamellaWorkflowOptions,
 )
+from fibsem.ui.tokens import (
+    TEXT_COLOR,
+)
 
 _LABEL_STYLE = "color: #a0a0a0; min-width: 80px; font-size: 11px;"
 _SECTION_STYLE = (
@@ -83,7 +86,7 @@ class WorkflowInfoWidget(QWidget):
         root.addWidget(opt_lbl)
 
         self.turn_beams_off_cb = QCheckBox("Turn beams off after completion")
-        self.turn_beams_off_cb.setStyleSheet("color: #d6d6d6; font-size: 11px;")
+        self.turn_beams_off_cb.setStyleSheet(f"color: {TEXT_COLOR}; font-size: 11px;")
         root.addWidget(self.turn_beams_off_cb)
 
         # ── signals ───────────────────────────────────────────────────────

@@ -43,6 +43,9 @@ from fibsem.ui.napari.patterns import (
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 
 from typing import TYPE_CHECKING
+from fibsem.ui.tokens import (
+    CANVAS_BG,
+)
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.canvas.canvas_base import ContentRect
@@ -193,7 +196,7 @@ class MillingPatternOverlay(CanvasOverlay):
             handles=handles,
             loc="upper right",
             fontsize=8,
-            facecolor="#1e2124",
+            facecolor=CANVAS_BG,
             edgecolor="#555555",
             labelcolor="#d1d2d4",
             framealpha=0.85,

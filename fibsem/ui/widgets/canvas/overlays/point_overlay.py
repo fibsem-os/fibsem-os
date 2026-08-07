@@ -13,6 +13,9 @@ from PyQt5.QtCore import QObject, pyqtSignal
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 
 from typing import TYPE_CHECKING
+from fibsem.ui.tokens import (
+    CANVAS_BG,
+)
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.canvas.canvas_base import ContentRect
@@ -429,7 +432,7 @@ class PointOverlay(QObject):
             [self._legend_label],
             loc="upper left",
             fontsize=8,
-            facecolor="#1e2124",
+            facecolor=CANVAS_BG,
             edgecolor="#555555",
             labelcolor="#d1d2d4",
             framealpha=0.85,

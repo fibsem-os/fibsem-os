@@ -30,6 +30,10 @@ from fibsem.correlation.structures import Coordinate, PointType
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueSpinBox
+from fibsem.ui.tokens import (
+    CANVAS_BG,
+    GRAY_TEXT_COLOR,
+)
 
 _DRAG_HANDLE_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
@@ -135,7 +139,7 @@ class _CoordinateListHeader(QWidget):
     ) -> None:
         self._default_color = default_color
         super().__init__(parent)
-        self.setStyleSheet("background: #1e2124;")
+        self.setStyleSheet(f"background: {CANVAS_BG};")
         self.setFixedHeight(_ROW_HEIGHT)
 
         layout = QHBoxLayout(self)
@@ -230,7 +234,7 @@ class CoordinateRowWidget(QWidget):
         self.name_label.setFixedWidth(name_width)
         # Omit `background: transparent` — it's the QLabel default, and an
         # unscoped rule bleeds into this label's QToolTip background.
-        self.name_label.setStyleSheet("color: #F0F1F2; font-size: 11px;")
+        self.name_label.setStyleSheet(f"color: {GRAY_TEXT_COLOR}; font-size: 11px;")
         self.name_label.setToolTip("Auto-generated coordinate name")
         layout.addWidget(self.name_label)
 

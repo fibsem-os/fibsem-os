@@ -33,6 +33,9 @@ from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_i
 from fibsem.ui import stylesheets as stylesheets
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.utils import format_value
+from fibsem.ui.tokens import (
+    CANVAS_BG,
+)
 
 
 class QFilePathLineEdit(QWidget):
@@ -548,7 +551,7 @@ class TitledPanel(QWidget):
 
         # Header
         self._header = QWidget()
-        self._header.setStyleSheet("background: #1e2124; border-radius: 3px 3px 0 0;")
+        self._header.setStyleSheet(f"background: {CANVAS_BG}; border-radius: 3px 3px 0 0;")
         self._header_layout = QHBoxLayout(self._header)
         self._header_layout.setContentsMargins(8, 3, 4, 3)
         self._header_layout.setSpacing(4)
@@ -764,7 +767,7 @@ class TaskNameListWidget(QWidget):
 
         # Header
         header = QWidget()
-        header.setStyleSheet("background: #1e2124;")
+        header.setStyleSheet(f"background: {CANVAS_BG};")
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(8, 3, 4, 3)
         header_layout.setSpacing(4)
@@ -1038,7 +1041,7 @@ class LamellaNameListWidget(QWidget):
 
         # Header
         header = QWidget()
-        header.setStyleSheet("background: #1e2124;")
+        header.setStyleSheet(f"background: {CANVAS_BG};")
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(8, 3, 4, 3)
         header_layout.setSpacing(8)

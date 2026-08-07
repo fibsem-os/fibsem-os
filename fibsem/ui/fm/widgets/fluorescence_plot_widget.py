@@ -16,6 +16,9 @@ from PyQt5.QtWidgets import (
 
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.fm.plotting import plot_fluorescence_image
+from fibsem.ui.tokens import (
+    SURFACE_COLOR,
+)
 
 try:
     from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
@@ -115,7 +118,7 @@ class FluorescencePlotWidget(QWidget):
 
         # Create matplotlib figure and canvas with napari-style dark theme
         self.figure = Figure(figsize=(6, 6), dpi=80)
-        self.figure.patch.set_facecolor("#262930")  # napari dark background
+        self.figure.patch.set_facecolor(SURFACE_COLOR)  # napari dark background
 
         self.canvas = FigureCanvas(self.figure)
         self.canvas.setMinimumSize(300, 300)

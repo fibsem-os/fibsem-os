@@ -29,6 +29,9 @@ from fibsem.applications.autolamella.tools.reporting import (
     plot_experiment_task_summary,
     plot_lamella_task_workflow_summary,
 )
+from fibsem.ui.tokens import (
+    SURFACE_COLOR,
+)
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui import AutoLamellaUI
@@ -242,7 +245,7 @@ class ExperimentTaskSummaryWidget(QWidget):
         """Create an empty canvas with placeholder text."""
         # Create empty figure
         self.figure = Figure(figsize=(10, 6), dpi=80)
-        self.figure.patch.set_facecolor("#262930")
+        self.figure.patch.set_facecolor(SURFACE_COLOR)
         self._title_artist = None
         self._ylabel_artists = []
 
@@ -308,7 +311,7 @@ class ExperimentTaskSummaryWidget(QWidget):
         self.figure = new_figure
 
         # Apply dark theme to the figure
-        self.figure.patch.set_facecolor("#262930")
+        self.figure.patch.set_facecolor(SURFACE_COLOR)
 
         # Create new canvas with the figure
         self.canvas = FigureCanvas(self.figure)

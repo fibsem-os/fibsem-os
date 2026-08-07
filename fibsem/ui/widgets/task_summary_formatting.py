@@ -7,6 +7,13 @@ WorkflowSummaryDialog (per-run summary) so the two stay visually consistent.
 from typing import Callable, List, Optional
 
 import pandas as pd
+from fibsem.ui.tokens import (
+    ACCENT_COLOR,
+    ERROR_COLOR,
+    OK_COLOR,
+    TEXT_MUTED_COLOR,
+    WARN_COLOR,
+)
 
 # Default per-run summary columns (in display order)
 SUMMARY_COLUMNS: List[str] = [
@@ -39,11 +46,11 @@ STATUS_COLORS = {
 # Semantic badge colours (matching the fibsem.ui.stylesheets palette) used by
 # the workflow summary dialog: status -> (dot/strong colour, muted text colour).
 STATUS_BADGE_COLORS = {
-    "Completed": ("#4caf50", "#7fd083"),
-    "Failed": ("#d04040", "#e08585"),
-    "Skipped": ("#868e93", "#aeb4b9"),
-    "InProgress": ("#50a6ff", "#9cc7f5"),
-    "Cancelled": ("#e0a030", "#e8c37f"),  # amber: user-aborted, not an error
+    "Completed": (OK_COLOR, "#7fd083"),
+    "Failed": (ERROR_COLOR, "#e08585"),
+    "Skipped": (TEXT_MUTED_COLOR, "#aeb4b9"),
+    "InProgress": (ACCENT_COLOR, "#9cc7f5"),
+    "Cancelled": (WARN_COLOR, "#e8c37f"),  # amber: user-aborted, not an error
 }
 
 # Status order for count chips (these three are always shown, even at zero)

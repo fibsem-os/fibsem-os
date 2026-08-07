@@ -13,6 +13,8 @@ import os as _os
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
     BORDER_COLOR,
+    DISABLED_BG_COLOR,
+    DISABLED_TEXT_COLOR,
     PANEL_COLOR,
     SURFACE_COLOR,
     TEXT_COLOR,
@@ -23,7 +25,12 @@ from fibsem.ui.tokens import (
 _ICONS_DIR = _os.path.join(_os.path.dirname(__file__), "icons").replace("\\", "/")
 
 # Napari-style dark theme stylesheet
-# TODO: no token -- #2d313b, #4a5168, #6b6b6b
+#
+# TODO: no token -- #4a5168 (the pressed/selected lift on controls), and the two
+# :hover rules still on #2d313b. That value now has a name -- DISABLED_BG_COLOR
+# -- but hover is not disabled, and ROW_ALT_COLOR is the token that means hover;
+# they differ by 4 units of RGB, so reconciling them is a real colour change and
+# wants a decision rather than a silent swap.
 NAPARI_STYLE = f"""
 QWidget {{
     background-color: {SURFACE_COLOR};
@@ -63,7 +70,7 @@ QMenu::item:selected {{
    action is indistinguishable from an available one. Matches the disabled
    colour used by the button and field rules below. */
 QMenu::item:disabled {{
-    color: #6b6b6b;
+    color: {DISABLED_TEXT_COLOR};
 }}
 
 QTabWidget::pane {{
@@ -89,7 +96,7 @@ QTabBar::tab:hover:!selected {{
 }}
 
 QTabBar::tab:disabled {{
-    color: #6b6b6b;
+    color: {DISABLED_TEXT_COLOR};
 }}
 
 QPushButton {{
@@ -109,8 +116,8 @@ QPushButton:pressed {{
 }}
 
 QPushButton:disabled {{
-    background-color: #2d313b;
-    color: #6b6b6b;
+    background-color: {DISABLED_BG_COLOR};
+    color: {DISABLED_TEXT_COLOR};
 }}
 
 QStatusBar {{
@@ -152,8 +159,8 @@ QLineEdit:focus {{
 }}
 
 QLineEdit:disabled {{
-    color: #6b6b6b;
-    background-color: #2d313b;
+    color: {DISABLED_TEXT_COLOR};
+    background-color: {DISABLED_BG_COLOR};
 }}
 
 QComboBox {{
@@ -185,8 +192,8 @@ QComboBox::down-arrow {{
 }}
 
 QComboBox:disabled {{
-    color: #6b6b6b;
-    background-color: #2d313b;
+    color: {DISABLED_TEXT_COLOR};
+    background-color: {DISABLED_BG_COLOR};
 }}
 
 QComboBox QAbstractItemView {{
@@ -209,8 +216,8 @@ QSpinBox:focus, QDoubleSpinBox:focus {{
 }}
 
 QSpinBox:disabled, QDoubleSpinBox:disabled {{
-    color: #6b6b6b;
-    background-color: #2d313b;
+    color: {DISABLED_TEXT_COLOR};
+    background-color: {DISABLED_BG_COLOR};
 }}
 
 QSpinBox::up-button, QDoubleSpinBox::up-button {{

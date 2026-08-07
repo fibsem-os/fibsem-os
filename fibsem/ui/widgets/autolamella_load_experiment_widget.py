@@ -22,6 +22,7 @@ from fibsem.config import (
 )
 from fibsem.ui import utils as fui
 from fibsem.ui.stylesheets import (
+    DISABLED_TEXT_COLOR,
     PRIMARY_BUTTON_STYLESHEET,
     PRIMARY_COLOR_PRESSED,
     SECONDARY_BUTTON_STYLESHEET,
@@ -73,8 +74,10 @@ RECENT_ALERT_ICON = "mdi:alert-circle-outline"
 RECENT_ICON_COLOR = "#9aa0ab"
 RECENT_PILL_TEXT_COLOR = "#b7bcc6"
 RECENT_NAME_COLOR = TEXT_COLOR
-# Muted colour for rows whose experiment.yaml is missing or unreadable
-RECENT_UNAVAILABLE_COLOR = "#6b6b6b"
+# Muted colour for rows whose experiment.yaml is missing or unreadable -- the
+# same disabled grey the control sheets use, so an unreadable row reads as
+# disabled rather than as its own shade.
+RECENT_UNAVAILABLE_COLOR = DISABLED_TEXT_COLOR
 
 
 class _ElidedLabel(QtWidgets.QLabel):

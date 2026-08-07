@@ -43,6 +43,9 @@ from fibsem.ui.stylesheets import (
 )
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.tokens import (
+    CANVAS_BG,
+)
 
 if TYPE_CHECKING:
     from fibsem.fm.structures import FluorescenceImage
@@ -52,7 +55,7 @@ if TYPE_CHECKING:
 _logger = logging.getLogger(__name__)
 
 _TITLE_STYLE = (
-    "color: #888; font-size: 11px; padding: 2px 6px; background: #1e2124;"
+    f"color: #888; font-size: 11px; padding: 2px 6px; background: {CANVAS_BG};"
 )
 _PLACEHOLDER_STYLE = "color: #777; font-size: 12px;"
 # Selected-view border: the primary accent (matches PRIMARY_BUTTON_STYLESHEET), kept subtle.

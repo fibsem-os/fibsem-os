@@ -21,13 +21,17 @@ from PyQt5.QtWidgets import (
 from fibsem.ui.icon import fibsem_icon
 from fibsem.constants import TIME_DISPLAY
 from fibsem.ui import stylesheets
+from fibsem.ui.tokens import (
+    ACCENT_COLOR,
+    TEXT_COLOR,
+)
 
 class ToastNotification(QWidget):
     """A toast notification widget that appears in the bottom-right corner."""
 
     # Notification types with colors
     TYPES = {
-        "info": "#50a6ff",                      # Blue
+        "info": ACCENT_COLOR,                      # Blue
         "success": stylesheets.GREEN_COLOR,     # Green
         "warning": stylesheets.ORANGE_COLOR,    # Orange
         "error": "#f44336",                     # Red
@@ -224,7 +228,7 @@ class NotificationHistoryPopup(QWidget):
         header_layout.setContentsMargins(12, 10, 12, 10)
 
         header_label = QLabel("Notifications")
-        header_label.setStyleSheet("color: #d6d6d6; font-weight: bold; font-size: 14px;")
+        header_label.setStyleSheet(f"color: {TEXT_COLOR}; font-weight: bold; font-size: 14px;")
         header_layout.addWidget(header_label)
 
         header_layout.addStretch()
@@ -300,7 +304,7 @@ class NotificationHistoryPopup(QWidget):
         item_layout.setSpacing(10)
 
         # Icon
-        color = ToastNotification.TYPES.get(notification_type, "#50a6ff")
+        color = ToastNotification.TYPES.get(notification_type, ACCENT_COLOR)
         icons = {"info": "ℹ", "success": "✓", "warning": "⚠", "error": "✕"}
         icon_label = QLabel(icons.get(notification_type, "ℹ"))
         icon_label.setFixedSize(20, 20)
@@ -314,7 +318,7 @@ class NotificationHistoryPopup(QWidget):
 
         msg_label = QLabel(message)
         msg_label.setWordWrap(True)
-        msg_label.setStyleSheet("color: #d6d6d6; font-size: 13px;")
+        msg_label.setStyleSheet(f"color: {TEXT_COLOR}; font-size: 13px;")
         text_layout.addWidget(msg_label)
 
         time_label = QLabel(timestamp)
@@ -356,7 +360,7 @@ class NotificationBell(QWidget):
 
         # Bell icon button using QToolButton with a Material Design icon
         self.bell_btn = QToolButton()
-        self.bell_btn.setIcon(fibsem_icon("mdi:bell", color="#d6d6d6"))
+        self.bell_btn.setIcon(fibsem_icon("mdi:bell", color=TEXT_COLOR))
         self.bell_btn.setFixedSize(24, 24)
         self.bell_btn.setIconSize(self.bell_btn.size() * 0.7)
         self.bell_btn.clicked.connect(self._on_clicked)

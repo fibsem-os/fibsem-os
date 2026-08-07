@@ -29,6 +29,10 @@ from fibsem.ui.widgets.workflow_task_editor_widget import WorkflowTaskEditorWidg
 from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
 )
+from fibsem.ui.tokens import (
+    PRIMARY_COLOR,
+    TEXT_COLOR,
+)
 
 _SECTION_LABEL_STYLE = (
     "font-size: 11px; font-weight: bold; color: #a0a0a0;"
@@ -111,7 +115,7 @@ class _TaskEditorDialog(QDialog):
         self.setModal(True)
         self.setMinimumWidth(470)
         self.setMinimumHeight(520)
-        self.setStyleSheet("background: #2b2d31; color: #d6d6d6;")
+        self.setStyleSheet(f"background: #2b2d31; color: {TEXT_COLOR};")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -215,7 +219,7 @@ class LamellaWorkflowWidget(QWidget):
         # ── summary label ────────────────────────────────────────────────
         self._summary_label = QLabel("0 lamella, 0 tasks selected")
         self._summary_label.setStyleSheet(
-            "color: #007ACC; font-size: 11px; padding: 3px 6px;"
+            f"color: {PRIMARY_COLOR}; font-size: 11px; padding: 3px 6px;"
         )
         root.addWidget(self._summary_label)
 
@@ -320,7 +324,7 @@ class LamellaWorkflowWidget(QWidget):
             )
         else:
             self._summary_label.setStyleSheet(
-                "color: #007ACC; font-size: 11px; padding: 3px 6px;"
+                f"color: {PRIMARY_COLOR}; font-size: 11px; padding: 3px 6px;"
             )
             self._summary_label.setText(
                 f"{n_lam} lamella, {n_task} task{'s' if n_task != 1 else ''} selected"

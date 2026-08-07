@@ -6,6 +6,10 @@ import pandas as pd
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QPalette
+from fibsem.ui.tokens import (
+    PRIMARY_ACCENT,
+    WHITE_ICON_COLOR,
+)
 
 
 class DataFrameTableWidget(QWidget):
@@ -46,8 +50,8 @@ class DataFrameTableWidget(QWidget):
         palette.setColor(QPalette.ColorRole.Base, QColor("#202020"))
         palette.setColor(QPalette.ColorRole.AlternateBase, QColor("#2c2c2c"))
         palette.setColor(QPalette.ColorRole.Text, QColor("#dddddd"))
-        palette.setColor(QPalette.ColorRole.Highlight, QColor("#3a6ea5"))
-        palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
+        palette.setColor(QPalette.ColorRole.Highlight, QColor(PRIMARY_ACCENT))
+        palette.setColor(QPalette.ColorRole.HighlightedText, QColor(WHITE_ICON_COLOR))
         self.table_widget.setPalette(palette)
 
         layout.addWidget(self.table_widget)

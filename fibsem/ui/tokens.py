@@ -66,6 +66,18 @@ OK_COLOR = "#4caf50"            # success
 WARN_COLOR = "#e0a030"          # loaded but inactive, degraded, needs attention
 ERROR_COLOR = "#d04040"         # failure
 
+# The disabled pair. Every semantic button sheet renders its :disabled state in
+# these two, and until now both were bare literals repeated across the file --
+# the most load-bearing colours in the UI with no name.
+#
+# DISABLED_BG_COLOR sits 4 units from ROW_ALT_COLOR in RGB, which is to say they
+# are the same colour to the eye and different to a diff. Two hover rules in
+# NAPARI_STYLE use this value where ROW_ALT_COLOR is the token that means hover;
+# collapsing those is a real (if invisible) change, so they are left flagged in
+# place rather than folded in silently.
+DISABLED_BG_COLOR = "#2d313b"   # disabled control background
+DISABLED_TEXT_COLOR = "#6b6b6b" # disabled label and control text
+
 # ---------------------------------------------------------------------------
 # Deprecated aliases.
 #

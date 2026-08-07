@@ -28,6 +28,9 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import IconToolButton
+from fibsem.ui.tokens import (
+    CANVAS_BG,
+)
 
 _DRAG_HANDLE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "icons", "drag_handle.svg")
 _NAME_MIN_WIDTH = 180
@@ -177,7 +180,7 @@ class _WorkflowTaskListHeader(QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setStyleSheet("background: #1e2124;")
+        self.setStyleSheet(f"background: {CANVAS_BG};")
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 4, 6, 4)
