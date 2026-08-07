@@ -14,7 +14,6 @@ tooltips and suffixes.
 
 import logging
 from dataclasses import dataclass, field
-from typing import ClassVar
 
 import pytest
 
@@ -48,6 +47,19 @@ def test_every_alias_points_at_a_canonical_key():
     for alias, canonical in METADATA_KEY_ALIASES.items():
         assert canonical in DEFAULT_FIELD_METADATA, f"{alias!r} -> unknown key {canonical!r}"
         assert alias not in DEFAULT_FIELD_METADATA, f"{alias!r} is both an alias and canonical"
+
+
+def test_filepath_is_part_of_the_vocabulary():
+    """Both milling forms read it, so it belongs in the canonical dict.
+
+    It was read but never listed, which made it undiscoverable to exactly the
+    plugin authors this vocabulary exists for. The default has to stay falsy:
+    both forms select the file-picker control with a truthy ``m.get("filepath")``,
+    so a truthy default would turn every string field into a file picker.
+    """
+    assert "filepath" in DEFAULT_FIELD_METADATA
+    assert not DEFAULT_FIELD_METADATA["filepath"]
+    assert not get_fields_with_metadata(MetadataProbe)["neither"]["filepath"]
 
 
 def test_the_task_dialect_fills_the_canonical_keys():

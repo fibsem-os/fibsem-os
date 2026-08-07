@@ -10,7 +10,7 @@ from dataclasses import dataclass, field, fields, asdict, InitVar
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import List, Optional, Tuple, Union, Set, Any, Dict, Type, TypeVar, Literal, TYPE_CHECKING
+from typing import List, Mapping, Optional, Tuple, Union, Set, Any, Dict, Type, TypeVar, Literal, TYPE_CHECKING
 
 import numpy as np
 import tifffile as tff
@@ -49,6 +49,7 @@ DEFAULT_FIELD_METADATA: Dict[str, Any] = {
     "microscope_parameter": None,   # the corresponding microscope parameter name, if applicable (via get/set)
     "format_fn": None,              # function to format the value for display
     "format_fn_kwargs": None,       # kwargs for the format function # NOTE: unused yet
+    "filepath": None,               # render a string field as a file picker rather than a line edit
 }
 
 # Alias -> canonical key. The AutoLamella task configs grew their own spellings
@@ -67,10 +68,6 @@ METADATA_KEY_ALIASES: Dict[str, str] = {
     "units": "unit",
 }
 
-# Keys that are read by a form but were never listed in DEFAULT_FIELD_METADATA.
-# Tracked here so `_warn_unknown_metadata_keys` does not report them as typos.
-_EXTRA_KNOWN_METADATA_KEYS = frozenset({"filepath"})
-
 _warned_metadata_keys: set = set()
 
 
@@ -82,7 +79,7 @@ def _warn_unknown_metadata_keys(struct_cls: Type[Any], field_name: str, metadata
     the vocabulary, so a typo costs an afternoon. Warned once per
     (class, field, key) because form metadata is re-read on every rebuild.
     """
-    known = set(DEFAULT_FIELD_METADATA) | set(METADATA_KEY_ALIASES) | _EXTRA_KNOWN_METADATA_KEYS
+    known = set(DEFAULT_FIELD_METADATA) | set(METADATA_KEY_ALIASES)
     for key in metadata:
         if key in known:
             continue
@@ -96,7 +93,7 @@ def _warn_unknown_metadata_keys(struct_cls: Type[Any], field_name: str, metadata
         )
 
 
-def metadata_value(metadata: Dict[str, Any], key: str, default: Any = None) -> Any:
+def metadata_value(metadata: Mapping[str, Any], key: str, default: Any = None) -> Any:
     """Read one metadata key, accepting either spelling.
 
     For consumers that read a field's raw ``metadata`` rather than going through
