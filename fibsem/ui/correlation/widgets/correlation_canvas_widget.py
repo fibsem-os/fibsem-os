@@ -9,9 +9,10 @@ this is built alongside so each piece can be reviewed and tested on its own. The
 old canvas is deleted only in the last PR of the series, once all three of its
 consumers have moved.
 
-Skeleton scope — image display, points, selection, and the add-menu. Still to
-come: legend, per-point labels, `render_to_axes`, and the reprojected-result
-overlay (`add_overlay_points` / `clear_overlay`).
+Scope so far — image display, points, selection, the add-menu, the legend and
+labels, and the reprojected-result markers. Still to come: the two-panel Save
+Plot export, which `ImagePointCanvas` served with `render_to_axes` but which is
+better rewritten in `save_plot` itself when the swap happens.
 
 What comes free with the shared canvas, and is the reason for the whole exercise:
 **contrast and gamma**, which `ImagePointCanvas` has never had — on FM data,
@@ -20,7 +21,7 @@ zoom/pan, the scalebar, the toolbar and the 11 other overlay types.
 """
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 from PyQt5.QtCore import pyqtSignal
@@ -31,6 +32,7 @@ from fibsem.correlation.structures import Coordinate, PointType
 from fibsem.structures import FibsemImage
 from fibsem.ui.correlation.widgets.correlation_point_overlay import (
     CorrelationPointOverlay,
+    CorrelationResultOverlay,
 )
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 
@@ -61,6 +63,12 @@ class CorrelationCanvasWidget(QWidget):
         self.canvas = FibsemImageCanvas()
         self.points = CorrelationPointOverlay()
         self.canvas.add_overlay(self.points)
+        # Result markers get their own overlay: they are computed output, never
+        # picked, and keeping them off `points` is what makes them unpickable
+        # rather than something to remember. Registered second so they draw over
+        # the picked points, matching the old canvas's artist order.
+        self.results = CorrelationResultOverlay(legend_host=self.points)
+        self.canvas.add_overlay(self.results)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -114,8 +122,50 @@ class CorrelationCanvasWidget(QWidget):
 
     def set_labels_visible(self, visible: bool) -> None:
         """Show or hide the per-point names. Independent of marker visibility --
-        a crowded image often wants the points without the text."""
+        a crowded image often wants the points without the text.
+
+        Covers the result markers' numbers too: one toggle, all the text, which is
+        what the old canvas did and what makes the button mean something on an
+        image showing a result."""
         self.points.set_labels_visible(visible)
+        self.results.set_labels_visible(visible)
+
+    # ── result markers ────────────────────────────────────────────────────
+
+    def add_overlay_points(
+        self,
+        points: Sequence[Tuple[float, float]],
+        *,
+        color: str = "#ff0000",
+        label_prefix: str = "",
+        size: float = 7.0,
+        marker: str = "o",
+        alpha: float = 1.0,
+        show_labels: bool = True,
+        hollow: bool = False,
+        legend_label: Optional[str] = None,
+    ) -> None:
+        """Append a group of non-interactive result markers.
+
+        Signature kept identical to ``ImagePointCanvas.add_overlay_points`` -- the
+        tab widget's three calls move across untouched. Groups accumulate; call
+        :meth:`clear_overlay` first when replacing a previous result.
+        """
+        self.results.add_points(
+            points,
+            color=color,
+            label_prefix=label_prefix,
+            size=size,
+            marker=marker,
+            alpha=alpha,
+            show_labels=show_labels,
+            hollow=hollow,
+            legend_label=legend_label,
+        )
+
+    def clear_overlay(self) -> None:
+        """Remove every marker added via :meth:`add_overlay_points`."""
+        self.results.clear()
 
     # ── add menu ──────────────────────────────────────────────────────────
 

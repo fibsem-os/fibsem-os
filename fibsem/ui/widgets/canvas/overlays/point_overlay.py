@@ -411,10 +411,15 @@ class PointOverlay(QObject):
         all look alike. Split from :meth:`_draw_legend` so a subclass whose points
         do *not* — correlation shows several PointTypes on one surface — can vary
         the content without restating the styling.
+
+        "No points, no legend" is decided here rather than in :meth:`_draw_legend`
+        so a subclass carrying entries that its own points do not back — the
+        correlation result markers, which live on a separate overlay — can still
+        show them.
         """
         from matplotlib.lines import Line2D
 
-        if not self._legend_label:
+        if not self._points or not self._legend_label:
             return [], []
         handle = Line2D(
             [], [], linestyle="None", marker=self._marker, markersize=9,
@@ -427,7 +432,7 @@ class PointOverlay(QObject):
     def _draw_legend(self) -> None:
         """Opt-in legend (top-left), styled like the milling-stage legend."""
         self._remove_legend()
-        if self._ax is None or not self._points or not self._visible:
+        if self._ax is None or not self._visible:
             return
         handles, labels = self._legend_entries()
         if not handles:
@@ -613,6 +618,19 @@ class PointOverlay(QObject):
         self._canvas.draw()
         self._blit_bg = self._canvas.copy_from_bbox(self._ax.bbox)
 
+    def _blit_artists(self) -> List:
+        """Artists redrawn on every drag step, in draw order.
+
+        The dragged point and its label. Split out so a subclass with an artist
+        that *tracks* a point — correlation's surface datum line — can keep it in
+        step during the drag instead of leaving it behind until release.
+        """
+        artists = [self._artists[self._drag_idx]]
+        ann = self._anns[self._drag_idx] if self._drag_idx < len(self._anns) else None
+        if ann is not None:
+            artists.append(ann)
+        return artists
+
     def _blit(self):
         if self._canvas is None or self._ax is None:
             return
@@ -620,10 +638,8 @@ class PointOverlay(QObject):
             self._canvas.draw_idle()
             return
         self._canvas.restore_region(self._blit_bg)
-        self._ax.draw_artist(self._artists[self._drag_idx])
-        ann = self._anns[self._drag_idx] if self._drag_idx < len(self._anns) else None
-        if ann is not None:
-            self._ax.draw_artist(ann)
+        for artist in self._blit_artists():
+            self._ax.draw_artist(artist)
         self._canvas.blit(self._ax.bbox)
 
     # ── mouse / key events ────────────────────────────────────────────────
