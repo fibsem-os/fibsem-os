@@ -9,6 +9,7 @@ actions along the bottom.
 """
 
 import logging
+import os
 import threading
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
@@ -41,6 +42,7 @@ from fibsem.fm.structures import (
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemStagePosition
 from fibsem.ui import notification_service, stylesheets
+from fibsem.ui import utils as ui_utils
 from fibsem.ui.fm.widgets.fm_multi_channel_widget import FluorescenceMultiChannelWidget
 from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
     FMOverviewConfirmationDialog,
@@ -60,6 +62,7 @@ from fibsem.ui.widgets.custom_widgets import (
     ContextMenu,
     ContextMenuConfig,
     ElidedLabel,
+    IconToolButton,
     TitledPanel,
 )
 from fibsem.ui.widgets.progress_widget import (
@@ -118,6 +121,12 @@ SLOT_COLOUR = "#90a4ae"
 # Wide enough for millimetre-scale coordinates without the row re-laying out as the
 # cursor moves -- a readout that shoves the buttons sideways is worse than none.
 CURSOR_READOUT_WIDTH = 210
+
+# Icon buttons in a `TitledPanel` header. Not smaller than this: `TOOLBUTTON_ICON_STYLESHEET`
+# pads 6px each side, so a 22px button leaves 10px of width for a 16px icon and clips it --
+# the frame's sides vanish and what is left reads as a rendering fault. Matches the size the
+# row buttons use.
+_HEADER_BTN_SIZE = 26
 
 
 @dataclass
@@ -373,7 +382,22 @@ class FMOverviewWidget(QWidget):
         self.overview_list = OverviewListWidget()
         self.overview_list.visibility_toggled.connect(self.set_overview_visible)
         self.overview_list.remove_requested.connect(self.remove_overview)
-        self._controls_layout.addWidget(self._section("Overviews", self.overview_list))
+        overviews_panel = self._section("Overviews", self.overview_list)
+        # In the panel header rather than under the list: loading acts on the section
+        # as a whole, not on any row in it, and a full-width button below the rows read
+        # as a fourth row. It also keeps the list widget free of the filesystem -- the
+        # button belongs to the section, which this widget builds.
+        # An image being added, rather than a folder being opened: the folder is where
+        # it came from, not what you end up with. Outline weight to match the eye and
+        # trash on the rows below it.
+        self.btn_load_overview = IconToolButton(
+            icon="mdi:image-plus-outline",
+            tooltip="Load a saved overview",
+            size=_HEADER_BTN_SIZE,
+        )
+        self.btn_load_overview.clicked.connect(self._prompt_for_overview)
+        overviews_panel.add_header_widget(self.btn_load_overview)
+        self._controls_layout.addWidget(overviews_panel)
         self._controls_layout.addWidget(self._section("Channels", self.channel_widget))
         self._controls_layout.addWidget(self.settings_widget)
         self._controls_layout.addStretch()
@@ -819,6 +843,63 @@ class FMOverviewWidget(QWidget):
     def overviews(self) -> List[PlacedOverviewImageRecord]:
         """Every overview on the canvas, oldest first."""
         return list(self._records.values())
+
+    def load_overview(self, path: str) -> Optional[PlacedOverviewImageRecord]:
+        """Place a saved overview from *path*. None if it could not be read.
+
+        Almost all of this is already done: `set_image` places an image by projecting
+        through the image's *own* recorded geometry, so that one acquired under a
+        configuration the instrument is no longer in lands where it was taken. A file
+        off disk is that case exactly, and everything the projection needs -- the
+        stage position's r and t, the hardware geometry, the pixel size -- survives the
+        OME-TIFF intact.
+
+        What does not survive is `stage_position.name`, which `stitch_tileset` uses to
+        carry the grid size. A loaded overview's row therefore shows its scale without
+        its grid. Accepted rather than worked around: the alternative is teaching the
+        OME serialization to carry a field only the list reads (FIB-438).
+
+        Separate from the dialog so it can be called with a path -- by a test, by a
+        host restoring a session, or later by whatever knows an experiment's own
+        overviews (FIB-547).
+        """
+        try:
+            image = FluorescenceImage.load(path)
+        except Exception as e:
+            logging.error(f"Could not load an overview from {path}: {e}")
+            notification_service.show_toast(f"Could not load that overview.\n{e}", "error")
+            return None
+
+        # Placed even without a geometry, but said out loud. `_offset_of` falls back to
+        # the origin, which puts it in the middle of the view rather than where it was
+        # taken -- and an overview silently in the wrong place is worse than one you
+        # have been told to distrust. Anything acquired before FIB-416 is this case.
+        if FMStageProjection.from_image(image) is None:
+            logging.warning(f"Overview {path} has no recorded geometry; placing at the origin.")
+            notification_service.show_toast(
+                "That overview has no recorded geometry, so it cannot be placed where "
+                "it was taken. Showing it at the canvas origin.",
+                "warning",
+            )
+
+        self.set_image(image)
+        record = self._record_for(image)
+        logging.info(f"Loaded overview {record.label} from {path}")
+        return record
+
+    def _prompt_for_overview(self) -> None:
+        """Ask for a file and load it. The dialog half of `load_overview`."""
+        path = ui_utils.open_existing_file_dialog(
+            msg="Select an overview to load",
+            # Where this tab writes them, when a host has said. Opening at the last
+            # place anything was saved beats opening at the home directory.
+            path=self._save_directory or os.getcwd(),
+            _filter="Fluorescence images (*.ome.tiff *.ome.tif *.tiff *.tif)",
+            parent=self,
+        )
+        if not path:
+            return
+        self.load_overview(path)
 
     def set_overview_visible(self, record_id: str, visible: bool) -> bool:
         """Show or hide one overview. False if there is no such record.
