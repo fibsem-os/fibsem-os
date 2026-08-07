@@ -210,6 +210,70 @@ class TestTheContract:
         assert fm.connection.imaging.view == _FM.FM_VIEW
 
 
+class TestEveryMetadataReadIsInsideTheScope:
+    """`acquire_image` must cover `_construct_image` too, not just the exposure.
+
+    `_construct_image` reads like formatting, but it calls `get_metadata`, which reads
+    the exposure, gain, binning, power, emission wavelength and objective position back
+    off the device. On the TFS driver each of those takes the shared channel on its own
+    account. Left outside the scope they are 14 separate capture-set-restore cycles per
+    image -- 56 round trips, and the microscope's active view changing 28 times -- and
+    the metadata would describe the state after the channel went back rather than the
+    state the frame was taken under.
+
+    Behavioural rather than structural: `fibsem.fm.microscope` imports without the SDK,
+    so the real `acquire_image` can be run against the demo FM and asked what it did.
+    """
+
+    @staticmethod
+    def _watch(fm, monkeypatch) -> list:
+        """Record the scope depth at each device read. Returns the log."""
+        from contextlib import contextmanager
+
+        depth = [0]
+        reads: list = []
+
+        @contextmanager
+        def counting_scope():
+            depth[0] += 1
+            try:
+                yield
+            finally:
+                depth[0] -= 1
+
+        monkeypatch.setattr(fm, "active_channel", counting_scope)
+
+        # binning stands in for the whole set: `get_metadata` reaches it more than any
+        # other, directly and through pixel_size and resolution.
+        camera = type(fm.camera)
+        original = camera.binning
+
+        def fget(self):
+            reads.append(depth[0])
+            return original.fget(self)
+
+        monkeypatch.setattr(camera, "binning", property(fget, original.fset))
+        return reads
+
+    @pytest.fixture
+    def fm(self):
+        from fibsem import utils
+
+        microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+        return microscope.fm
+
+    def test_the_metadata_is_read_with_the_channel_still_held(self, fm, monkeypatch):
+        reads = self._watch(fm, monkeypatch)
+
+        fm.acquire_image()
+
+        assert reads, "no device read was observed -- the probe missed"
+        assert all(d > 0 for d in reads), (
+            f"{sum(1 for d in reads if d == 0)} of {len(reads)} device reads happened "
+            f"outside the channel scope"
+        )
+
+
 class TestTheRealDriverMatches:
     """Structural, since the SDK import cannot be satisfied here.
 

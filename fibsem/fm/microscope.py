@@ -991,7 +991,13 @@ class FluorescenceMicroscope(ABC):
             if channel_settings is not None:
                 self.set_channel(channel_settings)
             data = self.camera.acquire_image()
-        return self._construct_image(data)
+            # Inside the scope, not after it. `_construct_image` looks like formatting
+            # but calls `get_metadata`, which reads 14 device properties that each take
+            # the channel themselves -- outside, that is 56 round trips and 28 changes
+            # of the microscope's active view per image, and the metadata would then
+            # describe the state *after* the channel had been handed back rather than
+            # the one the frame was taken under.
+            return self._construct_image(data)
 
     def _construct_image(
         self, data: np.ndarray, frame_metadata: Optional[dict] = None
