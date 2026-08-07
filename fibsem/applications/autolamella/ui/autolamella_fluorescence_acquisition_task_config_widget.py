@@ -145,7 +145,8 @@ class AutoLamellaFluorescenceAcquisitionTaskConfigWidget(QWidget):
 
 
 def main():
-    import napari
+    from PyQt5.QtWidgets import QApplication
+
     from fibsem import utils
 
     microscope, settings = utils.setup_session()
@@ -158,9 +159,11 @@ def main():
             autofocus_settings=AutoFocusSettings.from_coarse_fine(fine_enabled=False, method=FocusMethod.SOBEL, channel_name="Reflection Channel")
         )
 
-    viewer = napari.Viewer()
+    # Standalone harness: a plain Qt window, not a napari dock. napari was only ever
+    # hosting the widget here (FIB-407).
+    app = QApplication.instance() or QApplication([])
     widget = AutoLamellaFluorescenceAcquisitionTaskConfigWidget(microscope=microscope, config=None)
-    viewer.window.add_dock_widget(widget, area='right')
+    widget.show()
 
     widget.set_task_config(config)
 
@@ -168,7 +171,7 @@ def main():
         print("Task config updated:", updated.autofocus_settings)
     widget.settings_changed.connect(_on_settings_changed)
 
-    napari.run()
+    app.exec_()
 
 
 if __name__ == "__main__":

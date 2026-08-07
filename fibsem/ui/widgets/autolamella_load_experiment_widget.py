@@ -783,11 +783,12 @@ def load_experiment_dialog(parent: Optional[QtWidgets.QWidget] = None) -> Option
 
 def main():
     """Test the AutoLamellaLoadExperimentWidget."""
-    import napari
-    viewer = napari.Viewer()
+    # Standalone harness: a plain Qt window, not a napari dock. napari was only ever
+    # hosting the widget here (FIB-407).
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 
     qwidget = QtWidgets.QWidget()
-    viewer.window.add_dock_widget(qwidget, area='right')
+    qwidget.show()
 
     # Use the standalone function to load experiment
     experiment = load_experiment_dialog(qwidget)
@@ -800,7 +801,7 @@ def main():
     else:
         print("Experiment loading cancelled")
 
-    napari.run()
+    app.exec_()
 
 
 if __name__ == "__main__":

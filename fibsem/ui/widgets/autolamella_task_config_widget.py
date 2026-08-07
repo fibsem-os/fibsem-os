@@ -344,7 +344,7 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
 
 
 if __name__ == "__main__":
-    import napari
+    from PyQt5.QtWidgets import QApplication
 
     from fibsem.applications.autolamella.workflows.tasks.tasks import (
         AcquireReferenceImageConfig,
@@ -356,17 +356,19 @@ if __name__ == "__main__":
     acquire_config = AcquireReferenceImageConfig()
     # test_config = DEFAULT_PROTOCOL.task_config['MILL_ROUGH']
 
-    # Create widget
-    viewer = napari.Viewer()
-    widget = AutoLamellaTaskConfigWidget(test_config)
-    widget.config_changed.connect(lambda config: print(f"Config changed: {config}"))
-    widget.setWindowTitle("AutoLamella Task Config Widget Test")
-    viewer.window.add_dock_widget(widget, area="right", add_vertical_stretch=False)
+    # Standalone harness: two plain Qt windows, not napari docks. napari was only ever
+    # hosting the widgets here (FIB-407). Both are kept alive in a list — a QWidget with
+    # no parent is destroyed when its last Python reference goes.
+    app = QApplication.instance() or QApplication([])
+    windows = []
+    for config, title in (
+        (test_config, "AutoLamella Task Config Widget Test"),
+        (acquire_config, acquire_config.task_name),
+    ):
+        widget = AutoLamellaTaskConfigWidget(config)
+        widget.config_changed.connect(lambda config: print(f"Config changed: {config}"))
+        widget.setWindowTitle(title)
+        widget.show()
+        windows.append(widget)
 
-
-    widget = AutoLamellaTaskConfigWidget(acquire_config)
-    widget.config_changed.connect(lambda config: print(f"Config changed: {config}"))
-    widget.setWindowTitle(acquire_config.task_name)
-    viewer.window.add_dock_widget(widget, area="right", add_vertical_stretch=False)
-
-    napari.run()
+    app.exec_()

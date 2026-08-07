@@ -17,13 +17,7 @@ from fibsem.ui.qtdesigner_files import (
 from fibsem.ui.utils import install_wheel_blocker_recursive, message_box_ui
 
 if TYPE_CHECKING:
-    # Annotation-only. `viewer` is still handed a napari Viewer by FibsemUI, so the
-    # type stays documented without importing napari here; image_widget likewise
-    # avoids a runtime dependency on a sibling widget module. (napari still reaches
-    # this module transitively via fibsem/ui/__init__.py, which eagerly imports every
-    # widget — that one belongs to the wider cutover.)
-    import napari
-
+    # Annotation-only, to avoid a runtime dependency on a sibling widget module.
     from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 
 
@@ -32,7 +26,9 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
         self,
         microscope: FibsemMicroscope = None,
         settings: MicroscopeSettings = None,
-        viewer: Optional["napari.Viewer"] = None,  # unused; retained for call-site compatibility
+        # Unused, retained for call-site compatibility. Untyped: every host now passes
+        # None, so naming napari here would be the module's only reason to know it exists.
+        viewer=None,
         image_widget: Optional["FibsemImageSettingsWidget"] = None,
         parent=None,
     ):

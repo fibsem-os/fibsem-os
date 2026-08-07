@@ -503,7 +503,6 @@ class FibsemBeamSettingsWidget(QWidget):
 if __name__ == "__main__":
     import sys
 
-    import napari
     from PyQt5.QtWidgets import QApplication, QPushButton, QVBoxLayout
 
     from fibsem import utils
@@ -543,6 +542,7 @@ if __name__ == "__main__":
 
     widget.settings_changed.connect(lambda s: print(f"settings_changed: {s}"))
 
-    viewer = napari.Viewer()
-    viewer.window.add_dock_widget(main_widget, area="right")
-    napari.run()
+    # Standalone harness: a plain Qt window, not a napari dock. napari was only ever
+    # hosting the widget here (FIB-407).
+    main_widget.show()
+    app.exec_()

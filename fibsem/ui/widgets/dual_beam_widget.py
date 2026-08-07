@@ -269,9 +269,9 @@ if __name__ == "__main__":
     btn.clicked.connect(_print)
     main_layout.addWidget(btn)
 
-    import napari
-    viewer = napari.Viewer()
-    viewer.window.add_dock_widget(main_widget, area="right")
-    napari.run()
+    # Standalone harness: a plain Qt window, not a napari dock. napari was only ever
+    # hosting the widget here (FIB-407).
+    main_widget.show()
+    app.exec_()
     # main_widget.show()
     # sys.exit(app.exec_())
