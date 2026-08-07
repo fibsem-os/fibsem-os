@@ -233,6 +233,32 @@ def test_unset_keys_are_omitted():
     assert field_meta(label="Width") == {"label": "Width"}
 
 
+def test_omitting_a_key_renders_the_same_as_declaring_it_None():
+    """Why converting a declaration that said `"scale": None` is not a change.
+
+    Dropping an explicitly-None key does alter the raw `field.metadata` -- and
+    six pattern and strategy fields lost one that way, via the shared angle
+    metadata. It is invisible because every form reads the merged
+    `field_metadata`, which refills the key from the vocabulary either way. A
+    reader going to `field.metadata` directly with a non-None fallback would be
+    able to tell, so this pins the equivalence the conversion relied on.
+    """
+
+    @dataclass
+    class Omitted:
+        angle: float = field(default=0.0, metadata=field_meta(unit="deg"))
+
+    @dataclass
+    class ExplicitNone:
+        angle: float = field(default=0.0, metadata={"unit": "deg", "scale": None})
+
+    assert "scale" not in Omitted.__dataclass_fields__["angle"].metadata
+    assert (
+        get_fields_with_metadata(Omitted)["angle"]
+        == get_fields_with_metadata(ExplicitNone)["angle"]
+    )
+
+
 def test_an_explicit_false_is_kept():
     """`hidden=False` means hidden=False, not "unspecified".
 
@@ -304,12 +330,13 @@ def test_a_spread_base_rejects_a_keyword_it_already_supplies():
         field_meta(**base, unit="µm")
 
 
-def test_the_shared_pattern_metadata_is_built_through_the_constructor():
-    """The highest-leverage place to check keys, so worth keeping that way.
+def test_the_shared_pattern_metadata_declares_only_known_keys():
+    """The highest-leverage place to check keys.
 
     These handful of dicts are spread into roughly a hundred pattern and strategy
-    fields. Declared through `field_meta`, one typo is caught once here rather
-    than rendering blank in every field that inherits it.
+    fields, so one typo here renders blank in every field that inherits it.
+    Declaring them through `field_meta` is what currently guarantees this, but
+    the guarantee is what matters, so this asserts the keys directly.
     """
     from fibsem.milling import properties
 
