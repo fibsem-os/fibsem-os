@@ -24,6 +24,21 @@ from PyQt5.QtWidgets import (
 from superqt import QRangeSlider
 
 from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.tokens import (
+    ACCENT_COLOR,
+    BORDER_COLOR,
+    DISABLED_TEXT_COLOR,
+    GRAY_FOREGROUND_COLOR,
+    GRAY_HIGHLIGHT_COLOR,
+    GRAY_PRIMARY_COLOR,
+    PANEL_COLOR,
+    PRIMARY_ACCENT,
+    ROW_ALT_COLOR,
+    SURFACE_COLOR,
+    TEXT_COLOR,
+    TEXT_MUTED_COLOR,
+    TEXT_STRONG_COLOR,
+)
 from fibsem.ui.widgets.canvas.fm_composite import (
     AVAILABLE_COLORS, FMLayer, auto_clim, composite_fm_layers,
 )
@@ -34,44 +49,53 @@ from fibsem.ui.widgets.canvas.real_space_canvas import FibsemRealSpaceCanvas
 if TYPE_CHECKING:
     from fibsem.fm.structures import FluorescenceImage
 
-_PANEL_BG = "#2c3036"
-_ACCENT = "#5b9bd5"
+_ACCENT = ACCENT_COLOR
 
-# napari-style dark theme for the floating layers panel
-_PANEL_QSS = """
-QFrame#fmPanel { background: #2c3036; border: 1px solid #3f444b; border-radius: 10px; }
-QLabel { color: #e4e6e9; background: transparent; }
-#panelTitle { color: #9aa0a6; font-size: 12px; font-weight: 500; letter-spacing: 1px; }
-QFrame#divider { background: #3a3f46; border: none; }
-#selName { color: #e4e6e9; font-size: 13px; font-weight: 500; }
-#selTag { color: #80858b; font-size: 11px; }
-#ctrlLbl { color: #9aa0a6; font-size: 12px; }
-#valLbl { color: #d2d5d9; font-size: 12px; }
-#valSm { color: #70757b; font-size: 11px; }
-QFrame#channelRow { border-radius: 7px; background: transparent; }
-QFrame#channelRow:hover { background: #32373e; }
-QFrame#channelRow[selected="true"] { background: #363d46; }
-QToolButton#eyeBtn { border: none; background: transparent; padding: 0; }
-#chName { color: #e4e6e9; font-size: 13px; }
-QComboBox { background: #23262b; color: #e4e6e9; border: 1px solid #3f444b;
-            border-radius: 6px; padding: 4px 8px; font-size: 12px; }
-QComboBox::drop-down { border: none; width: 18px; }
-QComboBox QAbstractItemView { background: #23262b; color: #e4e6e9;
-            border: 1px solid #3f444b; selection-background-color: #363d46; outline: none; }
-QPushButton#autoPill { color: #9bcdf6; background: #243140; border: 1px solid #2e4a61;
-            border-radius: 11px; padding: 3px 11px; font-size: 11px; }
-QPushButton#autoPill:!checked { color: #9aa0a6; background: transparent; border: 1px solid #3f444b; }
-QPushButton#resetBtn { background: transparent; color: #cdd0d4; border: 1px solid #3f444b;
-            border-radius: 6px; padding: 8px; font-size: 12px; }
-QPushButton#resetBtn:hover { background: #363d46; }
-QSlider { background: transparent; }
-QSlider::groove:horizontal { height: 4px; background: #3a3f46; border-radius: 2px; }
-QSlider::sub-page:horizontal { background: #5b9bd5; border-radius: 2px; }
-QSlider::add-page:horizontal { background: #3a3f46; border-radius: 2px; }
-QSlider::handle:horizontal { width: 13px; height: 13px; margin: -5px 0; border-radius: 7px;
-            background: #eceef0; border: 1px solid #5b9bd5; }
-QSlider::handle:horizontal:disabled { background: #5a6068; border-color: #5a6068; }
-QSlider::sub-page:horizontal:disabled { background: #4a5058; }
+# The checked Auto pill needs a dark tinted-blue *surface*, which the palette has
+# no token for. Deriving it as a low-alpha wash of the accent means a retune of
+# ACCENT_COLOR carries the pill with it; a hand-picked hex would silently fall
+# out of step.
+_ACCENT_WASH = "rgba({}, {}, {}, 0.16)".format(
+    *(int(ACCENT_COLOR[i:i + 2], 16) for i in (1, 3, 5))
+)
+
+# napari-style dark theme for the floating layers panel. An f-string, so every
+# literal QSS brace is doubled -- Qt discards a malformed rule silently, so a
+# missed pair shows up as an unstyled widget rather than an error.
+_PANEL_QSS = f"""
+QFrame#fmPanel {{ background: {SURFACE_COLOR}; border: 1px solid {BORDER_COLOR}; border-radius: 10px; }}
+QLabel {{ color: {TEXT_STRONG_COLOR}; background: transparent; }}
+#panelTitle {{ color: {TEXT_MUTED_COLOR}; font-size: 12px; font-weight: 500; letter-spacing: 1px; }}
+QFrame#divider {{ background: {BORDER_COLOR}; border: none; }}
+#selName {{ color: {TEXT_STRONG_COLOR}; font-size: 13px; font-weight: 500; }}
+#selTag {{ color: {TEXT_MUTED_COLOR}; font-size: 11px; }}
+#ctrlLbl {{ color: {TEXT_MUTED_COLOR}; font-size: 12px; }}
+#valLbl {{ color: {TEXT_COLOR}; font-size: 12px; }}
+#valSm {{ color: {GRAY_HIGHLIGHT_COLOR}; font-size: 11px; }}
+QFrame#channelRow {{ border-radius: 7px; background: transparent; }}
+QFrame#channelRow:hover {{ background: {ROW_ALT_COLOR}; }}
+QFrame#channelRow[selected="true"] {{ background: {BORDER_COLOR}; }}
+QToolButton#eyeBtn {{ border: none; background: transparent; padding: 0; }}
+#chName {{ color: {TEXT_STRONG_COLOR}; font-size: 13px; }}
+QComboBox {{ background: {PANEL_COLOR}; color: {TEXT_STRONG_COLOR}; border: 1px solid {BORDER_COLOR};
+            border-radius: 6px; padding: 4px 8px; font-size: 12px; }}
+QComboBox::drop-down {{ border: none; width: 18px; }}
+QComboBox QAbstractItemView {{ background: {PANEL_COLOR}; color: {TEXT_STRONG_COLOR};
+            border: 1px solid {BORDER_COLOR}; selection-background-color: {BORDER_COLOR}; outline: none; }}
+QPushButton#autoPill {{ color: {ACCENT_COLOR}; background: {_ACCENT_WASH}; border: 1px solid {PRIMARY_ACCENT};
+            border-radius: 11px; padding: 3px 11px; font-size: 11px; }}
+QPushButton#autoPill:!checked {{ color: {TEXT_MUTED_COLOR}; background: transparent; border: 1px solid {BORDER_COLOR}; }}
+QPushButton#resetBtn {{ background: transparent; color: {TEXT_COLOR}; border: 1px solid {BORDER_COLOR};
+            border-radius: 6px; padding: 8px; font-size: 12px; }}
+QPushButton#resetBtn:hover {{ background: {BORDER_COLOR}; }}
+QSlider {{ background: transparent; }}
+QSlider::groove:horizontal {{ height: 4px; background: {BORDER_COLOR}; border-radius: 2px; }}
+QSlider::sub-page:horizontal {{ background: {ACCENT_COLOR}; border-radius: 2px; }}
+QSlider::add-page:horizontal {{ background: {BORDER_COLOR}; border-radius: 2px; }}
+QSlider::handle:horizontal {{ width: 13px; height: 13px; margin: -5px 0; border-radius: 7px;
+            background: {TEXT_STRONG_COLOR}; border: 1px solid {ACCENT_COLOR}; }}
+QSlider::handle:horizontal:disabled {{ background: {GRAY_PRIMARY_COLOR}; border-color: {GRAY_PRIMARY_COLOR}; }}
+QSlider::sub-page:horizontal:disabled {{ background: {GRAY_FOREGROUND_COLOR}; }}
 """
 
 
@@ -93,17 +117,17 @@ class _ContrastSlider(QRangeSlider):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._style.brush_active = _ACCENT
-        self._style.brush_inactive = "#3a3f46"
+        self._style.brush_inactive = BORDER_COLOR
 
     def _draw_handle(self, painter, opt) -> None:
         on = self.isEnabled()
-        self._style.brush_active = _ACCENT if on else "#46505d"
+        self._style.brush_active = _ACCENT if on else GRAY_FOREGROUND_COLOR
         if self._should_draw_bar:
             self._drawBar(painter, opt)
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("#eceef0" if on else "#8a8f95"))
+        painter.setBrush(QColor(TEXT_STRONG_COLOR if on else TEXT_MUTED_COLOR))
         for i in range(len(self.value())):
             rect = self._handleRect(i).adjusted(1, 1, -1, -1)
             painter.drawEllipse(rect)
@@ -149,10 +173,14 @@ class _ChannelRow(QFrame):
 
     def _refresh_eye(self, visible: bool) -> None:
         icon = "mdi:eye" if visible else "mdi:eye-off-outline"
-        self.eye.setIcon(fibsem_icon(icon, color="#d2d5d9" if visible else "#70757b"))
+        self.eye.setIcon(
+            fibsem_icon(icon, color=TEXT_COLOR if visible else DISABLED_TEXT_COLOR)
+        )
 
     def _dim(self, dim: bool) -> None:
-        self.name.setStyleSheet("color: #70757b;" if dim else "color: #e4e6e9;")
+        self.name.setStyleSheet(
+            f"color: {DISABLED_TEXT_COLOR};" if dim else f"color: {TEXT_STRONG_COLOR};"
+        )
 
     def _on_eye(self, checked: bool) -> None:
         self._refresh_eye(checked)
@@ -730,7 +758,9 @@ class FMLayersPanel(QFrame):
         # header
         header = QHBoxLayout(); header.setSpacing(8)
         hicon = QLabel()
-        hicon.setPixmap(fibsem_icon("mdi:layers-triple-outline", color="#9aa0a6").pixmap(QSize(16, 16)))
+        hicon.setPixmap(
+            fibsem_icon("mdi:layers-triple-outline", color=TEXT_MUTED_COLOR).pixmap(QSize(16, 16))
+        )
         title = QLabel("FM CHANNELS"); title.setObjectName("panelTitle")
         header.addWidget(hicon); header.addWidget(title); header.addStretch()
         root.addLayout(header)
