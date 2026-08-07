@@ -51,6 +51,68 @@ DEFAULT_FIELD_METADATA: Dict[str, Any] = {
     "format_fn_kwargs": None,       # kwargs for the format function # NOTE: unused yet
 }
 
+# Alias -> canonical key. The AutoLamella task configs grew their own spellings
+# for two keys the rest of the codebase already had, and the form that renders
+# them reads only those spellings, so neither side is "the mistake" from the
+# other's point of view. The canonical names are the ones in
+# DEFAULT_FIELD_METADATA; the aliases are accepted so that a config written in
+# either dialect renders correctly in any form.
+#
+# Deliberately not a rename-and-drop: `help` and `units` are used by installed
+# out-of-tree plugins (the example repo and a lab CLEM plugin between them
+# declare `help` 21 times and `units` 9), and dropping the aliases would
+# silently strip their tooltips and unit suffixes. See FIB-384.
+METADATA_KEY_ALIASES: Dict[str, str] = {
+    "help": "tooltip",
+    "units": "unit",
+}
+
+# Keys that are read by a form but were never listed in DEFAULT_FIELD_METADATA.
+# Tracked here so `_warn_unknown_metadata_keys` does not report them as typos.
+_EXTRA_KNOWN_METADATA_KEYS = frozenset({"filepath"})
+
+_warned_metadata_keys: set = set()
+
+
+def _warn_unknown_metadata_keys(struct_cls: Type[Any], field_name: str, metadata: Dict[str, Any]) -> None:
+    """Log once for a metadata key nothing will ever read.
+
+    A mis-keyed field is silent today: the form renders, the value is right, and
+    the label or suffix is simply missing. Plugin authors have no way to discover
+    the vocabulary, so a typo costs an afternoon. Warned once per
+    (class, field, key) because form metadata is re-read on every rebuild.
+    """
+    known = set(DEFAULT_FIELD_METADATA) | set(METADATA_KEY_ALIASES) | _EXTRA_KNOWN_METADATA_KEYS
+    for key in metadata:
+        if key in known:
+            continue
+        marker = (struct_cls.__qualname__, field_name, key)
+        if marker in _warned_metadata_keys:
+            continue
+        _warned_metadata_keys.add(marker)
+        logging.warning(
+            f"{struct_cls.__name__}.{field_name} declares metadata key {key!r}, which no "
+            f"form reads. Known keys: {', '.join(sorted(known))}."
+        )
+
+
+def metadata_value(metadata: Dict[str, Any], key: str, default: Any = None) -> Any:
+    """Read one metadata key, accepting either spelling.
+
+    For consumers that read a field's raw ``metadata`` rather than going through
+    ``get_fields_with_metadata`` -- the AutoLamella task-parameters form does, so
+    it never saw the normalised keys. Pass the canonical name; the alias is
+    consulted only if the canonical key is absent or ``None``.
+    """
+    value = metadata.get(key)
+    if value is None:
+        for alias, canonical in METADATA_KEY_ALIASES.items():
+            if canonical == key and metadata.get(alias) is not None:
+                value = metadata[alias]
+                break
+    return default if value is None else value
+
+
 def get_fields_with_metadata(struct_cls: Type[Any]) -> Dict[str, Dict[str, Any]]:
     """Return dataclass fields with metadata, filling any missing keys with defaults."""
     # Prefer a struct-level DEFAULT_METADATA if provided, layering on top of the
@@ -61,7 +123,15 @@ def get_fields_with_metadata(struct_cls: Type[Any]) -> Dict[str, Dict[str, Any]]
     }
     field_metadata: Dict[str, Dict[str, Any]] = {}
     for f in fields(struct_cls):
-        merged_metadata = {**default_metadata, **dict(f.metadata)}
+        declared = dict(f.metadata)
+        _warn_unknown_metadata_keys(struct_cls, f.name, declared)
+        # An alias fills its canonical key only when the canonical one is absent,
+        # so a field declaring both keeps the canonical value rather than having
+        # it overwritten by whichever happens to be iterated last.
+        for alias, canonical in METADATA_KEY_ALIASES.items():
+            if alias in declared and declared.get(canonical) is None:
+                declared[canonical] = declared[alias]
+        merged_metadata = {**default_metadata, **declared}
         field_metadata[f.name] = merged_metadata
     return field_metadata
 

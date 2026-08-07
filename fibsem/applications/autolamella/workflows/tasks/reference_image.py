@@ -17,11 +17,11 @@ class AcquireReferenceImageConfig(AutoLamellaTaskConfig):
     display_name: ClassVar[str] = "Acquire Reference Image"
     orientation: Literal["SEM", "FIB", "MILLING"] = field(
         default="MILLING",
-        metadata={"help": "The orientation to acquire reference images in (SEM, FIB, MILLING)", "items": ("SEM", "FIB", "MILLING")},
+        metadata={"tooltip": "The orientation to acquire reference images in (SEM, FIB, MILLING)", "items": ("SEM", "FIB", "MILLING")},
     ) # change to pose?
     filename: Optional[str] = field(
         default=None,
-        metadata={"help": "Custom filename for reference images. If None, auto-generates from last completed task name and timestamp."},
+        metadata={"tooltip": "Custom filename for reference images. If None, auto-generates from last completed task name and timestamp."},
     )
 
 

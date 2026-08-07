@@ -21,26 +21,26 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
     milling_angle: float = field(
         default=15,
         metadata={
-            "help": "The angle between the FIB and sample used for milling",
-            "units": constants.DEGREE_SYMBOL,
+            "tooltip": "The angle between the FIB and sample used for milling",
+            "unit": constants.DEGREE_SYMBOL,
         },)
     auto_milling_alignment: bool = field(
         default=False,
         metadata={
             "label": "Auto Milling Angle Alignment",
-            "help": "Whether to automatically align for a milling position"},
+            "tooltip": "Whether to automatically align for a milling position"},
     )
     use_autofocus: bool = field(
         default=True,
         metadata={
             "label": "Use Autofocus",
-            "help": "Whether to autofocus before moving to the milling position"},
+            "tooltip": "Whether to autofocus before moving to the milling position"},
     )
     select_poi: bool = field(
         default=True,
         metadata={
             "label": "Select Point of Interest",
-            "help": "Whether to ask the user to select a point of interest in the FIB image"},
+            "tooltip": "Whether to ask the user to select a point of interest in the FIB image"},
     )
     task_type: ClassVar[str] = "SELECT_MILLING_POSITION"
     display_name: ClassVar[str] = "Select Milling Position"

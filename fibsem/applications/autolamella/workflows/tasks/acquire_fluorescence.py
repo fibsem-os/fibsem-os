@@ -27,19 +27,19 @@ class AcquireFluorescenceImageConfig(AutoLamellaTaskConfig):
     task_type: ClassVar[str] = "ACQUIRE_FLUORESCENCE_IMAGE"
     display_name: ClassVar[str] = "Acquire Fluorescence Image"
     channel_settings: list[ChannelSettings] = field(default_factory=list,
-                                                    metadata={"help": "Settings for each fluorescence channel",
+                                                    metadata={"tooltip": "Settings for each fluorescence channel",
                                                              "label": "Channel Settings"})
     zparams: ZParameters = field(default_factory=ZParameters, 
-                                  metadata={"help": "Z-stack acquisition parameters",
+                                  metadata={"tooltip": "Z-stack acquisition parameters",
                                             "label": "Z-Stack Parameters"})
     autofocus_settings: AutoFocusSettings = field(default_factory=AutoFocusSettings,
-                                                  metadata={"help": "Settings for autofocus before acquiring fluorescence images",
+                                                  metadata={"tooltip": "Settings for autofocus before acquiring fluorescence images",
                                                             "label": "Autofocus Settings"})
     orientation: Optional[str] = field(default=None,
-                                       metadata={"help": "Orientation for acquisition. 'FM' or 'SEM'. None = use fluorescence_pose as-is.",
+                                       metadata={"tooltip": "Orientation for acquisition. 'FM' or 'SEM'. None = use fluorescence_pose as-is.",
                                                  "label": "Orientation"})
     retract_objective: bool = field(default=True,
-                                    metadata={"help": "Retract the objective when the task finishes, so it is clear of the stage for subsequent moves. Disable for back-to-back fluorescence tasks.",
+                                    metadata={"tooltip": "Retract the objective when the task finishes, so it is clear of the stage for subsequent moves. Disable for back-to-back fluorescence tasks.",
                                               "label": "Retract Objective"})
 
     def to_dict(self) -> dict:

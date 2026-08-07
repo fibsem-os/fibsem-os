@@ -30,6 +30,7 @@ from superqt import QCollapsible
 
 from fibsem import utils
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
+from fibsem.structures import metadata_value
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import TitledPanel
@@ -103,7 +104,8 @@ class IntParameterWidget(ParameterWidget):
         super().__init__(name, value, annotation)
         self.metadata = metadata or {}
         self.scale = self.metadata.get('scale', 1.0)
-        self.units = self.metadata.get('units', '')
+        # Canonical spelling first, falling back to this form's own `units` (FIB-384)
+        self.units = metadata_value(self.metadata, 'unit', '')
 
     def create_widget(self) -> QWidget:
         self.widget = QSpinBox()
@@ -150,7 +152,8 @@ class FloatParameterWidget(ParameterWidget):
         super().__init__(name, value, annotation)
         self.metadata = metadata or {}
         self.scale = self.metadata.get('scale', 1.0)
-        self.units = self.metadata.get('units', '')
+        # Canonical spelling first, falling back to this form's own `units` (FIB-384)
+        self.units = metadata_value(self.metadata, 'unit', '')
         
     def create_widget(self) -> QWidget:
         self.widget = QDoubleSpinBox()
@@ -509,8 +512,11 @@ class AutoLamellaTaskConfigWidget(QWidget):
                     
                     # Create label with tooltip if available
                     label = QLabel(self._format_field_name(param_name))
-                    if hasattr(field, 'metadata') and 'help' in field.metadata:
-                        label.setToolTip(field.metadata['help'])
+                    # Either spelling: this form's own `help`, or the canonical
+                    # `tooltip` every other form reads (FIB-384).
+                    tooltip = metadata_value(getattr(field, 'metadata', {}), 'tooltip')
+                    if tooltip:
+                        label.setToolTip(tooltip)
                         
                     self.grid_layout.addWidget(label, self.current_row, 0)
                     self.grid_layout.addWidget(widget, self.current_row, 1)
@@ -668,8 +674,11 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
 
                 # Create label with tooltip if available
                 label = QLabel(self._format_field_name(param_name, field.metadata))
-                if hasattr(field, 'metadata') and 'help' in field.metadata:
-                    label.setToolTip(field.metadata['help'])
+                # Either spelling: this form's own `help`, or the canonical
+                # `tooltip` every other form reads (FIB-384).
+                tooltip = metadata_value(getattr(field, 'metadata', {}), 'tooltip')
+                if tooltip:
+                    label.setToolTip(tooltip)
 
                 self.grid_layout.addWidget(label, self.current_row, 0)
                 self.grid_layout.addWidget(widget, self.current_row, 1)

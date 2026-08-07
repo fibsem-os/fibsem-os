@@ -23,7 +23,7 @@ class MillPolishingTaskConfig(AutoLamellaTaskConfig):
         default=True,
         metadata={
             "label": "Link to Point of Interest",
-            "help": "Link the milling pattern positions to the point of interest. Pattern positions will update when the POI is updated."},
+            "tooltip": "Link the milling pattern positions to the point of interest. Pattern positions will update when the POI is updated."},
     )
     task_type: ClassVar[str] = "MILL_POLISHING"
     display_name: ClassVar[str] = "Polishing"

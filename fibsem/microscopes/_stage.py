@@ -29,7 +29,7 @@ class SampleGrid:
     description: str = ""
     radius: float = field(
         default=GRID_RADIUS,
-        metadata={"units": "mm", "tooltip": "Radius of the sample grid", "scale": 1e3},
+        metadata={"unit": "mm", "tooltip": "Radius of the sample grid", "scale": 1e3},
     )
 
     def to_dict(self) -> dict:

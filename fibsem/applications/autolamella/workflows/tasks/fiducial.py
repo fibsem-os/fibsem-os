@@ -31,14 +31,14 @@ class MillFiducialTaskConfig(AutoLamellaTaskConfig):
     alignment_expansion: float = field(
         default=100.0,
         metadata={
-            "help": "The percentage to expand the alignment area around the fiducial",
-            "units": "%",
+            "tooltip": "The percentage to expand the alignment area around the fiducial",
+            "unit": "%",
         },
     )
     align_to_reference: bool = field(
         default=True,
         metadata={
-            "help": "Align to the reference image before milling fiducial (if available)"
+            "tooltip": "Align to the reference image before milling fiducial (if available)"
         }
 
     )
