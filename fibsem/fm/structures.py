@@ -1528,6 +1528,24 @@ class FluorescenceImageMetadata:
         )
 
 
+class ObjectiveStartPosition(Enum):
+    """Where the objective is put before an overview begins.
+
+    Only ever a focus value -- neither option inserts or retracts the objective, which
+    is a different mechanism and a physical move no start-position setting should imply.
+    A run started with the objective retracted has a problem this does not solve.
+    """
+
+    # Wherever it is. What every overview did before this existed, and still the
+    # default: an overview is usually taken of what you have just been looking at.
+    CURRENT = "current"
+    # The focus a user saved with "Set Focus Position". Worth choosing when the
+    # objective has since been moved by something unrelated -- and worth more with
+    # autofocus set to `once`, whose sweep centres on wherever it starts, so beginning
+    # from a known-good focus sweeps around the answer rather than around an accident.
+    FOCUS = "focus"
+
+
 @dataclass
 class OverviewParameters:
     """Parameters for FM overview/tileset acquisition.
@@ -1539,6 +1557,7 @@ class OverviewParameters:
         use_zstack: Acquire a z-stack at each tile.
         autofocus_mode: When to autofocus during the traversal.
         tile_order: Traversal strategy over the grid.
+        objective_start: Where the objective is put before the run begins.
         tile_mask: Optional per-tile enable mask, `tile_mask[row][col]`. None acquires
             every tile. Disabled tiles are skipped but keep their place: the mosaic is
             still the full grid size and acquired tiles land at the same canvas
@@ -1552,6 +1571,7 @@ class OverviewParameters:
     autofocus_mode: AutoFocusMode = AutoFocusMode.NONE
     tile_order: TileOrderStrategy = TileOrderStrategy.TYPEWRITER
     tile_mask: Optional[List[List[bool]]] = None
+    objective_start: ObjectiveStartPosition = ObjectiveStartPosition.CURRENT
 
     def to_dict(self) -> dict:
         """Convert to dictionary representation."""
@@ -1562,6 +1582,7 @@ class OverviewParameters:
             "use_zstack": self.use_zstack,
             "autofocus_mode": self.autofocus_mode.value,
             "tile_order": self.tile_order.value,
+            "objective_start": self.objective_start.value,
             # plain bools: np.bool_ does not survive yaml.safe_dump
             "tile_mask": None if self.tile_mask is None
             else [[bool(v) for v in row] for row in self.tile_mask],
@@ -1581,6 +1602,11 @@ class OverviewParameters:
                 ddict.get("tile_order", TileOrderStrategy.TYPEWRITER.value)
             ),
             tile_mask=None if mask is None else [[bool(v) for v in row] for row in mask],
+            # Defaulted, not required: every overview saved before this existed started
+            # from wherever the objective was, so that is what its parameters mean.
+            objective_start=ObjectiveStartPosition(
+                ddict.get("objective_start", ObjectiveStartPosition.CURRENT.value)
+            ),
         )
 
     @property

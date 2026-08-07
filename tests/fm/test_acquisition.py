@@ -24,6 +24,7 @@ from fibsem.fm.acquisition import (
 from fibsem.fm.structures import (
     AutoFocusMode,
     AutoFocusSettings,
+    ObjectiveStartPosition,
     ChannelSettings,
     FluorescenceImage,
     FMStagePosition,
@@ -2088,3 +2089,154 @@ def test_the_mosaic_records_where_its_tiles_were_actually_taken(
 
     assert runner._tile_objective_position == pytest.approx(FOUND_FOCUS)
     assert runner._initial_objective_position != pytest.approx(FOUND_FOCUS)
+
+
+# ---------------------------------------------------------------------------
+# Where an overview starts from (FIB-417).
+#
+# The runner took whatever the objective happened to be at, so acquiring from a
+# known-good focus meant driving there by hand first and remembering to.
+# ---------------------------------------------------------------------------
+
+SAVED_FOCUS = 42e-6
+
+
+def _start_from(monkeypatch, microscope, start, focus=SAVED_FOCUS):
+    """Run a 1x2 tileset with the given start setting, reporting where tiles landed."""
+    microscope.fm.objective.focus_position = focus
+    positions = []
+
+    monkeypatch.setattr(acquisition, "run_tileset_autofocus", lambda *a, **k: True)
+    real = acquisition.acquire_image
+
+    def spy(*args, **kwargs):
+        positions.append(microscope.fm.objective.position)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(acquisition, "acquire_image", spy)
+
+    runner = acquisition.FMTiledAcquisitionRunner(
+        microscope=microscope,
+        channel_settings=ChannelSettings(
+            name="DAPI", excitation_wavelength=358, emission_wavelength=461,
+            power=0.1, exposure_time=0.1,
+        ),
+        overview_parameters=OverviewParameters(
+            rows=1, cols=2, overlap=0.1, use_zstack=False,
+            autofocus_mode=AutoFocusMode.NONE, objective_start=start,
+        ),
+    )
+    runner.run()
+    return positions, runner
+
+
+def test_by_default_an_overview_starts_where_the_objective_is(fm_microscope, monkeypatch):
+    """Unchanged behaviour, and still the default: an overview is usually taken of
+    whatever you have just been looking at."""
+    started_at = fm_microscope.fm.objective.position
+
+    positions, _ = _start_from(
+        monkeypatch, fm_microscope, ObjectiveStartPosition.CURRENT
+    )
+
+    assert positions == [pytest.approx(started_at)] * 2
+
+
+def test_it_can_start_from_the_saved_focus_position(fm_microscope, monkeypatch):
+    """The point of the setting: acquire from a known-good focus without driving the
+    objective there by hand first."""
+    positions, _ = _start_from(monkeypatch, fm_microscope, ObjectiveStartPosition.FOCUS)
+
+    assert positions == [pytest.approx(SAVED_FOCUS)] * 2
+
+
+def test_the_objective_still_goes_back_where_the_user_left_it(fm_microscope, monkeypatch):
+    """Choosing where to start is not moving house."""
+    started_at = fm_microscope.fm.objective.position
+
+    _start_from(monkeypatch, fm_microscope, ObjectiveStartPosition.FOCUS)
+
+    assert fm_microscope.fm.objective.position == pytest.approx(started_at)
+
+
+def test_the_objective_is_moved_before_a_sweep_would_search(fm_microscope, monkeypatch):
+    """`once` autofocus sweeps before the tile loop and centres on wherever the
+    objective is, so the move has to happen in setup rather than at the first tile --
+    otherwise the sweep searches around the position being replaced."""
+    swept_at = []
+    fm_microscope.fm.objective.focus_position = SAVED_FOCUS
+    monkeypatch.setattr(
+        acquisition, "run_tileset_autofocus",
+        lambda microscope, *a, **k: swept_at.append(microscope.fm.objective.position) or True,
+    )
+    monkeypatch.setattr(acquisition, "acquire_image", lambda *a, **k: acquisition.acquire_image)
+
+    runner = acquisition.FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(
+            name="DAPI", excitation_wavelength=358, emission_wavelength=461,
+            power=0.1, exposure_time=0.1,
+        ),
+        overview_parameters=OverviewParameters(
+            rows=1, cols=1, overlap=0.1, use_zstack=False,
+            autofocus_mode=AutoFocusMode.ONCE,
+            objective_start=ObjectiveStartPosition.FOCUS,
+        ),
+        autofocus_settings=AutoFocusSettings(),
+    )
+    runner.run()
+
+    assert swept_at == [pytest.approx(SAVED_FOCUS)]
+
+
+def test_asking_for_a_focus_position_that_was_never_saved_is_refused(
+    fm_microscope, monkeypatch
+):
+    """Refused rather than quietly falling back to the current position, which is the
+    option the caller did not choose -- and whose failure would arrive as a blurred
+    overview an hour later rather than a message now."""
+    fm_microscope.fm.objective.focus_position = None
+
+    with pytest.raises(ValueError, match="saved focus position"):
+        _start_from(
+            monkeypatch, fm_microscope, ObjectiveStartPosition.FOCUS, focus=None
+        )
+
+
+def test_an_overview_will_not_run_with_the_objective_retracted(fm_microscope, monkeypatch):
+    """Nothing an overview does works without it -- the tiles would be whatever a
+    retracted objective sees, and a sweep would search for a focus that cannot exist."""
+    fm_microscope.fm.objective.retract()
+
+    with pytest.raises(ValueError, match="retracted"):
+        _start_from(monkeypatch, fm_microscope, ObjectiveStartPosition.CURRENT)
+
+
+def test_the_retracted_objective_is_caught_before_anything_moves(
+    fm_microscope, monkeypatch
+):
+    """Checked first, so a run that cannot succeed costs no stage travel -- and, with
+    a start position selected, no objective travel either.
+
+    `FOCUS` rather than `CURRENT` on purpose: resolving the start position *moves* the
+    objective, so a check placed after it would refuse only once it had already driven
+    the objective somewhere. With `CURRENT` nothing moves and the test cannot tell.
+
+    The run must also not insert it: that is a physical move toward the sample, and it
+    may be retracted precisely because someone meant it to be.
+    """
+    fm_microscope.fm.objective.retract()
+    retracted_at = fm_microscope.fm.objective.position
+    moved = []
+    monkeypatch.setattr(
+        fm_microscope, "safe_absolute_stage_movement", lambda *a, **k: moved.append(a)
+    )
+
+    with pytest.raises(ValueError, match="retracted"):
+        _start_from(monkeypatch, fm_microscope, ObjectiveStartPosition.FOCUS)
+
+    assert moved == [], "the stage travelled before the run was refused"
+    assert fm_microscope.fm.objective.position == pytest.approx(retracted_at), (
+        "the objective was driven somewhere before the run was refused"
+    )
+    assert fm_microscope.fm.objective.state == "Retracted", "the run inserted it"

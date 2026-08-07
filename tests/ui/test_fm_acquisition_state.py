@@ -33,7 +33,13 @@ def qapp():
 def widget(qapp):
     from fibsem.ui.fm.overview_app import build_microscope
 
-    return FMOverviewWidget(build_microscope())
+    widget = FMOverviewWidget(build_microscope())
+    # `build_microscope` leaves the objective retracted, which `acquire` refuses
+    # (FIB-417) before it ever reaches the busy flag this file is about. Without
+    # this, the tests that assert the flag is *given back* would pass on a run that
+    # never took it.
+    widget.fm.objective.insert()
+    return widget
 
 
 @pytest.fixture()

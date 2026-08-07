@@ -37,6 +37,7 @@ from fibsem.fm.structures import (
     ChannelSettings,
     FluorescenceImage,
     FluorescenceImageMetadata,
+    ObjectiveStartPosition,
     OverviewParameters,
 )
 from fibsem.microscope import FibsemMicroscope
@@ -1268,6 +1269,37 @@ class FMOverviewWidget(QWidget):
             logging.debug(f"No objective position for the info bar: {e}")
             self._objective_info = None
         self._refresh_stage_info()
+        # The same read serves the start-position options, which say what each one
+        # currently means. Here rather than on its own timer so the objective is read
+        # once for both -- on a shared connection that read takes the imaging channel
+        # (FIB-517), and two of them would be two.
+        self._refresh_objective_start_options()
+
+    def _objective_state(self) -> Optional[str]:
+        """Whether the objective is inserted, or None if it cannot be asked.
+
+        None rather than a guess: a driver that cannot answer is not the same as one
+        answering "retracted", and refusing a run over a failed read would be the wrong
+        way round -- the runner checks again, where it can raise.
+        """
+        try:
+            return self.fm.objective.state
+        except Exception as e:
+            logging.debug(f"Could not read the objective state: {e}")
+            return None
+
+    def _refresh_objective_start_options(self) -> None:
+        """Tell the settings panel where the objective is and where its saved focus is.
+
+        Read here rather than by the settings widget, which takes no microscope -- that
+        is what lets it be built and tested on its own.
+        """
+        try:
+            self.settings_widget.set_objective_positions(
+                self.fm.objective.position, self.fm.objective.focus_position
+            )
+        except Exception as e:
+            logging.debug(f"No objective positions for the start options: {e}")
 
     def _current_stage_position(self) -> Optional[FibsemStagePosition]:
         """Where the stage is, polling the microscope only when nothing has said yet.
@@ -1937,11 +1969,43 @@ class FMOverviewWidget(QWidget):
             self.status.setText("No channels enabled.")
             return
 
+        # Both of these are checked in the runner too, for a caller driving it directly.
+        # Here as well because by then the dialog has said yes and the stage is moving,
+        # so the message arrives as a failed run rather than as an answer to the
+        # question that was just asked (FIB-417).
+        state = self._objective_state()
+        if state is not None and state != "Inserted":
+            message = (
+                f"The objective is {state.lower()}, so an overview cannot be acquired. "
+                f"Insert it and try again."
+            )
+            logging.warning(message)
+            notification_service.show_toast(message, "warning")
+            self.status.setText(f"Objective is {state.lower()}.")
+            return
+
+        if (parameters.objective_start is ObjectiveStartPosition.FOCUS
+                and self.fm.objective.focus_position is None):
+            message = (
+                "This overview is set to start from the saved focus position, but none "
+                "has been saved. Set one with 'Set Focus Position', or start from the "
+                "current position instead."
+            )
+            logging.warning(message)
+            notification_service.show_toast(message, "warning")
+            self.status.setText("No focus position saved.")
+            return
+
         zparams = self.settings_widget.z_parameters
         # Method, channel and sweep passes all come from the settings panel now,
         # rather than being defaulted with only the channel filled in. Resolved before
         # the dialog, because the dialog reports what will run.
         autofocus_settings = self.settings_widget.autofocus_settings
+
+        # Read now rather than reusing whatever the settings panel last showed: the
+        # objective may have been driven somewhere since, and this dialog is the last
+        # thing said before the run commits.
+        self._refresh_objective_start_options()
 
         dialog = FMOverviewConfirmationDialog(
             parameters=parameters,
@@ -1949,6 +2013,8 @@ class FMOverviewWidget(QWidget):
             zparams=zparams,
             tile_fov=self.settings_widget._tile_fov,
             autofocus_settings=autofocus_settings,
+            objective_current=self.settings_widget._objective_current,
+            objective_focus=self.settings_widget._objective_focus,
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:

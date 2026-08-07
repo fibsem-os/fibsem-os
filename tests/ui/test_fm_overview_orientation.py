@@ -36,7 +36,13 @@ def qapp():
 def widget(qapp):
     from fibsem.ui.fm.overview_app import build_microscope
 
-    return FMOverviewWidget(build_microscope())
+    built = FMOverviewWidget(build_microscope())
+    # Everything except the pose has to be ready to run, or a test that varies only the
+    # orientation is really testing whichever other guard `acquire` reaches first. The
+    # objective is the one that bites: `build_microscope` leaves it retracted, and an
+    # overview refuses on that before it looks at the stage (FIB-417).
+    built.fm.objective.insert()
+    return built
 
 
 # Compustage tilts the whole orientation question: -180° is where the FM looks at the
