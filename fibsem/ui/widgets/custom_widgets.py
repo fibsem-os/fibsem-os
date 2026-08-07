@@ -515,17 +515,6 @@ def show_context_menu(
     selected = menu.show_at_cursor()
     return selected.label if selected else None
 
-@dataclass
-class FormRow:
-    """Shared form-row descriptor for metadata-driven settings widgets (milling, pattern, etc.)."""
-    label: QLabel
-    control: QWidget
-    field: str
-    advanced: bool
-    scale: Optional[float]      # effective scale (base_scale ** dims); None = no scaling
-    mfr: Optional[str] = None   # manufacturer filter; None = show for all
-
-
 class TitledPanel(QWidget):
     """A styled panel with a dark header row (title label + optional widgets) and a collapsible content area.
 
