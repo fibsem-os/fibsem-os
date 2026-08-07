@@ -4478,3 +4478,26 @@ def test_an_objective_that_cannot_be_asked_does_not_block_the_run(
     monkeypatch.setattr(type(widget.fm.objective), "state", property(unreadable))
 
     assert widget._objective_state() is None
+
+
+def test_loading_parameters_leaves_the_objective_start_combo_able_to_notify(qapp):
+    """The `parameters` setter blocks every widget it writes and unblocks them from a
+    second list. Left out of that list, the combo stays blocked for the rest of the
+    widget's life -- so changing "Start from" would silently stop redrawing the grid,
+    the summary and everything else downstream of `changed`.
+
+    Latent until something loads a saved configuration, which is why it needs a test
+    rather than a bug report: today only tests call the setter.
+    """
+    from fibsem.fm.structures import OverviewParameters
+    from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
+
+    widget = FMOverviewSettingsWidget()
+    widget.parameters = OverviewParameters(rows=2, cols=2)
+
+    seen = []
+    widget.changed.connect(lambda: seen.append(1))
+    combo = widget.combo_objective_start
+    combo.setCurrentIndex(1 - combo.currentIndex())
+
+    assert seen, "the objective-start combo was left signal-blocked by the setter"

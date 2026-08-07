@@ -489,7 +489,8 @@ class FMOverviewSettingsWidget(QWidget):
         finally:
             for widget in (self.spin_rows, self.spin_cols, self.spin_overlap,
                            self.combo_tile_order, self.check_zstack,
-                           self.combo_autofocus_mode, self.tile_mask):
+                           self.combo_autofocus_mode, self.combo_objective_start,
+                           self.tile_mask):
                 widget.blockSignals(False)
         # Both, because the setter blocked the signals that normally trigger them --
         # otherwise loading a z-stacked configuration leaves the z-parameters greyed
