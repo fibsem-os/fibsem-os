@@ -247,7 +247,7 @@ class FibsemMinimapWidget(QWidget):
         self.progressBar_acquisition = QProgressBar()
         self.progressBar_acquisition.setValue(24)
         self.progressBar_acquisition.setAlignment(Qt.AlignCenter)
-        self.progressBar_acquisition.setStyleSheet(stylesheets.MILLING_PROGRESS_BAR_STYLESHEET)
+        self.progressBar_acquisition.setStyleSheet(stylesheets.PROGRESS_BAR_STYLESHEET)
         self.gridLayout.addWidget(self.progressBar_acquisition, 4, 0)
 
         # --- Acquisition settings widget ---
@@ -441,8 +441,8 @@ class FibsemMinimapWidget(QWidget):
 
         # set styles
         self.pushButton_run_tile_collection.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
-        self.pushButton_cancel_acquisition.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
-        self.progressBar_acquisition.setStyleSheet(stylesheets.MILLING_PROGRESS_BAR_STYLESHEET)
+        self.pushButton_cancel_acquisition.setStyleSheet(stylesheets.DANGER_BUTTON_STYLESHEET)
+        self.progressBar_acquisition.setStyleSheet(stylesheets.PROGRESS_BAR_STYLESHEET)
         self.pushButton_enable_correlation.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_load_image.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_load_correlation_image.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)

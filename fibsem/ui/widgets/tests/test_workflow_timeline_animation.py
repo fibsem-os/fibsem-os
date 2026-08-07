@@ -99,7 +99,7 @@ class AnimatedDemo(QWidget):
 
         self._btn_stop = QPushButton("Stop")
         self._btn_stop.setFixedHeight(24)
-        self._btn_stop.setStyleSheet(stylesheets.STOP_WORKFLOW_BUTTON_STYLESHEET)
+        self._btn_stop.setStyleSheet(stylesheets.DANGER_BUTTON_STYLESHEET)
         top_layout.addWidget(self._btn_stop)
 
         layout.addWidget(top_bar)

@@ -154,7 +154,7 @@ class FibsemProgressWidget(QWidget):
         self._bar = QProgressBar()
         self._bar.setTextVisible(True)
         self._failed_style = False
-        self._bar.setStyleSheet(stylesheets.MILLING_PROGRESS_BAR_STYLESHEET)
+        self._bar.setStyleSheet(stylesheets.PROGRESS_BAR_STYLESHEET)
         layout.addWidget(self._bar)
 
     def _set_failed_style(self, failed: bool) -> None:
@@ -169,7 +169,7 @@ class FibsemProgressWidget(QWidget):
         self._bar.setStyleSheet(
             stylesheets.FAILED_PROGRESS_BAR_STYLESHEET
             if failed
-            else stylesheets.MILLING_PROGRESS_BAR_STYLESHEET
+            else stylesheets.PROGRESS_BAR_STYLESHEET
         )
 
     # ------------------------------------------------------------------

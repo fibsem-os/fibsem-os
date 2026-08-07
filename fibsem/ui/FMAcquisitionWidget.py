@@ -79,7 +79,7 @@ from fibsem.ui.napari.utilities import (
     NapariShapeOverlay,
 )
 from fibsem.ui.stylesheets import (
-    MILLING_PROGRESS_BAR_STYLESHEET,
+    PROGRESS_BAR_STYLESHEET,
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
@@ -544,9 +544,9 @@ class FMAcquisitionWidget(QWidget):
         self.progressBar_current_acquisition = QProgressBar(self)
         self.progressBar_acquisition_task = QProgressBar(self)
         self.progressText = QLabel("Acquisition Progress", self)
-        self.progressBar_acquisition_task.setStyleSheet(MILLING_PROGRESS_BAR_STYLESHEET)
+        self.progressBar_acquisition_task.setStyleSheet(PROGRESS_BAR_STYLESHEET)
         self.progressBar_current_acquisition.setStyleSheet(
-            MILLING_PROGRESS_BAR_STYLESHEET
+            PROGRESS_BAR_STYLESHEET
         )
         self.progressBar_current_acquisition.hide()
         self.progressBar_acquisition_task.hide()

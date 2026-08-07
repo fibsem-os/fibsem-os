@@ -17,8 +17,8 @@ from fibsem.fm.structures import FMStagePosition
 from fibsem.ui.stylesheets import (
     NEUTRAL_650,
     PRIMARY_BUTTON_STYLESHEET,
-    RUN_WORKFLOW_BUTTON_STYLESHEET,
-    STOP_WORKFLOW_BUTTON_STYLESHEET,
+    CONFIRM_BUTTON_STYLESHEET,
+    DANGER_BUTTON_STYLESHEET,
 )
 from fibsem.ui.utils import message_box_ui
 from fibsem.applications.autolamella.structures import Lamella
@@ -101,8 +101,8 @@ class SavedPositionsWidget(QWidget):
 
         # Set button styles
         self.pushButton_goto_position.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
-        self.pushButton_delete_position.setStyleSheet(STOP_WORKFLOW_BUTTON_STYLESHEET)
-        self.pushButton_set_objective.setStyleSheet(RUN_WORKFLOW_BUTTON_STYLESHEET)
+        self.pushButton_delete_position.setStyleSheet(DANGER_BUTTON_STYLESHEET)
+        self.pushButton_set_objective.setStyleSheet(CONFIRM_BUTTON_STYLESHEET)
 
     def update_positions(self, positions: List[Lamella]):
         """Update the combobox and checkbox list with current saved positions."""

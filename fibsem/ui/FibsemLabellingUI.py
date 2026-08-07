@@ -325,7 +325,7 @@ class FibsemLabellingUI(QtWidgets.QDialog):
         # style
         self.pushButton_load_data.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
         self.model_widget.pushButton_load_model.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
-        self.pushButton_model_confirm.setStyleSheet(stylesheets.RUN_WORKFLOW_BUTTON_STYLESHEET)
+        self.pushButton_model_confirm.setStyleSheet(stylesheets.CONFIRM_BUTTON_STYLESHEET)
         self.pushButton_model_clear.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
 
         # tooltips

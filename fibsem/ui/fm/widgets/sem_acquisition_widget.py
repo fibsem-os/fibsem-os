@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import QWidget, QGridLayout, QLabel, QDoubleSpinBox, QPushB
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import ImageSettings, BeamType
 from fibsem.config import SQUARE_RESOLUTIONS_LIST
-from fibsem.ui.stylesheets import RUN_WORKFLOW_BUTTON_STYLESHEET
+from fibsem.ui.stylesheets import CONFIRM_BUTTON_STYLESHEET
 from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
     ValueSpinBox,
@@ -60,7 +60,7 @@ class SEMAcquisitionWidget(QWidget):
 
         # Image acquisition controls
         self.button_acquire_image = QPushButton("Acquire Image")
-        self.button_acquire_image.setStyleSheet(RUN_WORKFLOW_BUTTON_STYLESHEET)
+        self.button_acquire_image.setStyleSheet(CONFIRM_BUTTON_STYLESHEET)
         self.button_acquire_image.clicked.connect(self.acquire_image)
 
         layout.addWidget(self.fov_label, 0, 0)

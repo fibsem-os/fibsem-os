@@ -48,9 +48,9 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_super
 from fibsem.ui import FibsemMinimapWidget
 from fibsem.ui.qt.gc import install_main_thread_gc
 from fibsem.ui.stylesheets import (
-    MILLING_PROGRESS_BAR_STYLESHEET,
+    PROGRESS_BAR_STYLESHEET,
     NAPARI_STYLE,
-    STOP_WORKFLOW_BUTTON_STYLESHEET,
+    DANGER_BUTTON_STYLESHEET,
     SUPERVISION_STATUS_AUTOMATED_STYLESHEET,
     SUPERVISION_STATUS_SUPERVISED_STYLESHEET,
     USER_ATTENTION_BUTTON_STYLESHEET,
@@ -799,7 +799,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.milling_progress_bar.setValue(0)
         self.milling_progress_bar.setTextVisible(True)
         self.milling_progress_bar.setAlignment(Qt.AlignCenter)
-        self.milling_progress_bar.setStyleSheet(MILLING_PROGRESS_BAR_STYLESHEET)
+        self.milling_progress_bar.setStyleSheet(PROGRESS_BAR_STYLESHEET)
         self.milling_progress_bar.hide()  # Hidden by default
         self.status_bar.addPermanentWidget(self.milling_progress_bar)
 
@@ -838,7 +838,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # Add stop workflow button
         self.stop_workflow_btn = QPushButton("Stop Workflow")
-        self.stop_workflow_btn.setStyleSheet(STOP_WORKFLOW_BUTTON_STYLESHEET)
+        self.stop_workflow_btn.setStyleSheet(DANGER_BUTTON_STYLESHEET)
         self.stop_workflow_btn.setIcon(
             fibsem_icon("mdi:stop-circle", color=GRAY_ICON_COLOR)
         )
