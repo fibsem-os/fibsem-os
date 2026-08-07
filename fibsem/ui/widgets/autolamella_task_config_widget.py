@@ -1,48 +1,60 @@
-import inspect
+"""The task-parameters form.
+
+Renders an AutoLamellaTaskConfig's own fields -- the ones past the base class --
+as a grid of controls, using the shared builder that the pattern, strategy and
+milling-settings forms use (FIB-526).
+
+This form used to read raw ``dataclasses.fields(...).metadata`` and understood
+four keys, so most of the vocabulary was simply unavailable to it: an int field
+got the full 32-bit range because nothing could say otherwise, floats got Qt's
+defaults, and there was no way to mark a field advanced or hidden. Going through
+``config.field_metadata`` means a task config now declares those the same way a
+pattern does.
+
+The container stays separate from the milling ones on purpose: it has milling
+sub-configs and reference imaging to show, and no type selector.
+"""
+
 import logging
-from dataclasses import fields
-from enum import Enum
-from typing import (
-    Any,
-    Dict,
-    List,
-    Literal,
-    Optional,
-    Union,
-    get_args,
-    get_origin,
-    get_type_hints,
-)
+from typing import Any, Dict, List, Optional, get_type_hints
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QDoubleSpinBox,
     QGridLayout,
     QLabel,
-    QLineEdit,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 from superqt import QCollapsible
 
+from dataclasses import dataclass
+
 from fibsem import utils
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
-from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.ui.widgets.form_builder import Control, FormDefaults, build_control
+
+# What this form falls back to for keys a field does not declare. These are the
+# bounds and precision it already had hardcoded; passing them keeps the form
+# looking the same, so declaring a real `minimum` is a visible change rather
+# than a side effect of moving onto the shared builder.
+TASK_FORM_DEFAULTS = FormDefaults(
+    float_range=(-1e10, 1e10),
+    int_range=(-2147483648, 2147483647),
+    step=1.0,
+    decimals=2,
+)
+
 
 def resolve_field_types(config: Any) -> Dict[str, Any]:
     """Resolve a dataclass's field annotations to concrete types.
 
-    Task configs that use ``from __future__ import annotations`` store their field
-    annotations as strings (e.g. ``'float'``), so ``dataclasses.fields(...).type`` is a
-    string, not a type. The identity-based dispatch in ``_create_parameter_widget``
-    (``annotation is float`` etc.) then never matches and silently falls back to a
-    string ``QLineEdit`` — which stores numeric values (e.g. a milling current) as raw
-    strings. Resolving the real types up front keeps numeric fields on spinboxes.
+    Task configs that use ``from __future__ import annotations`` store their
+    field annotations as strings (e.g. ``'float'``), so
+    ``dataclasses.fields(...).type`` is a string, not a type. The builder
+    dispatches on the real type, and a string matches nothing -- the field would
+    fall through to the read-only display.
     """
     try:
         return get_type_hints(type(config))
@@ -54,368 +66,56 @@ def resolve_field_types(config: Any) -> Dict[str, Any]:
         return {}
 
 
-class ParameterWidget:
-    """Base class for parameter editing widgets."""
-
-    # Whether this widget's get_value() may be written back onto the config.
-    # False for widgets that can only display a value they cannot reconstruct
-    # (see ReadOnlyParameterWidget).
-    editable: bool = True
-    
-    def __init__(self, name: str, value: Any, annotation: type):
-        self.name = name
-        self.value = value
-        self.annotation = annotation
-        self.widget = None
-        
-    def create_widget(self) -> QWidget:
-        """Create the appropriate widget for this parameter type."""
-        raise NotImplementedError
-        
-    def get_value(self) -> Any:
-        """Get the current value from the widget."""
-        raise NotImplementedError
-        
-    def set_value(self, value: Any) -> None:
-        """Set the value in the widget."""
-        raise NotImplementedError
+@dataclass
+class _Row:
+    """One built form row."""
+    label: QLabel
+    control: Control
+    field: str
+    advanced: bool
 
 
-class BoolParameterWidget(ParameterWidget):
-    """Widget for boolean parameters."""
-    
-    def create_widget(self) -> QWidget:
-        self.widget = QCheckBox()
-        self.widget.setChecked(bool(self.value))
-        return self.widget
-        
-    def get_value(self) -> bool:
-        return self.widget.isChecked()
+def build_parameter_rows(config: AutoLamellaTaskConfig, grid: QGridLayout) -> List[_Row]:
+    """Fill *grid* with a control per configurable parameter, and return the rows.
 
-    def set_value(self, value: bool) -> None:
-        self.widget.setChecked(bool(value))
-
-
-class IntParameterWidget(ParameterWidget):
-    """Widget for integer parameters with optional units suffix."""
-
-    def __init__(self, name: str, value: Any, annotation: type, metadata: Optional[dict] = None):
-        super().__init__(name, value, annotation)
-        self.metadata = metadata or {}
-        self.scale = self.metadata.get('scale', 1.0)
-        self.units = self.metadata.get('unit', '')
-
-    def create_widget(self) -> QWidget:
-        self.widget = QSpinBox()
-        self.widget.setRange(-2147483648, 2147483647)  # 32-bit int range
-        self.widget.setValue(int(round(self.value * self.scale)))
-        self.widget.setKeyboardTracking(False)
-        install_wheel_blocker(self.widget)
-
-        # Add units suffix if available (e.g. " s" for exposure time)
-        suffix = get_si_prefix_suffix(self.scale, self.units)
-        if suffix:
-            self.widget.setSuffix(suffix)
-        return self.widget
-
-    def get_value(self) -> int:
-        return int(round(self.widget.value() / self.scale))
-
-    def set_value(self, value: int) -> None:
-        self.widget.setValue(int(round(value * self.scale)))
-
-
-def get_si_prefix_suffix(scale: float, units: str) -> str:
-    """Get the appropriate SI prefix suffix based on scale factor."""
-    si_prefixes = {
-        1e12: 'p',    # pico
-        1e9: 'n',     # nano
-        1e6: 'μ',     # micro
-        1e3: 'm',     # milli
-        1.0: '',      # no prefix
-        1e-3: 'k',    # kilo
-        1e-6: 'M',    # mega
-        1e-9: 'G',    # giga
-        1e-12: 'T',   # tera
-    }
-    
-    prefix = si_prefixes.get(scale, '')
-    return f" {prefix}{units}" if units else ""
-
-
-class FloatParameterWidget(ParameterWidget):
-    """Widget for float parameters with units and scaling support."""
-    
-    def __init__(self, name: str, value: Any, annotation: type, metadata: Optional[dict] = None):
-        super().__init__(name, value, annotation)
-        self.metadata = metadata or {}
-        self.scale = self.metadata.get('scale', 1.0)
-        self.units = self.metadata.get('unit', '')
-        
-    def create_widget(self) -> QWidget:
-        self.widget = QDoubleSpinBox()
-        self.widget.setRange(-1e10, 1e10)
-        self.widget.setDecimals(2)
-        self.widget.setKeyboardTracking(False)
-        install_wheel_blocker(self.widget)
-        
-        # Apply scaling for display (multiply by scale to show user-friendly values)
-        display_value = float(self.value) * self.scale
-        self.widget.setValue(display_value)
-        
-        # Add units suffix if available
-        suffix = get_si_prefix_suffix(self.scale, self.units)
-        if suffix:
-            self.widget.setSuffix(suffix)
-        
-        return self.widget
-        
-    def get_value(self) -> float:
-        # Convert from display value back to stored value (divide by scale)
-        display_value = self.widget.value()
-        return display_value / self.scale
-        
-    def set_value(self, value: float) -> None:
-        # Convert to display value (multiply by scale)
-        display_value = float(value) * self.scale
-        self.widget.setValue(display_value)
-
-
-class StringParameterWidget(ParameterWidget):
-    """Widget for string parameters."""
-    
-    def create_widget(self) -> QWidget:
-        self.widget = QLineEdit()
-        self.widget.setText(str(self.value))
-        return self.widget
-        
-    def get_value(self) -> str:
-        return self.widget.text()
-        
-    def set_value(self, value: str) -> None:
-        self.widget.setText(str(value))
-
-
-class ReadOnlyParameterWidget(ParameterWidget):
-    """Read-only display for a field this form has no editor for.
-
-    The alternative used to be a plain ``QLineEdit`` holding ``str(value)``, on the
-    assumption that an unknown type could be round-tripped through its text. That
-    holds for almost nothing: for a nested dataclass such as ``ZParameters`` or
-    ``ChannelSettings`` the box shows a ``repr`` that cannot be parsed back, and
-    ``get_value()`` returns a ``str`` which was then written straight onto the
-    config -- destroying the object on a focus-out alone, no typing required. The
-    field then fails at run time (``'str' object has no attribute ...``) and again
-    when the experiment is saved.
-
-    Showing the value disabled keeps it visible -- these are real settings an
-    operator wants to read -- while ``editable = False`` stops anything writing the
-    displayed text back. Edit such fields through a config-specific widget, or the
-    protocol file.
+    Shared by both containers in this module, which each carried their own copy
+    of this loop -- and had already drifted: only one of them honoured `label`.
     """
+    type_hints = resolve_field_types(config)
+    metadata = config.field_metadata
+    rows: List[_Row] = []
 
-    editable = False
+    for name in config.parameters:
+        m = metadata.get(name, {})
+        if m.get("hidden", False):
+            continue
 
-    def create_widget(self) -> QWidget:
-        self.widget = QLineEdit()
-        self.widget.setText(str(self.value))
-        self.widget.setReadOnly(True)
-        self.widget.setEnabled(False)
-        self.widget.setToolTip(
-            f"{self._type_name()} is not editable in this form.\n"
-            "Edit it in this task's own settings panel, or in the protocol file."
+        control = build_control(
+            m,
+            getattr(config, name),
+            annotation=type_hints.get(name),
+            defaults=TASK_FORM_DEFAULTS,
         )
-        return self.widget
+        if control is None:
+            continue
 
-    def _type_name(self) -> str:
-        return getattr(self.annotation, "__name__", None) or str(self.annotation)
+        label = QLabel(m.get("label") or name.replace("_", " ").title())
+        if m.get("tooltip"):
+            label.setToolTip(m["tooltip"])
 
-    def get_value(self) -> Any:
-        """Return the original value, never the displayed text.
+        row_index = len(rows)
+        grid.addWidget(label, row_index, 0)
+        grid.addWidget(control.widget, row_index, 1)
+        rows.append(
+            _Row(
+                label=label,
+                control=control,
+                field=name,
+                advanced=m.get("advanced", False),
+            )
+        )
 
-        Nothing should call this -- `editable` is False -- but if something does,
-        handing back the untouched value is the answer that cannot corrupt the
-        config.
-        """
-        return self.value
-
-    def set_value(self, value: Any) -> None:
-        self.value = value
-        self.widget.setText(str(value))
-
-
-class EnumParameterWidget(ParameterWidget):
-    """Widget for enum parameters."""
-    
-    def create_widget(self) -> QWidget:
-        self.widget = QComboBox()
-        
-        # Add enum values to combo box
-        for enum_value in self.annotation:
-            self.widget.addItem(str(enum_value.value), enum_value)
-            
-        # Set current value
-        current_index = 0
-        for i, enum_value in enumerate(self.annotation):
-            if enum_value == self.value or enum_value.value == self.value:
-                current_index = i
-                break
-        self.widget.setCurrentIndex(current_index)
-        install_wheel_blocker(self.widget)
-        
-        return self.widget
-        
-    def get_value(self) -> Any:
-        return self.widget.currentData()
-        
-    def set_value(self, value: Any) -> None:
-        for i in range(self.widget.count()):
-            if self.widget.itemData(i) == value:
-                self.widget.setCurrentIndex(i)
-                break
-
-
-class ComboParameterWidget(ParameterWidget):
-    """Widget for parameters with a fixed list of allowable values (items metadata key)."""
-
-    def __init__(self, name: str, value: Any, annotation: type, items: list) -> None:
-        super().__init__(name, value, annotation)
-        self.items = items
-
-    def create_widget(self) -> QWidget:
-        self.widget = QComboBox()
-        for item in self.items:
-            self.widget.addItem(str(item), item)
-        for i in range(self.widget.count()):
-            if self.widget.itemData(i) == self.value:
-                self.widget.setCurrentIndex(i)
-                break
-        install_wheel_blocker(self.widget)
-        return self.widget
-
-    def get_value(self) -> Any:
-        return self.widget.currentData()
-
-    def set_value(self, value: Any) -> None:
-        for i in range(self.widget.count()):
-            if self.widget.itemData(i) == value:
-                self.widget.setCurrentIndex(i)
-                break
-
-
-class ListParameterWidget(ParameterWidget):
-    """Widget for list parameters (simplified as comma-separated values)."""
-    
-    def create_widget(self) -> QWidget:
-        self.widget = QLineEdit()
-        
-        # Convert list to comma-separated string
-        if isinstance(self.value, list):
-            text = ", ".join(str(item) for item in self.value)
-        else:
-            text = str(self.value)
-        self.widget.setText(text)
-        self.widget.setPlaceholderText("Enter comma-separated values")
-        
-        return self.widget
-        
-    def get_value(self) -> List[Any]:
-        text = self.widget.text().strip()
-        if not text:
-            return []
-            
-        # Split by comma and convert based on list type annotation
-        items = [item.strip() for item in text.split(",")]
-        
-        # Try to determine the list item type
-        origin = getattr(self.annotation, '__origin__', None)
-        if origin is list:
-            args = getattr(self.annotation, '__args__', ())
-            if args:
-                item_type = args[0]
-                try:
-                    if item_type == int:
-                        return [int(item) for item in items]
-                    elif item_type == float:
-                        return [float(item) for item in items]
-                    elif item_type == bool:
-                        return [item.lower() in ('true', '1', 'yes') for item in items]
-                except ValueError:
-                    pass
-        
-        return items  # Return as strings if conversion fails
-        
-    def set_value(self, value: List[Any]) -> None:
-        if isinstance(value, list):
-            text = ", ".join(str(item) for item in value)
-        else:
-            text = str(value)
-        self.widget.setText(text)
-
-
-def create_parameter_widget(
-    name: str,
-    value: Any,
-    annotation: type,
-    metadata: Optional[dict] = None,
-) -> ParameterWidget:
-    """Pick the editing widget for one config field.
-
-    Shared by both config forms in this module, which each used to carry their own
-    copy of this dispatch -- and had already drifted apart. A field type handled in
-    one and not the other is the kind of divergence that shows up as a corrupted
-    config rather than as an error.
-    """
-    metadata = metadata or {}
-
-    # Handle Union types (e.g., Optional[T])
-    origin = get_origin(annotation)
-    if origin is Union:
-        # Find the non-None type for Optional[T]
-        non_none_types = [arg for arg in get_args(annotation) if arg is not type(None)]
-        if non_none_types:
-            annotation = non_none_types[0]
-            origin = get_origin(annotation)
-
-    # items metadata takes priority -- render as combobox regardless of type
-    items = metadata.get("items")
-    if items:
-        return ComboParameterWidget(name, value, annotation, items)
-
-    # A Literal is a fixed set of allowable values written in the type itself,
-    # which is the same thing the `items` metadata key expresses -- so render it
-    # the same way rather than as a free-text box the operator can mistype.
-    if origin is Literal:
-        return ComboParameterWidget(name, value, annotation, list(get_args(annotation)))
-
-    # Determine widget type based on annotation
-    if annotation is bool:
-        return BoolParameterWidget(name, value, annotation)
-    elif annotation is int:
-        return IntParameterWidget(name, value, annotation, metadata)
-    elif annotation is float:
-        return FloatParameterWidget(name, value, annotation, metadata)
-    elif annotation is str:
-        return StringParameterWidget(name, value, annotation)
-    elif inspect.isclass(annotation) and issubclass(annotation, Enum):
-        return EnumParameterWidget(name, value, annotation)
-    elif origin is list or (inspect.isclass(annotation) and issubclass(annotation, list)):
-        # Only lists of scalars survive the round trip through comma-separated
-        # text; a list of dataclasses comes back as a list of strings.
-        item_types = get_args(annotation)
-        if not item_types or item_types[0] in (bool, int, float, str):
-            return ListParameterWidget(name, value, annotation)
-
-    # Debug, not warning: the form itself now says this, visibly and in the right
-    # place -- the field is greyed out with a tooltip naming where to edit it. At
-    # warning level this fires every time a task carrying such a field is selected,
-    # including the built-in fluorescence config, whose three are read-only by
-    # design and whose form is hidden anyway. Nothing is going wrong.
-    logging.debug(
-        f"No editor for parameter type '{annotation}' (field '{name}'); "
-        "showing it read-only."
-    )
-    return ReadOnlyParameterWidget(name, value, annotation)
+    return rows
 
 
 class AutoLamellaTaskConfigWidget(QWidget):
@@ -427,7 +127,8 @@ class AutoLamellaTaskConfigWidget(QWidget):
                  parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.task_config = task_config
-        self.parameter_widgets: Dict[str, ParameterWidget] = {}
+        self._rows: List[_Row] = []
+        self._advanced_visible = False
         self.milling_task_widget: MillingTaskViewerWidget
 
         self._setup_ui()
@@ -445,7 +146,6 @@ class AutoLamellaTaskConfigWidget(QWidget):
         # Create content widget for parameters
         self.params_widget = QWidget()
         self.grid_layout = QGridLayout(self.params_widget)
-        self.current_row = 0
         
         self.task_params_collapsible.addWidget(self.params_widget)
 
@@ -479,48 +179,21 @@ class AutoLamellaTaskConfigWidget(QWidget):
         """Update the UI from the current task configuration."""
         if not self.task_config:
             return
-            
-        # Clear existing widgets
+
         self._clear_form()
-        
-        # Show/hide task parameters section
+
         if self.task_config.parameters:
-            # Resolve annotations to concrete types (see resolve_field_types) so that
-            # `from __future__ import annotations` configs don't fall back to QLineEdit.
-            type_hints = resolve_field_types(self.task_config)
-
-            # Get all configurable parameters using the parameters property
-            for param_name in self.task_config.parameters:
-                # Get field info and current value
-                field = next(f for f in fields(self.task_config) if f.name == param_name)
-                value = getattr(self.task_config, param_name)
-                annotation = type_hints.get(param_name, field.type)
-
-                # Create parameter widget
-                param_widget = self._create_parameter_widget(param_name, value, annotation, field.metadata)
-                if param_widget:
-                    self.parameter_widgets[param_name] = param_widget
-                    
-                    # Add to form
-                    widget = param_widget.create_widget()
-                    
-                    # Connect change signals to update config
-                    self._connect_widget_signals(widget, param_name)
-                    
-                    # Create label with tooltip if available
-                    label = QLabel(self._format_field_name(param_name))
-                    tooltip = getattr(field, 'metadata', {}).get('tooltip')
-                    if tooltip:
-                        label.setToolTip(tooltip)
-                        
-                    self.grid_layout.addWidget(label, self.current_row, 0)
-                    self.grid_layout.addWidget(widget, self.current_row, 1)
-                    self.current_row += 1
-            
+            self._rows = build_parameter_rows(self.task_config, self.grid_layout)
+            for row in self._rows:
+                # A read-only row displays a value it cannot reconstruct; wiring
+                # it up would let a focus-out write the displayed text back.
+                if row.control.editable:
+                    row.control.connect(lambda name=row.field: self._on_parameter_changed(name))
+            self._update_visibility()
             self.task_params_collapsible.show()
         else:
             self.task_params_collapsible.hide()
-    
+
         # Show/hide milling parameters section
         if self.task_config.milling:
             self._current_milling_key = next(iter(self.task_config.milling))
@@ -531,39 +204,23 @@ class AutoLamellaTaskConfigWidget(QWidget):
             self.milling_task_widget.clear()
             self.milling_params_collapsible.hide()
 
-    def _create_parameter_widget(self, name: str, value: Any, annotation: type, metadata: Optional[dict] = None) -> Optional[ParameterWidget]:
-        """Create the appropriate parameter widget for the given type."""
-        return create_parameter_widget(name, value, annotation, metadata)
-    
-    def _connect_widget_signals(self, widget: QWidget, field_name: str):
-        """Connect widget change signals to update the configuration."""
-        if not self.parameter_widgets[field_name].editable:
-            return
-        if isinstance(widget, QCheckBox):
-            widget.toggled.connect(lambda: self._on_parameter_changed(field_name))
-        elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
-            widget.valueChanged.connect(lambda: self._on_parameter_changed(field_name))
-        elif isinstance(widget, QLineEdit):
-            widget.editingFinished.connect(lambda: self._on_parameter_changed(field_name))
-        elif isinstance(widget, QComboBox):
-            widget.currentIndexChanged.connect(lambda: self._on_parameter_changed(field_name))
-    
+    def _update_visibility(self) -> None:
+        for row in self._rows:
+            visible = (not row.advanced) or self._advanced_visible
+            row.label.setVisible(visible)
+            row.control.widget.setVisible(visible)
+
+    def set_advanced_visible(self, show: bool) -> None:
+        self._advanced_visible = show
+        self._update_visibility()
+
     def _on_parameter_changed(self, field_name: str):
         """Handle parameter value changes."""
-        if field_name in self.parameter_widgets:
-            param_widget = self.parameter_widgets[field_name]
-            # Never write back a value the widget cannot reconstruct -- see
-            # ReadOnlyParameterWidget. Checked here as well as at connection time
-            # because the cost of getting it wrong is a silently corrupted config.
-            if not param_widget.editable:
-                return
-            new_value = param_widget.get_value()
-
-            # Update the task config
-            setattr(self.task_config, field_name, new_value)
-
-            # Emit change signal
-            self.config_changed.emit(self.task_config)
+        row = next((r for r in self._rows if r.field == field_name), None)
+        if row is None or not row.control.editable:
+            return
+        setattr(self.task_config, field_name, row.control.read())
+        self.config_changed.emit(self.task_config)
 
     def _on_milling_config_updated(self, milling_config):
         """Handle milling task config updates."""
@@ -576,17 +233,18 @@ class AutoLamellaTaskConfigWidget(QWidget):
             self.config_changed.emit(self.task_config)
 
     def _clear_form(self):
-        """Clear all widgets from the grid layout."""
+        """Clear all widgets from the grid layout.
+
+        Rows are dropped BEFORE the widgets are removed: if Qt moves focus
+        during removal, a re-entrant rebuild would iterate self._rows and touch
+        already-deleted C++ wrappers.
+        """
+        self._rows = []
         while self.grid_layout.count():
             child = self.grid_layout.takeAt(0)
             if child and child.widget():
                 child.widget().setParent(None)
-        self.parameter_widgets.clear()
-        self.current_row = 0
-    
-    def _format_field_name(self, field_name: str) -> str:
-        """Format field name for display (convert snake_case to Title Case)."""
-        return field_name.replace('_', ' ').title()
+
     
     def get_task_config(self) -> Optional[AutoLamellaTaskConfig]:
         """Get the current task configuration."""
@@ -594,8 +252,12 @@ class AutoLamellaTaskConfigWidget(QWidget):
 
 
 class AutoLamellaTaskParametersConfigWidget(QWidget):
-    """Widget for configuring AutoLamella task parameters."""
-    
+    """The task parameters on their own, in a titled panel.
+
+    Same rows as AutoLamellaTaskConfigWidget, without the milling and reference
+    imaging sections -- used where those are shown elsewhere.
+    """
+
     config_changed = pyqtSignal(AutoLamellaTaskConfig)
     parameter_changed = pyqtSignal(str, object)  # field name, new value
 
@@ -603,22 +265,20 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
                  parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.task_config = task_config
-        self.parameter_widgets: Dict[str, ParameterWidget] = {}
+        self._rows: List[_Row] = []
+        self._advanced_visible = False
 
         self._setup_ui()
         if self.task_config:
             self._update_from_config()
 
     def _setup_ui(self):
-        """Create and configure all UI elements."""
         self.main_layout = QVBoxLayout()
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(self.main_layout)
 
-        # Create content widget for parameters
         self.params_widget = QWidget()
         self.grid_layout = QGridLayout(self.params_widget)
-        self.current_row = 0
         self.params_panel = TitledPanel("Task Parameters", content=self.params_widget)
         self.params_panel._btn_collapse.setChecked(True)
 
@@ -630,114 +290,53 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
         self._update_from_config()
 
     def _update_from_config(self):
-        """Update the UI from the current task configuration."""
         if not self.task_config:
             return
 
-        # Clear existing widgets
         self._clear_form()
 
-        # Show/hide task parameters section
         if not self.task_config.parameters:
             self.hide()
             return
 
-        # Resolve annotations to concrete types (see resolve_field_types) so that
-        # `from __future__ import annotations` configs don't fall back to QLineEdit.
-        type_hints = resolve_field_types(self.task_config)
-
-        # Get all configurable parameters using the parameters property
-        for param_name in self.task_config.parameters:
-            # Get field info and current value
-            field = next(f for f in fields(self.task_config) if f.name == param_name)
-            value = getattr(self.task_config, param_name)
-            annotation = type_hints.get(param_name, field.type)
-
-            # Create parameter widget
-            param_widget = self._create_parameter_widget(name = param_name,
-                                                         value = value,
-                                                         annotation = annotation,
-                                                         metadata = field.metadata)
-            if param_widget:
-                self.parameter_widgets[param_name] = param_widget
-
-                # Add to form
-                widget = param_widget.create_widget()
-
-                # Connect change signals to update config
-                self._connect_widget_signals(widget, param_name)
-
-                # Create label with tooltip if available
-                label = QLabel(self._format_field_name(param_name, field.metadata))
-                tooltip = getattr(field, 'metadata', {}).get('tooltip')
-                if tooltip:
-                    label.setToolTip(tooltip)
-
-                self.grid_layout.addWidget(label, self.current_row, 0)
-                self.grid_layout.addWidget(widget, self.current_row, 1)
-                self.current_row += 1
-
+        self._rows = build_parameter_rows(self.task_config, self.grid_layout)
+        for row in self._rows:
+            # A read-only row displays a value it cannot reconstruct; wiring it
+            # up would let a focus-out write the displayed text back.
+            if row.control.editable:
+                row.control.connect(lambda name=row.field: self._on_parameter_changed(name))
+        self._update_visibility()
         self.show()
 
-    def _create_parameter_widget(self,
-                                 name: str,
-                                 value: Any,
-                                 annotation: type,
-                                 metadata: Optional[dict] = None) -> Optional[ParameterWidget]:
-        """Create the appropriate parameter widget for the given type."""
-        return create_parameter_widget(name, value, annotation, metadata)
-    
-    def _connect_widget_signals(self, widget: QWidget, field_name: str):
-        """Connect widget change signals to update the configuration."""
-        if not self.parameter_widgets[field_name].editable:
-            return
-        if isinstance(widget, QCheckBox):
-            widget.toggled.connect(lambda: self._on_parameter_changed(field_name))
-        elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
-            widget.valueChanged.connect(lambda: self._on_parameter_changed(field_name))
-        elif isinstance(widget, QLineEdit):
-            widget.editingFinished.connect(lambda: self._on_parameter_changed(field_name))
-        elif isinstance(widget, QComboBox):
-            widget.currentIndexChanged.connect(lambda: self._on_parameter_changed(field_name))
-    
+    def _update_visibility(self) -> None:
+        for row in self._rows:
+            visible = (not row.advanced) or self._advanced_visible
+            row.label.setVisible(visible)
+            row.control.widget.setVisible(visible)
+
+    def set_advanced_visible(self, show: bool) -> None:
+        self._advanced_visible = show
+        self._update_visibility()
+
     def _on_parameter_changed(self, field_name: str):
-        """Handle parameter value changes."""
-        if field_name in self.parameter_widgets:
-            param_widget = self.parameter_widgets[field_name]
-            # Never write back a value the widget cannot reconstruct -- see
-            # ReadOnlyParameterWidget. Checked here as well as at connection time
-            # because the cost of getting it wrong is a silently corrupted config.
-            if not param_widget.editable:
-                return
-            new_value = param_widget.get_value()
-
-            # Update the task config
-            setattr(self.task_config, field_name, new_value)
-
-            # Emit change signal
-            # self.config_changed.emit(self.task_config)
-            self.parameter_changed.emit(field_name, new_value)
+        row = next((r for r in self._rows if r.field == field_name), None)
+        if row is None or not row.control.editable:
+            return
+        value = row.control.read()
+        setattr(self.task_config, field_name, value)
+        self.parameter_changed.emit(field_name, value)
 
     def _clear_form(self):
-        """Clear all widgets from the grid layout."""
+        """Clear the grid. Rows are dropped first -- see the sibling container."""
+        self._rows = []
         while self.grid_layout.count():
             child = self.grid_layout.takeAt(0)
             if child and child.widget():
                 child.widget().setParent(None)
-        self.parameter_widgets.clear()
-        self.current_row = 0
 
-    def _format_field_name(self, field_name: str, metadata: Optional[dict] = None) -> str:
-        """Format field name for display (convert snake_case to Title Case)."""
-        if metadata and 'label' in metadata:
-            return metadata['label']
-        return field_name.replace('_', ' ').title()
-    
     def get_task_config(self) -> Optional[AutoLamellaTaskConfig]:
         """Get the current task configuration."""
         return self.task_config
-
-
 
 
 if __name__ == "__main__":

@@ -42,6 +42,7 @@ from fibsem.structures import (
     Point,
     ReferenceImageParameters,
     SessionInfo,
+    get_fields_with_metadata,
 )
 from fibsem.utils import configure_logging as _configure_logging
 from fibsem.utils import format_duration
@@ -152,6 +153,17 @@ class AutoLamellaTaskConfig(ABC):
             for f in fields(self)
             if f.name not in core_params
         )
+
+    @property
+    def field_metadata(self) -> Dict[str, Dict[str, Any]]:
+        """Return dataclass fields with metadata, filling any missing keys with defaults.
+
+        Matches the property patterns and milling strategies already expose. The
+        task form used to read raw `dataclasses.fields(...).metadata` instead, so
+        the whole vocabulary past four keys was unavailable to it -- a task
+        config could declare `minimum` and nothing would read it.
+        """
+        return get_fields_with_metadata(self.__class__)
 
     def to_dict(self) -> dict:
         """Convert configuration to a dictionary."""
