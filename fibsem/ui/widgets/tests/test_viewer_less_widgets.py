@@ -1,16 +1,12 @@
-"""The image and movement widgets must work with OR without a napari viewer (FIB-406, P4a).
+"""The image and movement widgets drive the quad-view canvas (FIB-406 / FIB-407).
 
-Standalone ``FibsemUI`` now runs viewer-less on the quad-view canvas while AutoLamella's
-Microscope tab still runs on napari, so both widgets carry two display paths at once,
-selected per instance by whether the host supplies a ``viewer`` or a ``view_controller``.
-The failure mode this guards is a silent one: pick the wrong branch and the widget still
-constructs, still acquires, and simply draws nothing.
+Both widgets carried two display paths while the tabs migrated one at a time, selected
+per instance by whether the host supplied a ``viewer`` or a ``view_controller``. Every
+host is viewer-less now and the napari halves are deleted, so the tests that pinned
+*which branch ran* went with them — what is left pins the canvas behaviour itself.
 
-The viewer-less half runs against a **real** ``MicroscopeViewController`` and real canvases.
-The napari half runs against a stub viewer — napari's GL canvas cannot be constructed under
-``QT_QPA_PLATFORM=offscreen`` (it aborts the process), so a stub is the only way to assert
-the napari branch at all here. That is a real limit on this file: it pins *which branch runs
-and what it calls*, not napari's own rendering.
+The failure mode worth guarding is still a silent one: get the wiring wrong and the
+widget constructs, acquires, and simply draws nothing.
 
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_viewer_less_widgets.py
@@ -93,106 +89,12 @@ def _movement_widget(host) -> FibsemMovementWidget:
     return widget
 
 
-# --- napari stubs ------------------------------------------------------------
+# --- the controller is found -------------------------------------------------
 
 
-class _StubLayer:
-    def __init__(self, data, name):
-        self.data = data
-        self.name = name
-        self.translate = [0.0, 0.0]
-        self.visible = True
-        self.mode = "pan_zoom"
-        self.metadata = {}
-        self.mouse_double_click_callbacks = []
-        self.mouse_drag_callbacks = []
-        self.selected_data = set()
-        self.events = _StubEvents()
-
-
-class _StubEvents:
-    def __init__(self):
-        self.data = _StubSignal()
-
-
-class _StubSignal:
-    def __init__(self):
-        self.callbacks = []
-
-    def connect(self, fn):
-        self.callbacks.append(fn)
-
-
-class _StubLayerList(list):
-    """napari's LayerList iterates *layers* but indexes by name — a dict subclass would
-    yield names on iteration and break ``draw_scalebar_in_napari``, which reads ``.name``
-    off each item."""
-
-    def __init__(self):
-        super().__init__()
-        self.selection = type("S", (), {"active": None})()
-
-    def __getitem__(self, key):
-        if isinstance(key, str):
-            for layer in self:
-                if layer.name == key:
-                    return layer
-            raise KeyError(key)
-        return super().__getitem__(key)
-
-    def __contains__(self, item):
-        if isinstance(item, str):
-            return any(layer.name == item for layer in self)
-        return any(layer is item for layer in self)
-
-    def remove(self, item):
-        for layer in list(self):
-            if layer is item or layer.name == item:
-                super().remove(layer)
-                return
-
-
-class _StubViewer:
-    """The slice of napari.Viewer these widgets touch. See the module docstring for why."""
-
-    def __init__(self):
-        self.layers = _StubLayerList()
-        self.title = ""
-        # the stage/beam readout the movement widget writes on the napari path
-        self.text_overlay = type("T", (), {"text": "", "visible": False, "position": ""})()
-
-    def add_image(self, data, name=None, blending=None, **kw):
-        layer = _StubLayer(data, name)
-        self.layers.append(layer)
-        return layer
-
-    def add_shapes(self, data=None, name=None, **kw):
-        layer = _StubLayer(data, name)
-        self.layers.append(layer)
-        return layer
-
-    def add_points(self, data=None, name=None, **kw):
-        layer = _StubLayer(data, name)
-        self.layers.append(layer)
-        return layer
-
-    def reset_view(self):
-        pass
-
-
-class _NapariHost(QWidget):
-    def __init__(self) -> None:
-        super().__init__()
-        self.viewer = _StubViewer()
-
-
-# --- which display backend is chosen -----------------------------------------
-
-
-def test_viewer_less_host_uses_the_controller():
+def test_host_with_a_controller_resolves_it():
     host = _CanvasHost()
     widget = _image_widget(host)
-    assert widget.uses_napari is False
     assert widget._view_controller() is host.view_controller
 
 
@@ -203,55 +105,6 @@ def test_controller_resolves_through_parent_widget():
     host = _NestedCanvasHost(outer)
     widget = _image_widget(host)
     assert widget._view_controller() is outer.view_controller
-
-
-def test_napari_host_keeps_the_layer_path():
-    host = _NapariHost()
-    widget = _image_widget(host)
-    assert widget.uses_napari is True
-    assert widget._view_controller() is None, "a viewer host must not pick up a controller"
-    assert widget.eb_layer is not None and widget.ib_layer is not None
-    names = {layer.name for layer in host.viewer.layers}
-    assert names >= {BeamType.ELECTRON.name, BeamType.ION.name}
-
-
-class _BothHost(QWidget):
-    """A misconfigured host holding both. ``FibsemUI`` always builds a controller, so
-    ``FibsemUI(viewer=...)`` reaches exactly this shape."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.viewer = _StubViewer()
-        self.view_controller = MicroscopeViewController(parent=self)
-
-
-def test_a_viewer_wins_when_a_host_offers_both():
-    """The two paths must be strictly exclusive. Running both would draw every image
-    twice and, worse, put the alignment area in the model while ``get_alignment_area``
-    reads it back off an empty layer."""
-    host = _BothHost()
-    widget = _image_widget(host)
-    assert widget.uses_napari is True
-    assert widget._view_controller() is None, "both display paths active at once"
-
-    movement = _movement_widget(host)
-    assert movement._view_controller() is None
-    assert movement._canvas_dbl_click_conns == [], "a click here would move the stage twice"
-
-    widget._on_acquire(_image(BeamType.ELECTRON))
-    assert host.view_controller.get_canvas(BeamType.ELECTRON)._content_extent() is None
-
-
-def test_scalebar_and_crosshair_buttons_are_napari_only():
-    """They drive napari layers; the canvas has its own. Left visible they would be dead
-    controls — hidden, not merely inert, so nothing reads as broken."""
-    canvas_widget = _image_widget(_CanvasHost())
-    assert not canvas_widget.btn_scalebar.isVisibleTo(canvas_widget)
-    assert not canvas_widget.btn_crosshair.isVisibleTo(canvas_widget)
-
-    napari_widget = _image_widget(_NapariHost())
-    assert napari_widget.btn_scalebar.isVisibleTo(napari_widget)
-    assert napari_widget.btn_crosshair.isVisibleTo(napari_widget)
 
 
 # --- images actually reach the display ---------------------------------------
@@ -272,22 +125,13 @@ def test_acquired_image_lands_on_its_own_beam_canvas():
     assert fib_canvas._content_extent() is not None, "FIB image did not reach the canvas"
 
 
-def test_no_blank_placeholder_is_seeded_viewer_less():
+def test_no_blank_placeholder_is_seeded():
     """napari seeded two blank images at construction; the canvas shows "No image"
     instead. Seeding would put a grey rectangle up that looks like a failed acquisition."""
     host = _CanvasHost()
     _image_widget(host)
     assert host.view_controller.get_canvas(BeamType.ELECTRON)._content_extent() is None
     assert host.view_controller.get_canvas(BeamType.ION)._content_extent() is None
-
-
-def test_napari_path_still_writes_to_the_layer():
-    host = _NapariHost()
-    widget = _image_widget(host)
-    image = _image(BeamType.ELECTRON)
-    widget._on_acquire(image)
-    layer = host.viewer.layers[BeamType.ELECTRON.name]
-    assert np.array_equal(layer.data, image.filtered_data), "layer not updated"
 
 
 # --- the alignment-area contract ---------------------------------------------
@@ -313,7 +157,7 @@ def test_clearing_the_alignment_area_keeps_its_value():
 
 
 def test_alignment_edit_forwards_to_the_existing_signal():
-    """A canvas drag must drive the same validation path the napari layer event did."""
+    """A canvas drag must drive the widget's existing validation path."""
     host = _CanvasHost()
     widget = _image_widget(host)
     seen = []
@@ -368,11 +212,6 @@ def test_working_distance_spinbox_resolves_the_scroll_step():
     )
 
 
-def test_wd_scroll_is_not_wired_on_the_napari_path():
-    widget = _image_widget(_NapariHost())
-    assert widget._wd_scroll_connections == []
-
-
 # --- quad-view selection <-> beam radio --------------------------------------
 
 
@@ -407,22 +246,11 @@ def test_selecting_the_fm_view_leaves_the_beam_radios_alone():
 # --- movement: double-click input --------------------------------------------
 
 
-def test_movement_binds_double_click_to_both_canvases_viewer_less():
+def test_movement_binds_double_click_to_both_canvases():
     host = _CanvasHost()
     _image_widget(host)
     movement = _movement_widget(host)
-    assert movement.uses_napari is False
     assert len(movement._canvas_dbl_click_conns) == 2
-
-
-def test_movement_keeps_napari_layer_callbacks_with_a_viewer():
-    host = _NapariHost()
-    image_widget = _image_widget(host)
-    movement = _movement_widget(host)
-    assert movement.uses_napari is True
-    assert movement._canvas_dbl_click_conns == [], "canvas input wired on the napari path"
-    assert movement._double_click in image_widget.eb_layer.mouse_double_click_callbacks
-    assert movement._double_click in image_widget.ib_layer.mouse_double_click_callbacks
 
 
 def test_a_second_double_click_during_a_move_is_ignored():
@@ -464,16 +292,6 @@ def test_click_to_move_is_blocked_while_acquiring_after_a_move():
     assert not movement._click_to_move_available(), (
         "click-to-move re-armed while the post-move acquisition was still running"
     )
-
-
-def test_the_napari_double_click_honours_the_same_gate():
-    """Same guard on both paths — the napari one has the identical overlap."""
-    import inspect
-
-    # `from fibsem.ui import FibsemMovementWidget` yields the *class* (re-exported by
-    # fibsem/ui/__init__.py), not the module — read the method off the class directly.
-    source = inspect.getsource(FibsemMovementWidget._double_click)
-    assert "_click_to_move_available" in source
 
 
 class _NoopWorker:
@@ -534,15 +352,6 @@ def test_teardown_is_idempotent():
     assert widget._wd_scroll_connections == []
     assert widget._view_sync_connections == []
     assert movement._canvas_dbl_click_conns == []
-
-
-def test_teardown_on_the_napari_path_does_not_raise():
-    """FibsemUI calls it unconditionally on disconnect, whichever path is live."""
-    host = _NapariHost()
-    widget = _image_widget(host)
-    movement = _movement_widget(host)
-    widget._teardown_connections()
-    movement._teardown_connections()
 
 
 # --- position readout ---------------------------------------------------------

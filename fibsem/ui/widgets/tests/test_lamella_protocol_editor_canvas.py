@@ -334,32 +334,28 @@ def test_milling_widget_switches_to_the_canvas_when_given_a_controller():
 
 
 class _FakeImageWidget(QWidget):
-    """Stands in for FibsemImageSettingsWidget: the napari Microscope tab feeds the
-    milling widget through these three attributes and nothing else."""
+    """Stands in for FibsemImageSettingsWidget, which is canvas-only now: it still
+    carries the FIB image and still emits on every new frame, but has no napari layer."""
 
     viewer_update_signal = pyqtSignal()
 
-    def __init__(self, image, layer):
+    def __init__(self, image):
         super().__init__()
         self.ib_image = image
-        self.ib_layer = layer
 
 
-def test_napari_callers_still_get_their_fib_image_layer():
-    """The napari pattern path is gated on _fib_image_layer, and the only thing that
-    ever supplies it for the Microscope tab is `iw.ib_layer` being picked up here —
-    that tab never calls set_fib_image(). Lose the pickup and milling patterns silently
-    stop drawing and the right-click reposition menu stops appearing, in a tab this
-    phase is not supposed to touch at all.
+def test_napari_callers_supply_their_own_fib_image_layer():
+    """The napari pattern path is gated on ``_fib_image_layer``, and ``set_fib_image()``
+    is now its *only* source. It used to also be picked up from ``iw.ib_layer``, but the
+    image widget dropped its layers when the Microscope tab moved to the canvas; the
+    remaining napari caller (the coincidence viewer) has always used set_fib_image().
     """
     microscope, _ = _session()
     image = FibsemImage.generate_blank_image(resolution=_RESOLUTION, hfw=_HFW)
     sentinel = object()  # a napari layer, only ever passed through
-    iw = _FakeImageWidget(image, sentinel)
 
-    w = MillingTaskViewerWidget(
-        microscope=microscope, viewer=None, image_widget=iw, milling_enabled=False
-    )
+    w = MillingTaskViewerWidget(microscope=microscope, viewer=None, milling_enabled=False)
+    w.set_fib_image(image, sentinel)
     assert w._fib_image is image
     assert w._fib_image_layer is sentinel, (
         "napari callers lost their image layer — patterns and the reposition menu "
@@ -367,22 +363,31 @@ def test_napari_callers_still_get_their_fib_image_layer():
     )
 
 
-def test_napari_callers_keep_the_layer_across_an_image_update():
-    """Same gate, on the live-acquisition path: every new FIB frame re-reads ib_layer."""
+def test_a_new_frame_refreshes_the_image_and_reschedules_the_patterns():
+    """``_setup_viewer_integration`` and ``_on_viewer_image_updated`` both read from the
+    image widget inside a bare try/except. They used to read ``ib_layer`` there too —
+    once the image widget lost its layers, that read would have raised *inside the try*
+    and silently skipped the ``viewer_update_signal`` connect and the reschedule after
+    it, so patterns would quietly stop following the live image.
+    """
     microscope, _ = _session()
     image = FibsemImage.generate_blank_image(resolution=_RESOLUTION, hfw=_HFW)
-    iw = _FakeImageWidget(image, object())
+    iw = _FakeImageWidget(image)
+
     w = MillingTaskViewerWidget(
         microscope=microscope, viewer=None, image_widget=iw, milling_enabled=False
     )
+    assert w._fib_image is image
+
+    scheduled = []
+    w._schedule_pattern_update = lambda: scheduled.append(1)
 
     new_image = FibsemImage.generate_blank_image(resolution=_RESOLUTION, hfw=_HFW)
-    new_layer = object()
-    iw.ib_image, iw.ib_layer = new_image, new_layer
-    w._on_viewer_image_updated()
+    iw.ib_image = new_image
+    iw.viewer_update_signal.emit()  # drive the connection, not the handler
 
-    assert w._fib_image is new_image
-    assert w._fib_image_layer is new_layer, "image update dropped the layer"
+    assert w._fib_image is new_image, "a new frame did not reach the milling widget"
+    assert scheduled, "a new frame did not reschedule the pattern update"
 
 
 def test_eye_toggle_routes_through_the_reducer_when_wired():

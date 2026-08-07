@@ -5,12 +5,18 @@ Run with:
     python fibsem/ui/widgets/tests/test-image-settings-widget.py
 """
 import sys
-from PyQt5.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import (
+    QApplication,
+    QPushButton,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
 
-import napari
 from fibsem import utils
-from fibsem.structures import ImageSettings, BeamType
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
+from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 
 
 class _MockMovementWidget:
@@ -20,10 +26,14 @@ class _MockMovementWidget:
 
 
 class MockParent(QWidget):
-    """Minimal parent that satisfies FibsemImageSettingsWidget requirements."""
-    def __init__(self, viewer: napari.Viewer):
+    """Minimal parent that satisfies FibsemImageSettingsWidget requirements.
+
+    The widget resolves its display through ``view_controller`` on the parent — the
+    shape standalone FibsemUI presents. It has no napari path left.
+    """
+    def __init__(self):
         super().__init__()
-        self.viewer = viewer
+        self.view_controller = MicroscopeViewController(parent=self)
         self.movement_widget = _MockMovementWidget()
 
 
@@ -33,9 +43,7 @@ def main():
     microscope, settings = utils.setup_session(manufacturer="Demo", ip_address="localhost")
     image_settings = settings.image
 
-    viewer = napari.Viewer()
-
-    parent = MockParent(viewer=viewer)
+    parent = MockParent()
 
     widget = FibsemImageSettingsWidget(
         microscope=microscope,
@@ -84,10 +92,20 @@ def main():
     btn_det.clicked.connect(print_detector_settings)
     layout.addWidget(btn_det)
 
-    viewer.window.add_dock_widget(widget, area="right", name="Image Settings")
-    viewer.window.add_dock_widget(panel, area="right", name="Test Controls")
+    # quad view (left) | widget + diagnostics (right), as the real host lays it out
+    right = QWidget()
+    right_layout = QVBoxLayout(right)
+    right_layout.setContentsMargins(0, 0, 0, 0)
+    right_layout.addWidget(widget)
+    right_layout.addWidget(panel)
 
-    napari.run()
+    window = QSplitter(Qt.Horizontal)
+    window.addWidget(parent.view_controller.widget)
+    window.addWidget(right)
+    window.setSizes([720, 460])
+    window.resize(1280, 800)
+    window.show()
+    app.exec_()
 
 
 if __name__ == "__main__":
