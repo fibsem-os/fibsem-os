@@ -566,8 +566,13 @@ class FMTiledAcquisitionRunner:
         # left its tiles on disk with nothing saying what grid they belonged to.
         self._save_parameters()
         try:
-            self._autofocus_if_mode(AutoFocusMode.ONCE)
-            self._run_tile_loop()
+            # Taken once for the whole run rather than per frame. On a TFS system the FM
+            # and the beams share one imaging channel, and handing it back between every
+            # pair of tiles would flick the microscope's own UI between views for the
+            # length of the acquisition. A no-op on any other mount (FIB-517).
+            with self.microscope.fm.active_channel():
+                self._autofocus_if_mode(AutoFocusMode.ONCE)
+                self._run_tile_loop()
         except OperationCancelledError:
             logging.info("Tileset acquisition cancelled")
             raise

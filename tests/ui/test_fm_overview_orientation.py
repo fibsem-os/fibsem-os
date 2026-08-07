@@ -351,3 +351,60 @@ class TestTheMoveAction:
         widget.move_to_fm_orientation()
 
         assert no_worker == []
+
+
+class TestTheInfoBarDoesNotPollHardware:
+    """A stage poll must not read the objective (FIB-517).
+
+    The canvas info bar shows the objective position, and it used to read it inside
+    `_refresh_stage_info` — which runs on every `stage_position_changed`. On a real
+    system the FM and the beams share one connection, so each of those reads pointed it
+    at the FM, and a beam acquisition mid-workflow found the FM there instead. The
+    driver hands the connection back now, but a round-trip per poll for a number that
+    only changes when something moves the objective is still the wrong shape.
+    """
+
+    @staticmethod
+    def _count_objective_reads(widget, monkeypatch) -> list:
+        """Replace the objective with one that records every attribute read.
+
+        Through `monkeypatch` so it is put back: the microscope outlives the widget, so
+        a spy left in place leaks into whatever runs next.
+        """
+        reads = []
+        real = widget.fm.objective
+
+        class _Spy:
+            def __getattr__(self, name):
+                reads.append(name)
+                return getattr(real, name)
+
+        monkeypatch.setattr(widget.fm, "objective", _Spy())
+        return reads
+
+    def test_a_stage_poll_reads_nothing(self, widget, qapp, monkeypatch):
+        reads = self._count_objective_reads(widget, monkeypatch)
+
+        widget._on_stage_moved(widget.microscope.get_stage_position())
+        qapp.processEvents()
+
+        assert reads == [], f"stage poll touched the objective: {reads}"
+
+    def test_the_info_bar_still_says_the_objective(self, widget, qapp):
+        """Cached, not dropped — the number is still there, it is just not re-read."""
+        widget._refresh_objective_info()
+        qapp.processEvents()
+
+        assert "objective" in widget.canvas.canvas._info_text
+
+    def test_a_finished_acquisition_rereads_it(self, widget, qapp, monkeypatch):
+        """A z-stack and an autofocus sweep both move the objective, so the cache has to
+        be refreshed when one ends — one read, rather than one per poll while it runs."""
+        widget.fm.set_acquiring(True, "z-stack")
+        qapp.processEvents()
+        reads = self._count_objective_reads(widget, monkeypatch)
+
+        widget.fm.set_acquiring(False)
+        qapp.processEvents()
+
+        assert "position" in reads, f"did not re-read the objective: {reads}"

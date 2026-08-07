@@ -2262,7 +2262,10 @@ def test_an_unreadable_objective_does_not_cost_the_stage_position(qapp, interact
     original = widget.fm.objective
     widget.fm.objective = _Broken()
     try:
-        widget._refresh_stage_info()
+        # `_refresh_objective_info`, not `_refresh_stage_info`: the hardware read moved
+        # there when it stopped happening on every stage poll (FIB-517). This is still
+        # the same question -- a field that cannot be read is dropped, not the line.
+        widget._refresh_objective_info()
         info = widget.canvas.canvas._info_text
     finally:
         widget.fm.objective = original
