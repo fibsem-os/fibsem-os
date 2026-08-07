@@ -22,7 +22,7 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
-from fibsem.correlation.ui.widgets.correlation_setup_section import (
+from fibsem.ui.correlation.widgets.correlation_setup_section import (
     SEED_NONE,
     SEED_PREVIOUS,
     SEED_SPOT_BURNS,
@@ -35,7 +35,7 @@ from fibsem.structures import FibsemImage, Point
 @pytest.fixture(autouse=True)
 def _no_lut_download(monkeypatch):
     """Never hit the network for the zeta LUT during widget construction."""
-    import fibsem.correlation.ui.widgets.refractive_index_widget as riw
+    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
 
     monkeypatch.setattr(riw, "_ensure_lut", lambda: None)
 
@@ -148,7 +148,7 @@ def test_run_timestamp_formatting_falls_back():
 
 
 def _widget():
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         CorrelationTabWidget,
     )
 
@@ -209,7 +209,7 @@ def test_manual_edits_prompt_before_reseeding(qapp, monkeypatch):
     """A hand-moved point must not be silently replaced by a re-seed."""
     from PyQt5.QtWidgets import QMessageBox
 
-    import fibsem.correlation.ui.widgets.correlation_tab_widget as ctw
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
 
     w = _widget()
     w.set_fib_image(FibsemImage.generate_blank_image(resolution=(300, 200), hfw=100e-6))
@@ -266,7 +266,7 @@ def _fm_image(nz=11, pixel_size_z=200e-9):
 
 
 def test_fm_pixel_size_reports_xy_z_and_anisotropy(qapp):
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         _format_fm_pixel_size,
     )
 
@@ -281,7 +281,7 @@ def test_fm_pixel_size_reports_xy_z_and_anisotropy(qapp):
 
 
 def test_fm_pixel_size_handles_missing_metadata(qapp):
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         _format_fm_pixel_size,
     )
 
@@ -294,7 +294,7 @@ def test_fm_pixel_size_handles_missing_metadata(qapp):
 def test_loading_fm_through_the_picker_enables_interpolate(qapp, monkeypatch):
     """The picker's load path used to skip the enable, leaving Interpolate greyed
     out for any volume opened through it."""
-    import fibsem.correlation.ui.widgets.correlation_tab_widget as ctw
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
 
     tab = _widget()._images_tab
     monkeypatch.setattr(ctw.FluorescenceImage, "load", staticmethod(lambda p: _fm_image()))

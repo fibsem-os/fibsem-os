@@ -39,13 +39,13 @@ from fibsem.structures import FibsemImage, Point
 
 @pytest.fixture(autouse=True)
 def _no_lut_download(monkeypatch):
-    import fibsem.correlation.ui.widgets.refractive_index_widget as riw
+    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
 
     monkeypatch.setattr(riw, "_ensure_lut", lambda: None)
 
 
 def _widget():
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         CorrelationTabWidget,
     )
 
@@ -180,7 +180,7 @@ def test_a_file_that_fails_to_load_is_dropped_from_the_picker(qapp, monkeypatch)
     """A browsed file joins the list before anything opens it. With nothing loaded
     before, the revert (`show_path("")`) returned immediately and left the bad
     file on display as though it were the current image."""
-    import fibsem.correlation.ui.widgets.correlation_tab_widget as ctw
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
 
     w = _widget()
     tab, picker = w._images_tab, w._images_tab._fib_picker
@@ -206,7 +206,7 @@ def _loads_as(path):
 
 
 def test_a_failed_load_falls_back_to_the_last_good_image(qapp, monkeypatch):
-    import fibsem.correlation.ui.widgets.correlation_tab_widget as ctw
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
 
     w = _widget()
     tab, picker = w._images_tab, w._images_tab._fib_picker
@@ -231,7 +231,7 @@ def test_loading_an_image_does_not_list_it_twice(qapp, monkeypatch):
     lookup missed and the bare name was added as a second entry for the same
     file. Picking that one calls FibsemImage.load on a bare name, which resolves
     against the working directory and fails."""
-    import fibsem.correlation.ui.widgets.correlation_tab_widget as ctw
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
 
     w = _widget()
     tab, picker = w._images_tab, w._images_tab._fib_picker
@@ -277,7 +277,7 @@ def _run(name, inp):
 def test_an_empty_previous_run_does_not_wipe_the_coordinates(qapp, monkeypatch):
     """An empty run — or a legacy file with a null input_data — took the
     "Previous correlation" branch and replaced every point with nothing."""
-    import fibsem.correlation.ui.widgets.correlation_tab_widget as ctw
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
 
     asked = []
     monkeypatch.setattr(
@@ -340,7 +340,7 @@ def test_swapping_the_image_clears_the_overlay_legend(qapp):
     too — otherwise "POI (P)" keeps appearing over an image that has no POI."""
     import numpy as np
 
-    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
 
     canvas = ImagePointCanvas()
     canvas.set_image(np.zeros((64, 64), np.uint8))

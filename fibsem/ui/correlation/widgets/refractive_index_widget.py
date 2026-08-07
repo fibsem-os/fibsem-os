@@ -5,7 +5,7 @@ displays the interpolated zeta value live as the user adjusts them.
 
 Usage::
 
-    python fibsem/correlation/ui/widgets/test_refractive_index_widget.py
+    python fibsem/ui/correlation/widgets/test_refractive_index_widget.py
 """
 
 from __future__ import annotations

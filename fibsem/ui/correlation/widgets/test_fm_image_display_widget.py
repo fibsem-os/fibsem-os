@@ -4,7 +4,7 @@ Shows the widget on the left and controls + event log on the right.
 
 Usage
 -----
-    python fibsem/correlation/ui/widgets/test_fm_image_display_widget.py
+    python fibsem/ui/correlation/widgets/test_fm_image_display_widget.py
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
-from fibsem.correlation.ui.widgets.fm_image_display_widget import FMImageDisplayWidget
+from fibsem.ui.correlation.widgets.fm_image_display_widget import FMImageDisplayWidget
 
 _DEV_PATH = "/home/patrick/github/fibsem/fibsem/applications/test-data"
 _FM_IMAGE = "zstack-Feature-1-Active-002.ome.tiff"

@@ -957,7 +957,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             return
 
         from fibsem.correlation.history import LamellaCorrelation
-        from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+        from fibsem.ui.correlation.widgets.correlation_tab_widget import (
             CorrelationTabDialog,
         )
 

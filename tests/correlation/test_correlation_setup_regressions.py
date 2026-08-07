@@ -34,7 +34,7 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
-from fibsem.correlation.ui.widgets.correlation_setup_section import (
+from fibsem.ui.correlation.widgets.correlation_setup_section import (
     SEED_NONE,
     SEED_PREVIOUS,
     SEED_SPOT_BURNS,
@@ -45,7 +45,7 @@ from fibsem.structures import FibsemImage, Point
 
 @pytest.fixture(autouse=True)
 def _no_lut_download(monkeypatch):
-    import fibsem.correlation.ui.widgets.refractive_index_widget as riw
+    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
 
     monkeypatch.setattr(riw, "_ensure_lut", lambda: None)
 
@@ -55,7 +55,7 @@ NEW = "2026-07-24_14-32-00"
 
 
 def _widget():
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         CorrelationTabWidget,
     )
 
@@ -76,7 +76,7 @@ def _run(name, inp=None):
 
 def _asked(monkeypatch, answer):
     """Record every confirm/inform the widget raises, answering with `answer`."""
-    import fibsem.correlation.ui.widgets.correlation_tab_widget as ctw
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
 
     seen = []
     for name in ("question", "information"):
@@ -322,7 +322,7 @@ def _fake_dialog_class(record):
 
 
 def _open_correlation(stub, monkeypatch):
-    import fibsem.correlation.ui.widgets.correlation_tab_widget as ctw
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
     from fibsem.ui.widgets.autolamella_lamella_protocol_editor import (
         AutoLamellaProtocolEditorWidget as Editor,
     )

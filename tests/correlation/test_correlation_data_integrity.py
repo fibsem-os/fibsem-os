@@ -35,7 +35,7 @@ from fibsem.structures import FibsemImage
 
 @pytest.fixture(autouse=True)
 def _no_lut_download(monkeypatch):
-    import fibsem.correlation.ui.widgets.refractive_index_widget as riw
+    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
 
     monkeypatch.setattr(riw, "_ensure_lut", lambda: None)
 
@@ -55,7 +55,7 @@ def _result(inp):
 
 
 def _widget():
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         CorrelationTabWidget,
     )
 
@@ -137,7 +137,7 @@ def test_autosave_failure_is_reported_not_swallowed(qapp, tmp_path, monkeypatch)
 
 def _load_via_picker(w, monkeypatch, answer):
     """Drive a user-initiated image load, answering the confirm with `answer`."""
-    import fibsem.correlation.ui.widgets.correlation_tab_widget as ctw
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
     from PyQt5.QtWidgets import QMessageBox
 
     monkeypatch.setattr(
@@ -187,7 +187,7 @@ def test_declining_the_change_keeps_both_image_and_points(qapp, monkeypatch):
 def test_programmatic_image_load_does_not_prompt(qapp, monkeypatch):
     """The lamella's images arrive this way on open — prompting there would be
     a dialog nobody asked for."""
-    import fibsem.correlation.ui.widgets.correlation_tab_widget as ctw
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
 
     asked = []
     monkeypatch.setattr(

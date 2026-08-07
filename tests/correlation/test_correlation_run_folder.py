@@ -40,13 +40,13 @@ CORRELATION_JSON = "correlation.json"
 
 @pytest.fixture(autouse=True)
 def _no_lut_download(monkeypatch):
-    import fibsem.correlation.ui.widgets.refractive_index_widget as riw
+    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
 
     monkeypatch.setattr(riw, "_ensure_lut", lambda: None)
 
 
 def _widget():
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         CorrelationTabWidget,
     )
 
@@ -204,7 +204,7 @@ def test_a_run_without_a_result_says_so_in_the_dropdown(qapp):
     starting point means picking between those and real correlations."""
     from fibsem.correlation.history import CorrelationRun
     from fibsem.correlation.structures import CorrelationState
-    from fibsem.correlation.ui.widgets.correlation_setup_section import (
+    from fibsem.ui.correlation.widgets.correlation_setup_section import (
         format_run_label,
     )
 
@@ -222,7 +222,7 @@ def test_a_run_without_a_result_says_so_in_the_dropdown(qapp):
 def test_a_failed_save_is_reported(qapp, tmp_path, monkeypatch):
     """The load handler warns on failure; the save handlers didn't, so the
     exception went to the event loop and the user was told nothing."""
-    import fibsem.correlation.ui.widgets.correlation_tab_widget as ctw
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
 
     warned = []
     monkeypatch.setattr(
@@ -244,7 +244,7 @@ def test_a_failed_save_is_reported(qapp, tmp_path, monkeypatch):
 
 
 def test_a_failed_plot_save_is_reported(qapp, tmp_path, monkeypatch):
-    import fibsem.correlation.ui.widgets.correlation_tab_widget as ctw
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
 
     warned = []
     monkeypatch.setattr(
@@ -268,7 +268,7 @@ def test_a_failed_plot_save_is_reported(qapp, tmp_path, monkeypatch):
 def test_a_cancelled_correlation_leaves_no_run_behind(qapp, tmp_path, monkeypatch):
     """The reproduction from the issue: open, edit a point, cancel — and the next
     open must not offer that abandoned session as a previous correlation."""
-    import fibsem.correlation.ui.widgets.correlation_tab_widget as ctw
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
     from fibsem.ui.widgets.autolamella_lamella_protocol_editor import (
         AutoLamellaProtocolEditorWidget as Editor,
     )

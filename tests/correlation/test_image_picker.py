@@ -19,7 +19,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.correlation.ui.widgets.correlation_tab_widget import _ImagePicker
+from fibsem.ui.correlation.widgets.correlation_tab_widget import _ImagePicker
 
 LAMELLA = ["/lam/ref_Trench_ib.tif", "/lam/ref_MillRough_ib.tif"]
 EXTERNAL = "/elsewhere/acquired_on_another_system_ib.tif"
@@ -94,7 +94,7 @@ def test_activation_emits_the_full_path(qapp):
 
 
 def test_browse_adds_the_file_selects_it_and_emits(qapp, monkeypatch):
-    import fibsem.correlation.ui.widgets.correlation_tab_widget as ctw
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
 
     p = _picker()
     p.set_options(LAMELLA, LAMELLA[0])
@@ -112,7 +112,7 @@ def test_browse_adds_the_file_selects_it_and_emits(qapp, monkeypatch):
 
 
 def test_cancelled_browse_changes_nothing(qapp, monkeypatch):
-    import fibsem.correlation.ui.widgets.correlation_tab_widget as ctw
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
 
     p = _picker()
     p.set_options(LAMELLA, LAMELLA[0])

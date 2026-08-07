@@ -50,7 +50,7 @@ and apply a refractive-index (RI) depth correction to the **correlated POI resul
 - FM coordinates are passed in **voxel units** and assumed isotropic
   (`io.py`: "assume isotropic").
 
-### Widget — `fibsem/correlation/ui/widgets/correlation_tab_widget.py`
+### Widget — `fibsem/ui/correlation/widgets/correlation_tab_widget.py`
 
 - FIB canvas: `allowed_point_types=[FIB, SURFACE]` → right-click "Add SURFACE".
 - FM display: `allowed_point_types=[FM, POI]`; added points get `z = current_z` slider value.

@@ -28,7 +28,7 @@ from fibsem.structures import Point
 @pytest.fixture(autouse=True)
 def _no_lut_download(monkeypatch):
     """Never hit the network for the zeta LUT during widget construction."""
-    import fibsem.correlation.ui.widgets.refractive_index_widget as riw
+    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
 
     monkeypatch.setattr(riw, "_ensure_lut", lambda: None)
 
@@ -38,7 +38,7 @@ def _coord(x=0.0, y=0.0, z=0.0, pt=PointType.FIB) -> Coordinate:
 
 
 def _widget(qapp):
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         CorrelationTabWidget,
     )
 
@@ -357,7 +357,7 @@ def test_registry_add_select_remove_for_every_type(qapp, point_type):
 
 def test_canvas_allow_lists_derive_from_registry_map(qapp):
     """The right-click add menus and the registry share one source of truth."""
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         _POINT_TYPE_SIDES,
     )
 
@@ -372,7 +372,7 @@ def test_canvas_allow_lists_derive_from_registry_map(qapp):
 
 def test_inconsistent_spec_rejected(qapp):
     """Specs with mismatched side/adapter/fm_fit_role fail at construction."""
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         _PointTypeSpec,
     )
 
@@ -455,7 +455,7 @@ def test_typed_factor_survives_refresh_and_armed_priority(qapp):
 
 
 def test_tilt_lock_preserves_manual_factor(qapp):
-    from fibsem.correlation.ui.widgets.refractive_index_widget import (
+    from fibsem.ui.correlation.widgets.refractive_index_widget import (
         RefractiveIndexWidget,
     )
 
@@ -486,7 +486,7 @@ def _legend_labels(ax):
 
 
 def test_canvas_legend_lists_present_point_types(qapp):
-    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
 
     canvas = ImagePointCanvas()
     canvas.set_coordinates(
@@ -508,7 +508,7 @@ def test_canvas_legend_lists_present_point_types(qapp):
 
 
 def test_canvas_legend_overlay_groups_and_toggle(qapp):
-    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
 
     canvas = ImagePointCanvas()
     canvas.set_coordinates([_coord(pt=PointType.FIB)])
@@ -529,7 +529,7 @@ def test_canvas_legend_overlay_groups_and_toggle(qapp):
 def test_surface_crosshair_keeps_color(qapp):
     """Unfilled '+' markers are drawn by their edge — selection must not turn
     them white, and deselection must not erase them."""
-    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
 
     canvas = ImagePointCanvas()
     fib = _coord(x=1.0, y=1.0, pt=PointType.FIB)
@@ -554,7 +554,7 @@ def test_surface_crosshair_keeps_color(qapp):
 
 def test_fib_surface_line_follows_surface_point(qapp):
     """A dashed datum line spans the canvas at the FIB surface y."""
-    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
 
     canvas = ImagePointCanvas()
     canvas.set_coordinates([_coord(x=1.0, y=1.0, pt=PointType.FIB)])
@@ -577,7 +577,7 @@ def test_fib_surface_line_follows_surface_point(qapp):
 
 def test_fm_surface_point_gets_no_line(qapp):
     """FM surfaces are z-planes — no in-plane datum line."""
-    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
 
     canvas = ImagePointCanvas()
     canvas.set_coordinates([_coord(z=10.0, pt=PointType.SURFACE_FM)])
@@ -587,7 +587,7 @@ def test_fm_surface_point_gets_no_line(qapp):
 def test_surface_line_exported_by_render_to_axes(qapp):
     from matplotlib.figure import Figure
 
-    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
 
     canvas = ImagePointCanvas()
     canvas.set_coordinates([_coord(x=5.0, y=40.0, pt=PointType.SURFACE)])
@@ -602,7 +602,7 @@ def test_surface_line_exported_by_render_to_axes(qapp):
 def test_render_to_axes_replicates_legend(qapp):
     from matplotlib.figure import Figure
 
-    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
 
     canvas = ImagePointCanvas()
     canvas.set_coordinates([_coord(pt=PointType.FIB)])
@@ -651,7 +651,7 @@ def test_fm_scalebar_pixel_size_corrects_for_resize(qapp):
 
     import numpy as np
 
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         CorrelationTabWidget,
     )
 
@@ -688,7 +688,7 @@ def test_canvas_toolbar_reset_button(qapp):
 def test_ghost_export_preserves_hollow_style(qapp):
     from matplotlib.figure import Figure
 
-    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
 
     canvas = ImagePointCanvas()
     canvas.add_overlay_points(
@@ -746,7 +746,7 @@ def _scroll_event(canvas, *, button, shift):
 
 
 def test_canvas_shift_scroll_emits_z_when_enabled(qapp):
-    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
 
     canvas = ImagePointCanvas()
     got = []
@@ -797,7 +797,7 @@ def test_shift_wheel_steps_z_however_the_delta_arrives(qapp):
     zero, so a device that reports Shift+wheel horizontally (a discrete mouse on
     macOS) got no scroll_event at all — Z stepping silently dead, while the same
     gesture on a trackpad kept working."""
-    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
 
     canvas = ImagePointCanvas()
     canvas.set_shift_z_scroll_enabled(True)
@@ -827,7 +827,7 @@ def test_shift_wheel_steps_z_however_the_delta_arrives(qapp):
 def test_horizontal_wheel_only_steps_z_when_it_should(qapp):
     """Guards the over-correction: the rescue must not fire without Shift, nor
     when the canvas hasn't opted into Z stepping."""
-    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
 
     canvas = ImagePointCanvas()
     got = []
@@ -840,7 +840,7 @@ def test_horizontal_wheel_only_steps_z_when_it_should(qapp):
 
 
 def test_fm_display_shows_image_name(qapp):
-    from fibsem.correlation.ui.widgets.fm_image_display_widget import (
+    from fibsem.ui.correlation.widgets.fm_image_display_widget import (
         FMImageDisplayWidget,
     )
 
@@ -867,7 +867,7 @@ def test_fib_header_shows_image_name(qapp):
 
 
 def test_fm_display_z_step_clamps_and_mip_disables(qapp):
-    from fibsem.correlation.ui.widgets.fm_image_display_widget import (
+    from fibsem.ui.correlation.widgets.fm_image_display_widget import (
         FMImageDisplayWidget,
     )
 
@@ -906,7 +906,7 @@ def test_save_plot_in_view_menu_and_test_menu_removed(qapp):
 def test_dialog_allows_window_minimise(qapp):
     from PyQt5.QtCore import Qt
 
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         CorrelationTabDialog,
     )
 
@@ -916,7 +916,7 @@ def test_dialog_allows_window_minimise(qapp):
 
 
 def test_discover_correlation_files(tmp_path):
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         _discover_correlation_files,
     )
 
@@ -945,7 +945,7 @@ def test_discover_correlation_files(tmp_path):
 
 def test_discover_fib_falls_back_to_non_ome_tif(tmp_path):
     """With no *_ib.tif, the FIB is the first TIFF that isn't the OME-TIFF."""
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         _discover_correlation_files,
     )
 
@@ -1000,14 +1000,14 @@ def _result_fit(rms=1.82, n=6, worst=(3.0, 1.0)):
 def test_rms_never_certifies_a_good_fit():
     """There is deliberately no "good" colour. A residual can show a fit is
     wrong; it cannot show one is right, and green would read as that promise."""
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import _rms_concern
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import _rms_concern
 
     color, reason = _rms_concern(20.0, 8, 1.1)  # about as clean as it gets
     assert color == "#9aa0a6" and reason is None  # neutral, no verdict either way
 
 
 def test_rms_flags_detectable_problems():
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import _rms_concern
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import _rms_concern
 
     # A minimum-pair fit: residual is small by construction, not by agreement.
     color, reason = _rms_concern(20.0, 4, 1.1)
@@ -1025,7 +1025,7 @@ def test_rms_flags_detectable_problems():
 def test_rms_relative_checks_survive_a_missing_pixel_size():
     """A result loaded from JSON restores no images, so nm is unavailable — but
     pair counts and error ratios are unitless and still apply."""
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import _rms_concern
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import _rms_concern
 
     color, reason = _rms_concern(None, 4, 3.4)
     assert color == "#ffb300"
@@ -1172,7 +1172,7 @@ def test_canvas_click_selects_without_reporting_a_move(qapp):
     counts as an edit and invalidates the correlation result."""
     import numpy as np
 
-    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
 
     canvas = ImagePointCanvas()
     canvas.set_image(np.zeros((100, 100)))
@@ -1263,7 +1263,7 @@ def test_advanced_panels_start_collapsed(qapp):
 def test_point_labels_have_outline(qapp):
     """Coloured labels get a dark outline (path effect) so they stay legible on
     any image background."""
-    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
 
     canvas = ImagePointCanvas()
     canvas.set_coordinates([_coord(5.0, 5.0, 0.0, PointType.FIB)])
@@ -1418,7 +1418,7 @@ def test_coordinate_fitted_roundtrip():
 
 
 def test_point_fit_result_classify_and_delta():
-    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+    from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
         FitStatus,
         PointFitResult,
     )
@@ -1443,7 +1443,7 @@ def test_point_fit_result_classify_and_delta():
 
 def test_subpixel_change_is_visible_and_flagged():
     """A sub-pixel refinement must read as a real move at 3-decimal precision."""
-    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+    from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
         FitStatus,
         PointFitResult,
         _fmt_delta,
@@ -1463,7 +1463,7 @@ def test_run_point_fit_returns_none_without_image(qapp):
 
 
 def test_apply_fit_result_moves_and_flags(qapp):
-    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+    from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
         FitStatus,
         PointFitResult,
     )
@@ -1500,7 +1500,7 @@ def test_manual_move_clears_fitted_flag(qapp):
 
 
 def test_fit_confirmation_dialog_constructs(qapp):
-    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+    from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
         FitConfirmationDialog,
         FitStatus,
         PointFitResult,
@@ -1526,7 +1526,7 @@ def test_fit_dialog_sizes_wide_figure_to_aspect(qapp):
     from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 
     from fibsem.correlation.fit_diagnostics import FitDiagnostic
-    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+    from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
         FitConfirmationDialog,
         FitStatus,
         PointFitResult,
@@ -1552,7 +1552,7 @@ def test_fit_dialog_sizes_wide_figure_to_aspect(qapp):
 
 
 def test_humanize_fit_error_maps_known_modes():
-    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+    from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
         humanize_fit_error,
     )
 
@@ -1572,7 +1572,7 @@ def test_humanize_fit_error_maps_known_modes():
 def test_fit_dialog_shows_channel_for_fm_only(qapp):
     from PyQt5.QtWidgets import QLabel
 
-    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+    from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
         FitConfirmationDialog,
         FitStatus,
         PointFitResult,
@@ -1601,7 +1601,7 @@ def test_fit_dialog_shows_channel_for_fm_only(qapp):
 def test_error_dialog_splits_title_and_wrapped_reason(qapp):
     from PyQt5.QtWidgets import QLabel
 
-    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+    from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
         FitConfirmationDialog,
         FitStatus,
         PointFitResult,
@@ -1634,7 +1634,7 @@ def test_diagnostic_toggle_reveals_and_hides_figure(qapp):
     import numpy as np
 
     from fibsem.correlation.fit_diagnostics import FitDiagnostic
-    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+    from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
         FitConfirmationDialog,
         FitStatus,
         PointFitResult,
@@ -1674,7 +1674,7 @@ def test_accept_is_default_button_not_the_toggle(qapp):
     from PyQt5.QtWidgets import QPushButton
 
     from fibsem.correlation.fit_diagnostics import FitDiagnostic
-    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+    from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
         FitConfirmationDialog,
         FitStatus,
         PointFitResult,
@@ -1695,7 +1695,7 @@ def test_accept_is_default_button_not_the_toggle(qapp):
 
 
 def test_fitted_icon_reflects_state(qapp):
-    from fibsem.correlation.ui.widgets.coordinate_list_widget import (
+    from fibsem.ui.correlation.widgets.coordinate_list_widget import (
         CoordinateRowWidget,
     )
 
@@ -1718,7 +1718,7 @@ def test_tooltip_labels_have_no_unscoped_background(qapp):
     # An unscoped `background: transparent` on a widget bleeds into its QToolTip
     # (a QLabel), making the tooltip background transparent. The tooltip-bearing
     # labels in a row must not carry a background rule in their own stylesheet.
-    from fibsem.correlation.ui.widgets.coordinate_list_widget import (
+    from fibsem.ui.correlation.widgets.coordinate_list_widget import (
         CoordinateRowWidget,
     )
 
@@ -1729,7 +1729,7 @@ def test_tooltip_labels_have_no_unscoped_background(qapp):
 
 
 def test_name_col_width_is_compact_for_short_types(qapp):
-    from fibsem.correlation.ui.widgets.coordinate_list_widget import (
+    from fibsem.ui.correlation.widgets.coordinate_list_widget import (
         _NAME_FIXED_WIDTH,
         _name_col_width,
     )
@@ -1787,7 +1787,7 @@ def test_f_hotkey_skips_while_editing_a_field(qapp, monkeypatch):
 
 
 def _fit_result(status, dx=0.0, dy=0.0, dz=0.0, diagnostic=None):
-    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import PointFitResult
+    from fibsem.ui.correlation.widgets.fit_confirmation_dialog import PointFitResult
 
     initial = PointXYZ(100.0, 100.0, 10.0)
     fitted = (
@@ -1803,7 +1803,7 @@ def _fit_result(status, dx=0.0, dy=0.0, dz=0.0, diagnostic=None):
 
 
 def test_auto_accept_gating(qapp):
-    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import FitStatus
+    from fibsem.ui.correlation.widgets.fit_confirmation_dialog import FitStatus
 
     w = _widget(qapp)
     ok = _fit_result(FitStatus.OK, dx=2.0)
@@ -1820,8 +1820,8 @@ def test_auto_accept_gating(qapp):
 
 
 def test_auto_accept_applies_without_dialog(qapp, monkeypatch):
-    import fibsem.correlation.ui.widgets.correlation_tab_widget as mod
-    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import FitStatus
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as mod
+    from fibsem.ui.correlation.widgets.fit_confirmation_dialog import FitStatus
 
     w = _widget(qapp)
     w._coords_tab._auto_accept_check.setChecked(True)
@@ -1841,10 +1841,10 @@ def test_auto_accept_applies_without_dialog(qapp, monkeypatch):
 
 
 def test_auto_accept_error_still_shows_dialog(qapp, monkeypatch):
-    import fibsem.correlation.ui.widgets.correlation_tab_widget as mod
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as mod
     from PyQt5.QtWidgets import QDialog
 
-    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import FitStatus
+    from fibsem.ui.correlation.widgets.fit_confirmation_dialog import FitStatus
 
     w = _widget(qapp)
     w._coords_tab._auto_accept_check.setChecked(True)
@@ -1871,7 +1871,7 @@ def test_run_point_fit_does_not_mutate_coordinate(qapp, monkeypatch):
     import numpy as np
 
     import fibsem.correlation.util as util
-    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import FitStatus
+    from fibsem.ui.correlation.widgets.fit_confirmation_dialog import FitStatus
 
     w = _widget(qapp)
     w._fib_image = SimpleNamespace(filtered_data=np.zeros((64, 64), dtype=np.float32))
@@ -1898,7 +1898,7 @@ def test_refit_applies_on_accept_not_on_reject(qapp, monkeypatch):
     import numpy as np
     from PyQt5.QtWidgets import QDialog
 
-    import fibsem.correlation.ui.widgets.correlation_tab_widget as ctw
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
     import fibsem.correlation.util as util
 
     w = _widget(qapp)
@@ -1930,7 +1930,7 @@ def test_refit_applies_on_accept_not_on_reject(qapp, monkeypatch):
 def test_accepting_a_fit_invalidates_the_live_result(qapp):
     """Applying a fit moves a fiducial, so the displayed result no longer
     describes the current points and Continue must not stay armed."""
-    from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+    from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
         FitStatus,
         PointFitResult,
     )
@@ -1969,7 +1969,7 @@ def test_selecting_a_fitted_point_keeps_its_fitted_flag(qapp):
     select-click reached it — so merely clicking a fitted point unflagged it."""
     import numpy as np
 
-    from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
 
     canvas = ImagePointCanvas()
     canvas.set_image(np.zeros((100, 100)))
@@ -2092,7 +2092,7 @@ def test_load_result_can_keep_the_coordinates_already_loaded(qapp):
 
 def test_load_project_prefers_the_data_file_over_the_result_snapshot(qapp, tmp_path):
     """End-to-end of the reported path: edit after a run, reopen, keep the edit."""
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import load_project
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import load_project
 
     _result_from(_input(fib=(1.0, 2.0))).save(
         str(tmp_path / "correlation_result.json")
@@ -2109,7 +2109,7 @@ def test_load_project_prefers_the_data_file_over_the_result_snapshot(qapp, tmp_p
 
 def test_load_project_adopts_the_snapshot_when_there_is_no_data_file(qapp, tmp_path):
     """With no data file the result's snapshot is the only record of the points."""
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import load_project
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import load_project
 
     _result_from(_input(fib=(1.0, 2.0))).save(
         str(tmp_path / "correlation_result.json")
@@ -2207,7 +2207,7 @@ def test_load_correlation_flags_a_stale_consolidated_file(qapp, tmp_path):
 def test_load_project_prefers_the_consolidated_file(qapp, tmp_path):
     """With correlation.json present, the legacy pair is ignored even if it
     disagrees."""
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import load_project
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import load_project
 
     CorrelationState(input_data=_input(fib=(5.0, 5.0))).save(
         str(tmp_path / "correlation.json")
@@ -2221,7 +2221,7 @@ def test_load_project_prefers_the_consolidated_file(qapp, tmp_path):
 
 
 def test_load_project_falls_back_to_legacy_when_no_consolidated_file(qapp, tmp_path):
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import load_project
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import load_project
 
     _input(fib=(7.0, 7.0)).save(str(tmp_path / "correlation_data.json"))
 

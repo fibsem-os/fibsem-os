@@ -43,7 +43,7 @@ from superqt import QRangeSlider
 from fibsem.ui.widgets.custom_widgets import IconToolButton
 
 from fibsem.correlation.structures import Coordinate, PointType
-from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
 from fibsem.fm.structures import FluorescenceImage
 
 # Fallback palette when channel metadata has no color field

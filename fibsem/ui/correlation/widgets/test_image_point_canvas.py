@@ -6,7 +6,7 @@ and an event log.
 
 Usage
 -----
-    python fibsem/correlation/ui/widgets/test_image_point_canvas.py
+    python fibsem/ui/correlation/widgets/test_image_point_canvas.py
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
-from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
 
 
 def _synthetic_image(h: int = 512, w: int = 512) -> np.ndarray:
