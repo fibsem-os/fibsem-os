@@ -60,24 +60,19 @@ from fibsem.ui.tokens import (
     GRAY_TEXT_COLOR,
     NEUTRAL_200,
     NEUTRAL_450,
-    ORANGE_COLOR,
 )
+from fibsem.ui.correlation.widgets.correlation_point_overlay import (
+    POINT_COLORS,
+    POINT_MARKERS,
+)
+
 _logger = logging.getLogger(__name__)
 
-_POINT_COLORS: Dict[PointType, str] = {
-    PointType.FIB:        "#00ff00",
-    PointType.FM:         "#00e5ff",
-    PointType.POI:        "#ff00ff",
-    PointType.SURFACE:    f"{ORANGE_COLOR}",
-    PointType.SURFACE_FM: "#ffea00",
-}
-_POINT_MARKERS: Dict[PointType, str] = {
-    PointType.FIB:        "o",
-    PointType.FM:         "o",
-    PointType.POI:        "o",
-    PointType.SURFACE:    "+",
-    PointType.SURFACE_FM: "+",
-}
+# Single source while this canvas and CorrelationPointOverlay coexist (FIB-535):
+# the same points are about to be drawn by both, and two copies of the table
+# would let them drift apart mid-migration. Deleted with this module.
+_POINT_COLORS = POINT_COLORS
+_POINT_MARKERS = POINT_MARKERS
 _MARKER_SIZE     = 5
 _SELECTED_SIZE   = 7
 _PICK_RADIUS_PX  = 15

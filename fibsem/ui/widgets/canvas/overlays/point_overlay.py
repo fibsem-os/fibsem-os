@@ -441,7 +441,33 @@ class PointOverlay(QObject):
         self._ax.add_artist(leg)
         self._legend = leg
 
-    def _marker_edge(self, color: str, selected: bool):
+    def _on_right_click(self, x: float, y: float) -> None:
+        """Handle a right-click at content coordinates *x*, *y*.
+
+        Adds a point immediately and selects it. Split out from ``_on_press`` so a
+        subclass can defer instead — correlation has to ask which ``PointType``
+        before a point exists, so it emits a request and adds nothing here.
+        """
+        idx = self.add_point(x, y)
+        old_sel = self._selected
+        self._selected = idx
+        if old_sel is not None:
+            self._update_artist_appearance(old_sel)
+        self._update_artist_appearance(idx)
+        self.point_added.emit(idx, x, y)
+        if self._canvas is not None:
+            self._canvas.draw_idle()
+
+    def _point_marker(self, idx: int) -> str:
+        """Marker glyph for a point.
+
+        One glyph for every point here. Overridable so a subclass can vary it per
+        point without reimplementing the artist path — correlation draws SURFACE
+        types as "+" and everything else as "o".
+        """
+        return self._marker
+
+    def _marker_edge(self, idx: int, color: str, selected: bool):
         """Edge colour/width for the marker. Unfilled markers (+, x, ...) are drawn
         in their edge colour, so they take the point colour and a thicker line;
         filled markers (o, s, ...) keep a thin white outline for contrast.
@@ -450,7 +476,7 @@ class PointOverlay(QObject):
         adds a fixed bump, so backward-compatible defaults are preserved when unset.
         """
         from matplotlib.lines import Line2D
-        if self._marker in Line2D.filled_markers:
+        if self._point_marker(idx) in Line2D.filled_markers:
             base = self._edge_width if self._edge_width is not None else 0.8
             return "white", (base + 1.2 if selected else base)
         base = self._edge_width if self._edge_width is not None else 2.0
@@ -482,11 +508,11 @@ class PointOverlay(QObject):
         selected = idx == self._selected
         color = self._point_color(idx, selected)
         ms = self._size * 1.4 if selected else self._size
-        edge_color, mew = self._marker_edge(color, selected)
+        edge_color, mew = self._marker_edge(idx, color, selected)
         (line,) = self._ax.plot(
             x,
             y,
-            marker=self._marker,
+            marker=self._point_marker(idx),
             markersize=ms,
             color=color,
             markeredgecolor=edge_color,
@@ -519,7 +545,7 @@ class PointOverlay(QObject):
         selected = idx == self._selected
         color = self._point_color(idx, selected)
         ms = self._size * 1.4 if selected else self._size
-        edge_color, mew = self._marker_edge(color, selected)
+        edge_color, mew = self._marker_edge(idx, color, selected)
         line = self._artists[idx]
         line.set_color(color)
         line.set_markersize(ms)
@@ -605,15 +631,7 @@ class PointOverlay(QObject):
         if event.button == 3:  # right-click → add a new point
             if not self._add_on_right_click:
                 return
-            x, y = self._clamp_to_content(event.xdata, event.ydata)
-            idx = self.add_point(x, y)
-            old_sel = self._selected
-            self._selected = idx
-            if old_sel is not None:
-                self._update_artist_appearance(old_sel)
-            self._update_artist_appearance(idx)
-            self.point_added.emit(idx, x, y)
-            self._canvas.draw_idle()
+            self._on_right_click(*self._clamp_to_content(event.xdata, event.ydata))
             return
 
         if event.button != 1:
