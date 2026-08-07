@@ -214,15 +214,28 @@ class FibsemSpotBurnWidget(QWidget):
             self.label_workflow_hint.setVisible(False)
 
     def disconnect_signals(self) -> None:
-        """Disconnect from the microscope's progress signal before the widget is destroyed.
+        """Drop every connection to something that outlives this widget.
 
-        The microscope outlives this widget; without this, the connection would leak the
-        widget and fire _update_progress_bar on a deleted object.
+        This is the single teardown entry point: ``closeEvent`` delegates here, and the
+        host calls it directly on the disconnect path, because ``deleteLater`` fires
+        neither ``closeEvent`` nor ``close``. Keep new external connections in here
+        rather than in ``closeEvent`` — the close path is the one that does *not* run
+        when the microscope disconnects.
+
+        Idempotent. The microscope outlives this widget, so a leaked progress connection
+        would fire ``_update_progress_bar`` on a deleted object.
         """
         try:
             self.microscope.spot_burn_progress_signal.disconnect(self._update_progress_bar)
         except Exception:
             pass
+
+        iw = self._image_widget()
+        if iw is not None:
+            try:
+                iw.viewer_update_signal.disconnect(self._feed_image_shape)
+            except (TypeError, RuntimeError):
+                pass
 
     # ------------------------------------------------------------------
     # Activation lifecycle (called by the workflow via AutoLamellaUI)
@@ -379,10 +392,4 @@ class FibsemSpotBurnWidget(QWidget):
 
     def closeEvent(self, event) -> None:
         self.disconnect_signals()
-        iw = self._image_widget()
-        if iw is not None:
-            try:
-                iw.viewer_update_signal.disconnect(self._feed_image_shape)
-            except (TypeError, RuntimeError):
-                pass
         super().closeEvent(event)

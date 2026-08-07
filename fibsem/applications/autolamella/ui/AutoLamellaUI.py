@@ -210,7 +210,6 @@ class AutoLamellaUI(QMainWindow):
         self.USER_RESPONSE: bool = False
         self.WAITING_FOR_UI_UPDATE: bool = False
         self.SELECTED_POI: Optional[Point] = None
-        self._poi_layer = None
         self._workflow_stop_event: threading.Event = threading.Event()
         self._task_worker_thread: Optional[FunctionWorker] = None
         self._task_manager: Optional[TaskManager] = None
