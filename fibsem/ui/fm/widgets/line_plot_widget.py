@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
 )
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
+    GRAY_WHITE_COLOR,
     NEUTRAL_400,
     NEUTRAL_450,
     ORANGE_COLOR,
@@ -29,7 +30,7 @@ _OVERLAY_BTN_STYLE = (
     " border-radius: 3px; padding: 0px; }"
     "QPushButton:hover { background: rgba(74,74,74,200); }"
     "QPushButton:pressed { background: rgba(30,30,30,220); }"
-    "QPushButton:checked { background: rgba(90,92,100,200); border-color: #FFFFFF; }"
+    f"QPushButton:checked {{ background: rgba(90,92,100,200); border-color: {GRAY_WHITE_COLOR}; }}"
 )
 _OVERLAY_ICON_SIZE = QSize(14, 14)
 _OVERLAY_BTN_SIZE = 22

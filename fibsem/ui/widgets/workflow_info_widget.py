@@ -19,6 +19,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.ui.tokens import (
     NEUTRAL_500,
     PANEL_COLOR,
+    PRIMARY_COLOR,
     SURFACE_COLOR,
     TEXT_COLOR,
 )
@@ -31,13 +32,13 @@ _SECTION_STYLE = (
 _LINE_EDIT_STYLE = f"""
 QLineEdit {{
     background: {SURFACE_COLOR};
-    color: #d6d6d6;
+    color: {TEXT_COLOR};
     border: 1px solid #3a3d42;
     border-radius: 3px;
     padding: 3px 6px;
     font-size: 11px;
 }}
-QLineEdit:focus {{ border-color: #007ACC; }}
+QLineEdit:focus {{ border-color: {PRIMARY_COLOR}; }}
 """
 
 

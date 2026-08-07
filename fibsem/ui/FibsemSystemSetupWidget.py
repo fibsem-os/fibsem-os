@@ -18,7 +18,9 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
 )
 from fibsem.ui.tokens import (
+    BORDER_COLOR,
     NEUTRAL_500,
+    PANEL_COLOR,
     WHITE_ICON_COLOR,
 )
 
@@ -67,12 +69,12 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
     def _create_connection_status_card(self) -> QtWidgets.QFrame:
         frame = QtWidgets.QFrame()
         frame.setObjectName("frame_connection_status")
-        frame.setStyleSheet("""
-            QFrame#frame_connection_status {
-                background-color: #1e2027;
+        frame.setStyleSheet(f"""
+            QFrame#frame_connection_status {{
+                background-color: {PANEL_COLOR};
                 border-radius: 6px;
-                border: 1px solid #3d4251;
-            }
+                border: 1px solid {BORDER_COLOR};
+            }}
         """)
 
         layout = QtWidgets.QHBoxLayout(frame)
@@ -107,7 +109,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
             QPushButton {{
                 background-color: transparent;
                 color: {NEUTRAL_500};
-                border: 1px solid #3d4251;
+                border: 1px solid {BORDER_COLOR};
                 border-radius: 3px;
                 padding: 3px 8px;
                 font-size: 10px;

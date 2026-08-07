@@ -30,6 +30,7 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
 )
 from fibsem.ui.tokens import (
+    CANVAS_BG,
     NEUTRAL_500,
     PRIMARY_COLOR,
     SURFACE_COLOR,
@@ -37,8 +38,8 @@ from fibsem.ui.tokens import (
 )
 
 _SECTION_LABEL_STYLE = (
-    "font-size: 11px; font-weight: bold; color: #a0a0a0;"
-    " padding: 4px 6px 2px 6px; background: #1e2124;"
+    f"font-size: 11px; font-weight: bold; color: {NEUTRAL_500};"
+    f" padding: 4px 6px 2px 6px; background: {CANVAS_BG};"
 )
 
 class AddTaskDialog(QDialog):

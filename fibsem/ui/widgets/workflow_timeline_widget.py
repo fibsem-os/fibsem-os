@@ -24,6 +24,7 @@ from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
+    DISABLED_TEXT_COLOR,
     NEUTRAL_500,
     NEUTRAL_700,
 )
@@ -66,7 +67,7 @@ _ADD_BTN_STYLE  = (
     "QToolButton { background: transparent; border: none; border-radius: 3px;"
     " color: #d1d2d4; font-size: 13px; padding: 3px 6px; }"
     "QToolButton:hover { background: #3a3d42; }"
-    "QToolButton:disabled { color: #6b6b6b; }"
+    f"QToolButton:disabled {{ color: {DISABLED_TEXT_COLOR}; }}"
     "QToolButton::menu-indicator { image: none; }"
 )
 

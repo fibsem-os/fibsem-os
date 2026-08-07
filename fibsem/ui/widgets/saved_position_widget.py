@@ -37,7 +37,7 @@ _BTN_SPACER_WIDTH = _BTN_SIZE.width() * _BTN_COUNT + 8 * (_BTN_COUNT - 1)  # 112
 
 _NAME_EDIT_STYLE = (
     "QLineEdit { background: transparent; border: none; }"
-    "QLineEdit:focus { background: #1e2124; border: 1px solid #555; border-radius: 2px; }"
+    f"QLineEdit:focus {{ background: {CANVAS_BG}; border: 1px solid #555; border-radius: 2px; }}"
 )
 
 

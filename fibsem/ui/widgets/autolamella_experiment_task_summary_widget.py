@@ -135,11 +135,11 @@ class ExperimentTaskSummaryWidget(QWidget):
         self.scroll_area.setWidgetResizable(False)  # Don't resize widget to fit scroll area
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.scroll_area.setStyleSheet("""
-            QScrollArea {
-                background-color: #262930;
+        self.scroll_area.setStyleSheet(f"""
+            QScrollArea {{
+                background-color: {SURFACE_COLOR};
                 border: none;
-            }
+            }}
         """)
 
         self.summary_mode_label = QLabel("Summary:")

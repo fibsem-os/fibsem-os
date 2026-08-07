@@ -37,6 +37,7 @@ from fibsem.fm.structures import ChannelSettings
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, ValueSpinBox
 from fibsem.ui.tokens import (
+    BORDER_COLOR,
     CANVAS_BG,
     NEUTRAL_700,
     ORANGE_COLOR,
@@ -64,7 +65,7 @@ _FRAC_TO_PCT = 1e2
 
 _NAME_EDIT_STYLE = (
     "QLineEdit { background: transparent; border: none; }"
-    "QLineEdit:focus { background: #1e2124; border: 1px solid #555; border-radius: 2px; }"
+    f"QLineEdit:focus {{ background: {CANVAS_BG}; border: 1px solid #555; border-radius: 2px; }}"
 )
 
 AVAILABLE_COLORS = ["violet", "blue", "cyan", "green", "yellow", "red", "gray"]
@@ -443,7 +444,7 @@ class ChannelRowWidget(QWidget):
 # labels must stay transparent so the row's hover background shows through.
 _MENU_ROW_STYLE = (
     "#menuRow { background: transparent; }"
-    "#menuRow:hover { background: #3d4251; }"
+    f"#menuRow:hover {{ background: {BORDER_COLOR}; }}"
     "#menuRow QLabel { background: transparent; }"
 )
 
