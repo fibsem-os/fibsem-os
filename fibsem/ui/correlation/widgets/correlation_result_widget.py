@@ -35,7 +35,7 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
-from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 
 _VALUE_STYLE = "color: #e0e0e0; font-size: 12px;"

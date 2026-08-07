@@ -6,10 +6,10 @@ coordinate data) from a project directory — defaults to the worktree's ``tmp/`
 Usage
 -----
     # quickstart from tmp/ (FIB + FM images + correlation_result.json)
-    python -m fibsem.correlation.ui.widgets.test_correlation_tab_widget
+    python -m fibsem.ui.correlation.widgets.test_correlation_tab_widget
 
     # or point at any correlation project directory
-    python -m fibsem.correlation.ui.widgets.test_correlation_tab_widget /path/to/project
+    python -m fibsem.ui.correlation.widgets.test_correlation_tab_widget /path/to/project
 """
 import sys
 from pprint import pprint
@@ -17,7 +17,7 @@ from pprint import pprint
 from PyQt5.QtWidgets import QApplication, QMainWindow
 
 from fibsem.correlation.structures import CorrelationResult
-from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+from fibsem.ui.correlation.widgets.correlation_tab_widget import (
     CorrelationTabWidget,
     load_project,
 )

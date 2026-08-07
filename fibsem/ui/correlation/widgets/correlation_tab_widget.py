@@ -87,8 +87,8 @@ from fibsem.correlation.structures import (
     load_correlation_file,
     scale_about_surface,
 )
-from fibsem.correlation.ui.widgets.coordinate_list_widget import CoordinateListWidget
-from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
+from fibsem.ui.correlation.widgets.coordinate_list_widget import CoordinateListWidget
+from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
     FitConfirmationDialog,
     FitStatus,
     PointFitResult,
@@ -97,11 +97,11 @@ from fibsem.correlation.ui.widgets.fit_confirmation_dialog import (
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.utils import install_wheel_blocker
-from fibsem.correlation.ui.widgets.fm_image_display_widget import (
+from fibsem.ui.correlation.widgets.fm_image_display_widget import (
     IMAGE_HEADER_STYLE,
     FMImageDisplayWidget,
 )
-from fibsem.correlation.ui.widgets.image_point_canvas import ImagePointCanvas
+from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import FibsemImage, Point
 from fibsem.ui.widgets.custom_widgets import (
@@ -109,7 +109,7 @@ from fibsem.ui.widgets.custom_widgets import (
     TitledPanel,
     ValueComboBox,
 )
-from fibsem.correlation.ui.widgets.refractive_index_widget import RefractiveIndexWidget
+from fibsem.ui.correlation.widgets.refractive_index_widget import RefractiveIndexWidget
 from fibsem.ui.tokens import (
     CANVAS_BG,
     NEUTRAL_200,
@@ -2088,7 +2088,7 @@ class CorrelationTabWidget(QWidget):
         which makes the canvas itself the preview. Returns the section so the
         caller can connect its image-selection combos.
         """
-        from fibsem.correlation.ui.widgets.correlation_setup_section import (
+        from fibsem.ui.correlation.widgets.correlation_setup_section import (
             CorrelationSetupSection,
         )
 
@@ -2126,7 +2126,7 @@ class CorrelationTabWidget(QWidget):
         The section restores its controls when this returns False, so the choice
         on screen keeps matching the canvas.
         """
-        from fibsem.correlation.ui.widgets.correlation_setup_section import (
+        from fibsem.ui.correlation.widgets.correlation_setup_section import (
             SEED_PREVIOUS,
             SEED_SPOT_BURNS,
         )
@@ -2155,7 +2155,7 @@ class CorrelationTabWidget(QWidget):
         Whether it *may* be applied was settled by :meth:`_allow_reseed` before
         the section emitted; this only applies it.
         """
-        from fibsem.correlation.ui.widgets.correlation_setup_section import (
+        from fibsem.ui.correlation.widgets.correlation_setup_section import (
             SEED_PREVIOUS,
             SEED_SPOT_BURNS,
         )
@@ -2977,7 +2977,7 @@ class CorrelationTabWidget(QWidget):
             return
         if self._interp_worker is not None and self._interp_worker.is_alive():
             return  # one at a time
-        from fibsem.correlation.ui.widgets.fm_interpolate_dialog import (
+        from fibsem.ui.correlation.widgets.fm_interpolate_dialog import (
             InterpolateZDialog,
         )
 

@@ -38,7 +38,7 @@ FM_PATH = "/lam/01-grand-dodo/fm_stack.ome.tiff"
 
 @pytest.fixture(autouse=True)
 def _no_lut_download(monkeypatch):
-    import fibsem.correlation.ui.widgets.refractive_index_widget as riw
+    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
 
     monkeypatch.setattr(riw, "_ensure_lut", lambda: None)
 
@@ -81,13 +81,13 @@ def _fm_image(filepath=FM_PATH, requested_name="fm_stack_as_acquired"):
 
 
 def _images_tab():
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import _ImagesTab
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import _ImagesTab
 
     return _ImagesTab()
 
 
 def _tab_widget():
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         CorrelationTabWidget,
     )
 
@@ -106,7 +106,7 @@ def test_the_requested_name_cannot_match_a_real_file(qapp):
     disk does, so the comparison is ``'x' == 'x.tif'`` for every image ever
     acquired through the normal path.
     """
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import _ImagePicker
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import _ImagePicker
 
     picker = _ImagePicker("TIFF (*.tif *.tiff);;All Files (*)")
     picker.set_options([FIB_PATH])
@@ -190,7 +190,7 @@ def test_the_fib_header_names_the_file_not_the_request(qapp):
 
 
 def test_the_fm_header_names_the_file_not_the_request(qapp):
-    from fibsem.correlation.ui.widgets.fm_image_display_widget import (
+    from fibsem.ui.correlation.widgets.fm_image_display_widget import (
         FMImageDisplayWidget,
     )
 

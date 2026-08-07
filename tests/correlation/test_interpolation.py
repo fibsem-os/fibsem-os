@@ -181,7 +181,7 @@ def _real_fm(crop=64):
 
 
 def test_dialog_defaults_to_isotropic(qapp):
-    from fibsem.correlation.ui.widgets.fm_interpolate_dialog import InterpolateZDialog
+    from fibsem.ui.correlation.widgets.fm_interpolate_dialog import InterpolateZDialog
 
     fm = _real_fm()
     dlg = InterpolateZDialog(fm)
@@ -193,7 +193,7 @@ def test_dialog_defaults_to_isotropic(qapp):
 
 
 def test_dialog_unchecking_isotropic_frees_the_spinbox(qapp):
-    from fibsem.correlation.ui.widgets.fm_interpolate_dialog import InterpolateZDialog
+    from fibsem.ui.correlation.widgets.fm_interpolate_dialog import InterpolateZDialog
 
     fm = _real_fm()
     dlg = InterpolateZDialog(fm)
@@ -210,7 +210,7 @@ def test_enter_does_not_run_the_interpolation(qapp):
     from PyQt5.QtTest import QTest
     from PyQt5.QtWidgets import QDialog
 
-    from fibsem.correlation.ui.widgets.fm_interpolate_dialog import InterpolateZDialog
+    from fibsem.ui.correlation.widgets.fm_interpolate_dialog import InterpolateZDialog
 
     dlg = InterpolateZDialog(_real_fm())
     dlg.show()
@@ -233,10 +233,10 @@ def test_enter_does_not_run_the_interpolation(qapp):
 
 
 def _widget(qapp):
-    import fibsem.correlation.ui.widgets.refractive_index_widget as riw
+    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
 
     riw._ensure_lut = lambda: None  # never hit the network for the LUT
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         CorrelationTabWidget,
     )
 

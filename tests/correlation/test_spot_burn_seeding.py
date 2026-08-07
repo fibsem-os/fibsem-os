@@ -22,13 +22,13 @@ from fibsem.structures import FibsemImage, Point
 @pytest.fixture(autouse=True)
 def _no_lut_download(monkeypatch):
     """Never hit the network for the zeta LUT during widget construction."""
-    import fibsem.correlation.ui.widgets.refractive_index_widget as riw
+    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
 
     monkeypatch.setattr(riw, "_ensure_lut", lambda: None)
 
 
 def _widget():
-    from fibsem.correlation.ui.widgets.correlation_tab_widget import (
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         CorrelationTabWidget,
     )
 

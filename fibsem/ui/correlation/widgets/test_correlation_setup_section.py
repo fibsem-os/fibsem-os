@@ -8,10 +8,10 @@ experiment, no files needed.
 Usage
 -----
     # a lamella with spot burns, two previous runs and both images loaded
-    python -m fibsem.correlation.ui.widgets.test_correlation_setup_section
+    python -m fibsem.ui.correlation.widgets.test_correlation_setup_section
 
     # opened with no FIB image, to see the spot-burn rule
-    python -m fibsem.correlation.ui.widgets.test_correlation_setup_section --no-fib
+    python -m fibsem.ui.correlation.widgets.test_correlation_setup_section --no-fib
 
 What to try
 -----------
@@ -42,7 +42,7 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
-from fibsem.correlation.ui.widgets.correlation_tab_widget import CorrelationTabWidget
+from fibsem.ui.correlation.widgets.correlation_tab_widget import CorrelationTabWidget
 from fibsem.fm.structures import (
     FluorescenceChannelMetadata,
     FluorescenceImage,
@@ -155,7 +155,7 @@ def main() -> None:
     app.setStyleSheet(NAPARI_STYLE)
 
     # Mock session: never reach for the network to fetch the zeta LUT.
-    import fibsem.correlation.ui.widgets.refractive_index_widget as riw
+    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
 
     riw._ensure_lut = lambda: None
 
