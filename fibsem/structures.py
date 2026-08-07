@@ -10,7 +10,7 @@ from dataclasses import dataclass, field, fields, asdict, InitVar
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import List, Optional, Tuple, Union, Set, Any, Dict, Type, TypeVar, Literal, TYPE_CHECKING
+from typing import List, Mapping, Optional, Tuple, Union, Set, Any, Dict, Type, TypeVar, Literal, TYPE_CHECKING
 
 import numpy as np
 import tifffile as tff
@@ -49,7 +49,54 @@ DEFAULT_FIELD_METADATA: Dict[str, Any] = {
     "microscope_parameter": None,   # the corresponding microscope parameter name, if applicable (via get/set)
     "format_fn": None,              # function to format the value for display
     "format_fn_kwargs": None,       # kwargs for the format function # NOTE: unused yet
+    "filepath": None,               # render a string field as a file picker rather than a line edit
 }
+
+# Superseded spelling -> the key that replaced it. Used **only** to make the
+# warning below say something useful; nothing resolves these at runtime, so a
+# field still declaring one renders without a tooltip or a unit suffix.
+#
+# The AutoLamella task configs used to spell two keys differently from the rest
+# of the codebase, and the form that rendered them read only those spellings. All
+# in-tree declarations were converted (FIB-384); this map exists so an
+# out-of-tree config that has not been converted is told exactly what to change,
+# rather than getting the generic "no form reads this" line.
+RENAMED_METADATA_KEYS: Dict[str, str] = {
+    "help": "tooltip",
+    "units": "unit",
+}
+
+_warned_metadata_keys: set = set()
+
+
+def _warn_unknown_metadata_keys(struct_cls: Type[Any], field_name: str, metadata: Mapping[str, Any]) -> None:
+    """Log once for a metadata key nothing will ever read.
+
+    A mis-keyed field is otherwise silent: the form renders, the value is right,
+    and the label or suffix is simply missing. Plugin authors have no way to
+    discover the vocabulary, so a typo costs an afternoon. Warned once per
+    (class, field, key) because form metadata is re-read on every rebuild.
+    """
+    for key in metadata:
+        if key in DEFAULT_FIELD_METADATA:
+            continue
+        marker = (struct_cls.__qualname__, field_name, key)
+        if marker in _warned_metadata_keys:
+            continue
+        _warned_metadata_keys.add(marker)
+        replacement = RENAMED_METADATA_KEYS.get(key)
+        if replacement is not None:
+            logging.warning(
+                f"{struct_cls.__name__}.{field_name} declares metadata key {key!r}, which was "
+                f"renamed to {replacement!r} and is no longer read. The field will render "
+                f"without it until the declaration is updated."
+            )
+        else:
+            logging.warning(
+                f"{struct_cls.__name__}.{field_name} declares metadata key {key!r}, which no "
+                f"form reads. Known keys: {', '.join(sorted(DEFAULT_FIELD_METADATA))}."
+            )
+
 
 def get_fields_with_metadata(struct_cls: Type[Any]) -> Dict[str, Dict[str, Any]]:
     """Return dataclass fields with metadata, filling any missing keys with defaults."""
@@ -61,7 +108,9 @@ def get_fields_with_metadata(struct_cls: Type[Any]) -> Dict[str, Dict[str, Any]]
     }
     field_metadata: Dict[str, Dict[str, Any]] = {}
     for f in fields(struct_cls):
-        merged_metadata = {**default_metadata, **dict(f.metadata)}
+        declared = dict(f.metadata)
+        _warn_unknown_metadata_keys(struct_cls, f.name, declared)
+        merged_metadata = {**default_metadata, **declared}
         field_metadata[f.name] = merged_metadata
     return field_metadata
 

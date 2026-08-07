@@ -31,30 +31,30 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
     milling_current: float = field(
         default=60.0e-12,  # in Amperes
         metadata={
-            'help': 'Milling current in Amperes',
-            'units': 'A',
+            'tooltip': 'Milling current in Amperes',
+            'unit': 'A',
             'scale': 1e12
         }
     )
     exposure_time: int = field(
         default=10,
         metadata={
-            'help': 'Exposure time in seconds',
-            'units': 's',
+            'tooltip': 'Exposure time in seconds',
+            'unit': 's',
             'scale': 1
         }
     )
     autofocus: bool = field(
         default=False,
         metadata={
-            "help": "Run a FIB autofocus before acquiring the reference image, so the "
+            "tooltip": "Run a FIB autofocus before acquiring the reference image, so the "
                     "points are placed on (and burned into) a focused image",
             "label": "Autofocus",
         },
     )
     coordinates: list[Point] = field(
         default_factory=list,
-        metadata={"help": "Spot burn positions in normalised image coordinates (0-1)"},
+        metadata={"tooltip": "Spot burn positions in normalised image coordinates (0-1)"},
     )
 
     @property

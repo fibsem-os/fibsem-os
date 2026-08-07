@@ -60,14 +60,14 @@ class MillCoincidentTaskConfig(AutoLamellaTaskConfig):
     acquire_sem: bool = field(
         default=True,
         metadata={
-            "help": "Whether to acquire an SEM reference image",
+            "tooltip": "Whether to acquire an SEM reference image",
             "label": "Acquire SEM Image",
         },
     )
     acquire_fib: bool = field(
         default=True,
         metadata={
-            "help": "Whether to acquire a FIB reference image",
+            "tooltip": "Whether to acquire a FIB reference image",
             "label": "Acquire FIB Image",
         },
     )
@@ -75,16 +75,16 @@ class MillCoincidentTaskConfig(AutoLamellaTaskConfig):
         default=True,
         metadata={
             "label": "Acquire Fluorescence Images",
-            "help": "Whether to acquire fluorescence images before and after coincident milling",
+            "tooltip": "Whether to acquire fluorescence images before and after coincident milling",
         },
     )
     orientation: Literal["SEM", "FIB", "MILLING"] = field(
         default="MILLING",
-        metadata={"help": "The orientation to perform coincident milling in"},
+        metadata={"tooltip": "The orientation to perform coincident milling in"},
     )
     channel_name: str = field(
         default="Red Channel",
-        metadata={"help": "The fluorescence channel to use for coincident milling"},
+        metadata={"tooltip": "The fluorescence channel to use for coincident milling"},
     )
     task_type: ClassVar[str] = "MILL_COINCIDENT"
     display_name: ClassVar[str] = "Coincident Milling"

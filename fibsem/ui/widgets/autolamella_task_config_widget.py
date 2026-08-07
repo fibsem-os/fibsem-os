@@ -103,7 +103,7 @@ class IntParameterWidget(ParameterWidget):
         super().__init__(name, value, annotation)
         self.metadata = metadata or {}
         self.scale = self.metadata.get('scale', 1.0)
-        self.units = self.metadata.get('units', '')
+        self.units = self.metadata.get('unit', '')
 
     def create_widget(self) -> QWidget:
         self.widget = QSpinBox()
@@ -150,7 +150,7 @@ class FloatParameterWidget(ParameterWidget):
         super().__init__(name, value, annotation)
         self.metadata = metadata or {}
         self.scale = self.metadata.get('scale', 1.0)
-        self.units = self.metadata.get('units', '')
+        self.units = self.metadata.get('unit', '')
         
     def create_widget(self) -> QWidget:
         self.widget = QDoubleSpinBox()
@@ -509,8 +509,9 @@ class AutoLamellaTaskConfigWidget(QWidget):
                     
                     # Create label with tooltip if available
                     label = QLabel(self._format_field_name(param_name))
-                    if hasattr(field, 'metadata') and 'help' in field.metadata:
-                        label.setToolTip(field.metadata['help'])
+                    tooltip = getattr(field, 'metadata', {}).get('tooltip')
+                    if tooltip:
+                        label.setToolTip(tooltip)
                         
                     self.grid_layout.addWidget(label, self.current_row, 0)
                     self.grid_layout.addWidget(widget, self.current_row, 1)
@@ -668,8 +669,9 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
 
                 # Create label with tooltip if available
                 label = QLabel(self._format_field_name(param_name, field.metadata))
-                if hasattr(field, 'metadata') and 'help' in field.metadata:
-                    label.setToolTip(field.metadata['help'])
+                tooltip = getattr(field, 'metadata', {}).get('tooltip')
+                if tooltip:
+                    label.setToolTip(tooltip)
 
                 self.grid_layout.addWidget(label, self.current_row, 0)
                 self.grid_layout.addWidget(widget, self.current_row, 1)

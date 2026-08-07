@@ -30,19 +30,19 @@ class MillRoughTaskConfig(AutoLamellaTaskConfig):
         default=True,
         metadata={
             "label": "Synchronize Polishing Position",
-            "help": "Whether to synchronize the polishing position with the rough milling position (recommended.)"},
+            "tooltip": "Whether to synchronize the polishing position with the rough milling position (recommended.)"},
     )
     sync_to_poi: bool = field(
         default=True,
         metadata={
             "label": "Link to Point of Interest",
-            "help": "Link the milling pattern positions to the point of interest. Pattern positions will update when the POI is updated."},
+            "tooltip": "Link the milling pattern positions to the point of interest. Pattern positions will update when the POI is updated."},
     )
     reacquire_alignment_reference: bool = field(
         default=False,
         metadata={
             "label": "Reacquire Alignment Reference",
-            "help": "Whether to reacquire the alignment reference after milling"},
+            "tooltip": "Whether to reacquire the alignment reference after milling"},
     )
     task_type: ClassVar[str] = "MILL_ROUGH"
     display_name: ClassVar[str] = "Rough Milling"

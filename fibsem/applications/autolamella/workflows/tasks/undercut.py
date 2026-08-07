@@ -28,12 +28,12 @@ class MillUndercutTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillUndercutTask."""
     orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = field(
         default="SEM",
-        metadata={"help": "The orientation to perform undercut milling in", "items": ("SEM", "FIB", "MILLING", None)},
+        metadata={"tooltip": "The orientation to perform undercut milling in", "items": ("SEM", "FIB", "MILLING", None)},
     )
     milling_angles: List[float] = field(
         default_factory=lambda: [25, 20],  # in degrees
-        metadata={"help": "The angles to mill the undercuts at",
-                  "units": constants.DEGREE_SYMBOL},
+        metadata={"tooltip": "The angles to mill the undercuts at",
+                  "unit": constants.DEGREE_SYMBOL},
     )
     task_type: ClassVar[str] = "MILL_UNDERCUT"
     display_name: ClassVar[str] = "Undercut Milling"
