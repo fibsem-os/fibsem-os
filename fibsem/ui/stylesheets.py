@@ -10,6 +10,8 @@ from fibsem.ui.tokens import (  # noqa: F401  (re-exported for existing callers)
     BORDER_COLOR,
     CANVAS_BG,
     DEFECT_ORANGE_COLOR,
+    DISABLED_BG_COLOR,
+    DISABLED_TEXT_COLOR,
     DEFECT_RED_COLOR,
     ERROR_COLOR,
     GRAY_BACKGROUND_COLOR,
@@ -125,7 +127,7 @@ USER_ATTENTION_BUTTON_STYLESHEET = f"""
             }}
         """
 
-# TODO: no token -- #2d313b, #2e7d32, #388e3c, #6b6b6b
+# TODO: no token -- #2e7d32, #388e3c
 RUN_WORKFLOW_BUTTON_STYLESHEET = f"""
             QPushButton {{
                 background-color: {OK_COLOR};
@@ -142,8 +144,8 @@ RUN_WORKFLOW_BUTTON_STYLESHEET = f"""
                 background-color: #2e7d32;
             }}
             QPushButton:disabled {{
-                background-color: #2d313b;
-                color: #6b6b6b;
+                background-color: {DISABLED_BG_COLOR};
+                color: {DISABLED_TEXT_COLOR};
             }}
         """
 
@@ -151,7 +153,6 @@ RUN_WORKFLOW_BUTTON_STYLESHEET = f"""
 # The :disabled rule matches the primary/secondary/run sheets. Without it a
 # disabled stop or delete button stays full crimson and only stops responding,
 # which is what drove call sites to paint their own grey "off" state by hand.
-# TODO: no token -- #2d313b, #6b6b6b
 STOP_WORKFLOW_BUTTON_STYLESHEET = f"""
             QPushButton {{
                 background-color: {SEMANTIC_ERROR_COLOR};
@@ -167,8 +168,8 @@ STOP_WORKFLOW_BUTTON_STYLESHEET = f"""
                 background-color: {SEMANTIC_ERROR_PRESSED_COLOR};
             }}
             QPushButton:disabled {{
-                background-color: #2d313b;
-                color: #6b6b6b;
+                background-color: {DISABLED_BG_COLOR};
+                color: {DISABLED_TEXT_COLOR};
             }}
         """
 
@@ -208,7 +209,6 @@ SUPERVISION_STATUS_AUTOMATED_STYLESHEET = f"""
                 }}
             """
 
-# TODO: no token -- #2d313b, #6b6b6b
 PRIMARY_BUTTON_STYLESHEET = f"""
     QPushButton {{
         background-color: {PRIMARY_COLOR};
@@ -224,12 +224,12 @@ PRIMARY_BUTTON_STYLESHEET = f"""
         background-color: {PRIMARY_COLOR_PRESSED};
     }}
     QPushButton:disabled {{
-        background-color: #2d313b;
-        color: #6b6b6b;
+        background-color: {DISABLED_BG_COLOR};
+        color: {DISABLED_TEXT_COLOR};
     }}
 """
 
-# TODO: no token -- #2d313b, #4a5168, #6b6b6b
+# TODO: no token -- #4a5168
 SECONDARY_BUTTON_STYLESHEET = f"""
     QPushButton {{
         background-color: {BORDER_COLOR};
@@ -245,8 +245,8 @@ SECONDARY_BUTTON_STYLESHEET = f"""
         background-color: {ACCENT_COLOR};
     }}
     QPushButton:disabled {{
-        background-color: #2d313b;
-        color: #6b6b6b;
+        background-color: {DISABLED_BG_COLOR};
+        color: {DISABLED_TEXT_COLOR};
     }}
 """
 
@@ -355,7 +355,7 @@ LIST_WIDGET_STYLESHEET = """
 # QDateTimeEdit with visible up/down step arrows (calendar popup must be OFF for
 # the buttons to appear). Stepping applies to whichever field has focus
 # (year / month / day / hour / minute), also via mouse-wheel and arrow keys.
-# TODO: no token -- #2d313b, #4a5168, #6b6b6b
+# TODO: no token -- #4a5168
 DATETIME_EDIT_STYLESHEET = f"""
 QDateTimeEdit {{
     background-color: {PANEL_COLOR};
@@ -370,8 +370,8 @@ QDateTimeEdit:focus {{
 }}
 
 QDateTimeEdit:disabled {{
-    color: #6b6b6b;
-    background-color: #2d313b;
+    color: {DISABLED_TEXT_COLOR};
+    background-color: {DISABLED_BG_COLOR};
 }}
 
 QDateTimeEdit::up-button {{
