@@ -10,7 +10,7 @@ from dataclasses import dataclass, field, fields, asdict, InitVar
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import List, Mapping, Optional, Tuple, Union, Set, Any, Dict, Type, TypeVar, Literal, TYPE_CHECKING
+from typing import Callable, List, Mapping, Optional, Sequence, Tuple, Union, Set, Any, Dict, Type, TypeVar, Literal, TYPE_CHECKING
 
 import numpy as np
 import tifffile as tff
@@ -52,9 +52,9 @@ DEFAULT_FIELD_METADATA: Dict[str, Any] = {
     "filepath": None,               # render a string field as a file picker rather than a line edit
 }
 
-# Superseded spelling -> the key that replaced it. Used **only** to make the
-# warning below say something useful; nothing resolves these at runtime, so a
-# field still declaring one renders without a tooltip or a unit suffix.
+# Superseded spelling -> the key that replaced it. Nothing resolves these at
+# runtime, so a field still declaring one renders without a tooltip or a unit
+# suffix; this map exists only so the diagnostics below say something useful.
 #
 # The AutoLamella task configs used to spell two keys differently from the rest
 # of the codebase, and the form that rendered them read only those spellings. All
@@ -65,6 +65,78 @@ RENAMED_METADATA_KEYS: Dict[str, str] = {
     "help": "tooltip",
     "units": "unit",
 }
+
+
+def field_meta(
+    base: Optional[Mapping[str, Any]] = None,
+    *,
+    label: Optional[str] = None,
+    type: Optional[Any] = None,
+    unit: Optional[str] = None,
+    tooltip: Optional[str] = None,
+    scale: Optional[float] = None,
+    dimensions: Optional[int] = None,
+    default: Optional[Any] = None,
+    minimum: Optional[float] = None,
+    maximum: Optional[float] = None,
+    step: Optional[float] = None,
+    decimals: Optional[int] = None,
+    items: Optional[Union[str, Sequence[Any]]] = None,
+    hidden: Optional[bool] = None,
+    advanced: Optional[bool] = None,
+    manufacturer: Optional[str] = None,
+    microscope_parameter: Optional[str] = None,
+    format_fn: Optional[Callable[..., str]] = None,
+    format_fn_kwargs: Optional[Dict[str, Any]] = None,
+    filepath: Optional[bool] = None,
+) -> Dict[str, Any]:
+    """Build a form-metadata dict, checking the keys at import time.
+
+        width: float = field(default=10e-6, metadata=field_meta(unit="m", scale=1e6))
+
+    Every key is spelled out as a keyword argument, so a misspelling is a
+    TypeError when the module is imported rather than a form that silently
+    renders without its tooltip or its unit suffix. That failure mode is not
+    hypothetical: two spellings of two keys coexisted across the codebase for a
+    long time and neither side ever got an error (FIB-384).
+
+    `base` extends a shared metadata dict, the way `dict(base, key=value)` does,
+    which is how most patterns and strategies are declared:
+
+        overtilt: float = field(metadata=field_meta(DEFAULT_ANGLE_METADATA, label="Overtilt"))
+
+    Keywords override the base, matching the `{**BASE, "label": ...}` literal it
+    replaces. The base's keys are checked too, so this cannot be used to launder
+    a raw dict past the check it exists to perform.
+
+    Passing the base by `**` instead is stricter, since Python rejects a keyword
+    the base already supplies:
+
+        field_meta(**DEFAULT_DISTANCE_METADATA, type=Point)   # TypeError
+
+    Worth preferring where nothing needs overriding, because a dict literal
+    silently resolves that collision instead -- `patterns2.BasePattern.point`
+    declares `"type": Point` and renders as a float because the spread that
+    follows wins.
+
+    This returns the plain dict every form already reads, so raw-dict
+    declarations keep working and files convert as they are touched. Arguments
+    left unset are omitted rather than returned as None, which is what lets the
+    base, a struct-level DEFAULT_METADATA, or `get_fields_with_metadata`'s own
+    defaults supply them instead.
+    """
+    # `locals()` here is exactly the parameters, which is the point: listing them
+    # again would let a newly added one be silently dropped -- the same class of
+    # bug this function exists to prevent.
+    declared = dict(locals())
+    inherited = declared.pop("base") or {}
+    for key in inherited:
+        if key not in DEFAULT_FIELD_METADATA:
+            renamed = RENAMED_METADATA_KEYS.get(key)
+            hint = f", which was renamed to {renamed!r}" if renamed else ""
+            raise TypeError(f"field_meta() base declares unknown metadata key {key!r}{hint}")
+    return {**inherited, **{key: value for key, value in declared.items() if value is not None}}
+
 
 _warned_metadata_keys: set = set()
 

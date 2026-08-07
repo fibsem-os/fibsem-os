@@ -21,7 +21,7 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
 )
 from fibsem.milling.patterning.utils import get_pattern_reduced_area
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import FibsemImage
+from fibsem.structures import FibsemImage, field_meta
 
 
 @dataclass
@@ -30,16 +30,16 @@ class MillFiducialTaskConfig(AutoLamellaTaskConfig):
 
     alignment_expansion: float = field(
         default=100.0,
-        metadata={
-            "tooltip": "The percentage to expand the alignment area around the fiducial",
-            "unit": "%",
-        },
+        metadata=field_meta(
+            tooltip="The percentage to expand the alignment area around the fiducial",
+            unit="%",
+        ),
     )
     align_to_reference: bool = field(
         default=True,
-        metadata={
-            "tooltip": "Align to the reference image before milling fiducial (if available)"
-        }
+        metadata=field_meta(
+            tooltip="Align to the reference image before milling fiducial (if available)"
+        )
 
     )
     task_type: ClassVar[str] = "MILL_FIDUCIAL"

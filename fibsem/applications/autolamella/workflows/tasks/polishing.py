@@ -14,6 +14,7 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
     ALIGNMENT_REFERENCE_IMAGE_FILENAME,
     AutoLamellaTask,
 )
+from fibsem.structures import field_meta
 
 
 @dataclass
@@ -21,9 +22,9 @@ class MillPolishingTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillPolishingTask."""
     sync_to_poi: bool = field(
         default=True,
-        metadata={
-            "label": "Link to Point of Interest",
-            "tooltip": "Link the milling pattern positions to the point of interest. Pattern positions will update when the POI is updated."},
+        metadata=field_meta(
+            label="Link to Point of Interest",
+            tooltip="Link the milling pattern positions to the point of interest. Pattern positions will update when the POI is updated."),
     )
     task_type: ClassVar[str] = "MILL_POLISHING"
     display_name: ClassVar[str] = "Polishing"

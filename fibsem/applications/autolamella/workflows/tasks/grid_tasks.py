@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, ClassVar, Dict, Literal, Optional, Type
 from fibsem.imaging.tiled import tiled_image_acquisition_and_stitch
 from fibsem.microscope import FibsemMicroscope
 from fibsem.microscopes._stage import GridSlot, SampleGrid, SampleHolder
-from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings, OverviewAcquisitionSettings
+from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings, OverviewAcquisitionSettings, field_meta
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
@@ -143,7 +143,7 @@ class AcquireImageGridTaskConfig(GridTaskConfig):
     task_type: ClassVar[str] = "ACQUIRE_IMAGE_GRID"
     display_name: ClassVar[str] = "Acquire Image"
     orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = "SEM"
-    voltage: float = field(default=5_000, metadata={"label": "Imaging Voltage" })
+    voltage: float = field(default=5_000, metadata=field_meta(label="Imaging Voltage"))
 
 
 class AcquireImageTask(GridTask):

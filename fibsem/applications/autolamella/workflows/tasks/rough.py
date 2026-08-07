@@ -20,7 +20,7 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
     AutoLamellaTask,
 )
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import Point
+from fibsem.structures import Point, field_meta
 
 
 @dataclass
@@ -28,21 +28,21 @@ class MillRoughTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillRoughTask."""
     sync_polishing_position: bool = field(
         default=True,
-        metadata={
-            "label": "Synchronize Polishing Position",
-            "tooltip": "Whether to synchronize the polishing position with the rough milling position (recommended.)"},
+        metadata=field_meta(
+            label="Synchronize Polishing Position",
+            tooltip="Whether to synchronize the polishing position with the rough milling position (recommended.)"),
     )
     sync_to_poi: bool = field(
         default=True,
-        metadata={
-            "label": "Link to Point of Interest",
-            "tooltip": "Link the milling pattern positions to the point of interest. Pattern positions will update when the POI is updated."},
+        metadata=field_meta(
+            label="Link to Point of Interest",
+            tooltip="Link the milling pattern positions to the point of interest. Pattern positions will update when the POI is updated."),
     )
     reacquire_alignment_reference: bool = field(
         default=False,
-        metadata={
-            "label": "Reacquire Alignment Reference",
-            "tooltip": "Whether to reacquire the alignment reference after milling"},
+        metadata=field_meta(
+            label="Reacquire Alignment Reference",
+            tooltip="Whether to reacquire the alignment reference after milling"),
     )
     task_type: ClassVar[str] = "MILL_ROUGH"
     display_name: ClassVar[str] = "Rough Milling"

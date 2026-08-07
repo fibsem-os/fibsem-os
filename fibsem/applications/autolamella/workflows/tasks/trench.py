@@ -19,7 +19,7 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
     MAX_ALIGNMENT_ATTEMPTS,
 )
 from fibsem.alignment import AlignmentSubsystem
-from fibsem.structures import BeamType, FibsemImage
+from fibsem.structures import BeamType, FibsemImage, field_meta
 
 
 @dataclass
@@ -27,15 +27,15 @@ class MillTrenchTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillTrenchTask."""
     align_reference: bool = field(
         default=False,  # whether to align to a trench reference image
-        metadata={"tooltip": "Whether to align to a trench reference image"},
+        metadata=field_meta(tooltip="Whether to align to a trench reference image"),
     )
     charge_neutralisation: bool = field(
         default=True,  # whether to perform charge neutralisation
-        metadata={"tooltip": "Whether to perform charge neutralisation"},
+        metadata=field_meta(tooltip="Whether to perform charge neutralisation"),
     )
     orientation: Optional[Literal["SEM", "FIB", "MILLING"]] = field(
         default=None,
-        metadata={"tooltip": "The orientation to perform trench milling in", "items": ("SEM", "FIB", "MILLING", None)},
+        metadata=field_meta(tooltip="The orientation to perform trench milling in", items=("SEM", "FIB", "MILLING", None)),
     )
     task_type: ClassVar[str] = "MILL_TRENCH"
     display_name: ClassVar[str] = "Trench Milling"

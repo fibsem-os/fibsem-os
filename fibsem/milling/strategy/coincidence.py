@@ -21,7 +21,7 @@ from fibsem.milling import (
     MillingStrategy,
     MillingStrategyConfig,
 )
-from fibsem.structures import BeamType, FibsemImage, FibsemRectangle
+from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, field_meta
 from fibsem.microscopes.simulator import DemoMicroscope
 
 if TYPE_CHECKING:
@@ -36,77 +36,77 @@ class CoincidenceMillingStrategyConfig(MillingStrategyConfig):
     # zparams: ZParameters = field(default_factory=lambda: ZParameters(-5e-6, 5e-6, 0.5e-6))
     timeout: int = field(
         default=1800,
-        metadata={
-            "label": "Timeout",
-            "unit": "s",
-            "minimum": 30,
-            "maximum": 9000,
-            "tooltip": "Milling will timeout after this duration in seconds, without user intervention",
-        },
+        metadata=field_meta(
+            label="Timeout",
+            unit="s",
+            minimum=30,
+            maximum=9000,
+            tooltip="Milling will timeout after this duration in seconds, without user intervention",
+        ),
     )  # seconds, default timeout for milling
     save_fm_images: bool = field(
         default=True,
-        metadata={
-            "label": "Save FM Images",
-            "tooltip": "Save FM images during milling",
-        },
+        metadata=field_meta(
+            label="Save FM Images",
+            tooltip="Save FM images during milling",
+        ),
     )  # save FM images during milling
     save_rate_limit: int = field(
         default=2,
-        metadata={
-            "label": "Save Rate Limit",
-            "tooltip": "Save one image every n seconds",
-        },
+        metadata=field_meta(
+            label="Save Rate Limit",
+            tooltip="Save one image every n seconds",
+        ),
     )  # save one image every n seconds
     # acquire_z_stack: bool = False  # acquire a z-stack after milling
     acquire_fib_image: bool = field(
         default=True,
-        metadata={
-            "label": "Acquire FIB Image",
-            "tooltip": "Acquire a FIB image after milling",
-        },
+        metadata=field_meta(
+            label="Acquire FIB Image",
+            tooltip="Acquire a FIB image after milling",
+        ),
     )  # acquire a FIB image after milling
     intensity_drop_fraction: float = field(
         default=0.4,
-        metadata={
-            "label": "Drop Fraction",
-            "minimum": 0.05,
-            "maximum": 0.95,
-            "tooltip": "Trigger when the rolling mean drops by this fraction below its peak (e.g. 0.4 = 40% drop)",
-        },
+        metadata=field_meta(
+            label="Drop Fraction",
+            minimum=0.05,
+            maximum=0.95,
+            tooltip="Trigger when the rolling mean drops by this fraction below its peak (e.g. 0.4 = 40% drop)",
+        ),
     )
     rolling_window: int = field(
         default=10,
-        metadata={
-            "label": "Rolling Window",
-            "tooltip": "Number of frames for rolling mean calculation",
-        },
+        metadata=field_meta(
+            label="Rolling Window",
+            tooltip="Number of frames for rolling mean calculation",
+        ),
     )
     warmup_duration: float = field(
         default=30.0,
-        metadata={
-            "label": "Warmup Duration",
-            "unit": "s",
-            "tooltip": "Seconds to ignore at start before tracking the peak",
-        },
+        metadata=field_meta(
+            label="Warmup Duration",
+            unit="s",
+            tooltip="Seconds to ignore at start before tracking the peak",
+        ),
     )
     consecutive_triggers: int = field(
         default=10,
-        metadata={
-            "label": "Consecutive Triggers",
-            "tooltip": "Number of consecutive frames below threshold required to fire the signal",
-        },
+        metadata=field_meta(
+            label="Consecutive Triggers",
+            tooltip="Number of consecutive frames below threshold required to fire the signal",
+        ),
     )
     supervised: bool = field(
         default=True,
-        metadata={
-            "label": "Supervised",
-            "tooltip": "Supervised: operator stops milling manually. Unsupervised (False): automatically stop when an intensity drop is detected.",
-        },
+        metadata=field_meta(
+            label="Supervised",
+            tooltip="Supervised: operator stops milling manually. Unsupervised (False): automatically stop when an intensity drop is detected.",
+        ),
     )
     bbox: Optional[FibsemRectangle] = field(
         default=None,
-        metadata={"hidden": True},  # set interactively via the FM ROI, not a form control
+        metadata=field_meta(hidden=True),  # set interactively via the FM ROI, not a form control
     )  # reduced area for intensity monitoring
     # oscillation parameters
 
