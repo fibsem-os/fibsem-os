@@ -4,7 +4,7 @@ import threading
 from dataclasses import dataclass, replace
 import time
 from copy import deepcopy
-from typing import Dict, List, Optional, Tuple, Union, TYPE_CHECKING, Literal
+from typing import Callable, Dict, List, Optional, Tuple, Union, TYPE_CHECKING, Literal
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -25,6 +25,7 @@ from fibsem.fm.structures import (
     ChannelSettings,
     FluorescenceImage,
     ObjectiveStartPosition,
+    OverviewArea,
     OverviewParameters,
     ZParameters,
     ZStackOrder,
@@ -504,6 +505,119 @@ class OverviewDestination:
         return self.mosaic_path
 
 
+@dataclass
+class TilePlan:
+    """Where a grid's tiles sit, on the canvas and on the stage.
+
+    Attributes:
+        grid: Every cell, holes included -- the mosaic is the full grid whatever the
+            mask, so the layout has to describe cells that will not be visited.
+        ordered: The cells that will be visited, in traversal order.
+        stage_positions: Absolute stage position per `(row, col)`, for every cell.
+    """
+
+    grid: List[TilePosition]
+    ordered: List[TilePosition]
+    stage_positions: Dict[Tuple[int, int], FibsemStagePosition]
+
+
+def plan_tile_positions(
+    microscope: 'FibsemMicroscope',
+    parameters: OverviewParameters,
+    centre_position: FibsemStagePosition,
+    fov: Tuple[float, float],
+    image_shape: Tuple[int, int],
+    check_limits: bool = True,
+) -> TilePlan:
+    """Work out where every tile of one grid would be acquired. Nothing moves.
+
+    Separated from the runner so a grid can be checked without being run. A batch
+    validates all of its areas through this before the first one starts -- otherwise a
+    queue left running overnight dies halfway through on a region whose corner was
+    always out of reach, having been told nothing at setup.
+
+    Args:
+        microscope: Supplies the projection and the stage limits.
+        parameters: The grid. Only the geometry is read.
+        centre_position: The stage position the grid straddles.
+        fov: Tile field of view `(x, y)` in metres.
+        image_shape: Tile size `(width, height)` in pixels.
+        check_limits: Refuse a grid that leaves the stage's working area. Left on for
+            anything that will actually be acquired.
+
+    Raises:
+        ValueError: if the grid is degenerate, the mask disables every tile, or
+            *check_limits* is set and a tile falls outside the stage limits.
+    """
+    if parameters.rows <= 0 or parameters.cols <= 0:
+        raise ValueError("Grid size must contain positive values")
+    if not 0.0 <= parameters.overlap < 1.0:
+        raise ValueError("Tile overlap must be between 0.0 and 1.0 (exclusive)")
+
+    fov_x, fov_y = fov
+    image_width, image_height = image_shape
+    grid = compute_tile_grid_from_fov(
+        nrows=parameters.rows,
+        ncols=parameters.cols,
+        fov_x=fov_x,
+        fov_y=fov_y,
+        image_width=image_width,
+        image_height=image_height,
+        overlap=parameters.overlap,
+        mask=parameters.tile_mask,
+    )
+    # Ordered, and disabled tiles dropped. The traversal comes from the full grid
+    # extent, so a sparse run follows the dense path with stops missing rather than
+    # a pattern re-derived over the holes -- see order_tiles.
+    ordered = order_tiles(grid, parameters.tile_order)
+    if not ordered:
+        raise ValueError("Tile mask disables every tile; nothing to acquire.")
+
+    # The grid measures from its top-left tile; shift so it straddles the centre.
+    # Same convention as TiledAcquisitionRunner.
+    step_x = fov_x * (1.0 - parameters.overlap)
+    step_y = fov_y * (1.0 - parameters.overlap)
+    grid_offset_x = (parameters.cols - 1) * step_x / 2
+    grid_offset_y = (parameters.rows - 1) * step_y / 2
+
+    stage_positions = {
+        (tile.row, tile.col): microscope.project_fm_stable_move(
+            dx=tile.dx - grid_offset_x,
+            dy=tile.dy + grid_offset_y,
+            base_position=centre_position,
+        )
+        for tile in grid
+    }
+
+    # Refuse a grid the stage cannot reach, before anything moves. The same check
+    # the beam tiler makes, through the same helper, so the two cannot come to
+    # different conclusions about the same limits. Only the tiles that will be
+    # visited: `ordered` has the masked-off ones dropped already, so excluding a
+    # corner is a legitimate way to bring a grid back into range.
+    limits = getattr(microscope._stage, "limits", None)
+    if check_limits and limits:
+        raise_if_outside_stage_limits(
+            ordered,
+            [stage_positions[(t.row, t.col)] for t in ordered],
+            limits,
+        )
+
+    return TilePlan(grid=grid, ordered=ordered, stage_positions=stage_positions)
+
+
+def read_tile_geometry(
+    fm: FluorescenceMicroscope,
+) -> Tuple[Tuple[float, float], Tuple[int, int]]:
+    """The camera's field of view in metres and its resolution in pixels.
+
+    One read, shared: every area in a batch is acquired through the same camera, and on
+    a TFS mount each of these property reads takes the shared imaging channel (FIB-517).
+    """
+    pixel_size_x, pixel_size_y = fm.camera.pixel_size
+    width, height = fm.camera.resolution
+    return (width * pixel_size_x, height * pixel_size_y), (width, height)
+
+
 class FMTiledAcquisitionRunner:
     """Orchestrates a fluorescence tileset acquisition as a series of discrete phases.
 
@@ -530,6 +644,7 @@ class FMTiledAcquisitionRunner:
         save_directory: Optional[str] = None,
         stop_event: Optional[threading.Event] = None,
         centre_position: Optional[FibsemStagePosition] = None,
+        restore_position: bool = True,
     ):
         self.microscope = microscope
         self.channel_settings = channel_settings
@@ -538,6 +653,11 @@ class FMTiledAcquisitionRunner:
         self.autofocus_settings = autofocus_settings
         self.save_directory = save_directory
         self.stop_event = stop_event
+        # Off for a region of a batch, which restores once at the end instead. Every
+        # region would otherwise drive the stage all the way home and back out again
+        # between its neighbours -- N wasted round trips across a sample, for a
+        # position the next region immediately leaves.
+        self.restore_position = restore_position
         # Where the grid is centred. Distinct from where the run started: those were
         # one value until an overview could be planned somewhere other than under the
         # stage, and conflating them meant the stage was also restored to the target.
@@ -679,12 +799,12 @@ class FMTiledAcquisitionRunner:
         if self.centre_position is None:
             self.centre_position = self._initial_position
 
-        pixel_size_x, pixel_size_y = microscope.fm.camera.pixel_size
-        self._image_width, self._image_height = microscope.fm.camera.resolution
-        self._fov_x = self._image_width * pixel_size_x
-        self._fov_y = self._image_height * pixel_size_y
-        self._step_x = self._fov_x * (1.0 - self._overlap)
-        self._step_y = self._fov_y * (1.0 - self._overlap)
+        # The step sizes the grid is laid out with used to be computed here too, and
+        # are now `plan_tile_positions`' business -- it needs them to centre the grid,
+        # and two places deriving the same thing from the same overlap is one too many.
+        (self._fov_x, self._fov_y), (self._image_width, self._image_height) = (
+            read_tile_geometry(microscope.fm)
+        )
 
         self._setup_autofocus()
 
@@ -818,50 +938,16 @@ class FMTiledAcquisitionRunner:
         paints row 0 at canvas y=0 regardless, so the two have to agree. They
         disagreed once already (#226).
         """
-        self._grid = compute_tile_grid_from_fov(
-            nrows=self._rows,
-            ncols=self._cols,
-            fov_x=self._fov_x,
-            fov_y=self._fov_y,
-            image_width=self._image_width,
-            image_height=self._image_height,
-            overlap=self._overlap,
-            mask=self._tile_mask,
+        plan = plan_tile_positions(
+            microscope=self.microscope,
+            parameters=self.overview_parameters,
+            centre_position=self.centre_position,
+            fov=(self._fov_x, self._fov_y),
+            image_shape=(self._image_width, self._image_height),
         )
-        # Ordered, and disabled tiles dropped. The traversal comes from the full grid
-        # extent, so a sparse run follows the dense path with stops missing rather than
-        # a pattern re-derived over the holes -- see order_tiles.
-        self._ordered = order_tiles(self._grid, self._tile_order)
-
-        if not self._ordered:
-            raise ValueError("Tile mask disables every tile; nothing to acquire.")
-
-        # The grid measures from its top-left tile; shift so it straddles the centre.
-        # Same convention as TiledAcquisitionRunner.
-        grid_offset_x = (self._cols - 1) * self._step_x / 2
-        grid_offset_y = (self._rows - 1) * self._step_y / 2
-
-        self._tile_stage_positions = {
-            (tile.row, tile.col): self.microscope.project_fm_stable_move(
-                dx=tile.dx - grid_offset_x,
-                dy=tile.dy + grid_offset_y,
-                base_position=self.centre_position,
-            )
-            for tile in self._grid
-        }
-
-        # Refuse a grid the stage cannot reach, before anything moves. The same check
-        # the beam tiler makes, through the same helper, so the two cannot come to
-        # different conclusions about the same limits. Only the tiles that will be
-        # visited: `_ordered` has the masked-off ones dropped already, so excluding a
-        # corner is a legitimate way to bring a grid back into range.
-        limits = getattr(self.microscope._stage, "limits", None)
-        if limits:
-            raise_if_outside_stage_limits(
-                self._ordered,
-                [self._tile_stage_positions[(t.row, t.col)] for t in self._ordered],
-                limits,
-            )
+        self._grid = plan.grid
+        self._ordered = plan.ordered
+        self._tile_stage_positions = plan.stage_positions
 
         self._init_preview_canvas()
 
@@ -1060,10 +1146,16 @@ class FMTiledAcquisitionRunner:
         logging.info(f"Saved tileset acquisition parameters to {params_filename}")
 
     def _restore(self) -> None:
-        """Put the stage and objective back where they started."""
-        logging.info("Returning to initial position")
-        self.microscope.safe_absolute_stage_movement(self._initial_position)
-        self.microscope.fm.objective.move_absolute(self._initial_objective_position)
+        """Put the stage and objective back where they started.
+
+        `finished` is emitted either way. It says this run is over, which is true of a
+        region of a batch as much as of a run of its own -- only the moving is the
+        batch's to do, at the end, once.
+        """
+        if self.restore_position:
+            logging.info("Returning to initial position")
+            self.microscope.safe_absolute_stage_movement(self._initial_position)
+            self.microscope.fm.objective.move_absolute(self._initial_objective_position)
         self._emit({"state": "finished"})
 
     # ── helpers ──────────────────────────────────────────────────────────
@@ -1118,6 +1210,171 @@ class FMTiledAcquisitionRunner:
             "estimated_total_time": self._total_estimated_time,
             "estimated_remaining_time": estimated_remaining_time,
             "elapsed_time": elapsed_time,
+        })
+
+
+class FMOverviewBatchRunner:
+    """Acquire several overview areas in one unattended run.
+
+    A thin loop over `FMTiledAcquisitionRunner`, deliberately: delegating each area to a
+    real single run is what keeps per-tile progress, the live preview, cancellation, the
+    stage-limit check and the run-level `active_channel` scope working, none of which a
+    rewritten multi-area acquisition function would have inherited.
+
+    What the batch owns is only what spans the areas: resolving every centre before
+    anything moves, checking the whole queue against the stage limits up front, holding
+    the imaging channel across the lot, and putting the stage back once at the end.
+
+    An area that fails ends the batch. Most failures are systemic -- the FM dropped, the
+    objective retracted -- and grinding through five more regions to fail five more
+    times wastes the night the run was left alone for. Whatever finished stays on
+    `.mosaics`, and has already been handed to `on_region_complete`.
+    """
+
+    def __init__(
+        self,
+        microscope: 'FibsemMicroscope',
+        areas: List[OverviewArea],
+        channel_settings: Union[ChannelSettings, List[ChannelSettings]],
+        overview_parameters: OverviewParameters,
+        zparams: Optional[ZParameters] = None,
+        autofocus_settings: Optional[AutoFocusSettings] = None,
+        tiles_directories: Optional[List[Optional[str]]] = None,
+        stop_event: Optional[threading.Event] = None,
+        on_region_complete: Optional[Callable[[int, FluorescenceImage], None]] = None,
+    ):
+        if not areas:
+            raise ValueError("An overview run needs at least one area.")
+        if tiles_directories is not None and len(tiles_directories) != len(areas):
+            raise ValueError(
+                f"Got {len(tiles_directories)} tile directories for {len(areas)} areas; "
+                f"they are matched by position, so there must be one each."
+            )
+        self.microscope = microscope
+        self.areas = areas
+        self.channel_settings = channel_settings
+        # The shared half: channels, z, autofocus, where the objective starts. Each
+        # area lays its own geometry over this in `OverviewArea.parameters`.
+        self.overview_parameters = overview_parameters
+        self.zparams = zparams
+        self.autofocus_settings = autofocus_settings
+        self.tiles_directories = tiles_directories
+        self.stop_event = stop_event
+        self.on_region_complete = on_region_complete
+
+        # Whatever has been stitched so far, so a cancelled or failed batch keeps the
+        # regions that did finish rather than reporting nothing.
+        self.mosaics: List[FluorescenceImage] = []
+
+    def run(self) -> List[FluorescenceImage]:
+        """Acquire every area, returning the stitched mosaics in queue order.
+
+        Raises:
+            OperationCancelledError: if the stop event is set. Mosaics finished before
+                that point remain available on `.mosaics`.
+            ValueError: if any area's grid is unreachable or degenerate. Checked for
+                every area before the first one starts.
+        """
+        with self.microscope.fm.active_channel():
+            # Inside the scope: on a TFS mount reading the objective takes the shared
+            # imaging channel, and taking it once for the batch is the whole point of
+            # being out here rather than in each region (FIB-517).
+            initial_position = self.microscope.get_stage_position()
+            initial_objective_position = self.microscope.fm.objective.position
+
+            centres = self._resolve_centres(initial_position)
+            self._validate(centres)
+
+            try:
+                for index, (area, centre) in enumerate(zip(self.areas, centres)):
+                    raise_if_cancelled(self.stop_event)
+                    self._emit_region(index, area)
+                    mosaic = self._acquire_area(index, area, centre)
+                    self.mosaics.append(mosaic)
+                    if self.on_region_complete is not None:
+                        self.on_region_complete(index, mosaic)
+            finally:
+                # Once, at the end. Each region ran with `restore_position=False`, so
+                # nothing has moved the stage back yet and nothing should have: the
+                # next region was somewhere else entirely.
+                logging.info("Returning to the position the batch started from")
+                self.microscope.safe_absolute_stage_movement(initial_position)
+                self.microscope.fm.objective.move_absolute(initial_objective_position)
+
+        logging.info(f"Overview batch complete: {len(self.mosaics)}/{len(self.areas)} areas")
+        return self.mosaics
+
+    def _resolve_centres(
+        self, initial_position: FibsemStagePosition
+    ) -> List[FibsemStagePosition]:
+        """Pin every area to a concrete centre, before anything moves.
+
+        `OverviewArea.centre` may be None for "wherever the stage is", which a single
+        run resolves for itself at setup. A batch cannot leave it that late: regions do
+        not restore between each other, so by the time a second area were asked, "where
+        the stage is" would mean the last tile of the region before it. Resolving here
+        also makes the up-front limit check honest -- it checks the same positions the
+        run will visit.
+        """
+        return [area.centre or initial_position for area in self.areas]
+
+    def _validate(self, centres: List[FibsemStagePosition]) -> None:
+        """Refuse the whole queue if any area cannot be acquired.
+
+        Before the first region rather than as each comes up. A batch is left alone; one
+        that dies two hours in on a corner that was always out of reach has wasted the
+        two hours and the sample's time under illumination, and said nothing at setup
+        when the grid could still have been moved.
+
+        Raises:
+            ValueError: naming the area, since "3 tiles out of bounds" is not much use
+                when there are six grids it could be about.
+        """
+        geometry = read_tile_geometry(self.microscope.fm)
+        for area, centre in zip(self.areas, centres):
+            try:
+                plan_tile_positions(
+                    microscope=self.microscope,
+                    parameters=area.parameters(self.overview_parameters),
+                    centre_position=centre,
+                    fov=geometry[0],
+                    image_shape=geometry[1],
+                )
+            except ValueError as e:
+                raise ValueError(f"Overview area '{area.name}' cannot be acquired: {e}") from e
+
+    def _acquire_area(
+        self, index: int, area: OverviewArea, centre: FibsemStagePosition
+    ) -> FluorescenceImage:
+        directory = None
+        if self.tiles_directories is not None:
+            directory = self.tiles_directories[index]
+        self._runner = FMTiledAcquisitionRunner(
+            microscope=self.microscope,
+            channel_settings=self.channel_settings,
+            overview_parameters=area.parameters(self.overview_parameters),
+            zparams=self.zparams,
+            autofocus_settings=self.autofocus_settings,
+            save_directory=directory,
+            stop_event=self.stop_event,
+            centre_position=centre,
+            restore_position=False,
+        )
+        return self._runner.run_and_stitch()
+
+    def _emit_region(self, index: int, area: OverviewArea) -> None:
+        """Say which area is starting.
+
+        Its own task name, so a consumer can tell it from the tile-level payloads the
+        inner runner emits and put it somewhere else -- the tile bar keeps counting one
+        region's tiles rather than being rescaled to the batch.
+        """
+        self.microscope.fm.acquisition_progress_signal.emit({
+            "state": "region",
+            "task": "overview-batch",
+            "current": index + 1,
+            "total": len(self.areas),
+            "name": area.name,
         })
 
 

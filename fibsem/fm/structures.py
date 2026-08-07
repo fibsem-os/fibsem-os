@@ -1618,6 +1618,68 @@ class OverviewParameters:
 
 
 @dataclass
+class OverviewArea:
+    """One region an overview will be acquired over.
+
+    The half of an overview that varies from region to region: where it is, and what
+    grid covers it. Everything else -- channels, z parameters, autofocus, where the
+    objective starts -- is shared by every area in a run, which is the case people
+    actually have: several squares under one set of imaging conditions. Keeping the
+    shared half out is the point. An area that carried its own `autofocus_mode` would
+    hold a copy of something the settings panel owns, and the two would drift.
+
+    Attributes:
+        name: What the area is called. Also names the folder its files are written to,
+            so an unattended run of six leaves six folders you can tell apart.
+        centre: The stage position the grid is centred on, or None for "wherever the
+            stage is when the run reaches it" -- the same contract
+            `FMTiledAcquisitionRunner.centre_position` already has, passed straight
+            through. Only meaningful while there is exactly one area: with several,
+            "wherever the stage is" depends on which area ran last, so the second area
+            added pins the first (see `FMOverviewWidget`).
+        rows: Number of tile rows.
+        cols: Number of tile columns.
+        overlap: Fractional overlap between adjacent tiles.
+        tile_order: Traversal strategy over the grid.
+        tile_mask: Per-tile enable mask, `tile_mask[row][col]`, or None for every tile.
+    """
+
+    name: str
+    centre: Optional[FibsemStagePosition] = None
+    rows: int = 3
+    cols: int = 3
+    overlap: float = 0.1
+    tile_order: TileOrderStrategy = TileOrderStrategy.TYPEWRITER
+    tile_mask: Optional[List[List[bool]]] = None
+
+    def parameters(self, shared: "OverviewParameters") -> "OverviewParameters":
+        """This area's geometry laid over the run's shared settings.
+
+        One direction only: geometry always comes from the area and everything else
+        always comes from *shared*, so there is never a question of which won.
+        """
+        return replace(
+            shared,
+            rows=self.rows,
+            cols=self.cols,
+            overlap=self.overlap,
+            tile_order=self.tile_order,
+            tile_mask=self.tile_mask,
+        )
+
+    @property
+    def n_enabled_tiles(self) -> int:
+        """How many tiles will actually be acquired.
+
+        Duplicates `OverviewParameters.n_enabled_tiles` rather than delegating to it,
+        because a list row needs this before any shared settings exist to merge with.
+        """
+        if self.tile_mask is None:
+            return self.rows * self.cols
+        return sum(bool(v) for row in self.tile_mask for v in row)
+
+
+@dataclass
 class CameraSettings:
     """Camera settings for fluorescence microscopy acquisition."""
     gain: float = 0.01 # 1%

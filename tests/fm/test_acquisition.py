@@ -28,6 +28,7 @@ from fibsem.fm.structures import (
     ChannelSettings,
     FluorescenceImage,
     FMStagePosition,
+    OverviewArea,
     OverviewParameters,
     ZParameters,
     ZStackOrder,
@@ -2240,3 +2241,271 @@ def test_the_retracted_objective_is_caught_before_anything_moves(
         "the objective was driven somewhere before the run was refused"
     )
     assert fm_microscope.fm.objective.state == "Retracted", "the run inserted it"
+
+
+# ── overview batches ─────────────────────────────────────────────────────
+
+
+def _area(name, x=0.0, y=0.0, rows=2, cols=2, **kwargs):
+    """One area of a batch, centred somewhere reachable in the fixture's limits."""
+    return OverviewArea(
+        name=name,
+        centre=FibsemStagePosition(x=x, y=y, z=0.0, r=0.0, t=0.0),
+        rows=rows,
+        cols=cols,
+        **kwargs,
+    )
+
+
+def _stub_stitching(monkeypatch):
+    """Let a batch run end to end on stubbed tiles.
+
+    `_record_tile_positions` hands back `Mock(spec=FluorescenceImage)` tiles, which the
+    real stitcher cannot paint. Stitching a mosaic is `stitch_tileset`'s job and is
+    tested against it directly; what a batch owns is the loop around it, so the
+    stitcher is stood in for rather than fed camera-sized arrays for every tile of
+    every area.
+    """
+    monkeypatch.setattr(
+        acquisition, "stitch_tileset", lambda *a, **k: Mock(spec=FluorescenceImage)
+    )
+
+
+def _batch(microscope, areas, stop_event=None, **kwargs):
+    return acquisition.FMOverviewBatchRunner(
+        microscope=microscope,
+        areas=areas,
+        channel_settings=ChannelSettings(
+            name="DAPI", excitation_wavelength=358, emission_wavelength=461,
+            power=0.1, exposure_time=0.1,
+        ),
+        overview_parameters=OverviewParameters(
+            overlap=0.1, use_zstack=False, autofocus_mode=AutoFocusMode.NONE,
+        ),
+        stop_event=stop_event,
+        **kwargs,
+    )
+
+
+def test_a_batch_acquires_every_area_around_its_own_centre(fm_microscope, monkeypatch):
+    """The reason the feature exists: several regions, one run, each in its own place."""
+    microscope = fm_microscope
+    positions = _record_tile_positions(microscope, monkeypatch)
+    _stub_stitching(monkeypatch)
+
+    mosaics = _batch(microscope, [
+        _area("left", x=-50e-6),
+        _area("right", x=50e-6),
+    ]).run()
+
+    assert len(mosaics) == 2
+    # Four tiles per area, and each area's tiles straddle its own centre. Asserted on
+    # the mean rather than tile by tile: the grid layout is `plan_tile_positions`'
+    # business and is pinned elsewhere -- what this test owns is that the two areas
+    # went to two different places, and to the right ones.
+    left = positions[:4]
+    right = positions[4:8]
+    assert np.mean([p.x for p in left]) == pytest.approx(-50e-6)
+    assert np.mean([p.x for p in right]) == pytest.approx(50e-6)
+
+
+def test_a_batch_restores_the_stage_once_at_the_end(fm_microscope, monkeypatch):
+    """Not between regions. Each restore is a full trip home the next region undoes, so
+    a queue of six would make five pointless crossings of the sample."""
+    microscope = fm_microscope
+    start = microscope.get_stage_position()
+    positions = _record_tile_positions(microscope, monkeypatch)
+    _stub_stitching(monkeypatch)
+
+    _batch(microscope, [_area("a", x=-50e-6), _area("b", x=50e-6)]).run()
+
+    assert positions[-1].x == pytest.approx(start.x)
+    assert positions[-1].y == pytest.approx(start.y)
+    # 8 tiles + 1 restore. A per-region restore would make 10, and -- more to the point
+    # -- would put the starting position in the middle of the sequence.
+    assert len(positions) == 9, f"expected 8 tiles and one restore, got {len(positions)}"
+    assert not any(
+        p.x == pytest.approx(start.x) and p.y == pytest.approx(start.y)
+        for p in positions[:-1]
+    ), "the stage went home in the middle of the batch"
+
+
+def test_a_batch_checks_every_area_before_acquiring_any(fm_microscope, monkeypatch):
+    """A run left alone overnight must not die two hours in on a grid that was never
+    reachable. The second area is the unreachable one, so a check made per region as it
+    came up would have acquired the first before finding out."""
+    microscope = fm_microscope
+    positions = _record_tile_positions(microscope, monkeypatch)
+    _narrow_limits(microscope, 200e-6)
+
+    runner = _batch(microscope, [_area("fine"), _area("miles away", x=10e-3)])
+
+    with pytest.raises(ValueError, match="miles away"):
+        runner.run()
+
+    assert positions == [], "the stage moved before the queue was refused"
+    assert runner.mosaics == []
+
+
+def test_an_area_without_a_centre_means_where_the_batch_started(fm_microscope, monkeypatch):
+    """`centre=None` is resolved once, up front, against the batch's starting position.
+
+    Left to the inner runner it would mean "wherever the stage is now", and regions do
+    not restore between each other -- so the second area would be centred on the last
+    tile of the first.
+    """
+    microscope = fm_microscope
+    start = microscope.get_stage_position()
+    positions = _record_tile_positions(microscope, monkeypatch)
+    _stub_stitching(monkeypatch)
+
+    _batch(microscope, [
+        _area("pinned", x=200e-6),
+        OverviewArea(name="follows the stage", rows=2, cols=2),
+    ]).run()
+
+    second = positions[4:8]
+    assert np.mean([p.x for p in second]) == pytest.approx(start.x)
+    assert np.mean([p.y for p in second]) == pytest.approx(start.y)
+
+
+def test_a_failing_area_ends_the_batch_and_keeps_what_finished(fm_microscope, monkeypatch):
+    """Abort rather than skip: most failures are systemic, and grinding through four
+    more regions to fail four more times wastes the night the run was left alone for."""
+    microscope = fm_microscope
+    _record_tile_positions(microscope, monkeypatch)
+    _stub_stitching(monkeypatch)
+    completed = []
+
+    calls = {"n": 0}
+    real = acquisition.FMTiledAcquisitionRunner.run_and_stitch
+
+    def fail_on_the_second(self):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("the stage refused")
+        return real(self)
+
+    monkeypatch.setattr(
+        acquisition.FMTiledAcquisitionRunner, "run_and_stitch", fail_on_the_second
+    )
+
+    runner = _batch(
+        microscope,
+        [_area("one"), _area("two", x=100e-6), _area("three", x=200e-6)],
+        on_region_complete=lambda i, m: completed.append(i),
+    )
+
+    with pytest.raises(RuntimeError, match="stage refused"):
+        runner.run()
+
+    assert calls["n"] == 2, "the third area was attempted after the second failed"
+    assert len(runner.mosaics) == 1, "the finished area was discarded"
+    assert completed == [0]
+
+
+def test_a_failed_batch_still_puts_the_stage_back(fm_microscope, monkeypatch):
+    """The restore is in a finally and must survive the raise, exactly as the single
+    run's does -- a batch that dies mid-sample leaves the stage under a tile otherwise."""
+    microscope = fm_microscope
+    start = microscope.get_stage_position()
+    positions = _record_tile_positions(microscope, monkeypatch)
+    monkeypatch.setattr(
+        acquisition.FMTiledAcquisitionRunner,
+        "run_and_stitch",
+        lambda self: (_ for _ in ()).throw(RuntimeError("nope")),
+    )
+
+    with pytest.raises(RuntimeError):
+        _batch(microscope, [_area("a", x=50e-6)]).run()
+
+    assert positions[-1].x == pytest.approx(start.x)
+    assert positions[-1].y == pytest.approx(start.y)
+
+
+def test_each_area_is_handed_over_as_it_finishes(fm_microscope, monkeypatch):
+    """So the canvas fills in region by region instead of all at the end. Asserted by
+    counting mosaics acquired *at the time of each callback*, which a batch that
+    reported everything after the loop could not satisfy."""
+    microscope = fm_microscope
+    _record_tile_positions(microscope, monkeypatch)
+    _stub_stitching(monkeypatch)
+    seen = []
+
+    runner = _batch(
+        microscope,
+        [_area("a"), _area("b", x=100e-6), _area("c", x=200e-6)],
+        on_region_complete=lambda i, m: seen.append((i, len(runner.mosaics))),
+    )
+    runner.run()
+
+    assert seen == [(0, 1), (1, 2), (2, 3)]
+
+
+def test_a_cancelled_batch_stops_between_areas(fm_microscope, monkeypatch):
+    microscope = fm_microscope
+    _record_tile_positions(microscope, monkeypatch)
+    _stub_stitching(monkeypatch)
+    stop_event = threading.Event()
+
+    real = acquisition.FMTiledAcquisitionRunner.run_and_stitch
+
+    def stop_after_the_first(self):
+        result = real(self)
+        stop_event.set()
+        return result
+
+    monkeypatch.setattr(
+        acquisition.FMTiledAcquisitionRunner, "run_and_stitch", stop_after_the_first
+    )
+
+    runner = _batch(
+        microscope, [_area("a"), _area("b", x=100e-6)], stop_event=stop_event
+    )
+
+    with pytest.raises(OperationCancelledError):
+        runner.run()
+
+    assert len(runner.mosaics) == 1, "the finished area was discarded by the cancel"
+
+
+def test_an_area_supplies_the_grid_and_the_run_supplies_everything_else(fm_microscope, monkeypatch):
+    """The split the whole design rests on. An area carrying its own `autofocus_mode`
+    would hold a copy of something the settings panel owns, and the two would drift."""
+    microscope = fm_microscope
+    _record_tile_positions(microscope, monkeypatch)
+    seen = []
+    monkeypatch.setattr(
+        acquisition.FMTiledAcquisitionRunner,
+        "run_and_stitch",
+        lambda self: seen.append(self.overview_parameters) or Mock(spec=FluorescenceImage),
+    )
+
+    acquisition.FMOverviewBatchRunner(
+        microscope=microscope,
+        areas=[_area("wide", rows=1, cols=5, overlap=0.25)],
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+        overview_parameters=OverviewParameters(
+            rows=99, cols=99, overlap=0.99,
+            use_zstack=True, autofocus_mode=AutoFocusMode.EACH_ROW,
+            objective_start=ObjectiveStartPosition.FOCUS,
+        ),
+    ).run()
+
+    used = seen[0]
+    assert (used.rows, used.cols, used.overlap) == (1, 5, 0.25), "the area's grid lost"
+    assert used.use_zstack is True
+    assert used.autofocus_mode is AutoFocusMode.EACH_ROW
+    assert used.objective_start is ObjectiveStartPosition.FOCUS
+
+
+def test_a_batch_needs_at_least_one_area(fm_microscope):
+    with pytest.raises(ValueError, match="at least one area"):
+        _batch(fm_microscope, [])
+
+
+def test_tile_directories_are_matched_to_areas_by_position(fm_microscope):
+    """Refused rather than zipped short: a mismatch means one area silently writes into
+    the folder named for another, which is worse than not running."""
+    with pytest.raises(ValueError, match="one each"):
+        _batch(fm_microscope, [_area("a"), _area("b")], tiles_directories=["only-one"])
