@@ -570,6 +570,10 @@ def overview_widget(qapp):
     from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
 
     microscope = build_microscope()
+    # Inserted, so the widget under test is one that could actually run. Left retracted
+    # -- which is how `build_microscope` leaves it -- every test that reaches `acquire`
+    # is really testing the objective guard rather than whatever it meant to (FIB-417).
+    microscope.fm.objective.insert()
     widget = FMOverviewWidget(microscope)
     widget.resize(1200, 800)
     widget.show()
@@ -4353,3 +4357,124 @@ def test_picking_no_file_places_nothing(qapp, blank_canvas, monkeypatch):
 
     assert loaded == []
     assert widget.overviews() == []
+
+
+# ── the start options say what they currently mean (FIB-417) ─────────────
+
+
+def test_the_start_options_show_where_they_would_put_the_objective(qapp, overview_widget):
+    """An option that names a position has to say which one. "Saved focus position" is
+    only actionable next to the number, and next to where the objective is now."""
+    widget = overview_widget
+    widget.fm.objective.focus_position = 8.0e-3
+
+    widget._refresh_objective_start_options()
+
+    combo = widget.settings_widget.combo_objective_start
+    labels = [combo.itemText(i) for i in range(combo.count())]
+    assert any("mm" in label for label in labels), f"no positions shown: {labels}"
+    assert any("8.000 mm" in label for label in labels), f"saved focus missing: {labels}"
+
+
+def test_an_unsaved_focus_position_says_so_rather_than_showing_nothing(
+    qapp, overview_widget
+):
+    """The refusal comes later; the label is where you would notice first."""
+    widget = overview_widget
+    widget.fm.objective._focus_position = None
+
+    widget._refresh_objective_start_options()
+
+    combo = widget.settings_widget.combo_objective_start
+    labels = [combo.itemText(i) for i in range(combo.count())]
+    assert any("none saved" in label for label in labels), labels
+
+
+def test_relabelling_the_options_does_not_look_like_the_user_changed_one(
+    qapp, overview_widget
+):
+    """It runs on every objective refresh, so emitting `changed` would look like a
+    settings edit to anything listening for one.
+
+    Currently free: `setItemText` changes a label, not the selection. The assertion is
+    on the requirement rather than on that mechanism, so it still holds an
+    implementation that repopulated the items -- which would emit.
+    """
+    widget = overview_widget
+    changes = []
+    widget.settings_widget.changed.connect(lambda: changes.append(True))
+
+    widget._refresh_objective_start_options()
+
+    assert changes == []
+
+
+def test_starting_from_an_unsaved_focus_is_refused_before_the_dialog(
+    qapp, overview_widget, monkeypatch
+):
+    """Refused where the question was asked. The runner refuses too, but by then the
+    dialog has said yes and the stage is moving."""
+    from fibsem.fm.structures import ObjectiveStartPosition
+
+    widget = overview_widget
+    # `acquire` refuses on several counts before reaching this one, and the fixture is
+    # module-scoped -- a run left alive by an earlier test bails at the first guard and
+    # the status line still reads whatever that test put there. Start from a widget
+    # that would otherwise go ahead, or this passes without exercising anything.
+    widget._worker = None
+    widget.fm.set_acquiring(False)
+    widget.status.setText("")
+    widget.fm.objective.insert()
+    assert widget.at_acquisition_orientation(), "the stage is not where a run needs it"
+    assert widget.fm.objective.state == "Inserted", "a different guard would fire first"
+
+    widget.fm.objective._focus_position = None
+    widget.settings_widget.combo_objective_start.set_value(ObjectiveStartPosition.FOCUS)
+    shown = []
+    monkeypatch.setattr(
+        "fibsem.ui.fm.widgets.fm_overview_widget.FMOverviewConfirmationDialog",
+        lambda **kwargs: shown.append(kwargs) or (_ for _ in ()).throw(AssertionError),
+    )
+
+    widget.acquire()
+
+    assert shown == [], "the confirmation dialog was shown anyway"
+    assert "focus position" in widget.status.text().lower()
+
+
+def test_acquiring_with_the_objective_retracted_is_refused_before_the_dialog(
+    qapp, overview_widget, monkeypatch
+):
+    """The runner refuses too, but by then the dialog has said yes."""
+    widget = overview_widget
+    widget._worker = None
+    widget.fm.set_acquiring(False)
+    widget.status.setText("")
+    assert widget.at_acquisition_orientation()
+    monkeypatch.setattr(type(widget.fm.objective), "state", property(lambda self: "Retracted"))
+    shown = []
+    monkeypatch.setattr(
+        "fibsem.ui.fm.widgets.fm_overview_widget.FMOverviewConfirmationDialog",
+        lambda **kwargs: shown.append(kwargs) or (_ for _ in ()).throw(AssertionError),
+    )
+
+    widget.acquire()
+
+    assert shown == [], "the confirmation dialog was shown anyway"
+    assert "retracted" in widget.status.text().lower()
+
+
+def test_an_objective_that_cannot_be_asked_does_not_block_the_run(
+    qapp, overview_widget, monkeypatch
+):
+    """A driver that cannot answer is not one answering "retracted". Refusing over a
+    failed read would be the wrong way round; the runner checks again where it can
+    raise."""
+    widget = overview_widget
+
+    def unreadable(self):
+        raise RuntimeError("detector did not answer")
+
+    monkeypatch.setattr(type(widget.fm.objective), "state", property(unreadable))
+
+    assert widget._objective_state() is None

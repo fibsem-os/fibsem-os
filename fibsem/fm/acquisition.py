@@ -24,6 +24,7 @@ from fibsem.fm.structures import (
     AutoFocusMode,
     ChannelSettings,
     FluorescenceImage,
+    ObjectiveStartPosition,
     OverviewParameters,
     ZParameters,
     ZStackOrder,
@@ -663,6 +664,10 @@ class FMTiledAcquisitionRunner:
         # Captured for the restore in _restore(). The grid's centre defaults to it --
         # an overview is normally taken of what you are looking at -- but a caller can
         # name somewhere else, and then the stage still comes back here afterwards.
+        # Before the objective is read for anything else: a retracted objective makes
+        # every number below it meaningless, and the run impossible.
+        self._require_inserted_objective()
+
         self._initial_position = microscope.get_stage_position()
         self._initial_objective_position = microscope.fm.objective.position
         # Where tiles are acquired, which is only the same thing until an autofocus
@@ -670,7 +675,7 @@ class FMTiledAcquisitionRunner:
         # run does not accumulate drift -- but resetting to where the *run* started
         # threw away whatever the sweep had just found, and `once` and `each_row` do
         # their sweeping before the tile that would use it (FIB-516).
-        self._tile_objective_position = self._initial_objective_position
+        self._tile_objective_position = self._resolve_objective_start()
         if self.centre_position is None:
             self.centre_position = self._initial_position
 
@@ -689,6 +694,65 @@ class FMTiledAcquisitionRunner:
         )
         self._total_estimated_time = time_estimates["total_time"]
         self._acquisition_start_time = time.time()
+
+    def _require_inserted_objective(self) -> None:
+        """Refuse to run with the objective retracted.
+
+        Nothing an overview does works without it: the tiles would be whatever a
+        retracted objective sees, and a sweep would search for focus that cannot exist.
+        Checked before anything moves, so a run that cannot succeed costs nothing.
+
+        Not inserted automatically. Inserting is a physical move toward the sample and
+        the run is not the place to decide it is safe -- particularly when the reason it
+        is retracted may be that someone retracted it on purpose.
+
+        Raises:
+            ValueError: if the objective is anywhere but inserted.
+        """
+        state = self.microscope.fm.objective.state
+        if state != "Inserted":
+            raise ValueError(
+                f"The objective is {state.lower()}, so an overview cannot be acquired. "
+                f"Insert it and try again."
+            )
+
+    def _resolve_objective_start(self) -> float:
+        """Where the objective should be for this run, and move it there.
+
+        Moved now rather than at the first tile, because `once` autofocus sweeps before
+        the tile loop and centres on wherever the objective is: starting from a saved
+        focus is worth most precisely when a sweep is about to search around it
+        (FIB-417). `_restore` still puts the objective back where the user left it --
+        choosing where to start is not moving house.
+
+        Raises:
+            ValueError: if the saved focus position was asked for and there is not one.
+        """
+        objective = self.microscope.fm.objective
+        start = self.overview_parameters.objective_start
+
+        if start is ObjectiveStartPosition.CURRENT:
+            return self._initial_objective_position
+
+        position = objective.focus_position
+        if position is None:
+            # Refused rather than quietly falling back to the current position, which
+            # is the option the caller did not choose -- and the failure would be a
+            # blurred overview an hour later rather than a message now.
+            raise ValueError(
+                "This overview is set to start from the saved focus position, but none "
+                "has been saved. Set one with 'Set Focus Position', or start from the "
+                "current position instead."
+            )
+
+        if position != self._initial_objective_position:
+            logging.info(
+                f"Starting the overview at the saved focus position "
+                f"({position * 1e3:.4f} mm), from "
+                f"{self._initial_objective_position * 1e3:.4f} mm."
+            )
+            objective.move_absolute(position)
+        return position
 
     def _setup_autofocus(self) -> None:
         """Resolve the autofocus channel, method and z-range once, up front."""

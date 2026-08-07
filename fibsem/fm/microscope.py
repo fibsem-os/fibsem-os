@@ -120,13 +120,20 @@ class ObjectiveLens(ABC):
         return self._focus_position
 
     @focus_position.setter
-    def focus_position(self, position: float):
-        """Set the focus position of the objective lens.
+    def focus_position(self, position: Optional[float]):
+        """Set the focus position of the objective lens, or None to clear it.
+
+        The getter has always been `Optional[float]` -- an objective has no saved focus
+        until someone saves one -- but the setter took a bare float and formatted it
+        into its own log line, so clearing raised a TypeError from inside logging.
 
         Args:
-            position: The focus position in meters
+            position: The focus position in metres, or None to forget it.
         """
         self._focus_position = position
+        if position is None:
+            logging.info("Objective focus position cleared.")
+            return
         logging.info(
             f"Objective focus position set to: {self._focus_position * 1e3:.3f} mm"
         )

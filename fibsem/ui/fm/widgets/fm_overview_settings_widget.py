@@ -28,6 +28,7 @@ from PyQt5.QtWidgets import (
 from fibsem import constants
 from fibsem.fm.structures import (
     AutoFocusMode,
+    ObjectiveStartPosition,
     AutoFocusSettings,
     ChannelSettings,
     OverviewParameters,
@@ -44,6 +45,32 @@ from fibsem.ui.tokens import (
 )
 
 MUTED = f"color: {TEXT_MUTED_COLOR}; font-size: 11px;"
+
+OBJECTIVE_START_LABELS = {
+    ObjectiveStartPosition.CURRENT: "Current position",
+    ObjectiveStartPosition.FOCUS: "Saved focus position",
+}
+
+def format_objective_start(start, position: Optional[float]) -> str:
+    """Label one start option, with what it currently means in millimetres.
+
+    An option that names a position should say which one -- "saved focus position" is
+    only actionable if you can see it is 8.000 mm and the objective is at 6.000. Shared
+    with the confirmation dialog so the two cannot describe the same run differently.
+    """
+    label = OBJECTIVE_START_LABELS.get(start, start.name)
+    if position is None:
+        return f"{label} (none saved)"
+    return f"{label} ({position * constants.SI_TO_MILLI:.3f} mm)"
+
+
+OBJECTIVE_START_TOOLTIPS = {
+    ObjectiveStartPosition.CURRENT: "Start from wherever the objective is now.",
+    ObjectiveStartPosition.FOCUS: (
+        "Start from the focus saved with 'Set Focus Position'. Refuses to run if none "
+        "has been saved."
+    ),
+}
 
 AUTOFOCUS_LABELS = {
     AutoFocusMode.NONE: "Don't auto-focus",
@@ -83,6 +110,10 @@ class FMOverviewSettingsWidget(QWidget):
     ):
         super().__init__(parent)
         self._tile_fov: Optional[tuple] = None   # (fov_x, fov_y) metres, set externally
+        # What the start options currently mean. None until a host says -- the standalone
+        # settings widget has no microscope to ask.
+        self._objective_current: Optional[float] = None
+        self._objective_focus: Optional[float] = None
         # Owned here rather than by the parent, so every overview setting sits in one
         # widget and their order is this widget's to decide.
         self.z_widget = ZParametersWidget(z_parameters or ZParameters())
@@ -138,10 +169,21 @@ class FMOverviewSettingsWidget(QWidget):
             format_fn=lambda m: AUTOFOCUS_LABELS.get(m, m.name),
         )
 
+        # Above the auto-focus mode, because it decides where a sweep starts from.
+        self.combo_objective_start = ValueComboBox(
+            items=list(ObjectiveStartPosition),
+            format_fn=lambda s: OBJECTIVE_START_LABELS.get(s, s.name),
+        )
+        for index, start in enumerate(ObjectiveStartPosition):
+            self.combo_objective_start.setItemData(
+                index, OBJECTIVE_START_TOOLTIPS.get(start, ""), Qt.ToolTipRole
+            )
+
         # The app's spinboxes carry -/+ buttons, which eat most of a narrow field and
         # leave the value clipped ("0" for an overlap of 0.10). Give them a floor.
         for widget in (self.spin_rows, self.spin_cols, self.spin_overlap,
-                       self.combo_tile_order, self.combo_autofocus_mode):
+                       self.combo_tile_order, self.combo_autofocus_mode,
+                       self.combo_objective_start):
             widget.setMinimumWidth(SPINBOX_MIN_WIDTH)
             widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         for widget in (self.spin_rows, self.spin_cols, self.spin_overlap):
@@ -180,6 +222,7 @@ class FMOverviewSettingsWidget(QWidget):
         focus_form = QFormLayout()
         focus_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
         focus_form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        focus_form.addRow("Start from", self.combo_objective_start)
         focus_form.addRow("Auto-focus", self.combo_autofocus_mode)
 
         focus_layout = QVBoxLayout()
@@ -232,6 +275,7 @@ class FMOverviewSettingsWidget(QWidget):
         self.combo_tile_order.currentIndexChanged.connect(self._on_tile_order_changed)
         self.check_zstack.stateChanged.connect(self._on_zstack_toggled)
         self.combo_autofocus_mode.currentIndexChanged.connect(self._on_autofocus_changed)
+        self.combo_objective_start.currentIndexChanged.connect(self._on_any_change)
         self.autofocus_widget.settings_changed.connect(self._on_any_change)
         self.tile_mask.changed.connect(self._on_any_change)
 
@@ -277,6 +321,26 @@ class FMOverviewSettingsWidget(QWidget):
     def _on_tile_order_changed(self) -> None:
         self._warn_if_spiral_conflicts()
         self._on_any_change()
+
+    def set_objective_positions(
+        self, current: Optional[float], focus: Optional[float]
+    ) -> None:
+        """Tell the start options what they currently mean, in metres.
+
+        Passed in rather than read: this widget takes no microscope, which is what lets
+        it be built and tested on its own, and reading the objective is not free -- on
+        a shared connection it takes the imaging channel (FIB-517).
+        """
+        self._objective_current = current
+        self._objective_focus = focus
+        combo = self.combo_objective_start
+        # No `blockSignals`: `setItemText` changes a label, not the selection, so this
+        # cannot read as a settings edit to anything listening on `currentIndexChanged`.
+        # Repopulating the items instead would, which is why it does not.
+        for index in range(combo.count()):
+            start = combo.itemData(index)
+            position = current if start is ObjectiveStartPosition.CURRENT else focus
+            combo.setItemText(index, format_objective_start(start, position))
 
     def _on_autofocus_changed(self) -> None:
         mode = self.combo_autofocus_mode.value()
@@ -402,13 +466,15 @@ class FMOverviewSettingsWidget(QWidget):
             autofocus_mode=self.combo_autofocus_mode.value(),
             tile_order=self.combo_tile_order.value(),
             tile_mask=self.tile_mask.mask,
+            objective_start=self.combo_objective_start.value(),
         )
 
     @parameters.setter
     def parameters(self, value: OverviewParameters) -> None:
         for widget in (self.spin_rows, self.spin_cols, self.spin_overlap,
                        self.combo_tile_order, self.check_zstack,
-                       self.combo_autofocus_mode, self.tile_mask):
+                       self.combo_autofocus_mode, self.combo_objective_start,
+                       self.tile_mask):
             widget.blockSignals(True)
         try:
             self.spin_rows.setValue(value.rows)
@@ -417,6 +483,7 @@ class FMOverviewSettingsWidget(QWidget):
             self.combo_tile_order.set_value(value.tile_order)
             self.check_zstack.setChecked(value.use_zstack)
             self.combo_autofocus_mode.set_value(value.autofocus_mode)
+            self.combo_objective_start.set_value(value.objective_start)
             self.tile_mask.set_grid_size(value.rows, value.cols)
             self.tile_mask.mask = value.tile_mask
         finally:

@@ -24,6 +24,7 @@ from fibsem.fm.structures import (
     AutoFocusMode,
     AutoFocusSettings,
     ChannelSettings,
+    ObjectiveStartPosition,
     OverviewParameters,
     ZParameters,
 )
@@ -76,6 +77,8 @@ class FMOverviewConfirmationDialog(QDialog):
         zparams: Optional[ZParameters] = None,
         tile_fov: Optional[tuple] = None,
         autofocus_settings: Optional[AutoFocusSettings] = None,
+        objective_current: Optional[float] = None,
+        objective_focus: Optional[float] = None,
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
@@ -84,6 +87,10 @@ class FMOverviewConfirmationDialog(QDialog):
         self.zparams = zparams if parameters.use_zstack else None
         self.tile_fov = tile_fov
         self.autofocus_settings = autofocus_settings
+        # Read by the caller and passed in, so this dialog needs no microscope -- and
+        # so the number it reports is the one the settings panel was showing.
+        self.objective_current = objective_current
+        self.objective_focus = objective_focus
 
         self.setWindowTitle("Start Overview Acquisition")
         self.setMinimumWidth(430)
@@ -158,6 +165,22 @@ class FMOverviewConfirmationDialog(QDialog):
             detail.append(("Z-stack", f"{self.zparams.num_planes} planes per tile"))
         else:
             detail.append(("Z-stack", "off"))
+
+        # Before the auto-focus row, in the order they take effect: the objective is put
+        # here, and then a sweep searches around it.
+        focus = p.objective_start is ObjectiveStartPosition.FOCUS
+        target = self.objective_focus if focus else self.objective_current
+        where = "the saved focus position" if focus else "the current objective position"
+        if target is not None:
+            where += f", {target * constants.SI_TO_MILLI:.3f} mm"
+            # How far it will travel, which is the part worth checking before a run:
+            # a start position an unexpected distance away is a setting left over from
+            # something else.
+            if (self.objective_current is not None
+                    and abs(target - self.objective_current) > 1e-9):
+                delta = (target - self.objective_current) * constants.SI_TO_MILLI
+                where += f"  ({delta:+.3f} mm from here)"
+        detail.append(("Start from", where))
 
         if p.autofocus_mode is AutoFocusMode.NONE:
             detail.append(("Auto-focus", "off"))
