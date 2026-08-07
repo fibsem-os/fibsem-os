@@ -592,15 +592,21 @@ class FMTiledAcquisitionRunner:
 
         The mosaic is an ordinary fluorescence image that happens to be large, and it
         reports where it is from what the run captured rather than from what the
-        stitcher can infer: the grid is centred on `centre_position`, and every tile is
-        taken at the starting objective position.
+        stitcher can infer: the grid is centred on `centre_position`, and the objective
+        position is the one tiles were acquired at.
+
+        That is the run's starting position with autofocus off or in `once` mode, where
+        every tile really is taken at one position. `each_row` and `each_tile` vary it
+        per tile and there is no single answer -- the last one is recorded, which is
+        true of one tile and close to the rest. The run's *starting* position would be
+        true of none of them.
         """
         self.run()
         return stitch_tileset(
             self.tileset,
             self.overview_parameters.overlap,
             centre_position=self.centre_position,
-            objective_position=self._initial_objective_position,
+            objective_position=self._tile_objective_position,
         )
 
     # ── phases ───────────────────────────────────────────────────────────
@@ -659,6 +665,12 @@ class FMTiledAcquisitionRunner:
         # name somewhere else, and then the stage still comes back here afterwards.
         self._initial_position = microscope.get_stage_position()
         self._initial_objective_position = microscope.fm.objective.position
+        # Where tiles are acquired, which is only the same thing until an autofocus
+        # succeeds. Each tile resets the objective to this before acquiring, so that a
+        # run does not accumulate drift -- but resetting to where the *run* started
+        # threw away whatever the sweep had just found, and `once` and `each_row` do
+        # their sweeping before the tile that would use it (FIB-516).
+        self._tile_objective_position = self._initial_objective_position
         if self.centre_position is None:
             self.centre_position = self._initial_position
 
@@ -877,6 +889,16 @@ class FMTiledAcquisitionRunner:
                 f"Tileset autofocus ({mode.value}) cancelled by user."
             )
 
+        # Autofocus leaves the objective at best focus, so this is the answer it found.
+        # Kept, because the next tile resets the objective before acquiring and would
+        # otherwise undo the sweep that just ran -- which is what made `once` and
+        # `each_row` cost time and change nothing (FIB-516).
+        self._tile_objective_position = self.microscope.fm.objective.position
+        logging.info(
+            f"Autofocus ({mode.value}) found "
+            f"{self._tile_objective_position * 1e3:.4f} mm; tiles acquired there."
+        )
+
     def _run_tile_loop(self) -> None:
         """Visit the enabled tiles in traversal order.
 
@@ -914,7 +936,12 @@ class FMTiledAcquisitionRunner:
 
         # Absolute, from the grid computed up front -- no accumulation.
         microscope.safe_absolute_stage_movement(self._tile_stage_positions[(row, col)])
-        microscope.fm.objective.move_absolute(self._initial_objective_position)
+        # The focus tiles are meant to be acquired at, which is the run's starting
+        # position until a sweep finds something better. Resetting to the *start* here
+        # is what discarded the `once` and `each_row` sweeps (FIB-516); for `each_tile`
+        # it now means each sweep begins from the last tile's answer rather than
+        # walking back to the start every time.
+        microscope.fm.objective.move_absolute(self._tile_objective_position)
 
         self._autofocus_if_mode(AutoFocusMode.EACH_TILE)
 

@@ -1971,3 +1971,120 @@ def test_a_grid_within_the_limits_is_untouched(fm_microscope):
     runner.run()
 
     assert sum(t is not None for row in runner.tileset for t in row) == 4
+
+
+# ---------------------------------------------------------------------------
+# Autofocus has to survive the objective reset before each tile (FIB-516).
+#
+# Every tile resets the objective before acquiring, so that a long run does not
+# accumulate drift. That reset used to target the position the *run* started at,
+# which lands after the `once` and `each_row` sweeps have already found focus --
+# so two of the four modes paid for a sweep and changed nothing about the images.
+# ---------------------------------------------------------------------------
+
+FOUND_FOCUS = 77e-6  # what the stubbed sweep "finds", far from where the run starts
+
+
+def _acquired_at(monkeypatch, microscope, mode, rows=1, cols=2, order=None):
+    """Run a tileset and report the objective position each tile was acquired at.
+
+    Both hardware-facing pieces are stubbed: the sweep moves the objective the way a
+    real one does ("run_autofocus centres on the current objective position and moves
+    to best") and reports success, and the acquisition records where the objective
+    actually was when the tile was taken. No microscope needed, which is the point --
+    this is exactly the measurement that found the bug.
+    """
+    positions = []
+
+    def sweep(*args, **kwargs):
+        microscope.fm.objective.move_absolute(FOUND_FOCUS)
+        return True
+
+    monkeypatch.setattr(acquisition, "run_tileset_autofocus", sweep)
+
+    real_acquire_image = acquisition.acquire_image
+
+    def spy(*args, **kwargs):
+        positions.append(microscope.fm.objective.position)
+        return real_acquire_image(*args, **kwargs)
+
+    monkeypatch.setattr(acquisition, "acquire_image", spy)
+
+    parameters = OverviewParameters(
+        rows=rows, cols=cols, overlap=0.1, use_zstack=False, autofocus_mode=mode,
+    )
+    if order is not None:
+        parameters.tile_order = order
+    runner = acquisition.FMTiledAcquisitionRunner(
+        microscope=microscope,
+        channel_settings=ChannelSettings(
+            name="DAPI", excitation_wavelength=358, emission_wavelength=461,
+            power=0.1, exposure_time=0.1,
+        ),
+        overview_parameters=parameters,
+        autofocus_settings=AutoFocusSettings(),
+    )
+    runner.run()
+    return positions, runner
+
+
+def test_autofocus_off_acquires_every_tile_where_the_run_started(
+    fm_microscope, monkeypatch
+):
+    """The reset's actual purpose, and it still works: with no sweep to preserve,
+    every tile is taken at one known position rather than wherever the last one
+    drifted to."""
+    started_at = fm_microscope.fm.objective.position
+
+    positions, _ = _acquired_at(monkeypatch, fm_microscope, AutoFocusMode.NONE)
+
+    assert positions == [pytest.approx(started_at)] * 2
+
+
+def test_a_once_sweep_is_kept_for_every_tile(fm_microscope, monkeypatch):
+    """`once` exists to focus one time and acquire the whole grid there. It ran
+    before the tile loop, and the first tile's reset undid it -- so it cost a sweep
+    and changed nothing (FIB-516)."""
+    positions, _ = _acquired_at(monkeypatch, fm_microscope, AutoFocusMode.ONCE)
+
+    assert positions == [pytest.approx(FOUND_FOCUS)] * 2
+
+
+def test_an_each_row_sweep_is_kept_for_that_rows_tiles(fm_microscope, monkeypatch):
+    """Same failure one level down: the sweep ran immediately before the first tile
+    of the row, and every tile in the row undid it, including that first one."""
+    positions, _ = _acquired_at(
+        monkeypatch, fm_microscope, AutoFocusMode.EACH_ROW, rows=2, cols=2
+    )
+
+    assert positions == [pytest.approx(FOUND_FOCUS)] * 4
+
+
+def test_each_tile_still_focuses_at_every_tile(fm_microscope, monkeypatch):
+    """The mode that always worked. It has to keep working: the reset before each
+    tile now targets the previous tile's focus rather than the run's start, so the
+    sweep begins near the answer instead of walking back every time."""
+    positions, _ = _acquired_at(monkeypatch, fm_microscope, AutoFocusMode.EACH_TILE)
+
+    assert positions == [pytest.approx(FOUND_FOCUS)] * 2
+
+
+def test_the_objective_goes_back_where_the_user_left_it(fm_microscope, monkeypatch):
+    """Keeping the focus is about the tiles, not about the instrument. Whatever a
+    sweep found, the run still hands the objective back at the end."""
+    started_at = fm_microscope.fm.objective.position
+
+    _acquired_at(monkeypatch, fm_microscope, AutoFocusMode.ONCE)
+
+    assert fm_microscope.fm.objective.position == pytest.approx(started_at)
+
+
+def test_the_mosaic_records_where_its_tiles_were_actually_taken(
+    fm_microscope, monkeypatch
+):
+    """The mosaic's objective position is read back by anything reloading it. Stamping
+    the run's starting position was true of no tile at all once a sweep had moved."""
+    _, runner = _acquired_at(monkeypatch, fm_microscope, AutoFocusMode.ONCE)
+
+    assert runner._tile_objective_position == pytest.approx(FOUND_FOCUS)
+    assert runner._initial_objective_position != pytest.approx(FOUND_FOCUS)
