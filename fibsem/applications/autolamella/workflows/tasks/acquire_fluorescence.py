@@ -19,6 +19,7 @@ from fibsem.applications.autolamella.workflows.ui import (
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, ZParameters
 from fibsem.fm.calibration import run_coarse_fine_autofocus, AutoFocusResult
+from fibsem.structures import field_meta
 
 
 @dataclass
@@ -27,20 +28,20 @@ class AcquireFluorescenceImageConfig(AutoLamellaTaskConfig):
     task_type: ClassVar[str] = "ACQUIRE_FLUORESCENCE_IMAGE"
     display_name: ClassVar[str] = "Acquire Fluorescence Image"
     channel_settings: list[ChannelSettings] = field(default_factory=list,
-                                                    metadata={"tooltip": "Settings for each fluorescence channel",
-                                                             "label": "Channel Settings"})
-    zparams: ZParameters = field(default_factory=ZParameters, 
-                                  metadata={"tooltip": "Z-stack acquisition parameters",
-                                            "label": "Z-Stack Parameters"})
+                                                    metadata=field_meta(tooltip="Settings for each fluorescence channel",
+                                                                        label="Channel Settings"))
+    zparams: ZParameters = field(default_factory=ZParameters,
+                                  metadata=field_meta(tooltip="Z-stack acquisition parameters",
+                                                      label="Z-Stack Parameters"))
     autofocus_settings: AutoFocusSettings = field(default_factory=AutoFocusSettings,
-                                                  metadata={"tooltip": "Settings for autofocus before acquiring fluorescence images",
-                                                            "label": "Autofocus Settings"})
+                                                  metadata=field_meta(tooltip="Settings for autofocus before acquiring fluorescence images",
+                                                                      label="Autofocus Settings"))
     orientation: Optional[str] = field(default=None,
-                                       metadata={"tooltip": "Orientation for acquisition. 'FM' or 'SEM'. None = use fluorescence_pose as-is.",
-                                                 "label": "Orientation"})
+                                       metadata=field_meta(tooltip="Orientation for acquisition. 'FM' or 'SEM'. None = use fluorescence_pose as-is.",
+                                                           label="Orientation"))
     retract_objective: bool = field(default=True,
-                                    metadata={"tooltip": "Retract the objective when the task finishes, so it is clear of the stage for subsequent moves. Disable for back-to-back fluorescence tasks.",
-                                              "label": "Retract Objective"})
+                                    metadata=field_meta(tooltip="Retract the objective when the task finishes, so it is clear of the stage for subsequent moves. Disable for back-to-back fluorescence tasks.",
+                                                        label="Retract Objective"))
 
     def to_dict(self) -> dict:
         ddict = {}

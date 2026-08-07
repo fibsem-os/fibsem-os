@@ -11,7 +11,7 @@ from fibsem import constants
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.ui import ask_user, select_poi_ui
-from fibsem.structures import BeamType, ImageSettings
+from fibsem.structures import BeamType, ImageSettings, field_meta
 
 
 @dataclass
@@ -20,27 +20,27 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
 
     milling_angle: float = field(
         default=15,
-        metadata={
-            "tooltip": "The angle between the FIB and sample used for milling",
-            "unit": constants.DEGREE_SYMBOL,
-        },)
+        metadata=field_meta(
+            tooltip="The angle between the FIB and sample used for milling",
+            unit=constants.DEGREE_SYMBOL,
+        ),)
     auto_milling_alignment: bool = field(
         default=False,
-        metadata={
-            "label": "Auto Milling Angle Alignment",
-            "tooltip": "Whether to automatically align for a milling position"},
+        metadata=field_meta(
+            label="Auto Milling Angle Alignment",
+            tooltip="Whether to automatically align for a milling position"),
     )
     use_autofocus: bool = field(
         default=True,
-        metadata={
-            "label": "Use Autofocus",
-            "tooltip": "Whether to autofocus before moving to the milling position"},
+        metadata=field_meta(
+            label="Use Autofocus",
+            tooltip="Whether to autofocus before moving to the milling position"),
     )
     select_poi: bool = field(
         default=True,
-        metadata={
-            "label": "Select Point of Interest",
-            "tooltip": "Whether to ask the user to select a point of interest in the FIB image"},
+        metadata=field_meta(
+            label="Select Point of Interest",
+            tooltip="Whether to ask the user to select a point of interest in the FIB image"),
     )
     task_type: ClassVar[str] = "SELECT_MILLING_POSITION"
     display_name: ClassVar[str] = "Select Milling Position"

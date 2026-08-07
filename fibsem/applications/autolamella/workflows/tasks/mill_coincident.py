@@ -13,7 +13,7 @@ from copy import deepcopy
 from fibsem.milling.patterning.patterns2 import RectanglePattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig, FibsemMillingStage
 from fibsem.milling.base import FibsemMillingSettings
-from fibsem.structures import CrossSectionPattern
+from fibsem.structures import CrossSectionPattern, field_meta
 import fibsem.utils as utils
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows._default_milling_config import (
@@ -59,32 +59,32 @@ class MillCoincidentTaskConfig(AutoLamellaTaskConfig):
 
     acquire_sem: bool = field(
         default=True,
-        metadata={
-            "tooltip": "Whether to acquire an SEM reference image",
-            "label": "Acquire SEM Image",
-        },
+        metadata=field_meta(
+            tooltip="Whether to acquire an SEM reference image",
+            label="Acquire SEM Image",
+        ),
     )
     acquire_fib: bool = field(
         default=True,
-        metadata={
-            "tooltip": "Whether to acquire a FIB reference image",
-            "label": "Acquire FIB Image",
-        },
+        metadata=field_meta(
+            tooltip="Whether to acquire a FIB reference image",
+            label="Acquire FIB Image",
+        ),
     )
     acquire_fluorescence_images: bool = field(
         default=True,
-        metadata={
-            "label": "Acquire Fluorescence Images",
-            "tooltip": "Whether to acquire fluorescence images before and after coincident milling",
-        },
+        metadata=field_meta(
+            label="Acquire Fluorescence Images",
+            tooltip="Whether to acquire fluorescence images before and after coincident milling",
+        ),
     )
     orientation: Literal["SEM", "FIB", "MILLING"] = field(
         default="MILLING",
-        metadata={"tooltip": "The orientation to perform coincident milling in"},
+        metadata=field_meta(tooltip="The orientation to perform coincident milling in"),
     )
     channel_name: str = field(
         default="Red Channel",
-        metadata={"tooltip": "The fluorescence channel to use for coincident milling"},
+        metadata=field_meta(tooltip="The fluorescence channel to use for coincident milling"),
     )
     task_type: ClassVar[str] = "MILL_COINCIDENT"
     display_name: ClassVar[str] = "Coincident Milling"

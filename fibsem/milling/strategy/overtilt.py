@@ -24,6 +24,7 @@ from fibsem.milling.patterning.patterns2 import TrenchPattern
 from fibsem.structures import (
     FibsemStagePosition,
     ImageSettings,
+    field_meta,
 )
 
 
@@ -31,41 +32,41 @@ from fibsem.structures import (
 class OvertiltTrenchMillingConfig(MillingStrategyConfig):
     overtilt: float = field(
         default=1.0,
-        metadata={
-            **DEFAULT_ANGLE_METADATA,
-            "label": "Overtilt",
-            "minimum": 0.1,
-            "maximum": 10.0,
-            "step": 0.5,
-            "tooltip": "The overtilt angle for the milling strategy.",
-        },
+        metadata=field_meta(
+            DEFAULT_ANGLE_METADATA,
+            label="Overtilt",
+            minimum=0.1,
+            maximum=10.0,
+            step=0.5,
+            tooltip="The overtilt angle for the milling strategy.",
+        ),
     )
     image_resolution: tuple[int, int] = field(
         default_factory=lambda: (1536, 1024),
-        metadata={
-            **DEFAULT_IMAGE_RESOLUTION_METADATA,
-            "tooltip": "The imaging resolution for the milling strategy.",
-        },
+        metadata=field_meta(
+            DEFAULT_IMAGE_RESOLUTION_METADATA,
+            tooltip="The imaging resolution for the milling strategy.",
+        ),
     )
     secret_parameter: bool = field(
         default=False,
-        metadata={
-            "label": "Secret Parameter",
-            "type": bool,
-            "advanced": True,
-            "tooltip": "A secret parameter for internal use (testing).",
-        },
+        metadata=field_meta(
+            label="Secret Parameter",
+            type=bool,
+            advanced=True,
+            tooltip="A secret parameter for internal use (testing).",
+        ),
     )
     area_parameter: float = field(
         default=1e-6,
-        metadata={
-            "label": "Area Parameter",
-            "type": float,
-            "unit": "m²",
-            "dimensions": 2,
-            "scale": 1e6,
-            "tooltip": "An area parameter for internal use (testing).",
-        },
+        metadata=field_meta(
+            label="Area Parameter",
+            type=float,
+            unit="m²",
+            dimensions=2,
+            scale=1e6,
+            tooltip="An area parameter for internal use (testing).",
+        ),
     )
 
 
