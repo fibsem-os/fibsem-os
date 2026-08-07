@@ -242,7 +242,11 @@ def _make_supervised_spot_burn_task(monkeypatch, tmp_path, ask_user_responses):
 
     widget = MagicMock()
     widget.is_burning = False  # each burn "completes" immediately
-    widget.get_coordinates.return_value = [Point(0.5, 0.5)]
+    # the task now reads back the whole settings object (coordinates + current +
+    # exposure), not just the coordinates — see update_spot_burn_parameters' typed contract
+    widget.get_settings.return_value = SpotBurnSettings(
+        coordinates=[Point(0.5, 0.5)], exposure_time=1.0, milling_current=1e-9
+    )
     parent_ui = MagicMock()  # truthy experiment.task_protocol.get_supervision -> supervised
     parent_ui.spot_burn_widget = widget
 
@@ -273,7 +277,7 @@ def test_supervised_spot_burn_runs_then_continues(monkeypatch, tmp_path):
     task.update_spot_burn_parameters_ui()
 
     widget.start_spot_burn_signal.emit.assert_called_once()
-    widget.get_coordinates.assert_called_once()
+    widget.get_settings.assert_called_once()
     assert cleared  # spot burn UI was cleared afterwards
 
 
@@ -286,7 +290,7 @@ def test_supervised_spot_burn_continue_without_running(monkeypatch, tmp_path):
     task.update_spot_burn_parameters_ui()
 
     widget.start_spot_burn_signal.emit.assert_not_called()
-    widget.get_coordinates.assert_called_once()
+    widget.get_settings.assert_called_once()
     assert cleared
 
 
