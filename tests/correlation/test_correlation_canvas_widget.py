@@ -53,7 +53,8 @@ def test_adapter_surface_matches_the_canvas_it_replaces():
 
 
 def test_image_methods_match_the_canvas_it_replaces():
-    for name in ("set_image", "update_display", "set_pixel_size", "reset_view"):
+    for name in ("set_image", "update_display", "set_pixel_size", "reset_view",
+                 "set_legend_visible", "set_labels_visible"):
         assert callable(getattr(CorrelationCanvasWidget, name, None)), name
         assert callable(getattr(ImagePointCanvas, name, None)), name
 
@@ -214,3 +215,22 @@ def test_contrast_and_gamma_are_available():
     assert w.canvas.btn_contrast is not None
     # and the old canvas genuinely lacks it -- this is a real gain, not a rename
     assert not hasattr(ImagePointCanvas, "toggle_contrast")
+
+
+# ── chrome delegates to the overlay ───────────────────────────────────────
+
+
+def test_legend_toggle_reaches_the_overlay():
+    w = _widget()
+    w.set_coordinates([_coord(10, 10), _coord(20, 20, PointType.POI)])
+    assert w.points._legend_entries()[1] == ["FIB", "POI"]
+    w.set_legend_visible(False)
+    assert w.points._legend_entries() == ([], [])
+
+
+def test_label_toggle_reaches_the_overlay_without_hiding_points():
+    w = _widget()
+    w.set_coordinates([_coord(10, 10)])
+    w.set_labels_visible(False)
+    assert [a.get_visible() for a in w.points._anns if a is not None] == [False]
+    assert all(a.get_visible() for a in w.points._artists)

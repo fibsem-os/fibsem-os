@@ -86,6 +86,8 @@ class CorrelationPointOverlay(PointOverlay):
         super().__init__(size=MARKER_SIZE, parent=parent)
         self._coords: List[Coordinate] = []
         self._names: List[str] = []
+        self._legend_visible = True
+        self._labels_visible = True
         self.point_selected.connect(self._emit_selected)
         self.point_moved.connect(self._emit_moved)
         self.point_removed.connect(self._emit_removed)
@@ -103,7 +105,7 @@ class CorrelationPointOverlay(PointOverlay):
         self._coords.append(coord)
         self._names = generate_names(self._coords)
         idx = super().add_point(coord.point.x, coord.point.y)
-        self._refresh_labels()
+        self._refresh_chrome()
         return idx
 
     def remove_coordinate(self, coord: Coordinate) -> None:
@@ -156,7 +158,7 @@ class CorrelationPointOverlay(PointOverlay):
         super().remove_point(index)
         self._coords.pop(index)
         self._names = generate_names(self._coords)
-        self._refresh_labels()
+        self._refresh_chrome()
 
     def clear_points(self) -> None:
         super().clear_points()
@@ -190,6 +192,82 @@ class CorrelationPointOverlay(PointOverlay):
             return ("white" if selected else "none"), 2.0
         return color, (3.0 if selected else 2.0)
 
+    # ── legend and labels ─────────────────────────────────────────────────
+
+    def set_legend_visible(self, visible: bool) -> None:
+        self._legend_visible = visible
+        self._draw_legend()
+        if self._canvas is not None:
+            self._canvas.draw_idle()
+
+    def set_labels_visible(self, visible: bool) -> None:
+        """Show or hide the per-point names without discarding the points.
+
+        Separate from ``set_visible``, which hides the markers too: an operator
+        clearing labels off a crowded image still wants to see the points.
+        """
+        self._labels_visible = visible
+        self._apply_label_visibility()
+        if self._canvas is not None:
+            self._canvas.draw_idle()
+
+    def set_visible(self, visible: bool) -> None:
+        super().set_visible(visible)
+        # the base turns every annotation back on with the markers; labels the
+        # operator switched off should stay off
+        self._apply_label_visibility()
+
+    def _apply_label_visibility(self) -> None:
+        for ann in self._anns:
+            if ann is not None:
+                ann.set_visible(self._labels_visible and self._visible)
+
+    def _append_artist(self, idx: int) -> None:
+        super()._append_artist(idx)
+        # a point added while labels are off must not arrive with its name showing
+        if self._anns and self._anns[-1] is not None:
+            self._anns[-1].set_visible(self._labels_visible and self._visible)
+
+    def _legend_entries(self):
+        """One swatch per PointType currently on screen.
+
+        The base draws a single entry because its points are homogeneous. Here
+        they are not, and the colour is the only thing distinguishing a FIB point
+        from a POI — so the legend is what makes the display readable, not
+        decoration. Iterating ``PointType`` rather than the coordinates keeps the
+        order stable as points come and go.
+        """
+        from matplotlib.lines import Line2D
+
+        if not self._legend_visible:
+            return [], []
+        handles, labels = [], []
+        for pt in PointType:
+            if any(c.point_type is pt for c in self._coords):
+                handles.append(self._legend_handle(pt))
+                labels.append(pt.value)
+        return handles, labels
+
+    def _legend_handle(self, point_type: PointType) -> "Line2D":
+        """A proxy artist matching how the point is actually drawn — same rule as
+        `_marker_edge`, so an unfilled "+" keeps its colour instead of going white."""
+        from matplotlib.lines import Line2D
+
+        color = POINT_COLORS.get(point_type, "white")
+        marker = POINT_MARKERS.get(point_type, "o")
+        unfilled = marker not in Line2D.filled_markers
+        return Line2D(
+            [], [],
+            marker=marker,
+            markersize=7,
+            color=color,
+            markerfacecolor=color,
+            markeredgecolor=color if unfilled else "white",
+            markeredgewidth=1.5 if unfilled else 0.8,
+            linestyle="none",
+            label=point_type.value,
+        )
+
     # ── interaction ───────────────────────────────────────────────────────
 
     def _on_right_click(self, x: float, y: float) -> None:
@@ -214,6 +292,14 @@ class CorrelationPointOverlay(PointOverlay):
         if idx < len(self._coords):
             self.coordinate_removed.emit(self._coords[idx])
 
-    def _refresh_labels(self) -> None:
+    def _refresh_chrome(self) -> None:
+        """Re-derive the labels and the legend after the coordinate set changes.
+
+        ``set_points`` redraws both via ``_draw_all``, but ``add_point`` and
+        ``remove_point`` only touch one artist -- and both can change which
+        PointTypes are on screen, which is exactly what the legend reports.
+        """
         if self._anns:
             self._refresh_ann_text()
+        self._apply_label_visibility()
+        self._draw_legend()

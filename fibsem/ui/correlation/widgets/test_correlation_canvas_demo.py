@@ -106,6 +106,21 @@ class DemoWindow(QMainWindow):
             btn = QPushButton(label)
             btn.clicked.connect(slot)
             controls.addWidget(btn)
+
+        # Toggled on both sides at once, so the legends and labels can be compared
+        # rather than just inspected one at a time.
+        for label, setter in (
+            ("Legend", "set_legend_visible"),
+            ("Labels", "set_labels_visible"),
+        ):
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setChecked(True)
+            btn.toggled.connect(
+                lambda on, s=setter, name=label: self._toggle_both(s, on, name)
+            )
+            controls.addWidget(btn)
+
         controls.addStretch()
         controls.addWidget(
             QLabel(
@@ -174,6 +189,11 @@ class DemoWindow(QMainWindow):
         self.old.set_coordinates([])
         self.new.set_coordinates([])
         self._log("cleared both")
+
+    def _toggle_both(self, setter: str, on: bool, name: str) -> None:
+        for surface in (self.old, self.new):
+            getattr(surface, setter)(on)
+        self._log(f"{name.lower()} {'shown' if on else 'hidden'} on both")
 
     def _added(self, side: str, x: float, y: float, pt: PointType) -> None:
         """Both canvases only *request* an add -- the tab widget builds the

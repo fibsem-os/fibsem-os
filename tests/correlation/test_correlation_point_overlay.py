@@ -203,3 +203,113 @@ def test_clear_drops_both_lists():
     _, ov = _attached([_coord(10, 10), _coord(20, 20)])
     ov.clear_points()
     assert ov.coordinates() == [] and ov.get_points() == []
+
+
+# ── legend ────────────────────────────────────────────────────────────────
+
+
+def test_legend_shows_one_entry_per_type_on_screen():
+    """The base draws a single swatch; correlation's points are heterogeneous and
+    the colour is the only thing telling a FIB point from a POI."""
+    _, ov = _attached([
+        _coord(10, 10, PointType.FIB),
+        _coord(20, 20, PointType.POI),
+        _coord(30, 30, PointType.FIB),  # a second FIB must not add a second entry
+    ])
+    handles, labels = ov._legend_entries()
+    assert labels == ["FIB", "POI"]
+    assert len(handles) == 2
+
+
+def test_legend_order_is_the_type_order_not_arrival_order():
+    """Iterating PointType keeps the legend stable as points come and go."""
+    _, ov = _attached([_coord(10, 10, PointType.POI), _coord(20, 20, PointType.FIB)])
+    _, labels = ov._legend_entries()
+    assert labels == ["FIB", "POI"]  # declaration order, not [POI, FIB]
+
+
+def _drawn_legend(ov):
+    """Texts of the legend actually on the axes.
+
+    Deliberately not ``_legend_entries()``: that recomputes from _coords and would
+    pass even if the legend artist were never redrawn, which is the bug this test
+    exists to catch (add_point/remove_point touch one artist and would otherwise
+    leave a stale legend on screen).
+    """
+    return [] if ov._legend is None else [t.get_text() for t in ov._legend.get_texts()]
+
+
+def test_legend_follows_the_points():
+    a = _coord(10, 10, PointType.FIB)
+    b = _coord(20, 20, PointType.SURFACE)
+    _, ov = _attached([a, b])
+    assert _drawn_legend(ov) == ["FIB", "SURFACE"]
+
+    ov.remove_coordinate(b)
+    assert _drawn_legend(ov) == ["FIB"]
+
+    ov.add_coordinate(_coord(30, 30, PointType.POI))
+    assert _drawn_legend(ov) == ["FIB", "POI"]
+
+
+def test_legend_swatch_matches_how_the_point_is_drawn():
+    """An unfilled '+' keeps its own colour as the edge; a white edge would swallow
+    it and leave the legend claiming the wrong colour."""
+    _, ov = _attached([_coord(10, 10, PointType.SURFACE)])
+    handle = ov._legend_handle(PointType.SURFACE)
+    colour = POINT_COLORS[PointType.SURFACE]
+    assert handle.get_marker() == "+"
+    assert handle.get_markeredgecolor() == colour
+
+    filled = ov._legend_handle(PointType.FIB)
+    assert filled.get_marker() == "o"
+    assert filled.get_markeredgecolor() == "white"
+
+
+def test_legend_can_be_hidden():
+    _, ov = _attached([_coord(10, 10)])
+    ov.set_legend_visible(False)
+    assert ov._legend_entries() == ([], [])
+    assert ov._legend is None
+    ov.set_legend_visible(True)
+    assert ov._legend is not None
+
+
+# ── labels ────────────────────────────────────────────────────────────────
+
+
+def _label_states(ov):
+    return [a.get_visible() for a in ov._anns if a is not None]
+
+
+def test_labels_hide_without_hiding_the_points():
+    _, ov = _attached([_coord(10, 10), _coord(20, 20)])
+    ov.set_labels_visible(False)
+    assert _label_states(ov) == [False, False]
+    assert all(a.get_visible() for a in ov._artists)  # markers stay
+
+
+def test_a_point_added_while_labels_are_off_arrives_hidden():
+    _, ov = _attached([_coord(10, 10)])
+    ov.set_labels_visible(False)
+    ov.add_coordinate(_coord(20, 20))
+    assert _label_states(ov) == [False, False]
+
+
+def test_showing_the_overlay_does_not_override_the_label_preference():
+    """set_visible turns every annotation back on; a label the operator switched
+    off should stay off."""
+    _, ov = _attached([_coord(10, 10)])
+    ov.set_labels_visible(False)
+    ov.set_visible(False)
+    ov.set_visible(True)
+    assert _label_states(ov) == [False]
+
+
+def test_labels_renumber_and_stay_hidden_after_a_removal():
+    a, b, c = (_coord(0, 0), _coord(1, 1), _coord(2, 2))
+    _, ov = _attached([a, b, c])
+    ov.set_labels_visible(False)
+    ov.remove_coordinate(a)
+    assert [ov._point_label(i) for i in range(2)] == ["FIB 1", "FIB 2"]
+    assert _label_states(ov) == [False, False]

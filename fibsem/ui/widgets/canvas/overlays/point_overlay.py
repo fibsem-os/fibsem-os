@@ -404,32 +404,42 @@ class PointOverlay(QObject):
                 pass
             self._legend = None
 
-    def _draw_legend(self) -> None:
-        """Opt-in legend (top-left); the swatch is the overlay's own marker glyph
-        (e.g. a "+" for the POI), styled like the milling-stage legend."""
-        self._remove_legend()
-        if (
-            not self._legend_label
-            or self._ax is None
-            or not self._points
-            or not self._visible
-        ):
-            return
-        from matplotlib.legend import Legend
+    def _legend_entries(self):
+        """``(handles, labels)`` for the legend, or two empty lists for none.
+
+        One entry, drawn with the overlay's own glyph, because the base's points
+        all look alike. Split from :meth:`_draw_legend` so a subclass whose points
+        do *not* — correlation shows several PointTypes on one surface — can vary
+        the content without restating the styling.
+        """
         from matplotlib.lines import Line2D
 
+        if not self._legend_label:
+            return [], []
         handle = Line2D(
             [], [], linestyle="None", marker=self._marker, markersize=9,
             color=self._color,
             markeredgewidth=(self._edge_width if self._edge_width is not None else 2.0),
             label=self._legend_label,
         )
+        return [handle], [self._legend_label]
+
+    def _draw_legend(self) -> None:
+        """Opt-in legend (top-left), styled like the milling-stage legend."""
+        self._remove_legend()
+        if self._ax is None or not self._points or not self._visible:
+            return
+        handles, labels = self._legend_entries()
+        if not handles:
+            return
+        from matplotlib.legend import Legend
+
         # build the Legend directly (not ax.legend()) so it doesn't replace another
         # overlay's primary legend (e.g. the milling stages, top-right)
         leg = Legend(
             self._ax,
-            [handle],
-            [self._legend_label],
+            handles,
+            labels,
             loc="upper left",
             fontsize=8,
             facecolor=CANVAS_BG,
