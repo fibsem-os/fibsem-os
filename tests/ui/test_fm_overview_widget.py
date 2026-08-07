@@ -4186,3 +4186,170 @@ def test_the_list_does_not_grow_a_row_for_the_live_preview(qapp, blank_canvas):
     qapp.processEvents()
 
     assert widget.overview_list._list.count() == 0
+
+
+# ── loading a saved overview (FIB-438) ───────────────────────────────────
+
+
+def _saved(widget, tmp_path, date="2026-08-07T09:00:00", name="overview-14-02-33"):
+    """An overview written to disk the way an acquisition writes one."""
+    image = _acquire(widget, date)
+    image.metadata.description = name  # what OverviewDestination.save_mosaic stamps
+    path = str(tmp_path / f"{name}.ome.tiff")
+    image.save(path)
+    return image, path
+
+
+def test_a_loaded_overview_lands_where_the_acquired_one_did(qapp, blank_canvas, tmp_path):
+    """The claim the whole feature rests on. `set_image` places by projecting through
+    the image's *own* recorded geometry, and everything that projection needs -- the
+    stage position's r and t, the hardware geometry, the pixel size -- survives the
+    OME-TIFF. So a file off disk is placed identically to the image it came from."""
+    widget = blank_canvas
+    image, path = _saved(widget, tmp_path)
+
+    widget.set_image(image)
+    qapp.processEvents()
+    acquired_extent = widget.canvas.canvas._placed[widget.overviews()[0].id].extent
+
+    widget.canvas.clear_overviews()
+    widget._records.clear()
+    widget.load_overview(path)
+    qapp.processEvents()
+    loaded_extent = widget.canvas.canvas._placed[widget.overviews()[0].id].extent
+
+    assert loaded_extent == pytest.approx(acquired_extent)
+
+
+def test_loading_gives_the_overview_a_record_and_a_row(qapp, blank_canvas, tmp_path):
+    widget = blank_canvas
+    _, path = _saved(widget, tmp_path)
+
+    record = widget.load_overview(path)
+    qapp.processEvents()
+
+    assert record is not None
+    assert widget.overviews() == [record]
+    assert widget.overview_list._list.count() == 1
+
+
+def test_a_loaded_overview_is_named_for_the_run_that_made_it(qapp, blank_canvas, tmp_path):
+    """`description` survives the round trip, so the row still names the folder the
+    tiles are in rather than falling back to a number."""
+    widget = blank_canvas
+    _, path = _saved(widget, tmp_path, name="overview-11-20-05")
+
+    record = widget.load_overview(path)
+
+    assert record.label == "overview-11-20-05"
+
+
+def test_a_loaded_overview_keeps_its_scale_but_loses_its_grid(qapp, blank_canvas, tmp_path):
+    """Documented, not a bug. `stitch_tileset` carries the grid in
+    `stage_position.name`, which the OME-TIFF drops -- so a loaded row shows what it
+    still knows rather than guessing (FIB-438)."""
+    widget = blank_canvas
+    image, path = _saved(widget, tmp_path)
+    image.metadata.stage_position.name = "stitched_mosaic_3x3"
+    image.save(path)
+
+    record = widget.load_overview(path)
+
+    assert "µm/px" in record.detail
+    assert "×" not in record.detail, "the grid came back after all -- update the docs"
+
+
+def test_a_file_that_cannot_be_read_places_nothing(qapp, blank_canvas, tmp_path):
+    """Reported, not raised: a bad file is a thing a user picked, not a bug in the tab."""
+    widget = blank_canvas
+    bad = tmp_path / "not-an-image.ome.tiff"
+    bad.write_text("this is not a tiff")
+
+    assert widget.load_overview(str(bad)) is None
+    assert widget.overviews() == []
+
+
+def test_an_overview_with_no_geometry_is_shown_but_not_trusted(
+    qapp, blank_canvas, tmp_path, monkeypatch
+):
+    """Anything acquired before FIB-416 has no geometry, so it cannot be placed where
+    it was taken -- it lands at the canvas origin instead. The pixels are still worth
+    seeing, so it is shown; being shown *silently* in the wrong place is the part that
+    would mislead, so it is also said."""
+    widget = blank_canvas
+    image, path = _saved(widget, tmp_path)
+    image.metadata.geometry = None
+    image.save(path)
+    toasts = []
+    monkeypatch.setattr(
+        "fibsem.ui.fm.widgets.fm_overview_widget.notification_service.show_toast",
+        lambda message, level="info", *a, **k: toasts.append((message, level)),
+    )
+
+    record = widget.load_overview(path)
+    qapp.processEvents()
+
+    assert record is not None
+    assert record.id in widget.canvas.canvas.placed_keys
+    assert any(level == "warning" for _, level in toasts), "placed with no warning"
+
+
+def test_loading_the_same_file_twice_does_not_stack_two_copies(qapp, blank_canvas, tmp_path):
+    """The acquisition date survives the round trip, so the record match still holds
+    across a reload."""
+    widget = blank_canvas
+    _, path = _saved(widget, tmp_path)
+
+    widget.load_overview(path)
+    widget.load_overview(path)
+    qapp.processEvents()
+
+    assert len(widget.overviews()) == 1
+
+
+def test_a_loaded_overview_can_anchor_an_empty_canvas(qapp, blank_canvas, tmp_path):
+    """First image placed fixes the origin, loaded or acquired. Everything is drawn
+    relative to it, so which one it is only decides where canvas zero sits."""
+    widget = blank_canvas
+    widget._origin = None
+    _, path = _saved(widget, tmp_path)
+
+    widget.load_overview(path)
+
+    assert widget._origin is not None
+
+
+def test_the_header_button_opens_a_file_dialog(qapp, blank_canvas, monkeypatch):
+    """The real wiring, clicked for real.
+
+    Safe because the dialog itself is stubbed: it is modal, so a genuine one would
+    hang the run waiting for a human -- which it did, when this test clicked through
+    to the real thing.
+    """
+    widget = blank_canvas
+    asked = []
+    monkeypatch.setattr(
+        "fibsem.ui.fm.widgets.fm_overview_widget.ui_utils.open_existing_file_dialog",
+        lambda **kwargs: asked.append(kwargs) or "",
+    )
+
+    widget.btn_load_overview.click()
+
+    assert len(asked) == 1
+    assert "ome.tiff" in asked[0]["_filter"], "the dialog does not offer overviews"
+
+
+def test_picking_no_file_places_nothing(qapp, blank_canvas, monkeypatch):
+    """Cancelling the dialog is not an error, and must not reach the loader."""
+    widget = blank_canvas
+    monkeypatch.setattr(
+        "fibsem.ui.fm.widgets.fm_overview_widget.ui_utils.open_existing_file_dialog",
+        lambda **kwargs: "",
+    )
+    loaded = []
+    monkeypatch.setattr(widget, "load_overview", lambda path: loaded.append(path))
+
+    widget.btn_load_overview.click()
+
+    assert loaded == []
+    assert widget.overviews() == []
