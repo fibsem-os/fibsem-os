@@ -42,7 +42,7 @@ GRID_COLORS = [
     ("Yellow", "#ffd54f"),
     ("Cyan", "#00e5ff"),
     ("Green", "#69f0ae"),
-    ("White", f"{WHITE_ICON_COLOR}"),
+    ("White", WHITE_ICON_COLOR),
 ]
 
 def _color_icon(color: str, size: int = 12) -> QIcon:

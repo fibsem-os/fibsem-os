@@ -2877,9 +2877,9 @@ class CorrelationTabWidget(QWidget):
         self._fib_canvas.reset_view()
         self._fm_display.canvas.reset_view()
 
-        fig, (ax_fib, ax_fm) = plt.subplots(1, 2, figsize=(16, 8), facecolor=f"{CANVAS_BG}")
+        fig, (ax_fib, ax_fm) = plt.subplots(1, 2, figsize=(16, 8), facecolor=CANVAS_BG)
         for ax in (ax_fib, ax_fm):
-            ax.set_facecolor(f"{CANVAS_BG}")
+            ax.set_facecolor(CANVAS_BG)
 
         self._fib_canvas.render_to_axes(ax_fib)
         ax_fib.set_title("FIB", color="white", fontsize=12)

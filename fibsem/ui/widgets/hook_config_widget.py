@@ -68,7 +68,7 @@ _HOOK_CLASSES: dict[str, Type[Hook]] = {
 }
 
 _TYPE_COLORS = {
-    "LoggingHook":      f"{ACCENT_COLOR}",
+    "LoggingHook":      ACCENT_COLOR,
     "NotificationHook": stylesheets.GREEN_COLOR,
     "WebhookHook":      stylesheets.ORANGE_COLOR,
     "SlackHook":        "#a67cff",

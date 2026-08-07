@@ -31,7 +31,7 @@ class ToastNotification(QWidget):
 
     # Notification types with colors
     TYPES = {
-        "info": f"{ACCENT_COLOR}",                      # Blue
+        "info": ACCENT_COLOR,                      # Blue
         "success": stylesheets.GREEN_COLOR,     # Green
         "warning": stylesheets.ORANGE_COLOR,    # Orange
         "error": "#f44336",                     # Red
@@ -304,7 +304,7 @@ class NotificationHistoryPopup(QWidget):
         item_layout.setSpacing(10)
 
         # Icon
-        color = ToastNotification.TYPES.get(notification_type, f"{ACCENT_COLOR}")
+        color = ToastNotification.TYPES.get(notification_type, ACCENT_COLOR)
         icons = {"info": "ℹ", "success": "✓", "warning": "⚠", "error": "✕"}
         icon_label = QLabel(icons.get(notification_type, "ℹ"))
         icon_label.setFixedSize(20, 20)
@@ -360,7 +360,7 @@ class NotificationBell(QWidget):
 
         # Bell icon button using QToolButton with a Material Design icon
         self.bell_btn = QToolButton()
-        self.bell_btn.setIcon(fibsem_icon("mdi:bell", color=f"{TEXT_COLOR}"))
+        self.bell_btn.setIcon(fibsem_icon("mdi:bell", color=TEXT_COLOR))
         self.bell_btn.setFixedSize(24, 24)
         self.bell_btn.setIconSize(self.bell_btn.size() * 0.7)
         self.bell_btn.clicked.connect(self._on_clicked)

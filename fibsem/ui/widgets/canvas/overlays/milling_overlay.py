@@ -196,7 +196,7 @@ class MillingPatternOverlay(CanvasOverlay):
             handles=handles,
             loc="upper right",
             fontsize=8,
-            facecolor=f"{CANVAS_BG}",
+            facecolor=CANVAS_BG,
             edgecolor="#555555",
             labelcolor="#d1d2d4",
             framealpha=0.85,

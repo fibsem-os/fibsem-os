@@ -290,7 +290,7 @@ class OverviewImageWidget(QWidget):
         """Create an empty canvas with placeholder text."""
         # Create empty figure
         self.figure = Figure(figsize=(10, 6), dpi=80)
-        self.figure.patch.set_facecolor(f"{SURFACE_COLOR}")
+        self.figure.patch.set_facecolor(SURFACE_COLOR)
 
         # Create canvas from figure
         if self.canvas is not None:
@@ -341,7 +341,7 @@ class OverviewImageWidget(QWidget):
         self.figure = new_figure
 
         # Apply dark theme to the figure
-        self.figure.patch.set_facecolor(f"{SURFACE_COLOR}")
+        self.figure.patch.set_facecolor(SURFACE_COLOR)
 
         # Create new canvas with the figure
         self.canvas = FigureCanvas(self.figure)

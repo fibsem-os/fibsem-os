@@ -171,7 +171,7 @@ class WorkflowSummaryDialog(QDialog):
     @staticmethod
     def _make_chip(status: str, count: int) -> QLabel:
         """A pill label: coloured dot + 'N status'."""
-        dot_color, text_color = STATUS_BADGE_COLORS.get(status, (f"{TEXT_MUTED_COLOR}", "#aeb4b9"))
+        dot_color, text_color = STATUS_BADGE_COLORS.get(status, (TEXT_MUTED_COLOR, "#aeb4b9"))
         bg = QColor(dot_color)
         bg_rgba = f"rgba({bg.red()}, {bg.green()}, {bg.blue()}, 0.15)"
         chip = QLabel(f'<span style="color:{dot_color};">&#9679;</span> {count} {status.lower()}')

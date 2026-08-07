@@ -99,7 +99,7 @@ class MinimapPlotWidget(QWidget):
         else:
             # Create matplotlib figure and canvas with napari-style dark theme
             self.figure = Figure(figsize=(6, 6), dpi=80)
-            self.figure.patch.set_facecolor(f"{SURFACE_COLOR}")  # napari dark background
+            self.figure.patch.set_facecolor(SURFACE_COLOR)  # napari dark background
 
             self.canvas = FigureCanvas(self.figure)
             self.canvas.setMinimumSize(300, 300)

@@ -408,7 +408,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             self._title_artist = self._ax.text(
                 0.5, 0.985, self._title_text,
                 transform=self._ax.transAxes, ha="center", va="top",
-                fontsize=10, color=f"{WHITE_ICON_COLOR}", zorder=11,
+                fontsize=10, color=WHITE_ICON_COLOR, zorder=11,
                 bbox=dict(boxstyle="round,pad=0.3", facecolor=_BG,
                           edgecolor="none", alpha=0.55),
             )
@@ -460,7 +460,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             self._live_artist = self._ax.text(
                 0.988, 0.985, "● LIVE",
                 transform=self._ax.transAxes, ha="right", va="top",
-                fontsize=7, color=f"{WHITE_ICON_COLOR}", zorder=12, fontweight="bold",
+                fontsize=7, color=WHITE_ICON_COLOR, zorder=12, fontweight="bold",
                 bbox=dict(boxstyle="round,pad=0.3", facecolor=_LIVE_BADGE_BG,
                           edgecolor="none", alpha=0.9),
             )

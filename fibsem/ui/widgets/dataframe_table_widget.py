@@ -50,8 +50,8 @@ class DataFrameTableWidget(QWidget):
         palette.setColor(QPalette.ColorRole.Base, QColor("#202020"))
         palette.setColor(QPalette.ColorRole.AlternateBase, QColor("#2c2c2c"))
         palette.setColor(QPalette.ColorRole.Text, QColor("#dddddd"))
-        palette.setColor(QPalette.ColorRole.Highlight, QColor(f"{PRIMARY_ACCENT}"))
-        palette.setColor(QPalette.ColorRole.HighlightedText, QColor(f"{WHITE_ICON_COLOR}"))
+        palette.setColor(QPalette.ColorRole.Highlight, QColor(PRIMARY_ACCENT))
+        palette.setColor(QPalette.ColorRole.HighlightedText, QColor(WHITE_ICON_COLOR))
         self.table_widget.setPalette(palette)
 
         layout.addWidget(self.table_widget)

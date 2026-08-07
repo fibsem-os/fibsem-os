@@ -46,11 +46,11 @@ STATUS_COLORS = {
 # Semantic badge colours (matching the fibsem.ui.stylesheets palette) used by
 # the workflow summary dialog: status -> (dot/strong colour, muted text colour).
 STATUS_BADGE_COLORS = {
-    "Completed": (f"{OK_COLOR}", "#7fd083"),
-    "Failed": (f"{ERROR_COLOR}", "#e08585"),
-    "Skipped": (f"{TEXT_MUTED_COLOR}", "#aeb4b9"),
-    "InProgress": (f"{ACCENT_COLOR}", "#9cc7f5"),
-    "Cancelled": (f"{WARN_COLOR}", "#e8c37f"),  # amber: user-aborted, not an error
+    "Completed": (OK_COLOR, "#7fd083"),
+    "Failed": (ERROR_COLOR, "#e08585"),
+    "Skipped": (TEXT_MUTED_COLOR, "#aeb4b9"),
+    "InProgress": (ACCENT_COLOR, "#9cc7f5"),
+    "Cancelled": (WARN_COLOR, "#e8c37f"),  # amber: user-aborted, not an error
 }
 
 # Status order for count chips (these three are always shown, even at zero)

@@ -181,7 +181,7 @@ class RulerOverlay(CanvasOverlay):
         self._label = self._ax.annotate(
             self._text(), xy=(mx, my), xytext=(0, 9),
             textcoords="offset points", ha="center", va="bottom",
-            fontsize=8, color=f"{WHITE_ICON_COLOR}", zorder=10,
+            fontsize=8, color=WHITE_ICON_COLOR, zorder=10,
             bbox=dict(boxstyle="round,pad=0.3", facecolor=_BG,
                       edgecolor=self._color, alpha=0.8, linewidth=0.8),
         )
