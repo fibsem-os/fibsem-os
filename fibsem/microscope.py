@@ -2083,8 +2083,18 @@ class ThermoMicroscope(FibsemMicroscope):
             drift_correction=image_settings.drift_correction,
         )
 
-        self.set_channel(image_settings.beam_type)
-        image = self.connection.imaging.grab_frame(frame_settings)
+        # One lock over both RPCs. `grab_frame` reads the active view's buffer, so a
+        # channel that is not still ours when the grab lands returns whoever took it in
+        # between -- silently, since the metadata below is built from `image_settings`
+        # rather than from what came back. That is FIB-517 on the beam side (FIB-542),
+        # and it is the discipline every other set-then-act pair here already keeps.
+        #
+        # Deliberately just the pair: `_threading_lock` is a class attribute shared by
+        # every caller in the process, so holding it over the metadata reads or the
+        # state fetch below would block all of them for the length of a frame.
+        with self._threading_lock:
+            self.set_channel(image_settings.beam_type)
+            image = self.connection.imaging.grab_frame(frame_settings)
 
         # restore to full frame imaging
         if image_settings.reduced_area is not None:
@@ -2110,38 +2120,6 @@ class ThermoMicroscope(FibsemMicroscope):
         logging.debug({"msg": "acquire_image", "metadata": fibsem_image.metadata.to_dict()})
 
         return fibsem_image
-
-    def _acquire_image2(self, beam_type: BeamType, frame_settings: Optional['GrabFrameSettings'] = None) -> FibsemImage:
-        """
-        Acquire an image with the specified beam type and frame settings, and return it as a FibsemImage.
-        NOTE: this method is used for the acquisition worker thread, don't use it directly.
-
-        Args:
-            beam_type: The beam type to use for acquisition.
-            frame_settings: The frame settings for the acquisition (Optional).
-
-        Returns:
-            FibsemImage: The acquired image.
-        """
-        # set the active view and device
-        self.set_channel(channel=beam_type)
-        
-        # acquire the frame
-        adorned_image: AdornedImage = self.connection.imaging.grab_frame(settings=frame_settings)
-
-        # get the required metadata, convert to FibsemImage
-        state = self.get_microscope_state(beam_type=beam_type)
-        image_settings = self.get_imaging_settings(beam_type=beam_type)
-
-        image = fibsem_image_from_adorned_image(
-            copy.deepcopy(adorned_image),
-            copy.deepcopy(image_settings),
-            copy.deepcopy(state),
-        )
-
-        self._set_additional_metadata(image)
-
-        return image
 
     def acquire_image3(self, image_settings: Optional[ImageSettings] = None, beam_type: Optional[BeamType] = None) -> FibsemImage:
         """
@@ -2193,8 +2171,11 @@ class ThermoMicroscope(FibsemMicroscope):
 
         logging.info(f"acquiring new {effective_beam_type.name} image.")
 
-        self.set_channel(effective_beam_type)
-        adorned_image: AdornedImage = self.connection.imaging.grab_frame(frame_settings)
+        # Locked for the same reason as `acquire_image`, and just as narrowly: this is
+        # the path every `beam_type=`-only call takes, including the live worker's.
+        with self._threading_lock:
+            self.set_channel(effective_beam_type)
+            adorned_image: AdornedImage = self.connection.imaging.grab_frame(frame_settings)
 
         # QUERY: is this required, reduced area is only set for the grab_frame?
         # Restore full frame if reduced area was used (same as acquire_image)
