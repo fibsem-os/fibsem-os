@@ -9,7 +9,7 @@ The failure mode worth guarding is still a silent one: get the wiring wrong and 
 widget constructs, acquires, and simply draws nothing.
 
 Run directly (no display needed):
-    QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_viewer_less_widgets.py
+    QT_QPA_PLATFORM=offscreen python tests/ui/test_viewer_less_widgets.py
 """
 from __future__ import annotations
 
@@ -18,7 +18,12 @@ import sys
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import numpy as np
+import pytest
+
+# CI installs `.[test]`, not `.[ui]`, so PyQt5 is absent there. Without this the
+# module-level import below turns a skip into a collection error.
+pytest.importorskip("PyQt5")
+
 from PyQt5.QtWidgets import QApplication, QWidget
 
 from fibsem import utils
