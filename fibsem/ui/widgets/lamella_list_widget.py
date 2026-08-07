@@ -29,6 +29,9 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import IconToolButton
+from fibsem.ui.tokens import (
+    CANVAS_BG,
+)
 
 _NAME_MIN_WIDTH = 160
 _BTN_SIZE = QSize(32, 32)
@@ -43,7 +46,7 @@ class _LamellaTooltip(QWidget):
     def __init__(self) -> None:
         super().__init__(None, Qt.ToolTip | Qt.FramelessWindowHint)  # type: ignore[call-overload]
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
-        self.setStyleSheet("background: #1e2124; border: 1px solid #3a3d42;")
+        self.setStyleSheet(f"background: {CANVAS_BG}; border: 1px solid #3a3d42;")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -244,7 +247,7 @@ class _LamellaListHeader(QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setStyleSheet("background: #1e2124;")
+        self.setStyleSheet(f"background: {CANVAS_BG};")
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 4, 6, 4)

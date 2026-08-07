@@ -31,6 +31,9 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.tokens import (
+    WHITE_ICON_COLOR,
+)
 
 # Ordered by how often an FM sample makes them useless: magenta first, because
 # fluorescence channels are usually cyan/green/blue and rarely magenta.
@@ -39,7 +42,7 @@ GRID_COLORS = [
     ("Yellow", "#ffd54f"),
     ("Cyan", "#00e5ff"),
     ("Green", "#69f0ae"),
-    ("White", "#ffffff"),
+    ("White", f"{WHITE_ICON_COLOR}"),
 ]
 
 def _color_icon(color: str, size: int = 12) -> QIcon:

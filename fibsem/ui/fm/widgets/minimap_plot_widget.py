@@ -17,6 +17,9 @@ from fibsem import conversions
 from fibsem.conversions import is_inside_image_bounds
 from fibsem.structures import FibsemImage, FibsemStagePosition, Point
 from fibsem.imaging.tiled import reproject_stage_positions_onto_image2
+from fibsem.ui.tokens import (
+    SURFACE_COLOR,
+)
 try:
     from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
     from matplotlib.figure import Figure
@@ -96,7 +99,7 @@ class MinimapPlotWidget(QWidget):
         else:
             # Create matplotlib figure and canvas with napari-style dark theme
             self.figure = Figure(figsize=(6, 6), dpi=80)
-            self.figure.patch.set_facecolor("#262930")  # napari dark background
+            self.figure.patch.set_facecolor(f"{SURFACE_COLOR}")  # napari dark background
 
             self.canvas = FigureCanvas(self.figure)
             self.canvas.setMinimumSize(300, 300)

@@ -20,6 +20,9 @@ from fibsem.ui.icon import fibsem_icon
 from fibsem.microscopes._stage import GridSlot, SampleGrid, SampleHolder
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueSpinBox
+from fibsem.ui.tokens import (
+    CANVAS_BG,
+)
 
 _ROW_HEIGHT = 40
 _BTN_SIZE = QSize(32, 32)
@@ -134,7 +137,7 @@ class _GridSlotRowWidget(QWidget):
 class _GridListHeader(QWidget):
     def __init__(self, title: str = "Slots", parent=None):
         super().__init__(parent)
-        self.setStyleSheet("background: #1e2124;")
+        self.setStyleSheet(f"background: {CANVAS_BG};")
         self.setFixedHeight(_BTN_SIZE.height() + 8)
 
         layout = QHBoxLayout(self)

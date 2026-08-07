@@ -17,6 +17,10 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.tokens import (
+    ORANGE_COLOR,
+    SURFACE_COLOR,
+)
 
 _OVERLAY_BTN_STYLE = (
     "QPushButton { background: rgba(40,41,48,180); border: 1px solid #555;"
@@ -111,7 +115,7 @@ class LinePlotWidget(QWidget):
 
         # Create matplotlib figure and canvas with napari-style dark theme
         self.figure = Figure(figsize=(4, 3), dpi=80)
-        self.figure.patch.set_facecolor("#262930")
+        self.figure.patch.set_facecolor(f"{SURFACE_COLOR}")
 
         self.canvas = FigureCanvas(self.figure)
         self.canvas.setMinimumSize(200, 150)
@@ -207,7 +211,7 @@ class LinePlotWidget(QWidget):
 
     def _apply_dark_theme(self):
         """Apply napari-style dark theme to the axes."""
-        self.ax.set_facecolor("#262930")
+        self.ax.set_facecolor(f"{SURFACE_COLOR}")
         self.ax.tick_params(colors="white", which="both")
         self.ax.spines["bottom"].set_color("white")
         self.ax.spines["top"].set_color("white")
@@ -273,7 +277,7 @@ class LinePlotWidget(QWidget):
         )
         self.peak_rolling_mean_artist = self.ax.axhline(
             0,
-            color="#ff9800",
+            color=f"{ORANGE_COLOR}",
             linestyle="-",
             linewidth=1.2,
             alpha=0.85,
@@ -294,7 +298,7 @@ class LinePlotWidget(QWidget):
 
         # Set up legend in fixed top left corner
         self.legend = self.ax.legend(loc="upper left", fontsize=8)
-        self.legend.get_frame().set_facecolor("#262930")
+        self.legend.get_frame().set_facecolor(f"{SURFACE_COLOR}")
         self.legend.get_frame().set_edgecolor("white")
         for text in self.legend.get_texts():
             text.set_color("white")
@@ -429,7 +433,7 @@ class LinePlotWidget(QWidget):
             if legend_needs_update and self.legend is not None:
                 self.legend.remove()
                 self.legend = self.ax.legend(loc="upper left", fontsize=8)
-                self.legend.get_frame().set_facecolor("#262930")
+                self.legend.get_frame().set_facecolor(f"{SURFACE_COLOR}")
                 self.legend.get_frame().set_edgecolor("white")
                 for text in self.legend.get_texts():
                     text.set_color("white")
@@ -490,7 +494,7 @@ class LinePlotWidget(QWidget):
         self.updates_paused = not self.updates_paused
 
         if self.updates_paused:
-            self.pause_button.setIcon(fibsem_icon("mdi:play", color="#ff9800"))
+            self.pause_button.setIcon(fibsem_icon("mdi:play", color=f"{ORANGE_COLOR}"))
             self.pause_button.setToolTip("Resume live updates")
         else:
             self.pause_button.setIcon(fibsem_icon("mdi:pause", color="#aaaaaa"))

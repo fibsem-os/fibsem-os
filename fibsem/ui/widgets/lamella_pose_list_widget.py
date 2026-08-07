@@ -17,6 +17,9 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import IconToolButton
+from fibsem.ui.tokens import (
+    CANVAS_BG,
+)
 
 _NAME_WIDTH = 110
 _BTN_SIZE = QSize(32, 32)
@@ -75,7 +78,7 @@ class LamellaPoseRowWidget(QWidget):
 class _LamellaPoseListHeader(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setStyleSheet("background: #1e2124;")
+        self.setStyleSheet(f"background: {CANVAS_BG};")
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 4, 6, 4)

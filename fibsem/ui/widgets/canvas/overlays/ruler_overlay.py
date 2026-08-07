@@ -9,6 +9,9 @@ from fibsem.ui.stylesheets import CANVAS_BG as _BG
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 
 from typing import TYPE_CHECKING
+from fibsem.ui.tokens import (
+    WHITE_ICON_COLOR,
+)
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.canvas.canvas_base import ContentRect
@@ -178,7 +181,7 @@ class RulerOverlay(CanvasOverlay):
         self._label = self._ax.annotate(
             self._text(), xy=(mx, my), xytext=(0, 9),
             textcoords="offset points", ha="center", va="bottom",
-            fontsize=8, color="#ffffff", zorder=10,
+            fontsize=8, color=f"{WHITE_ICON_COLOR}", zorder=10,
             bbox=dict(boxstyle="round,pad=0.3", facecolor=_BG,
                       edgecolor=self._color, alpha=0.8, linewidth=0.8),
         )

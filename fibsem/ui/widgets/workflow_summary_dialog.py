@@ -37,6 +37,9 @@ from fibsem.ui.widgets.task_summary_formatting import (
     STATUS_CHIP_ORDER,
     format_duration_short,
 )
+from fibsem.ui.tokens import (
+    TEXT_MUTED_COLOR,
+)
 
 # Short local names for the shared palette. These appear inside dozens of
 # f-strings below, where the full names would wrap every one of them.
@@ -168,7 +171,7 @@ class WorkflowSummaryDialog(QDialog):
     @staticmethod
     def _make_chip(status: str, count: int) -> QLabel:
         """A pill label: coloured dot + 'N status'."""
-        dot_color, text_color = STATUS_BADGE_COLORS.get(status, ("#868e93", "#aeb4b9"))
+        dot_color, text_color = STATUS_BADGE_COLORS.get(status, (f"{TEXT_MUTED_COLOR}", "#aeb4b9"))
         bg = QColor(dot_color)
         bg_rgba = f"rgba({bg.red()}, {bg.green()}, {bg.blue()}, 0.15)"
         chip = QLabel(f'<span style="color:{dot_color};">&#9679;</span> {count} {status.lower()}')

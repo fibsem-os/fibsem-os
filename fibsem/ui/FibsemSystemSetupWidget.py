@@ -17,6 +17,9 @@ from fibsem.ui.utils import message_box_ui, open_existing_file_dialog
 from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
 )
+from fibsem.ui.tokens import (
+    WHITE_ICON_COLOR,
+)
 
 
 class FibsemSystemSetupWidget(QtWidgets.QWidget):
@@ -85,7 +88,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
 
         self._label_status_title = QtWidgets.QLabel("Microscope Connected")
         self._label_status_title.setStyleSheet(
-            "background-color: transparent; color: #ffffff; font-weight: bold; font-size: 11px; border: none;"
+            f"background-color: transparent; color: {WHITE_ICON_COLOR}; font-weight: bold; font-size: 11px; border: none;"
         )
 
         self._label_status_subtitle = QtWidgets.QLabel("")

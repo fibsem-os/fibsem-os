@@ -9,6 +9,10 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from fibsem.ui.tokens import (
+    SURFACE_COLOR,
+    WHITE_ICON_COLOR,
+)
 
 try:
     from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
@@ -53,7 +57,7 @@ class HistogramWidget(QWidget):
         else:
             # Create matplotlib figure and canvas with napari-style dark theme
             self.figure = Figure(figsize=(4, 3), dpi=80)
-            self.figure.patch.set_facecolor('#262930')  # napari dark background
+            self.figure.patch.set_facecolor(f'{SURFACE_COLOR}')  # napari dark background
             
             self.canvas = FigureCanvas(self.figure)
             self.canvas.setMinimumSize(200, 150)
@@ -100,7 +104,7 @@ class HistogramWidget(QWidget):
         if not MATPLOTLIB_AVAILABLE:
             return
             
-        self.ax.set_facecolor('#262930')  # napari dark background
+        self.ax.set_facecolor(f'{SURFACE_COLOR}')  # napari dark background
         self.ax.tick_params(colors='white', which='both')
         self.ax.spines['bottom'].set_color('white')
         self.ax.spines['top'].set_color('white')
@@ -135,7 +139,7 @@ class HistogramWidget(QWidget):
         # Create empty bars (will be updated with data)
         self.histogram_patches = self.ax.bar(bin_centers, np.zeros(self.n_bins), 
                                            width=bin_width, alpha=0.8, color='#0f7aad', 
-                                           edgecolor='#ffffff', animated=True)
+                                           edgecolor=f'{WHITE_ICON_COLOR}', animated=True)
         
         # Create mean line artist
         self.mean_line_artist = self.ax.axvline(0, color='#ff6600', linestyle='--', 

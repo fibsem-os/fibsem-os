@@ -25,6 +25,9 @@ from fibsem.structures import FibsemStagePosition
 from fibsem.ui import stylesheets
 from fibsem.ui.utils import message_box_ui
 from fibsem.ui.widgets.custom_widgets import IconToolButton
+from fibsem.ui.tokens import (
+    CANVAS_BG,
+)
 
 _NAME_MIN_WIDTH = 160
 _BTN_SIZE = QSize(32, 32)
@@ -116,7 +119,7 @@ class _SavedPositionListHeader(QWidget):
 
     def __init__(self, parent: QWidget = None) -> None:
         super().__init__(parent)
-        self.setStyleSheet("background: #1e2124;")
+        self.setStyleSheet(f"background: {CANVAS_BG};")
         self._setup_ui()
 
     def _setup_ui(self) -> None:

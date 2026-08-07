@@ -76,6 +76,9 @@ from fibsem.ui.widgets.lamella_workflow_widget import LamellaWorkflowWidget
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
 from fibsem.ui.widgets.workflow_timeline_widget import WorkflowProgressWidget
 from fibsem.utils import format_duration
+from fibsem.ui.tokens import (
+    TEXT_COLOR,
+)
 
 # Suppress a specific upstream Napari/NumPy warning from shapes miter computation.
 warnings.filterwarnings(
@@ -1382,7 +1385,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # Experiment name label
         self.experiment_name_label = QLabel("No Experiment")
-        self.experiment_name_label.setStyleSheet("color: #d6d6d6; font-size: 12px;")
+        self.experiment_name_label.setStyleSheet(f"color: {TEXT_COLOR}; font-size: 12px;")
 
         # Notification bell
         self.notification_bell = NotificationBell(self)

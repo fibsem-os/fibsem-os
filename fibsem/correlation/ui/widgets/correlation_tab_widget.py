@@ -110,6 +110,9 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
 )
 from fibsem.correlation.ui.widgets.refractive_index_widget import RefractiveIndexWidget
+from fibsem.ui.tokens import (
+    CANVAS_BG,
+)
 
 _FIT_METHODS = ["None", "Hole", "Gaussian"]
 
@@ -1599,7 +1602,7 @@ class CorrelationTabWidget(QWidget):
         right_layout.addWidget(self._tabs, stretch=1)
 
         run_bar = QWidget()
-        run_bar.setStyleSheet("background: #1e2124; border-top: 1px solid #3a3d42;")
+        run_bar.setStyleSheet(f"background: {CANVAS_BG}; border-top: 1px solid #3a3d42;")
         run_layout = QVBoxLayout(run_bar)
         run_layout.setContentsMargins(8, 6, 8, 6)
         run_layout.setSpacing(4)
@@ -2874,9 +2877,9 @@ class CorrelationTabWidget(QWidget):
         self._fib_canvas.reset_view()
         self._fm_display.canvas.reset_view()
 
-        fig, (ax_fib, ax_fm) = plt.subplots(1, 2, figsize=(16, 8), facecolor="#1e2124")
+        fig, (ax_fib, ax_fm) = plt.subplots(1, 2, figsize=(16, 8), facecolor=f"{CANVAS_BG}")
         for ax in (ax_fib, ax_fm):
-            ax.set_facecolor("#1e2124")
+            ax.set_facecolor(f"{CANVAS_BG}")
 
         self._fib_canvas.render_to_axes(ax_fib)
         ax_fib.set_title("FIB", color="white", fontsize=12)
