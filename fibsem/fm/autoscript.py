@@ -716,8 +716,13 @@ class ThermoFisherFluorescenceMicroscope(FluorescenceMicroscope):
         with self._channel_lock:
             if self._channel_depth == 0:
                 self._restore_view = self.connection.imaging.get_active_view()
-            self._channel_depth += 1
             self.set_active_channel()
+            # Counted only once the channel is actually ours. Raising here comes out of
+            # `__enter__`, so the caller's block never runs and the `finally` below never
+            # runs either -- a depth left too high would mean no later scope ever
+            # restored the view again. That is FIB-517 back, silently, for the rest of
+            # the session, and a dropped connection is enough to cause it.
+            self._channel_depth += 1
         try:
             yield
         finally:

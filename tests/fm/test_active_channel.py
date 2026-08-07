@@ -69,8 +69,8 @@ class _FM:
         with self._channel_lock:
             if self._channel_depth == 0:
                 self._restore_view = self.connection.imaging.get_active_view()
-            self._channel_depth += 1
             self.set_active_channel()
+            self._channel_depth += 1
         try:
             yield
         finally:
@@ -151,6 +151,54 @@ class TestTheContract:
             other.join(timeout=2)
 
         assert acquired.is_set(), "another thread could not take the lock mid-scope"
+
+    def test_a_failed_entry_does_not_poison_every_later_scope(self):
+        """Entering is two RPCs, and a dropped connection can fail the second.
+
+        That raises out of `__enter__`, so the caller's block never runs and the
+        `finally` never runs either. Counting the scope before the channel was actually
+        taken left the depth permanently too high -- every later scope then looked
+        nested, nothing ever restored the view again, and FIB-517 was back for the rest
+        of the session with nothing on screen to say so.
+        """
+        fm = _FM(view=1)
+
+        def connection_reset(device):
+            raise RuntimeError("connection reset")
+
+        fm.connection.imaging.set_active_device = connection_reset
+        with pytest.raises(RuntimeError):
+            with fm.active_channel():
+                pass
+
+        assert fm._channel_depth == 0, "a failed entry left a scope counted as open"
+
+        # And the next healthy scope still hands the view back.
+        fm.connection.imaging.set_active_device = lambda device: None
+        fm.connection.imaging.view = 1
+        with fm.active_channel():
+            pass
+
+        assert fm.connection.imaging.view == 1
+
+    def test_an_inner_scope_that_fails_leaves_the_outer_one_intact(self):
+        """The same failure one level down must not decrement the run's own scope: a
+        tileset still owns the channel, and its restore is still the outermost one."""
+        fm = _FM(view=1)
+
+        with fm.active_channel():
+            fm.connection.imaging.set_active_device = self._raises
+            with pytest.raises(RuntimeError):
+                with fm.active_channel():
+                    pass
+            assert fm._channel_depth == 1
+            fm.connection.imaging.set_active_device = lambda device: None
+
+        assert fm.connection.imaging.view == 1
+
+    @staticmethod
+    def _raises(device):
+        raise RuntimeError("connection reset")
 
     def test_set_active_channel_alone_does_not_restore(self):
         """The unscoped call still exists, for the live stream that owns the channel for
@@ -250,6 +298,43 @@ class TestTheRealDriverMatches:
             for block in locked
             for inner in ast.walk(block)
         ), "the lock is held across the body"
+
+    def test_the_scope_is_counted_only_after_the_channel_is_taken(self):
+        """Order matters, and only in one direction.
+
+        Entering is two RPCs. If the depth is incremented first and the second RPC then
+        fails, the exception comes out of `__enter__`, no `finally` ever runs, and the
+        count stays high forever -- after which every scope looks nested and nothing
+        restores the view again. Incrementing last costs nothing and cannot strand it.
+        """
+        import ast
+
+        node = self._functions(self._source())["active_channel"]
+        entry = next(
+            child
+            for child in ast.walk(node)
+            if isinstance(child, ast.With) and "set_active_channel" in ast.dump(child)
+        )
+
+        def index_of(predicate) -> int:
+            return next(i for i, stmt in enumerate(entry.body) if predicate(stmt))
+
+        took_it = index_of(
+            lambda stmt: any(
+                isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "set_active_channel"
+                for n in ast.walk(stmt)
+            )
+        )
+        counted_it = index_of(
+            lambda stmt: isinstance(stmt, ast.AugAssign)
+            and "_channel_depth" in ast.dump(stmt.target)
+        )
+        assert took_it < counted_it, (
+            "the scope is counted before the channel is taken, so a connection that "
+            "drops mid-entry leaves the depth permanently too high"
+        )
 
     def test_the_objective_state_getter_is_scoped(self):
         """The one that stopped a workflow task, named so a regression is legible."""
