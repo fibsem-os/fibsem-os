@@ -188,7 +188,9 @@ class AutoLamellaTaskConfigWidget(QWidget):
                 # A read-only row displays a value it cannot reconstruct; wiring
                 # it up would let a focus-out write the displayed text back.
                 if row.control.editable:
-                    row.control.connect(lambda name=row.field: self._on_parameter_changed(name))
+                    row.control.connect(
+                    lambda name=row.field: self._on_parameter_changed(name)
+                )
             self._update_visibility()
             self.task_params_collapsible.show()
         else:
@@ -304,7 +306,9 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
             # A read-only row displays a value it cannot reconstruct; wiring it
             # up would let a focus-out write the displayed text back.
             if row.control.editable:
-                row.control.connect(lambda name=row.field: self._on_parameter_changed(name))
+                row.control.connect(
+                    lambda name=row.field: self._on_parameter_changed(name)
+                )
         self._update_visibility()
         self.show()
 

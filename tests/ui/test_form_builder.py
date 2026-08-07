@@ -226,3 +226,27 @@ def test_blocking_reaches_the_inputs_of_a_compound_control(qapp):
 
     assert fired == []
     assert control.read() == Point(x=1e-6, y=1e-6)
+
+
+def test_connect_calls_the_slot_with_no_arguments(qapp):
+    """The signals carry different payloads; a form wants none of them.
+
+    PyQt sizes the call to whatever the slot accepts, so a one-argument slot
+    silently receives the payload instead of whatever it closed over. The task
+    form captured its field name that way and every spinbox, checkbox and combo
+    edit was dropped in silence, so the normalisation lives here rather than at
+    each call site.
+    """
+    received = []
+
+    for metadata, value, drive in [
+        (meta(type=float, minimum=-10.0), 1.0, lambda w: w.setValue(2.0)),
+        (meta(type=int), 1, lambda w: w.setValue(2)),
+        (meta(), True, lambda w: w.setChecked(False)),
+        (meta(items=["a", "b"]), "a", lambda w: w.setCurrentIndex(1)),
+    ]:
+        control = build_control(metadata, value)
+        control.connect(lambda captured="field": received.append(captured))
+        drive(control.widget)
+
+    assert received == ["field"] * 4

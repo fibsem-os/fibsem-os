@@ -101,9 +101,23 @@ class Control:
             self.inputs = (self.widget,)
 
     def connect(self, slot: Callable[[], None]) -> None:
-        """Wire every signal that means "the user edited this"."""
+        """Wire every signal that means "the user edited this".
+
+        The slot is always called with **no arguments**. The signals behind a
+        control carry different payloads -- `valueChanged` a number, `toggled` a
+        bool, `currentIndexChanged` an index, `editingFinished` nothing -- and a
+        form wants none of them; it calls `read()` instead.
+
+        Normalising here rather than at each call site is deliberate. PyQt sizes
+        the call to whatever the slot will accept, so a slot that takes one
+        argument silently receives the payload. That is not hypothetical: the
+        task form captured its field name with `lambda name=field:`, PyQt passed
+        `valueChanged`'s float as `name`, and every spinbox, checkbox and combo
+        edit was dropped without a word (FIB-526). A slot that genuinely cannot
+        take zero arguments now raises instead.
+        """
         for signal in self.signals:
-            signal.connect(slot)
+            signal.connect(lambda *_: slot())
 
     def set_blocked(self, blocked: bool) -> None:
         """Block or unblock the inputs, so a programmatic write is not echoed back."""
