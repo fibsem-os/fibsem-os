@@ -481,9 +481,11 @@ class ContextMenu(QMenu):
         except Exception:
             logging.exception("Context menu action '%s' raised an exception.", menu_action.label)
             try:
-                from napari.utils import notifications
+                from fibsem.ui import notification_service
 
-                notifications.show_warning(f"Action '{menu_action.label}' failed.")
+                notification_service.show_toast(
+                    f"Action '{menu_action.label}' failed.", "warning"
+                )
             except Exception:
                 pass
 

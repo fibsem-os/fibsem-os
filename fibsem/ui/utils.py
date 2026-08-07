@@ -411,15 +411,18 @@ if __name__ == "__main__":
                                array_size=array_size,
                                orange_size=orange_size,
                                green_size=green_size)
-    import napari
+    # Standalone harness: matplotlib rather than a napari labels layer (FIB-407).
+    # Extent is in metres so the axes carry the same scale the napari scale bar did.
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import BoundaryNorm, ListedColormap
 
-    cmap = {0: 'red', 1: 'orange', 2: 'green'}
+    cmap = ListedColormap(['red', 'orange', 'green'])
+    norm = BoundaryNorm([0, 1, 2, 3], cmap.N)
 
-    viewer = napari.view_labels(grid,
-                                name="Grid Overlay",
-                                scale=(pixelsize, pixelsize),
-                                colormap=cmap)
-    viewer.scale_bar.visible = True
-    viewer.scale_bar.unit = "m"
-
-    napari.run()
+    extent = (0, grid.shape[1] * pixelsize, grid.shape[0] * pixelsize, 0)
+    fig, ax = plt.subplots()
+    ax.imshow(grid, cmap=cmap, norm=norm, extent=extent, interpolation="nearest")
+    ax.set_title("Grid Overlay")
+    ax.set_xlabel("m")
+    ax.set_ylabel("m")
+    plt.show()
