@@ -30,6 +30,9 @@ from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from fibsem.ui.stylesheets import CANVAS_BG, GRAY_WHITE_COLOR, OK_COLOR
+from fibsem.ui.tokens import (
+    NEUTRAL_450,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -199,7 +202,7 @@ class TiledOverviewWidget(QWidget):
         self._ax.set_facecolor(_COLOR_BG)
 
         self._status = QLabel()
-        self._status.setStyleSheet("color: #AAAAAA; font-size: 11px; padding: 2px 4px;")
+        self._status.setStyleSheet(f"color: {NEUTRAL_450}; font-size: 11px; padding: 2px 4px;")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)

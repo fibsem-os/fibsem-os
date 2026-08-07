@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import (
 from fibsem.fm.structures import ChannelSettings, ZParameters, FMStagePosition
 from fibsem.fm.timing import estimate_positions_acquisition_time
 from fibsem.ui.stylesheets import (
+    NEUTRAL_650,
     RUN_WORKFLOW_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
@@ -50,7 +51,7 @@ class AcquisitionSummaryDialog(QDialog):
             position_list_text += f"\n  • ... and {len(position_names) - 10} more"
 
         position_details = QLabel(position_list_text)
-        position_details.setStyleSheet("font-size: 10px; color: #666666;")
+        position_details.setStyleSheet(f"font-size: 10px; color: {NEUTRAL_650};")
         layout.addWidget(position_details)
 
         # Channel information
@@ -60,7 +61,7 @@ class AcquisitionSummaryDialog(QDialog):
 
         for i, channel in enumerate(self.channel_settings):
             channel_details = QLabel(channel.pretty_name)
-            channel_details.setStyleSheet("font-size: 10px; color: #666666;")
+            channel_details.setStyleSheet(f"font-size: 10px; color: {NEUTRAL_650};")
             layout.addWidget(channel_details)
 
         # Z-stack information
@@ -72,7 +73,7 @@ class AcquisitionSummaryDialog(QDialog):
             z_details = QLabel("No Z-Stack")
         zlabel = QLabel("Z-Stack: " + str(num_planes) + " planes")
         zlabel.setStyleSheet("font-weight: bold; font-size: 12px;")
-        z_details.setStyleSheet("font-size: 10px; color: #666666;")
+        z_details.setStyleSheet(f"font-size: 10px; color: {NEUTRAL_650};")
         layout.addWidget(zlabel)
         layout.addWidget(z_details)
         
@@ -82,7 +83,7 @@ class AcquisitionSummaryDialog(QDialog):
         layout.addWidget(autofocus_label)
         
         autofocus_details = QLabel("Autofocus will run at each position before acquisition" if self.use_autofocus else "No autofocus will be performed")
-        autofocus_details.setStyleSheet("font-size: 10px; color: #666666;")
+        autofocus_details.setStyleSheet(f"font-size: 10px; color: {NEUTRAL_650};")
         layout.addWidget(autofocus_details)
 
         # Time estimation

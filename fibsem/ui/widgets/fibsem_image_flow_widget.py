@@ -22,6 +22,8 @@ from fibsem.ui.icon import fibsem_icon
 
 from fibsem.structures import FibsemImage
 from fibsem.ui.tokens import (
+    NEUTRAL_300,
+    NEUTRAL_900,
     SURFACE_COLOR,
 )
 
@@ -81,7 +83,7 @@ class FibsemImageCard(QWidget):
         super().__init__(parent)
         self._title = title
         self.setFixedSize(_CARD_WIDTH, _CARD_HEIGHT + 24)
-        self.setStyleSheet("background: #1a1b1e; border-radius: 6px;")
+        self.setStyleSheet(f"background: {NEUTRAL_900}; border-radius: 6px;")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -100,7 +102,7 @@ class FibsemImageCard(QWidget):
 
         # Zoom button — top-right of the image container
         self._zoom_btn = QPushButton(img_container)
-        self._zoom_btn.setIcon(fibsem_icon("mdi:magnify", color="#cccccc"))
+        self._zoom_btn.setIcon(fibsem_icon("mdi:magnify", color=NEUTRAL_300))
         self._zoom_btn.setFixedSize(28, 28)
         self._zoom_btn.setStyleSheet(
             "QPushButton {"
@@ -117,7 +119,7 @@ class FibsemImageCard(QWidget):
         if title:
             title_label = QLabel(title)
             title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            title_label.setStyleSheet("color: #cccccc; font-size: 11px; background: transparent;")
+            title_label.setStyleSheet(f"color: {NEUTRAL_300}; font-size: 11px; background: transparent;")
             title_label.setFixedHeight(20)
             layout.addWidget(title_label)
 

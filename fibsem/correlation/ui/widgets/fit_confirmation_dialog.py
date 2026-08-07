@@ -28,6 +28,7 @@ from fibsem.correlation.structures import Coordinate, PointXYZ
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import (
     CANVAS_BG,
+    NEUTRAL_300,
     TEXT_MUTED_COLOR,
 )
 
@@ -155,7 +156,7 @@ def _fmt_delta(initial: PointXYZ, fitted: PointXYZ) -> str:
     )
 
 
-def _kv(key: str, value: str, value_color: str = "#d0d0d0") -> QWidget:
+def _kv(key: str, value: str, value_color: str = NEUTRAL_300) -> QWidget:
     w = QWidget()
     row = QHBoxLayout(w)
     row.setContentsMargins(0, 0, 0, 0)
@@ -187,7 +188,7 @@ class FitConfirmationDialog(QDialog):
         self._result = result
         self.setWindowTitle("Confirm fit")
         self.setModal(True)
-        self.setStyleSheet(f"background: {CANVAS_BG}; color: #d0d0d0;")
+        self.setStyleSheet(f"background: {CANVAS_BG}; color: {NEUTRAL_300};")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 14, 14, 12)

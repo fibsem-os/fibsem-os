@@ -22,6 +22,9 @@ from fibsem.applications.autolamella.structures import DefectState, DefectType, 
 from fibsem.ui.widgets.lamella_list_widget import _defect_icon, _status_text
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import (
+    NEUTRAL_200,
+    NEUTRAL_550,
+    NEUTRAL_900,
     SURFACE_COLOR,
 )
 
@@ -104,7 +107,7 @@ class LamellaCardWidget(QWidget):
         self._thumb_label = QLabel()
         self._thumb_label.setFixedSize(_thumb_w, _THUMB_HEIGHT)
         self._thumb_label.setAlignment(Qt.AlignCenter)
-        self._thumb_label.setStyleSheet("background: #1a1b1e; border-radius: 4px;")
+        self._thumb_label.setStyleSheet(f"background: {NEUTRAL_900}; border-radius: 4px;")
         card_layout.addWidget(self._thumb_label)
 
         # ── divider ─────────────────────────────────────────────────────
@@ -126,7 +129,7 @@ class LamellaCardWidget(QWidget):
 
         self._name_label = QLabel()
         self._name_label.setStyleSheet(
-            "font-size: 13px; font-weight: bold; color: #e0e0e0; background: transparent;"
+            f"font-size: 13px; font-weight: bold; color: {NEUTRAL_200}; background: transparent;"
         )
         name_row.addWidget(self._name_label, 1)
 
@@ -162,7 +165,7 @@ class LamellaCardWidget(QWidget):
 
         self._status_label = QLabel()
         self._status_label.setStyleSheet(
-            "font-size: 11px; color: #909090; background: transparent;"
+            f"font-size: 11px; color: {NEUTRAL_550}; background: transparent;"
         )
         self._status_label.setWordWrap(True)
         info_layout.addWidget(self._status_label)

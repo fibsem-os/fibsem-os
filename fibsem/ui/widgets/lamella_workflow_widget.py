@@ -30,6 +30,7 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
 )
 from fibsem.ui.tokens import (
+    NEUTRAL_500,
     PRIMARY_COLOR,
     SURFACE_COLOR,
     TEXT_COLOR,
@@ -229,7 +230,7 @@ class LamellaWorkflowWidget(QWidget):
             "Drag to reorder  \u2022  click supervision icon to toggle  \u2022  use \u270e to edit task details"
         )
         self._instructions_label.setStyleSheet(
-            "color: #a0a0a0; font-size: 10px; padding: 2px 6px 4px 6px;"
+            f"color: {NEUTRAL_500}; font-size: 10px; padding: 2px 6px 4px 6px;"
         )
         root.addWidget(self._instructions_label)
 

@@ -79,6 +79,36 @@ DISABLED_BG_COLOR = "#2d313b"   # disabled control background
 DISABLED_TEXT_COLOR = "#6b6b6b" # disabled label and control text
 
 # ---------------------------------------------------------------------------
+# Neutral ramp
+#
+# A second palette, and a deliberate one. Everything above is faintly blue --
+# BORDER_COLOR is #3d4251, not a grey -- which is right for the app's chrome and
+# wrong behind image data, where a colour cast reads as part of the picture. So
+# the plot and canvas widgets built their own neutral scale: 30 pure greys
+# across 167 uses, concentrated in minimap_plot_widget, fluorescence_plot_widget
+# and canvas_base.
+#
+# It was never written down, so it drifted -- #e0e0e0 and #dddddd and #e6e6e6
+# all doing the same job. These are the rungs that carry real weight; naming
+# them is what stops the next one being invented.
+#
+# Numbered rather than role-named, unlike the palette above, because a neutral
+# does not have one role: #909090 is an axis label here and a disabled glyph
+# there. The number tracks darkness, so NEUTRAL_900 is nearly black.
+NEUTRAL_200 = "#e0e0e0"
+NEUTRAL_300 = "#d0d0d0"
+NEUTRAL_400 = "#bbbbbb"
+NEUTRAL_450 = "#aaaaaa"
+NEUTRAL_500 = "#a0a0a0"
+NEUTRAL_550 = "#909090"
+NEUTRAL_650 = "#666666"
+NEUTRAL_700 = "#606060"
+NEUTRAL_750 = "#4a4a4a"
+NEUTRAL_800 = "#3a3a3a"
+NEUTRAL_850 = "#2a2a2a"
+NEUTRAL_900 = "#1a1b1e"
+
+# ---------------------------------------------------------------------------
 # Deprecated aliases.
 #
 # Each of these was a second literal spelling of the colour above it, which is

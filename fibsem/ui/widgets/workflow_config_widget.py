@@ -30,6 +30,7 @@ from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import IconToolButton
 from fibsem.ui.tokens import (
     CANVAS_BG,
+    NEUTRAL_700,
 )
 
 _DRAG_HANDLE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "icons", "drag_handle.svg")
@@ -170,7 +171,7 @@ class WorkflowTaskRowWidget(QWidget):
                 f"Scheduled: {self.task.scheduled_at.strftime(DATETIME_DISPLAY_AMPM)}"
             )
         else:
-            self.btn_schedule.setIcon(fibsem_icon("mdi:clock-outline", color="#606060"))
+            self.btn_schedule.setIcon(fibsem_icon("mdi:clock-outline", color=NEUTRAL_700))
             self.btn_schedule.setToolTip("Not scheduled — click to set")
 
 

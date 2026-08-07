@@ -17,12 +17,13 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowOptions,
 )
 from fibsem.ui.tokens import (
+    NEUTRAL_500,
     PANEL_COLOR,
     SURFACE_COLOR,
     TEXT_COLOR,
 )
 
-_LABEL_STYLE = "color: #a0a0a0; min-width: 80px; font-size: 11px;"
+_LABEL_STYLE = f"color: {NEUTRAL_500}; min-width: 80px; font-size: 11px;"
 _SECTION_STYLE = (
     "font-size: 10px; font-weight: bold; color: #707070;"
     " padding: 4px 0px 2px 0px; letter-spacing: 0.5px;"

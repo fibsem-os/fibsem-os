@@ -19,6 +19,7 @@ from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import IconToolButton
 from fibsem.ui.tokens import (
     CANVAS_BG,
+    NEUTRAL_550,
 )
 
 _NAME_WIDTH = 110
@@ -51,7 +52,7 @@ class LamellaPoseRowWidget(QWidget):
         layout.addWidget(self.name_label)
 
         self.position_label = QLabel(pretty)
-        self.position_label.setStyleSheet("background: transparent; color: #909090;")
+        self.position_label.setStyleSheet(f"background: transparent; color: {NEUTRAL_550};")
         layout.addWidget(self.position_label, 1)
 
         self.btn_update = IconToolButton(

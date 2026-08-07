@@ -18,6 +18,7 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
 )
 from fibsem.ui.tokens import (
+    NEUTRAL_500,
     WHITE_ICON_COLOR,
 )
 
@@ -93,7 +94,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
 
         self._label_status_subtitle = QtWidgets.QLabel("")
         self._label_status_subtitle.setStyleSheet(
-            "background-color: transparent; color: #a0a0a0; font-size: 10px; border: none;"
+            f"background-color: transparent; color: {NEUTRAL_500}; font-size: 10px; border: none;"
         )
 
         text_layout.addWidget(self._label_status_title)
@@ -102,19 +103,19 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         layout.addStretch()
 
         self._button_disconnect = QtWidgets.QPushButton("Disconnect")
-        self._button_disconnect.setStyleSheet("""
-            QPushButton {
+        self._button_disconnect.setStyleSheet(f"""
+            QPushButton {{
                 background-color: transparent;
-                color: #a0a0a0;
+                color: {NEUTRAL_500};
                 border: 1px solid #3d4251;
                 border-radius: 3px;
                 padding: 3px 8px;
                 font-size: 10px;
-            }
-            QPushButton:hover {
+            }}
+            QPushButton:hover {{
                 color: #f44336;
                 border-color: #f44336;
-            }
+            }}
         """)
         self._button_disconnect.clicked.connect(self.connect_to_microscope)
         layout.addWidget(self._button_disconnect)
@@ -134,7 +135,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
 
         self.pushButton_apply_configuration.clicked.connect(lambda: self.apply_microscope_configuration(None))
         self.pushButton_apply_configuration.setToolTip("Apply configuration can take some time. Please make sure the microscope beams are both on.")
-        self.toolButton_import_configuration.setIcon(fibsem_icon("mdi:add", color="#a0a0a0"))
+        self.toolButton_import_configuration.setIcon(fibsem_icon("mdi:add", color=NEUTRAL_500))
 
     def load_configuration(self, configuration_name: Optional[str] = None) -> Optional[str]:
         if configuration_name is None:

@@ -34,6 +34,10 @@ from fibsem.fm.preview import is_fluorescence_image, load_projection
 from fibsem.imaging.drawing import draw_image_overlays
 from fibsem.structures import FibsemImage
 from fibsem.ui.tokens import (
+    NEUTRAL_200,
+    NEUTRAL_400,
+    NEUTRAL_550,
+    NEUTRAL_900,
     SURFACE_COLOR,
 )
 
@@ -243,7 +247,7 @@ class LamellaTaskImageWidget(QWidget):
         self._content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self._empty_label = QLabel("Select a lamella card to view task images.")
-        self._empty_label.setStyleSheet("color: #909090; font-size: 12px;")
+        self._empty_label.setStyleSheet(f"color: {NEUTRAL_550}; font-size: 12px;")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._content_layout.addWidget(self._empty_label)
 
@@ -293,7 +297,7 @@ class LamellaTaskImageWidget(QWidget):
 
         if self._lamella is None:
             label = QLabel("Select a lamella card to view task images.")
-            label.setStyleSheet("color: #909090; font-size: 12px;")
+            label.setStyleSheet(f"color: {NEUTRAL_550}; font-size: 12px;")
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._content_layout.addWidget(label)
             return
@@ -303,7 +307,7 @@ class LamellaTaskImageWidget(QWidget):
         # Header: lamella name
         name_label = QLabel(lamella.name)
         name_label.setStyleSheet(
-            "font-size: 14px; font-weight: bold; color: #e0e0e0; background: transparent;"
+            f"font-size: 14px; font-weight: bold; color: {NEUTRAL_200}; background: transparent;"
         )
         self._content_layout.addWidget(name_label)
 
@@ -315,7 +319,7 @@ class LamellaTaskImageWidget(QWidget):
             subtitle = "No completed tasks"
         subtitle_label = QLabel(subtitle)
         subtitle_label.setStyleSheet(
-            "font-size: 11px; color: #909090; background: transparent;"
+            f"font-size: 11px; color: {NEUTRAL_550}; background: transparent;"
         )
         self._content_layout.addWidget(subtitle_label)
 
@@ -329,7 +333,7 @@ class LamellaTaskImageWidget(QWidget):
             runs.setdefault(t.name, []).append(t)
         if not runs:
             no_images = QLabel("No task images available.")
-            no_images.setStyleSheet("color: #909090; font-size: 11px;")
+            no_images.setStyleSheet(f"color: {NEUTRAL_550}; font-size: 11px;")
             self._content_layout.addWidget(no_images)
             self._content_layout.addStretch(1)
             return
@@ -386,7 +390,7 @@ class LamellaTaskImageWidget(QWidget):
         # Task label
         task_label = QLabel(task_name)
         task_label.setStyleSheet(
-            "font-size: 12px; font-weight: 600; color: #bbbbbb; background: transparent;"
+            f"font-size: 12px; font-weight: 600; color: {NEUTRAL_400}; background: transparent;"
         )
         layout.addWidget(task_label)
 
@@ -412,7 +416,7 @@ class LamellaTaskImageWidget(QWidget):
         for index, fpath in enumerate(filenames):
             img_label = ClickableLabel(fpath)
             img_label.setFixedSize(_TARGET_WIDTH, _PLACEHOLDER_HEIGHT)
-            img_label.setStyleSheet("background: #1a1b1e; border-radius: 4px;")
+            img_label.setStyleSheet(f"background: {NEUTRAL_900}; border-radius: 4px;")
             img_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             img_label.setText("Loading...")
             row, column = divmod(index, _IMAGES_PER_LINE)

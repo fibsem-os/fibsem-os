@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.fm.structures import FMStagePosition
 from fibsem.ui.stylesheets import (
+    NEUTRAL_650,
     PRIMARY_BUTTON_STYLESHEET,
     RUN_WORKFLOW_BUTTON_STYLESHEET,
     STOP_WORKFLOW_BUTTON_STYLESHEET,
@@ -64,7 +65,7 @@ class SavedPositionsWidget(QWidget):
 
         # Position info label
         self.label_position_info = QLabel("No positions saved", self)
-        self.label_position_info.setStyleSheet("QLabel { color: #666666; font-size: 10px; }")
+        self.label_position_info.setStyleSheet(f"QLabel {{ color: {NEUTRAL_650}; font-size: 10px; }}")
         self.label_position_info.setWordWrap(True)
 
         # Auto Focus checkbox

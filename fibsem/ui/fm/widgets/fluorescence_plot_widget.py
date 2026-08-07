@@ -17,6 +17,10 @@ from PyQt5.QtWidgets import (
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.fm.plotting import plot_fluorescence_image
 from fibsem.ui.tokens import (
+    NEUTRAL_400,
+    NEUTRAL_750,
+    NEUTRAL_800,
+    NEUTRAL_850,
     SURFACE_COLOR,
 )
 
@@ -80,20 +84,20 @@ class FluorescencePlotWidget(QWidget):
             self.load_image_button = QToolButton(self)
             self.load_image_button.setText("Load Image")
             self.load_image_button.setToolTip("Load a fluorescence image file")
-            self.load_image_button.setStyleSheet("""
-                QToolButton {
-                    background-color: #3a3a3a;
+            self.load_image_button.setStyleSheet(f"""
+                QToolButton {{
+                    background-color: {NEUTRAL_800};
                     color: white;
                     border: 1px solid #555;
                     padding: 4px 8px;
                     font-size: 10px;
-                }
-                QToolButton:hover {
-                    background-color: #4a4a4a;
-                }
-                QToolButton:pressed {
-                    background-color: #2a2a2a;
-                }
+                }}
+                QToolButton:hover {{
+                    background-color: {NEUTRAL_750};
+                }}
+                QToolButton:pressed {{
+                    background-color: {NEUTRAL_850};
+                }}
             """)
             self.load_image_button.clicked.connect(self._on_load_image_clicked)
             button_layout.addWidget(self.load_image_button)
@@ -129,24 +133,24 @@ class FluorescencePlotWidget(QWidget):
 
         # Create navigation toolbar
         self.toolbar = NavigationToolbar(self.canvas, self)
-        self.toolbar.setStyleSheet("""
-            QToolBar {
-                background-color: #3a3a3a;
+        self.toolbar.setStyleSheet(f"""
+            QToolBar {{
+                background-color: {NEUTRAL_800};
                 border: 1px solid #555;
                 spacing: 3px;
-            }
-            QToolButton {
-                background-color: #3a3a3a;
+            }}
+            QToolButton {{
+                background-color: {NEUTRAL_800};
                 color: white;
                 border: 1px solid #555;
                 padding: 3px;
-            }
-            QToolButton:hover {
-                background-color: #4a4a4a;
-            }
-            QToolButton:pressed {
-                background-color: #2a2a2a;
-            }
+            }}
+            QToolButton:hover {{
+                background-color: {NEUTRAL_750};
+            }}
+            QToolButton:pressed {{
+                background-color: {NEUTRAL_850};
+            }}
         """)
 
         # Clear the plot layout and add new widgets
@@ -192,7 +196,7 @@ class FluorescencePlotWidget(QWidget):
             verticalalignment="center",
             transform=self.ax.transAxes,
             fontsize=12,
-            color="#bbbbbb",
+            color=NEUTRAL_400,
         )
         self.ax.set_title("Fluorescence Image")
         self.ax.axis("off")
@@ -227,15 +231,15 @@ class FluorescencePlotWidget(QWidget):
 
         # Create "All Channels" radio button
         all_channels_button = QRadioButton("All Channels", self)
-        all_channels_button.setStyleSheet("""
-            QRadioButton {
-                color: #bbbbbb;
+        all_channels_button.setStyleSheet(f"""
+            QRadioButton {{
+                color: {NEUTRAL_400};
                 font-size: 10px;
-            }
-            QRadioButton::indicator {
+            }}
+            QRadioButton::indicator {{
                 width: 13px;
                 height: 13px;
-            }
+            }}
         """)
         # Set "All Channels" as checked if that's the current selection
         if self.selected_channel_idx is None:
@@ -250,15 +254,15 @@ class FluorescencePlotWidget(QWidget):
         for i, channel_metadata in enumerate(self.image.metadata.channels):
             channel_name = channel_metadata.name or f"Channel {i+1}"
             radio_button = QRadioButton(channel_name, self)
-            radio_button.setStyleSheet("""
-                QRadioButton {
-                    color: #bbbbbb;
+            radio_button.setStyleSheet(f"""
+                QRadioButton {{
+                    color: {NEUTRAL_400};
                     font-size: 10px;
-                }
-                QRadioButton::indicator {
+                }}
+                QRadioButton::indicator {{
                     width: 13px;
                     height: 13px;
-                }
+                }}
             """)
 
             # Set as checked if this is the currently selected channel
@@ -325,24 +329,24 @@ class FluorescencePlotWidget(QWidget):
 
             # Create new toolbar with the new canvas
             self.toolbar = NavigationToolbar(self.canvas, self)
-            self.toolbar.setStyleSheet("""
-                QToolBar {
-                    background-color: #3a3a3a;
+            self.toolbar.setStyleSheet(f"""
+                QToolBar {{
+                    background-color: {NEUTRAL_800};
                     border: 1px solid #555;
                     spacing: 3px;
-                }
-                QToolButton {
-                    background-color: #3a3a3a;
+                }}
+                QToolButton {{
+                    background-color: {NEUTRAL_800};
                     color: white;
                     border: 1px solid #555;
                     padding: 3px;
-                }
-                QToolButton:hover {
-                    background-color: #4a4a4a;
-                }
-                QToolButton:pressed {
-                    background-color: #2a2a2a;
-                }
+                }}
+                QToolButton:hover {{
+                    background-color: {NEUTRAL_750};
+                }}
+                QToolButton:pressed {{
+                    background-color: {NEUTRAL_850};
+                }}
             """)
 
             # Clear the plot layout and add new widgets

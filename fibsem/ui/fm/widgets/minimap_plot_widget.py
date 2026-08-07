@@ -18,6 +18,10 @@ from fibsem.conversions import is_inside_image_bounds
 from fibsem.structures import FibsemImage, FibsemStagePosition, Point
 from fibsem.imaging.tiled import reproject_stage_positions_onto_image2
 from fibsem.ui.tokens import (
+    NEUTRAL_400,
+    NEUTRAL_750,
+    NEUTRAL_800,
+    NEUTRAL_850,
     SURFACE_COLOR,
 )
 try:
@@ -129,80 +133,80 @@ class MinimapPlotWidget(QWidget):
             self.load_image_button = QToolButton(self)
             self.load_image_button.setText("Load Image")
             self.load_image_button.setToolTip("Load an image file for the minimap")
-            self.load_image_button.setStyleSheet("""
-                QToolButton {
-                    background-color: #3a3a3a;
+            self.load_image_button.setStyleSheet(f"""
+                QToolButton {{
+                    background-color: {NEUTRAL_800};
                     color: white;
                     border: 1px solid #555;
                     padding: 4px 8px;
                     font-size: 10px;
-                }
-                QToolButton:hover {
-                    background-color: #4a4a4a;
-                }
-                QToolButton:pressed {
-                    background-color: #2a2a2a;
-                }
+                }}
+                QToolButton:hover {{
+                    background-color: {NEUTRAL_750};
+                }}
+                QToolButton:pressed {{
+                    background-color: {NEUTRAL_850};
+                }}
             """)
             self.load_image_button.clicked.connect(self._on_load_image_clicked)
             button_layout.addWidget(self.load_image_button)
 
             # Refresh button
             self.refresh_button = QPushButton("Refresh", self)
-            self.refresh_button.setStyleSheet("""
-                QPushButton {
-                    background-color: #3a3a3a;
+            self.refresh_button.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {NEUTRAL_800};
                     color: white;
                     border: 1px solid #555;
                     padding: 4px 8px;
                     font-size: 10px;
-                }
-                QPushButton:hover {
-                    background-color: #4a4a4a;
-                }
-                QPushButton:pressed {
-                    background-color: #2a2a2a;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {NEUTRAL_750};
+                }}
+                QPushButton:pressed {{
+                    background-color: {NEUTRAL_850};
+                }}
             """)
             self.refresh_button.clicked.connect(self.update_minimap)
             button_layout.addWidget(self.refresh_button)
 
             # Reset Zoom button
             self.reset_zoom_button = QPushButton("Reset Zoom", self)
-            self.reset_zoom_button.setStyleSheet("""
-                QPushButton {
-                    background-color: #3a3a3a;
+            self.reset_zoom_button.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {NEUTRAL_800};
                     color: white;
                     border: 1px solid #555;
                     padding: 4px 8px;
                     font-size: 10px;
-                }
-                QPushButton:hover {
-                    background-color: #4a4a4a;
-                }
-                QPushButton:pressed {
-                    background-color: #2a2a2a;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {NEUTRAL_750};
+                }}
+                QPushButton:pressed {{
+                    background-color: {NEUTRAL_850};
+                }}
             """)
             self.reset_zoom_button.clicked.connect(self.reset_zoom)
             button_layout.addWidget(self.reset_zoom_button)
 
             # Clear button
             self.clear_button = QPushButton("Clear", self)
-            self.clear_button.setStyleSheet("""
-                QPushButton {
-                    background-color: #3a3a3a;
+            self.clear_button.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {NEUTRAL_800};
                     color: white;
                     border: 1px solid #555;
                     padding: 4px 8px;
                     font-size: 10px;
-                }
-                QPushButton:hover {
-                    background-color: #4a4a4a;
-                }
-                QPushButton:pressed {
-                    background-color: #2a2a2a;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {NEUTRAL_750};
+                }}
+                QPushButton:pressed {{
+                    background-color: {NEUTRAL_850};
+                }}
             """)
             self.clear_button.clicked.connect(self.clear_minimap)
             button_layout.addWidget(self.clear_button)
@@ -215,15 +219,15 @@ class MinimapPlotWidget(QWidget):
             # Show names checkbox
             self.show_names_checkbox = QCheckBox("Show Names", self)
             self.show_names_checkbox.setChecked(self.show_names)
-            self.show_names_checkbox.setStyleSheet("""
-                QCheckBox {
-                    color: #bbbbbb;
+            self.show_names_checkbox.setStyleSheet(f"""
+                QCheckBox {{
+                    color: {NEUTRAL_400};
                     font-size: 10px;
-                }
-                QCheckBox::indicator {
+                }}
+                QCheckBox::indicator {{
                     width: 13px;
                     height: 13px;
-                }
+                }}
             """)
             self.show_names_checkbox.stateChanged.connect(self._on_show_names_changed)
             checkbox_layout1.addWidget(self.show_names_checkbox)
@@ -231,15 +235,15 @@ class MinimapPlotWidget(QWidget):
             # Show current FOV checkbox
             self.show_current_fov_checkbox = QCheckBox("Current FOV", self)
             self.show_current_fov_checkbox.setChecked(self.show_current_fov)
-            self.show_current_fov_checkbox.setStyleSheet("""
-                QCheckBox {
-                    color: #bbbbbb;
+            self.show_current_fov_checkbox.setStyleSheet(f"""
+                QCheckBox {{
+                    color: {NEUTRAL_400};
                     font-size: 10px;
-                }
-                QCheckBox::indicator {
+                }}
+                QCheckBox::indicator {{
                     width: 13px;
                     height: 13px;
-                }
+                }}
             """)
             self.show_current_fov_checkbox.stateChanged.connect(self._on_show_current_fov_changed)
             checkbox_layout1.addWidget(self.show_current_fov_checkbox)
@@ -253,15 +257,15 @@ class MinimapPlotWidget(QWidget):
             # Show grid positions checkbox
             self.show_grid_positions_checkbox = QCheckBox("Grid Positions", self)
             self.show_grid_positions_checkbox.setChecked(self.show_grid_positions)
-            self.show_grid_positions_checkbox.setStyleSheet("""
-                QCheckBox {
-                    color: #bbbbbb;
+            self.show_grid_positions_checkbox.setStyleSheet(f"""
+                QCheckBox {{
+                    color: {NEUTRAL_400};
                     font-size: 10px;
-                }
-                QCheckBox::indicator {
+                }}
+                QCheckBox::indicator {{
                     width: 13px;
                     height: 13px;
-                }
+                }}
             """)
             self.show_grid_positions_checkbox.stateChanged.connect(self._on_show_grid_positions_changed)
             checkbox_layout2.addWidget(self.show_grid_positions_checkbox)
@@ -269,15 +273,15 @@ class MinimapPlotWidget(QWidget):
             # Show grid boundary checkbox
             self.show_grid_boundary_checkbox = QCheckBox("Grid Boundary", self)
             self.show_grid_boundary_checkbox.setChecked(self.show_grid_boundary)
-            self.show_grid_boundary_checkbox.setStyleSheet("""
-                QCheckBox {
-                    color: #bbbbbb;
+            self.show_grid_boundary_checkbox.setStyleSheet(f"""
+                QCheckBox {{
+                    color: {NEUTRAL_400};
                     font-size: 10px;
-                }
-                QCheckBox::indicator {
+                }}
+                QCheckBox::indicator {{
                     width: 13px;
                     height: 13px;
-                }
+                }}
             """)
             self.show_grid_boundary_checkbox.stateChanged.connect(self._on_show_grid_boundary_changed)
             checkbox_layout2.addWidget(self.show_grid_boundary_checkbox)
@@ -304,7 +308,7 @@ class MinimapPlotWidget(QWidget):
             verticalalignment="center",
             transform=self.ax.transAxes,
             fontsize=12,
-            color="#bbbbbb",
+            color=NEUTRAL_400,
         )
         self.ax.set_title("Minimap")
         self.ax.axis("off")

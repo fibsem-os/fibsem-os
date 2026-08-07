@@ -46,6 +46,9 @@ from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import CANVAS_BG as _BG, PRIMARY_ACCENT as _ACCENT
 from fibsem.ui.widgets.canvas.contrast_gamma_control import ContrastGammaControl
 from fibsem.ui.tokens import (
+    NEUTRAL_400,
+    NEUTRAL_450,
+    NEUTRAL_900,
     WHITE_ICON_COLOR,
 )
 
@@ -372,7 +375,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             self._hint_artist = self._ax.text(
                 0.012, 0.985, self._hint_text,
                 transform=self._ax.transAxes, ha="left", va="top",
-                fontsize=8, color="#1a1a1a", zorder=11,
+                fontsize=8, color=NEUTRAL_900, zorder=11,
                 bbox=dict(boxstyle="round,pad=0.3", facecolor="#e6e6e6",
                           edgecolor="none", alpha=0.85),
             )
@@ -598,7 +601,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         repositioned automatically on resize.  Returns the button.
         """
         btn = QPushButton(self)
-        btn.setIcon(fibsem_icon(icon_name, color="#aaaaaa"))
+        btn.setIcon(fibsem_icon(icon_name, color=NEUTRAL_450))
         btn.setIconSize(_OVERLAY_ICON_SIZE)
         btn.setFixedSize(_OVERLAY_BTN_SIZE, _OVERLAY_BTN_SIZE)
         btn.setToolTip(tooltip)
@@ -809,7 +812,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         """
         self._mode_overlay = overlay
         self._mode_label = label
-        self.btn_mode.setIcon(fibsem_icon(icon, color="#aaaaaa"))
+        self.btn_mode.setIcon(fibsem_icon(icon, color=NEUTRAL_450))
         self.btn_mode.setToolTip(f"{label} active — click to enable Move")
         self.btn_mode.setChecked(True)
         self.btn_mode.show()
@@ -855,7 +858,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             va="center",
             transform=self._ax.transAxes,
             fontsize=11,
-            color="#bbbbbb",
+            color=NEUTRAL_400,
         )
 
     def toggle_scalebar(self) -> None:

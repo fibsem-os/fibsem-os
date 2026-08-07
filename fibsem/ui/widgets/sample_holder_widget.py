@@ -22,6 +22,8 @@ from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueSpinBox
 from fibsem.ui.tokens import (
     CANVAS_BG,
+    NEUTRAL_500,
+    NEUTRAL_700,
     SURFACE_COLOR,
 )
 
@@ -41,7 +43,7 @@ QToolButton:hover { background: rgba(255, 255, 255, 30); }
 QToolButton:pressed { background: rgba(255, 255, 255, 15); }
 """
 
-_EMPTY_STYLE = "color: #606060; font-style: italic; background: transparent;"
+_EMPTY_STYLE = f"color: {NEUTRAL_700}; font-style: italic; background: transparent;"
 _LOADED_STYLE = "background: transparent;"
 
 
@@ -178,7 +180,7 @@ class _GridSlotEditPanel(QWidget):
         self.slot_name_label = QLabel()
         self.slot_name_label.setStyleSheet("font-weight: bold;")
         self.position_label = QLabel()
-        self.position_label.setStyleSheet("color: #a0a0a0;")
+        self.position_label.setStyleSheet(f"color: {NEUTRAL_500};")
         header_row.addWidget(self.slot_name_label)
         header_row.addWidget(self.position_label, 1)
         layout.addLayout(header_row)
@@ -298,7 +300,7 @@ class SampleHolderWidget(QWidget):
 
         self._empty_label = QLabel("No slots defined.")
         self._empty_label.setStyleSheet(
-            "color: #606060; font-style: italic; padding: 8px;"
+            f"color: {NEUTRAL_700}; font-style: italic; padding: 8px;"
         )
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 

@@ -31,6 +31,7 @@ from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import IconToolButton
 from fibsem.ui.tokens import (
     CANVAS_BG,
+    NEUTRAL_550,
 )
 
 _NAME_MIN_WIDTH = 160
@@ -89,7 +90,7 @@ def _status_text(lamella: Lamella) -> tuple[str, str]:
         return f"{ts.name}", f"color: {stylesheets.PRIMARY_COLOR}; background: transparent;"
     last = lamella.last_completed_task
     if last:
-        return last.completed, "color: #909090; background: transparent;"
+        return last.completed, f"color: {NEUTRAL_550}; background: transparent;"
     return "", "background: transparent;"
 
 

@@ -35,6 +35,7 @@ from fibsem.ui.utils import install_wheel_blocker
 from fibsem.utils import format_value
 from fibsem.ui.tokens import (
     CANVAS_BG,
+    NEUTRAL_550,
 )
 
 
@@ -852,7 +853,7 @@ def _lamella_status_text(lamella) -> tuple[str, str]:
             pass
     last = getattr(lamella, "last_completed_task", None)
     if last:
-        return last.completed, "color: #909090; background: transparent;"
+        return last.completed, f"color: {NEUTRAL_550}; background: transparent;"
     return "", "background: transparent;"
 
 

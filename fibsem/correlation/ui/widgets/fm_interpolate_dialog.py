@@ -28,6 +28,8 @@ from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.widgets.custom_widgets import ValueComboBox, ValueSpinBox
 from fibsem.ui.tokens import (
     CANVAS_BG,
+    NEUTRAL_300,
+    NEUTRAL_400,
 )
 
 _WARN_COLOR = "#d6b57a"
@@ -53,7 +55,7 @@ class InterpolateZDialog(QDialog):
         # The label/chip colours below are picked for a dark surface, so don't
         # rely on the app-level napari stylesheet being installed — state it
         # here, as FitConfirmationDialog does.
-        self.setStyleSheet(f"background: {CANVAS_BG}; color: #d0d0d0;")
+        self.setStyleSheet(f"background: {CANVAS_BG}; color: {NEUTRAL_300};")
 
         meta = fm_image.metadata
         self._nc, self._nz, self._ny, self._nx = fm_image.data.shape
@@ -72,7 +74,7 @@ class InterpolateZDialog(QDialog):
             f"Z step: {self._z_step * 1e9:.0f} nm "
             f"({self._z_step / self._xy:.2f}× anisotropic)"
         )
-        info.setStyleSheet("color: #b8b8b8; font-size: 12px;")
+        info.setStyleSheet(f"color: {NEUTRAL_400}; font-size: 12px;")
         root.addWidget(info)
 
         line = QFrame()

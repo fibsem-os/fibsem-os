@@ -23,6 +23,9 @@ from PyQt5.QtWidgets import (
 
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.ui.stylesheets import RUN_WORKFLOW_BUTTON_STYLESHEET, SECONDARY_BUTTON_STYLESHEET
+from fibsem.ui.tokens import (
+    NEUTRAL_650,
+)
 
 
 class LoadImageDialog(QDialog):
@@ -72,7 +75,7 @@ class LoadImageDialog(QDialog):
         info_label = QLabel(
             "Only OME-TIFF files (.ome.tiff, .ome.tif) are supported. Hold Ctrl to select multiple files."
         )
-        info_label.setStyleSheet("color: #666666; font-size: 11px;")
+        info_label.setStyleSheet(f"color: {NEUTRAL_650}; font-size: 11px;")
         layout.addWidget(info_label)
 
         # Progress bar (initially hidden)
