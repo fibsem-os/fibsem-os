@@ -2,7 +2,6 @@ import logging
 from pprint import pprint
 from typing import Optional
 
-import napari
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import pyqtSignal
 from fibsem.ui.icon import fibsem_icon
@@ -285,13 +284,24 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
 
 
 def main():
+    """Standalone harness: show the widget in a plain Qt window.
 
-    viewer = napari.Viewer(ndisplay=2)
+    napari was only ever hosting the widget here (FIB-407). It also supplied the
+    QApplication and the dark theme, so both are set up explicitly — this widget
+    paints itself in the dark palette (PANEL_COLOR, BORDER_COLOR, the status
+    icons), which needs NAPARI_STYLE underneath it to read correctly.
+    """
+    import sys
+
+    app = QtWidgets.QApplication(sys.argv)
+    app.setStyleSheet(stylesheets.NAPARI_STYLE)
+
     system_widget = FibsemSystemSetupWidget()
-    viewer.window.add_dock_widget(
-        system_widget, area="right", add_vertical_stretch=False
-    )
-    napari.run()
+    system_widget.setWindowTitle("Microscope Setup")
+    system_widget.resize(400, 300)
+    system_widget.show()
+
+    sys.exit(app.exec_())
 
 
 if __name__ == "__main__":
