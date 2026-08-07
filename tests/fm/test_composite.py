@@ -8,7 +8,13 @@ The module was written for the quad-view canvas on PR #111 and lifted to
 import numpy as np
 import pytest
 
-from fibsem.fm.composite import FMLayer, auto_clim, composite_fm_layers, tint_rgb
+from fibsem.fm.composite import (
+    FMLayer,
+    auto_clim,
+    composite_fm_layers,
+    tint_rgb,
+    to_rgba,
+)
 
 
 def _layer(color: str, shape=(4, 4), **kwargs) -> FMLayer:
@@ -134,3 +140,92 @@ def test_nothing_visible_returns_zeros_for_a_known_shape():
 def test_nothing_visible_and_no_shape_returns_none():
     """There is no sensible image to show, and guessing a size would be worse."""
     assert composite_fm_layers([]) is None
+
+
+# to_rgba
+
+
+def _render(*images) -> np.ndarray:
+    """Draw *images* over a black background, in order, and read back the pixels.
+
+    The canvas this stands in for places many images at once over
+    ``GRAY_CANVAS_COLOR`` (black), so that is the background here. Matplotlib rather
+    than the canvas itself: what is under test is how the frames composite, and the
+    canvas needs Qt.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(1, 1), dpi=64)
+    ax.set_position([0, 0, 1, 1])
+    ax.set_axis_off()
+    fig.patch.set_facecolor("black")  # set_axis_off hides the axes patch
+    for image in images:
+        # One zorder for all of them, so arrival order decides -- which is the case
+        # that bit: two overviews at the same pixel size tie in `_detail_zorder`.
+        ax.imshow(image, extent=(0, 4, 4, 0), zorder=1)
+    fig.canvas.draw()
+    out = np.asarray(fig.canvas.buffer_rgba())[..., :3].astype(np.float32)
+    plt.close(fig)
+    return out
+
+
+def test_it_is_the_same_picture_over_black():
+    """The regression that matters. Every FM overview is drawn through this, and most
+    of them have nothing underneath -- so the transform has to be invisible there."""
+    rgb = composite_fm_layers([_layer("green")])
+
+    difference = np.abs(_render(rgb) - _render(to_rgba(rgb))).max()
+
+    assert difference <= 1.0, f"the picture changed by {difference}/255 over black"
+
+
+def test_it_shows_the_overview_underneath_where_this_one_has_nothing():
+    """The reported bug (FIB-519): a sparse overview acquired over a full one drew
+    its unacquired tiles as black over real data."""
+    beneath = composite_fm_layers([_layer("green")])
+    # `stitch_tileset` leaves an unacquired tile as canvas zeros, so that is what the
+    # top half of this one holds.
+    sparse = _layer("green")
+    sparse.data = sparse.data.copy()
+    sparse.data[:2] = 0
+    above = composite_fm_layers([sparse])
+
+    opaque = _render(beneath, above)
+    layered = _render(beneath, to_rgba(above))
+    alone = _render(beneath)
+
+    unacquired = np.s_[:24]  # the top half, in rendered pixels
+    assert opaque[unacquired].max() == 0, "expected today's behaviour: black"
+    np.testing.assert_allclose(
+        layered[unacquired], alone[unacquired], atol=1.0,
+        err_msg="the overview beneath is not showing through",
+    )
+
+
+def test_alpha_carries_the_signal_and_colour_survives_it():
+    """Colour times alpha has to reconstruct the composite -- that is what makes the
+    substitution invisible -- while alpha alone says how much is there."""
+    rgb = composite_fm_layers([_layer("green")])
+
+    rgba = to_rgba(rgb)
+
+    reconstructed = (
+        rgba[..., :3].astype(np.float32) * rgba[..., 3:4].astype(np.float32) / 255.0
+    )
+    np.testing.assert_allclose(reconstructed, rgb.astype(np.float32), atol=1.0)
+
+
+def test_a_region_holding_nothing_is_fully_transparent():
+    """Not merely dark: an unacquired tile has to disappear, not dim what is beneath."""
+    blank = np.zeros((4, 4, 3), dtype=np.uint8)
+
+    assert to_rgba(blank)[..., 3].max() == 0
+
+
+def test_it_returns_rgba_the_canvas_accepts():
+    rgba = to_rgba(composite_fm_layers([_layer("red")]))
+
+    assert rgba.dtype == np.uint8
+    assert rgba.shape == (4, 4, 4)
