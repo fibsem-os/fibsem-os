@@ -26,7 +26,12 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
     ValueSpinBox,
 )
-from fibsem.ui.widgets.form_builder import build_control, display_suffix, effective_scale
+from fibsem.ui.widgets.form_builder import (
+    FormDefaults,
+    build_control,
+    display_suffix,
+    effective_scale,
+)
 
 
 def meta(**kwargs) -> dict:
@@ -134,7 +139,11 @@ def test_an_int_field_steps_by_at_least_its_own_scale(qapp):
 
 
 def test_declared_bounds_win_over_the_fallback(qapp):
-    control = build_control(meta(type=float, minimum=-5.0, maximum=5.0), 0.0, float_range=(-1e9, 1e9))
+    control = build_control(
+        meta(type=float, minimum=-5.0, maximum=5.0),
+        0.0,
+        defaults=FormDefaults(float_range=(-1e9, 1e9)),
+    )
 
     assert (control.widget.minimum(), control.widget.maximum()) == (-5.0, 5.0)
 
@@ -147,7 +156,7 @@ def test_the_fallback_range_fills_in_undeclared_bounds(qapp):
     passes the bounds it already had, so a form's ranges do not change just
     because the builder is now shared.
     """
-    control = build_control(meta(type=float), 0.0, float_range=(-1e10, 1e10))
+    control = build_control(meta(type=float), 0.0, defaults=FormDefaults(float_range=(-1e10, 1e10)))
 
     assert (control.widget.minimum(), control.widget.maximum()) == (-1e10, 1e10)
 
