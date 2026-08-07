@@ -19,6 +19,7 @@ from fibsem.structures import (
     FibsemPolygonSettings,
     Point,
     TFibsemPatternSettings,
+    field_meta,
     get_fields_with_metadata,
 )
 from fibsem.milling.properties import (DEFAULT_DISTANCE_METADATA,
@@ -35,17 +36,26 @@ TPattern = TypeVar("TPattern", bound="BasePattern")
 @dataclass
 class BasePattern(ABC, Generic[TFibsemPatternSettings]):
     name: ClassVar[str] = field(init=False)
-    point: Point = field(default_factory=Point, 
-                         metadata={
-                            "label": "Point",
-                            "type": Point,
-                            **DEFAULT_DISTANCE_METADATA,
-                            "minimum": -1000.0,
-                            "maximum": 1000.0,
-                            "tooltip": "Point coordinates for the milling pattern.",
-                            "advanced" : True,
-                         })
-    shapes: Optional[List[TFibsemPatternSettings]] = field(default=None, init=False)
+    # `type` has to be Point, and has to win over the base: the form dispatches
+    # the two-spinbox row on it. The dict literal this replaces declared
+    # `"type": Point` *before* spreading DEFAULT_DISTANCE_METADATA, so the
+    # spread's `float` silently won and the declaration was a lie -- which is
+    # why the row had to be special-cased on the field being named "point".
+    point: Point = field(default_factory=Point,
+                         metadata=field_meta(
+                            DEFAULT_DISTANCE_METADATA,
+                            label="Point",
+                            type=Point,
+                            minimum=-1000.0,
+                            maximum=1000.0,
+                            tooltip="Point coordinates for the milling pattern.",
+                            advanced=True,
+                         ))
+    # Computed by define(), never edited: the form skips it on `hidden` rather
+    # than on a hardcoded field name, so a plugin can hide its own fields too.
+    shapes: Optional[List[TFibsemPatternSettings]] = field(
+        default=None, init=False, metadata=field_meta(hidden=True)
+    )
 
     @abstractmethod
     def define(self) -> List[TFibsemPatternSettings]:
