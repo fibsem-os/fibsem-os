@@ -285,6 +285,16 @@ def test_every_widget_type_the_form_builds_is_connectable(qapp, form_cls):
 
 
 @dataclass
+class OtherTaskConfig(AutoLamellaTaskConfig):
+    """A second task to switch to, so a rebuild is exercised."""
+
+    task_type: ClassVar[str] = "OTHER_TEST"
+    display_name: ClassVar[str] = "Other Test"
+
+    something_else: float = 2.0
+
+
+@dataclass
 class VocabularyTaskConfig(AutoLamellaTaskConfig):
     """A task config declaring the keys the form used to ignore.
 
@@ -381,3 +391,79 @@ def test_an_unset_optional_string_reads_back_as_none(qapp, form_cls):
     control = _control(form, "maybe_text")
     assert control.widget.text() == ""
     assert control.read() is None
+
+
+# --- the write-back path, driven through the signals a user actually triggers --
+
+
+@pytest.mark.parametrize("form_cls", FORMS, ids=FORM_IDS)
+@pytest.mark.parametrize(
+    "field_name,drive,expected",
+    [
+        ("a_float", lambda w: w.setValue(9.0), 9.0),
+        ("an_int", lambda w: w.setValue(7), 7),
+        ("a_bool", lambda w: w.setChecked(False), False),
+        ("with_items", lambda w: w.setCurrentIndex(1), "b"),
+        ("a_literal", lambda w: w.setCurrentIndex(0), "cells"),
+    ],
+)
+def test_editing_a_control_reaches_the_config(qapp, form_cls, field_name, drive, expected):
+    """Drive the widget's own signal, not the handler.
+
+    The tests around this one called `form._on_parameter_changed(name)` directly,
+    which exercises the write but not the wiring -- and the wiring is where this
+    broke. The slot was `lambda name=row.field: ...`, which accepts one
+    positional argument, so PyQt handed it the signal's payload: `valueChanged`'s
+    float, `toggled`'s bool, `currentIndexChanged`'s int. `name` became the value,
+    the row lookup found nothing, and the edit was dropped in silence.
+
+    Every control whose signal carries a payload was affected; only
+    `editingFinished` (the text fields) has none, which is why the form looked
+    like it half worked.
+    """
+    config = SampleTaskConfig()
+    form = _build(form_cls, config)
+
+    drive(_control(form, field_name).widget)
+
+    assert getattr(config, field_name) == expected
+
+
+@pytest.mark.parametrize("form_cls", FORMS, ids=FORM_IDS)
+def test_the_change_signal_carries_the_field_name_and_value(qapp, form_cls):
+    """The protocol editor writes the value into the protocol from these two.
+
+    A payload-shadowed slot never got as far as emitting, so nothing downstream
+    saw the edit and nothing was saved.
+    """
+    form = _build(form_cls, SampleTaskConfig())
+    seen = []
+    signal = getattr(form, "parameter_changed", None)
+    if signal is None:
+        pytest.skip("this container reports whole-config changes instead")
+    signal.connect(lambda name, value: seen.append((name, value)))
+
+    _control(form, "a_float").widget.setValue(3.5)
+
+    assert seen == [("a_float", 3.5)]
+
+
+@pytest.mark.parametrize("form_cls", FORMS, ids=FORM_IDS)
+def test_an_edit_survives_switching_task_and_coming_back(qapp, form_cls):
+    """The reported symptom, end to end.
+
+    Switching tasks rebuilds the form from the config, so an edit that never
+    reached the config reappears as the old value -- which is what made this look
+    like a rebuild bug rather than a write-back one.
+    """
+    config = SampleTaskConfig()
+    other = OtherTaskConfig()
+    form = _build(form_cls, config)
+
+    _control(form, "a_float").widget.setValue(9.0)
+
+    form.set_task_config(other)
+    form.set_task_config(config)
+
+    assert config.a_float == 9.0
+    assert _control(form, "a_float").widget.value() == 9.0
