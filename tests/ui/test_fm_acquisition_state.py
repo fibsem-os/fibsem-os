@@ -438,16 +438,23 @@ class _AliveThread:
 
 
 class _RunnerStub:
-    """Stands in for `FMTiledAcquisitionRunner` so a run can end three ways."""
+    """Stands in for `FMOverviewBatchRunner` so a run can end three ways.
+
+    `run`, not `run_and_stitch`: the widget drives a batch now, and each area is handed
+    back through `on_region_complete` as it lands rather than returned at the end. The
+    stub kept the old method for a while and nothing noticed -- every test here asserts
+    the FM was *released*, which a run that died on a missing attribute also does. The
+    three success cases were quietly exercising the failure path.
+    """
 
     def __init__(self, error=None):
         self.error = error
 
-    def run_and_stitch(self):
+    def run(self):
         if self.error is not None:
             raise self.error
         import numpy as np
 
         from fibsem.fm.structures import FluorescenceImage
 
-        return FluorescenceImage(data=np.zeros((4, 4), dtype=np.uint16))
+        return [FluorescenceImage(data=np.zeros((4, 4), dtype=np.uint16))]

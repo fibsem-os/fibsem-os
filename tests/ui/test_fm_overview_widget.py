@@ -309,7 +309,11 @@ class _Router:
 
     _apply_progress = FMOverviewWidget._apply_progress
     _apply_tile_progress = FMOverviewWidget._apply_tile_progress
+    _apply_region_progress = FMOverviewWidget._apply_region_progress
     _tile_detail_update = FMOverviewWidget._tile_detail_update
+    # The area line a running batch holds between tile payloads. Borrowed like the
+    # methods above: the routing under test reads it, so the stub has to have it.
+    _region_status = ""
 
     def _show_preview(self, payload):
         pass
@@ -1322,7 +1326,7 @@ def test_the_target_reaches_the_acquisition(qapp, interactive_widget, monkeypatc
         def __init__(self, **kwargs):
             recorded.update(kwargs)
 
-    monkeypatch.setattr(module, "FMTiledAcquisitionRunner", _RecordingRunner)
+    monkeypatch.setattr(module, "FMOverviewBatchRunner", _RecordingRunner)
     monkeypatch.setattr(module, "FunctionWorker", lambda *a, **k: _SynchronousWorker(lambda: None))
     monkeypatch.setattr(
         module.FMOverviewConfirmationDialog, "exec_", lambda self: module.QDialog.Accepted
@@ -1335,7 +1339,10 @@ def test_the_target_reaches_the_acquisition(qapp, interactive_widget, monkeypatc
     qapp.processEvents()
     widget._set_running(False)
 
-    assert recorded["centre_position"] is widget._target
+    # The drag now moves the selected *area*, and the run is handed the areas rather
+    # than a centre of its own -- so what has to survive the drag is that the area the
+    # batch was given is centred where the grid was dropped.
+    assert recorded["areas"][0].centre is widget._target
 
 
 def test_the_cursor_readout_names_the_position_under_it(qapp, interactive_widget):
@@ -1629,20 +1636,20 @@ def test_a_failed_save_is_not_reported_as_a_successful_one(qapp, tmp_path):
     widget = _fresh_widget(qapp)
 
     # Nothing was meant to be saved: silent.
-    widget._destination, widget._saved_path = None, None
+    widget._destinations, widget._saved_path = [None], None
     assert widget._describe_save() == ("", "")
 
     # A destination was claimed and the mosaic did not land: say so.
     widget.set_save_directory(str(tmp_path))
-    widget._destination = widget._claim_destination()
+    widget._destinations = [widget._claim_destination()]
     widget._saved_path = None
     assert "not saved" in widget._describe_save()[0]
 
     # It landed, and the tooltip says where.
-    widget._saved_path = widget._destination.mosaic_path
+    widget._saved_path = widget._destinations[0].mosaic_path
     suffix, tooltip = widget._describe_save()
     assert suffix == "  ·  saved"
-    assert tooltip == widget._destination.mosaic_path
+    assert tooltip == widget._destinations[0].mosaic_path
 
     widget.close()
 
@@ -2774,14 +2781,20 @@ def test_moving_is_offered_only_once_something_is_selected(qapp, interactive_wid
     widget = interactive_widget
     widget.set_selected_position(None)
 
-    assert _labels(_menu_at_the_stage(widget)) == ["Add Position Here"]
+    assert _labels(_menu_at_the_stage(widget)) == [
+        "Add Position Here",
+        "Add Overview Here",
+    ]
 
     widget.set_positions([_named("Lamella-04", 0.0, 0.0)])
     widget.set_selected_position("Lamella-04")
 
+    # The move entry appears between the two position entries and the overview one,
+    # which is the grouping: everything about positions, then this tab's own action.
     assert _labels(_menu_at_the_stage(widget)) == [
         "Add Position Here",
         "Move Selected Position Here (Lamella-04)",
+        "Add Overview Here",
     ]
 
     widget.set_selected_position(None)
@@ -4478,6 +4491,124 @@ def test_an_objective_that_cannot_be_asked_does_not_block_the_run(
     monkeypatch.setattr(type(widget.fm.objective), "state", property(unreadable))
 
     assert widget._objective_state() is None
+
+
+# ── overview areas (FIB-532) ─────────────────────────────────────────────
+
+
+def test_a_fresh_widget_plans_one_area_that_follows_the_stage(qapp):
+    """The single-overview behaviour, unchanged, expressed in the new model: one area
+    with no centre means "wherever the stage is", which is the contract the runner
+    already had. Anything else would put a step in front of the common case."""
+    widget = _fresh_widget(qapp)
+
+    assert len(widget._areas) == 1
+    assert widget._areas[0].centre is None
+    assert widget._target is None
+
+
+def test_adding_a_second_area_pins_the_first(qapp):
+    """`centre=None` means "wherever the stage is", which stops being answerable once a
+    batch is walking between regions -- the stage is wherever the last one left it. Pinned
+    at setup, where the answer is still the one on screen."""
+    widget = _fresh_widget(qapp)
+    here = widget._current_stage_position()
+
+    widget.add_area()
+
+    assert widget._areas[0].centre is not None
+    assert widget._areas[0].centre.x == pytest.approx(here.x)
+    assert widget._areas[1].centre is not None
+
+
+def test_a_new_area_copies_the_grid_it_was_added_from(qapp):
+    """Areas in one run are nearly always the same shape -- several squares at one
+    magnification -- so the second is meant to look like the first."""
+    widget = _fresh_widget(qapp)
+    widget.settings_widget.set_grid_size(2, 5)
+
+    widget.add_area()
+
+    assert (widget.selected_area.rows, widget.selected_area.cols) == (2, 5)
+
+
+def test_selecting_an_area_shows_its_grid_and_leaves_the_run_settings_alone(qapp):
+    """The split the design rests on: geometry belongs to the area, everything else to
+    the run. Selecting an area must not silently replace the run's autofocus mode with
+    whatever that area was carrying -- which is why an area carries no such thing."""
+    widget = _fresh_widget(qapp)
+    widget.settings_widget.set_grid_size(2, 2)
+    widget.add_area()
+    widget.settings_widget.set_grid_size(4, 4)
+    before = widget.settings_widget.parameters.autofocus_mode
+
+    widget.select_area(0)
+
+    assert (widget.settings_widget.parameters.rows,
+            widget.settings_widget.parameters.cols) == (2, 2)
+    assert widget.settings_widget.parameters.autofocus_mode is before
+
+
+def test_editing_the_grid_writes_back_to_the_selected_area(qapp):
+    """The panel is the editor and the area is the record. Without the write-back the
+    canvas would show one grid and the run would acquire another."""
+    widget = _fresh_widget(qapp)
+    widget.add_area()
+
+    widget.settings_widget.set_grid_size(1, 6)
+
+    assert (widget.selected_area.rows, widget.selected_area.cols) == (1, 6)
+    assert (widget._areas[0].rows, widget._areas[0].cols) != (1, 6), "the wrong area"
+
+
+def test_the_last_area_survives_being_removed(qapp):
+    widget = _fresh_widget(qapp)
+    widget.add_area()
+
+    widget.remove_area(1)
+    widget.remove_area(0)
+
+    assert len(widget._areas) == 1
+
+
+def test_only_the_unselected_areas_are_outlined(qapp):
+    """The selected one is drawn as the grid, in colour and editable. Drawing it twice
+    would put a second box around the thing being edited."""
+    widget = _fresh_widget(qapp)
+    widget.add_area()
+
+    outlined = [rect[0] for rect in widget.tile_grid_overlay._other_areas]
+
+    assert outlined == [0]
+    assert widget._selected_area == 1
+
+
+def test_a_right_click_plans_an_area_where_it_landed(qapp, interactive_widget):
+    """Without this, planning a second region means dragging the grid there, which only
+    works for somewhere already on screen and next to the first."""
+    widget = interactive_widget
+    config = _menu_at_the_stage(widget, dx=600.0)
+    labels = _labels(config)
+
+    _fire(config, labels.index("Add Overview Here"))
+
+    assert len(widget._areas) == 2
+    assert widget._selected_area == 1, "the new area was not selected"
+    assert widget.selected_area.centre is not None
+
+
+def test_a_settings_change_with_no_area_selected_does_not_abort(qapp):
+    """This runs in a Qt slot, and PyQt5 does not let an exception there fail -- it
+    calls qFatal and the process dies (FIB-329). The selection is legitimately out of
+    range for the length of one call while `remove_area` shortens the list, and the
+    panel emits on the way through, so the window is real rather than theoretical.
+    """
+    widget = _fresh_widget(qapp)
+    widget._selected_area = 7  # past the end, as it briefly is mid-removal
+
+    widget._on_settings_changed()  # must not raise
+
+    assert widget._areas[0].rows == 3, "a stale index wrote onto the wrong area"
 
 
 def test_loading_parameters_leaves_the_objective_start_combo_able_to_notify(qapp):

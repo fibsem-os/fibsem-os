@@ -180,3 +180,105 @@ def test_a_selection_that_was_removed_does_not_come_back():
     widget.set_records([_record(1)])
 
     assert widget.selected_id() is None
+
+
+# ── overview areas (FIB-532) ─────────────────────────────────────────────
+
+
+def _area_list(qapp):
+    from fibsem.ui.fm.widgets.overview_area_list_widget import OverviewAreaListWidget
+
+    return OverviewAreaListWidget()
+
+
+def test_an_area_row_says_how_much_of_its_grid_is_enabled(qapp):
+    """The canvas is often zoomed somewhere else, so a masked area has to be visible
+    from the list -- finding out an overnight run only covered four tiles afterwards is
+    the failure this line exists to prevent."""
+    from fibsem.fm.structures import OverviewArea
+    from fibsem.ui.fm.widgets.overview_area_list_widget import describe_area
+
+    full = OverviewArea(name="whole", rows=3, cols=3)
+    masked = OverviewArea(
+        name="holes", rows=3, cols=3,
+        tile_mask=[[True] * 3, [True, False, True], [True] * 3],
+    )
+
+    # No count when there is nothing to say: "3×3 · 9/9 tiles" is noise on every row.
+    assert describe_area(full) == "3×3"
+    assert describe_area(masked) == "3×3 · 8/9 tiles"
+
+
+def test_the_last_area_cannot_be_removed(qapp):
+    """A run needs somewhere to happen. Disabled rather than hidden: a button that
+    vanishes when the list gets short reads as a bug, and its tooltip is where the rule
+    is explained."""
+    from fibsem.fm.structures import OverviewArea
+
+    widget = _area_list(qapp)
+    widget.set_areas([OverviewArea(name="a"), OverviewArea(name="b")], 0)
+    assert widget._rows[0].btn_remove.isEnabled()
+
+    widget.set_areas([OverviewArea(name="a")], 0)
+    assert not widget._rows[0].btn_remove.isEnabled()
+    assert "at least one" in widget._rows[0].btn_remove.toolTip()
+
+
+def test_rebuilding_the_list_is_not_a_user_selecting_something(qapp):
+    """Every rebuild moves Qt's current row, and each move emits. Reported as a
+    selection, they would each drive a canvas redraw and -- worse -- a rebuild that
+    happened to pass through row 0 would look like the user picking the first area."""
+    from fibsem.fm.structures import OverviewArea
+
+    widget = _area_list(qapp)
+    seen = []
+    widget.selection_changed.connect(seen.append)
+
+    widget.set_areas([OverviewArea(name="a"), OverviewArea(name="b")], 1)
+    assert seen == [], "a rebuild reported itself as a selection"
+    assert widget.selected_index() == 1
+
+    widget.select(0)
+    assert seen == [0], "a real selection went unreported"
+
+
+def test_a_row_shows_the_state_of_a_run_without_being_rebuilt(qapp):
+    """States arrive per region while a batch runs. Rebuilding to show them would drop
+    the selection and the hover state on every area boundary."""
+    from fibsem.fm.structures import OverviewArea
+    from fibsem.ui.fm.widgets.overview_area_list_widget import STATE_DONE, STATE_RUNNING
+
+    widget = _area_list(qapp)
+    widget.set_areas([OverviewArea(name="a"), OverviewArea(name="b")], 0)
+    rows = dict(widget._rows)
+
+    widget.set_states({0: STATE_DONE, 1: STATE_RUNNING})
+
+    assert widget._rows is not None and widget._rows[0] is rows[0], "the list rebuilt"
+    assert widget._rows[0].state_label.text() == STATE_DONE
+    assert widget._rows[1].state_label.text() == STATE_RUNNING
+    # Nothing to say at rest, rather than three rows all reading "queued".
+    widget.set_states({})
+    assert widget._rows[0].state_label.text() == ""
+    assert not widget._rows[0].state_label.isVisible()
+
+
+def test_a_drag_reports_where_the_row_actually_landed(qapp):
+    """Qt reports the insertion point *before* the source row is taken out, so a
+    downward move arrives one past where it lands. Uncorrected, dragging the first area
+    to the end would reorder the queue to something nobody asked for."""
+    from fibsem.fm.structures import OverviewArea
+
+    widget = _area_list(qapp)
+    widget.set_areas(
+        [OverviewArea(name="a"), OverviewArea(name="b"), OverviewArea(name="c")], 0
+    )
+    moves = []
+    widget.reordered.connect(lambda a, b: moves.append((a, b)))
+
+    # Downward: row 0 dropped after row 2, which Qt reports as insertion at 3.
+    widget._on_rows_moved(None, 0, 0, None, 3)
+    # Upward needs no correction: the source is below the insertion point.
+    widget._on_rows_moved(None, 2, 2, None, 0)
+
+    assert moves == [(0, 2), (2, 0)]

@@ -31,6 +31,7 @@ from fibsem.fm.structures import (
     ObjectiveStartPosition,
     AutoFocusSettings,
     ChannelSettings,
+    OverviewArea,
     OverviewParameters,
     ZParameters,
 )
@@ -468,6 +469,50 @@ class FMOverviewSettingsWidget(QWidget):
             tile_mask=self.tile_mask.mask,
             objective_start=self.combo_objective_start.value(),
         )
+
+    @property
+    def area_geometry(self) -> dict:
+        """The half of the panel that belongs to one overview area.
+
+        Rows, columns, overlap, traversal and the mask describe *a region*; z-stacks,
+        autofocus and the objective start describe *the run*, and are shared by every
+        area in it. Keeping the split explicit here is what stops an area acquiring a
+        stale copy of a setting this panel owns.
+        """
+        return {
+            "rows": self.spin_rows.value(),
+            "cols": self.spin_cols.value(),
+            "overlap": self.spin_overlap.value(),
+            "tile_order": self.combo_tile_order.value(),
+            "tile_mask": self.tile_mask.mask,
+        }
+
+    def apply_area(self, area: "OverviewArea") -> None:
+        """Show *area*'s grid, leaving the shared settings as they are.
+
+        The counterpart of `area_geometry`, and deliberately not the `parameters`
+        setter: that one writes the whole panel, so selecting an area would silently
+        replace the run's autofocus mode with whatever the area happened to carry.
+        """
+        for widget in (self.spin_rows, self.spin_cols, self.spin_overlap,
+                       self.combo_tile_order, self.tile_mask):
+            widget.blockSignals(True)
+        try:
+            self.spin_rows.setValue(area.rows)
+            self.spin_cols.setValue(area.cols)
+            self.spin_overlap.setValue(area.overlap)
+            self.combo_tile_order.set_value(area.tile_order)
+            # Explicitly, because the handler that normally resizes the mask with the
+            # spin boxes is blocked along with them.
+            self.tile_mask.set_grid_size(area.rows, area.cols)
+            self.tile_mask.mask = area.tile_mask
+        finally:
+            for widget in (self.spin_rows, self.spin_cols, self.spin_overlap,
+                           self.combo_tile_order, self.tile_mask):
+                widget.blockSignals(False)
+        # Once, at the end: the panel changed, and everything watching it should hear
+        # so exactly as often as it did.
+        self._on_any_change()
 
     @parameters.setter
     def parameters(self, value: OverviewParameters) -> None:

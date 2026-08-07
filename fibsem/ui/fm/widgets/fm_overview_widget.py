@@ -18,6 +18,7 @@ import numpy as np
 from PyQt5.QtCore import QPoint, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog,
+    QInputDialog,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -30,7 +31,11 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import constants
-from fibsem.fm.acquisition import FMTiledAcquisitionRunner, OverviewDestination
+from fibsem.fm.acquisition import (
+    FMOverviewBatchRunner,
+    FMTiledAcquisitionRunner,
+    OverviewDestination,
+)
 from fibsem.fm.structures import (
     AutoFocusMode,
     AutoFocusSettings,
@@ -38,6 +43,7 @@ from fibsem.fm.structures import (
     FluorescenceImage,
     FluorescenceImageMetadata,
     ObjectiveStartPosition,
+    OverviewArea,
     OverviewParameters,
 )
 from fibsem.microscope import FibsemMicroscope
@@ -49,6 +55,12 @@ from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
     FMOverviewConfirmationDialog,
 )
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
+from fibsem.ui.fm.widgets.overview_area_list_widget import (
+    STATE_DONE,
+    STATE_FAILED,
+    STATE_RUNNING,
+    OverviewAreaListWidget,
+)
 from fibsem.ui.fm.widgets.overview_list_widget import OverviewListWidget
 from fibsem.ui.fm.widgets.tile_grid_options_panel import TileGridOptionsPanel
 from fibsem.ui.qt.threading import FunctionWorker
@@ -129,6 +141,9 @@ CURSOR_READOUT_WIDTH = 210
 # row buttons use.
 _HEADER_BTN_SIZE = 26
 
+# What the first area is called, and the stem every later one is numbered from.
+_DEFAULT_AREA_NAME = "Area"
+
 
 @dataclass
 class PlacedOverviewImageRecord:
@@ -190,6 +205,11 @@ class FMOverviewWidget(QWidget):
     # host can select whatever that name means to it.
     position_selected = pyqtSignal(str)
 
+    # On the class as well as set in `__init__`, because the progress handlers are
+    # exercised against partial stubs that never run it. A default of "no area line"
+    # is right for any object that has not started a batch, which is all of them.
+    _region_status: str = ""
+
     # Internal hop from the acquisition thread to the GUI thread. The microscope's
     # progress signal is a psygnal, which calls its callbacks synchronously on
     # whichever thread emitted -- here, the worker. Touching widgets from there is a
@@ -248,17 +268,29 @@ class FMOverviewWidget(QWidget):
         # The objective half of the canvas info bar, cached. Read from hardware only
         # when something may have moved it -- see `_refresh_objective_info`.
         self._objective_info: Optional[str] = None
-        # Where the next overview will be centred, once a user has dragged the grid
-        # somewhere. None means "wherever the stage is", which is what the runner does
-        # by default -- so an untouched grid describes exactly what would be acquired.
-        self._target: Optional[FibsemStagePosition] = None
+        # The regions the next run will cover, in the order it will cover them, and
+        # which of them the canvas draws in colour and the settings panel edits. Never
+        # empty: a run needs somewhere to happen, and one area whose centre is None --
+        # "wherever the stage is" -- is exactly the single-overview behaviour this
+        # widget had before it could plan several (FIB-532).
+        self._areas: List[OverviewArea] = [OverviewArea(name=_DEFAULT_AREA_NAME)]
+        self._selected_area: int = 0
+        # What each area is doing during a run, by index. Empty when nothing is running.
+        self._area_states: Dict[int, str] = {}
+        # The status line a running batch keeps between tile payloads, which arrive
+        # constantly and would otherwise clear it.
+        self._region_status: str = ""
+        # Names already handed out, so removing "area 2" does not make the next one
+        # "area 2" again and leave two folders a session apart with the same name.
+        self._area_counter: int = 1
         # Where acquired overviews are written. None means nowhere: the widget opens
         # standalone against a simulator as often as it runs inside an experiment, and
         # inventing a directory for those runs would scatter files through whatever
         # working directory it happened to be launched from. A host that has somewhere
         # to put them says so -- see `set_save_directory`.
         self._save_directory: Optional[str] = None
-        self._destination: Optional[OverviewDestination] = None
+        # One per area, claimed together when a run starts. Empty until then.
+        self._destinations: List[Optional[OverviewDestination]] = []
         self._saved_path: Optional[str] = None
         # Whether a run is under way, and whether a host is allowing one to be started.
         # Two independent facts kept apart on purpose: a workflow ending must not
@@ -401,6 +433,25 @@ class FMOverviewWidget(QWidget):
         self._controls_layout.addWidget(overviews_panel)
         self._controls_layout.addWidget(self._section("Channels", self.channel_widget))
         self._controls_layout.addWidget(self.settings_widget)
+
+        # Last, directly above the actions row: the areas are what Acquire consumes, and
+        # the settings between them describe the run they will all be acquired under.
+        self.area_list = OverviewAreaListWidget()
+        self.area_list.selection_changed.connect(self._on_area_selected)
+        self.area_list.remove_requested.connect(self._on_area_remove_requested)
+        self.area_list.rename_requested.connect(self._on_area_rename_requested)
+        self.area_list.reordered.connect(self.reorder_area)
+        areas_panel = self._section("Overview areas", self.area_list)
+        # Same header-button convention as the overviews section above: the action
+        # belongs to the section, not to any row in it.
+        self.btn_add_area = IconToolButton(
+            icon="mdi:plus",
+            tooltip="Add an area where the stage is",
+            size=_HEADER_BTN_SIZE,
+        )
+        self.btn_add_area.clicked.connect(lambda: self.add_area())
+        areas_panel.add_header_widget(self.btn_add_area)
+        self._controls_layout.addWidget(areas_panel)
         self._controls_layout.addStretch()
 
         scroll = QScrollArea()
@@ -533,6 +584,7 @@ class FMOverviewWidget(QWidget):
         self.tile_grid_overlay.tile_toggled.connect(self._on_tile_toggled)
         self.tile_grid_overlay.grid_resize_requested.connect(self._on_grid_resize)
         self.tile_grid_overlay.grid_move_requested.connect(self._on_grid_move)
+        self.tile_grid_overlay.area_selected.connect(self.select_area)
         self.canvas.canvas.canvas_clicked.connect(self._on_canvas_clicked)
         self.canvas.canvas.canvas_double_clicked.connect(self._on_canvas_double_clicked)
         self.canvas.canvas.canvas_right_clicked.connect(self._on_canvas_right_clicked)
@@ -611,6 +663,42 @@ class FMOverviewWidget(QWidget):
         if self.tile_grid_panel.isVisible():
             self._fit_tile_grid_panel()
 
+    def _refresh_other_areas(self, fov: Tuple[float, float]) -> None:
+        """Draw every area except the selected one, as an outline on the canvas.
+
+        Projected here rather than in the overlay: turning a stage position into a
+        canvas point is this widget's job -- it owns the frame -- and the overlay draws
+        in canvas coordinates and knows nothing about stages.
+
+        An area whose centre is None is skipped: it means "wherever the stage is", which
+        only the selected area can be, and the selected area is drawn as the grid.
+        """
+        frame = self._frame()
+        if frame is None:
+            self.tile_grid_overlay.set_other_areas([])
+            return
+
+        rectangles = []
+        for index, area in enumerate(self._areas):
+            if index == self._selected_area or area.centre is None:
+                continue
+            try:
+                # `to_canvas` and `length` rather than projecting and scaling by hand:
+                # they are the frame's own arithmetic, so an outline cannot end up on a
+                # different scale from the grid drawn beside it.
+                centre_x, centre_y = frame.to_canvas(area.centre)
+                # Each area's own grid, not the selected one's. They are usually the
+                # same shape, and "usually" is exactly when a wrong box gets believed.
+                width = frame.length(area.cols * fov[0] * (1 - area.overlap) + fov[0])
+                height = frame.length(area.rows * fov[1] * (1 - area.overlap) + fov[1])
+            except Exception as e:
+                logging.debug(f"Could not place the area '{area.name}': {e}")
+                continue
+            rectangles.append(
+                (index, centre_x - width / 2, centre_y - height / 2, width, height)
+            )
+        self.tile_grid_overlay.set_other_areas(rectangles)
+
     def _target_offset(self) -> Optional[Tuple[float, float]]:
         """How far the target sits from the stage, in metres, or None if not set.
 
@@ -687,6 +775,7 @@ class FMOverviewWidget(QWidget):
         self.tile_grid_overlay.set_grid(
             tiles, (height, width), pixel_size, overlap=parameters.overlap
         )
+        self._refresh_other_areas(fov)
         # Same camera geometry, so it can be drawn at the same time rather than
         # waiting for an image the tile grid does not wait for either.
         self._refresh_stage_metadata()
@@ -1319,12 +1408,133 @@ class FMOverviewWidget(QWidget):
                 logging.debug(f"Could not read the stage position: {e}")
         return self._stage_position
 
+    # ── areas ────────────────────────────────────────────────────────────
+
+    @property
+    def selected_area(self) -> OverviewArea:
+        """The area the canvas draws in colour and the settings panel edits.
+
+        Clamped rather than indexed straight, and it has to be: `_areas` is never empty,
+        but the selection is briefly out of range whenever the list shortens -- and
+        every reader of this is downstream of a Qt slot, where an IndexError is not an
+        error but a dead process (FIB-329). Returning the nearest real area for the one
+        call that window lasts is worth more than being right about which.
+
+        Writers do not get the same treatment: `_sync_selected_area` skips instead, so a
+        stale index cannot copy the panel onto an area nobody selected.
+        """
+        return self._areas[min(max(self._selected_area, 0), len(self._areas) - 1)]
+
+    @property
+    def _target(self) -> Optional[FibsemStagePosition]:
+        """Where the selected area is centred, or None for "wherever the stage is".
+
+        A property rather than a field because it moved: it used to be the one thing
+        this widget planned, and is now one area's centre. Everything that drew, offset
+        or acquired "the target" means the selected area's centre and still does, so
+        they read it here instead of each learning about the list.
+        """
+        return self.selected_area.centre
+
+    @_target.setter
+    def _target(self, value: Optional[FibsemStagePosition]) -> None:
+        self.selected_area.centre = value
+
+    def _next_area_name(self) -> str:
+        self._area_counter += 1
+        return f"{_DEFAULT_AREA_NAME} {self._area_counter}"
+
+    def add_area(self, centre: Optional[FibsemStagePosition] = None) -> int:
+        """Add an area at *centre*, copying the selected area's grid, and select it.
+
+        The grid is copied rather than reset to a default: areas in one run are usually
+        the same shape -- several squares at one magnification -- so the second is very
+        nearly always meant to look like the first.
+
+        Adding the second area also pins the first. Until now its centre could be None,
+        meaning "wherever the stage is"; with more than one area that would depend on
+        which ran last, and the batch would centre it on the previous region's final
+        tile. Pinned here, at setup, where the answer is still the one the user saw.
+        """
+        if self._target is None:
+            self.selected_area.centre = self._current_stage_position()
+        source = self.selected_area
+        self._areas.append(OverviewArea(
+            name=self._next_area_name(),
+            centre=centre or self._current_stage_position(),
+            rows=source.rows,
+            cols=source.cols,
+            overlap=source.overlap,
+            tile_order=source.tile_order,
+            tile_mask=None if source.tile_mask is None
+            else [row[:] for row in source.tile_mask],
+        ))
+        self.select_area(len(self._areas) - 1)
+        return self._selected_area
+
+    def remove_area(self, index: int) -> None:
+        """Drop an area. The last one stays: a run needs somewhere to happen."""
+        if not (0 <= index < len(self._areas)) or len(self._areas) <= 1:
+            return
+        self._areas.pop(index)
+        # Toward the start, so removing the last row lands on the one above it rather
+        # than off the end.
+        self.select_area(min(self._selected_area if index > self._selected_area
+                             else self._selected_area - 1, len(self._areas) - 1))
+
+    def rename_area(self, index: int, name: str) -> None:
+        name = name.strip()
+        if not (0 <= index < len(self._areas)) or not name:
+            return
+        self._areas[index].name = name
+        self._refresh_area_list()
+
+    def reorder_area(self, source: int, destination: int) -> None:
+        """Move an area in the queue. A batch acquires them top to bottom."""
+        if not (0 <= source < len(self._areas)) or not (0 <= destination < len(self._areas)):
+            return
+        area = self._areas.pop(source)
+        self._areas.insert(destination, area)
+        self.select_area(destination)
+
+    def select_area(self, index: int) -> None:
+        """Make *index* the area the panel edits and the canvas draws in colour."""
+        if not (0 <= index < len(self._areas)):
+            return
+        # Before the panel is loaded, not after: applying the geometry emits `changed`,
+        # which writes the panel back into the selected area. Selecting first means it
+        # writes the new area's own values back to it, rather than over them.
+        self._selected_area = index
+        self._refresh_area_list()
+        self.settings_widget.apply_area(self.selected_area)
+
+    def _refresh_area_list(self) -> None:
+        self.area_list.set_areas(self._areas, self._selected_area, self._area_states)
+
+    def _sync_selected_area(self) -> None:
+        """Copy the panel's grid onto the selected area.
+
+        The panel is the editor and the area is the record, so this runs on every
+        settings change. Only the geometry: the rest of the panel describes the run.
+
+        Guarded because this is reached from a Qt slot, where an exception does not
+        fail -- PyQt5 calls `qFatal` and the process aborts (FIB-329). The selection can
+        legitimately be out of range for the length of one call: `remove_area` shortens
+        the list before choosing what to select next, and the panel emits on the way
+        through. Skipping is right in that window, because the selection about to be
+        made will apply its own area a moment later.
+        """
+        if not 0 <= self._selected_area < len(self._areas):
+            return
+        for field, value in self.settings_widget.area_geometry.items():
+            setattr(self.selected_area, field, value)
+
     def _grid_centre(self) -> Optional[FibsemStagePosition]:
         """The stage position the next overview will be centred on.
 
-        A target if one has been set by dragging the grid, otherwise wherever the
-        stage is -- which is what the runner falls back to, so the drawn grid and the
-        acquisition agree without either having to be told about the other.
+        The selected area's centre if it has one, otherwise wherever the stage is --
+        which is what the runner falls back to, so the drawn grid and the acquisition
+        agree without either having to be told about the other.
         """
         return self._target or self._current_stage_position()
 
@@ -1739,6 +1949,14 @@ class FMOverviewWidget(QWidget):
                 callback=lambda: self.position_move_requested.emit(selected, target),
                 tooltip=f"Move {selected} to {self._describe(target)}",
             )
+        # After the position entries, not before: they were here first, and grouping
+        # by subject beats putting the newest thing at the top of a menu people have
+        # already learned.
+        config.add_action(
+            "Add Overview Here",
+            callback=lambda: self.add_area(centre=target),
+            tooltip=f"Plan an overview area centred on {self._describe(target)}",
+        )
         return config
 
     def _stage_position_at(self, x: float, y: float) -> Optional[FibsemStagePosition]:
@@ -1883,7 +2101,31 @@ class FMOverviewWidget(QWidget):
         mask[row][col] = enabled
         self.settings_widget.tile_mask.mask = mask
 
+    def _on_area_selected(self, index: int) -> None:
+        """A row was clicked. Ignored during a rebuild -- the list suppresses those."""
+        if index != self._selected_area:
+            self.select_area(index)
+
+    def _on_area_remove_requested(self, index: int) -> None:
+        if self.is_acquiring:
+            return
+        self.remove_area(index)
+
+    def _on_area_rename_requested(self, index: int) -> None:
+        if not (0 <= index < len(self._areas)):
+            return
+        name, accepted = QInputDialog.getText(
+            self, "Rename area", "Name:", text=self._areas[index].name
+        )
+        if accepted:
+            self.rename_area(index, name)
+
     def _on_settings_changed(self) -> None:
+        # Before the `is_acquiring` return, not after: the panel is disabled during a
+        # run, but a change that did land must still reach the area it edits, or the
+        # area and the grid on screen would disagree for the rest of the session.
+        self._sync_selected_area()
+        self._refresh_area_list()
         if self.is_acquiring:
             return
         self._refresh_tile_grid()
@@ -1927,6 +2169,11 @@ class FMOverviewWidget(QWidget):
         self.button_cancel.setEnabled(self._running and not self._stop_event.is_set())
         self.settings_widget.setEnabled(idle)
         self.channel_widget.setEnabled(idle)
+        # The list stays readable during a run -- it is where the per-area state is
+        # shown -- but the queue being walked cannot be edited underneath the runner,
+        # which holds the areas it was given.
+        self.btn_add_area.setEnabled(idle)
+        self.area_list.set_reorder_enabled(idle)
 
     # ── acquisition ──────────────────────────────────────────────────────
 
@@ -2015,15 +2262,19 @@ class FMOverviewWidget(QWidget):
             autofocus_settings=autofocus_settings,
             objective_current=self.settings_widget._objective_current,
             objective_focus=self.settings_widget._objective_focus,
+            areas=self._areas,
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
             logging.info("Overview acquisition cancelled before starting")
             return
 
-        # Claimed on the GUI thread, before the worker starts: it makes a directory, so
-        # an unwritable path is reported now rather than after the stage has moved.
-        self._destination = self._claim_destination()
+        # Claimed on the GUI thread, before the worker starts: each makes a directory,
+        # so an unwritable path is reported now rather than after the stage has moved.
+        # All of them up front, for the same reason the stage limits are checked up
+        # front -- a batch that gets four regions in before finding it cannot write has
+        # spent the time it was left alone to save.
+        self._destinations = [self._claim_destination(area.name) for area in self._areas]
 
         # Held for the length of the run, so nothing else drives the FM while the stage
         # is walking the grid. Cleared in the worker's `finally` (FIB-441).
@@ -2031,26 +2282,44 @@ class FMOverviewWidget(QWidget):
 
         self._stop_event.clear()
         self._set_running(True)
-        self._runner = FMTiledAcquisitionRunner(
+        self._runner = FMOverviewBatchRunner(
             microscope=self.microscope,
+            # Every area, always -- a single one is a batch of one, so there is no
+            # second acquisition path to keep in step with this one.
+            areas=self._areas,
             channel_settings=channels,
             overview_parameters=parameters,
             zparams=zparams,
             autofocus_settings=autofocus_settings,
             stop_event=self._stop_event,
-            # None means "where the stage is", which the runner resolves itself. The
-            # stage still returns to where it started afterwards -- the target is the
-            # grid's centre, not a new home.
-            centre_position=self._target,
-            # None when no save directory has been set -- the standalone default. The
+            # None where no save directory has been set -- the standalone default. The
             # runner writes each tile as it lands, so a cancelled run keeps what it got.
-            save_directory=self._destination.tiles_directory if self._destination else None,
+            tiles_directories=[
+                d.tiles_directory if d else None for d in self._destinations
+            ],
+            on_region_complete=self._on_region_complete,
         )
         self._worker = FunctionWorker(self._acquire_worker)
         self._worker.start()
 
-    def _claim_destination(self) -> Optional["OverviewDestination"]:
-        """Where this run's files go, or None if nowhere.
+    def _on_region_complete(self, index: int, mosaic: FluorescenceImage) -> None:
+        """One area finished. Runs on the worker thread.
+
+        Saved and published here rather than after the loop, so a canvas fills in region
+        by region and an eight-area run is something you can watch. It also means a
+        batch that dies on its fifth area has already saved and shown the first four.
+        """
+        self._mosaic = mosaic
+        destination = self._destinations[index] if index < len(self._destinations) else None
+        if destination is not None:
+            self._saved_path = destination.save_mosaic(mosaic)
+        self.overview_acquired.emit(mosaic)
+
+    def _claim_destination(self, basename: Optional[str] = None) -> Optional["OverviewDestination"]:
+        """Where one area's files go, or None if nowhere.
+
+        Named for the area, so an unattended run of six leaves six folders you can tell
+        apart rather than six timestamps a minute apart.
 
         Failing to claim one is not fatal: an overview you can see is worth more than
         no overview at all, so the run goes ahead unsaved and says so.
@@ -2058,7 +2327,7 @@ class FMOverviewWidget(QWidget):
         if self._save_directory is None:
             return None
         try:
-            return OverviewDestination.create(self._save_directory)
+            return OverviewDestination.create(self._save_directory, basename=basename)
         except OSError as e:
             logging.error(f"Cannot save into {self._save_directory}: {e}")
             notification_service.show_toast(
@@ -2074,13 +2343,10 @@ class FMOverviewWidget(QWidget):
 
         try:
             runner = self._runner
-            mosaic = runner.run_and_stitch()
-            self._mosaic = mosaic
-            # Saved here rather than after the signal: a consumer of `overview_acquired`
-            # may want the file, and the mosaic carries the run's name once written.
-            if self._destination is not None:
-                self._saved_path = self._destination.save_mosaic(mosaic)
-            self.overview_acquired.emit(mosaic)
+            # Each area is saved and published as it lands, through
+            # `_on_region_complete`, so there is nothing left to do with the result here
+            # but say the run is over.
+            runner.run()
             self.fm.acquisition_progress_signal.emit(
                 {"state": "overview-finished", "task": "tileset"}
             )
@@ -2158,10 +2424,32 @@ class FMOverviewWidget(QWidget):
             return
 
         task = payload.get("task")
-        if task == "tileset":
+        if task == "overview-batch":
+            self._apply_region_progress(payload)
+        elif task == "tileset":
             self._apply_tile_progress(payload, state)
         elif task in ("z-stack", "channels", "autofocus"):
             self.progress_tile_detail.update_progress(self._tile_detail_update(payload))
+
+    def _apply_region_progress(self, payload: dict) -> None:
+        """An area started. Mark the rows and say which one, in words.
+
+        The tile bar is deliberately left alone. It counts the tiles of the region being
+        acquired, and rescaling it to the whole batch would trade a number that means
+        something for one that is only ever a fraction of an evening. Which region is
+        running is a fact about the *list*, so it goes on the list.
+        """
+        current = payload.get("current", 1)
+        index = current - 1
+        self._area_states = {i: STATE_DONE for i in range(index)}
+        self._area_states[index] = STATE_RUNNING
+        self.area_list.set_states(self._area_states)
+        name = payload.get("name", "")
+        total = payload.get("total", 1)
+        # Only worth the line when there is more than one: "Area 1 of 1" is noise, and
+        # the status is the same elided single line it always was.
+        self._region_status = f"Area {current} of {total} — {name}" if total > 1 else ""
+        self.status.setText(self._region_status)
 
     def _apply_tile_progress(self, payload: dict, state: Optional[str]) -> None:
         if state == "moving":
@@ -2172,7 +2460,10 @@ class FMOverviewWidget(QWidget):
             self.status.setText("Moving stage…")
             return
 
-        self.status.setText("")
+        # Back to whichever area is running, not to nothing: the tile payloads arrive
+        # continuously, so clearing here would wipe the region line a moment after it
+        # was written and the status would only ever flicker it.
+        self.status.setText(self._region_status)
 
         if state == "tile":
             # Deliberately does *not* clear the within-tile bar. It used to, which made
@@ -2285,7 +2576,7 @@ class FMOverviewWidget(QWidget):
         """
         if self._saved_path:
             return "  ·  saved", self._saved_path
-        if self._destination is not None:
+        if any(d is not None for d in self._destinations):
             return "  ·  not saved", "Could not be written to disk — see the log."
         return "", ""
 
@@ -2297,6 +2588,19 @@ class FMOverviewWidget(QWidget):
         self._set_running(False)
         self._worker = None
         self.progress_tile_detail.reset()
+
+        # Whichever area was running did not finish, unless the batch did. A row left
+        # saying "running" after the run is over is worse than one saying nothing --
+        # it is the state a hung acquisition would show.
+        if state == "overview-finished":
+            self._area_states = {i: STATE_DONE for i in range(len(self._areas))}
+        else:
+            self._area_states = {
+                i: (STATE_FAILED if s == STATE_RUNNING else s)
+                for i, s in self._area_states.items()
+            }
+        self.area_list.set_states(self._area_states)
+        self._region_status = ""
 
         if state == "overview-finished" and self._mosaic is not None:
             # Swap the decimated preview for the real thing. Dropped rather than left

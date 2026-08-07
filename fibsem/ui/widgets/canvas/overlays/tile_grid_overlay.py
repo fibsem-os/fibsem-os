@@ -67,6 +67,7 @@ class TileGridOverlay(QObject, CanvasOverlay):
     """
 
     tile_toggled = pyqtSignal(int, int, bool)      # row, col, enabled
+    area_selected = pyqtSignal(int)                # an unselected area was clicked
     grid_resize_requested = pyqtSignal(int, int)   # rows, cols
     grid_move_requested = pyqtSignal(float, float)  # new centre, canvas coordinates
 
@@ -95,6 +96,9 @@ class TileGridOverlay(QObject, CanvasOverlay):
         # coordinates drive the threshold, the data coordinates the displacement.
         self._move_start: Optional[Tuple[float, float, float, float, float, float]] = None
         self._move_active: bool = False
+        # Every area except the selected one, as (index, left, top, width, height)
+        # in canvas coordinates. Outlines only -- see set_other_areas.
+        self._other_areas: List[Tuple[int, float, float, float, float]] = []
 
     # ── lifecycle ────────────────────────────────────────────────────────
 
@@ -185,6 +189,23 @@ class TileGridOverlay(QObject, CanvasOverlay):
         self._tile_pixel_size = tile_pixel_size
         self._display_pixel_size = display_pixel_size
         self._overlap = overlap
+        self._redraw()
+
+    def set_other_areas(
+        self, areas: Sequence[Tuple[int, float, float, float, float]]
+    ) -> None:
+        """The areas that are *not* selected, as `(index, left, top, width, height)`.
+
+        Canvas coordinates, already projected: this overlay draws in canvas space and
+        knows nothing about stage positions, and working out where an area lands is the
+        same arithmetic the host already does to anchor the selected grid.
+
+        Drawn as a plain outline -- no tiles, no fill. An unselected area is context,
+        not something being edited, and eight subdivided grids over a mosaic would
+        obscure the thing they are planned on. It also keeps the drawing cheap, which
+        matters on a canvas that already repaints every stored pixel (FIB-414).
+        """
+        self._other_areas = list(areas)
         self._redraw()
 
     def clear(self) -> None:
@@ -316,7 +337,9 @@ class TileGridOverlay(QObject, CanvasOverlay):
 
     def _redraw(self) -> None:
         self._remove_artists()
-        if self._ax is None or not self._tiles or self._anchor() is None or not self._visible:
+        if self._ax is None or not self._visible or (
+            not self._tiles or self._anchor() is None
+        ) and not self._other_areas:
             # Still repaint: removing the artists takes them out of the axes, but the
             # canvas keeps showing the last render until it is asked to redraw -- so
             # returning early here left a hidden grid on screen.
@@ -326,6 +349,19 @@ class TileGridOverlay(QObject, CanvasOverlay):
 
         from matplotlib.colors import to_rgba
         from matplotlib.patches import Rectangle
+
+        for _index, left, top, width, height in self._other_areas:
+            outline = Rectangle(
+                (left, top), width, height,
+                fill=False,
+                edgecolor=to_rgba(DISABLED_EDGE, DISABLED_ALPHA),
+                linewidth=LINE_WIDTH,
+                # Under the selected grid, which is the one being edited and has to
+                # stay legible where two areas overlap.
+                zorder=19,
+            )
+            self._ax.add_patch(outline)
+            self._artists.append(outline)
 
         for tile in self._tiles:
             x, y, width, height = self._rect_for(tile)
@@ -456,7 +492,16 @@ class TileGridOverlay(QObject, CanvasOverlay):
 
         anchor = self._anchor()
         if anchor is None or not self._within(event.xdata, event.ydata):
-            # Outside the grid, so this press belongs to the canvas -- leave it to pan.
+            # Outside the selected grid. It may still be inside another area, and
+            # clicking one is how it gets selected -- checked only here, so the
+            # selected grid keeps every press that lands on it and a click inside it
+            # still toggles a tile rather than reselecting what is already selected.
+            index = self._area_at(event.xdata, event.ydata)
+            if index is not None:
+                self._claim(event)
+                self.area_selected.emit(index)
+                return
+            # Otherwise this press belongs to the canvas -- leave it to pan.
             return
         # Inside: held rather than acted on, because the same press starts both a move
         # and a tile toggle and only the pointer's next few pixels say which.
@@ -475,6 +520,19 @@ class TileGridOverlay(QObject, CanvasOverlay):
         """
         if self._canvas is not None:
             self._canvas._overlay_consuming_event = True
+
+    def _area_at(self, x: float, y: float) -> Optional[int]:
+        """The unselected area under a point, or None.
+
+        Last match wins, so the area drawn most recently is the one picked up where two
+        overlap -- the same rule the canvas uses for stacked images, and the one that
+        makes a freshly added area clickable when it lands on top of an older one.
+        """
+        found = None
+        for index, left, top, width, height in self._other_areas:
+            if left <= x <= left + width and top <= y <= top + height:
+                found = index
+        return found
 
     def _within(self, x: float, y: float) -> bool:
         """Whether a point is inside the grid's bounding box."""

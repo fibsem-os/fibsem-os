@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem import constants
 from fibsem.fm.structures import (
+    OverviewArea,
     AutoFocusMode,
     AutoFocusSettings,
     ChannelSettings,
@@ -79,10 +80,16 @@ class FMOverviewConfirmationDialog(QDialog):
         autofocus_settings: Optional[AutoFocusSettings] = None,
         objective_current: Optional[float] = None,
         objective_focus: Optional[float] = None,
+        areas: Optional[List[OverviewArea]] = None,
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
         self.parameters = parameters
+        # Every region the run will cover. `parameters` describes the *selected* one,
+        # which is what the rest of this dialog details -- so with several, the counts
+        # have to come from all of them or the dialog would quietly describe a third of
+        # what Acquire is about to do.
+        self.areas = list(areas or [])
         self.channel_settings = channel_settings
         self.zparams = zparams if parameters.use_zstack else None
         self.tile_fov = tile_fov
@@ -211,8 +218,12 @@ class FMOverviewConfirmationDialog(QDialog):
 
     def _init_ui(self) -> None:
         p = self.parameters
-        total = p.rows * p.cols
-        acquired = p.n_enabled_tiles
+        if self.areas:
+            total = sum(a.rows * a.cols for a in self.areas)
+            acquired = sum(a.n_enabled_tiles for a in self.areas)
+        else:
+            total = p.rows * p.cols
+            acquired = p.n_enabled_tiles
 
         # No in-dialog heading: the window title already says "Start Overview
         # Acquisition", and repeating it 8px below costs a line and says nothing. The
@@ -225,6 +236,11 @@ class FMOverviewConfirmationDialog(QDialog):
         # below lists them by name -- the chip added a number, not information.
         chips = QHBoxLayout()
         chips.setSpacing(6)
+        # Leading with the region count when there is more than one: it is the single
+        # most important thing about the run, and the difference between a two-minute
+        # acquisition and an evening.
+        if len(self.areas) > 1:
+            chips.addWidget(_chip(f"{len(self.areas)} areas"))
         chips.addWidget(_chip(f"{acquired} to acquire"))
         if acquired != total:
             chips.addWidget(_chip(f"{total - acquired} skipped"))
