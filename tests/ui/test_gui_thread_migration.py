@@ -42,7 +42,6 @@ ALLOWED = {REPO_ROOT / "fibsem" / "ui" / "qt" / "threading.py"}
 # Widgets whose background jobs were migrated off raw threads; each must still route
 # through FunctionWorker, so a half-revert is caught.
 MIGRATED_MODULES = [
-    "fibsem/ui/FMAcquisitionWidget.py",
     "fibsem/ui/FibsemMinimapWidget.py",
     "fibsem/ui/widgets/milling_widget.py",
     "fibsem/ui/widgets/fluorescence_control_widget.py",

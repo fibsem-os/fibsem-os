@@ -8,7 +8,7 @@ Backed directly by ``AutoFocusSettings.passes`` (list of ``FocusSweepPass``).
 """
 from __future__ import annotations
 
-from typing import List, Optional, TYPE_CHECKING
+from typing import List, Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -28,9 +28,6 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
     ValueSpinBox,
 )
-
-if TYPE_CHECKING:
-    from fibsem.ui.FMAcquisitionWidget import FMAcquisitionWidget
 
 _M_TO_UM = 1e6
 _UM_TO_M = 1e-6
@@ -189,7 +186,7 @@ class AutofocusWidget(QWidget):
     def __init__(
         self,
         channel_settings: List[ChannelSettings],
-        parent: Optional["FMAcquisitionWidget"] = None,
+        parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.channel_settings = channel_settings

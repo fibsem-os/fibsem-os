@@ -37,7 +37,6 @@ from fibsem.ui import (
     MillingTaskViewerWidget,
     stylesheets,
 )
-from fibsem.ui.FMAcquisitionWidget import open_fm_acquisition_dialog
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui import utils as fui
@@ -191,7 +190,6 @@ class AutoLamellaUI(QMainWindow):
         self.image_widget: Optional[FibsemImageSettingsWidget] = None
         self.movement_widget: Optional[FibsemMovementWidget] = None
         self.spot_burn_widget: Optional[FibsemSpotBurnWidget] = None
-        self._fm_acquisition_dialog = None
         self.fm_control_widget: Optional[FMControlWidget] = None
         self.milling_task_config_widget: Optional[MillingTaskViewerWidget] = None
         self.det_widget: Optional["FibsemEmbeddedDetectionWidget"] = None
@@ -773,34 +771,7 @@ class AutoLamellaUI(QMainWindow):
         notification_service.show_toast(message, "success")
         fui.open_path_in_file_explorer(output_path)
 
-    #### FLUORESCENCE MINIMAP
-
-    def open_fm_minimap_widget(self):
-        if self.microscope is None:
-            notification_service.show_toast(
-                "Please connect to a microscope first... [No Microscope Connected]",
-                "warning",
-            )
-            return
-
-        if self.microscope.fm is None:
-            notification_service.show_toast(
-                "Connected microscope does not have fluorescence capabilities.",
-                "warning",
-            )
-            return
-
-        if self.experiment is None:
-            notification_service.show_toast(
-                "Please load an experiment first... [No Experiment Loaded]", "warning"
-            )
-            return
-
-        self._fm_acquisition_dialog = open_fm_acquisition_dialog(
-            microscope=self.microscope,
-            experiment=self.experiment,
-            parent=self,
-        )
+    #### FLUORESCENCE IMAGE VIEWER
 
     def _open_fm_image_viewer(self):
         """Open a new napari viewer with the FM Image Viewer widget."""
