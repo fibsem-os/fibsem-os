@@ -37,8 +37,11 @@ from fibsem.correlation.structures import (
 )
 from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
 from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.ui.tokens import (
+    NEUTRAL_200,
+)
 
-_VALUE_STYLE = "color: #e0e0e0; font-size: 12px;"
+_VALUE_STYLE = f"color: {NEUTRAL_200}; font-size: 12px;"
 
 
 def _value_label(text: str = "—") -> QLabel:

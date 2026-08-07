@@ -41,6 +41,8 @@ from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
+    BORDER_COLOR,
+    CANVAS_BG,
     TEXT_COLOR,
 )
 
@@ -373,9 +375,9 @@ class HookConfigWidget(QWidget):
         # List
         self._list = QListWidget()
         self._list.setSpacing(2)
-        self._list.setStyleSheet("QListWidget { background: #1e2124; border: none; }"
+        self._list.setStyleSheet(f"QListWidget {{ background: {CANVAS_BG}; border: none; }}"
                                   "QListWidget::item { border-radius: 3px; }"
-                                  "QListWidget::item:selected { background: #3d4251; }")
+                                  f"QListWidget::item:selected {{ background: {BORDER_COLOR}; }}")
 
         content = QWidget()
         content_layout = QVBoxLayout(content)

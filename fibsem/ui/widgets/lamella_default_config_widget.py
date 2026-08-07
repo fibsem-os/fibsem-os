@@ -22,6 +22,7 @@ from fibsem.structures import DEFAULT_ALIGNMENT_AREA, FibsemRectangle, Point
 from fibsem.ui.stylesheets import NAPARI_STYLE
 from fibsem.ui.tokens import (
     NEUTRAL_500,
+    NEUTRAL_750,
     SEMANTIC_WARNING_COLOR,
 )
 
@@ -36,7 +37,7 @@ _LABEL_STYLE = f"color: {NEUTRAL_500}; min-width: 80px; font-size: 11px; backgro
 _INVALID_STYLE = f"color: {SEMANTIC_WARNING_COLOR}; font-size: 10px; background: transparent;"
 _HINT_STYLE = (
     "color: #808080; font-size: 10px; background: transparent;"
-    " border-top: 1px solid #4a4a4a; padding-top: 6px;"
+    f" border-top: 1px solid {NEUTRAL_750}; padding-top: 6px;"
 )
 
 # Tells the user the preview is editable — without it the overlays look decorative

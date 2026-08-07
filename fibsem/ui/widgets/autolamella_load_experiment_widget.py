@@ -22,7 +22,9 @@ from fibsem.config import (
 )
 from fibsem.ui import utils as fui
 from fibsem.ui.stylesheets import (
+    BORDER_COLOR,
     DISABLED_TEXT_COLOR,
+    PANEL_COLOR,
     PRIMARY_BUTTON_STYLESHEET,
     PRIMARY_COLOR_PRESSED,
     ROW_ALT_COLOR,
@@ -115,8 +117,8 @@ class _ElidedLabel(QtWidgets.QLabel):
 
 RECENT_LIST_STYLESHEET = f"""
 QListWidget {{
-    background-color: #1e2027;
-    border: 1px solid #3d4251;
+    background-color: {PANEL_COLOR};
+    border: 1px solid {BORDER_COLOR};
     border-radius: 4px;
     outline: none;
     padding: 2px;

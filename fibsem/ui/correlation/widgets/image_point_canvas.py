@@ -55,13 +55,20 @@ from PyQt5.QtWidgets import (
 
 from fibsem.correlation.structures import Coordinate, PointType
 from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.tokens import (
+    CANVAS_BG,
+    GRAY_TEXT_COLOR,
+    NEUTRAL_200,
+    NEUTRAL_450,
+    ORANGE_COLOR,
+)
 _logger = logging.getLogger(__name__)
 
 _POINT_COLORS: Dict[PointType, str] = {
     PointType.FIB:        "#00ff00",
     PointType.FM:         "#00e5ff",
     PointType.POI:        "#ff00ff",
-    PointType.SURFACE:    "#ff9800",
+    PointType.SURFACE:    f"{ORANGE_COLOR}",
     PointType.SURFACE_FM: "#ffea00",
 }
 _POINT_MARKERS: Dict[PointType, str] = {
@@ -150,9 +157,9 @@ _LEGEND_KWARGS = dict(
     loc="upper left",
     fontsize=8,
     framealpha=0.75,
-    facecolor="#1e2124",
+    facecolor=f"{CANVAS_BG}",
     edgecolor="#3a3d42",
-    labelcolor="#e0e0e0",
+    labelcolor=f"{NEUTRAL_200}",
     handletextpad=0.4,
     borderpad=0.5,
     labelspacing=0.35,
@@ -215,7 +222,7 @@ class ImagePointCanvas(FigureCanvasQTAgg):
         parent: Optional[QWidget] = None,
         allowed_point_types: Optional[List[PointType]] = None,
     ) -> None:
-        self._fig = Figure(facecolor="#1e2124")
+        self._fig = Figure(facecolor=f"{CANVAS_BG}")
         super().__init__(self._fig)
         self.setParent(parent)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -223,7 +230,7 @@ class ImagePointCanvas(FigureCanvasQTAgg):
         self._allowed_types = allowed_point_types
 
         self._ax = self._fig.add_subplot(111)
-        self._ax.set_facecolor("#1e2124")
+        self._ax.set_facecolor(f"{CANVAS_BG}")
         self._ax.axis("off")
         self._fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
@@ -415,7 +422,7 @@ class ImagePointCanvas(FigureCanvasQTAgg):
         ``callback`` (checkable buttons receive the new checked state).
         """
         btn = QPushButton(self)
-        btn.setIcon(fibsem_icon(icon_name, color="#aaaaaa"))
+        btn.setIcon(fibsem_icon(icon_name, color=f"{NEUTRAL_450}"))
         btn.setIconSize(_OVERLAY_ICON_SIZE)
         btn.setFixedSize(_OVERLAY_BTN_SIZE, _OVERLAY_BTN_SIZE)
         btn.setToolTip(tooltip)
@@ -994,7 +1001,7 @@ class ImagePointCanvas(FigureCanvasQTAgg):
     def _show_add_menu(self, x: float, y: float) -> None:
         menu = QMenu(self)
         menu.setStyleSheet(
-            "QMenu { background: #2b2d31; color: #F0F1F2; border: 1px solid #3a3d42; }"
+            f"QMenu {{ background: #2b2d31; color: {GRAY_TEXT_COLOR}; border: 1px solid #3a3d42; }}"
             "QMenu::item:selected { background: #2d3f5c; }"
         )
         for pt in (self._allowed_types or list(PointType)):

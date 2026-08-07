@@ -23,8 +23,10 @@ from fibsem.applications.autolamella.structures import AutoLamellaTaskDescriptio
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 from fibsem.ui.tokens import (
+    BORDER_COLOR,
     NEUTRAL_500,
     NEUTRAL_700,
+    TEXT_COLOR,
 )
 
 _ROW_HEIGHT = 40
@@ -33,8 +35,8 @@ _MAX_VISIBLE_REQS = 5
 # A task may be scheduled from now up to this many days in advance.
 _MAX_SCHEDULE_DAYS_AHEAD = 2
 _NAME_PILL_STYLE = (
-    "font-size: 12px; font-weight: bold; color: #d6d6d6; background: #2d3340;"
-    " border: 1px solid #3d4251; border-radius: 10px; padding: 2px 10px;"
+    f"font-size: 12px; font-weight: bold; color: {TEXT_COLOR}; background: #2d3340;"
+    f" border: 1px solid {BORDER_COLOR}; border-radius: 10px; padding: 2px 10px;"
 )
 _HINT_STYLE = "color: #707070; font-size: 11px; background: transparent;"
 _HINT_WARN_STYLE = "color: #f0a040; font-size: 11px; background: transparent;"

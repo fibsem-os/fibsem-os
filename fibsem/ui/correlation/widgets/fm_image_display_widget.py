@@ -45,6 +45,10 @@ from fibsem.ui.widgets.custom_widgets import IconToolButton
 from fibsem.correlation.structures import Coordinate, PointType
 from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
 from fibsem.fm.structures import FluorescenceImage
+from fibsem.ui.tokens import (
+    CANVAS_BG,
+    NEUTRAL_300,
+)
 
 # Fallback palette when channel metadata has no color field
 _DEFAULT_COLORS = ["cyan", "magenta", "yellow", "green", "red", "blue", "gray"]
@@ -59,7 +63,7 @@ _CH_INIT_HEIGHT = _CH_MIN_HEIGHT + 48  # a bit taller by default; user-resizable
 
 # Compact step buttons flanking the Z slider
 _Z_BTN_STYLE = (
-    "QToolButton { color: #d0d0d0; background: #2b2d31; border: 1px solid #3a3d42; "
+    f"QToolButton {{ color: {NEUTRAL_300}; background: #2b2d31; border: 1px solid #3a3d42; "
     "border-radius: 3px; font-size: 13px; }"
     "QToolButton:hover { background: #3a3d42; }"
     "QToolButton:disabled { color: #5a5d62; }"
@@ -67,8 +71,8 @@ _Z_BTN_STYLE = (
 
 # Filename header shown above the FM (and FIB) image canvas
 IMAGE_HEADER_STYLE = (
-    "color: #d0d0d0; font-size: 11px; padding: 3px 8px; "
-    "background: #1e2124; border-bottom: 1px solid #3a3d42;"
+    f"color: {NEUTRAL_300}; font-size: 11px; padding: 3px 8px; "
+    f"background: {CANVAS_BG}; border-bottom: 1px solid #3a3d42;"
 )
 
 
@@ -179,7 +183,7 @@ class _ChannelRow(QWidget):
 
         # Channel name
         lbl = QLabel(name)
-        lbl.setStyleSheet("color: #d0d0d0; font-size: 11px;")
+        lbl.setStyleSheet(f"color: {NEUTRAL_300}; font-size: 11px;")
         lbl.setFixedWidth(_CH_NAME_WIDTH)
         lbl.setToolTip(name)
         lbl.setTextFormat(Qt.TextFormat.PlainText)
@@ -302,13 +306,13 @@ class FMImageDisplayWidget(QWidget):
         # Z / MIP row
         self._z_row = QWidget()
         self._z_row.setFixedHeight(_CTRL_HEIGHT)
-        self._z_row.setStyleSheet("background: #1e2124;")
+        self._z_row.setStyleSheet(f"background: {CANVAS_BG};")
         z_layout = QHBoxLayout(self._z_row)
         z_layout.setContentsMargins(8, 0, 8, 0)
         z_layout.setSpacing(8)
 
         self._mip_check = QCheckBox("Max Projection")
-        self._mip_check.setStyleSheet("color: #d0d0d0; font-size: 11px;")
+        self._mip_check.setStyleSheet(f"color: {NEUTRAL_300}; font-size: 11px;")
         z_layout.addWidget(self._mip_check)
 
         z_layout.addWidget(_sep_label())
@@ -354,10 +358,10 @@ class FMImageDisplayWidget(QWidget):
         self._ch_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._ch_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self._ch_scroll.setMinimumHeight(_CH_MIN_HEIGHT)  # ≥ 3 channel rows + margin
-        self._ch_scroll.setStyleSheet("background: #1e2124; border: none;")
+        self._ch_scroll.setStyleSheet(f"background: {CANVAS_BG}; border: none;")
 
         self._ch_container = QWidget()
-        self._ch_container.setStyleSheet("background: #1e2124;")
+        self._ch_container.setStyleSheet(f"background: {CANVAS_BG};")
         self._ch_layout = QVBoxLayout(self._ch_container)
         self._ch_layout.setContentsMargins(4, 2, 4, 2)
         self._ch_layout.setSpacing(2)

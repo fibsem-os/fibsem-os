@@ -25,6 +25,7 @@ from fibsem.ui.tokens import (
     NEUTRAL_200,
     NEUTRAL_550,
     NEUTRAL_900,
+    PRIMARY_COLOR,
     SURFACE_COLOR,
 )
 
@@ -44,7 +45,7 @@ QFrame#LamellaCard {{
 _CARD_SELECTED_STYLE = f"""
 QFrame#LamellaCard {{
     background: {SURFACE_COLOR};
-    border: 2px solid #007ACC;
+    border: 2px solid {PRIMARY_COLOR};
     border-radius: 8px;
 }}
 """

@@ -22,6 +22,9 @@ from PyQt5.QtWidgets import (
 
 from fibsem.correlation.refractive_index import ZetaParams, _LUT_PATH, _ensure_lut, lookup_zeta
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueSpinBox
+from fibsem.ui.tokens import (
+    NEUTRAL_500,
+)
 
 _LUT_MISSING_MSG = (
     f"Correction factor calculator unavailable: LUT file not found at\n{_LUT_PATH}\n"
@@ -43,7 +46,7 @@ _DEFAULT_FACTOR = 1.47
 # string labels default to the app font, which renders larger than the values
 # beside them — the field name ends up shouting over its own data.
 _CONTROL_STYLE = "font-size: 12px;"
-_FORM_LABEL_STYLE = "color: #a0a0a0; font-size: 11px;"
+_FORM_LABEL_STYLE = f"color: {NEUTRAL_500}; font-size: 11px;"
 
 
 def _form_label(text: str) -> QLabel:

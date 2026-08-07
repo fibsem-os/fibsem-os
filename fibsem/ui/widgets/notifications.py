@@ -23,6 +23,11 @@ from fibsem.constants import TIME_DISPLAY
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
+    BORDER_COLOR,
+    DISABLED_BG_COLOR,
+    DISABLED_TEXT_COLOR,
+    PANEL_COLOR,
+    SURFACE_COLOR,
     TEXT_COLOR,
 )
 
@@ -104,33 +109,33 @@ class ToastNotification(QWidget):
         """Apply styling based on notification type."""
         color = self.TYPES.get(notification_type, self.TYPES["info"])
 
-        self.container.setStyleSheet("""
-            #toast_container {
-                background-color: #1e2027;
-                border: 1px solid #3d4251;
+        self.container.setStyleSheet(f"""
+            #toast_container {{
+                background-color: {PANEL_COLOR};
+                border: 1px solid {BORDER_COLOR};
                 border-radius: 6px;
-            }
+            }}
         """)
 
-        self.message_label.setStyleSheet("""
-            QLabel {
+        self.message_label.setStyleSheet(f"""
+            QLabel {{
                 background-color: transparent;
-                color: #d6d6d6;
+                color: {TEXT_COLOR};
                 font-size: 13px;
-            }
+            }}
         """)
 
-        self.close_btn.setStyleSheet("""
-            QToolButton {
+        self.close_btn.setStyleSheet(f"""
+            QToolButton {{
                 background-color: transparent;
                 color: #888;
                 border: none;
                 font-size: 16px;
                 font-weight: bold;
-            }
-            QToolButton:hover {
-                color: #d6d6d6;
-            }
+            }}
+            QToolButton:hover {{
+                color: {TEXT_COLOR};
+            }}
         """)
 
         # Set icon based on type
@@ -234,16 +239,16 @@ class NotificationHistoryPopup(QWidget):
         header_layout.addStretch()
 
         self.clear_btn = QPushButton("Clear All")
-        self.clear_btn.setStyleSheet("""
-            QPushButton {
+        self.clear_btn.setStyleSheet(f"""
+            QPushButton {{
                 background-color: transparent;
-                color: #50a6ff;
+                color: {ACCENT_COLOR};
                 border: none;
                 font-size: 12px;
-            }
-            QPushButton:hover {
+            }}
+            QPushButton:hover {{
                 color: #7bc0ff;
-            }
+            }}
         """)
         header_layout.addWidget(self.clear_btn)
 
@@ -272,19 +277,19 @@ class NotificationHistoryPopup(QWidget):
         # Empty state label
         self.empty_label = QLabel("No notifications")
         self.empty_label.setAlignment(Qt.AlignCenter)
-        self.empty_label.setStyleSheet("color: #6b6b6b; padding: 20px;")
+        self.empty_label.setStyleSheet(f"color: {DISABLED_TEXT_COLOR}; padding: 20px;")
         self.notifications_layout.insertWidget(0, self.empty_label)
 
         # Apply styling
-        self.container.setStyleSheet("""
-            #notification_popup {
-                background-color: #1e2027;
-                border: 1px solid #3d4251;
+        self.container.setStyleSheet(f"""
+            #notification_popup {{
+                background-color: {PANEL_COLOR};
+                border: 1px solid {BORDER_COLOR};
                 border-radius: 8px;
-            }
-            #notification_header {
-                border-bottom: 1px solid #3d4251;
-            }
+            }}
+            #notification_header {{
+                border-bottom: 1px solid {BORDER_COLOR};
+            }}
         """)
         # The app-global NAPARI_STYLE sets `QWidget { background-color: #262930 }`, which
         # otherwise bleeds into every child surface (header / scroll area / rows). Force them
@@ -322,18 +327,18 @@ class NotificationHistoryPopup(QWidget):
         text_layout.addWidget(msg_label)
 
         time_label = QLabel(timestamp)
-        time_label.setStyleSheet("color: #6b6b6b; font-size: 11px;")
+        time_label.setStyleSheet(f"color: {DISABLED_TEXT_COLOR}; font-size: 11px;")
         text_layout.addWidget(time_label)
 
         item_layout.addLayout(text_layout, 1)
 
-        item.setStyleSheet("""
-            #notification_item {
-                border-bottom: 1px solid #2d313b;
-            }
-            #notification_item:hover {
-                background-color: #262930;
-            }
+        item.setStyleSheet(f"""
+            #notification_item {{
+                border-bottom: 1px solid {DISABLED_BG_COLOR};
+            }}
+            #notification_item:hover {{
+                background-color: {SURFACE_COLOR};
+            }}
         """)
 
         # Insert at top (before the stretch)
@@ -388,15 +393,15 @@ class NotificationBell(QWidget):
         self._apply_style()
 
     def _apply_style(self):
-        self.bell_btn.setStyleSheet("""
-            QToolButton {
+        self.bell_btn.setStyleSheet(f"""
+            QToolButton {{
                 background-color: transparent;
                 border: none;
-            }
-            QToolButton:hover {
-                background-color: #3d4251;
+            }}
+            QToolButton:hover {{
+                background-color: {BORDER_COLOR};
                 border-radius: 18px;
-            }
+            }}
         """)
 
         self.badge.setStyleSheet("""
