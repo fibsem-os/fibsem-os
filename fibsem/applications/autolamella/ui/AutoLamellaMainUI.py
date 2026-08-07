@@ -482,10 +482,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._dev_menu = dev_menu
         self._dev_menu.menuAction().setVisible(self.dev_mode)
 
-        action_open_fm_minimap = QAction("Open Fluorescence Minimap", self)
-        action_open_fm_minimap.triggered.connect(self._open_fm_minimap_widget)
-        dev_menu.addAction(action_open_fm_minimap)
-
         action_open_fm_image_viewer = QAction("Open Fluorescence Image Viewer", self)
         action_open_fm_image_viewer.triggered.connect(self._open_fm_image_viewer)
         dev_menu.addAction(action_open_fm_image_viewer)
@@ -879,11 +875,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Handle Export Targeting ML Data action."""
         if self.autolamella_ui is not None:
             self.autolamella_ui.export_targeting_ml_data()
-
-    def _open_fm_minimap_widget(self):
-        """Open the Fluorescence Minimap widget."""
-        if self.autolamella_ui is not None:
-            self.autolamella_ui.open_fm_minimap_widget()
 
     def _open_fm_image_viewer(self):
         """Open the Fluorescence Image Viewer widget."""

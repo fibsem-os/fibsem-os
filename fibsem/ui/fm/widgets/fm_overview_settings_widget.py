@@ -1,11 +1,9 @@
 """Every setting an FM overview acquisition takes, in one self-contained widget.
 
-Replaces `OverviewParametersWidget` for the rebuilt overview UI. Two differences that
-matter:
+Two properties this widget is built around:
 
-* **No parent coupling.** The old widget type-hinted its parent as
-  `FMAcquisitionWidget` and reached into it for channel names, so it could not be used
-  anywhere else. This one is told what it needs.
+* **No parent coupling.** It is told what it needs rather than reaching into its parent
+  for channel names, so it can be embedded anywhere.
 * **Complete.** It covers `tile_order` and `tile_mask`, which the acquisition gained
   with sparse tilesets and tile ordering and which nothing could set from the UI.
 """

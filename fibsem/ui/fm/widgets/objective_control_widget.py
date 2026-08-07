@@ -1,5 +1,5 @@
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 from PyQt5.QtCore import pyqtSlot
 from PyQt5.QtWidgets import (
@@ -28,9 +28,6 @@ from fibsem.ui.napari.utilities import update_text_overlay
 from fibsem.ui.widgets.custom_widgets import (
     ValueSpinBox,
 )
-
-if TYPE_CHECKING:
-    from fibsem.ui.FMAcquisitionWidget import FMAcquisitionWidget
 
 OBJECTIVE_CONFIG = {
     "position": {
@@ -94,7 +91,9 @@ class _InsertObjectiveDialog(QDialog):
 
 
 class ObjectiveControlWidget(QWidget):
-    def __init__(self, fm: FluorescenceMicroscope, parent: Optional['FMAcquisitionWidget'] = None, microscope=None):
+    # parent is duck-typed: hosts optionally supply .viewer, .microscope,
+    # ._view_controller() and .is_acquisition_active, all read behind guards.
+    def __init__(self, fm: FluorescenceMicroscope, parent: Optional[QWidget] = None, microscope=None):
         super().__init__(parent)
         self.fm = fm
         self.parent_widget = parent

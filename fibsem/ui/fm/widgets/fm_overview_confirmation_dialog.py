@@ -1,9 +1,9 @@
 """Pre-flight summary for an FM overview acquisition.
 
-Replaces `OverviewConfirmationDialog`. Same job, house style: a meta line, count chips,
-a detail block, a duration broken down by where it goes, and a primary action in the
-footer. Each fact appears once — the window title is the heading, the Channels row is
-the channel count, and the skipped chip is what "sparse" would have said.
+House style: a meta line, count chips, a detail block, a duration broken down by where
+it goes, and a primary action in the footer. Each fact appears once — the window title
+is the heading, the Channels row is the channel count, and the skipped chip is what
+"sparse" would have said.
 """
 
 from typing import List, Optional

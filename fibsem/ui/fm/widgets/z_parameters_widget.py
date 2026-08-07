@@ -1,5 +1,5 @@
 
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 from PyQt5.QtWidgets import (
     QComboBox,
@@ -34,14 +34,11 @@ Z_PARAMETERS_CONFIG = {
     },
 }
 
-if TYPE_CHECKING:
-    from fibsem.ui.FMAcquisitionWidget import FMAcquisitionWidget
-
 class ZParametersWidget(QWidget):
 
     settings_changed = pyqtSignal(ZParameters)
 
-    def __init__(self, z_parameters: ZParameters, parent: Optional['FMAcquisitionWidget'] = None):
+    def __init__(self, z_parameters: ZParameters, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._z_parameters = z_parameters
         self.parent_widget = parent
