@@ -584,6 +584,32 @@ def test_fm_surface_point_gets_no_line(qapp):
     assert canvas._surface_line is None
 
 
+def test_set_image_rebuilds_the_surface_line_on_the_new_axes(qapp):
+    """A second set_image() with a surface point on the canvas used to abort.
+
+    cla() detaches the datum line, so the stale reference made the next rebuild
+    call remove() on an artist with no axes — matplotlib raises
+    NotImplementedError there, not the ValueError the guard caught, and PyQt5
+    turns an exception escaping a slot into a process abort. Loading a second
+    FIB image after picking a surface point took the app down.
+    """
+    import numpy as np
+
+    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
+
+    img = np.zeros((64, 64), dtype=np.uint8)
+    canvas = ImagePointCanvas()
+    canvas.set_image(img)
+    canvas.set_coordinates([_coord(x=10.0, y=40.0, pt=PointType.SURFACE)])
+
+    canvas.set_image(img)  # ← used to raise NotImplementedError
+
+    # and the line is live on the new axes, not merely un-crashed
+    assert canvas._surface_line is not None
+    assert canvas._surface_line in canvas._ax.lines
+    assert canvas._surface_line.get_ydata()[0] == pytest.approx(40.0)
+
+
 def test_surface_line_exported_by_render_to_axes(qapp):
     from matplotlib.figure import Figure
 
