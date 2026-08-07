@@ -295,6 +295,10 @@ class ImagePointCanvas(FigureCanvasQTAgg):
         self._ax.axis("off")
         self._point_artists.clear()
         self._label_artists.clear()
+        # cla() detached the surface line too — drop the reference or the
+        # rebuild below tries to remove an artist that has no axes
+        self._surface_line = None
+        self._surface_line_coord = None
         self._background = None
 
         h, w = image.shape[:2]
@@ -733,7 +737,8 @@ class ImagePointCanvas(FigureCanvasQTAgg):
         if self._surface_line is not None:
             try:
                 self._surface_line.remove()
-            except ValueError:
+            except (ValueError, NotImplementedError):
+                # NotImplementedError: the artist was already detached (cla())
                 pass
             self._surface_line = None
         self._surface_line_coord = None
