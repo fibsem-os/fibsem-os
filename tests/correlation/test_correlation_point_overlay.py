@@ -4,6 +4,9 @@ The point of the subclass is that callers address points by object identity whil
 PointOverlay addresses them by index. These tests pin the seam between the two --
 above all the cases where indices shift under the caller (removal), which is where
 an index<->identity translation layer would have broken.
+
+The tail of the file covers CorrelationResultOverlay, the static sibling that
+carries a correlation result's reprojected markers.
 """
 import sys
 
@@ -18,6 +21,7 @@ from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
 from fibsem.ui.correlation.widgets.correlation_point_overlay import (
     POINT_COLORS,
     CorrelationPointOverlay,
+    CorrelationResultOverlay,
     generate_names,
 )
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
@@ -36,6 +40,14 @@ def _attached(coords):
     canvas.add_overlay(ov)
     ov.set_coordinates(coords)
     return canvas, ov
+
+
+def _with_results(coords):
+    """A canvas carrying both overlays, wired as CorrelationCanvasWidget wires them."""
+    canvas, points = _attached(coords)
+    results = CorrelationResultOverlay(legend_host=points)
+    canvas.add_overlay(results)
+    return canvas, points, results
 
 
 # ── identity ──────────────────────────────────────────────────────────────
@@ -344,3 +356,268 @@ def test_a_point_added_later_gets_the_outline_too():
     _, ov = _attached([_coord(10, 10)])
     ov.add_coordinate(_coord(20, 20, PointType.POI))
     assert all(a.get_path_effects() for a in ov._anns if a is not None)
+
+
+# ── the surface datum row ─────────────────────────────────────────────────
+
+
+def _datum(ov):
+    """The dashed datum line on the axes, or None."""
+    lines = [ln for ln in ov._ax.get_lines() if ln.get_linestyle() == "--"]
+    return lines[0] if lines else None
+
+
+def test_a_fib_surface_gets_a_datum_row():
+    """A single marker is a poor way to read a height off a large image; the FIB
+    surface is a datum other features are read against."""
+    _, ov = _attached([_coord(50, 60), _coord(100, 120, PointType.SURFACE)])
+    line = _datum(ov)
+    assert line is not None
+    assert line.get_ydata()[0] == 120.0
+    assert line.get_color() == POINT_COLORS[PointType.SURFACE]
+    assert line.get_zorder() < 8  # under the markers
+
+
+def test_an_fm_surface_gets_no_datum_row():
+    """An FM surface is a z-plane, so no in-plane line applies to it."""
+    _, ov = _attached([_coord(30, 40, PointType.SURFACE_FM)])
+    assert _datum(ov) is None
+
+
+def test_the_datum_row_arrives_and_leaves_with_its_point():
+    surf = _coord(100, 120, PointType.SURFACE)
+    _, ov = _attached([_coord(50, 60)])
+    assert _datum(ov) is None
+
+    ov.add_coordinate(surf)
+    assert _datum(ov) is not None
+
+    ov.remove_coordinate(surf)
+    assert _datum(ov) is None
+
+
+def test_the_datum_row_follows_an_external_edit():
+    surf = _coord(100, 120, PointType.SURFACE)
+    _, ov = _attached([surf])
+    surf.point.y = 200.0
+    ov.refresh_coordinate(surf)
+    assert _datum(ov).get_ydata()[0] == 200.0
+
+
+def test_selecting_the_surface_weights_its_row():
+    """Selection reads as a heavier, brighter line -- the colour stays the type's,
+    the same rule the markers follow."""
+    surf = _coord(100, 120, PointType.SURFACE)
+    other = _coord(50, 60)
+    _, ov = _attached([other, surf])
+    normal = (_datum(ov).get_linewidth(), _datum(ov).get_alpha())
+
+    ov.set_selected_coordinate(surf)
+    assert (_datum(ov).get_linewidth(), _datum(ov).get_alpha()) > normal
+
+    ov.set_selected_coordinate(other)
+    assert (_datum(ov).get_linewidth(), _datum(ov).get_alpha()) == normal
+
+
+def test_the_datum_row_hides_with_the_overlay():
+    _, ov = _attached([_coord(100, 120, PointType.SURFACE)])
+    ov.set_visible(False)
+    assert not _datum(ov).get_visible()
+    ov.set_visible(True)
+    assert _datum(ov).get_visible()
+
+
+def test_a_new_image_redraws_the_datum_row():
+    canvas, ov = _attached([_coord(100, 120, PointType.SURFACE)])
+    canvas.set_array(np.zeros((64, 64), dtype=np.uint8))
+    assert _datum(ov) is not None
+    assert len([ln for ln in ov._ax.get_lines() if ln.get_linestyle() == "--"]) == 1
+
+
+def test_the_datum_row_keeps_up_with_a_drag():
+    """The base blits only the dragged marker and its label. Without the row in
+    that set it would stay at its old y until the mouse came up -- on exactly the
+    point whose whole purpose is marking that y."""
+
+    class _Event:
+        xdata, ydata, x, y = 100.0, 120.0, 0.0, 0.0
+
+    _, ov = _attached([_coord(100, 120, PointType.SURFACE)])
+    ov._start_drag(0, _Event())
+
+    line = _datum(ov)
+    # animated, so the captured background does not contain it at the old y...
+    assert line.get_animated()
+    # ...and painted on every drag step, so it appears at the new one
+    assert line in ov._blit_artists()
+
+    ov._on_release(_Event())
+    assert not line.get_animated()
+
+
+# ── result markers ────────────────────────────────────────────────────────
+#
+# The three calls below mirror CorrelationTabWidget._overlay_result_on_fib: the
+# reprojected fiducials, the uncorrected-POI ghost, and the corrected POI.
+
+
+def _add_reprojected(results):
+    results.add_points(
+        [(70.0, 65.0), (125.0, 95.0)],
+        color="#ff4444", label_prefix="E", size=4, legend_label="FM reprojected (E)",
+    )
+
+
+def _add_ghost(results):
+    results.add_points(
+        [(150.0, 150.0)],
+        color="#ff00ff", size=7, alpha=0.7, show_labels=False, hollow=True,
+        legend_label="POI uncorrected",
+    )
+
+
+def test_result_markers_never_become_pickable_points():
+    """The whole reason results live on their own overlay: the interactive one
+    hit-tests _points, so a marker that never enters it cannot be dragged or
+    deleted by a stray click, without anything having to remember that."""
+    _, points, results = _with_results([_coord(10, 10)])
+    _add_reprojected(results)
+    _add_ghost(results)
+
+    assert points.get_points() == [(10.0, 10.0)]
+    assert len(points.coordinates()) == 1
+    assert len(results._artists) == 3  # 2 reprojected + 1 ghost, all outside _points
+
+
+def test_result_groups_accumulate():
+    _, _, results = _with_results([])
+    _add_reprojected(results)
+    _add_ghost(results)
+    assert len(results._groups) == 2
+    assert len(results._artists) == 3
+
+
+def test_result_entries_are_appended_to_the_point_legend():
+    """One legend box, not two: a second Legend would be drawn in the same corner
+    and sit on top of the first. Point types read first, results after."""
+    _, points, results = _with_results([_coord(10, 10, PointType.FIB)])
+    _add_reprojected(results)
+    _add_ghost(results)
+
+    assert _drawn_legend(points) == ["FIB", "FM reprojected (E)", "POI uncorrected"]
+
+
+def test_a_group_without_a_legend_label_adds_no_entry():
+    _, points, results = _with_results([_coord(10, 10)])
+    results.add_points([(20.0, 20.0)], color="#ff4444")
+    assert _drawn_legend(points) == ["FIB"]
+
+
+def test_clearing_the_result_takes_its_legend_entries_with_it():
+    _, points, results = _with_results([_coord(10, 10)])
+    _add_reprojected(results)
+    assert _drawn_legend(points) == ["FIB", "FM reprojected (E)"]
+
+    results.clear()
+
+    assert _drawn_legend(points) == ["FIB"]
+    assert results._artists == []
+
+
+def test_a_new_image_discards_the_result():
+    """The markers describe a correlation against the image beneath them; over a
+    different one they are wrong, not stale. Matches ImagePointCanvas.set_image,
+    which started clearing them after "POI (P)" was left in the legend of an image
+    that had no POI (FIB-321)."""
+    canvas, points, results = _with_results([_coord(10, 10)])
+    _add_reprojected(results)
+
+    canvas.set_array(np.zeros((64, 64), dtype=np.uint8))
+
+    assert results._groups == []
+    assert results._artists == []
+    assert _drawn_legend(points) == ["FIB"]  # the picked point survives, the result does not
+
+
+def test_hiding_the_legend_hides_the_result_entries_too():
+    _, points, results = _with_results([_coord(10, 10)])
+    _add_reprojected(results)
+    points.set_legend_visible(False)
+    assert _drawn_legend(points) == []
+
+
+def test_a_result_with_no_picked_points_still_gets_a_legend():
+    """correlation_result_widget shows a saved result on a canvas with nothing
+    picked. The base suppresses the legend when it holds no points of its own, so
+    that rule has to key off the entries rather than the points."""
+    _, points, results = _with_results([])
+    _add_reprojected(results)
+    assert _drawn_legend(points) == ["FM reprojected (E)"]
+
+
+def test_a_hollow_swatch_matches_its_hollow_marker():
+    """The ghost is a ring: filled swatch or white edge in the legend would claim
+    a marker that is not on the image."""
+    _, points, results = _with_results([])
+    _add_ghost(results)
+    (handle,), _ = results.legend_entries()
+    marker = results._artists[0]
+
+    assert str(marker.get_markerfacecolor()) == "none"
+    assert str(handle.get_markerfacecolor()) == "none"
+    assert handle.get_markeredgecolor() == marker.get_markeredgecolor() == "#ff00ff"
+    assert handle.get_alpha() == marker.get_alpha() == pytest.approx(0.7)
+
+
+def test_result_labels_are_numbered_within_their_group():
+    _, _, results = _with_results([])
+    _add_reprojected(results)
+    results.add_points([(155.0, 152.0)], color="#ff00ff", label_prefix="P")
+    assert [a.get_text() for a in results._label_artists] == ["E1", "E2", "P1"]
+
+
+def test_show_labels_false_draws_no_numbers():
+    """The ghost sits under the corrected POI; a number there would just collide
+    with the one that matters."""
+    _, _, results = _with_results([])
+    _add_ghost(results)
+    assert results._label_artists == []
+    assert len(results._artists) == 1
+
+
+def test_result_labels_follow_the_label_toggle():
+    _, _, results = _with_results([])
+    _add_reprojected(results)
+    results.set_labels_visible(False)
+    assert [a.get_visible() for a in results._label_artists] == [False, False]
+    assert all(a.get_visible() for a in results._artists)  # markers stay
+
+
+def test_a_group_added_while_labels_are_off_arrives_hidden():
+    _, _, results = _with_results([])
+    results.set_labels_visible(False)
+    _add_reprojected(results)
+    assert [a.get_visible() for a in results._label_artists] == [False, False]
+
+
+def test_result_labels_carry_the_same_dark_outline_as_the_points():
+    """Same reason: #ff4444 and #ff00ff both disappear over a blown-out region."""
+    import matplotlib.patheffects as pe
+
+    _, _, results = _with_results([])
+    _add_reprojected(results)
+    for ann in results._label_artists:
+        effects = ann.get_path_effects()
+        assert effects, "result label has no outline"
+        assert any(isinstance(e, pe.withStroke) for e in effects)
+
+
+def test_a_result_overlay_without_a_host_still_draws():
+    """legend_host is optional -- a canvas with no point overlay (or a test) gets
+    markers without needing somewhere to put a legend."""
+    canvas = FibsemImageCanvas()
+    canvas.set_array(np.zeros((64, 64), dtype=np.uint8))
+    results = CorrelationResultOverlay()
+    canvas.add_overlay(results)
+    _add_reprojected(results)
+    assert len(results._artists) == 2

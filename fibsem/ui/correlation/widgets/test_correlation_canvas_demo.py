@@ -14,6 +14,11 @@ What to try
   types and drop a point in the same place.
 * **Drag** a point, **click** to select, **Delete** to remove. The log shows
   what each side emits; the payloads should match.
+* **Show result** -- draws the same three marker groups the tab widget draws
+  after a correlation run (reprojected fiducials, the uncorrected-POI ghost, the
+  corrected POI). Check the legend picks up all three, the ghost stays a visible
+  ring under the marker on top of it, and that clicking a result marker does
+  nothing -- they are output, not points.
 * **Contrast / gamma** -- the toolbar button on the RIGHT canvas only. The old
   canvas has never had it, and on FM data it is the control you actually want
   while picking points.
@@ -74,6 +79,29 @@ def _seed_points() -> list:
     ]
 
 
+# The three groups CorrelationTabWidget._overlay_result_on_fib draws, verbatim.
+# The reprojected fiducials sit a few pixels off the seed points, as a real fit
+# would leave them; the ghost sits under the corrected POI, which is the case
+# `hollow` exists for.
+_RESULT_GROUPS = (
+    (
+        [(186.0, 156.0), (295.0, 337.0)],
+        dict(color="#ff4444", label_prefix="E", size=4, marker="o",
+             legend_label="FM reprojected (E)"),
+    ),
+    (
+        [(250.0, 250.0)],
+        dict(color="#ff00ff", size=7, marker="o", alpha=0.7, show_labels=False,
+             hollow=True, legend_label="POI uncorrected"),
+    ),
+    (
+        [(256.0, 254.0)],
+        dict(color="#ff00ff", label_prefix="P", size=5, marker="o",
+             legend_label="POI (P)"),
+    ),
+)
+
+
 class DemoWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -101,6 +129,8 @@ class DemoWindow(QMainWindow):
         for label, slot in (
             ("Reset both", self._reset),
             ("Clear both", self._clear),
+            ("Show result", self._show_result),
+            ("Clear result", self._clear_result),
             ("Clear log", lambda: self.log.clear()),
         ):
             btn = QPushButton(label)
@@ -189,6 +219,19 @@ class DemoWindow(QMainWindow):
         self.old.set_coordinates([])
         self.new.set_coordinates([])
         self._log("cleared both")
+
+    def _show_result(self) -> None:
+        """Same call sequence as CorrelationTabWidget._overlay_result_on_fib."""
+        for surface in (self.old, self.new):
+            surface.clear_overlay()
+            for points, style in _RESULT_GROUPS:
+                surface.add_overlay_points(points, **style)
+        self._log("drew the reprojected result on both", OK_COLOR)
+
+    def _clear_result(self) -> None:
+        for surface in (self.old, self.new):
+            surface.clear_overlay()
+        self._log("cleared the result on both")
 
     def _toggle_both(self, setter: str, on: bool, name: str) -> None:
         for surface in (self.old, self.new):

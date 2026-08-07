@@ -59,6 +59,21 @@ def test_image_methods_match_the_canvas_it_replaces():
         assert callable(getattr(ImagePointCanvas, name, None)), name
 
 
+def test_result_overlay_signature_matches_the_canvas_it_replaces():
+    """_overlay_result_on_fib passes these by keyword; a renamed or dropped one
+    turns the swap from a construction-site change into a rewrite."""
+    import inspect
+
+    for name in ("add_overlay_points", "clear_overlay"):
+        assert callable(getattr(CorrelationCanvasWidget, name, None)), name
+    old = inspect.signature(ImagePointCanvas.add_overlay_points).parameters
+    new = inspect.signature(CorrelationCanvasWidget.add_overlay_points).parameters
+    assert set(new) == set(old)
+    for key in old:
+        if old[key].default is not inspect.Parameter.empty:
+            assert new[key].default == old[key].default, key
+
+
 # ── points through the widget ─────────────────────────────────────────────
 
 
@@ -234,3 +249,29 @@ def test_label_toggle_reaches_the_overlay_without_hiding_points():
     w.set_labels_visible(False)
     assert [a.get_visible() for a in w.points._anns if a is not None] == [False]
     assert all(a.get_visible() for a in w.points._artists)
+
+
+def test_label_toggle_covers_the_result_markers_too():
+    """One button, all the text. Leaving the result's E1/P1 numbers behind would
+    make the toggle look broken on exactly the image that needs it most."""
+    w = _widget()
+    w.set_coordinates([_coord(10, 10)])
+    w.add_overlay_points([(20.0, 20.0)], color="#ff4444", label_prefix="E")
+
+    w.set_labels_visible(False)
+
+    assert [a.get_visible() for a in w.points._anns if a is not None] == [False]
+    assert [a.get_visible() for a in w.results._label_artists] == [False]
+
+
+def test_result_markers_go_to_the_result_overlay():
+    w = _widget()
+    w.set_coordinates([_coord(10, 10)])
+    w.add_overlay_points([(20.0, 20.0), (30.0, 30.0)], color="#ff4444",
+                         legend_label="FM reprojected (E)")
+
+    assert len(w.results._artists) == 2
+    assert w.points.get_points() == [(10.0, 10.0)]  # untouched by the result
+
+    w.clear_overlay()
+    assert w.results._artists == []
