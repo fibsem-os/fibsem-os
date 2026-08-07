@@ -230,6 +230,23 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         self.draw_idle()
         return True
 
+    def set_image_visible(self, key: str, visible: bool) -> bool:
+        """Show or hide one placed image, keeping it placed. False if *key* is unknown.
+
+        Distinct from :meth:`remove_image`: the artist, its extent and its draw order
+        all survive, so showing it again costs nothing and does not disturb the fit.
+
+        Matplotlib skips a hidden artist when it draws, so this is not only a visual
+        change -- a canvas redraws every stored pixel of everything visible, and hiding
+        an image takes it out of that cost as surely as removing it would (FIB-414).
+        """
+        placed = self._placed.get(key)
+        if placed is None:
+            return False
+        placed.artist.set_visible(bool(visible))
+        self.draw_idle()
+        return True
+
     def remove_image(self, key: str) -> bool:
         """Remove one placed image. Returns False if *key* was not placed."""
         placed = self._placed.pop(key, None)

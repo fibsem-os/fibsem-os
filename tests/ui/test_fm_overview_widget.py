@@ -31,6 +31,7 @@ from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
 )
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
 from fibsem.ui.fm.widgets.fm_overview_widget import (
+    PREVIEW_KEY,
     FMOverviewWidget,
     shrink_progress_text,
 )
@@ -778,6 +779,7 @@ def test_overviews_are_kept_per_acquisition_not_per_position(qapp, overview_widg
     # The fixture is shared, and overviews now accumulate by design — so start clean
     # rather than counting whatever earlier tests left behind.
     widget.canvas.clear_overviews()
+    widget._records.clear()
     small = widget.microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
     widget.set_image(small)
     qapp.processEvents()
@@ -790,9 +792,10 @@ def test_overviews_are_kept_per_acquisition_not_per_position(qapp, overview_widg
     qapp.processEvents()
 
     def overviews():
-        # Only what set_image placed: the fixture seeds the canvas directly, which
-        # lands under the widget's default key rather than an overview one.
-        return [k for k in widget.canvas.canvas.placed_keys if k.startswith("overview@")]
+        # The widget's own record of what it placed. The fixture also seeds the canvas
+        # directly, which lands under the canvas widget's default key and gets no
+        # record — so this counts acquisitions rather than artists.
+        return [record.id for record in widget.overviews()]
 
     assert len(overviews()) == 2, "the wider overview replaced the detailed one"
 
@@ -1006,7 +1009,7 @@ def test_stage_metadata_does_not_wait_for_an_image(qapp, overview_widget):
     planned tile grid is already drawn from exactly that. Requiring an image would show
     two halves of the same picture at different times."""
     widget = overview_widget
-    widget._displayed_image = None
+    widget._records.clear()
     widget._origin = None
 
     widget._refresh_stage_metadata()
@@ -1020,7 +1023,7 @@ def test_stage_metadata_is_dropped_when_the_geometry_is_unknown(qapp, overview_w
     """Without a geometry there is no frame, and drawing at a guessed scale would put
     plausible-looking shapes in the wrong places."""
     widget = overview_widget
-    widget._displayed_image = None
+    widget._records.clear()
     widget._origin = None
     original = widget._frame
     widget._frame = lambda: None
@@ -3959,3 +3962,227 @@ def test_a_hidden_tile_grid_panel_is_not_refitted(qapp, interactive_widget):
     assert fits == []
 
     widget._fit_tile_grid_panel = original
+
+
+# ── one record per overview on the canvas (FIB-543) ──────────────────────
+
+
+@pytest.fixture
+def blank_canvas(qapp, overview_widget):
+    """The shared widget with nothing placed, so counts mean what they say."""
+    widget = overview_widget
+    # The counter too, not just the store: the widget fixture is module-scoped, so an
+    # earlier test's acquisitions would otherwise decide what these ids are called.
+    widget.canvas.clear_overviews()
+    widget._records.clear()
+    widget._record_count = 0
+    # The list too. It is rebuilt from the store rather than reading it, so clearing
+    # only the store leaves rows from a previous test for the next one to count.
+    widget.overview_list.set_records([])
+    yield widget
+    widget.canvas.clear_overviews()
+    widget._records.clear()
+    widget.overview_list.set_records([])
+
+
+def _acquire(widget, date=None):
+    image = widget.microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
+    image.metadata.acquisition_date = date
+    return image
+
+
+def test_each_acquisition_gets_its_own_record(qapp, blank_canvas):
+    """The hole this fills: a single `_displayed_image` meant the second overview
+    overwrote the first's provenance while its pixels stayed on screen."""
+    widget = blank_canvas
+
+    widget.set_image(_acquire(widget, "2026-08-07T09:00:00"))
+    widget.set_image(_acquire(widget, "2026-08-07T09:30:00"))
+    qapp.processEvents()
+
+    records = widget.overviews()
+    assert len(records) == 2
+    assert records[0].id != records[1].id
+    # Oldest first: a list reads in the order things were acquired.
+    assert [r.metadata.acquisition_date for r in records] == [
+        "2026-08-07T09:00:00",
+        "2026-08-07T09:30:00",
+    ]
+
+
+def test_two_overviews_without_a_date_do_not_share_one_record(qapp, blank_canvas):
+    """The reason ids are minted. The old key fell back to a bare "overview" when the
+    acquisition date was missing, so every dateless overview replaced the last."""
+    widget = blank_canvas
+
+    widget.set_image(_acquire(widget, None))
+    widget.set_image(_acquire(widget, None))
+    qapp.processEvents()
+
+    assert len(widget.overviews()) == 2
+    assert len(set(widget.canvas.canvas.placed_keys)) == 2
+
+
+def test_showing_one_image_twice_replaces_it(qapp, blank_canvas):
+    """The one property the old date-derived key had that was worth keeping."""
+    widget = blank_canvas
+    image = _acquire(widget, "2026-08-07T09:00:00")
+
+    widget.set_image(image)
+    widget.set_image(image)
+    qapp.processEvents()
+
+    assert len(widget.overviews()) == 1
+
+
+def test_the_live_preview_never_becomes_a_record(qapp, blank_canvas):
+    """The preview is transient -- swapped for the real stitch when the run ends -- so
+    it must not appear in a list of what has been acquired. It reaches the canvas
+    through `set_channel` under its own key rather than through `set_image`, so the
+    exclusion is structural; this pins it, because the two paths look alike."""
+    widget = blank_canvas
+    import numpy as np
+
+    widget._show_preview({"image": np.zeros((4, 4), dtype=np.uint16), "preview_stride": 1})
+    qapp.processEvents()
+
+    assert PREVIEW_KEY in widget.canvas.canvas.placed_keys, "the preview was not drawn"
+    assert widget.overviews() == [], "the preview leaked into the record store"
+
+
+def test_hiding_an_overview_takes_it_out_of_the_drawing(qapp, blank_canvas):
+    """Hidden rather than removed: it comes back without being re-acquired. Matplotlib
+    skips a hidden artist, so this also drops it from the redraw cost (FIB-414)."""
+    widget = blank_canvas
+    widget.set_image(_acquire(widget, "2026-08-07T09:00:00"))
+    qapp.processEvents()
+    record = widget.overviews()[0]
+
+    assert widget.set_overview_visible(record.id, False)
+
+    assert record.visible is False
+    assert widget.canvas.canvas._placed[record.id].artist.get_visible() is False
+    assert record.id in widget.canvas.canvas.placed_keys, "hiding removed it"
+
+    widget.set_overview_visible(record.id, True)
+    assert widget.canvas.canvas._placed[record.id].artist.get_visible() is True
+
+
+def test_a_hidden_overview_stays_hidden_when_its_frame_is_replaced(qapp, blank_canvas):
+    """A *reshaped* frame is placed as a new artist, and a new artist starts visible.
+
+    The same-shape path swaps pixels on the existing artist and keeps its visibility on
+    its own, so it does not exercise this -- the frame has to change size, which is why
+    the second image here is cropped rather than merely re-set.
+    """
+    widget = blank_canvas
+    stamp = "2026-08-07T09:00:00"
+    widget.set_image(_acquire(widget, stamp))
+    qapp.processEvents()
+    record = widget.overviews()[0]
+    widget.set_overview_visible(record.id, False)
+
+    smaller = _acquire(widget, stamp)  # same date -> same record, different size
+    smaller.data = smaller.data[..., :64, :64]
+    widget.set_image(smaller)
+    qapp.processEvents()
+
+    assert widget.canvas.canvas._placed[record.id].artist.get_visible() is False
+
+
+def test_removing_an_overview_drops_its_record_artist_and_planes(qapp, blank_canvas):
+    """All three go together. A record without an artist is a row with nothing under
+    it; planes without a record are pixels nothing can reach, and `_restyle_others`
+    would keep re-rendering them."""
+    widget = blank_canvas
+    widget.set_image(_acquire(widget, "2026-08-07T09:00:00"))
+    qapp.processEvents()
+    record = widget.overviews()[0]
+
+    assert widget.remove_overview(record.id)
+
+    assert widget.overviews() == []
+    assert record.id not in widget.canvas.canvas.placed_keys
+    assert record.id not in widget.canvas._held
+
+
+def test_removing_something_that_is_not_there_says_so(qapp, blank_canvas):
+    assert blank_canvas.remove_overview("overview-404") is False
+    assert blank_canvas.set_overview_visible("overview-404", True) is False
+
+
+def test_a_record_describes_its_grid_and_scale(qapp, blank_canvas):
+    """What the second half of a list row shows. The grid comes back off the mosaic's
+    position name, which `stitch_tileset` writes as `stitched_mosaic_3x3`."""
+    widget = blank_canvas
+    image = _acquire(widget, "2026-08-07T09:00:00")
+    image.metadata.stage_position.name = "stitched_mosaic_3x3"
+    image.metadata.pixel_size_x = 1.2e-6
+
+    widget.set_image(image)
+    qapp.processEvents()
+
+    assert widget.overviews()[0].detail == "3×3 · 1.20 µm/px"
+
+
+def test_a_saved_overview_is_labelled_by_the_folder_its_tiles_are_in(qapp, blank_canvas):
+    """`OverviewDestination` stamps the run's directory name onto the mosaic, which is
+    what someone looking for it on disk would search for."""
+    widget = blank_canvas
+    image = _acquire(widget, "2026-08-07T09:00:00")
+    image.metadata.description = "overview-14-02-33"
+
+    widget.set_image(image)
+
+    assert widget.overviews()[0].label == "overview-14-02-33"
+
+
+def test_an_acquired_overview_appears_in_the_list(qapp, blank_canvas):
+    widget = blank_canvas
+
+    widget.set_image(_acquire(widget, "2026-08-07T09:00:00"))
+    qapp.processEvents()
+
+    assert widget.overview_list._list.count() == 1
+
+
+def test_the_eye_in_the_list_hides_the_image_on_the_canvas(qapp, blank_canvas):
+    """The whole point of the wiring: the row is not a label, it drives the canvas."""
+    widget = blank_canvas
+    widget.set_image(_acquire(widget, "2026-08-07T09:00:00"))
+    qapp.processEvents()
+    record = widget.overviews()[0]
+    row = widget.overview_list._list.itemWidget(widget.overview_list._list.item(0))
+
+    row.btn_visible.setChecked(True)  # checked means hidden
+    qapp.processEvents()
+
+    assert record.visible is False
+    assert widget.canvas.canvas._placed[record.id].artist.get_visible() is False
+
+
+def test_the_trash_in_the_list_drops_the_image_from_the_canvas(qapp, blank_canvas):
+    widget = blank_canvas
+    widget.set_image(_acquire(widget, "2026-08-07T09:00:00"))
+    qapp.processEvents()
+    record_id = widget.overviews()[0].id
+    row = widget.overview_list._list.itemWidget(widget.overview_list._list.item(0))
+
+    row.btn_remove.click()
+    qapp.processEvents()
+
+    assert widget.overviews() == []
+    assert record_id not in widget.canvas.canvas.placed_keys
+    assert widget.overview_list._list.count() == 0
+
+
+def test_the_list_does_not_grow_a_row_for_the_live_preview(qapp, blank_canvas):
+    """The structural exclusion, seen from the other end: a run in progress must not
+    put a row in the list that vanishes when it finishes."""
+    widget = blank_canvas
+    import numpy as np
+
+    widget._show_preview({"image": np.zeros((4, 4), dtype=np.uint16), "preview_stride": 1})
+    qapp.processEvents()
+
+    assert widget.overview_list._list.count() == 0

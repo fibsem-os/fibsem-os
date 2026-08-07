@@ -10,7 +10,8 @@ actions along the bottom.
 
 import logging
 import threading
-from typing import List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from PyQt5.QtCore import QPoint, Qt, pyqtSignal
@@ -34,6 +35,7 @@ from fibsem.fm.structures import (
     AutoFocusSettings,
     ChannelSettings,
     FluorescenceImage,
+    FluorescenceImageMetadata,
     OverviewParameters,
 )
 from fibsem.microscope import FibsemMicroscope
@@ -44,6 +46,7 @@ from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
     FMOverviewConfirmationDialog,
 )
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
+from fibsem.ui.fm.widgets.overview_list_widget import OverviewListWidget
 from fibsem.ui.fm.widgets.tile_grid_options_panel import TileGridOptionsPanel
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
@@ -117,6 +120,46 @@ SLOT_COLOUR = "#90a4ae"
 CURSOR_READOUT_WIDTH = 210
 
 
+@dataclass
+class PlacedOverviewImageRecord:
+    """One overview the canvas is holding, and what is known about it.
+
+    Named at length to stay distinct from the two neighbours it would otherwise be
+    confused with: the canvas's own `PlacedImage`, which is an artist and an extent,
+    and the `FluorescenceImage` this was built from.
+
+    The canvas can hold several overviews at once and, until this existed, nothing
+    tracked them: the widget kept a single `_displayed_image` that each new
+    acquisition overwrote, so an earlier overview's pixels stayed on screen with its
+    provenance already discarded (FIB-543).
+
+    Holds the *metadata*, not the image. What a list needs -- where it was, when, at
+    what scale -- is all in there, and keeping N full-resolution mosaics alive to
+    reach it would cost hundreds of megabytes on a canvas already short of them
+    (FIB-414). The pixels the canvas redraws from are its own decimated copies.
+    """
+
+    id: str
+    label: str
+    metadata: "FluorescenceImageMetadata"
+    visible: bool = True
+
+    @property
+    def detail(self) -> str:
+        """The grid and scale, for the second half of a list row."""
+        parts = []
+        # `stitch_tileset` names the mosaic's position `stitched_mosaic_3x3`, so the
+        # grid is already recorded -- reading it back beats plumbing it separately.
+        name = getattr(getattr(self.metadata, "stage_position", None), "name", "") or ""
+        grid = name.rsplit("_", 1)[-1] if "_" in name else ""
+        if grid and grid[0].isdigit():
+            parts.append(grid.replace("x", "×"))
+        pixel_size = getattr(self.metadata, "pixel_size_x", None)
+        if pixel_size:
+            parts.append(f"{pixel_size * constants.SI_TO_MICRO:.2f} µm/px")
+        return " · ".join(parts)
+
+
 class FMOverviewWidget(QWidget):
     """Configure, run and view a fluorescence overview acquisition."""
 
@@ -167,7 +210,16 @@ class FMOverviewWidget(QWidget):
         self._worker: Optional[FunctionWorker] = None
         self._runner: Optional[FMTiledAcquisitionRunner] = None
         self._mosaic: Optional[FluorescenceImage] = None
-        self._displayed_image: Optional[FluorescenceImage] = None
+        # Every overview the canvas is holding, oldest first, keyed by the id each was
+        # given. Replaces a single `_displayed_image` that each acquisition overwrote,
+        # which left earlier overviews on screen with nothing describing them.
+        self._records: Dict[str, PlacedOverviewImageRecord] = {}
+        # Ids are minted rather than derived from the acquisition date. The date is
+        # unique enough, but `_key_for` fell back to a bare "overview" whenever one was
+        # missing -- so every dateless overview shared one key and silently replaced the
+        # last. Matching on the date is still done, below, to keep re-showing one image
+        # a replacement rather than a second copy of itself.
+        self._record_count = 0
         # Stage position the canvas frame is built around. Everything shown -- images,
         # the planned grid, position markers -- is placed relative to it, so it has to
         # be fixed once and kept: re-deriving it from the newest image would shift the
@@ -313,6 +365,15 @@ class FMOverviewWidget(QWidget):
         self._controls_layout = QVBoxLayout(controls)
         self._controls_layout.setContentsMargins(8, 8, 8, 8)
         self._controls_layout.setSpacing(10)
+        # First: what is already on the canvas, then the settings for the next run.
+        # Reading the column top to bottom then follows the same order as using the tab
+        # -- look at what you have, then set up what comes next -- where putting it
+        # under the channels split the two halves of "the next acquisition" around it.
+        # A host's own section still goes above this, being the subject of the tab.
+        self.overview_list = OverviewListWidget()
+        self.overview_list.visibility_toggled.connect(self.set_overview_visible)
+        self.overview_list.remove_requested.connect(self.remove_overview)
+        self._controls_layout.addWidget(self._section("Overviews", self.overview_list))
         self._controls_layout.addWidget(self._section("Channels", self.channel_widget))
         self._controls_layout.addWidget(self.settings_widget)
         self._controls_layout.addStretch()
@@ -690,16 +751,26 @@ class FMOverviewWidget(QWidget):
         """Show an image at the stage position it was acquired at.
 
         Overlays are positioned against the canvas frame, not against whatever is
-        currently displayed, so the image has to be recorded when it is set rather than
-        fetched from the canvas later -- the canvas keeps channel stacks, not the
+        currently displayed, so the image is recorded when it is set rather than fetched
+        from the canvas later -- the canvas keeps channel stacks, not the
         `FluorescenceImage` and its metadata, and the metadata is what carries the pose.
+
+        Each image gets a record, so several overviews on the canvas stay individually
+        addressable. The in-progress preview never comes through here -- it goes
+        straight to `canvas.set_channel` under its own key -- so it gets no record, and
+        never appears in a list of what has been acquired.
         """
-        self._displayed_image = image
+        record = self._record_for(image)
         if self._origin is None:
             self._origin = self._position_of(image)
-        self.canvas.set_composite_key(self._key_for(image))
+        self.canvas.set_composite_key(record.id)
         self.canvas.set_placement(self._offset_of(image))
         self.canvas.set_fm_image(image)
+        # Re-asserted, not assumed: a reshaped frame is placed as a *new* artist, which
+        # starts visible. Re-showing a hidden overview would otherwise bring it back
+        # while its row still said it was hidden.
+        self.canvas.canvas.set_image_visible(record.id, record.visible)
+        self.overview_list.set_records(self.overviews())
         self._refresh_positions()
         self._refresh_stage_metadata()
         self._refresh_tile_grid()
@@ -708,20 +779,78 @@ class FMOverviewWidget(QWidget):
     def _position_of(image: FluorescenceImage) -> Optional[FibsemStagePosition]:
         return getattr(image.metadata, "stage_position", None)
 
-    @staticmethod
-    def _key_for(image: FluorescenceImage) -> str:
-        """Identify an overview by when it was acquired.
+    def _record_for(self, image: FluorescenceImage) -> PlacedOverviewImageRecord:
+        """The record *image* belongs to, creating one if it is new.
 
-        Not by position: a small overview and a wider one taken over the same area at
-        different times are both worth keeping, and keying on position would silently
-        drop the first. `stitch_tileset` carries the first tile's acquisition date onto
-        the mosaic, so this is unique per run.
-
-        A property of the image rather than a counter, so showing the same image twice
-        replaces it instead of drawing a second copy on top of itself.
+        Matched on the acquisition date when there is one, so showing the same image
+        twice replaces it rather than drawing a second copy on top of itself -- the one
+        property the old date-derived key had that is worth keeping. An image without a
+        date gets a record of its own instead of joining every other dateless overview
+        under a shared key, which is what the old fallback did.
         """
         stamp = getattr(image.metadata, "acquisition_date", None)
-        return f"overview@{stamp}" if stamp else "overview"
+        if stamp:
+            for record in self._records.values():
+                if getattr(record.metadata, "acquisition_date", None) == stamp:
+                    record.metadata = image.metadata
+                    return record
+
+        self._record_count += 1
+        record = PlacedOverviewImageRecord(
+            id=f"overview-{self._record_count}",
+            label=self._label_for(image, self._record_count),
+            metadata=image.metadata,
+        )
+        self._records[record.id] = record
+        return record
+
+    @staticmethod
+    def _label_for(image: FluorescenceImage, index: int) -> str:
+        """What a list calls this overview.
+
+        `OverviewDestination` stamps the run's directory name onto the mosaic it saves,
+        so a saved overview is named for the folder its tiles are in -- which is what
+        someone looking for it on disk would search for. An unsaved one has no such
+        name, and a number beats an empty row.
+        """
+        description = getattr(image.metadata, "description", None)
+        return description or f"Overview {index}"
+
+    def overviews(self) -> List[PlacedOverviewImageRecord]:
+        """Every overview on the canvas, oldest first."""
+        return list(self._records.values())
+
+    def set_overview_visible(self, record_id: str, visible: bool) -> bool:
+        """Show or hide one overview. False if there is no such record.
+
+        Hidden rather than removed, so it can come back without being re-acquired. The
+        canvas skips drawing a hidden image entirely, so this also takes it out of the
+        redraw cost -- which is the point on a canvas holding several (FIB-414).
+        """
+        record = self._records.get(record_id)
+        if record is None:
+            return False
+        record.visible = visible
+        self.canvas.canvas.set_image_visible(record_id, visible)
+        # In place rather than a rebuild: this is usually the list telling us about its
+        # own click, and replacing the row under the cursor mid-click would drop the
+        # hover the buttons are showing for. The rows ignore a value they already have,
+        # so the click that started this does not come back round.
+        self.overview_list.refresh(self.overviews())
+        return True
+
+    def remove_overview(self, record_id: str) -> bool:
+        """Drop one overview from the canvas for good. False if there is no such record.
+
+        The record and the canvas artist go together: leaving either behind means a row
+        with nothing under it, or pixels nothing can reach.
+        """
+        if self._records.pop(record_id, None) is None:
+            return False
+        self.canvas.canvas.remove_image(record_id)
+        self.canvas.forget_overview(record_id)
+        self.overview_list.set_records(self.overviews())
+        return True
 
     def _offset_of(self, image: FluorescenceImage) -> Tuple[float, float]:
         """Where *image*'s centre sits relative to the canvas origin, in metres.
