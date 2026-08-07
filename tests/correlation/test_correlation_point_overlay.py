@@ -9,6 +9,9 @@ import sys
 
 import numpy as np
 import pytest
+
+pytest.importorskip("PyQt5")  # CI installs .[test] without the UI extra
+
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
