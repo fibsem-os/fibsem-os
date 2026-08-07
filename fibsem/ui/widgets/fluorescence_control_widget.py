@@ -91,6 +91,11 @@ class FMControlWidget(QWidget):
         self._acquisition_thread: Optional[FunctionWorker] = None
         self._acquisition_stop_event = threading.Event()
         self._current_acquisition_type: Optional[str] = None
+        # Initialised here, not only in the acquire methods: the widget is connected to
+        # the microscope's progress signal from construction, so a workflow task driving
+        # the FM reaches _on_acquisition_progress without this widget having started
+        # anything.
+        self._last_remaining_time: Optional[float] = None
 
         # FM canvas click context (quad-view): retained from the latest image so a
         # double-click can convert pixel -> stage without napari layer metadata
@@ -352,11 +357,23 @@ class FMControlWidget(QWidget):
         fires). The quad-view ``fm_canvas`` outlives this widget, so its connections
         MUST come down or a stale double-click/scroll drives the stage or objective
         through a destroyed widget — and PyQt turns that into qFatal (FIB-329).
+
+        The three ``fm`` signals are psygnal, not Qt, so nothing disconnects them for
+        us when the widget dies: psygnal's weak ref is to the *Python* object, and
+        ``deleteLater`` destroys the C++ one underneath it while that stays alive. The
+        host tears down without stopping the acquisition first
+        (``AutoLamellaUI.setup_experiment``), so a disconnect during a live run leaves
+        a worker emitting into these slots (FIB-550).
         """
-        try:
-            self.fm.acquisition_signal.disconnect(self.update_image)
-        except (TypeError, RuntimeError):
-            pass
+        for signal, slot in (
+            (self.fm.acquisition_signal, self.update_image),
+            (self.fm.acquisition_progress_signal, self._on_acquisition_progress),
+            (self.fm.acquiring_changed, self._on_fm_acquiring_changed),
+        ):
+            try:
+                signal.disconnect(slot)
+            except (TypeError, RuntimeError):
+                pass
 
         if self._fm_canvas is not None:
             for signal, slot in (
