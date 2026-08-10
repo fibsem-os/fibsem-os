@@ -32,6 +32,7 @@ result_changed : CorrelationResult    — after a successful correlation run
 from __future__ import annotations
 
 import copy
+import io
 import logging
 import os
 import time
@@ -209,6 +210,50 @@ def _ro_item(text: str) -> QTableWidgetItem:
     item.setFlags(Qt.ItemFlag.ItemIsEnabled)
     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
     return item
+
+
+_PLOT_DPI = 150          # the saved figure's dpi
+_PLOT_PANEL_INCHES = 8.0  # each panel of the 16x8 two-panel figure
+
+
+def _render_canvas_to_axes(canvas, ax, *, dpi: int = _PLOT_DPI) -> None:
+    """Draw whatever *canvas* is currently showing into *ax*.
+
+    Deliberately canvas-agnostic: it needs a matplotlib figure and nothing else,
+    so it works for ``ImagePointCanvas`` and the shared ``FibsemImageCanvas``
+    alike and does not have to be rewritten when the correlation tab swaps from
+    one to the other (FIB-535). It replaces ``ImagePointCanvas.render_to_axes``,
+    which re-created every artist by hand and had no equivalent on the shared
+    stack.
+
+    ``savefig`` re-renders the figure offscreen at the requested dpi, so
+    resolution comes from *dpi* rather than from the on-screen widget size — the
+    reason this is not a plain ``buffer_rgba()`` grab, which would cap the export
+    at however large the window happened to be.
+
+    One deliberate behaviour change: what lands on the page is now what is on the
+    screen, aspect ratio included. ``render_to_axes`` re-fitted the content to the
+    panel, which stretched a square image into a 2:1 rectangle — measuring off
+    that plot gave the wrong answer.
+    """
+    from matplotlib.image import imread
+
+    fig = canvas.figure
+    # Render large enough that scaling into the panel never has to upsample.
+    width_inches = max(fig.get_size_inches()[0], 0.1)
+    render_dpi = max(dpi, int(dpi * _PLOT_PANEL_INCHES / width_inches))
+
+    buf = io.BytesIO()
+    fig.savefig(
+        buf,
+        format="png",
+        dpi=render_dpi,
+        facecolor=fig.get_facecolor(),
+        pad_inches=0,
+    )
+    buf.seek(0)
+    ax.imshow(imread(buf))
+    ax.axis("off")
 
 
 def _form_label(text: str) -> QLabel:
@@ -2892,10 +2937,10 @@ class CorrelationTabWidget(QWidget):
         for ax in (ax_fib, ax_fm):
             ax.set_facecolor(CANVAS_BG)
 
-        self._fib_canvas.render_to_axes(ax_fib)
+        _render_canvas_to_axes(self._fib_canvas, ax_fib, dpi=_PLOT_DPI)
         ax_fib.set_title("FIB", color="white", fontsize=12)
 
-        self._fm_display.canvas.render_to_axes(ax_fm)
+        _render_canvas_to_axes(self._fm_display.canvas, ax_fm, dpi=_PLOT_DPI)
         ax_fm.set_title("FM", color="white", fontsize=12)
 
         fig.tight_layout()

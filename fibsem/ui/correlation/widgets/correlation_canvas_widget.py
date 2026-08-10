@@ -10,9 +10,10 @@ on its own. The old canvas is deleted only in the last PR of the series, once
 both have moved.
 
 Scope so far — image display, points, selection, the add-menu, the legend and
-labels, and the reprojected-result markers. Still to come: the two-panel Save
-Plot export, which `ImagePointCanvas` served with `render_to_axes` but which is
-better rewritten in `save_plot` itself when the swap happens.
+labels, and the reprojected-result markers. The two-panel Save Plot export no
+longer needs anything here: `save_plot` renders any matplotlib canvas through
+`_render_canvas_to_axes`, so `render_to_axes` has no successor and dies with the
+old canvas.
 
 What comes free with the shared canvas, and is the reason for the whole exercise:
 **contrast and gamma**, which `ImagePointCanvas` has never had — on FM data,
