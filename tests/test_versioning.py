@@ -8,6 +8,7 @@ is therefore failure-mode coverage rather than happy-path coverage.
 
 import logging
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -56,6 +57,34 @@ def _completed(returncode=0, stdout="", stderr=""):
     return subprocess.CompletedProcess(
         args=["git"], returncode=returncode, stdout=stdout, stderr=stderr
     )
+
+
+def _git(repo, *args):
+    """Run git in `repo`, independently of the developer's own git config.
+
+    identity is passed with -c rather than assumed: CI has no global user.email,
+    and signing is forced off so the test does not prompt for a key (or fail) on
+    a machine that signs commits and tags by default.
+    """
+    return subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.email=test@example.invalid",
+            "-c",
+            "user.name=test",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "tag.gpgsign=false",
+            *args,
+        ],
+        cwd=str(repo),
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        check=True,
+    ).stdout.strip()
 
 
 # --- happy path ------------------------------------------------------------
@@ -248,7 +277,68 @@ def test_describe_argv(monkeypatch):
     monkeypatch.setattr(versioning.subprocess, "run", _capture)
 
     assert get_revision() == "v0.5.1-48-g4cd11d9c"
-    assert seen["argv"] == ["git", "describe", "--tags", "--always", "--dirty"]
+    assert seen["argv"] == [
+        "git",
+        "describe",
+        "--tags",
+        "--always",
+        "--dirty",
+        "--match",
+        "v*",
+    ]
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_describe_measures_from_release_tags_only(monkeypatch, tmp_path):
+    """A one-off build tag nearer to HEAD must not become the base tag.
+
+    git describe picks the *nearest* reachable tag regardless of what it means,
+    so tagging a build for a partner site would silently re-base the revision
+    string recorded in every downstream user's experiment metadata.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "--quiet")
+    _git(repo, "commit", "--allow-empty", "--quiet", "-m", "first")
+    # Lightweight, as RELEASE.md creates them.
+    _git(repo, "tag", "v1.0.0")
+    _git(repo, "commit", "--allow-empty", "--quiet", "-m", "second")
+    # Annotated, as the real 251111-rosalind is: nearer to HEAD *and* the type
+    # plain `git describe` prefers, so it wins on both of git's selection rules.
+    _git(repo, "tag", "-a", "251111-rosalind", "-m", "build for a partner site")
+    _git(repo, "commit", "--allow-empty", "--quiet", "-m", "third")
+
+    # Control: assert the bug is actually reachable in this repo, so the test
+    # below cannot pass simply because the decoy was never a candidate.
+    unfiltered = _git(repo, "describe", "--tags", "--always", "--dirty")
+    assert unfiltered.startswith("251111-rosalind-"), unfiltered
+
+    monkeypatch.setattr(versioning, "_source_checkout_root", lambda: repo)
+
+    revision = get_revision()
+    assert revision.startswith("v1.0.0-"), revision
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_describe_still_falls_back_to_bare_sha(monkeypatch, tmp_path):
+    """--match must not cost the --always fallback.
+
+    Filtering to `v*` means a checkout can now have tags and still have no
+    candidate. That must degrade to the bare sha, as it does for a tagless
+    clone, and not to None — the sha is the half of the revision that matters.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "--quiet")
+    _git(repo, "commit", "--allow-empty", "--quiet", "-m", "first")
+    _git(repo, "tag", "-a", "20250616", "-m", "dated build, not a release")
+
+    monkeypatch.setattr(versioning, "_source_checkout_root", lambda: repo)
+
+    revision = get_revision()
+    assert revision is not None
+    assert not revision.startswith("20250616"), revision
+    assert re.fullmatch(r"[0-9a-f]{7,40}", revision), revision
 
 
 def test_environment_is_scrubbed(monkeypatch):
