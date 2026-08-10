@@ -155,14 +155,16 @@ class _LamellaRow(QWidget):
         self.btn_remove.setVisible(False)
         layout.addWidget(self.btn_remove)
 
-        # A row shows description, defect and task status, so it has to redraw when any
-        # of the three changes -- including when the change came from a different widget
-        # entirely. Only `description` was subscribed, so a defect set anywhere else left
-        # this list showing the old icon (FIB-564). `lamella_list_widget` and
-        # `lamella_card_widget` watch the same four.
+        # Redraw when the model changes, whichever widget changed it. Only `description`
+        # was subscribed, so a defect set anywhere else left a stale icon here (FIB-564).
         #
-        # `task_state` is optional here, unlike in those two: this list also takes plain
-        # positions, which is why `_lamella_status_text` reaches for it with `getattr`.
+        # Deliberately NOT subscribing to `task_state.events.name/.status`, though the
+        # row draws those too and `lamella_list_widget`/`lamella_card_widget` both do.
+        # Those two fields are written by the running workflow
+        # (`workflows/tasks/base.py:234,239`) on the FunctionWorker thread, and psygnal
+        # delivers synchronously on the emitting thread -- so the callback would touch Qt
+        # widgets off the GUI thread. `defect` and `description` are only ever written by
+        # GUI widgets, so both are safe. The status column stays refresh-driven.
         #
         # No matching disconnect: the lamella outlives the row, but psygnal holds bound
         # methods weakly and `set_lamella` keeps no reference to the rows it replaces, so
@@ -170,10 +172,6 @@ class _LamellaRow(QWidget):
         # type: ignore because @evented adds .events dynamically.
         self.lamella.events.description.connect(self.refresh)  # type: ignore[union-attr]
         self.lamella.events.defect.connect(self.refresh)  # type: ignore[union-attr]
-        task_state = getattr(self.lamella, "task_state", None)
-        if task_state is not None:
-            task_state.events.name.connect(self.refresh)  # type: ignore[union-attr]
-            task_state.events.status.connect(self.refresh)  # type: ignore[union-attr]
 
         self.refresh()
 

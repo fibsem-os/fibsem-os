@@ -43,13 +43,20 @@ def lamella(tmp_path):
 
 @pytest.fixture()
 def row(qapp, lamella):
-    """One row, shown, with the defect button enabled -- as AutoLamella builds it."""
+    """One row, shown, with the defect button enabled -- as AutoLamella builds it.
+
+    Yielded rather than returned, and closed after: the rows are Qt-owned by the list,
+    so the list has to outlive the test. An earlier version kept it alive with a
+    self-reference, which made it cyclic garbage holding QObjects -- collected at an
+    arbitrary later point, which crashed the xdist worker outright. See
+    `test_main_thread_gc.py` for why QObject finalizers cannot run just anywhere.
+    """
     widget = LamellaNameListWidget()
     widget.enable_defect_button(True)
     widget.set_lamella([lamella])
     widget.show()
-    widget._test_keepalive = widget  # rows are Qt-owned; keep the list alive for the test
-    return list(widget._rows())[0]
+    yield list(widget._rows())[0]
+    widget.close()
 
 
 def test_row_redraws_when_the_defect_changes_elsewhere(row, lamella):
@@ -65,22 +72,28 @@ def test_row_redraws_when_the_defect_changes_elsewhere(row, lamella):
     )
 
 
-def test_row_redraws_when_the_task_status_changes_elsewhere(row, lamella):
-    """Same gap, same fix: status is the other thing a row draws from the model.
+def test_row_does_not_subscribe_to_task_state(row, lamella):
+    """The row draws task status but must NOT subscribe to it.
 
-    Both fields, and status last: the label shows the task name only while the task is
-    InProgress, so setting the name alone changes nothing and would let this pass
-    whether or not the subscription exists.
+    `task_state.name`/`.status` are written by the running workflow
+    (`workflows/tasks/base.py:234,239`) on the FunctionWorker thread, and psygnal
+    delivers synchronously on the emitting thread -- so a subscription here would call
+    `setText` off the GUI thread. `defect` and `description` are only ever written by
+    GUI widgets, which is what makes those two safe to watch.
+
+    Pinned as a test because the obvious "match the sibling widgets" tidy-up reintroduces
+    it, and the failure it causes is a crash under load rather than a red test.
     """
     from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 
-    assert row.status_label.text() == ""
     lamella.task_state.name = "Rough Milling"
     lamella.task_state.status = AutoLamellaTaskStatus.InProgress
 
-    assert row.status_label.text() == "Rough Milling", (
-        "row did not redraw on task_state.events.status"
+    assert row.status_label.text() == "", (
+        "the row redrew from a task_state event -- that fires on the worker thread"
     )
+    row.refresh()  # the supported path: the host refreshes on the GUI thread
+    assert row.status_label.text() == "Rough Milling"
 
 
 def test_row_redraws_when_the_description_changes(row, lamella):
