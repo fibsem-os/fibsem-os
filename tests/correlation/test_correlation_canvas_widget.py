@@ -188,7 +188,7 @@ def test_adding_is_off_when_no_types_are_allowed(monkeypatch):
             return None
 
     monkeypatch.setattr(
-        "fibsem.ui.correlation.widgets.correlation_canvas_widget.QMenu",
+        "fibsem.ui.correlation.widgets.correlation_picking.QMenu",
         _DismissedMenu,
     )
     w = _widget(allowed=[])
@@ -216,7 +216,7 @@ def test_a_dismissed_menu_adds_nothing():
         def exec_(self, pos):
             return None
 
-    import fibsem.ui.correlation.widgets.correlation_canvas_widget as mod
+    import fibsem.ui.correlation.widgets.correlation_picking as mod
 
     real, mod.QMenu = mod.QMenu, _Dismissed
     try:
@@ -241,7 +241,7 @@ def test_a_chosen_type_is_reported_with_the_click_position():
         def exec_(self, pos):
             return self._actions[1]
 
-    import fibsem.ui.correlation.widgets.correlation_canvas_widget as mod
+    import fibsem.ui.correlation.widgets.correlation_picking as mod
 
     real, mod.QMenu = mod.QMenu, _PicksSecond
     try:
@@ -267,7 +267,7 @@ def test_the_widget_adds_no_point_itself():
         def exec_(self, pos):
             return self._actions[0]
 
-    import fibsem.ui.correlation.widgets.correlation_canvas_widget as mod
+    import fibsem.ui.correlation.widgets.correlation_picking as mod
 
     real, mod.QMenu = mod.QMenu, _PicksFirst
     try:
