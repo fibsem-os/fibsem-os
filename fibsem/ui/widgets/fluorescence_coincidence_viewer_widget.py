@@ -1235,6 +1235,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         # Lamella list
         self.lamella_list_widget.lamella_selected.connect(self._on_lamella_selected)
         self.lamella_list_widget.move_to_requested.connect(self._on_move_to_lamella)
+        self.lamella_list_widget.defect_changed.connect(self._on_lamella_defect_changed)
 
         # FIB acquire / auto-function buttons
         self.btn_acquire_fib.clicked.connect(self._acquire_fib_image)
@@ -1451,6 +1452,16 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.selected_lamella_widget.refresh_pose(
             pose_name, state.stage_position.pretty
         )
+
+    def _on_lamella_defect_changed(self, lamella: Optional["Lamella"]):
+        """Persist a defect set from this list's row menu.
+
+        The row writes `lamella.defect` and emits; nothing here was listening, so the
+        change lived in memory and was gone on reload (FIB-564). Every other display of
+        it now redraws off `lamella.events.defect`, so this only has to make it durable.
+        """
+        if self.experiment is not None:
+            self.experiment.save()
 
     def _on_move_to_lamella(self, lamella: Optional["Lamella"]):
         if lamella is None or self.microscope is None:
