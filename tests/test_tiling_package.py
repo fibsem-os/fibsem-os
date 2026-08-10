@@ -122,32 +122,17 @@ def test_the_package_exposes_the_public_surface():
         assert getattr(tiling, name) is not None
 
 
-# Packages declared in the `ui` extra of pyproject.toml. CI installs `.[test]`, not
-# `.[ui]`, so a module-level import of any of these from code on a non-UI path fails
-# the whole test run at collection time.
-UI_ONLY_PACKAGES = ("matplotlib_scalebar", "napari", "PyQt5", "pyqt5", "qtawesome")
+# The `ui`-extra import guard that used to live here is now repo-wide, in
+# tests/test_ui_extra_isolation.py. It was parametrised over this package alone, which
+# protected the module FIB-390 had just broken and nothing else -- reporting.py
+# acquired the same module-level import afterwards and kept it. The general version
+# walks the tree, so this package stays covered without naming it.
+_MOVED_TO = "tests/test_ui_extra_isolation.py"
 
-IMPORTED_BY_NON_UI_CODE = PURE_MODULES + ["imaging/tiled.py"]
 
-
-@pytest.mark.parametrize("path", IMPORTED_BY_NON_UI_CODE)
-def test_no_module_level_import_of_a_ui_only_dependency(path):
-    """Optional UI dependencies must stay deferred to the functions that need them.
-
-    `matplotlib_scalebar` is in the `ui` extra. `plot_stage_positions_on_image` and
-    `plot_minimap` both use it and both import it inside their own bodies, which is
-    what lets headless installs import this module at all.
-
-    That was nearly lost in the extraction (FIB-390): the moved function bodies were
-    verified AST-identical to their originals, but the module headers were written by
-    hand, and hoisting the lazy import into one of them broke every CI job on every
-    Python version -- at collection time, so it read as unrelated tests failing.
-    """
-    offending = sorted(
-        m for m in _module_level_imports(path)
-        if m.split(".")[0] in UI_ONLY_PACKAGES
-    )
-    assert not offending, (
-        f"{path} imports {offending} at module level. Those live in the `ui` extra, "
-        f"which CI does not install -- defer the import into the function that needs it."
+def test_the_ui_extra_guard_still_exists():
+    """This package relies on that guard; a rename should fail here, not go quiet."""
+    assert (Path(__file__).resolve().parents[1] / _MOVED_TO).exists(), (
+        f"{_MOVED_TO} is missing -- the `ui` extra import guard for this package "
+        f"(FIB-390) went with it."
     )
