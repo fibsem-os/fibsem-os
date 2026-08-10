@@ -277,7 +277,7 @@ def _editor_stub(lamella_path, fib_filename, image):
     """
     from PyQt5.QtWidgets import QComboBox, QWidget
 
-    from fibsem.ui.widgets.autolamella_lamella_protocol_editor import (
+    from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
         AutoLamellaProtocolEditorWidget as Editor,
     )
 
@@ -323,7 +323,7 @@ def _fake_dialog_class(record):
 
 def _open_correlation(stub, monkeypatch):
     import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
-    from fibsem.ui.widgets.autolamella_lamella_protocol_editor import (
+    from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
         AutoLamellaProtocolEditorWidget as Editor,
     )
 

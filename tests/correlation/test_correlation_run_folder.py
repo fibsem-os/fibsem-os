@@ -269,7 +269,7 @@ def test_a_cancelled_correlation_leaves_no_run_behind(qapp, tmp_path, monkeypatc
     """The reproduction from the issue: open, edit a point, cancel — and the next
     open must not offer that abandoned session as a previous correlation."""
     import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
-    from fibsem.ui.widgets.autolamella_lamella_protocol_editor import (
+    from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
         AutoLamellaProtocolEditorWidget as Editor,
     )
     from tests.correlation.test_correlation_setup_regressions import _editor_stub

@@ -65,10 +65,10 @@ from fibsem.ui.stylesheets import (
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
 from fibsem.ui import notification_service
-from fibsem.ui.widgets.autolamella_lamella_protocol_editor import (
+from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
 )
-from fibsem.ui.widgets.autolamella_task_config_editor import (
+from fibsem.applications.autolamella.ui.autolamella_task_config_editor import (
     AutoLamellaProtocolTaskConfigEditor,
 )
 from fibsem.ui.widgets.lamella_card_widget import LamellaCardContainer

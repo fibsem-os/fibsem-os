@@ -317,7 +317,7 @@ def test_an_empty_previous_run_does_not_wipe_the_coordinates(qapp, monkeypatch):
 def test_editor_defaults_to_the_newest_image():
     """The fallback was a full path from glob while the combo holds basenames, so
     setCurrentText silently no-op'd and the combo stayed on the oldest image."""
-    from fibsem.ui.widgets.autolamella_lamella_protocol_editor import (
+    from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
         AutoLamellaProtocolEditorWidget as Editor,
     )
 

@@ -62,7 +62,7 @@ and apply a refractive-index (RI) depth correction to the **correlated POI resul
   - shows surface→POI y-distance (px), Apply button populates a table of
     original/corrected Y and calls `result.apply_refractive_index_correction(factor)`,
     re-emits `result_changed`, re-draws FIB overlay.
-- Consumer: `fibsem/ui/widgets/autolamella_lamella_protocol_editor.py` opens
+- Consumer: `fibsem/applications/autolamella/ui/autolamella_lamella_protocol_editor.py` opens
   `CorrelationTabDialog` and reads `result.poi[0].px_m` on accept.
 
 ### Correction math (FM space, requested mode)
