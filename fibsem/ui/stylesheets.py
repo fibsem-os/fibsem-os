@@ -52,6 +52,7 @@ from fibsem.ui.tokens import (  # noqa: F401  (re-exported for existing callers)
 # keep resolving.
 from fibsem.ui.napari_style import NAPARI_STYLE  # noqa: F401
 from fibsem.ui.tokens import (
+    NEUTRAL_300,
     NEUTRAL_650,
     SURFACE_COLOR,
 )
@@ -59,6 +60,18 @@ from fibsem.ui.tokens import (
 _ICONS_DIR = _os.path.join(_os.path.dirname(__file__), "icons").replace("\\", "/")
 
 LABEL_INSTRUCTIONS_STYLE = """font-style: italic; color: gray; font-size: 12px;"""
+
+# Filename header sitting above an image canvas. Lived in
+# fm_image_display_widget until that module was retired (FIB-535); it describes a
+# label, not an FM display, so this is where it belongs.
+#
+# The border keeps its literal rather than becoming BORDER_COLOR (#3d4251) --
+# they are different colours, #3a3d42 is used raw in 39 other places, and a move
+# is not the place to change one. Tokenising it is separate work.
+IMAGE_HEADER_STYLE = (
+    f"color: {NEUTRAL_300}; font-size: 11px; padding: 3px 8px; "
+    f"background: {CANVAS_BG}; border-bottom: 1px solid #3a3d42;"
+)
 
 
 PROGRESS_BAR_STYLESHEET = f"""

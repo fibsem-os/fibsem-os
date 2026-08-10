@@ -86,6 +86,21 @@ class CorrelationPicking(QObject):
         self.points.coordinate_removed.connect(self.point_removed)
         self.points.add_requested.connect(self._show_add_menu)
 
+        # Legend and label toggles. The shared toolbar has neither -- they are
+        # correlation's chrome, not the canvas's -- but ImagePointCanvas carried
+        # both, so without these the swap would quietly cost two controls that
+        # exist today. Same icons and tooltips it used.
+        self.btn_legend = canvas.add_toolbar_button(
+            "mdi:format-list-bulleted", "Toggle legend",
+            self.set_legend_visible, checkable=True,
+        )
+        self.btn_legend.setChecked(True)
+        self.btn_labels = canvas.add_toolbar_button(
+            "mdi:label-outline", "Toggle point labels",
+            self.set_labels_visible, checkable=True,
+        )
+        self.btn_labels.setChecked(True)
+
     def dispose(self) -> None:
         """Unregister both overlays from the canvas.
 
@@ -115,6 +130,7 @@ class CorrelationPicking(QObject):
     def set_legend_visible(self, visible: bool) -> None:
         """Show or hide the point-type legend (one swatch per type on screen)."""
         self.points.set_legend_visible(visible)
+        self.btn_legend.setChecked(visible)
 
     def set_labels_visible(self, visible: bool) -> None:
         """Show or hide the per-point names. Independent of marker visibility --
@@ -125,6 +141,7 @@ class CorrelationPicking(QObject):
         image showing a result."""
         self.points.set_labels_visible(visible)
         self.results.set_labels_visible(visible)
+        self.btn_labels.setChecked(visible)
 
     # ── result markers ────────────────────────────────────────────────────
 

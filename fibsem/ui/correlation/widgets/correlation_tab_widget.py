@@ -98,11 +98,13 @@ from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.utils import install_wheel_blocker
-from fibsem.ui.correlation.widgets.fm_image_display_widget import (
-    IMAGE_HEADER_STYLE,
-    FMImageDisplayWidget,
+from fibsem.ui.correlation.widgets.correlation_canvas_widget import (
+    CorrelationCanvasWidget,
 )
-from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
+from fibsem.ui.correlation.widgets.correlation_fm_canvas_widget import (
+    CorrelationFMCanvasWidget,
+)
+from fibsem.ui.stylesheets import IMAGE_HEADER_STYLE
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import FibsemImage, Point
 from fibsem.ui.widgets.custom_widgets import (
@@ -1624,17 +1626,32 @@ class CorrelationTabWidget(QWidget):
         self._fib_name_label.setVisible(False)
         fib_layout.addWidget(self._fib_name_label)
 
-        self._fib_canvas = ImagePointCanvas(
+        self._fib_canvas = CorrelationCanvasWidget(
             allowed_point_types=self._point_types_for_side("fib"),
         )
         fib_layout.addWidget(self._fib_canvas, stretch=1)
         splitter.addWidget(fib_pane)
 
-        # Middle: FM image display
-        self._fm_display = FMImageDisplayWidget(
+        # Middle: FM image display, in a pane matching the FIB one. The filename
+        # header used to live inside FMImageDisplayWidget; the shared FM canvas
+        # has no such thing, and putting it here makes the two panes the same
+        # shape rather than one carrying its own header and one not.
+        fm_pane = QWidget()
+        fm_layout = QVBoxLayout(fm_pane)
+        fm_layout.setContentsMargins(0, 0, 0, 0)
+        fm_layout.setSpacing(0)
+
+        self._fm_name_label = QLabel("")
+        self._fm_name_label.setStyleSheet(IMAGE_HEADER_STYLE)
+        self._fm_name_label.setTextFormat(Qt.TextFormat.PlainText)
+        self._fm_name_label.setVisible(False)
+        fm_layout.addWidget(self._fm_name_label)
+
+        self._fm_display = CorrelationFMCanvasWidget(
             allowed_point_types=self._point_types_for_side("fm"),
         )
-        splitter.addWidget(self._fm_display)
+        fm_layout.addWidget(self._fm_display, stretch=1)
+        splitter.addWidget(fm_pane)
 
         # Right: tab widget stacked above run button
         self._tabs = QTabWidget()
@@ -1864,25 +1881,35 @@ class CorrelationTabWidget(QWidget):
         self.data_changed.emit(self.data)
 
     def _update_fib_name_label(self, image: FibsemImage) -> None:
-        """Show the loaded FIB image's filename in the header (mirrors FM).
+        """Show the loaded FIB image's filename in the header (mirrors FM)."""
+        self._set_name_label(self._fib_name_label, image)
+
+    @staticmethod
+    def _set_name_label(label: QLabel, image) -> None:
+        """Show *image*'s filename in a canvas header label.
 
         The file it came from, so the label matches what the picker above it
         shows and the tooltip gives the full path. An image that was never
         written gets no label rather than the name it would have had (FIB-509).
+
+        One implementation for both panes: the FM header used to be
+        FMImageDisplayWidget's own, with its own copy of this, and the two could
+        have drifted.
         """
         path = getattr(image, "filepath", None) or ""
         base = os.path.basename(path)
-        self._fib_name_label.setText(base)
-        self._fib_name_label.setToolTip(path)
-        self._fib_name_label.setVisible(bool(base))
+        label.setText(base)
+        label.setToolTip(path)
+        label.setVisible(bool(base))
 
     def set_fm_image(self, fm_image: FluorescenceImage) -> None:
         """Load FM image into canvas and update images tab."""
         self._fm_image = fm_image
         self._fm_display.set_fm_image(fm_image)
+        self._set_name_label(self._fm_name_label, fm_image)
         px = self._effective_fm_pixel_size(fm_image)
         if px:
-            self._fm_display.canvas.set_pixel_size(px)
+            self._fm_display.set_pixel_size(px)
         _, n_z, h, w = fm_image.data.shape
         for spec in self._point_specs.values():
             if spec.adapter is self._fm_adapter:
@@ -2882,19 +2909,19 @@ class CorrelationTabWidget(QWidget):
 
     def _reset_views(self) -> None:
         self._fib_canvas.reset_view()
-        self._fm_display.canvas.reset_view()
+        self._fm_display.reset_view()
 
     def _on_scalebar_toggled(self, visible: bool) -> None:
         self._fib_canvas.set_scalebar_visible(visible)
-        self._fm_display.canvas.set_scalebar_visible(visible)
+        self._fm_display.set_scalebar_visible(visible)
 
     def _on_legend_toggled(self, visible: bool) -> None:
         self._fib_canvas.set_legend_visible(visible)
-        self._fm_display.canvas.set_legend_visible(visible)
+        self._fm_display.set_legend_visible(visible)
 
     def _on_labels_toggled(self, visible: bool) -> None:
         self._fib_canvas.set_labels_visible(visible)
-        self._fm_display.canvas.set_labels_visible(visible)
+        self._fm_display.set_labels_visible(visible)
 
     def _on_save_plot_clicked(self) -> None:
         """Prompt for a path and save the side-by-side FIB + FM plot."""
@@ -2931,13 +2958,13 @@ class CorrelationTabWidget(QWidget):
         path = self._ensure_dir_for(path)
 
         self._fib_canvas.reset_view()
-        self._fm_display.canvas.reset_view()
+        self._fm_display.reset_view()
 
         fig, (ax_fib, ax_fm) = plt.subplots(1, 2, figsize=(16, 8), facecolor=CANVAS_BG)
         for ax in (ax_fib, ax_fm):
             ax.set_facecolor(CANVAS_BG)
 
-        _render_canvas_to_axes(self._fib_canvas, ax_fib, dpi=_PLOT_DPI)
+        _render_canvas_to_axes(self._fib_canvas.canvas, ax_fib, dpi=_PLOT_DPI)
         ax_fib.set_title("FIB", color="white", fontsize=12)
 
         _render_canvas_to_axes(self._fm_display.canvas, ax_fm, dpi=_PLOT_DPI)

@@ -101,6 +101,31 @@ def test_the_step_arrows_move_one_plane_and_stop_at_the_ends():
     assert w.current_z == _NZ - 1
 
 
+def test_shift_scroll_steps_z_and_plain_scroll_does_not():
+    """Rides `canvas_scrolled` rather than the old bespoke z_scroll_requested --
+    the shared canvas already broadcasts modified scroll and already declines to
+    zoom under a modifier, which is how objective_control_widget and
+    beam_settings_widget consume it."""
+    w = _widget()
+    w._z_slider.setValue(4)
+
+    w.canvas.canvas_scrolled.emit(0.0, 0.0, 1, ("Shift",))
+    assert w.current_z == 5
+    w.canvas.canvas_scrolled.emit(0.0, 0.0, -1, ("Shift",))
+    assert w.current_z == 4
+
+    w.canvas.canvas_scrolled.emit(0.0, 0.0, 1, ())  # plain scroll is the canvas's zoom
+    assert w.current_z == 4
+
+
+def test_the_z_slider_advertises_shift_scroll():
+    """The gesture has no visible affordance, so the tooltip is the only place it
+    can be discovered. Set here, not on FMCanvasWidget: only this widget wires
+    it, so the quad view would be advertising something that does nothing."""
+    tip = _widget()._z_slider.toolTip()
+    assert "Shift" in tip and "scroll" in tip.lower()
+
+
 def test_stepping_does_nothing_under_max_projection():
     w = _widget()
     w.set_max_projection(True)
