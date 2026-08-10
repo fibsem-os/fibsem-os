@@ -12,7 +12,6 @@ from .camera_widget import CameraWidget
 from .histogram_widget import HistogramWidget
 from .line_plot_widget import LinePlotWidget
 from .minimap_plot_widget import MinimapPlotWidget
-from .fluorescence_plot_widget import FluorescencePlotWidget
 from .autofocus_widget import AutofocusWidget
 from .load_image_dialog import LoadImageDialog
 from .fm_image_viewer_widget import FMImageViewerWidget
@@ -31,7 +30,6 @@ __all__ = [
     'HistogramWidget',
     'LinePlotWidget',
     'MinimapPlotWidget',
-    'FluorescencePlotWidget',
     'AutofocusWidget',
     'LoadImageDialog',
     'FMImageViewerWidget',
