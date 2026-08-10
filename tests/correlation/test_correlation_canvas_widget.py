@@ -14,6 +14,7 @@ import pytest
 
 pytest.importorskip("PyQt5")  # CI installs .[test] without the UI extra
 
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
@@ -52,7 +53,65 @@ def test_adapter_surface_matches_the_canvas_it_replaces():
         assert callable(getattr(ImagePointCanvas, name, None)), name
 
 
-def test_image_methods_match_the_canvas_it_replaces():
+# Public methods of ImagePointCanvas that the replacement deliberately does not
+# forward, each with the reason. Anything not listed here must be forwarded --
+# see test_every_public_method_is_forwarded_or_waived.
+_WAIVED = {
+    "canvas_clicked": "a 3-arg signal on the shared canvas; reachable via .canvas",
+    "keyPressEvent": "Qt event handler, inherited by the canvas widget itself",
+    "resizeEvent": "Qt event handler, inherited by the canvas widget itself",
+    "wheelEvent": "Qt event handler; the macOS Shift-scroll rescue is FIB-552, parked",
+    "render_to_axes": "no successor -- save_plot renders any canvas via _render_canvas_to_axes",
+    "set_shift_z_scroll_enabled": "superseded by canvas_scrolled, which already suppresses zoom under a modifier",
+    "z_scroll_requested": "superseded by canvas_scrolled",
+}
+
+
+# Parameter annotations that deliberately differ. Only *widenings* belong here --
+# every call the old signature accepts, the new one still accepts. Declaring them
+# individually keeps the check strict, so a narrowing (the set_image FibsemImage
+# bug, ndarray -> FibsemImage) cannot hide behind a blanket exemption.
+_WIDENED = {
+    ("add_overlay_points", "points"): "Sequence accepts tuples as well as lists",
+    ("add_overlay_points", "size"): "float accepts the ints the old signature took",
+}
+
+
+def _public_names(cls):
+    """Everything callable on the class -- methods and pyqtSignals alike."""
+    return {n for n, v in vars(cls).items() if not n.startswith("_") and callable(v)}
+
+
+def _public_methods(cls):
+    """Just the methods. Signals are callable but have no inspectable signature,
+    and are covered by test_signals_match_the_canvas_it_replaces."""
+    return {
+        n for n, v in vars(cls).items()
+        if not n.startswith("_") and callable(v) and not isinstance(v, pyqtSignal)
+    }
+
+
+def test_every_public_method_is_forwarded_or_waived():
+    """Enumerates instead of spot-checking.
+
+    The hardcoded list this replaces only covered what someone remembered to
+    type, which is exactly how `set_scalebar_visible` went missing -- present on
+    the old canvas, called by the tab widget, absent here, and the parity test
+    said nothing. Adding a method to ImagePointCanvas without forwarding it now
+    fails until it is either forwarded or waived with a reason.
+    """
+    # hasattr, not a set difference: the replacement exposes `points` / `results`
+    # as properties, which are not callable and would read as missing.
+    missing = {n for n in _public_names(ImagePointCanvas)
+               if not hasattr(CorrelationCanvasWidget, n)}
+    unexplained = sorted(missing - set(_WAIVED))
+    assert not unexplained, f"not forwarded and not waived: {unexplained}"
+
+    stale = sorted(set(_WAIVED) - _public_names(ImagePointCanvas))
+    assert not stale, f"waived but no longer on the old canvas: {stale}"
+
+
+def test_forwarded_methods_keep_their_signatures():
     """Signatures, not just callability.
 
     `set_image` used to take a FibsemImage here while both remaining consumers
@@ -60,12 +119,8 @@ def test_image_methods_match_the_canvas_it_replaces():
     callable-only check sailed straight past it, so this compares each
     parameter's position, annotation and default against the old canvas.
     """
-    for name in ("__init__", "set_image", "update_display", "set_coordinates",
-                 "set_selected", "refresh_coordinate", "set_pixel_size",
-                 "reset_view", "set_legend_visible", "set_labels_visible",
-                 "clear_overlay"):
-        assert callable(getattr(CorrelationCanvasWidget, name, None)), name
-        assert callable(getattr(ImagePointCanvas, name, None)), name
+    shared = _public_methods(ImagePointCanvas) & _public_methods(CorrelationCanvasWidget)
+    for name in sorted(shared | {"__init__"}):
         _assert_accepts_old_calls(name)
 
 
@@ -86,6 +141,8 @@ def _assert_accepts_old_calls(name: str) -> None:
         assert got.name == want.name, f"{name}: {want.name} -> {got.name}"
         assert got.kind == want.kind, f"{name}.{want.name}: {want.kind} -> {got.kind}"
         assert got.default == want.default, f"{name}.{want.name}: default changed"
+        if (name, want.name) in _WIDENED:
+            continue
         assert got.annotation == want.annotation, (
             f"{name}.{want.name}: {want.annotation} -> {got.annotation}"
         )

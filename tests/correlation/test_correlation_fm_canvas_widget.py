@@ -149,3 +149,30 @@ def test_the_crosshair_is_off():
     w = _widget()
     assert w.canvas._crosshair_artists == []
     assert w.canvas.btn_toggle_crosshair.isChecked() is False
+
+
+# ── the contract with the tab widget ──────────────────────────────────────
+
+# Public names on FMImageDisplayWidget the replacement deliberately does not
+# carry, with the reason. Everything else must be present.
+_WAIVED = {
+    "canvas_clicked": "on the shared canvas as a 3-arg signal; reachable via .canvas",
+}
+
+
+def test_every_public_name_is_carried_over_or_waived():
+    """Enumerates rather than spot-checks, for the same reason the FIB side does:
+    a hardcoded list only covers what someone remembered to type, and that is how
+    `set_scalebar_visible` went missing on the other canvas.
+
+    `hasattr` on the new side, not `vars` -- this widget subclasses FMCanvasWidget,
+    so most of what it offers is inherited and a `vars` check would report the
+    whole FM API as missing.
+    """
+    own = {
+        n for n, v in vars(FMImageDisplayWidget).items()
+        if not n.startswith("_") and (callable(v) or isinstance(v, property))
+    }
+    missing = {n for n in own if not hasattr(CorrelationFMCanvasWidget, n)}
+    unexplained = sorted(missing - set(_WAIVED))
+    assert not unexplained, f"not carried over and not waived: {unexplained}"
