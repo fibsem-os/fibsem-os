@@ -82,6 +82,19 @@ class CorrelationFMCanvasWidget(FMCanvasWidget):
         # something that does nothing.
         self._z_slider.setToolTip("Drag to change Z-slice, or Shift+scroll on the image")
 
+    def set_fm_image(self, image) -> None:
+        """Load a stack and start in the middle of it.
+
+        `FMCanvasWidget` starts at plane 0, which is fine for a viewer that opens
+        on the max projection. A picker opens on planes, and plane 0 is the edge
+        of the volume — usually out of focus, so every operator would scrub to
+        the middle before picking anything. `FMImageDisplayWidget` started at
+        ``n_z // 2`` for that reason, and the swap onto the shared canvas lost it.
+        """
+        super().set_fm_image(image)
+        if self._z_max > 0:
+            self._z_slider.setValue(self._z_max // 2 + self._z_max % 2)
+
     def _on_canvas_scrolled(self, x, y, direction: int, modifiers) -> None:
         """Shift+scroll → one z-plane. Plain scroll is left to the canvas (zoom).
 

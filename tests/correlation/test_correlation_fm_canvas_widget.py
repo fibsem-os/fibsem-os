@@ -70,6 +70,31 @@ def test_max_projection_is_off_so_points_get_a_real_z():
     assert w._btn_mip.isChecked() is False  # button agrees with what is drawn
 
 
+@pytest.mark.parametrize("nz", [1, 2, 5, 9, 10])
+def test_a_loaded_stack_starts_in_the_middle(nz):
+    """FMCanvasWidget starts at plane 0, which suits a viewer that opens on the
+    max projection. A picker opens on planes, and plane 0 is the out-of-focus
+    edge of the volume, so every operator would scrub to the middle first.
+
+    FMImageDisplayWidget started at ``n_z // 2``; the swap onto the shared canvas
+    silently lost that, and this is the fix.
+    """
+    w = CorrelationFMCanvasWidget()
+    w.set_fm_image(_fm_image(nz=nz))
+    assert w.current_z == nz // 2
+
+
+def test_the_starting_plane_matches_the_widget_it_replaced():
+    """Belt and braces on the regression: the same stack through both, so the
+    number is compared rather than restated."""
+    old = FMImageDisplayWidget()
+    old.set_fm_image(_fm_image(nz=9))
+    new = CorrelationFMCanvasWidget()
+    new.set_fm_image(_fm_image(nz=9))
+
+    assert new.current_z == old.current_z == 4
+
+
 @pytest.mark.parametrize("z", [0, 4, 8])
 def test_current_z_matches_the_widget_it_replaces(z):
     """Same slider position, same answer — this is the number that becomes a
