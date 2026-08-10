@@ -190,15 +190,14 @@ def test_the_fib_header_names_the_file_not_the_request(qapp):
 
 
 def test_the_fm_header_names_the_file_not_the_request(qapp):
-    from fibsem.ui.correlation.widgets.fm_image_display_widget import (
-        FMImageDisplayWidget,
-    )
+    """The header moved out of the FM display and onto the tab widget when that
+    widget was retired, so the two panes are the same shape and share one
+    implementation. Same guarantee, one level up."""
+    widget = _tab_widget()
+    widget.set_fm_image(_fm_image())
 
-    display = FMImageDisplayWidget()
-    display.set_fm_image(_fm_image())
-
-    assert display._name_label.text() == "fm_stack.ome.tiff"
-    assert display._name_label.toolTip() == FM_PATH
+    assert widget._fm_name_label.text() == "fm_stack.ome.tiff"
+    assert widget._fm_name_label.toolTip() == FM_PATH
 
 
 def test_an_unsaved_image_is_named_nothing_rather_than_wrongly(qapp):
