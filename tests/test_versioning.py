@@ -303,15 +303,15 @@ def test_describe_measures_from_release_tags_only(monkeypatch, tmp_path):
     # Lightweight, as RELEASE.md creates them.
     _git(repo, "tag", "v1.0.0")
     _git(repo, "commit", "--allow-empty", "--quiet", "-m", "second")
-    # Annotated, as the real 251111-rosalind is: nearer to HEAD *and* the type
-    # plain `git describe` prefers, so it wins on both of git's selection rules.
-    _git(repo, "tag", "-a", "251111-rosalind", "-m", "build for a partner site")
+    # Annotated, as this repo's ad-hoc build tags are: nearer to HEAD *and* the
+    # type plain `git describe` prefers, so it wins on both of git's rules.
+    _git(repo, "tag", "-a", "251111-example", "-m", "build for a partner site")
     _git(repo, "commit", "--allow-empty", "--quiet", "-m", "third")
 
     # Control: assert the bug is actually reachable in this repo, so the test
     # below cannot pass simply because the decoy was never a candidate.
     unfiltered = _git(repo, "describe", "--tags", "--always", "--dirty")
-    assert unfiltered.startswith("251111-rosalind-"), unfiltered
+    assert unfiltered.startswith("251111-example-"), unfiltered
 
     monkeypatch.setattr(versioning, "_source_checkout_root", lambda: repo)
 

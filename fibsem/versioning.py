@@ -126,9 +126,10 @@ def _describe() -> Optional[str]:
     #
     # --match v* because git describe measures from the *nearest* reachable tag,
     # whatever it happens to be named: a one-off build tag on a recent commit
-    # (this repo has 251111-rosalind, 20250616, data-0.1.0) would otherwise
-    # become the base for every user downstream of it, and land in the
-    # fibsem_revision recorded in saved experiment metadata. --tags is still
+    # (this repo carries dated and per-site build tags alongside releases, plus
+    # data-0.1.0) would otherwise become the base for every user downstream of
+    # it, and land in the fibsem_revision recorded in saved experiment metadata,
+    # where a wrong base goes unnoticed for months. --tags is still
     # required alongside it: release tags here are lightweight (see RELEASE.md),
     # and plain describe considers only annotated ones.
     #
