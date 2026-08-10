@@ -124,9 +124,18 @@ def _describe() -> Optional[str]:
     # Not --broken: that needs git >= 2.13, and on older git the whole command
     # fails, losing the revision entirely.
     #
+    # --match v* because git describe measures from the *nearest* reachable tag,
+    # whatever it happens to be named: a one-off build tag on a recent commit
+    # (this repo carries dated and per-site build tags alongside releases, plus
+    # data-0.1.0) would otherwise become the base for every user downstream of
+    # it, and land in the fibsem_revision recorded in saved experiment metadata,
+    # where a wrong base goes unnoticed for months. --tags is still
+    # required alongside it: release tags here are lightweight (see RELEASE.md),
+    # and plain describe considers only annotated ones.
+    #
     # Cached because FibsemImageMetadata builds a FibsemExperimentRef for every
     # acquired image — without this that would be one git fork per image.
-    return _run_git("describe", "--tags", "--always", "--dirty")
+    return _run_git("describe", "--tags", "--always", "--dirty", "--match", "v*")
 
 
 @cache
@@ -141,8 +150,10 @@ def get_revision() -> Optional[str]:
     """Return ``git describe`` of the running checkout, or None.
 
     For example ``"v0.5.1-48-g4cd11d9c"``, ``"v0.5.1-48-g4cd11d9c-dirty"``, or a
-    bare ``"4cd11d9c"`` in a clone with no tags. None for a wheel install, or on
-    any failure. Cached: the first call forks git, later calls are free.
+    bare ``"4cd11d9c"`` in a clone with no ``v*`` release tags. None for a wheel
+    install, or on any failure. Measured only from release tags, so an unrelated
+    tag nearer to HEAD cannot become the base. Cached: the first call forks git,
+    later calls are free.
     """
     return _describe()
 
