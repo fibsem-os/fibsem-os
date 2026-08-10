@@ -54,7 +54,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.ui.widgets.custom_widgets import LamellaNameListWidget
+from fibsem.ui.widgets.lamella_name_list_widget import LamellaNameListWidget
 from fibsem.ui.widgets.selected_lamella_widget import SelectedLamellaWidget
 
 if (
