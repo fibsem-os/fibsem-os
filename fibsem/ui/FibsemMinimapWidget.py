@@ -409,6 +409,7 @@ class FibsemMinimapWidget(QWidget):
         self.lamella_list.lamella_selected.connect(self.update_current_selected_position)
         self.lamella_list.move_to_requested.connect(self._on_move_to_requested)
         self.lamella_list.remove_requested.connect(self._on_remove_requested)
+        self.lamella_list.defect_changed.connect(self._on_defect_changed)
 
         # signals
         self._acquisition_finished.connect(self.tile_collection_finished)
@@ -1016,6 +1017,17 @@ class FibsemMinimapWidget(QWidget):
         if lamella is None:
             return
         self.move_to_stage_position(lamella.stage_position)
+
+    def _on_defect_changed(self, lamella):
+        """Persist a defect set from this list's row menu.
+
+        The row writes `lamella.defect` and emits; nothing here was listening, so the
+        change lived in memory and was gone on reload (FIB-564). Every other display of
+        it now redraws off `lamella.events.defect`, so this only has to make it durable.
+        """
+        if self.parent_widget is None or self.parent_widget.experiment is None:
+            return
+        self.parent_widget.experiment.save()
 
     def _on_remove_requested(self, lamella):
         """Handle removal from the list row's remove button (confirmation already handled)."""

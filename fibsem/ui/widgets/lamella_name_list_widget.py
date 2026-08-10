@@ -155,9 +155,23 @@ class _LamellaRow(QWidget):
         self.btn_remove.setVisible(False)
         layout.addWidget(self.btn_remove)
 
-        # live-update the description tooltip when it changes (e.g. edited in the
-        # Selected Lamella panel). type: ignore because @evented adds .events dynamically.
+        # Redraw when the model changes, whichever widget changed it. Only `description`
+        # was subscribed, so a defect set anywhere else left a stale icon here (FIB-564).
+        #
+        # Deliberately NOT subscribing to `task_state.events.name/.status`, though the
+        # row draws those too and `lamella_list_widget`/`lamella_card_widget` both do.
+        # Those two fields are written by the running workflow
+        # (`workflows/tasks/base.py:234,239`) on the FunctionWorker thread, and psygnal
+        # delivers synchronously on the emitting thread -- so the callback would touch Qt
+        # widgets off the GUI thread. `defect` and `description` are only ever written by
+        # GUI widgets, so both are safe. The status column stays refresh-driven.
+        #
+        # No matching disconnect: the lamella outlives the row, but psygnal holds bound
+        # methods weakly and `set_lamella` keeps no reference to the rows it replaces, so
+        # a cleared row is collected and its subscriptions go with it.
+        # type: ignore because @evented adds .events dynamically.
         self.lamella.events.description.connect(self.refresh)  # type: ignore[union-attr]
+        self.lamella.events.defect.connect(self.refresh)  # type: ignore[union-attr]
 
         self.refresh()
 
