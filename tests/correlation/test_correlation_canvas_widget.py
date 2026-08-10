@@ -1,11 +1,14 @@
-"""CorrelationCanvasWidget: the shared-canvas replacement for ImagePointCanvas.
+"""CorrelationCanvasWidget: the FIB correlation surface.
 
-Two things are pinned here. First, that points survive the trip through the
-widget with their identity intact. Second -- and this is the one that earns its
-keep -- that the widget's signals and methods still match ImagePointCanvas's, so
-the eventual swap in correlation_tab_widget stays a construction-site change.
-That test fails the moment the two drift, which is the failure mode of building
-a replacement alongside the thing it replaces.
+Points survive the trip through the widget with their identity intact, and the
+widget still answers to everything `correlation_tab_widget` asks of it.
+
+The parity suite that used to live here -- an enumerating diff against
+ImagePointCanvas, which caught the set_image and set_scalebar_visible gaps -- is
+gone with that class. It guarded a migration that has finished; comparing
+against a deleted module proves nothing. What it incidentally pinned is now
+asserted directly against the live consumer instead, which is the better test
+anyway: `_CanvasAdapter` and the tab widget's four-signal loop.
 """
 import sys
 
@@ -14,14 +17,12 @@ import pytest
 
 pytest.importorskip("PyQt5")  # CI installs .[test] without the UI extra
 
-from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
 from fibsem.ui.correlation.widgets.correlation_canvas_widget import (
     CorrelationCanvasWidget,
 )
-from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -39,118 +40,27 @@ def _widget(allowed=None):
 # ── the contract with the tab widget ──────────────────────────────────────
 
 
-def test_signals_match_the_canvas_it_replaces():
-    """The tab widget connects these four by name; a rename breaks the swap."""
+def test_the_tab_widget_can_connect_its_four_signals():
+    """`correlation_tab_widget` wires both surfaces in one loop:
+
+        for canvas in (self._fib_canvas, self._fm_display):
+            canvas.point_selected.connect(...)
+
+    so a rename here silently disconnects half the correlation UI.
+    """
     for name in ("point_selected", "point_moved", "point_removed", "point_add_requested"):
         assert hasattr(CorrelationCanvasWidget, name), name
-        assert hasattr(ImagePointCanvas, name), name
 
 
-def test_adapter_surface_matches_the_canvas_it_replaces():
-    """_CanvasAdapter calls exactly these three on whatever surface it holds."""
+def test_the_adapter_surface_is_answered():
+    """_CanvasAdapter calls exactly these three on whatever surface it holds, and
+    it is duck-typed -- nothing else checks they exist until a click does."""
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import _CanvasAdapter
+
+    adapter = _CanvasAdapter(CorrelationCanvasWidget(), side="fib")
     for name in ("set_coordinates", "set_selected", "refresh_coordinate"):
+        assert callable(getattr(adapter, name)), name
         assert callable(getattr(CorrelationCanvasWidget, name, None)), name
-        assert callable(getattr(ImagePointCanvas, name, None)), name
-
-
-# Public methods of ImagePointCanvas that the replacement deliberately does not
-# forward, each with the reason. Anything not listed here must be forwarded --
-# see test_every_public_method_is_forwarded_or_waived.
-_WAIVED = {
-    "canvas_clicked": "a 3-arg signal on the shared canvas; reachable via .canvas",
-    "keyPressEvent": "Qt event handler, inherited by the canvas widget itself",
-    "resizeEvent": "Qt event handler, inherited by the canvas widget itself",
-    "wheelEvent": "Qt event handler; the macOS Shift-scroll rescue is FIB-552, parked",
-    "render_to_axes": "no successor -- save_plot renders any canvas via _render_canvas_to_axes",
-    "set_shift_z_scroll_enabled": "superseded by canvas_scrolled, which already suppresses zoom under a modifier",
-    "z_scroll_requested": "superseded by canvas_scrolled",
-}
-
-
-# Parameter annotations that deliberately differ. Only *widenings* belong here --
-# every call the old signature accepts, the new one still accepts. Declaring them
-# individually keeps the check strict, so a narrowing (the set_image FibsemImage
-# bug, ndarray -> FibsemImage) cannot hide behind a blanket exemption.
-_WIDENED = {
-    ("add_overlay_points", "points"): "Sequence accepts tuples as well as lists",
-    ("add_overlay_points", "size"): "float accepts the ints the old signature took",
-}
-
-
-def _public_names(cls):
-    """Everything callable on the class -- methods and pyqtSignals alike."""
-    return {n for n, v in vars(cls).items() if not n.startswith("_") and callable(v)}
-
-
-def _public_methods(cls):
-    """Just the methods. Signals are callable but have no inspectable signature,
-    and are covered by test_signals_match_the_canvas_it_replaces."""
-    return {
-        n for n, v in vars(cls).items()
-        if not n.startswith("_") and callable(v) and not isinstance(v, pyqtSignal)
-    }
-
-
-def test_every_public_method_is_forwarded_or_waived():
-    """Enumerates instead of spot-checking.
-
-    The hardcoded list this replaces only covered what someone remembered to
-    type, which is exactly how `set_scalebar_visible` went missing -- present on
-    the old canvas, called by the tab widget, absent here, and the parity test
-    said nothing. Adding a method to ImagePointCanvas without forwarding it now
-    fails until it is either forwarded or waived with a reason.
-    """
-    # hasattr, not a set difference: the replacement exposes `points` / `results`
-    # as properties, which are not callable and would read as missing.
-    missing = {n for n in _public_names(ImagePointCanvas)
-               if not hasattr(CorrelationCanvasWidget, n)}
-    unexplained = sorted(missing - set(_WAIVED))
-    assert not unexplained, f"not forwarded and not waived: {unexplained}"
-
-    stale = sorted(set(_WAIVED) - _public_names(ImagePointCanvas))
-    assert not stale, f"waived but no longer on the old canvas: {stale}"
-
-
-def test_forwarded_methods_keep_their_signatures():
-    """Signatures, not just callability.
-
-    `set_image` used to take a FibsemImage here while both remaining consumers
-    pass a numpy array -- either would have raised AttributeError on the swap. A
-    callable-only check sailed straight past it, so this compares each
-    parameter's position, annotation and default against the old canvas.
-    """
-    shared = _public_methods(ImagePointCanvas) & _public_methods(CorrelationCanvasWidget)
-    for name in sorted(shared | {"__init__"}):
-        _assert_accepts_old_calls(name)
-
-
-def _assert_accepts_old_calls(name: str) -> None:
-    """Every call the old canvas accepts, the new one must accept identically.
-
-    Extra *optional* parameters appended on the end are fine -- that is how the
-    shared canvas's pixel_size reaches `update_display` -- but a rename, a
-    reorder, a changed default or a changed type is a broken swap.
-    """
-    import inspect
-
-    old = list(inspect.signature(getattr(ImagePointCanvas, name)).parameters.values())
-    new = list(inspect.signature(getattr(CorrelationCanvasWidget, name)).parameters.values())
-    assert len(new) >= len(old), f"{name}: parameters dropped"
-
-    for want, got in zip(old, new):
-        assert got.name == want.name, f"{name}: {want.name} -> {got.name}"
-        assert got.kind == want.kind, f"{name}.{want.name}: {want.kind} -> {got.kind}"
-        assert got.default == want.default, f"{name}.{want.name}: default changed"
-        if (name, want.name) in _WIDENED:
-            continue
-        assert got.annotation == want.annotation, (
-            f"{name}.{want.name}: {want.annotation} -> {got.annotation}"
-        )
-
-    for extra in new[len(old):]:
-        assert extra.default is not inspect.Parameter.empty, (
-            f"{name}.{extra.name}: new required parameter breaks existing callers"
-        )
 
 
 def test_set_image_takes_the_array_its_consumers_pass():
@@ -161,19 +71,16 @@ def test_set_image_takes_the_array_its_consumers_pass():
     assert w.canvas._img_w == 48 and w.canvas._img_h == 32
 
 
-def test_result_overlay_signature_matches_the_canvas_it_replaces():
-    """_overlay_result_on_fib passes these by keyword; a renamed or dropped one
-    turns the swap from a construction-site change into a rewrite."""
+def test_the_result_overlay_takes_the_keywords_the_tab_widget_passes():
+    """`_overlay_result_on_fib` passes every one of these by keyword; a rename
+    turns a correlation run's result markers into a TypeError."""
     import inspect
 
-    for name in ("add_overlay_points", "clear_overlay"):
-        assert callable(getattr(CorrelationCanvasWidget, name, None)), name
-    old = inspect.signature(ImagePointCanvas.add_overlay_points).parameters
-    new = inspect.signature(CorrelationCanvasWidget.add_overlay_points).parameters
-    assert set(new) == set(old)
-    for key in old:
-        if old[key].default is not inspect.Parameter.empty:
-            assert new[key].default == old[key].default, key
+    params = inspect.signature(CorrelationCanvasWidget.add_overlay_points).parameters
+    for key in ("color", "label_prefix", "size", "marker", "alpha",
+                "show_labels", "hollow", "legend_label"):
+        assert key in params, key
+    assert callable(getattr(CorrelationCanvasWidget, "clear_overlay", None))
 
 
 # ── points through the widget ─────────────────────────────────────────────
@@ -339,15 +246,13 @@ def test_the_widget_adds_no_point_itself():
 
 
 def test_contrast_and_gamma_are_available():
-    """ImagePointCanvas has neither; on FM data they are the controls an operator
-    actually wants while picking points. The shared canvas brings a
-    ContrastGammaControl and a toolbar button to raise it."""
+    """The reason for the whole migration. The canvas correlation used to draw on
+    had neither, and on FM data they are exactly the controls an operator wants
+    while picking points."""
     w = _widget()
     assert w.canvas._contrast is not None
     assert callable(w.canvas.toggle_contrast)
     assert w.canvas.btn_contrast is not None
-    # and the old canvas genuinely lacks it -- this is a real gain, not a rename
-    assert not hasattr(ImagePointCanvas, "toggle_contrast")
 
 
 # ── chrome delegates to the overlay ───────────────────────────────────────
@@ -393,3 +298,19 @@ def test_result_markers_go_to_the_result_overlay():
 
     w.clear_overlay()
     assert w.results._artists == []
+
+
+def test_point_labels_have_an_outline():
+    """Coloured labels get a dark outline so they stay legible on any image
+    background — every point colour is a bright hue, and SURFACE/SURFACE_FM
+    vanish over a blown-out image without it.
+
+    Ported from the ImagePointCanvas suite. The font is 8px here against that
+    canvas's 9px; the outline is what the test is about.
+    """
+    w = _widget()
+    w.set_coordinates([_coord(5, 5)])
+
+    label = w.points._anns[0]
+    assert label.get_path_effects()
+    assert label.get_fontsize() == 8

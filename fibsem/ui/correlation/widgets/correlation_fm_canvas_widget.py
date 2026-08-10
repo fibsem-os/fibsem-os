@@ -5,12 +5,8 @@ and the counterpart to :class:`CorrelationCanvasWidget` on the FIB side. Both
 present the same picking surface; they differ only in how an image reaches the
 canvas, which is the one thing that genuinely differs between them.
 
-**Not wired in yet.** `fm_image_display_widget.FMImageDisplayWidget` is still what
-the correlation tab uses; this is built alongside so it can be reviewed and
-compared side by side first. Both old widgets are deleted in the last PR of the
-series.
-
-Replacing `FMImageDisplayWidget` rather than porting it is what puts the
+Replaced `FMImageDisplayWidget`, a 574-line parallel implementation of the FM
+canvas. Replacing rather than porting it is what puts the
 correlation FM display on the *standard* FM control set — the z-slider, the
 per-channel layers popover and the max-projection toolbar button that the quad
 view and the FM overview already use — instead of a private second
@@ -33,9 +29,8 @@ from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 class CorrelationFMCanvasWidget(FMCanvasWidget):
     """Multi-channel FM display with draggable correlation points on top.
 
-    Signal shapes are deliberately identical to ``FMImageDisplayWidget``, which is
-    in turn identical to ``ImagePointCanvas``: the tab widget wires both of its
-    surfaces in one loop, and that loop does not change.
+    The tab widget wires both of its surfaces in one loop, so the four signals
+    here and on ``CorrelationCanvasWidget`` have to stay identically named.
     """
 
     point_selected = pyqtSignal(object)  # Coordinate

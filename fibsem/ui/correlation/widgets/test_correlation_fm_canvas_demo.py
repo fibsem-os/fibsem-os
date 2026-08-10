@@ -1,33 +1,32 @@
-"""Side-by-side harness: FMImageDisplayWidget (old) vs CorrelationFMCanvasWidget (new).
+"""Hands-on harness for CorrelationFMCanvasWidget — the FM correlation surface.
 
-Same synthetic 3-channel z-stack and the same starting points on both. Built
-before the swap, deliberately — the FIB side had `test_correlation_canvas_demo.py`
-to compare against and this is the FM equivalent, because the correlation tab is
-in production and 925 passing Qt tests have previously said nothing useful about
-whether a widget actually works.
+Was a side-by-side against `FMImageDisplayWidget` while the swap was in flight;
+that widget is gone, so this is the single-widget form. It survives because a
+multi-channel z-stack is otherwise only reachable with real data, and because in
+its side-by-side days it caught two things no test did: the max-projection
+default (which would have given every picked point z=0) and a `set_pixel_size`
+override that shadowed its parent.
 
 Usage
 -----
     PYTHONPATH=$PWD python fibsem/ui/correlation/widgets/test_correlation_fm_canvas_demo.py
 
-What to compare
----------------
+What to try
+-----------
 * **Points** — right-click to add, drag to move, click to select, Delete to
-  remove. The log shows what each side emits; the payloads should match.
-* **Z** — both have a slider, `‹` / `›` step buttons and an ``n/N`` readout. The
-  arrows are new on the shared widget, added here so the swap does not lose a
-  control the correlation display has today (the quad view and FM overview gain
-  them too).
-* **Max projection** — an inline checkbox on the left, a toolbar button on the
-  right. Deliberate: it keeps the z row thin.
-* **Channels** — an always-visible pane on the left, the layers popover (the
-  ``mdi:layers`` toolbar button) on the right. The popover offers colormap,
-  opacity, gamma and a dual-handle contrast, against the left's clip percentage.
-  This is the agreed UX trade; check it is liveable while actually picking points.
-* **Contrast / gamma** — per channel, right side only.
-* **Crosshair** — off on both correlation canvases, on elsewhere. Toolbar toggle
-  brings it back.
-* **Show result** — the three marker groups the tab widget draws after a run.
+  remove. The log shows what is emitted, including the z each new point takes.
+* **Z** — slider, `‹` / `›` step buttons, an ``n/N`` readout, and Shift+scroll on
+  the image. Loading a stack starts you **mid-stack**, not at plane 0, because
+  plane 0 is the out-of-focus edge of the volume. Shift+scroll is dead on a macOS
+  mouse (FIB-552, parked); the arrows and slider work everywhere.
+* **Max projection** — the toolbar button. Off by default here: a projection has
+  no plane, so a point picked on one has no z to take.
+* **Channels** — the layers popover (``mdi:layers``): visibility, colormap,
+  opacity, gamma and a dual-handle contrast, per channel. The same controls the
+  quad view and FM overview use.
+* **Crosshair** — off, because correlation draws SURFACE as an orange `+`.
+  Toolbar toggle brings it back.
+* **Show result** — the marker groups the tab widget draws after a run.
 """
 from __future__ import annotations
 
@@ -56,7 +55,6 @@ from fibsem.fm.structures import (
 from fibsem.ui.correlation.widgets.correlation_fm_canvas_widget import (
     CorrelationFMCanvasWidget,
 )
-from fibsem.ui.correlation.widgets.fm_image_display_widget import FMImageDisplayWidget
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
     OK_COLOR,
@@ -135,9 +133,9 @@ class DemoWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(
-            "FIB-535 — FMImageDisplayWidget (old) vs CorrelationFMCanvasWidget (new)"
+            "CorrelationFMCanvasWidget — FM correlation surface"
         )
-        self.resize(1600, 900)
+        self.resize(1100, 900)
 
         image = _fm_image()
 
@@ -145,16 +143,10 @@ class DemoWindow(QMainWindow):
         root_layout = QVBoxLayout(root)
         self.setCentralWidget(root)
 
-        panes = QSplitter(Qt.Orientation.Horizontal)
-        panes.addWidget(self._titled("OLD — FMImageDisplayWidget", self._build_old(image)))
-        panes.addWidget(
-            self._titled(
-                "NEW — CorrelationFMCanvasWidget  (layers popover + contrast/gamma)",
-                self._build_new(image),
-            )
-        )
-        panes.setSizes([780, 780])
-        root_layout.addWidget(panes, 1)
+        self.fm = CorrelationFMCanvasWidget(allowed_point_types=_FM_TYPES)
+        self.fm.set_fm_image(image)
+        self._wire(self.fm)
+        root_layout.addWidget(self.fm, 1)
 
         controls = QHBoxLayout()
         for label, slot in (
@@ -197,97 +189,51 @@ class DemoWindow(QMainWindow):
 
     # ── construction ──────────────────────────────────────────────────────
 
-    def _titled(self, title: str, widget: QWidget) -> QWidget:
-        box = QWidget()
-        layout = QVBoxLayout(box)
-        layout.setContentsMargins(0, 0, 0, 0)
-        label = QLabel(f"<b>{title}</b>")
-        label.setStyleSheet(f"color: {TEXT_STRONG_COLOR}; padding: 4px;")
-        layout.addWidget(label)
-        layout.addWidget(widget, 1)
-        return box
-
-    def _wire(self, widget, side: str) -> None:
-        widget.point_selected.connect(lambda c: self._say(side, "selected", c))
-        widget.point_moved.connect(lambda c: self._say(side, "moved", c))
-        widget.point_removed.connect(lambda c: self._say(side, "removed", c))
-        widget.point_add_requested.connect(lambda x, y, pt: self._added(side, x, y, pt))
-
-    def _build_old(self, image: FluorescenceImage) -> QWidget:
-        self.old = FMImageDisplayWidget(allowed_point_types=_FM_TYPES)
-        self.old.set_fm_image(image)
-        self._wire(self.old, "old")
-        return self.old
-
-    def _build_new(self, image: FluorescenceImage) -> QWidget:
-        self.new = CorrelationFMCanvasWidget(allowed_point_types=_FM_TYPES)
-        self.new.set_fm_image(image)
-        self._wire(self.new, "new")
-        return self.new
+    def _wire(self, widget) -> None:
+        widget.point_selected.connect(lambda c: self._say("selected", c))
+        widget.point_moved.connect(lambda c: self._say("moved", c))
+        widget.point_removed.connect(lambda c: self._say("removed", c))
+        widget.point_add_requested.connect(self._added)
 
     # ── behaviour ─────────────────────────────────────────────────────────
 
     def _reset(self) -> None:
-        # Separate Coordinate objects per side: they are held by reference, so
-        # sharing one list would let a drag on one widget silently move the other
-        # and hide exactly the difference this harness exists to show.
-        self.old.set_coordinates(_seed_points())
-        self.new.set_coordinates(_seed_points())
-        self._log("reset both to 3 seed points")
+        self.fm.set_coordinates(_seed_points())
+        self._log("reset to 3 seed points")
 
     def _clear(self) -> None:
-        for w in (self.old, self.new):
-            w.set_coordinates([])
-        self._log("cleared both")
-
-    @staticmethod
-    def _surface(widget, method: str):
-        """Whichever of the widget or its canvas answers to *method*.
-
-        FMImageDisplayWidget exposes almost nothing at widget level -- the tab
-        widget reaches through `.canvas` for the chrome toggles, and result
-        markers were never on the FM side at all (only the FIB canvas drew
-        them). CorrelationFMCanvasWidget offers all of it directly, which is
-        both why the swap touches those call sites and what FIB-289 (overlay the
-        correlated POI on the FM display) needs.
-        """
-        return widget if hasattr(widget, method) else widget.canvas
+        self.fm.set_coordinates([])
+        self._log("cleared")
 
     def _show_result(self) -> None:
-        for w in (self.old, self.new):
-            surface = self._surface(w, "add_overlay_points")
-            surface.clear_overlay()
-            for points, style in _RESULT_GROUPS:
-                surface.add_overlay_points(points, **style)
-        self._log("drew the reprojected result on both", OK_COLOR)
+        self.fm.clear_overlay()
+        for points, style in _RESULT_GROUPS:
+            self.fm.add_overlay_points(points, **style)
+        self._log("drew the reprojected result", OK_COLOR)
 
     def _clear_result(self) -> None:
-        for w in (self.old, self.new):
-            self._surface(w, "clear_overlay").clear_overlay()
-        self._log("cleared the result on both")
+        self.fm.clear_overlay()
+        self._log("cleared the result")
 
     def _toggle_both(self, setter: str, on: bool, name: str) -> None:
-        for w in (self.old, self.new):
-            getattr(self._surface(w, setter), setter)(on)
-        self._log(f"{name.lower()} {'shown' if on else 'hidden'} on both")
+        getattr(self.fm, setter)(on)
+        self._log(f"{name.lower()} {'shown' if on else 'hidden'}")
 
-    def _added(self, side: str, x: float, y: float, pt: PointType) -> None:
-        """Both widgets only *request* an add — the tab widget builds the
-        Coordinate, because it owns the z. Mirror that here, reading z from
-        whichever widget was clicked."""
-        widget = self.old if side == "old" else self.new
-        coord = Coordinate(PointXYZ(x, y, float(widget.current_z)), pt)
-        widget.set_coordinates(list(widget.points.coordinates()) + [coord])
+    def _added(self, x: float, y: float, pt: PointType) -> None:
+        """The widget only *requests* an add — the tab widget builds the
+        Coordinate, because it owns the z. Mirror that, reading z from the
+        slider, which is the number a real correlation depends on."""
+        coord = Coordinate(PointXYZ(x, y, float(self.fm.current_z)), pt)
+        self.fm.set_coordinates(list(self.fm.points.coordinates()) + [coord])
         self._log(
-            f"[{side}] add_requested  {pt.value:12} ({x:7.1f}, {y:7.1f})  z={widget.current_z}",
+            f"add_requested  {pt.value:12} ({x:7.1f}, {y:7.1f})  z={self.fm.current_z}",
             ACCENT_COLOR,
         )
 
-    def _say(self, side: str, what: str, coord: Coordinate) -> None:
+    def _say(self, what: str, coord: Coordinate) -> None:
         self._log(
-            f"[{side}] {what:9} {coord.point_type.value:12} "
-            f"({coord.point.x:7.1f}, {coord.point.y:7.1f}, z={coord.point.z:5.1f})",
-            OK_COLOR if side == "new" else None,
+            f"{what:9} {coord.point_type.value:12} "
+            f"({coord.point.x:7.1f}, {coord.point.y:7.1f}, z={coord.point.z:5.1f})"
         )
 
     def _log(self, message: str, color: str = None) -> None:

@@ -1,13 +1,12 @@
 """Correlation point-picking on the shared canvas stack (FIB-535).
 
-`FibsemImageCanvas` + :class:`CorrelationPicking`, exposing the same signals and
-methods as :class:`ImagePointCanvas` so the eventual swap in
-``correlation_tab_widget`` is a construction-site change and nothing more.
+`FibsemImageCanvas` + :class:`CorrelationPicking`. This is what the correlation
+tab's FIB panel is; :class:`CorrelationFMCanvasWidget` is its FM counterpart, and
+the two share all of their point-picking behaviour.
 
-**Not wired in yet.** `ImagePointCanvas` remains what the correlation tab and the
-FM display use; this is built alongside so each piece can be reviewed and tested
-on its own. The old canvas is deleted only in the last PR of the series, once
-both have moved.
+Replaced `ImagePointCanvas`, a 1030-line canvas correlation owned outright, which
+is why several comments here explain a choice by reference to it. That class is
+gone; the references are history, not a live dependency.
 
 Everything about *picking* lives in :mod:`correlation_picking`, shared with the
 FM side, which puts the identical behaviour on an `FMCanvasWidget` instead. What
@@ -35,8 +34,8 @@ from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 class CorrelationCanvasWidget(QWidget):
     """Image + draggable correlation points, on the shared canvas.
 
-    Signal shapes are deliberately identical to ``ImagePointCanvas``: the tab
-    widget's four handlers connect unchanged when this replaces it.
+    The tab widget wires both of its surfaces in one loop, so the four signals
+    here and on ``CorrelationFMCanvasWidget`` have to stay identically named.
     """
 
     point_selected = pyqtSignal(object)  # Coordinate

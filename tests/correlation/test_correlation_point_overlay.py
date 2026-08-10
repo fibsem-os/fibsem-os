@@ -621,3 +621,67 @@ def test_a_result_overlay_without_a_host_still_draws():
     canvas.add_overlay(results)
     _add_reprojected(results)
     assert len(results._artists) == 2
+
+
+# ── a click is not an edit ────────────────────────────────────────────────
+#
+# Ported from the ImagePointCanvas suite when that class was deleted. The guard
+# lives in PointOverlay._on_release, but nothing on the correlation path
+# exercised it, and the consequence is invisible until it bites: the tab widget
+# treats point_moved as an edit, so a phantom move invalidates the correlation
+# result and clears a point's `fitted` flag.
+
+
+def _press_release(overlay, x, y, *, drag_to=None):
+    """Drive a real press → (optional motion) → release on the overlay."""
+    from types import SimpleNamespace
+
+    ax = overlay._ax
+
+    def _ev(px, py):
+        sx, sy = ax.transData.transform((px, py))
+        return SimpleNamespace(
+            inaxes=ax, button=1, x=sx, y=sy, xdata=px, ydata=py, dblclick=False
+        )
+
+    overlay._on_press(_ev(x, y))
+    if drag_to is not None:
+        overlay._on_motion(_ev(*drag_to))
+    overlay._on_release(_ev(*(drag_to or (x, y))))
+
+
+def test_a_click_selects_without_reporting_a_move():
+    coord = _coord(50, 50)
+    _, ov = _attached([coord])
+    moved, selected = [], []
+    ov.coordinate_moved.connect(moved.append)
+    ov.coordinate_selected.connect(selected.append)
+
+    _press_release(ov, 50, 50)
+
+    assert selected == [coord]  # selection still reported...
+    assert moved == []  # ...but no phantom move
+
+
+def test_a_real_drag_still_reports_and_writes_back():
+    coord = _coord(50, 50)
+    _, ov = _attached([coord])
+    moved = []
+    ov.coordinate_moved.connect(moved.append)
+
+    _press_release(ov, 50, 50, drag_to=(60.0, 55.0))
+
+    assert moved == [coord]
+    assert (coord.point.x, coord.point.y) == (60.0, 55.0)
+
+
+def test_a_drag_past_the_edge_clamps_to_the_image():
+    """Noticed while porting the drag tests: dragging beyond the content stops at
+    it rather than putting a point off the image, which a correlation fit would
+    then be handed."""
+    coord = _coord(50, 50)
+    _, ov = _attached([coord])  # a 64x64 image
+
+    _press_release(ov, 50, 50, drag_to=(60.0, 500.0))
+
+    assert coord.point.y == 63.0

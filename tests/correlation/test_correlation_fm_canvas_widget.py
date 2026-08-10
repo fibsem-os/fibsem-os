@@ -27,7 +27,6 @@ from fibsem.fm.structures import (
 from fibsem.ui.correlation.widgets.correlation_fm_canvas_widget import (
     CorrelationFMCanvasWidget,
 )
-from fibsem.ui.correlation.widgets.fm_image_display_widget import FMImageDisplayWidget
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -76,37 +75,21 @@ def test_a_loaded_stack_starts_in_the_middle(nz):
     max projection. A picker opens on planes, and plane 0 is the out-of-focus
     edge of the volume, so every operator would scrub to the middle first.
 
-    FMImageDisplayWidget started at ``n_z // 2``; the swap onto the shared canvas
-    silently lost that, and this is the fix.
+    The widget this replaced started at ``n_z // 2``; the swap silently lost
+    that, and retiring its test is what surfaced it.
     """
     w = CorrelationFMCanvasWidget()
     w.set_fm_image(_fm_image(nz=nz))
     assert w.current_z == nz // 2
 
 
-def test_the_starting_plane_matches_the_widget_it_replaced():
-    """Belt and braces on the regression: the same stack through both, so the
-    number is compared rather than restated."""
-    old = FMImageDisplayWidget()
-    old.set_fm_image(_fm_image(nz=9))
-    new = CorrelationFMCanvasWidget()
-    new.set_fm_image(_fm_image(nz=9))
-
-    assert new.current_z == old.current_z == 4
-
-
 @pytest.mark.parametrize("z", [0, 4, 8])
-def test_current_z_matches_the_widget_it_replaces(z):
-    """Same slider position, same answer — this is the number that becomes a
-    picked Coordinate's z, so a divergence is a silently wrong correlation."""
-    old = FMImageDisplayWidget()
-    old.set_fm_image(_fm_image())
-    new = _widget()
-
-    old._z_slider.setValue(z)
-    new._z_slider.setValue(z)
-
-    assert new.current_z == old.current_z == z
+def test_current_z_follows_the_slider(z):
+    """This is the number that becomes a picked Coordinate's z, so getting it
+    wrong is a silently wrong correlation rather than a visible bug."""
+    w = _widget()
+    w._z_slider.setValue(z)
+    assert w.current_z == z
 
 
 def test_the_step_arrows_move_one_plane_and_stop_at_the_ends():
@@ -203,26 +186,21 @@ def test_the_crosshair_is_off():
 
 # ── the contract with the tab widget ──────────────────────────────────────
 
-# Public names on FMImageDisplayWidget the replacement deliberately does not
-# carry, with the reason. Everything else must be present.
-_WAIVED = {
-    "canvas_clicked": "on the shared canvas as a 3-arg signal; reachable via .canvas",
-}
+
+def test_the_tab_widget_can_connect_its_four_signals():
+    """Both correlation surfaces are wired in one loop in the tab widget, so
+    these have to be present under exactly these names."""
+    for name in ("point_selected", "point_moved", "point_removed", "point_add_requested"):
+        assert hasattr(CorrelationFMCanvasWidget, name), name
 
 
-def test_every_public_name_is_carried_over_or_waived():
-    """Enumerates rather than spot-checks, for the same reason the FIB side does:
-    a hardcoded list only covers what someone remembered to type, and that is how
-    `set_scalebar_visible` went missing on the other canvas.
+def test_the_adapter_surface_is_answered():
+    """_CanvasAdapter is duck-typed over these three plus a z provider."""
+    from fibsem.ui.correlation.widgets.correlation_tab_widget import _CanvasAdapter
 
-    `hasattr` on the new side, not `vars` -- this widget subclasses FMCanvasWidget,
-    so most of what it offers is inherited and a `vars` check would report the
-    whole FM API as missing.
-    """
-    own = {
-        n for n, v in vars(FMImageDisplayWidget).items()
-        if not n.startswith("_") and (callable(v) or isinstance(v, property))
-    }
-    missing = {n for n in own if not hasattr(CorrelationFMCanvasWidget, n)}
-    unexplained = sorted(missing - set(_WAIVED))
-    assert not unexplained, f"not carried over and not waived: {unexplained}"
+    w = _widget()
+    adapter = _CanvasAdapter(w, side="fm", z_provider=lambda: w.current_z)
+    for name in ("set_coordinates", "set_selected", "refresh_coordinate"):
+        assert callable(getattr(CorrelationFMCanvasWidget, name, None)), name
+    w._z_slider.setValue(3)
+    assert adapter.current_z() == 3.0

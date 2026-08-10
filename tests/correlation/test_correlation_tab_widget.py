@@ -485,162 +485,6 @@ def _legend_labels(ax):
     return [t.get_text() for t in legend.get_texts()] if legend else []
 
 
-def test_canvas_legend_lists_present_point_types(qapp):
-    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
-
-    canvas = ImagePointCanvas()
-    canvas.set_coordinates(
-        [
-            _coord(pt=PointType.FIB),
-            _coord(pt=PointType.FIB),
-            _coord(pt=PointType.SURFACE),
-        ]
-    )
-    assert _legend_labels(canvas._ax) == ["FIB", "SURFACE"]
-
-    # legend follows content
-    canvas.set_coordinates([_coord(pt=PointType.FM), _coord(pt=PointType.SURFACE_FM)])
-    assert _legend_labels(canvas._ax) == ["FM", "FM-SURFACE"]
-
-    # empty canvas → no legend
-    canvas.set_coordinates([])
-    assert canvas._ax.get_legend() is None
-
-
-def test_canvas_legend_overlay_groups_and_toggle(qapp):
-    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
-
-    canvas = ImagePointCanvas()
-    canvas.set_coordinates([_coord(pt=PointType.FIB)])
-    canvas.add_overlay_points(
-        [(1.0, 2.0)], color="#ff00ff", hollow=True, legend_label="POI uncorrected"
-    )
-    assert _legend_labels(canvas._ax) == ["FIB", "POI uncorrected"]
-
-    canvas.clear_overlay()
-    assert _legend_labels(canvas._ax) == ["FIB"]
-
-    canvas.set_legend_visible(False)
-    assert canvas._ax.get_legend() is None
-    canvas.set_legend_visible(True)
-    assert _legend_labels(canvas._ax) == ["FIB"]
-
-
-def test_surface_crosshair_keeps_color(qapp):
-    """Unfilled '+' markers are drawn by their edge — selection must not turn
-    them white, and deselection must not erase them."""
-    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
-
-    canvas = ImagePointCanvas()
-    fib = _coord(x=1.0, y=1.0, pt=PointType.FIB)
-    surface = _coord(x=5.0, y=5.0, pt=PointType.SURFACE)
-    canvas.set_coordinates([fib, surface])
-    fib_artist, surf_artist = canvas._point_artists
-
-    # unselected: crosshair keeps the type colour (was "none" → near-invisible)
-    assert surf_artist.get_markeredgecolor() == "#ff9800"
-
-    # selected: still the type colour, shown bolder (was white → colour lost)
-    canvas.set_selected(surface)
-    assert surf_artist.get_markeredgecolor() == "#ff9800"
-    assert surf_artist.get_markeredgewidth() == pytest.approx(3.0)
-
-    # filled circles keep the white-rim selection style
-    canvas.set_selected(fib)
-    assert fib_artist.get_markeredgecolor() == "white"
-    assert surf_artist.get_markeredgecolor() == "#ff9800"
-    assert surf_artist.get_markeredgewidth() == pytest.approx(2.0)
-
-
-def test_fib_surface_line_follows_surface_point(qapp):
-    """A dashed datum line spans the canvas at the FIB surface y."""
-    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
-
-    canvas = ImagePointCanvas()
-    canvas.set_coordinates([_coord(x=1.0, y=1.0, pt=PointType.FIB)])
-    assert canvas._surface_line is None
-
-    surf = _coord(x=5.0, y=40.0, pt=PointType.SURFACE)
-    canvas.set_coordinates([surf])
-    assert canvas._surface_line is not None
-    assert canvas._surface_line.get_ydata()[0] == pytest.approx(40.0)
-
-    # follows coordinate edits
-    surf.point.y = 55.0
-    canvas.refresh_coordinate(surf)
-    assert canvas._surface_line.get_ydata()[0] == pytest.approx(55.0)
-
-    # removed with the point
-    canvas.set_coordinates([])
-    assert canvas._surface_line is None
-
-
-def test_fm_surface_point_gets_no_line(qapp):
-    """FM surfaces are z-planes — no in-plane datum line."""
-    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
-
-    canvas = ImagePointCanvas()
-    canvas.set_coordinates([_coord(z=10.0, pt=PointType.SURFACE_FM)])
-    assert canvas._surface_line is None
-
-
-def test_set_image_rebuilds_the_surface_line_on_the_new_axes(qapp):
-    """A second set_image() with a surface point on the canvas used to abort.
-
-    cla() detaches the datum line, so the stale reference made the next rebuild
-    call remove() on an artist with no axes — matplotlib raises
-    NotImplementedError there, not the ValueError the guard caught, and PyQt5
-    turns an exception escaping a slot into a process abort. Loading a second
-    FIB image after picking a surface point took the app down.
-    """
-    import numpy as np
-
-    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
-
-    img = np.zeros((64, 64), dtype=np.uint8)
-    canvas = ImagePointCanvas()
-    canvas.set_image(img)
-    canvas.set_coordinates([_coord(x=10.0, y=40.0, pt=PointType.SURFACE)])
-
-    canvas.set_image(img)  # ← used to raise NotImplementedError
-
-    # and the line is live on the new axes, not merely un-crashed
-    assert canvas._surface_line is not None
-    assert canvas._surface_line in canvas._ax.lines
-    assert canvas._surface_line.get_ydata()[0] == pytest.approx(40.0)
-
-
-def test_surface_line_exported_by_render_to_axes(qapp):
-    from matplotlib.figure import Figure
-
-    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
-
-    canvas = ImagePointCanvas()
-    canvas.set_coordinates([_coord(x=5.0, y=40.0, pt=PointType.SURFACE)])
-    fig = Figure()
-    ax = fig.add_subplot(111)
-    canvas.render_to_axes(ax)
-    dashed = [l for l in ax.get_lines() if l.get_linestyle() == "--"]
-    assert len(dashed) == 1
-    assert dashed[0].get_ydata()[0] == pytest.approx(40.0)
-
-
-def test_render_to_axes_replicates_legend(qapp):
-    from matplotlib.figure import Figure
-
-    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
-
-    canvas = ImagePointCanvas()
-    canvas.set_coordinates([_coord(pt=PointType.FIB)])
-    canvas.add_overlay_points(
-        [(1.0, 2.0)], color="#ff00ff", legend_label="POI (P)"
-    )
-    fig = Figure()
-    ax = fig.add_subplot(111)
-    canvas.render_to_axes(ax)
-    assert _legend_labels(ax) == ["FIB", "POI (P)"]
-
-
 def test_canvas_toolbar_buttons_toggle_state(qapp):
     """Checkable toolbar buttons drive only their own canvas and stay in sync
     with the View-menu master toggle.
@@ -728,34 +572,6 @@ def test_fm_scalebar_pixel_size_corrects_for_resize(qapp):
     assert eff(raw) == pytest.approx(150e-9)
 
 
-def test_ghost_export_preserves_hollow_style(qapp):
-    from matplotlib.figure import Figure
-
-    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
-
-    canvas = ImagePointCanvas()
-    canvas.add_overlay_points(
-        [(10.0, 20.0)],
-        color="#ff00ff",
-        size=13,
-        alpha=0.7,
-        show_labels=False,
-        hollow=True,
-    )
-    fig = Figure()
-    ax = fig.add_subplot(111)
-    canvas.render_to_axes(ax)
-    lines = ax.get_lines()
-    assert len(lines) == 1
-    assert lines[0].get_markerfacecolor() == "none"
-    assert lines[0].get_alpha() == pytest.approx(0.7)
-
-
-# ---------------------------------------------------------------------------
-# Polish round 2: Z navigation, FM header, save-plot, minimise
-# ---------------------------------------------------------------------------
-
-
 def _fake_fm(n_c=2, n_z=5, filename="/data/BeforeMilling_G1.ome.tiff"):
     from types import SimpleNamespace
 
@@ -788,28 +604,6 @@ def _scroll_event(canvas, *, button, shift):
     )
 
 
-def test_canvas_shift_scroll_emits_z_when_enabled(qapp):
-    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
-
-    canvas = ImagePointCanvas()
-    got = []
-    canvas.z_scroll_requested.connect(got.append)
-
-    # Disabled by default: Shift+wheel zooms, never emits.
-    canvas._on_scroll(_scroll_event(canvas, button="up", shift=True))
-    assert got == []
-
-    # Enabled: Shift+wheel emits +1 (up) / -1 (down), no zoom.
-    canvas.set_shift_z_scroll_enabled(True)
-    canvas._on_scroll(_scroll_event(canvas, button="up", shift=True))
-    canvas._on_scroll(_scroll_event(canvas, button="down", shift=True))
-    assert got == [1, -1]
-
-    # Enabled but no Shift held: still zooms, no emit.
-    canvas._on_scroll(_scroll_event(canvas, button="up", shift=False))
-    assert got == [1, -1]
-
-
 def _wheel(canvas, *, angle=(0, 0), pixel=(0, 0), shift=True):
     """Deliver a real QWheelEvent, so the Qt -> matplotlib path is exercised.
 
@@ -835,64 +629,17 @@ def _wheel(canvas, *, angle=(0, 0), pixel=(0, 0), shift=True):
     )
 
 
-def test_shift_wheel_steps_z_however_the_delta_arrives(qapp):
-    """matplotlib reads only the *vertical* delta and emits nothing when it is
-    zero, so a device that reports Shift+wheel horizontally (a discrete mouse on
-    macOS) got no scroll_event at all — Z stepping silently dead, while the same
-    gesture on a trackpad kept working."""
-    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
-
-    canvas = ImagePointCanvas()
-    canvas.set_shift_z_scroll_enabled(True)
-    got = []
-    canvas.z_scroll_requested.connect(got.append)
-
-    # Windows mouse / any platform that keeps it vertical: via matplotlib.
-    _wheel(canvas, angle=(0, 120))
-    assert got == [1]
-
-    # Trackpad: pixelDelta carries it, also vertical.
-    _wheel(canvas, angle=(0, 120), pixel=(0, 30))
-    assert got == [1, 1]
-
-    # macOS discrete mouse: the delta lands in x and matplotlib drops the event.
-    _wheel(canvas, angle=(120, 0))
-    _wheel(canvas, angle=(-120, 0))
-    assert got == [1, 1, 1, -1]
-
-    # Diagonal: matplotlib owns it, because it reads y. Taking it here would let
-    # x reach the opposite conclusion — which is what the vertical guard is for.
-    got.clear()
-    _wheel(canvas, angle=(-120, 120))
-    assert got == [1]
-
-
-def test_horizontal_wheel_only_steps_z_when_it_should(qapp):
-    """Guards the over-correction: the rescue must not fire without Shift, nor
-    when the canvas hasn't opted into Z stepping."""
-    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
-
-    canvas = ImagePointCanvas()
-    got = []
-    canvas.z_scroll_requested.connect(got.append)
-
-    _wheel(canvas, angle=(120, 0))                 # not enabled yet
-    canvas.set_shift_z_scroll_enabled(True)
-    _wheel(canvas, angle=(120, 0), shift=False)    # enabled, but no Shift
-    assert got == []
-
-
-def test_fm_display_shows_image_name(qapp):
-    from fibsem.ui.correlation.widgets.fm_image_display_widget import (
-        FMImageDisplayWidget,
-    )
-
-    w = FMImageDisplayWidget()
-    assert w._name_label.isHidden() is True  # nothing loaded yet
+def test_fm_header_shows_image_name(qapp):
+    """Ported from FMImageDisplayWidget, which owned its own header. The tab
+    widget owns both now, through one helper, so the FIB and FM panes cannot
+    drift apart the way the two copies could."""
+    w = _widget(qapp)
+    assert w._fm_name_label.isHidden() is True  # nothing loaded yet
 
     w.set_fm_image(_fake_fm(filename="/some/dir/BeforeMilling_G1.ome.tiff"))
-    assert w._name_label.text() == "BeforeMilling_G1.ome.tiff"
-    assert w._name_label.isHidden() is False
+
+    assert w._fm_name_label.text() == "BeforeMilling_G1.ome.tiff"
+    assert w._fm_name_label.isHidden() is False
 
 
 def test_fib_header_shows_image_name(qapp):
@@ -907,34 +654,6 @@ def test_fib_header_shows_image_name(qapp):
     w._update_fib_name_label(img)
     assert w._fib_name_label.text() == "ref_Mill_res_02.tif"
     assert w._fib_name_label.isHidden() is False
-
-
-def test_fm_display_z_step_clamps_and_mip_disables(qapp):
-    from fibsem.ui.correlation.widgets.fm_image_display_widget import (
-        FMImageDisplayWidget,
-    )
-
-    w = FMImageDisplayWidget()
-    w.set_fm_image(_fake_fm(n_z=5))
-    assert w.current_z == 2  # starts mid-stack (n_z // 2)
-
-    w._step_z(1)
-    assert w.current_z == 3
-    for _ in range(10):
-        w._step_z(-1)
-    assert w.current_z == 0  # clamped at floor
-    for _ in range(10):
-        w._step_z(1)
-    assert w.current_z == 4  # clamped at n_z - 1
-
-    # MIP disables the slider + step buttons and freezes _step_z.
-    w._mip_check.setChecked(True)
-    assert not w._z_prev.isEnabled()
-    assert not w._z_next.isEnabled()
-    assert not w._z_slider.isEnabled()
-    frozen = w.current_z
-    w._step_z(-1)
-    assert w.current_z == frozen
 
 
 def test_save_plot_in_view_menu_and_test_menu_removed(qapp):
@@ -1210,32 +929,6 @@ def _press_release(canvas, coord, *, drag_to=None):
     canvas._on_release(_ev(coord.point.x, coord.point.y))
 
 
-def test_canvas_click_selects_without_reporting_a_move(qapp):
-    """Clicking a point to select it must not emit point_moved — downstream that
-    counts as an edit and invalidates the correlation result."""
-    import numpy as np
-
-    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
-
-    canvas = ImagePointCanvas()
-    canvas.set_image(np.zeros((100, 100)))
-    coord = _coord(x=50.0, y=50.0, pt=PointType.FIB)
-    canvas.set_coordinates([coord])
-
-    moved, selected = [], []
-    canvas.point_moved.connect(moved.append)
-    canvas.point_selected.connect(selected.append)
-
-    _press_release(canvas, coord)
-    assert selected == [coord]  # selection still reported...
-    assert moved == []  # ...but no phantom move
-
-    # an actual drag still reports, and the position follows the cursor
-    _press_release(canvas, coord, drag_to=(60.0, 70.0))
-    assert moved == [coord]
-    assert (coord.point.x, coord.point.y) == (60.0, 70.0)
-
-
 def _fit_combos(w):
     cl = w._coords_tab
     return [
@@ -1301,18 +994,6 @@ def test_advanced_panels_start_collapsed(qapp):
     assert cl._fib_panel._btn_collapse.isChecked() is True
     assert cl._fm_panel._btn_collapse.isChecked() is True
     assert cl._poi_panel._btn_collapse.isChecked() is True
-
-
-def test_point_labels_have_outline(qapp):
-    """Coloured labels get a dark outline (path effect) so they stay legible on
-    any image background."""
-    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
-
-    canvas = ImagePointCanvas()
-    canvas.set_coordinates([_coord(5.0, 5.0, 0.0, PointType.FIB)])
-    label = canvas._label_artists[0]
-    assert label.get_path_effects()  # dark outline applied
-    assert label.get_fontsize() == 9
 
 
 def test_labels_toggle_hides_labels(qapp):
@@ -2015,35 +1696,6 @@ def test_accepting_a_fit_invalidates_the_live_result(qapp):
     assert w._lbl_result.isHidden() is True
 
 
-def test_selecting_a_fitted_point_keeps_its_fitted_flag(qapp):
-    """_on_canvas_moved clears `fitted`, and before the phantom-move fix a plain
-    select-click reached it — so merely clicking a fitted point unflagged it."""
-    import numpy as np
-
-    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
-
-    canvas = ImagePointCanvas()
-    canvas.set_image(np.zeros((100, 100)))
-    coord = _coord(50.0, 50.0, pt=PointType.FIB)
-    coord.fitted = True
-    canvas.set_coordinates([coord])
-
-    moved = []
-    canvas.point_moved.connect(moved.append)
-
-    _press_release(canvas, coord)  # click to select, no drag
-    assert moved == []
-    assert coord.fitted is True  # selection is not an edit
-
-    _press_release(canvas, coord, drag_to=(60.0, 70.0))  # a real drag
-    assert moved == [coord]
-
-
-# ---------------------------------------------------------------------------
-# FIB-295 — a result that predates the current points
-# ---------------------------------------------------------------------------
-
-
 def _input(fib=(1.0, 2.0), ri=None) -> CorrelationInputData:
     return CorrelationInputData(
         fib_coordinates=[_coord(*fib, pt=PointType.FIB)],
@@ -2523,3 +2175,50 @@ def test_seed_without_a_stored_zstep_does_not_rescale(qapp):
     )
     w.seed_coordinates(source)
     assert w._coords_tab.fm_list.coordinates[0].point.z == pytest.approx(10.0)
+
+
+def test_selecting_a_fitted_point_keeps_its_fitted_flag(qapp):
+    """_on_canvas_moved clears `fitted`, and a select-click must not reach it --
+    otherwise merely clicking a fitted point unflags it.
+
+    Ported from the ImagePointCanvas suite. The guard now lives in
+    PointOverlay._on_release (it only emits when the position actually changed),
+    so this is the correlation-level proof that the guard is wired through.
+    """
+    import numpy as np
+
+    from fibsem.structures import FibsemImage
+
+    w = _widget(qapp)
+    w.set_fib_image(FibsemImage(data=np.zeros((100, 100), dtype=np.uint8)))
+    coord = _coord(50.0, 50.0, pt=PointType.FIB)
+    coord.fitted = True
+    w._fib_canvas.set_coordinates([coord])
+
+    moved = []
+    w._fib_canvas.point_moved.connect(moved.append)
+
+    _press_release(w._fib_canvas.points, 50.0, 50.0)  # click to select, no drag
+    assert moved == []
+    assert coord.fitted is True  # selection is not an edit
+
+    _press_release(w._fib_canvas.points, 50.0, 50.0, drag_to=(60.0, 70.0))
+    assert moved == [coord]
+
+
+def _press_release(overlay, x, y, *, drag_to=None):
+    """Drive press → (optional motion) → release on the point overlay."""
+    from types import SimpleNamespace
+
+    ax = overlay._ax
+
+    def _ev(px, py):
+        sx, sy = ax.transData.transform((px, py))
+        return SimpleNamespace(
+            inaxes=ax, button=1, x=sx, y=sy, xdata=px, ydata=py, dblclick=False
+        )
+
+    overlay._on_press(_ev(x, y))
+    if drag_to is not None:
+        overlay._on_motion(_ev(*drag_to))
+    overlay._on_release(_ev(*(drag_to or (x, y))))

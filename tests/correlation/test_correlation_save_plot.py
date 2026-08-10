@@ -26,7 +26,6 @@ from fibsem.ui.correlation.widgets.correlation_canvas_widget import (
 from fibsem.ui.correlation.widgets.correlation_tab_widget import (
     _render_canvas_to_axes,
 )
-from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -39,14 +38,6 @@ _IMAGE = np.linspace(0, 255, 128 * 128, dtype=np.uint8).reshape(128, 128)
 # Kept alive for the session: the widget owns its canvas, and letting it fall out
 # of scope deletes the C++ side while the test still holds the Python wrapper.
 _ALIVE = []
-
-
-def _old_canvas():
-    c = ImagePointCanvas(allowed_point_types=[PointType.FIB])
-    c.set_image(_IMAGE)
-    c.set_coordinates(list(_COORDS))
-    _ALIVE.append(c)
-    return c
 
 
 def _new_canvas():
@@ -71,13 +62,11 @@ def ax():
 # ── the reason this was rewritten ─────────────────────────────────────────
 
 
-@pytest.mark.parametrize("make_canvas", [_old_canvas, _new_canvas],
-                         ids=["ImagePointCanvas", "FibsemImageCanvas"])
-def test_any_matplotlib_canvas_can_be_rendered(make_canvas, ax):
-    """The canvas in production today and the one it is being swapped to, through
-    one code path. If this only passed for one of them, a half-migrated
-    correlation tab would break Save Plot."""
-    _render_canvas_to_axes(make_canvas(), ax)
+def test_a_matplotlib_canvas_can_be_rendered(ax):
+    """Needs a matplotlib figure and nothing else. That is what let Save Plot
+    survive a half-migrated correlation tab, and what keeps it working if either
+    canvas is swapped again."""
+    _render_canvas_to_axes(_new_canvas(), ax)
 
     assert ax.get_images(), "nothing was drawn into the axes"
     assert not ax.axison  # the panel frame is hidden, as the old path did
@@ -86,7 +75,7 @@ def test_any_matplotlib_canvas_can_be_rendered(make_canvas, ax):
 def test_the_export_does_not_disturb_the_live_canvas(ax):
     """savefig runs through the canvas's own Qt draw path, so this is not
     self-evident — the figure it renders is the one still on screen."""
-    canvas = _old_canvas()
+    canvas = _new_canvas()
     before = (canvas.figure.get_size_inches().tolist(), canvas.figure.get_dpi())
 
     _render_canvas_to_axes(canvas, ax)
@@ -99,18 +88,18 @@ def test_the_rendered_panel_is_not_stretched(ax):
     """A square image comes out square. `render_to_axes` re-fitted content to the
     panel, turning a 1:1 image into the panel's 2:1 — measuring off that export
     gave the wrong answer."""
-    _render_canvas_to_axes(_old_canvas(), ax)
+    _render_canvas_to_axes(_new_canvas(), ax)
 
     buffer = ax.get_images()[0].get_array()
     h, w = buffer.shape[:2]
-    canvas_w, canvas_h = _old_canvas().figure.get_size_inches()
+    canvas_w, canvas_h = _new_canvas().figure.get_size_inches()
     assert w / h == pytest.approx(canvas_w / canvas_h, rel=0.02)
 
 
 def test_resolution_comes_from_the_request_not_the_widget(ax):
     """A plain buffer_rgba() grab would cap the export at the on-screen widget
     size; a small window would silently produce a low-resolution plot."""
-    canvas = _old_canvas()
+    canvas = _new_canvas()
     canvas.resize(120, 120)
 
     _render_canvas_to_axes(canvas, ax, dpi=150)

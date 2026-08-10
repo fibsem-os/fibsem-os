@@ -335,18 +335,3 @@ def test_editor_defaults_to_the_newest_image():
 # ---------------------------------------------------------------------------
 
 
-def test_swapping_the_image_clears_the_overlay_legend(qapp):
-    """set_image drops the overlay artists, so their legend entries have to go
-    too — otherwise "POI (P)" keeps appearing over an image that has no POI."""
-    import numpy as np
-
-    from fibsem.ui.correlation.widgets.image_point_canvas import ImagePointCanvas
-
-    canvas = ImagePointCanvas()
-    canvas.set_image(np.zeros((64, 64), np.uint8))
-    canvas.add_overlay_points([(10.0, 10.0)], legend_label="POI (P)")
-    assert canvas._overlay_legend
-
-    canvas.set_image(np.zeros((64, 64), np.uint8))
-
-    assert canvas._overlay_legend == []

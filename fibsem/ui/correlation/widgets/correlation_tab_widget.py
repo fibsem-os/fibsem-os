@@ -4,8 +4,8 @@ Layout
 ------
 ┌─────────────────────┬─────────────────────┬────────────────────────────┐
 │                     │                     │  ┌─[Images][Coords][Results]┐│
-│  ImagePointCanvas   │  FMImageDisplay     │  │                         ││
-│  (FIB image)        │  Widget             │  │  (tab content)          ││
+│  CorrelationCanvas  │  CorrelationFM      │  │                         ││
+│  Widget (FIB image) │  CanvasWidget (FM)  │  │  (tab content)          ││
 │  right-click →      │  (FM image)         │  │                         ││
 │    Add FIB          │  right-click →      │  │                         ││
 │    Add Surface      │    Add FM           │  │                         ││
