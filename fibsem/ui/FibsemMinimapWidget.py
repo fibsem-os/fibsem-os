@@ -79,11 +79,11 @@ from fibsem.ui.napari.utilities import (
 from fibsem.ui.widgets.custom_widgets import (
     ContextMenu,
     ContextMenuConfig,
-    LamellaNameListWidget,
     TitledPanel,
     ValueComboBox,
     ValueSpinBox,
 )
+from fibsem.ui.widgets.lamella_name_list_widget import LamellaNameListWidget
 from fibsem.ui.widgets.overview_acquisition_settings_widget import (
     OverviewAcquisitionSettingsWidget,
 )

@@ -68,9 +68,9 @@ from fibsem.ui.fm.widgets import LinePlotWidget
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.custom_widgets import (
     IntegerValueSpinBox,
-    LamellaNameListWidget,
     TitledPanel,
 )
+from fibsem.ui.widgets.lamella_name_list_widget import LamellaNameListWidget
 from fibsem.ui.widgets.coincidence_milling_confirmation_dialog import (
     CoincidenceMillingConfirmationDialog,
 )
