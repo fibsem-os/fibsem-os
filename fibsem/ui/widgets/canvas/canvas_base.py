@@ -348,9 +348,28 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
     # ── public API ────────────────────────────────────────────────────────
 
     def set_crosshair_visible(self, visible: bool) -> None:
-        """Show or hide the yellow crosshair centred on the image."""
+        """Show or hide the yellow crosshair centred on the image.
+
+        Syncs the toolbar button here rather than only in :meth:`toggle_crosshair`,
+        so a host that overrides the default right after constructing its canvas —
+        the correlation canvases turn the crosshair off — does not leave a checked
+        button whose tooltip offers to hide something that is not drawn.
+        """
         self._crosshair_visible = visible
+        self._sync_toggle_button(self.btn_toggle_crosshair, visible, "crosshair")
         self._refresh_crosshair()
+        self.draw_idle()
+
+    def set_scalebar_visible(self, visible: bool) -> None:
+        """Show or hide the scalebar. Mirrors :meth:`set_crosshair_visible`.
+
+        Present because ``ImagePointCanvas`` has it and the correlation tab calls
+        it; the shared canvas previously offered only the toggle, which cannot
+        express "off" without knowing what it is currently set to.
+        """
+        self._scalebar_visible = visible
+        self._sync_toggle_button(self.btn_toggle_scalebar, visible, "scalebar")
+        self._refresh_scalebar()
         self.draw_idle()
 
     def set_hint(self, text: Optional[str]) -> None:
@@ -863,22 +882,17 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         )
 
     def toggle_scalebar(self) -> None:
-        """Show or hide the scalebar and update the button tooltip."""
-        self._scalebar_visible = not self._scalebar_visible
-        self.btn_toggle_scalebar.setChecked(self._scalebar_visible)
-        self.btn_toggle_scalebar.setToolTip(
-            "Hide scalebar" if self._scalebar_visible else "Show scalebar"
-        )
-        self._refresh_scalebar()
-        self.draw_idle()
+        """Flip the scalebar, from its toolbar button."""
+        self.set_scalebar_visible(not self._scalebar_visible)
 
     def toggle_crosshair(self) -> None:
-        """Show or hide the crosshair and update the button tooltip."""
+        """Flip the crosshair, from its toolbar button."""
         self.set_crosshair_visible(not self._crosshair_visible)
-        self.btn_toggle_crosshair.setChecked(self._crosshair_visible)
-        self.btn_toggle_crosshair.setToolTip(
-            "Hide crosshair" if self._crosshair_visible else "Show crosshair"
-        )
+
+    def _sync_toggle_button(self, button, shown: bool, noun: str) -> None:
+        """Keep a show/hide toolbar button in step with the state it reports."""
+        button.setChecked(shown)
+        button.setToolTip(f"Hide {noun}" if shown else f"Show {noun}")
 
     def toggle_ruler(self) -> None:
         """Toggle the drag-to-measure ruler (a generic canvas tool).

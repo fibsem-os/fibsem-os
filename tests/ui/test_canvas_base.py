@@ -87,6 +87,51 @@ def test_a_subclass_extent_drives_the_fit():
     assert c._ax.get_ylim() == (250.0, 50.0)
 
 
+# ── chrome toggles keep their buttons honest ──────────────────────────────
+
+
+def test_setting_crosshair_visibility_syncs_its_button():
+    """The setter, not only the toggle, has to sync — a widget picking its own
+    default at construction would otherwise show a checked button whose tooltip
+    offers to hide a crosshair that is not drawn."""
+    c = FibsemImageCanvas()
+    c.set_array(_img(32, 32))
+
+    c.set_crosshair_visible(False)
+
+    assert c._crosshair_artists == []
+    assert c.btn_toggle_crosshair.isChecked() is False
+    assert c.btn_toggle_crosshair.toolTip() == "Show crosshair"
+
+
+def test_setting_scalebar_visibility_syncs_its_button():
+    """`set_scalebar_visible` is new: the shared canvas had only a toggle, which
+    cannot express "off" without first knowing what it is currently set to."""
+    c = FibsemImageCanvas()
+    c.set_array(_img(32, 32), pixel_size=1e-8)
+
+    assert c._scalebar_artist is not None  # drawn, because pixel_size is known
+
+    c.set_scalebar_visible(False)
+
+    assert c._scalebar_artist is None  # actually removed, not just flagged
+    assert c.btn_toggle_scalebar.isChecked() is False
+    assert c.btn_toggle_scalebar.toolTip() == "Show scalebar"
+
+
+@pytest.mark.parametrize("noun", ["crosshair", "scalebar"])
+def test_the_toolbar_toggle_still_round_trips(noun):
+    c = FibsemImageCanvas()
+    c.set_array(_img(32, 32), pixel_size=1e-8)
+    toggle = getattr(c, f"toggle_{noun}")
+    button = getattr(c, f"btn_toggle_{noun}")
+
+    toggle()
+    assert button.isChecked() is False and button.toolTip() == f"Show {noun}"
+    toggle()
+    assert button.isChecked() is True and button.toolTip() == f"Hide {noun}"
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

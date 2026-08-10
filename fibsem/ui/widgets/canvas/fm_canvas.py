@@ -59,6 +59,15 @@ _ACCENT_WASH = "rgba({}, {}, {}, 0.16)".format(
     *(int(ACCENT_COLOR[i:i + 2], 16) for i in (1, 3, 5))
 )
 
+# The ‹ › buttons flanking the z-slider. Outside _PANEL_QSS because that stylesheet
+# is applied to the floating layers panel, and these live on the z row.
+_Z_STEP_BTN_STYLE = (
+    f"QToolButton {{ color: {TEXT_COLOR}; background: {SURFACE_COLOR}; "
+    f"border: 1px solid {BORDER_COLOR}; border-radius: 3px; font-size: 13px; }}"
+    f"QToolButton:hover {{ background: {BORDER_COLOR}; }}"
+    f"QToolButton:disabled {{ color: {TEXT_MUTED_COLOR}; }}"
+)
+
 # napari-style dark theme for the floating layers panel. An f-string, so every
 # literal QSS brace is doubled -- Qt discards a malformed rule silently, so a
 # missed pair shows up as an unstyled widget rather than an error.
@@ -237,10 +246,19 @@ class FMCanvasWidget(QWidget):
         zrl.setContentsMargins(6, 2, 6, 4)
         zrl.setSpacing(6)
         zrl.addWidget(QLabel("z"))
+        # Step buttons either side of the slider: a slider alone cannot be nudged
+        # one plane at a time reliably, and single-plane stepping is how you
+        # actually find focus in a stack.
+        self._z_prev = self._z_step_button("‹", "Previous Z-slice", -1)
+        zrl.addWidget(self._z_prev)
         self._z_slider = QSlider(Qt.Horizontal)
         self._z_slider.setMinimum(0)
+        self._z_slider.setSingleStep(1)
+        self._z_slider.setPageStep(1)
         self._z_slider.valueChanged.connect(self._on_z_changed)
         zrl.addWidget(self._z_slider, 1)
+        self._z_next = self._z_step_button("›", "Next Z-slice", 1)
+        zrl.addWidget(self._z_next)
         self._z_label = QLabel("1/1")
         zrl.addWidget(self._z_label)
         self._z_row.setVisible(False)
@@ -487,6 +505,31 @@ class FMCanvasWidget(QWidget):
             layer.data = self._plane_for(stack)
         self._recomposite()
 
+    def _z_step_button(self, glyph: str, tooltip: str, delta: int) -> QToolButton:
+        button = QToolButton()
+        button.setText(glyph)
+        button.setFixedSize(20, 20)
+        button.setToolTip(tooltip)
+        button.setStyleSheet(_Z_STEP_BTN_STYLE)
+        button.clicked.connect(lambda: self.step_z(delta))
+        return button
+
+    @property
+    def current_z(self) -> int:
+        """The displayed z-plane. 0 while max-projection is on, which has no plane.
+
+        Correlation reads this to give a point picked on the FM image its z.
+        """
+        return 0 if self._max_projection else self._z_index
+
+    def step_z(self, delta: int) -> None:
+        """Move the z-slider by *delta* planes; a no-op under max-projection."""
+        if self._max_projection or self._z_max <= 0:
+            return
+        self._z_slider.setValue(
+            max(0, min(self._z_max, self._z_slider.value() + int(delta)))
+        )
+
     def _on_z_changed(self, value: int) -> None:
         self._z_index = value
         self._z_label.setText(f"{value + 1}/{self._z_max + 1}")
@@ -496,6 +539,16 @@ class FMCanvasWidget(QWidget):
         self._max_projection = bool(on)
         self._update_z_visibility()
         self._apply_z_mode()
+
+    def set_max_projection(self, on: bool) -> None:
+        """Show the max projection, or a single z-plane.
+
+        The setter syncs the toolbar button, so a subclass can choose a different
+        default without the button disagreeing with what is drawn — correlation
+        wants planes, because a projection has no z to give a picked point.
+        """
+        self._btn_mip.setChecked(bool(on))
+        self._on_max_projection_toggled(bool(on))
 
     def _on_mip_button(self) -> None:
         """Toolbar toggle → max-projection on/off (checked = MIP)."""
