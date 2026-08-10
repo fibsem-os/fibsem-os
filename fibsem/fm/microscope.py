@@ -763,6 +763,20 @@ class FluorescenceMicroscope(ABC):
         self._acquiring_reason = reason if acquiring else ""
         self.acquiring_changed.emit(self.is_acquiring)
 
+    def set_active_channel(self) -> None:
+        """Point the microscope's imaging channel at the FM, and leave it there.
+
+        A no-op here, for the same reason `active_channel` is. Part of the contract
+        rather than a driver detail so that code which needs the unscoped form -- taking
+        the channel for a live stream that owns it until it stops -- can call it on any
+        FM without asking what it is talking to.
+
+        Prefer :meth:`active_channel`. This is the form that caused FIB-517: a read that
+        takes the channel and walks away leaves the microscope pointed at the FM, and
+        the next beam operation to read a buffer reads the FM's.
+        """
+        return
+
     @contextmanager
     def active_channel(self):
         """Hold the microscope's imaging channel on the FM for the length of the block.

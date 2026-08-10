@@ -5,8 +5,10 @@ import glob
 import logging
 import os
 import random
+import threading
 import time
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from itertools import cycle
 from typing import Dict, List, Optional, Tuple, Union
@@ -166,6 +168,95 @@ class ImagingSystem:
     last_image: Dict[BeamType, Optional[FibsemImage]] = field(default_factory=dict)
     image_iterators: Dict[BeamType, Iterator[str]] = field(default_factory=dict)  # Image filename iterators
 
+
+# The FM's place on the shared imaging channel. The view number is the driver's
+# (`ThermoFisherFluorescenceMicroscope._active_view = 3`, quadrant 3 on an Arctis); all
+# that matters here is that it is neither beam's, so a beam operation can tell that the
+# FM took the channel out from under it.
+FM_ACTIVE_VIEW = 3
+FM_ACTIVE_DEVICE = 3
+
+
+class SimulatedFluorescenceMicroscope(FluorescenceMicroscope):
+    """The FM half of the one imaging channel a TFS system shares (FIB-518).
+
+    `DemoMicroscope` simulates a TFS system, where the FM and the beams are one
+    connection with one active view and one active device: whoever writes last owns the
+    microscope. The base class's `active_channel()` is a no-op -- right for a system
+    whose FM has a connection of its own, and the reason the simulator could show none
+    of FIB-517/542/544/545. Every one of those was found on hardware instead, one of
+    them by a workflow task stopping.
+
+    So this participates in `parent.imaging_system` the way
+    `ThermoFisherFluorescenceMicroscope` participates in the shared connection: same
+    depth count, same lock, same restore. Deliberately a mirror rather than an
+    approximation, so a test written against the simulator says something about the
+    hardware.
+    """
+
+    def __init__(self, parent: Optional["FibsemMicroscope"] = None):
+        super().__init__(parent=parent)
+        self._active_view = FM_ACTIVE_VIEW
+        self._active_device = FM_ACTIVE_DEVICE
+        # The parent's lock, as the driver takes it: an FM scope and a beam acquisition
+        # then queue against each other rather than interleaving, which is what makes
+        # the scoped and unscoped paths behave differently here as they do on hardware.
+        self._channel_lock = (
+            getattr(parent, "_threading_lock", None) or threading.RLock()
+        )
+        self._channel_depth = 0
+        self._restore_view: Optional[int] = None
+        self._restore_device: Optional[int] = None
+
+    def set_active_channel(self) -> None:
+        """Point the shared channel at the FM and leave it there.
+
+        The unscoped form, and the shape of the bug: a property getter that calls this
+        and walks away leaves the microscope on the FM, and the next beam operation to
+        read a buffer reads the FM's. Mirrors
+        `ThermoFisherFluorescenceMicroscope.set_active_channel`.
+        """
+        if self.parent is None:
+            return
+        self.parent.imaging_system.active_view = self._active_view
+        self.parent.imaging_system.active_device = self._active_device
+
+    @contextmanager
+    def active_channel(self):
+        """Hold the channel on the FM for the length of the block, then put it back.
+
+        Depth counted, so a tileset that holds it for a whole run is not undone by each
+        tile's acquisition restoring between frames; the lock covers the bookkeeping and
+        never the body, since the body can be that whole run. Both rules are the
+        driver's -- see `ThermoFisherFluorescenceMicroscope.active_channel` for why.
+
+        Restores the device alongside the view, where the driver restores the view
+        alone. Not a divergence: on hardware `set_active_device` changes the device *in
+        the active view*, so the view owns it and it comes back with it. Here the two
+        are independent fields, and putting only the view back would leave
+        `active_device` reporting the FM for the rest of the session.
+        """
+        if self.parent is None:
+            yield
+            return
+
+        imaging = self.parent.imaging_system
+        with self._channel_lock:
+            if self._channel_depth == 0:
+                self._restore_view = imaging.active_view
+                self._restore_device = imaging.active_device
+            self.set_active_channel()
+            self._channel_depth += 1
+        try:
+            yield
+        finally:
+            with self._channel_lock:
+                self._channel_depth -= 1
+                if self._channel_depth == 0:
+                    imaging.active_view = self._restore_view
+                    imaging.active_device = self._restore_device
+
+
 class DemoMicroscope(FibsemMicroscope):
     """Simulator microscope client based on TFS microscopes"""
 
@@ -253,7 +344,11 @@ class DemoMicroscope(FibsemMicroscope):
             
         # fluorescence microscope
         if self.stage_is_compustage:
-            self.fm = FluorescenceMicroscope(self)
+            self.fm = SimulatedFluorescenceMicroscope(self)
+            # Bringing the FM up leaves the shared channel on it, as
+            # `ThermoMicroscope.__init__` does; taking it back is the next beam
+            # operation's job.
+            self.fm.set_active_channel()
         else:
             logging.warning("Fluorescence microscope module is currently only implemented for compustage systems. FM will not be available.")
             self.fm = None
@@ -312,6 +407,33 @@ class DemoMicroscope(FibsemMicroscope):
         self.imaging_system.active_view = beam_type.value
         self.imaging_system.active_device = beam_type.value
 
+    def _warn_if_channel_moved(self, expected: BeamType, operation: str) -> bool:
+        """Report a beam operation whose imaging channel was taken out from under it.
+
+        Warns rather than raises. What this models is a *silent* hardware failure -- the
+        grab returns whoever owns the view now, and the metadata is built from the
+        settings that were asked for rather than from what came back -- so the value
+        here is making it visible in a log and catchable in a test, not changing what
+        the simulator returns. Raising would also take down the very callers this exists
+        to help debug, and it would turn a diagnostic into a new failure mode that
+        hardware does not have.
+
+        Returns True when the channel was still the operation's own.
+        """
+        view = self.imaging_system.active_view
+        if view == expected.value:
+            return True
+        logging.warning(
+            "Imaging channel changed during %s: set to %s (view %d), found view %d. "
+            "The FM and the beams share one channel on a TFS system, so the grab here "
+            "would return the other view's buffer (FIB-517).",
+            operation,
+            expected.name,
+            expected.value,
+            view,
+        )
+        return False
+
     def acquire_image(self, image_settings: Optional[ImageSettings] = None, beam_type: Optional[BeamType] = None) -> FibsemImage:
         """
         Acquire a new image with the specified settings or current settings for the given beam type.
@@ -358,13 +480,25 @@ class DemoMicroscope(FibsemMicroscope):
         # get state for image metadata
         microscope_state = self.get_microscope_state(beam_type=effective_beam_type)
 
+        # One lock over the channel and the frame, as `ThermoMicroscope.acquire_image`
+        # holds it over `set_channel` + `grab_frame` (FIB-542): the grab reads the
+        # active view's buffer, so a channel that is not still ours when the frame lands
+        # returns whoever took it in between. Deliberately just that pair --
+        # `_threading_lock` is a class attribute every caller in the process shares.
+        with self._threading_lock:
+            self.set_channel(effective_beam_type)
+            # The frame. On hardware this is the one `grab_frame` RPC; here the sleep is
+            # the only part of it with any duration, so it is the window an unguarded FM
+            # read would land in.
+            sim_sleep(effective_image_settings.dwell_time * effective_image_settings.resolution[0] * effective_image_settings.resolution[1])  # simulate acquisition time
+            self._warn_if_channel_moved(effective_beam_type, "acquire_image")
+
         # construct image (random noise)
         image = FibsemImage.generate_blank_image(
             resolution=effective_image_settings.resolution,
             hfw=effective_image_settings.hfw,
             random=True
         )
-        sim_sleep(effective_image_settings.dwell_time * effective_image_settings.resolution[0] * effective_image_settings.resolution[1])  # simulate acquisition time
 
         # generate the next image from the sequence iterator
         if self.use_image_sequence:
