@@ -38,7 +38,7 @@ pip does not install a pre-release unless asked, so a published `rc` reaches onl
    git push && git push --tags
    ```
 
-4. **GitHub Actions takes over** — the tag and the packaged version are checked against each other, the tests must pass, and the package is uploaded to PyPI, where `rcN` is treated as a pre-release automatically.
+4. **GitHub Actions takes over** — the tag and the packaged version are checked against each other, the tests must pass, and the package is uploaded to PyPI, where `rcN` is treated as a pre-release automatically. A GitHub Release is then created from the tag with generated notes, marked as a pre-release so it does not take the "Latest" badge from the last real release.
 
 5. **Put the version back** to the development marker, so `main` does not sit on a version that has already been published:
    ```
@@ -53,6 +53,9 @@ pip does not install a pre-release unless asked, so a published `rc` reaches onl
    ```bash
    pip install fibsem==0.5.2rc1
    ```
+   Members who would rather not wait to be told can subscribe to
+   `https://github.com/fibsem-os/fibsem-os/releases.atom` in any feed reader —
+   it carries pre-releases and their notes, and needs no GitHub account.
 
 For a second candidate, repeat with `rc2`.
 
@@ -74,7 +77,7 @@ For a second candidate, repeat with `rc2`.
    git push && git push --tags
    ```
 
-4. **GitHub Actions takes over** — same checks, then the upload to PyPI.
+4. **GitHub Actions takes over** — same checks, then the upload to PyPI and the GitHub Release, which this time becomes "Latest".
 
 5. **Open the next development version** in `pyproject.toml`:
    ```

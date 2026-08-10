@@ -15,6 +15,10 @@ jobs:
   # seconds, while retagging is still cheap.
   check-version:
     runs-on: ubuntu-latest
+    outputs:
+      # Consumed by github-release, so the pre-release decision is made once,
+      # by packaging, rather than re-derived from the tag string in shell.
+      prerelease: ${{ steps.check.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -22,6 +26,7 @@ jobs:
           python-version: "3.11"
       - run: pip install packaging
       - name: Tag must match the packaged version
+        id: check
         env:
           TAG: ${{ github.ref_name }}
         run: |
@@ -67,6 +72,11 @@ jobs:
               )
 
           print(f"tag {tag} matches pyproject.toml version {declared}")
+
+          # is_prerelease is the right test *here*, unlike above: dev releases
+          # are already rejected, so anything still prerelease is an rc/a/b.
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write(f"prerelease={str(tagged.is_prerelease).lower()}\n")
           PY
 
   test:
@@ -97,3 +107,36 @@ jobs:
       - run: pip install build
       - run: python -m build
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  # The Release page is how Early Access finds out a candidate exists, and its
+  # Atom feed (/releases.atom) is the only notification channel the programme
+  # has. Created by hand until now, which meant it could simply be forgotten.
+  #
+  # Separate job rather than a step in publish: this needs contents: write,
+  # and publish holds the id-token used for trusted publishing to PyPI. Runs
+  # after it, so a failed upload never announces a release nobody can install.
+  github-release:
+    needs: [check-version, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          PRERELEASE: ${{ needs.check-version.outputs.prerelease }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists, leaving it alone"
+            exit 0
+          fi
+
+          args=(--generate-notes --verify-tag)
+          # Keeps a candidate from taking the "Latest" badge from a real release.
+          if [ "$PRERELEASE" = "true" ]; then
+            args+=(--prerelease)
+          fi
+
+          gh release create "$TAG" "${args[@]}"
