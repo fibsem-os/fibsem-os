@@ -85,8 +85,7 @@ DISABLED_TEXT_COLOR = "#6b6b6b" # disabled label and control text
 # BORDER_COLOR is #3d4251, not a grey -- which is right for the app's chrome and
 # wrong behind image data, where a colour cast reads as part of the picture. So
 # the plot and canvas widgets built their own neutral scale: 30 pure greys
-# across 167 uses, concentrated in minimap_plot_widget, fluorescence_plot_widget
-# and canvas_base.
+# across 167 uses, concentrated in minimap_plot_widget and canvas_base.
 #
 # It was never written down, so it drifted -- #e0e0e0 and #dddddd and #e6e6e6
 # all doing the same job. These are the rungs that carry real weight; naming
