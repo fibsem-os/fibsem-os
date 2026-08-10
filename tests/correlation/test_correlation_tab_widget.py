@@ -364,8 +364,8 @@ def test_canvas_allow_lists_derive_from_registry_map(qapp):
     w = _widget(qapp)
     fib_expected = [pt for pt, s in _POINT_TYPE_SIDES.items() if s == "fib"]
     fm_expected = [pt for pt, s in _POINT_TYPE_SIDES.items() if s == "fm"]
-    assert w._fib_canvas._allowed_types == fib_expected
-    assert w._fm_display.canvas._allowed_types == fm_expected
+    assert w._fib_canvas.picking._allowed_types == fib_expected
+    assert w._fm_display.picking._allowed_types == fm_expected
     # every mapped type has a spec (checked at build time too)
     assert set(w._point_specs) == set(_POINT_TYPE_SIDES)
 
@@ -642,31 +642,57 @@ def test_render_to_axes_replicates_legend(qapp):
 
 
 def test_canvas_toolbar_buttons_toggle_state(qapp):
-    """Each canvas gets reset/scalebar/legend buttons; checkable buttons drive
-    only their own canvas and stay in sync with the View-menu master toggle."""
+    """Checkable toolbar buttons drive only their own canvas and stay in sync
+    with the View-menu master toggle.
+
+    Scalebar and reset come from the shared canvas; legend and labels are
+    correlation's own, added by CorrelationPicking because the shared toolbar has
+    neither and ImagePointCanvas carried both.
+    """
     w = _widget(qapp)
-    canvas = w._fib_canvas
-    assert len(canvas._overlay_buttons) == 4
+    fib, fm = w._fib_canvas, w._fm_display
 
     # startup: the menu handler enabled the scalebar on both canvases
-    assert canvas._btn_scalebar.isChecked()
-    assert w._fm_display.canvas._btn_scalebar.isChecked()
-    assert canvas._btn_legend.isChecked()
+    assert fib.canvas.btn_toggle_scalebar.isChecked()
+    assert fm.canvas.btn_toggle_scalebar.isChecked()
+    assert fib.picking.btn_legend.isChecked()
 
     # a button toggles only its own canvas
-    canvas._btn_scalebar.click()
-    assert canvas._show_scalebar is False
-    assert w._fm_display.canvas._show_scalebar is True
+    fib.canvas.btn_toggle_scalebar.click()
+    assert fib.canvas._scalebar_visible is False
+    assert fm.canvas._scalebar_visible is True
 
-    canvas._btn_legend.click()
-    assert canvas._legend_visible is False
-    canvas._btn_legend.click()
-    assert canvas._legend_visible is True
+    fib.picking.btn_legend.click()
+    assert fib.points._legend_visible is False
+    fib.picking.btn_legend.click()
+    assert fib.points._legend_visible is True
 
     # the View menu still drives both canvases and re-syncs button state
     w._on_scalebar_toggled(True)
-    assert canvas._show_scalebar is True
-    assert canvas._btn_scalebar.isChecked()
+    assert fib.canvas._scalebar_visible is True
+    assert fib.canvas.btn_toggle_scalebar.isChecked()
+
+
+def test_canvas_toolbar_reset_button(qapp):
+    """Asserts the view actually resets, not that a method was called.
+
+    The shared canvas connects the bound `reset_view` at construction, so
+    replacing the attribute afterwards -- which worked on ImagePointCanvas, whose
+    button went through a late-binding lambda -- intercepts nothing.
+    """
+    import numpy as np
+
+    from fibsem.structures import FibsemImage
+
+    w = _widget(qapp)
+    w.set_fib_image(FibsemImage(data=np.zeros((64, 64), dtype=np.uint8)))
+    canvas = w._fib_canvas.canvas
+    fitted = canvas._ax.get_xlim()
+    canvas._ax.set_xlim(10, 20)  # as a zoom would leave it
+
+    canvas.btn_reset_view.click()
+
+    assert canvas._ax.get_xlim() == fitted
 
 
 def test_fm_scalebar_pixel_size_corrects_for_resize(qapp):
@@ -700,15 +726,6 @@ def test_fm_scalebar_pixel_size_corrects_for_resize(qapp):
         metadata=SimpleNamespace(pixel_size_x=150e-9, resolution=None),
     )
     assert eff(raw) == pytest.approx(150e-9)
-
-
-def test_canvas_toolbar_reset_button(qapp):
-    w = _widget(qapp)
-    canvas = w._fib_canvas
-    calls = []
-    canvas.reset_view = lambda: calls.append(True)
-    canvas._overlay_buttons[0].click()  # reset is the first-added (rightmost)
-    assert calls == [True]
 
 
 def test_ghost_export_preserves_hollow_style(qapp):
@@ -925,8 +942,8 @@ def test_save_plot_in_view_menu_and_test_menu_removed(qapp):
     assert w._action_save_plot.text() == "Save Plot"  # View menu, not the run bar
     assert not hasattr(w, "_btn_save_plot")
     assert not hasattr(w, "_action_test_save_plot")
-    # The FM display opts its canvas into Shift+scroll Z stepping.
-    assert w._fm_display.canvas._shift_z_enabled is True
+    # Shift+scroll Z stepping rides canvas_scrolled now; it needs a loaded
+    # stack, so it is tested in test_correlation_fm_canvas_widget.py.
 
 
 def test_dialog_allows_window_minimise(qapp):
@@ -1299,17 +1316,25 @@ def test_point_labels_have_outline(qapp):
 
 
 def test_labels_toggle_hides_labels(qapp):
+    import numpy as np
+
+    from fibsem.structures import FibsemImage
+
     w = _widget(qapp)
+    # The overlay draws artists only once the axes has content -- a point
+    # added first is kept and drawn when the image arrives, but this test is
+    # about the artists, so load one.
+    w.set_fib_image(FibsemImage(data=np.zeros((64, 64), dtype=np.uint8)))
     w._on_canvas_add_requested(5.0, 5.0, PointType.FIB)
     fib = w._fib_canvas
-    assert fib._label_artists[0].get_visible() is True  # shown by default
+    assert fib.points._anns[0].get_visible() is True  # shown by default
 
     w._on_labels_toggled(False)  # View → Show Labels off
-    assert fib._label_artists[0].get_visible() is False
-    assert fib._btn_labels.isChecked() is False
+    assert fib.points._anns[0].get_visible() is False
+    assert fib.picking.btn_labels.isChecked() is False
 
     w._on_labels_toggled(True)
-    assert fib._label_artists[0].get_visible() is True
+    assert fib.points._anns[0].get_visible() is True
 
 
 # ---------------------------------------------------------------------------

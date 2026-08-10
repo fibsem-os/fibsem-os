@@ -70,6 +70,30 @@ class CorrelationFMCanvasWidget(FMCanvasWidget):
         self.picking.point_removed.connect(self.point_removed)
         self.picking.point_add_requested.connect(self.point_add_requested)
 
+        # Shift+scroll steps the z-plane, as it did on FMImageDisplayWidget.
+        # `canvas_scrolled` rather than a bespoke signal: the shared canvas
+        # already broadcasts modified scroll and already declines to zoom under
+        # any modifier, and two widgets consume it in exactly this shape --
+        # objective_control_widget and beam_settings_widget.
+        self.canvas.canvas_scrolled.connect(self._on_canvas_scrolled)
+        # Shift+scroll has no visible affordance, so the slider tooltip is the
+        # only place it can be discovered. Set here rather than on FMCanvasWidget
+        # because only this widget wires it -- the quad view would be advertising
+        # something that does nothing.
+        self._z_slider.setToolTip("Drag to change Z-slice, or Shift+scroll on the image")
+
+    def _on_canvas_scrolled(self, x, y, direction: int, modifiers) -> None:
+        """Shift+scroll → one z-plane. Plain scroll is left to the canvas (zoom).
+
+        Note for macOS: matplotlib's Qt backend reads only the vertical wheel
+        delta, and AppKit turns Shift+wheel horizontal on a discrete mouse, so
+        this never fires there. Windows and Linux are unaffected; the ‹ › buttons
+        and the slider work everywhere. FIB-552, deliberately parked.
+        """
+        if "Shift" not in modifiers:
+            return
+        self.step_z(direction)
+
     @property
     def points(self):
         """The interactive point overlay."""
