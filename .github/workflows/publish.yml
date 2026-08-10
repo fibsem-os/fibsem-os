@@ -6,6 +6,79 @@ on:
       - "v*.*.*"
 
 jobs:
+  # The version in pyproject.toml is written by hand and the tag is created
+  # separately, so the two can disagree. Nothing downstream notices: the build
+  # takes its version from pyproject, so a tag of v0.5.2rc1 on a commit that
+  # still says 0.5.2.dev0 uploads 0.5.2.dev0 to PyPI -- wrong version, no error,
+  # and unfixable afterwards because PyPI never allows a version to be reused.
+  # Runs alongside the tests rather than inside publish so the failure lands in
+  # seconds, while retagging is still cheap.
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      # Consumed by github-release, so the pre-release decision is made once,
+      # by packaging, rather than re-derived from the tag string in shell.
+      prerelease: ${{ steps.check.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install packaging
+      - name: Tag must match the packaged version
+        id: check
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          import tomllib
+
+          from packaging.version import InvalidVersion, Version
+
+          tag = os.environ["TAG"]
+
+          with open("pyproject.toml", "rb") as fh:
+              project = tomllib.load(fh)["project"]
+          if "version" not in project:
+              sys.exit(
+                  "::error::pyproject.toml declares no static [project] version. "
+                  "The versioning scheme changed; this check needs updating."
+              )
+          declared = project["version"]
+
+          try:
+              tagged = Version(tag.removeprefix("v"))
+          except InvalidVersion:
+              sys.exit(f"::error::tag {tag} is not a PEP 440 version")
+
+          # is_devrelease, not is_prerelease: packaging counts rcN as a
+          # pre-release too, and those are exactly what we do publish.
+          if tagged.is_devrelease:
+              sys.exit(
+                  f"::error::tag {tag} is a development version. .devN marks "
+                  f"the working state of main and is never published; it is "
+                  f"also the one form that matches pyproject.toml unchanged, so "
+                  f"the check below would not catch it. Tag an rcN for Early "
+                  f"Access, or a final release. See RELEASE.md."
+              )
+
+          if tagged != Version(declared):
+              sys.exit(
+                  f"::error::tag {tag} would publish {declared}. pyproject.toml "
+                  f'says version = "{declared}". Fix one or the other and retag: '
+                  f"a version cannot be reused once it is on PyPI."
+              )
+
+          print(f"tag {tag} matches pyproject.toml version {declared}")
+
+          # is_prerelease is the right test *here*, unlike above: dev releases
+          # are already rejected, so anything still prerelease is an rc/a/b.
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write(f"prerelease={str(tagged.is_prerelease).lower()}\n")
+          PY
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -19,7 +92,7 @@ jobs:
         run: pytest tests/ -n auto --dist worksteal --timeout=300
 
   publish:
-    needs: test
+    needs: [check-version, test]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -34,3 +107,36 @@ jobs:
       - run: pip install build
       - run: python -m build
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  # The Release page is how Early Access finds out a candidate exists, and its
+  # Atom feed (/releases.atom) is the only notification channel the programme
+  # has. Created by hand until now, which meant it could simply be forgotten.
+  #
+  # Separate job rather than a step in publish: this needs contents: write,
+  # and publish holds the id-token used for trusted publishing to PyPI. Runs
+  # after it, so a failed upload never announces a release nobody can install.
+  github-release:
+    needs: [check-version, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          PRERELEASE: ${{ needs.check-version.outputs.prerelease }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists, leaving it alone"
+            exit 0
+          fi
+
+          args=(--generate-notes --verify-tag)
+          # Keeps a candidate from taking the "Latest" badge from a real release.
+          if [ "$PRERELEASE" = "true" ]; then
+            args+=(--prerelease)
+          fi
+
+          gh release create "$TAG" "${args[@]}"
