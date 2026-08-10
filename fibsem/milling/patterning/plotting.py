@@ -728,7 +728,8 @@ def draw_milling_patterns(
     # draw scalebar
     if scalebar:
         try:
-            # optional dependency, best effort
+            # A core dependency since FIB-562; the guard below is now only for a
+            # ScaleBar that cannot be constructed, not for a missing package.
             from matplotlib_scalebar.scalebar import ScaleBar
 
             ax.add_artist(

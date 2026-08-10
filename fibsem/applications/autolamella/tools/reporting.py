@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
+from matplotlib_scalebar.scalebar import ScaleBar
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -486,11 +487,6 @@ def plot_lamella_task_workflow_summary(p: Lamella,
 
                 # add scalebar
                 if show_scalebar:
-                    # Deferred: matplotlib_scalebar is in the `ui` extra, and this
-                    # module is imported on non-UI paths. See the module-level import
-                    # guard in tests/test_ui_extra_isolation.py.
-                    from matplotlib_scalebar.scalebar import ScaleBar
-
                     ax[j].add_artist(ScaleBar(
                         dx=img.metadata.pixel_size.x * (shape[1] / target_size),
                         color="black",

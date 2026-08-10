@@ -5,11 +5,15 @@ control: the checkbox moves, the default wins, the report is unchanged. A column
 rename that matches nothing leaves the raw column name in the PDF. Neither raises,
 so neither surfaced until someone compared the output against what they asked for.
 
-Both sides are read as source text rather than imported. The reporting module pulls
-in reportlab and matplotlib_scalebar, and the dialog pulls in PyQt5 -- all in the
-[ui] extra, which CI does not install. Importing them would make these skip in CI,
-and a regression test that never runs is not much of a guard against a regression.
-What is being checked is the literal spelling on each side, which the text carries.
+Both sides are read as source text rather than imported. The reporting module pulls in
+reportlab (the `reporting` extra) and the dialog pulls in PyQt5 (the `ui` extra), and
+CI installs neither. Importing them would make these skip in CI, and a regression test
+that never runs is not much of a guard against a regression. What is being checked is
+the literal spelling on each side, which the text carries.
+
+(This used to name matplotlib_scalebar as a third reason and put all three in the `ui`
+extra. Neither was right: scalebar is a core dependency now (FIB-562), and reportlab
+was always its own extra. reportlab alone still makes the import unavailable here.)
 """
 
 import re

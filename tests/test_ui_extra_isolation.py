@@ -1,9 +1,9 @@
 """The core of fibsem must import without the `ui` extra installed.
 
-`pip install fibsem` gets napari, PyQt5, qtawesome and matplotlib_scalebar only if
-you ask for `.[ui]`. CI asks for `.[test]`. So a module-level import of one of those
-from code on a non-UI path does not degrade gracefully -- it raises at *collection*
-time, which reads as a pile of unrelated tests failing rather than as one bad import.
+`pip install fibsem` gets napari, PyQt5 and qtawesome only if you ask for `.[ui]`.
+CI asks for `.[test]`. So a module-level import of one of those from code on a non-UI
+path does not degrade gracefully -- it raises at *collection* time, which reads as a
+pile of unrelated tests failing rather than as one bad import.
 
 That has happened: FIB-390 hoisted a deferred `matplotlib_scalebar` import into a
 module header during an extraction and broke every CI job on every Python version.
@@ -12,9 +12,10 @@ over the tiling package alone, so it protected the module that had just been fix
 nothing else. `applications/autolamella/tools/reporting.py` then acquired the same
 module-level import and kept it, because nothing was looking.
 
-The cost was not hypothetical: `tests/autolamella/test_report_sections.py` cannot
-import the module it tests, and reads it as source text instead, specifically because
-of that import.
+`matplotlib_scalebar` has since been promoted to a core dependency (FIB-562) -- it was
+the wrong thing to gate, being a matplotlib plugin the non-UI plotting code needed --
+so that particular breakage cannot recur. The rule it motivated still holds for the
+packages that really are UI-only.
 
 This file is the general version. It walks the tree rather than naming modules, so a
 new file on a non-UI path is covered the day it is written.
@@ -36,12 +37,17 @@ FIBSEM = REPO_ROOT / "fibsem"
 
 # The distributions declared in the `ui` extra of pyproject.toml, plus the two that
 # arrive transitively with napari and are equally absent without it.
+#
+# `matplotlib_scalebar` is deliberately NOT here. It used to be, and it was the one
+# package on this list that half the core drew on -- tile plotting, pattern plotting
+# and the report figures all wanted a scalebar, so each deferred the import into a
+# function body purely to satisfy this rule. It is a core dependency now, so those
+# deferrals are a choice rather than a requirement.
 UI_ONLY_PACKAGES = (
     "napari",
     "PyQt5",
     "pyqt5",
     "qtawesome",
-    "matplotlib_scalebar",
     "superqt",
     "vispy",
     "qtpy",
