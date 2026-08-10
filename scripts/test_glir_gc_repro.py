@@ -16,9 +16,9 @@ and platform-independent.
 
 Usage (manual, opens a real window)::
 
-    python test_glir_gc_repro.py                 # stock GC: expect detections
-    python test_glir_gc_repro.py --fixed         # main-thread GC: expect zero
-    python test_glir_gc_repro.py --duration 60   # run longer (default 20 s)
+    python scripts/test_glir_gc_repro.py                 # stock GC: expect detections
+    python scripts/test_glir_gc_repro.py --fixed         # main-thread GC: expect zero
+    python scripts/test_glir_gc_repro.py --duration 60   # run longer (default 20 s)
 
 Exit code 0 = no cross-thread GLIR commands observed, 1 = at least one.
 On a Windows machine without ``--fixed`` this may also genuinely hard-crash —
