@@ -2,6 +2,7 @@
 
 from PyQt5.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -15,7 +16,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.config import UserPreferences
+from fibsem.config import CARD_MODES, UserPreferences, card_mode_label
 from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, QFileLineEdit
 
 # ---------------------------------------------------------------------------
@@ -29,6 +30,11 @@ _LBL_TOASTS        = "Enable Toast Notifications"
 _TIP_TOASTS        = "Show brief pop-up messages in the corner of the screen for workflow events."
 _LBL_BORDER        = "Enable Workflow Border"
 _TIP_BORDER        = "Highlight the viewport border while an automated workflow is running."
+_LBL_CARD_MODE     = "Lamella Card Layout"
+_TIP_CARD_MODE     = (
+    "How each lamella is drawn in the Lamella tab's strip: a large thumbnail, a "
+    "compact row, or a single line with no thumbnail."
+)
 _LBL_DEV_MODE      = "Enable Development Mode"
 _TIP_DEV_MODE      = "Show advanced developer tools and diagnostic menus. Intended for developers only."
 
@@ -133,9 +139,17 @@ class PreferencesDialog(QDialog):
         self._chk_border.setToolTip(_TIP_BORDER)
         self._chk_dev_mode = QCheckBox()
         self._chk_dev_mode.setToolTip(_TIP_DEV_MODE)
+        # The one display preference that is not a yes/no. Its values are carried as
+        # item data, not as the visible text, so the labels can be reworded without
+        # changing what lands in the preferences file.
+        self._combo_card_mode = QComboBox()
+        self._combo_card_mode.setToolTip(_TIP_CARD_MODE)
+        for mode in CARD_MODES:
+            self._combo_card_mode.addItem(card_mode_label(mode), mode)
         display_form.addRow(_LBL_SOUND, self._chk_sound)
         display_form.addRow(_LBL_TOASTS, self._chk_toasts)
         display_form.addRow(_LBL_BORDER, self._chk_border)
+        display_form.addRow(_LBL_CARD_MODE, self._combo_card_mode)
         display_form.addRow(_LBL_DEV_MODE, self._chk_dev_mode)
         self._stack.addWidget(display_page)
 
@@ -217,6 +231,12 @@ class PreferencesDialog(QDialog):
         self._chk_toasts.setChecked(d.toasts_enabled)
         self._chk_border.setChecked(d.border_enabled)
         self._chk_dev_mode.setChecked(d.dev_mode)
+        card_index = self._combo_card_mode.findData(d.lamella_card_mode)
+        # -1 for a value this build does not offer -- an older preferences file, or one
+        # hand-edited. Falling back to the first entry would silently rewrite it on the
+        # next save, so leave the current selection and let the user choose.
+        if card_index != -1:
+            self._combo_card_mode.setCurrentIndex(card_index)
 
         f = prefs.features
         self._chk_coincidence_milling.setChecked(f.coincidence_milling_enabled)
@@ -289,6 +309,7 @@ class PreferencesDialog(QDialog):
                 toasts_enabled=self._chk_toasts.isChecked(),
                 border_enabled=self._chk_border.isChecked(),
                 dev_mode=self._chk_dev_mode.isChecked(),
+                lamella_card_mode=self._combo_card_mode.currentData(),
             ),
             features=FeatureFlags(
                 coincidence_milling_enabled=self._chk_coincidence_milling.isChecked(),

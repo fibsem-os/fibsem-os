@@ -290,12 +290,45 @@ def save_tescan_manipulator_calibration(config: dict) -> None:
 # User Preferences
 # ---------------------------------------------------------------------------
 
+# The lamella strip's three arrangements, densest last. Strings rather than an Enum
+# because they are persisted straight into the yaml preferences file: safe_dump raises
+# RepresenterError on an Enum, and save_user_preferences swallows that in a bare
+# `except Exception: logging.warning` -- so the failure would reach the user as "my
+# preferences do not save", with nothing pointing at the cause.
+#
+# Here rather than beside the widget that draws them so the preferences dialog can offer
+# the choice without fibsem.ui importing AutoLamella, which is the dependency direction
+# FIB-553/554/555 removed.
+MODE_TILE = "tile"
+MODE_COMPACT = "compact"
+MODE_LIST = "list"
+CARD_MODES = (MODE_TILE, MODE_COMPACT, MODE_LIST)
+_CARD_MODE_LABELS = {
+    MODE_TILE: "Large (thumbnail)",
+    MODE_COMPACT: "Compact",
+    MODE_LIST: "List (no thumbnail)",
+}
+
+
+def card_mode_label(mode: str) -> str:
+    """Human-readable name for a card mode, for the preferences dialog."""
+    return _CARD_MODE_LABELS.get(mode, mode)
+
+
 @dataclass
 class DisplayPreferences:
     sound_enabled: bool = False
     toasts_enabled: bool = False
     border_enabled: bool = True
     dev_mode: bool = False
+    # How the lamella strip draws each card: "tile" (large thumbnail), "compact"
+    # (small thumbnail beside the name) or "list" (no thumbnail, one line).
+    #
+    # A plain string rather than an Enum on purpose: preferences are written with
+    # yaml.safe_dump, which raises RepresenterError on an Enum -- and the write is
+    # wrapped in a bare `except Exception: logging.warning`, so the failure would
+    # surface as "my preferences do not save" with nothing pointing at the cause.
+    lamella_card_mode: str = "compact"
 
 @dataclass
 class FeatureFlags:

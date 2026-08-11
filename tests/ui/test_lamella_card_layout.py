@@ -1,12 +1,12 @@
 """The compact lamella card stays compact, and stays clickable (FIB-585).
 
 The card was a 300x240 portrait tile with a 170px thumbnail, stacked one per row in a
-340px strip, so two lamellae filled the panel. It is now a row by default -- thumbnail,
-name and status, buttons -- at roughly a third the height, with a toolbar button in the
-host that switches back to the tile.
+340px strip, so two lamellae filled the panel. There are now three arrangements --
+`tile`, `compact` (the default: a small thumbnail beside the name) and `list` (one line,
+no thumbnail) -- chosen from Preferences -> Display.
 
-Both arrangements share one set of child widgets, re-parented between containers, so
-`refresh` stays a single display path and there is no second one to keep correct.
+All three share one set of child widgets, re-parented between containers, so `refresh`
+stays a single display path and there is no second one to keep correct.
 
 Two properties are worth pinning, and neither is the pixel height:
 
@@ -38,6 +38,7 @@ from fibsem.applications.autolamella.ui.lamella_card_widget import (
     LamellaCardContainer,
     LamellaCardWidget,
 )
+from fibsem.config import MODE_COMPACT, MODE_LIST, MODE_TILE
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -139,9 +140,9 @@ def test_toggling_to_the_tile_and_back_restores_the_compact_height():
     card = LamellaCardWidget(_lamella())
     compact_h = card.sizeHint().height()
 
-    card.set_compact(False)
+    card.set_mode(MODE_TILE)
     tile_h = card.sizeHint().height()
-    card.set_compact(True)
+    card.set_mode(MODE_COMPACT)
 
     assert tile_h > compact_h * 2, "the tile is the tall arrangement"
     assert card.sizeHint().height() == compact_h
@@ -151,7 +152,7 @@ def test_the_menus_and_thumbnail_survive_a_toggle():
     """The children are re-parented, not rebuilt, so everything hung off them stays."""
     card = _shown(LamellaCardWidget(_lamella()))
 
-    card.set_compact(False)
+    card.set_mode(MODE_TILE)
 
     assert len(card._btn_actions.menu().actions()) == 3
     assert card._btn_defect.toolTip() == "No defect"
@@ -164,7 +165,7 @@ def test_the_lamella_events_still_refresh_after_a_toggle():
     lamella = _lamella()
     card = _shown(LamellaCardWidget(lamella))
 
-    card.set_compact(False)
+    card.set_mode(MODE_TILE)
     lamella.task_state.name = "Mill Undercut"
     lamella.task_state.status = AutoLamellaTaskStatus.InProgress
 
@@ -177,55 +178,74 @@ def test_the_container_keeps_its_selection_across_a_toggle():
     container.add_lamella(lamella)
     container._on_card_clicked(lamella)
 
-    container.set_compact(False)
+    container.set_mode(MODE_TILE)
 
     assert container._selected_id == lamella.id
-    assert container.is_compact() is False
+    assert container.mode() == MODE_TILE
 
 
 def test_a_card_added_later_follows_the_current_mode():
     container = LamellaCardContainer(columns=1)
-    container.set_compact(False)
+    container.set_mode(MODE_TILE)
 
     card = container.add_lamella(_lamella("late"))
 
     assert card._thumb_label.height() > 100
 
 
-def test_the_host_button_points_at_the_arrangement_it_switches_to():
-    """The button carries no checked state, so its icon and tooltip are the only thing
-    saying what it does -- and they must describe the *destination*, not where you are.
+def test_the_list_mode_drops_the_thumbnail_and_keeps_the_status():
+    """The densest arrangement. The status stays: without it this is a name and two
+    buttons, which is what LamellaNameListWidget already draws in the Experiment tab."""
+    lamella = _lamella(task="Mill Rough")
+    card = _shown(LamellaCardWidget(lamella, mode=MODE_LIST))
 
-    Called unbound against a stub: the host is a napari-backed window that cannot be
-    constructed headless, and these two methods touch nothing else on it.
+    assert card._thumb_label.isVisible() is False
+    assert card._status_label.text() == "Mill Rough"
+    assert card._name_label.isVisible() is True
+
+
+def test_the_list_row_is_shorter_than_the_compact_row():
+    compact = LamellaCardWidget(_lamella())
+    listed = LamellaCardWidget(_lamella(), mode=MODE_LIST)
+
+    assert listed.sizeHint().height() < compact.sizeHint().height()
+
+
+def test_switching_into_the_list_and_back_restores_the_thumbnail():
+    """The thumbnail is left out of the list's layout entirely, so coming back has to
+    both re-add it and redraw its pixmap."""
+    card = _shown(LamellaCardWidget(_lamella()))
+
+    card.set_mode(MODE_LIST)
+    card.set_mode(MODE_COMPACT)
+
+    assert card._thumb_label.isVisible() is True
+    assert not card._thumb_label.pixmap().isNull()
+
+
+def test_an_unknown_mode_is_ignored_rather_than_drawn_blank():
+    """A hand-edited preferences file should not be able to empty the panel."""
+    card = LamellaCardWidget(_lamella(), mode="enormous")
+
+    assert card.mode() == MODE_COMPACT
+
+    card.set_mode("enormous")
+
+    assert card.mode() == MODE_COMPACT
+
+
+def test_the_card_mode_survives_the_preferences_dialog():
+    """The preference is only reachable if it round-trips the dialog -- the same four
+    places any preference has to survive: the field, the widget, the load and the save.
     """
-    import types
+    from fibsem.config import UserPreferences
+    from fibsem.ui.widgets.preferences_dialog import PreferencesDialog
 
-    from PyQt5.QtWidgets import QToolButton
+    prefs = UserPreferences()
+    prefs.display.lamella_card_mode = MODE_LIST
 
-    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
-        AutoLamellaSingleWindowUI,
-    )
-
-    host = types.SimpleNamespace(
-        lamella_card_container=LamellaCardContainer(columns=1),
-        btn_card_density=QToolButton(),
-    )
-    host.lamella_card_container.add_lamella(_lamella())
-    # bound onto the stub, because the toggle calls it through self
-    host._sync_card_density_button = types.MethodType(
-        AutoLamellaSingleWindowUI._sync_card_density_button, host
-    )
-
-    host._sync_card_density_button()
-    assert host.btn_card_density.toolTip() == "Show large cards"
-
-    AutoLamellaSingleWindowUI._on_toggle_card_density(host)
-
-    assert host.lamella_card_container.is_compact() is False
-    assert host.btn_card_density.toolTip() == "Show compact cards"
-
-    AutoLamellaSingleWindowUI._on_toggle_card_density(host)
-
-    assert host.lamella_card_container.is_compact() is True
-    assert host.btn_card_density.toolTip() == "Show large cards"
+    dialog = PreferencesDialog(prefs)
+    try:
+        assert dialog.get_preferences().display.lamella_card_mode == MODE_LIST
+    finally:
+        dialog.deleteLater()

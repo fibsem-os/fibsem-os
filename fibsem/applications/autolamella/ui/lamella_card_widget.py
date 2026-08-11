@@ -21,6 +21,7 @@ from superqt import ensure_main_thread
 from fibsem.ui.icon import fibsem_icon
 
 from fibsem.applications.autolamella.structures import DefectState, DefectType, Lamella
+from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_LIST, MODE_TILE
 from fibsem.applications.autolamella.ui.lamella_list_widget import _defect_icon, _status_text
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
@@ -99,12 +100,12 @@ class LamellaCardWidget(QWidget):
     def __init__(
         self,
         lamella: Lamella,
-        compact: bool = True,
+        mode: str = MODE_COMPACT,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.lamella = lamella
-        self._compact = compact
+        self._mode = mode if mode in CARD_MODES else MODE_COMPACT
         self.setFixedWidth(_CARD_WIDTH)
 
         outer = QVBoxLayout(self)
@@ -185,18 +186,21 @@ class LamellaCardWidget(QWidget):
 
     # ------------------------------------------------------------------
 
-    def set_compact(self, compact: bool) -> None:
-        """Switch between the dense row and the large tile.
+    def set_mode(self, mode: str) -> None:
+        """Switch arrangement: tile, compact row, or one-line list.
 
         Cheap enough to call on every card at once: it rebuilds one container widget
         and re-parents the existing children into it. Nothing is recreated, so the
         menus, connections and selection state all survive the switch.
         """
-        if compact == self._compact:
+        if mode not in CARD_MODES or mode == self._mode:
             return
-        self._compact = compact
+        self._mode = mode
         self._apply_layout()
         self.refresh()  # the thumbnail is drawn at the new size
+
+    def mode(self) -> str:
+        return self._mode
 
     def _apply_layout(self) -> None:
         """(Re)build the card's content in the current arrangement."""
@@ -209,13 +213,26 @@ class LamellaCardWidget(QWidget):
             self._frame_layout.removeWidget(self._content)
             self._content.deleteLater()
 
-        self._content = (self._build_compact() if self._compact else self._build_full())
+        builder = {
+            MODE_TILE: self._build_tile,
+            MODE_COMPACT: self._build_compact,
+            MODE_LIST: self._build_list,
+        }[self._mode]
+        self._content = builder()
         self._content.setStyleSheet("background: transparent;")
         self._frame_layout.addWidget(self._content)
+        # A widget created after its parent is already on screen starts hidden, and its
+        # children report themselves hidden with it -- so without this, switching mode
+        # on a live card empties it. Harmless before the card is shown: the flag just
+        # says "visible once the parent is".
+        self._content.show()
 
-        for widget in (self._thumb_label, self._name_label,
-                       self._status_label, self._btn_defect, self._btn_actions):
+        for widget in (self._name_label, self._status_label,
+                       self._btn_defect, self._btn_actions):
             widget.show()
+        # The list arrangement leaves the thumbnail out of the layout entirely; showing
+        # an unparented widget would pop it up as its own top-level window.
+        self._thumb_label.setVisible(self._mode != MODE_LIST)
 
         # Qt caches size hints and only recomputes them when the layout is activated,
         # which for a card that has never been shown never happens -- so without this
@@ -253,7 +270,25 @@ class LamellaCardWidget(QWidget):
         row.addWidget(self._btn_actions, 0, Qt.AlignVCenter)
         return content
 
-    def _build_full(self) -> QWidget:
+    def _build_list(self) -> QWidget:
+        """One line: name, then status, then the buttons. No thumbnail.
+
+        The status stays. Without it this is a name and two buttons, which is what
+        `LamellaNameListWidget` already draws in the Experiment tab -- and the status is
+        the field worth scanning during a run, since it says which task each lamella is
+        on. Inline rather than stacked so the row keeps its single-line height.
+        """
+        content = QWidget()
+        row = QHBoxLayout(content)
+        row.setContentsMargins(10, 2, _THUMB_PADDING, 2)
+        row.setSpacing(8)
+        row.addWidget(self._name_label)
+        row.addWidget(self._status_label, 1)
+        row.addWidget(self._btn_defect, 0, Qt.AlignVCenter)
+        row.addWidget(self._btn_actions, 0, Qt.AlignVCenter)
+        return content
+
+    def _build_tile(self) -> QWidget:
         """Tile: large thumbnail over a name row and status — the original card."""
         self._thumb_label.setFixedSize(_FULL_THUMB_W, _FULL_THUMB_H)
 
@@ -301,12 +336,15 @@ class LamellaCardWidget(QWidget):
             f"font-size: 11px; background: transparent; {status_style}"
         )
 
-        # Size read off the label rather than branched on the mode, so this method
-        # stays the single display path whichever arrangement is showing.
-        arr = self.lamella.get_thumbnail()
-        self._thumb_label.setPixmap(
-            _arr_to_pixmap(arr, self._thumb_label.width(), self._thumb_label.height())
-        )
+        # Size read off the label rather than branched on the mode, so this stays one
+        # display path for every arrangement that has a thumbnail. The list has none,
+        # and reading a lamella's thumbnail off disk to scale it for a hidden label is
+        # the one thing worth skipping.
+        if self._mode != MODE_LIST:
+            arr = self.lamella.get_thumbnail()
+            self._thumb_label.setPixmap(
+                _arr_to_pixmap(arr, self._thumb_label.width(), self._thumb_label.height())
+            )
 
     def mousePressEvent(self, event) -> None:
         self.clicked.emit(self.lamella)
@@ -373,13 +411,13 @@ class LamellaCardContainer(QWidget):
         self,
         columns: int = _N_COLS,
         parent: Optional[QWidget] = None,
-        compact: bool = True,
+        mode: str = MODE_COMPACT,
     ) -> None:
         super().__init__(parent)
         self._cards: Dict[str, LamellaCardWidget] = {}   # lamella.id → card
         self._selected_id: Optional[str] = None
         self._n_cols: int = max(1, columns)
-        self._compact: bool = compact
+        self._mode: str = mode if mode in CARD_MODES else MODE_COMPACT
 
         self._grid = QGridLayout(self)
         self._grid.setSpacing(12)
@@ -390,17 +428,19 @@ class LamellaCardContainer(QWidget):
     # Public API
     # ------------------------------------------------------------------
 
-    def set_compact(self, compact: bool) -> None:
-        """Switch every card, and any added later, between the row and the tile."""
-        self._compact = compact
+    def set_mode(self, mode: str) -> None:
+        """Switch every card, and any added later, to one of the CARD_MODES."""
+        if mode not in CARD_MODES:
+            return
+        self._mode = mode
         for card in self._cards.values():
-            card.set_compact(compact)
+            card.set_mode(mode)
 
-    def is_compact(self) -> bool:
-        return self._compact
+    def mode(self) -> str:
+        return self._mode
 
     def add_lamella(self, lamella: Lamella) -> LamellaCardWidget:
-        card = LamellaCardWidget(lamella, compact=self._compact)
+        card = LamellaCardWidget(lamella, mode=self._mode)
         card.defect_changed.connect(self.defect_changed)
         card.clicked.connect(self._on_card_clicked)
         card.move_to_requested.connect(self.move_to_requested)

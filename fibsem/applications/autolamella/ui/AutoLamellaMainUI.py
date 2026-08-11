@@ -30,7 +30,6 @@ from PyQt5.QtWidgets import (
     QTextEdit,
     QSplitter,
     QTabWidget,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -62,7 +61,6 @@ from fibsem.ui.stylesheets import (
     GRAY_ICON_COLOR,
     DEFECT_ORANGE_COLOR,
     WORKFLOW_BORDER_STYLESHEET,
-    TOOLBUTTON_ICON_STYLESHEET,
 )
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
@@ -638,6 +636,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._toasts_enabled = d.toasts_enabled
         self._border_enabled = d.border_enabled
         self.dev_mode = d.dev_mode
+        # The lamella strip's density. Guarded because _apply_preferences also runs
+        # before the Lamella tab is built.
+        if hasattr(self, "lamella_card_container"):
+            self.lamella_card_container.set_mode(d.lamella_card_mode)
         # Sync Test menu toggle actions
         self.action_sound_toggle.setChecked(d.sound_enabled)
         self.action_toasts_toggle.setChecked(d.toasts_enabled)
@@ -1567,7 +1569,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         outer_splitter.setChildrenCollapsible(True)
 
         # ── Left: 1-column card strip ──────────────────────────────────────
-        self.lamella_card_container = LamellaCardContainer(columns=1)
+        self.lamella_card_container = LamellaCardContainer(
+            columns=1, mode=self._preferences.display.lamella_card_mode
+        )
         self.lamella_card_container.defect_changed.connect(
             self._on_lamella_defect_changed
         )
@@ -1589,29 +1593,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             "QScrollArea { border: none; background: transparent; }"
         )
 
-        # Density toggle. Above the scroll area rather than inside it, so it does not
-        # scroll away with the cards. The icon shows what you get by clicking, not the
-        # state you are in, so the button needs no checked styling to be readable.
-        self.btn_card_density = QToolButton()
-        self.btn_card_density.setStyleSheet(TOOLBUTTON_ICON_STYLESHEET)
-        self.btn_card_density.setAutoRaise(True)
-        self.btn_card_density.clicked.connect(self._on_toggle_card_density)
-        self._sync_card_density_button()
+        card_scroll.setMaximumWidth(340)
 
-        card_header = QHBoxLayout()
-        card_header.setContentsMargins(8, 2, 8, 2)
-        card_header.addStretch(1)
-        card_header.addWidget(self.btn_card_density)
-
-        card_panel = QWidget()
-        card_panel.setMaximumWidth(340)
-        card_panel_layout = QVBoxLayout(card_panel)
-        card_panel_layout.setContentsMargins(0, 0, 0, 0)
-        card_panel_layout.setSpacing(0)
-        card_panel_layout.addLayout(card_header)
-        card_panel_layout.addWidget(card_scroll, 1)
-
-        outer_splitter.addWidget(card_panel)
+        outer_splitter.addWidget(card_scroll)
         outer_splitter.setStretchFactor(0, 0)
 
         # ── Right: sub-tab widget ──────────────────────────────────────────
@@ -1754,21 +1738,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.task_widget.workflow_config_changed.connect(
             self.lamella_workflow_widget.set_workflow_config
         )
-
-    def _on_toggle_card_density(self):
-        """Flip the lamella strip between the compact row and the large tile."""
-        self.lamella_card_container.set_compact(
-            not self.lamella_card_container.is_compact()
-        )
-        self._sync_card_density_button()
-
-    def _sync_card_density_button(self):
-        """Point the button at the arrangement it would switch to."""
-        compact = self.lamella_card_container.is_compact()
-        icon = "mdi:view-agenda" if compact else "mdi:view-list"
-        tip = "Show large cards" if compact else "Show compact cards"
-        self.btn_card_density.setIcon(fibsem_icon(icon, color=GRAY_ICON_COLOR))
-        self.btn_card_density.setToolTip(tip)
 
     def _on_lamella_card_selected(self, lamella: Lamella | None):
         """Update task image panel and protocol editor for selected lamella card."""
