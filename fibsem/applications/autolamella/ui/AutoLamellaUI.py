@@ -803,7 +803,7 @@ class AutoLamellaUI(QMainWindow):
                 "Coincidence milling requires a fluorescence microscope.", "warning"
             )
             return
-        from fibsem.ui.widgets.fluorescence_coincidence_viewer_widget import (
+        from fibsem.applications.autolamella.ui.fluorescence_coincidence_viewer_widget import (
             open_coincidence_viewer_window,
         )
 

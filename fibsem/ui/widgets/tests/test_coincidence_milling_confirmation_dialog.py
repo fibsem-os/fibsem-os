@@ -130,7 +130,7 @@ def test_mode_wording_matches_the_supervision_button():
     imperfect one, so this pins them together."""
     import inspect
 
-    from fibsem.ui.widgets import fluorescence_coincidence_viewer_widget as viewer
+    from fibsem.applications.autolamella.ui import fluorescence_coincidence_viewer_widget as viewer
 
     source = inspect.getsource(viewer.FluorescenceCoincidenceViewerWidget._update_supervised_button)
     assert 'setText("Supervised")' in source
@@ -210,7 +210,7 @@ def test_pattern_summary_omits_dimensions_a_pattern_lacks():
 def test_run_milling_uses_this_dialog():
     import inspect
 
-    from fibsem.ui.widgets import fluorescence_coincidence_viewer_widget as viewer
+    from fibsem.applications.autolamella.ui import fluorescence_coincidence_viewer_widget as viewer
 
     source = inspect.getsource(viewer.FluorescenceCoincidenceViewerWidget._run_milling)
     assert "CoincidenceMillingConfirmationDialog" in source

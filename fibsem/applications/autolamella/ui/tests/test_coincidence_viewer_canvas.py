@@ -13,7 +13,7 @@ widget drives in place of the private members it used to reach into
 (``pixel_size`` and ``set_title``).
 
 Run directly (no display needed):
-    QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_coincidence_viewer_canvas.py
+    QT_QPA_PLATFORM=offscreen python fibsem/applications/autolamella/ui/tests/test_coincidence_viewer_canvas.py
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ from PyQt5.QtWidgets import QApplication, QPushButton
 from fibsem.structures import FibsemImage
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.overlays import RectOverlay, ScanDirectionArrowOverlay
-from fibsem.ui.widgets.fluorescence_coincidence_viewer_widget import (
+from fibsem.applications.autolamella.ui.fluorescence_coincidence_viewer_widget import (
     _FibImageCanvas,
     _FmImageCanvas,
 )

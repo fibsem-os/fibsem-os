@@ -66,12 +66,21 @@ def _modules():
     full copy of the palette in ``fibsem/ui/fm/widgets`` went unnoticed: a
     boundary drawn where the search happened to start is not one the next dialog
     will respect.
+
+    Third instance of that, and the reason this now matches any ``ui`` package
+    rather than the one under ``fibsem/ui``: FIB-558/559/560 moved 25 widgets to
+    ``fibsem/applications/autolamella/ui``. Anchored at ``fibsem/ui``, this walk
+    silently stopped covering 22 files -- the ones that happened not to mention
+    ``stylesheets`` stayed in only by accident. The test kept passing, with less
+    to test. ``tests/test_ui_extra_isolation.py`` had already learned this and
+    matches on a ``ui`` path component; do the same here.
     """
     modules = []
     for path in PACKAGE.rglob("*.py"):
         if path in PALETTE_SOURCES:
             continue
-        if PACKAGE / "ui" in path.parents or "stylesheets" in path.read_text():
+        rel = path.relative_to(PACKAGE)
+        if "ui" in rel.parts or "stylesheets" in path.read_text():
             modules.append(path)
     return sorted(modules)
 
