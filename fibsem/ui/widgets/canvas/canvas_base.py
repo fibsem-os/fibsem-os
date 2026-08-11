@@ -32,7 +32,6 @@ and the milling / mask / alignment / minimap overlays).
 from __future__ import annotations
 
 import logging
-import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
@@ -130,14 +129,6 @@ _OVERLAY_GAP = 2
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _downsample(arr: np.ndarray, max_px: int) -> np.ndarray:
-    h, w = arr.shape[:2]
-    if h <= max_px and w <= max_px:
-        return arr
-    stride = max(1, math.ceil(max(h, w) / max_px))
-    return arr[::stride, ::stride] if arr.ndim == 2 else arr[::stride, ::stride, :]
 
 
 # Keyboard modifiers mapped to napari-style strings, so handler bodies that

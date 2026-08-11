@@ -31,12 +31,12 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
+from fibsem.imaging.reduce import downsample
 from fibsem.ui.stylesheets import GRAY_CANVAS_COLOR
 from fibsem.ui.widgets.canvas.canvas_base import (
     EMPTY_CONTENT,
     ContentRect,
     FibsemCanvasBase,
-    _downsample,
 )
 
 _logger = logging.getLogger(__name__)
@@ -51,7 +51,9 @@ _ORIGIN_MARKER_COLOUR = "#ff5252"
 # redraw costs the *total* stored pixels — 100 tiles kept at 1024 px square take ~2.7 s,
 # against ~0.75 s at 512. And 512 is already more than the display can use for the case
 # this canvas exists for: tiles in a 3x3 occupy ~330 screen px each, in a 10x10 ~100 px.
-# It only costs detail when zooming deep into one image; see FIB-414 for the real fix.
+# The reduction box-averages, so the cap costs resolution and nothing else — a feature
+# smaller than a stored pixel is dimmed into its neighbours rather than dropped. What it
+# still cannot do is give the detail back on zoom; that is FIB-414, the pyramid.
 _DEFAULT_DISPLAY_PX = 512
 
 
@@ -194,7 +196,7 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
             self._remove_artist(existing)
 
         extent = self._extent_for(data.shape, centre, pixel_size, covers)
-        shown = _downsample(data, self._display_max_px)
+        shown = downsample(data, self._display_max_px)
         kw = {} if zorder is None else {"zorder": zorder}
         artist = self._ax.imshow(
             shown,
@@ -226,7 +228,7 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
             return False
         data = np.asarray(data)
         _require_displayable(data)
-        placed.artist.set_data(_downsample(data, self._display_max_px))
+        placed.artist.set_data(downsample(data, self._display_max_px))
         self.draw_idle()
         return True
 

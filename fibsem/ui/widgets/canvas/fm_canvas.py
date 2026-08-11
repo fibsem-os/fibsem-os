@@ -42,7 +42,8 @@ from fibsem.ui.tokens import (
 from fibsem.ui.widgets.canvas.fm_composite import (
     AVAILABLE_COLORS, FMLayer, auto_clim, composite_fm_layers, to_rgba,
 )
-from fibsem.ui.widgets.canvas.canvas_base import FibsemCanvasBase, _downsample
+from fibsem.imaging.reduce import downsample
+from fibsem.ui.widgets.canvas.canvas_base import FibsemCanvasBase
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.real_space_canvas import FibsemRealSpaceCanvas
 
@@ -726,10 +727,15 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
     def _reduce(self, plane: np.ndarray) -> np.ndarray:
         """A plane at the resolution the canvas will actually store.
 
-        `_downsample` strides, so this is a view rather than a copy — the reduction
-        itself costs nothing, and the blend that follows costs what is displayed.
+        `downsample` box-averages, so this allocates rather than returning a view — 2 ms
+        for a 1024x4712 mosaic plane, against the ~150 ms blend it saves by running
+        before the blend rather than after. It used to stride, which cost nothing at all;
+        the change bought back the fine structure that striding deleted.
+
+        Runs on every layer change, once per held image per channel, so it is the one
+        place where that per-call cost is multiplied. Watch it if either count grows.
         """
-        return _downsample(np.asarray(plane), self.canvas._display_max_px)
+        return downsample(np.asarray(plane), self.canvas._display_max_px)
 
     def _composite_inputs(self) -> Tuple[List[FMLayer], Optional[Tuple[int, int]]]:
         """Blend at display resolution, not acquisition resolution.
