@@ -253,7 +253,7 @@ class WorkflowConfigWidget(QWidget):
         self._list.setFocusPolicy(Qt.NoFocus)
         layout.addWidget(self._list)
 
-        self._header.select_all_changed.connect(self._on_select_all)
+        self._header.select_all_changed.connect(self.set_all_selected)
         self._header.add_task_clicked.connect(self.add_task_clicked)
         self._list.reordered.connect(self._on_reordered)
 
@@ -341,6 +341,26 @@ class WorkflowConfigWidget(QWidget):
         self._list.clear()
         self._checked.clear()
 
+    def set_all_selected(self, checked: bool) -> None:
+        """Tick or untick every row, and bring the header and the cache with them.
+
+        Public because the header is not the only thing that clears the selection --
+        starting a run and adding to the queue both do (FIB-577). `_checked` matters
+        as much as the header here: it is what `_on_reordered` rebuilds rows from, so
+        leaving it stale made a drag-and-drop resurrect a selection the user had
+        already seen cleared.
+        """
+        for i in range(self._list.count()):
+            row = self._row(i)
+            row.checkbox.blockSignals(True)
+            row.checkbox.setChecked(checked)
+            row.checkbox.blockSignals(False)
+            self._checked[id(row.task)] = checked
+        # Redundant when the header emitted into here (it is already right), and
+        # load-bearing for every other caller. Cheap enough not to branch on.
+        self._sync_select_all()
+        self.selection_changed.emit(self.get_selected())
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
@@ -357,14 +377,6 @@ class WorkflowConfigWidget(QWidget):
     def _on_remove_clicked(self, task: AutoLamellaTaskDescription) -> None:
         self.remove_task(task)
         self.remove_requested.emit(task)
-
-    def _on_select_all(self, checked: bool) -> None:
-        for i in range(self._list.count()):
-            row = self._row(i)
-            row.checkbox.blockSignals(True)
-            row.checkbox.setChecked(checked)
-            row.checkbox.blockSignals(False)
-        self.selection_changed.emit(self.get_selected())
 
     def _on_row_selection_changed(self, task: AutoLamellaTaskDescription, checked: bool) -> None:
         self._checked[id(task)] = checked

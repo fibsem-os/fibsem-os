@@ -298,6 +298,8 @@ class LamellaCardContainer(QWidget):
         card = self._cards.pop(lamella.id, None)
         if card is not None:
             card.deleteLater()
+            if self._selected_id == lamella.id:
+                self._selected_id = None
             self._rebuild_grid()
 
     def refresh_lamella(self, lamella: Lamella) -> None:
@@ -313,6 +315,11 @@ class LamellaCardContainer(QWidget):
         for card in self._cards.values():
             card.deleteLater()
         self._cards.clear()
+        # Lamella ids are stable, and the host clears then re-adds the same set on
+        # every rebuild -- so a surviving id would name a card that is drawn
+        # unselected while the container thinks it is selected, and the next click on
+        # it would toggle off rather than select (FIB-578).
+        self._selected_id = None
 
     def select_lamella(self, name: str) -> None:
         """Programmatically select the card matching name. Does NOT emit lamella_selected."""

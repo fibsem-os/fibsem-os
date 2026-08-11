@@ -319,7 +319,7 @@ class LamellaListWidget(QWidget):
         self._list.setFocusPolicy(Qt.NoFocus)
         layout.addWidget(self._list)
 
-        self._header.select_all_changed.connect(self._on_select_all)
+        self._header.select_all_changed.connect(self.set_all_selected)
 
         self._btn_visible = {
             "edit": True,
@@ -401,6 +401,24 @@ class LamellaListWidget(QWidget):
     def clear(self) -> None:
         self._list.clear()
 
+    def set_all_selected(self, checked: bool) -> None:
+        """Tick or untick every row, and bring the header checkbox with them.
+
+        Public because the header is not the only thing that clears the selection --
+        starting a run and adding to the queue both do. Those callers used to invoke
+        the header's slot directly, which left the box reading "Select All" over a
+        list where nothing was ticked (FIB-577).
+        """
+        for i in range(self._list.count()):
+            row = self._row(i)
+            row.checkbox.blockSignals(True)
+            row.checkbox.setChecked(checked)
+            row.checkbox.blockSignals(False)
+        # Redundant when the header emitted into here (it is already right), and
+        # load-bearing for every other caller. Cheap enough not to branch on.
+        self._sync_select_all()
+        self.selection_changed.emit(self.get_selected())
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
@@ -416,14 +434,6 @@ class LamellaListWidget(QWidget):
     def _on_remove_clicked(self, lamella: Lamella) -> None:
         self.remove_lamella(lamella)
         self.remove_requested.emit(lamella)
-
-    def _on_select_all(self, checked: bool) -> None:
-        for i in range(self._list.count()):
-            row = self._row(i)
-            row.checkbox.blockSignals(True)
-            row.checkbox.setChecked(checked)
-            row.checkbox.blockSignals(False)
-        self.selection_changed.emit(self.get_selected())
 
     def _on_row_selection_changed(self, *_) -> None:
         self._sync_select_all()

@@ -1018,8 +1018,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # waiting for a scheduled first task (before any task status arrives).
         self.set_workflow_running()
         # Clear selections after starting workflow
-        self.lamella_workflow_widget.lamella_list._on_select_all(False)
-        self.lamella_workflow_widget.workflow._on_select_all(False)
+        self.lamella_workflow_widget.lamella_list.set_all_selected(False)
+        self.lamella_workflow_widget.workflow.set_all_selected(False)
 
     def _on_workflow_selection_changed(self, _=None) -> None:
         """Enable the run button only when at least one lamella and one task are selected."""
@@ -1853,8 +1853,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # Clear the selection, as starting a workflow does — the work is committed,
         # and leaving it ticked invites adding the same batch twice.
-        self.lamella_workflow_widget.lamella_list._on_select_all(False)
-        self.lamella_workflow_widget.workflow._on_select_all(False)
+        self.lamella_workflow_widget.lamella_list.set_all_selected(False)
+        self.lamella_workflow_widget.workflow.set_all_selected(False)
 
     def _on_queue_changed(self, info: dict) -> None:
         """The queue was edited between tasks — no task lifecycle to hang it off."""
