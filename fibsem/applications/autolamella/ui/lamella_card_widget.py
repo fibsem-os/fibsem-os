@@ -16,6 +16,8 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from superqt import ensure_main_thread
+
 from fibsem.ui.icon import fibsem_icon
 
 from fibsem.applications.autolamella.structures import DefectState, DefectType, Lamella
@@ -184,6 +186,7 @@ class LamellaCardWidget(QWidget):
 
     # ------------------------------------------------------------------
 
+    @ensure_main_thread
     def refresh(self) -> None:
         """Re-read all display fields from the stored Lamella."""
         self._name_label.setText(self.lamella.name)

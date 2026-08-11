@@ -33,6 +33,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from superqt import ensure_main_thread
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskStatus,
@@ -158,20 +159,33 @@ class _LamellaRow(QWidget):
         # Redraw when the model changes, whichever widget changed it. Only `description`
         # was subscribed, so a defect set anywhere else left a stale icon here (FIB-564).
         #
-        # Deliberately NOT subscribing to `task_state.events.name/.status`, though the
-        # row draws those too and `lamella_list_widget`/`lamella_card_widget` both do.
-        # Those two fields are written by the running workflow
+        # `task_state.name`/`.status` are written by the running workflow
         # (`workflows/tasks/base.py:234,239`) on the FunctionWorker thread, and psygnal
-        # delivers synchronously on the emitting thread -- so the callback would touch Qt
-        # widgets off the GUI thread. `defect` and `description` are only ever written by
-        # GUI widgets, so both are safe. The status column stays refresh-driven.
+        # delivers synchronously on the emitting thread. This row skipped them for that
+        # reason until `refresh` gained @ensure_main_thread (FIB-565); with the callback
+        # marshalled they are safe, and the row now tracks a running workflow like
+        # `lamella_list_widget` and `lamella_card_widget` do.
+        #
+        # `defect` and `description` are only ever written by GUI widgets, so
+        # marshalling is a no-op for them: ensure_main_thread runs inline when the
+        # caller is already on the GUI thread.
         #
         # No matching disconnect: the lamella outlives the row, but psygnal holds bound
         # methods weakly and `set_lamella` keeps no reference to the rows it replaces, so
-        # a cleared row is collected and its subscriptions go with it.
+        # a cleared row is collected and its subscriptions go with it. The decorator does
+        # not change that -- verified that a decorated bound method is still dropped on GC.
         # type: ignore because @evented adds .events dynamically.
         self.lamella.events.description.connect(self.refresh)  # type: ignore[union-attr]
         self.lamella.events.defect.connect(self.refresh)  # type: ignore[union-attr]
+
+        # Guarded, unlike the sibling widgets, because this list also renders duck-typed
+        # positions that are not `Lamella` and carry no `task_state` at all -- which is
+        # why `_lamella_status_text` reaches for it with `getattr` too. The siblings take
+        # real `Lamella` objects, where the field always exists.
+        task_state = getattr(self.lamella, "task_state", None)
+        if task_state is not None:
+            task_state.events.name.connect(self.refresh)  # type: ignore[union-attr]
+            task_state.events.status.connect(self.refresh)  # type: ignore[union-attr]
 
         self.refresh()
 
@@ -206,6 +220,7 @@ class _LamellaRow(QWidget):
         if reply == QMessageBox.Yes:
             self.remove_clicked.emit(self.lamella)
 
+    @ensure_main_thread
     def refresh(self) -> None:
         self.name_label.setText(self.lamella.name)
         self.setToolTip(self.lamella.description or "")

@@ -72,28 +72,65 @@ def test_row_redraws_when_the_defect_changes_elsewhere(row, lamella):
     )
 
 
-def test_row_does_not_subscribe_to_task_state(row, lamella):
-    """The row draws task status but must NOT subscribe to it.
+def test_row_redraws_from_a_task_state_event(row, lamella):
+    """The row subscribes to task_state, so a running workflow keeps it current.
 
-    `task_state.name`/`.status` are written by the running workflow
-    (`workflows/tasks/base.py:234,239`) on the FunctionWorker thread, and psygnal
-    delivers synchronously on the emitting thread -- so a subscription here would call
-    `setText` off the GUI thread. `defect` and `description` are only ever written by
-    GUI widgets, which is what makes those two safe to watch.
-
-    Pinned as a test because the obvious "match the sibling widgets" tidy-up reintroduces
-    it, and the failure it causes is a crash under load rather than a red test.
+    It deliberately did not, until FIB-565: `task_state.name`/`.status` are written by
+    the workflow on the FunctionWorker thread and psygnal delivers synchronously on the
+    emitting thread, so the callback reached Qt off the GUI thread. `refresh` is now
+    marshalled with @ensure_main_thread, which is what makes this safe -- see the
+    thread test below, which is the one that would catch the decorator being dropped.
     """
     from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 
     lamella.task_state.name = "Rough Milling"
     lamella.task_state.status = AutoLamellaTaskStatus.InProgress
 
-    assert row.status_label.text() == "", (
-        "the row redrew from a task_state event -- that fires on the worker thread"
-    )
-    row.refresh()  # the supported path: the host refreshes on the GUI thread
     assert row.status_label.text() == "Rough Milling"
+
+
+def test_task_state_refresh_is_marshalled_to_the_gui_thread(qapp, row, lamella):
+    """A worker-thread write must redraw the row *on the GUI thread*.
+
+    This is the invariant FIB-565 turns on, and the only one that fails if
+    @ensure_main_thread is removed from `refresh`. Asserting the label updated is not
+    enough on its own: Qt does not raise on a cross-thread `setText`, it corrupts or
+    crashes under load, so an undecorated `refresh` would still leave the right text
+    behind and pass.
+
+    The thread is observed by spying on `setText`, which `refresh` calls. Patched on the
+    label instance rather than on `refresh`: psygnal captured the bound `refresh` at
+    connect time, so replacing it on the row afterwards is never seen by the signal.
+    """
+    import threading
+
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+
+    main_thread = threading.current_thread()
+    seen: list = []
+    original = row.status_label.setText
+
+    def spy(text: str) -> None:
+        seen.append(threading.current_thread())
+        original(text)
+
+    row.status_label.setText = spy  # type: ignore[method-assign]
+
+    def write_from_worker() -> None:
+        lamella.task_state.name = "Polishing"
+        lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+
+    worker = threading.Thread(target=write_from_worker, name="fib565-worker")
+    worker.start()
+    worker.join()
+    qapp.processEvents()
+
+    assert seen, "the row never redrew -- the task_state subscription is missing"
+    assert all(t is main_thread for t in seen), (
+        f"refresh touched Qt from {[t.name for t in seen]}, not the GUI thread -- "
+        "@ensure_main_thread has been dropped from refresh"
+    )
+    assert row.status_label.text() == "Polishing"
 
 
 def test_row_redraws_when_the_description_changes(row, lamella):
@@ -152,3 +189,45 @@ def test_every_host_of_the_list_can_persist_a_defect(module, widget, handler):
     )
     assert f"def {handler}" in src, f"{widget}.{handler} is missing"
     assert "experiment.save()" in src, f"{widget}.{handler} must persist the change"
+
+
+@pytest.mark.parametrize(
+    "module, widget",
+    [
+        (
+            "fibsem.applications.autolamella.ui.lamella_name_list_widget",
+            "_LamellaRow",
+        ),
+        ("fibsem.applications.autolamella.ui.lamella_list_widget", "LamellaRowWidget"),
+        (
+            "fibsem.applications.autolamella.ui.lamella_card_widget",
+            "LamellaCardWidget",
+        ),
+    ],
+)
+def test_every_task_state_subscriber_marshals_its_refresh(module, widget):
+    """All three lists subscribe to task_state, so all three must marshal (FIB-565).
+
+    The behavioural test above covers `_LamellaRow` only -- the other two need a
+    microscope-shaped host to construct. This reads the source instead, which is enough
+    to catch the failure that matters: someone removing @ensure_main_thread from one
+    widget while the subscription stays.
+
+    Resolved through `importlib` rather than a hardcoded path: these three files moved
+    package twice in one day (FIB-558/559), and a path-based read would have broken
+    silently rather than failed loudly.
+    """
+    import importlib
+    from pathlib import Path
+
+    src = Path(importlib.import_module(module).__file__).read_text()
+
+    assert "task_state.events" in src, (
+        f"{widget} no longer subscribes to task_state -- if that is deliberate, this "
+        "test and FIB-565 both need updating"
+    )
+    assert "from superqt import ensure_main_thread" in src, f"{widget} lost the import"
+    assert "    @ensure_main_thread\n    def refresh(self)" in src, (
+        f"{widget}.refresh is not marshalled, but it subscribes to task_state, which "
+        "the workflow writes from the FunctionWorker thread (FIB-565)"
+    )

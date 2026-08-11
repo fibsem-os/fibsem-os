@@ -19,6 +19,8 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from superqt import ensure_main_thread
+
 from fibsem.ui.icon import fibsem_icon
 
 from fibsem.applications.autolamella.structures import (
@@ -165,8 +167,16 @@ class LamellaRowWidget(QWidget):
 
         # Connect to evented fields so only this row updates when its data changes.
         # task_history is a plain List so append won't fire; task_state.events covers
-        # in-progress and completion transitions. type: ignore because @evented adds
-        # .events dynamically and pyright can't see it.
+        # in-progress and completion transitions.
+        #
+        # `task_state.name`/`.status` are written by the running workflow
+        # (`workflows/tasks/base.py:234,239`) on the FunctionWorker thread, and psygnal
+        # delivers synchronously on the emitting thread -- so `refresh` carries
+        # @ensure_main_thread (FIB-565). `defect` and `description` are only ever
+        # written by GUI widgets; marshalling is a no-op for them, because
+        # ensure_main_thread runs inline when already on the GUI thread.
+        #
+        # type: ignore because @evented adds .events dynamically and pyright can't see it.
         lamella.task_state.events.name.connect(self.refresh)    # type: ignore[union-attr]
         lamella.task_state.events.status.connect(self.refresh)  # type: ignore[union-attr]
         lamella.events.defect.connect(self.refresh)             # type: ignore[union-attr]
@@ -229,6 +239,7 @@ class LamellaRowWidget(QWidget):
         self._popup.set_image(self.lamella.get_thumbnail())
         self._popup.show_near_cursor()
 
+    @ensure_main_thread
     def refresh(self) -> None:
         """Re-read all display fields from the stored Lamella."""
         self.name_label.setText(self.lamella.name)
