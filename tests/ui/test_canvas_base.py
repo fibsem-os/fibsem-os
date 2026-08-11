@@ -138,3 +138,19 @@ if __name__ == "__main__":
             fn()
             print(f"ok  {name}")
     print("all passed")
+
+
+def test_the_scalebar_is_drawn_at_the_smaller_font():
+    """The size is pinned because the constructor is wrapped in a bare except.
+
+    A kwarg matplotlib_scalebar does not accept is swallowed there and the bar simply
+    stops appearing, with nothing in the log to say why -- so "it still constructs"
+    is as much the point of this test as the size itself (FIB-583).
+    """
+    c = FibsemImageCanvas()
+    c.set_array(_img(32, 32), pixel_size=1e-8)
+
+    assert c._scalebar_artist is not None
+    assert c._scalebar_artist.font_properties.get_size() == 8.0
+
+    c.draw()  # a bad font spec raises here rather than at construction

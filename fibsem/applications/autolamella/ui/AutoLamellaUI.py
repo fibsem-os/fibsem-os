@@ -1918,7 +1918,13 @@ class AutoLamellaUI(QMainWindow):
             BeamType.ION,
             PointsSpec(
                 id="poi", points=[(col, row)],
-                color="magenta", selected_color="magenta", marker="+", size=18,
+                # Matches the protocol editor's POI, down to the legend entry: same
+                # concept, same marker. Left to the defaults this drew at size 18 with
+                # PointOverlay's 2.0 edge, a cross visibly fatter than the thin one the
+                # editor and the config preview draw, and absent from the legend
+                # (FIB-582). 1.2 keeps it reading like the centre crosshair.
+                color="magenta", selected_color="magenta", marker="+",
+                size=14, edge_width=1.2, legend_label="Point of Interest",
                 add_on_right_click=False, removable=False,
             ),
         )
