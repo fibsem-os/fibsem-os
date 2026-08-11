@@ -28,9 +28,11 @@ import numpy as np
 __all__ = ["downsample"]
 
 
-# Element types `cv2.resize` accepts. Anything else takes the numpy path, which is a few
-# hundred times slower but answers for every dtype. Pinned by a test that feeds each one
-# to cv2 for real, so the list cannot quietly rot against a new OpenCV.
+# Element types `cv2.resize` accepts. Anything else takes the numpy path, which answers
+# for every dtype at 5x to 217x the cost -- nearer the top of that range for the square
+# images this mostly sees, and nearer the bottom for a long mosaic plane. Pinned by a
+# test that feeds each one to cv2 for real, so the list cannot quietly rot against a new
+# OpenCV.
 _CV2_DTYPES = frozenset(
     np.dtype(name) for name in ("uint8", "uint16", "int16", "float32", "float64")
 )
@@ -79,7 +81,8 @@ def downsample(arr: np.ndarray, max_px: int) -> np.ndarray:
     because an overview's tiles overlap, so that row is covered by the neighbour drawn
     over it -- 10% by default for FM. Note the beam tiler defaults to no overlap at all,
     where nothing covers it; still negligible at these magnitudes, but not for the same
-    reason. Switch to :func:`_box_mean_numpy` for the exact short-block answer at ~5x.
+    reason. :func:`_box_mean_numpy` gives the exact short-block answer instead, at
+    anywhere from 5x to 217x the cost depending on shape.
     """
     h, w = arr.shape[:2]
     if h <= max_px and w <= max_px:
