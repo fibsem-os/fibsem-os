@@ -70,6 +70,16 @@ def downsample(arr: np.ndarray, max_px: int) -> np.ndarray:
     this cheap: ``cv2.resize`` has a fast path for an exactly-integer scale and a generic
     one about fifty times slower, so padding to an exact multiple is what buys the
     former. A 1024x1024 RGBA image reduces to 512 in 0.14 ms; the same in numpy is 72 ms.
+
+    Padding rather than shortening biases one output row and one output column toward
+    the edge pixel, since the block is completed with copies of it. On a 1024x4712 plane
+    at factor 10 that block is 60% replicated, but it is one row of 103, and the error
+    tracks how much the last few rows resemble each other: 0.1/255 on smooth data,
+    1.8 on lightly textured, 32 on pure noise, 76 on an alternating hard edge. Accepted
+    because an overview's tiles overlap, so that row is covered by the neighbour drawn
+    over it -- 10% by default for FM. Note the beam tiler defaults to no overlap at all,
+    where nothing covers it; still negligible at these magnitudes, but not for the same
+    reason. Switch to :func:`_box_mean_numpy` for the exact short-block answer at ~5x.
     """
     h, w = arr.shape[:2]
     if h <= max_px and w <= max_px:
