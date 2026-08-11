@@ -12,11 +12,13 @@ half, so a getter now hands the channel back, but anything that holds the channe
 length of its own operation -- a deliberate FM acquisition, a live stream -- can still
 land inside this window.
 
-Structural, over the real source. `ThermoMicroscope` cannot be constructed without the
-AutoScript SDK, which is absent off the microscope, and the simulator never reads
-`active_view`/`active_device` at all (FIB-518), so there is no harness here that could
-observe the race. What is pinned is the discipline: the pair is locked, it is locked
-together, and the locked region stays narrow.
+Structural, over the real source: `ThermoMicroscope` cannot be constructed without the
+AutoScript SDK, which is absent off the microscope. What is pinned is the discipline --
+the pair is locked, it is locked together, and the locked region stays narrow.
+
+The race itself is now observable on the simulator, which models the shared channel on
+both sides since FIB-518; `tests/fm/test_simulated_shared_channel.py` runs it. That does
+not replace this file, which is about the class that cannot be built here.
 """
 import ast
 from pathlib import Path
