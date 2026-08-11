@@ -67,7 +67,7 @@ from fibsem.ui.tokens import (
 )
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.ui import AutoLamellaUI
+    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
     from fibsem.correlation.structures import CorrelationResult
     from fibsem.imaging.spot import SpotBurnSettings
 

@@ -20,7 +20,7 @@ from fibsem.utils import format_time_remaining
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella
-    from fibsem.applications.autolamella.ui import AutoLamellaUI
+    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 
 
 def run_task(microscope: FibsemMicroscope,

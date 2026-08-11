@@ -26,7 +26,7 @@ from fibsem.ui.widgets.milling_task_acquisition_settings_widget import (
 )
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.ui import AutoLamellaUI
+    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 
 _WIDGET_CONFIG = {
     "name": {"default": "Milling Task", "placeholder": "Enter task name..."},
