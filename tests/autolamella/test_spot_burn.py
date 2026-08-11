@@ -18,21 +18,27 @@ from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
 )
 
 # The widget-dispatch tests need the UI stack (napari/PyQt5), which isn't installed
-# in the core CI env (`pip install .`). Guard the import so they skip there instead
-# of erroring; the run_spot_burn and config tests below have no UI dependency.
+# in the core CI env (`pip install .`). Probe the third-party packages themselves,
+# and import from fibsem unguarded: wrapping the fibsem import in the try instead
+# also swallows a renamed symbol, and reports it as a missing dependency on a
+# machine that has the whole UI stack -- which left these tests silently skipped
+# everywhere once the parameter-widget classes were replaced (FIB-526/FIB-384).
 try:
+    import napari  # noqa: F401
+    import superqt  # noqa: F401
+    from PyQt5 import QtWidgets  # noqa: F401
+except ImportError as exc:  # pragma: no cover - exercised only in the no-UI CI env
+    _MISSING_UI_DEPS = str(exc)
+else:
+    _MISSING_UI_DEPS = ""
     from fibsem.applications.autolamella.ui.autolamella_task_config_widget import (
         AutoLamellaTaskParametersConfigWidget,
-        FloatParameterWidget,
-        IntParameterWidget,
         resolve_field_types,
     )
-    _HAS_UI_DEPS = True
-except Exception:  # pragma: no cover - exercised only in the no-UI CI env
-    _HAS_UI_DEPS = False
+    from fibsem.ui.widgets.custom_widgets import IntegerValueSpinBox, ValueSpinBox
 
 requires_ui = pytest.mark.skipif(
-    not _HAS_UI_DEPS, reason="UI dependencies (napari/PyQt5) not installed"
+    bool(_MISSING_UI_DEPS), reason=f"UI dependencies not installed: {_MISSING_UI_DEPS}"
 )
 
 IMAGING_CURRENT = 20e-12
@@ -358,14 +364,25 @@ def test_resolve_field_types_resolves_future_annotations():
     assert hints["exposure_time"] is int
 
 
+def _control_widget(widget, field: str):
+    """The input widget the form built for *field*.
+
+    The per-type parameter widget classes this file used to reach for were
+    replaced by the shared control builder (FIB-526/FIB-384): the form now keeps
+    a row per field, each holding a `Control` whose `.widget` is the input.
+    """
+    row = next(r for r in widget._rows if r.field == field)
+    return row.control.widget
+
+
 @requires_ui
 def test_spot_burn_params_render_as_spinboxes(qapp):
     """Regression: milling_current/exposure_time render as spinboxes, not QLineEdits."""
     cfg = SpotBurnFiducialTaskConfig(task_name="Spot Burn Fiducial")
     widget = AutoLamellaTaskParametersConfigWidget(cfg)
 
-    assert isinstance(widget.parameter_widgets["milling_current"], FloatParameterWidget)
-    assert isinstance(widget.parameter_widgets["exposure_time"], IntParameterWidget)
+    assert isinstance(_control_widget(widget, "milling_current"), ValueSpinBox)
+    assert isinstance(_control_widget(widget, "exposure_time"), IntegerValueSpinBox)
 
 
 @requires_ui
@@ -374,5 +391,4 @@ def test_exposure_time_spinbox_has_seconds_suffix(qapp):
     cfg = SpotBurnFiducialTaskConfig(task_name="Spot Burn Fiducial")
     widget = AutoLamellaTaskParametersConfigWidget(cfg)
 
-    exposure_widget = widget.parameter_widgets["exposure_time"]
-    assert exposure_widget.widget.suffix() == " s"
+    assert _control_widget(widget, "exposure_time").suffix() == " s"
