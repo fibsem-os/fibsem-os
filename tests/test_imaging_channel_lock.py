@@ -96,6 +96,106 @@ def test_the_channel_is_set_inside_the_same_block(thermo):
         )
 
 
+"""The other view-dependent actions (FIB-569, FIB-545).
+
+Sweeping the class for the same shape found three more. Each is documented by the vendor
+as acting on the active view, so each needs the channel to still be its own when it runs:
+
+* `imaging.get_image` — "Retrieves a microscope image currently present in the active
+  view". `last_image` is FIB-542's pair on the retrieval path.
+* `auto_functions.run_auto_cb` — "optimizes contrast and brightness of the active
+  detector in the active view".
+* `auto_functions.run_auto_focus` — "Runs the automatic focus routine in the active
+  view".
+
+The autofunctions are the ones that matter most, and they are not covered by
+`test_the_locked_region_stays_narrow` on purpose: the routine *is* the thing that needs
+the channel, so there is no narrower correct scope and the hold is deliberately as long
+as the routine. That exception is the reason the narrowness test keys on `grab_frame`
+rather than applying to every locked block.
+"""
+
+VIEW_DEPENDENT_ACTIONS = ["get_image", "run_auto_cb", "run_auto_focus"]
+
+
+@pytest.mark.parametrize("action", VIEW_DEPENDENT_ACTIONS)
+def test_every_view_dependent_action_is_locked(thermo, action):
+    calls = _calls_named(thermo, action)
+    assert calls, f"no {action} call found -- the probe missed, not the code"
+
+    locked = {
+        id(call)
+        for block in _locked_blocks(thermo)
+        for call in _calls_named(block, action)
+    }
+    unlocked = [call.lineno for call in calls if id(call) not in locked]
+    assert unlocked == [], (
+        f"{action} runs without the lock at line(s) {unlocked}: it acts on the active "
+        f"view, so whatever took the shared channel is what it acts on"
+    )
+
+
+@pytest.mark.parametrize("action", ["run_auto_cb", "run_auto_focus"])
+def test_the_autofunctions_claim_the_channel_in_the_same_block(thermo, action):
+    """Setting the channel before the lock would leave the window open."""
+    for block in _locked_blocks(thermo):
+        if not _calls_named(block, action):
+            continue
+        assert _calls_named(block, "set_channel"), (
+            f"the block at line {block.lineno} locks {action} but not the set_channel "
+            f"that precedes it, so the channel can still be taken in between"
+        )
+
+
+def test_the_autofunctions_hold_the_reduced_area_too(thermo):
+    """The pair is a triple when a reduced area is given.
+
+    A reduced-area write left outside the lock lets the routine run on the right view
+    with someone else's scan region -- the channel is guarded and the result is still
+    wrong.
+    """
+    for action in ("run_auto_cb", "run_auto_focus"):
+        blocks = [b for b in _locked_blocks(thermo) if _calls_named(b, action)]
+        assert blocks, f"no locked {action} block found"
+        for block in blocks:
+            assert _calls_named(block, "set_reduced_area_scanning_mode"), (
+                f"the block at line {block.lineno} runs {action} without the "
+                f"reduced-area write inside it"
+            )
+
+
+def test_the_chamber_camera_puts_the_view_back(thermo):
+    """FIB-545. Not a race -- a channel taken and abandoned.
+
+    `acquire_chamber_image` points the connection at view 4 / device 3. Before this it
+    never pointed it back, so a glance at the chamber stranded whatever had the
+    microscope for the rest of the session. The restore has to be in a `finally`: a
+    chamber camera that does not answer would otherwise strand it just the same.
+    """
+    chamber = next(
+        node
+        for node in ast.walk(thermo)
+        if isinstance(node, ast.FunctionDef) and node.name == "acquire_chamber_image"
+    )
+
+    assert _calls_named(chamber, "get_active_view"), (
+        "acquire_chamber_image never reads the view it is about to replace, so it has "
+        "nothing to put back"
+    )
+
+    tries = [node for node in ast.walk(chamber) if isinstance(node, ast.Try)]
+    restored = [
+        call
+        for node in tries
+        for handler in node.finalbody
+        for call in _calls_named(handler, "set_active_view")
+    ]
+    assert restored, (
+        "acquire_chamber_image does not restore the active view in a `finally`, so a "
+        "failed grab leaves the connection on the chamber camera"
+    )
+
+
 def test_the_locked_region_stays_narrow(thermo):
     """`_threading_lock` is a class attribute, shared by every caller in the process.
 
