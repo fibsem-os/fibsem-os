@@ -1118,18 +1118,19 @@ class _RITab(QWidget):
         self._chk_rerun.setVisible(False)
         apply_layout.addWidget(self._chk_rerun)
 
+        apply_layout.addStretch(1)
+        layout.addWidget(apply_row)
+
+        # Its own row, under the button rather than beside it. Wrapping is what
+        # stops a long sentence setting the panel's minimum width — an unwrapped
+        # QLabel reports its whole line, and the pane's splitter has to honour it
+        # — but wrapping *inside* the button row only moved the problem: at 330px
+        # the text got an ~85px column and came out four ragged lines deep. Full
+        # width, two lines, and the row keeps its height.
         self._lbl_warning = QLabel("")
         self._lbl_warning.setStyleSheet("color: #e07b39; font-size: 11px;")
-        # Wrapped, so the sentence sets the panel's height rather than its width.
-        # An unwrapped QLabel reports its whole line as its minimum width, which
-        # this pane's splitter then has to honour — one long warning and the
-        # correlation window can no longer be made narrow.
         self._lbl_warning.setWordWrap(True)
-        # The label takes the leftover room itself; a trailing stretch would hand
-        # that room to empty space and leave it wrapping in a column of its own
-        # width, which is the opposite of the point.
-        apply_layout.addWidget(self._lbl_warning, stretch=1)
-        layout.addWidget(apply_row)
+        layout.addWidget(self._lbl_warning)
 
         self._lbl_distance = QLabel("")
         self._lbl_distance.setStyleSheet("color: #a0c8ff; font-size: 11px;")
