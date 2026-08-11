@@ -231,3 +231,81 @@ def test_task_is_cancellation_classifies_stop_vs_failure(tmp_path: Path):
     stopped_task.stop_task()
     assert _isc(ValueError("real bug"), stopped_task) is True
     assert stopped_task.is_stopped is False  # ... and the run is untouched
+
+
+# ── which role a task's reference set is recorded under (FIB-579) ──────────────
+#
+# The default rule -- default filename means "final", a caller-supplied one means
+# "other" -- is already pinned in both directions above, by
+# test_default_filename_is_recorded_as_the_final_reference_set and
+# test_a_custom_filename_is_not_recorded_as_a_final_reference_set. Those still pass
+# unchanged, which is the point: this adds a way for a task to opt out of the rule
+# rather than altering it.
+
+
+def _fake_acquire_set_of_channels(image_settings, hfws, filename):
+    """Stand in for a real acquisition: write the files it would have written.
+
+    The reader requires the files to exist, so touching them is what makes the
+    round trip through `final_reference_images` meaningful rather than a check on
+    a dict of strings.
+    """
+    images = []
+    for i, _ in enumerate(hfws, start=1):
+        pair = []
+        for beam in ("eb", "ib"):
+            path = Path(image_settings.path) / f"{filename}_res_{i:02d}_{beam}.tif"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+            pair.append(_image_written_to(path))
+        images.append(tuple(pair))
+    return images
+
+
+@pytest.fixture
+def stub_acquisition(monkeypatch):
+    """Patch out the hardware, keeping the filename convention the real one uses."""
+    from fibsem import acquire
+
+    monkeypatch.setattr(
+        acquire,
+        "acquire_set_of_channels",
+        lambda microscope, image_settings, hfws, filename="ref_image", **kwargs:
+            _fake_acquire_set_of_channels(image_settings, hfws, filename),
+    )
+
+
+def _make_reference_image_task(microscope: FibsemMicroscope, tmp_path: Path):
+    from fibsem.applications.autolamella.workflows.tasks.reference_image import (
+        AcquireReferenceImageConfig,
+        AcquireReferenceImageTask,
+    )
+
+    lamella = Lamella(path=tmp_path / "lam", number=0, petname="test")
+    lamella.milling_pose = microscope.get_microscope_state()
+    return AcquireReferenceImageTask(
+        microscope=microscope, config=AcquireReferenceImageConfig(), lamella=lamella
+    )
+
+
+def test_acquire_reference_image_task_reaches_the_review_panel(
+    compustage_microscope: FibsemMicroscope, tmp_path: Path, stub_acquisition
+) -> None:
+    """The task names its own files, and the role used to be read off that name.
+
+    A named set means "an extra one this task happened to grab", which is right for
+    a task acquiring mid-run and wrong for the one whose entire product is a
+    reference set -- it landed in `other_*` and the review panel, which asks for
+    `final_*`, showed nothing for it on every run.
+    """
+    from fibsem.applications.autolamella.task_outputs import final_reference_images
+
+    task = _make_reference_image_task(compustage_microscope, tmp_path)
+
+    task._run()
+
+    outputs = task.lamella.task_state.outputs
+    assert set(outputs) == {"final_sem", "final_fib"}
+    found = final_reference_images(task.lamella, task.lamella.task_state)
+    assert len(found) == 4, "both resolutions, both beams"
+    assert all(Path(path).is_file() for path in found)
