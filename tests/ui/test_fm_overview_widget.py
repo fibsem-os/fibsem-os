@@ -2281,6 +2281,57 @@ def test_an_unreadable_objective_does_not_cost_the_stage_position(qapp, interact
     assert "objective" not in info
 
 
+def test_a_move_updates_the_info_bar_without_reading_the_device(qapp, interactive_widget):
+    """The point of FIB-534: the bar is rebuilt from what the move announced.
+
+    Reading it back would take the shared imaging channel again for numbers the signal
+    already carried -- and could disagree with the move that prompted the update.
+    """
+    widget = interactive_widget
+    reads = []
+
+    class _Counting:
+        def __init__(self, real):
+            self._real = real
+
+        def __getattr__(self, name):
+            if name in ("position", "state"):
+                reads.append(name)
+            return getattr(self._real, name)
+
+    original = widget.fm.objective
+    widget.fm.objective = _Counting(original)
+    try:
+        widget._on_objective_moved(1.2345e-2, "Inserted")
+        info = widget.canvas.canvas._info_text
+    finally:
+        widget.fm.objective = original
+
+    assert "objective 12.345 mm (inserted)" in (info or "")
+    assert "position" not in reads and "state" not in reads, (
+        f"the info bar re-read the device after being told: {reads}"
+    )
+
+
+def test_the_objective_signal_is_dropped_on_close(qapp, interactive_widget):
+    """psygnal outlives the widget and holds a bound method of a torn-down Qt object.
+
+    Closing the tab and then moving the objective from anywhere else was the segfault
+    `closeEvent` already guards for the stage; this is the same for the objective.
+    """
+    widget = interactive_widget
+    objective = widget.fm.objective
+    before = len(objective.position_changed)
+    assert before, "the widget never subscribed -- the test proves nothing"
+
+    widget.close()
+
+    assert len(objective.position_changed) < before, (
+        "the widget is still subscribed after close, so the next objective move emits "
+        "into a torn-down Qt object"
+    )
+
+
 def test_the_stage_marker_carries_no_caption(qapp, interactive_widget):
     """It sits on top of the data, and a caption riding along with the crosshair
     obscures the sample it is pointing at. The info bar says what it is instead."""

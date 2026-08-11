@@ -224,6 +224,9 @@ class OdemisObjectiveLens(ObjectiveLens):
             raise TypeError("Delta must be an integer or float.")
         f = self._focuser.moveRel({"z": delta})
         f.result()
+        # Announced here rather than relying on `move_absolute`: this driver moves the
+        # focuser directly instead of delegating.
+        self._notify_moved()
 
     @property
     def limits(self) -> Tuple[float, float]:
@@ -266,6 +269,7 @@ class OdemisObjectiveLens(ObjectiveLens):
 
         f = self._focuser.moveAbs({"z": position})
         f.result()
+        self._notify_moved()
 
     def insert(self):
         """Move the objective lens to the active (inserted) position.
@@ -282,6 +286,9 @@ class OdemisObjectiveLens(ObjectiveLens):
             return
         f = self._focuser.moveAbs(active_position)
         f.result()
+        # After the early return above: an insert with no calibrated position never
+        # moved, so it has nothing to announce.
+        self._notify_moved()
 
     def retract(self):
         """Move the objective lens to the deactive (retracted) position.
@@ -296,6 +303,7 @@ class OdemisObjectiveLens(ObjectiveLens):
             return
         f = self._focuser.moveAbs(deactive_position)
         f.result()
+        self._notify_moved()
 
     @property
     def state(self) -> Literal["Inserted", "Retracted", "Busy", "Error", "Other"]:

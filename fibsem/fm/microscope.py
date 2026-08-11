@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 from abc import ABC
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from copy import deepcopy
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional, Tuple, Union, Literal
@@ -56,6 +56,34 @@ ALLOW_UNKNOWN_ORIENTATIONS = True  # allow fm control at any orientation
 
 
 class ObjectiveLens(ABC):
+    # Raised after the objective moves, carrying position (metres) and state, so a
+    # display can refresh instead of polling the device for numbers it mostly does not
+    # need (FIB-534). On a TFS system each such read takes the shared imaging channel,
+    # so a label refreshed on every stage poll moves the microscope's own active view to
+    # the FM and back to fetch a millimetre reading -- which is how FIB-517 happened.
+    #
+    # Carries the values rather than being a bare "something moved", for the reason
+    # `stage_position_changed` does: subscribers that each re-read would turn one move
+    # into a read per subscriber, and there are at least three displays. Read once at
+    # the source instead -- see `_notify_moved` for what that costs.
+    #
+    # State travels with position because every display that wants one wants both: the
+    # overview info bar renders "objective 10.061 mm (inserted)" from a single line.
+    #
+    # On the objective rather than the microscope, following `Stage.position_changed`
+    # (`fibsem/microscopes/_stage.py`). It also keeps the name unambiguous --
+    # `objective_position_changed` already means something else on the lamella widget --
+    # and lets an objective built without a parent announce its own moves.
+    #
+    # For displays only. Guards read the device, every time -- one of them suppresses z
+    # and r from a stage move while the objective is inserted, and a stale "Retracted"
+    # there moves the stage with the objective in the chamber.
+    #
+    # Emitted from whichever thread made the move -- connect with `@ensure_main_thread`
+    # if the slot touches widgets, and disconnect on teardown: this is psygnal, so
+    # nothing is severed for you when the C++ object goes (FIB-550).
+    position_changed = Signal(float, str)
+
     """Abstract base class for objective lens control in fluorescence microscopy.
 
     Provides a standardized interface for controlling objective lens positioning,
@@ -80,6 +108,47 @@ class ObjectiveLens(ABC):
         self._retract_position = SIM_OBJECTIVE_RETRACT_POSITION
         self._focus_position: Optional[float] = SIM_OBJECTIVE_FOCUS_POSITION
         self._limit_position: float = SIM_OBJECTIVE_USER_POSITION_LIMIT
+
+    def _notify_moved(self) -> None:
+        """Announce where the objective ended up, for displays to refresh on (FIB-534).
+
+        Called by every write method that actually moves the device, in every
+        implementation -- there is no single chokepoint to put it behind, and the shape
+        differs per driver: the simulated `move_relative` adjusts its own field rather
+        than delegating, the TFS one delegates to `move_absolute`, and `insert`/`retract`
+        delegate on the simulator but not on TFS or odemis. `tests/fm/
+        test_objective_signal.py` pins that every one of them calls this, since a driver
+        that silently stops announcing is a display that silently goes stale.
+
+        Deliberately not called when a method returns early without moving -- an
+        `insert` on an already-inserted objective has nothing to announce.
+
+        Both reads share one channel scope, so on a TFS system a move costs **one** extra
+        take of the shared imaging channel rather than two. Not zero: every caller
+        invokes this *after* its own scope has closed, deliberately, because psygnal is
+        synchronous -- inside, every subscriber's slot would run while the channel was
+        held, and a display refresh is not something to hold the microscope for.
+
+        One take per move is still the point of the exercise. What this replaces is a
+        read per *poll tick* by each display, and there are at least three of them.
+
+        A read that fails must not turn a move that worked into a raised exception, so a
+        failure here is logged and swallowed. The cost of missing one notification is a
+        stale label until the next move; the cost of propagating would be a move that
+        reports failure after succeeding.
+        """
+        # Parentless objectives are constructed directly in several tests, and there is
+        # no shared channel to take when there is no microscope holding it.
+        scope = (
+            self.parent.active_channel() if self.parent is not None else nullcontext()
+        )
+        try:
+            with scope:
+                position, state = self.position, self.state
+        except Exception as e:
+            logging.debug(f"Could not read the objective after moving it: {e}")
+            return
+        self.position_changed.emit(position, state)
 
     @property
     def magnification(self) -> float:
@@ -169,6 +238,9 @@ class ObjectiveLens(ABC):
         logging.info(
             f"Objective moved to new position: {self._position * 1e3:.3f} mm (delta: {delta * 1e3:.3f} mm)"
         )
+        # Announced here rather than relying on `move_absolute`: this implementation
+        # adjusts the field itself instead of delegating.
+        self._notify_moved()
 
     def move_absolute(self, position: float):
         """Move the objective lens to an absolute z-axis position.
@@ -188,6 +260,7 @@ class ObjectiveLens(ABC):
         logging.info(
             f"Objective moved to absolute position: {self._position * 1e3:.3f} mm"
         )
+        self._notify_moved()
 
     def insert(self):
         """Insert the objective lens into the working position for imaging.

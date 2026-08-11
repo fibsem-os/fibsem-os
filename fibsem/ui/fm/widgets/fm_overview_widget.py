@@ -28,6 +28,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from superqt import ensure_main_thread
 
 from fibsem import constants
 from fibsem.fm.acquisition import FMTiledAcquisitionRunner, OverviewDestination
@@ -283,6 +284,12 @@ class FMOverviewWidget(QWidget):
         self.microscope.stage_position_changed.connect(self._on_stage_signal)
         self._fm_acquiring_changed.connect(self._on_fm_acquiring_changed)
         self.fm.acquiring_changed.connect(self._on_fm_acquiring_signal)
+        # Marshalled by `@ensure_main_thread` on the slot rather than by relaying
+        # through a Qt signal like the three above. That decorator is the contract
+        # `FibsemMicroscope` states for its psygnals and what most of the UI does; the
+        # relay is this widget's own dialect. Still a plain bound method, so psygnal can
+        # hold it weakly and match it at disconnect time.
+        self.fm.objective.position_changed.connect(self._on_objective_moved)
         self._refresh_current_position()
         self._refresh_objective_info()
         self._refresh_orientation_banner()
@@ -1248,6 +1255,35 @@ class FMOverviewWidget(QWidget):
 
         self.canvas.canvas.set_info_text("   |   ".join(parts))
 
+    def _set_objective_info(self, position: float, state: str) -> None:
+        """Render the info bar from values already in hand -- no device read.
+
+        The path the signal takes. Split out of `_refresh_objective_info` so a move can
+        update the bar from what it announced rather than by asking again.
+        """
+        self._objective_info = (
+            f"objective {position * constants.SI_TO_MILLI:.3f} mm ({state.lower()})"
+        )
+        self._refresh_stage_info()
+        self.settings_widget.set_objective_positions(
+            position, self.fm.objective.focus_position
+        )
+
+    @ensure_main_thread
+    def _on_objective_moved(self, position: float, state: str) -> None:
+        """Something moved the objective, and said where it ended up.
+
+        Reached from psygnal, which fires on whichever thread did the moving -- a
+        z-stack or an autofocus sweep runs on a worker -- so this touches widgets only
+        because the decorator has already marshalled it.
+
+        The values come from the signal rather than a fresh read, so this costs nothing
+        and cannot disagree with the move that prompted it. That is the whole point:
+        this label used to be rebuilt from two device reads on every stage poll, and on
+        a shared connection each of those took the imaging channel (FIB-534).
+        """
+        self._set_objective_info(position, state)
+
     def _refresh_objective_info(self) -> None:
         """Re-read the objective for the info bar. Touches hardware -- call sparingly.
 
@@ -1256,24 +1292,23 @@ class FMOverviewWidget(QWidget):
         connection, so reading the objective points it at the FM, and every poll was
         doing it. It stopped a workflow task (FIB-517).
 
-        The driver now hands the connection back, so this is no longer dangerous -- but
-        it is still a round-trip per poll for a number that only changes when something
-        moves the objective, which is why it is cached rather than re-read.
+        Now a backstop rather than the usual path: `ObjectiveLens.position_changed`
+        carries the values whenever *we* move the objective, and this covers the moves we
+        do not make -- the microscope's own UI, or a routine driving the device -- at the
+        two moments something external may have acted, on entry and when an acquisition
+        or autofocus sweep finishes.
         """
         try:
-            self._objective_info = (
-                f"objective {self.fm.objective.position * constants.SI_TO_MILLI:.3f} mm"
-                f" ({self.fm.objective.state.lower()})"
-            )
+            position, state = self.fm.objective.position, self.fm.objective.state
         except Exception as e:
             logging.debug(f"No objective position for the info bar: {e}")
             self._objective_info = None
-        self._refresh_stage_info()
-        # The same read serves the start-position options, which say what each one
-        # currently means. Here rather than on its own timer so the objective is read
-        # once for both -- on a shared connection that read takes the imaging channel
-        # (FIB-517), and two of them would be two.
-        self._refresh_objective_start_options()
+            self._refresh_stage_info()
+            return
+        # `_set_objective_info` also feeds the start-position options, which say what
+        # each one currently means -- one read serving both, since on a shared
+        # connection two reads are two takes of the imaging channel (FIB-517).
+        self._set_objective_info(position, state)
 
     def _objective_state(self) -> Optional[str]:
         """Whether the objective is inserted, or None if it cannot be asked.
@@ -2339,6 +2374,10 @@ class FMOverviewWidget(QWidget):
         for signal, slot in (
             (self.fm.acquisition_progress_signal, self._on_progress),
             (self.microscope.stage_position_changed, self._on_stage_signal),
+            (self.fm.objective.position_changed, self._on_objective_moved),
+            # Subscribed since FIB-441 and never in this list, though the comment above
+            # has always claimed "without exception".
+            (self.fm.acquiring_changed, self._on_fm_acquiring_signal),
         ):
             try:
                 signal.disconnect(slot)

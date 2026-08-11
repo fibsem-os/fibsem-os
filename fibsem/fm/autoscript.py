@@ -155,6 +155,8 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
         """
         current_position = self.position
         new_position = current_position + delta
+        # Delegates, so the announcement comes from `move_absolute`. Not every driver
+        # does -- see `_notify_moved`.
         self.move_absolute(new_position)
 
     def move_absolute(self, position: float):
@@ -173,6 +175,7 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
             position = np.clip(position, 0, self._limit_position)
         with self.parent.active_channel():
             self.parent.fm_settings.focus.value = position
+        self._notify_moved()
 
     def insert(self) -> None:
         """Insert the objective lens into the working position.
@@ -184,6 +187,9 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
                 logging.warning("Objective lens is already inserted.")
                 return
             self.parent.connection.detector.insert()
+        # Outside the scope, and after the early return: nothing moved in that case, so
+        # there is nothing to announce.
+        self._notify_moved()
 
     def retract(self) -> None:
         """Retract the objective lens from the working position.
@@ -195,6 +201,7 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
                 logging.warning("Objective lens is already retracted.")
                 return
             self.parent.connection.detector.retract()
+        self._notify_moved()
 
     @property
     def state(self) -> Literal["Inserted", "Retracted", "Busy", "Error", "Other"]:
@@ -223,6 +230,7 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
         """
         with self.parent.active_channel():
             self.parent.connection.detector.home()
+        self._notify_moved()
 
 
 class ThermoFisherCamera(Camera):
