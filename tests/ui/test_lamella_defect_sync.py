@@ -128,7 +128,7 @@ def test_row_survives_a_lamella_without_task_state(qapp):
     [
         ("fibsem.ui.FibsemMinimapWidget", "FibsemMinimapWidget", "_on_defect_changed"),
         (
-            "fibsem.ui.widgets.fluorescence_coincidence_viewer_widget",
+            "fibsem.applications.autolamella.ui.fluorescence_coincidence_viewer_widget",
             "FluorescenceCoincidenceViewerWidget",
             "_on_lamella_defect_changed",
         ),

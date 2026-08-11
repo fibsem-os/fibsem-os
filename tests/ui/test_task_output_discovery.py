@@ -35,7 +35,7 @@ def test_the_coincidence_viewer_records_what_the_panel_will_find(tmp_path, monke
     from types import SimpleNamespace
 
     from fibsem.structures import FibsemImage
-    from fibsem.ui.widgets import fluorescence_coincidence_viewer_widget as viewer
+    from fibsem.applications.autolamella.ui import fluorescence_coincidence_viewer_widget as viewer
 
     monkeypatch.setattr(viewer.notification_service, "show_toast", lambda *a, **k: None)
 
