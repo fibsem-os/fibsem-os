@@ -748,7 +748,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         experiment = getattr(self.autolamella_ui, "experiment", None)
         microscope = getattr(self.autolamella_ui, "microscope", None)
         open_bug_report_dialog(
-            experiment=experiment, microscope=microscope, parent=self
+            experiment_path=str(experiment.path) if experiment is not None else None,
+            microscope=microscope,
+            parent=self,
         )
 
     def _on_show_plugins(self):
@@ -2369,7 +2371,7 @@ def run_ui():
     import faulthandler
     import signal
 
-    from fibsem.applications.autolamella.tools.bug_report import init_sentry
+    from fibsem.tools.bug_report import init_sentry
 
     # Ctrl+C: PyQt never runs Python's SIGINT handler while blocked in the C++ event
     # loop — and if the GUI thread wedges, no Python runs at all — so restore the OS

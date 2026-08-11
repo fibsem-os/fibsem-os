@@ -85,14 +85,14 @@ def mask_serial_number(serial: Optional[str]) -> str:
 def _environment_rows() -> List[Tuple[str, str]]:
     """Python / Qt / napari / platform, reusing the bug report's collector.
 
-    Imported lazily and defensively: this dialog must still open if the
-    autolamella application package is unavailable for any reason.
+    The collector reads version and revision metadata, which can fail on an
+    unusual install, so the *call* stays guarded and falls back to the bare
+    platform facts. The import no longer needs guarding: bug_report lives in
+    `fibsem.tools` now, not inside the AutoLamella application package.
     """
-    try:
-        from fibsem.applications.autolamella.tools.bug_report import (
-            collect_system_context,
-        )
+    from fibsem.tools.bug_report import collect_system_context
 
+    try:
         ctx = collect_system_context()
     except Exception:
         import platform

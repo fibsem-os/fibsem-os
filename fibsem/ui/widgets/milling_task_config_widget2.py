@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -24,9 +24,6 @@ from fibsem.ui.widgets.milling_stages_widget import FibsemMillingStagesWidget
 from fibsem.ui.widgets.milling_task_acquisition_settings_widget import (
     FibsemMillingTaskAcquisitionSettingsWidget,
 )
-
-if TYPE_CHECKING:
-    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 
 _WIDGET_CONFIG = {
     "name": {"default": "Milling Task", "placeholder": "Enter task name..."},
@@ -60,7 +57,7 @@ class MillingTaskConfigWidget2(QWidget):
         milling_task_config: Optional[FibsemMillingTaskConfig] = None,
         milling_enabled: bool = True,
         correlation_enabled: bool = True,
-        parent: Optional['AutoLamellaUI'] = None,
+        parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.microscope = microscope

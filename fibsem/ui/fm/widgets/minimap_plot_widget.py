@@ -1,5 +1,5 @@
 import logging
-from typing import List, Optional, TYPE_CHECKING
+from typing import List, Optional
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
@@ -33,14 +33,11 @@ except ImportError:
     MATPLOTLIB_AVAILABLE = False
     logging.warning("Matplotlib not available. Minimap plot widget will be disabled.")
 
-if TYPE_CHECKING:
-    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
-
 
 class MinimapPlotWidget(QWidget):
     """Widget for displaying a minimap with lamella positions and current stage position."""
 
-    def __init__(self, parent: Optional['AutoLamellaUI'] = None):
+    def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.image: Optional[FibsemImage] = None
         self.lamella_positions: List[FibsemStagePosition] = []
