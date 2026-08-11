@@ -2,9 +2,10 @@
 
 The card was a 300x240 portrait tile with a 170px thumbnail, stacked one per row in a
 340px strip, so two lamellae filled the panel. There are now three arrangements, named
-for density the way Discord and Gmail name theirs -- `cozy` (that tile), `standard` (the
-default: a small thumbnail beside the name) and `compact` (one line, no thumbnail) --
-chosen from Preferences -> Display.
+for density the way Discord and Gmail name theirs -- `cozy` (that tile), `standard` (a small thumbnail beside the
+name) and `compact` (one line, no thumbnail) --
+chosen from Preferences -> Display. Cozy stays the default: the strip drew it before
+the other two existed, so an upgrade offers the denser layouts rather than imposing one.
 
 All three share one set of child widgets, re-parented between containers, so `refresh`
 stays a single display path and there is no second one to keep correct.
@@ -59,7 +60,7 @@ def _lamella(petname="test", task=None):
 # Heights come from sizeHint(), not from a shown widget: a top-level window here has a
 # minimum height of 100px, which floors both a 66px row and anything smaller into the
 # same number and would make the comparison below pass whatever the layout does.
-_COMPACT_MAX_H = 80
+_STANDARD_MAX_H = 80
 
 
 def _shown(card):
@@ -70,18 +71,18 @@ def _shown(card):
 
 
 def test_a_long_status_does_not_make_the_card_taller():
-    short = LamellaCardWidget(_lamella("short", task="Mill Rough"))
-    long = LamellaCardWidget(_lamella("long", task=_LONG_TASK_NAME))
+    short = LamellaCardWidget(_lamella("short", task="Mill Rough"), mode=MODE_STANDARD)
+    long = LamellaCardWidget(_lamella("long", task=_LONG_TASK_NAME), mode=MODE_STANDARD)
 
     assert long.sizeHint().height() == short.sizeHint().height()
     # ... and both are actually short. Without this the equality above would still
     # hold if the row grew to fit two wrapped lines in every case.
-    assert short.sizeHint().height() <= _COMPACT_MAX_H
+    assert short.sizeHint().height() <= _STANDARD_MAX_H
 
 
 def test_the_full_status_survives_as_a_tooltip():
     """Eliding is presentation; the string still has to be readable somehow."""
-    card = _shown(LamellaCardWidget(_lamella(task=_LONG_TASK_NAME)))
+    card = _shown(LamellaCardWidget(_lamella(task=_LONG_TASK_NAME), mode=MODE_STANDARD))
 
     assert card._status_label.toolTip() == _LONG_TASK_NAME
 
@@ -90,7 +91,7 @@ def test_the_name_sits_beside_the_thumbnail_not_under_it():
     """The layout change itself, in the one form that does not depend on any margin:
     the old tile stacked the name below a full-width thumbnail. Mapped into the card's
     own coordinates, because the two live in different parent widgets."""
-    card = _shown(LamellaCardWidget(_lamella()))
+    card = _shown(LamellaCardWidget(_lamella(), mode=MODE_STANDARD))
 
     thumb = card._thumb_label
     thumb_right = thumb.mapTo(card, thumb.rect().topRight()).x()
@@ -138,7 +139,7 @@ def test_clicking_the_defect_button_does_not_select_the_card():
 
 
 def test_toggling_to_the_cozy_tile_and_back_restores_the_standard_height():
-    card = LamellaCardWidget(_lamella())
+    card = LamellaCardWidget(_lamella(), mode=MODE_STANDARD)
     standard_h = card.sizeHint().height()
 
     card.set_mode(MODE_COZY)
@@ -151,7 +152,7 @@ def test_toggling_to_the_cozy_tile_and_back_restores_the_standard_height():
 
 def test_the_menus_and_thumbnail_survive_a_toggle():
     """The children are re-parented, not rebuilt, so everything hung off them stays."""
-    card = _shown(LamellaCardWidget(_lamella()))
+    card = _shown(LamellaCardWidget(_lamella(), mode=MODE_STANDARD))
 
     card.set_mode(MODE_COZY)
 
@@ -164,9 +165,10 @@ def test_the_menus_and_thumbnail_survive_a_toggle():
 def test_the_lamella_events_still_refresh_after_a_toggle():
     """`refresh` is one path for both arrangements, and stays connected across a switch."""
     lamella = _lamella()
-    card = _shown(LamellaCardWidget(lamella))
+    card = _shown(LamellaCardWidget(lamella, mode=MODE_STANDARD))
 
     card.set_mode(MODE_COZY)
+    assert card.mode() == MODE_COZY, "the switch has to have happened"
     lamella.task_state.name = "Mill Undercut"
     lamella.task_state.status = AutoLamellaTaskStatus.InProgress
 
@@ -174,7 +176,7 @@ def test_the_lamella_events_still_refresh_after_a_toggle():
 
 
 def test_the_container_keeps_its_selection_across_a_toggle():
-    container = LamellaCardContainer(columns=1)
+    container = LamellaCardContainer(columns=1, mode=MODE_STANDARD)
     lamella = _lamella("kept")
     container.add_lamella(lamella)
     container._on_card_clicked(lamella)
@@ -183,15 +185,19 @@ def test_the_container_keeps_its_selection_across_a_toggle():
 
     assert container._selected_id == lamella.id
     assert container.mode() == MODE_COZY
+    # the cards themselves, not just the container's idea of the mode
+    assert all(c.mode() == MODE_COZY for c in container._cards.values())
 
 
 def test_a_card_added_later_follows_the_current_mode():
+    """Switched away from the default, so a card built from the default would fail."""
     container = LamellaCardContainer(columns=1)
-    container.set_mode(MODE_COZY)
+    container.set_mode(MODE_COMPACT)
 
     card = container.add_lamella(_lamella("late"))
 
-    assert card._thumb_label.height() > 100
+    assert card.mode() == MODE_COMPACT
+    assert card._thumb_label.isVisible() is False
 
 
 def test_the_compact_mode_drops_the_thumbnail_and_keeps_the_status():
@@ -206,7 +212,7 @@ def test_the_compact_mode_drops_the_thumbnail_and_keeps_the_status():
 
 
 def test_the_compact_row_is_shorter_than_the_standard_row():
-    standard = LamellaCardWidget(_lamella())
+    standard = LamellaCardWidget(_lamella(), mode=MODE_STANDARD)
     compact = LamellaCardWidget(_lamella(), mode=MODE_COMPACT)
 
     assert compact.sizeHint().height() < standard.sizeHint().height()
@@ -215,9 +221,10 @@ def test_the_compact_row_is_shorter_than_the_standard_row():
 def test_switching_into_compact_and_back_restores_the_thumbnail():
     """The thumbnail is left out of the list's layout entirely, so coming back has to
     both re-add it and redraw its pixmap."""
-    card = _shown(LamellaCardWidget(_lamella()))
+    card = _shown(LamellaCardWidget(_lamella(), mode=MODE_STANDARD))
 
     card.set_mode(MODE_COMPACT)
+    assert card._thumb_label.isVisible() is False, "it has to actually leave first"
     card.set_mode(MODE_STANDARD)
 
     assert card._thumb_label.isVisible() is True
@@ -226,13 +233,16 @@ def test_switching_into_compact_and_back_restores_the_thumbnail():
 
 def test_an_unknown_mode_is_ignored_rather_than_drawn_blank():
     """A hand-edited preferences file should not be able to empty the panel."""
+    from fibsem.config import DisplayPreferences
+
+    default = DisplayPreferences().lamella_card_mode
     card = LamellaCardWidget(_lamella(), mode="enormous")
 
-    assert card.mode() == MODE_STANDARD
+    assert card.mode() == default
 
     card.set_mode("enormous")
 
-    assert card.mode() == MODE_STANDARD
+    assert card.mode() == default
 
 
 def test_the_card_mode_survives_the_preferences_dialog():

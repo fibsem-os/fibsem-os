@@ -336,7 +336,9 @@ class DisplayPreferences:
     # yaml.safe_dump, which raises RepresenterError on an Enum -- and the write is
     # wrapped in a bare `except Exception: logging.warning`, so the failure would
     # surface as "my preferences do not save" with nothing pointing at the cause.
-    lamella_card_mode: str = MODE_STANDARD
+    # Cozy, because it is what the strip drew before the other two existed: a new
+    # layout is offered, never imposed on an upgrade.
+    lamella_card_mode: str = MODE_COZY
 
 @dataclass
 class FeatureFlags:

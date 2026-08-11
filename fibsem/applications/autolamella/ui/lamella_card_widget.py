@@ -100,12 +100,12 @@ class LamellaCardWidget(QWidget):
     def __init__(
         self,
         lamella: Lamella,
-        mode: str = MODE_STANDARD,
+        mode: str = MODE_COZY,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.lamella = lamella
-        self._mode = mode if mode in CARD_MODES else MODE_STANDARD
+        self._mode = mode if mode in CARD_MODES else MODE_COZY
         self.setFixedWidth(_CARD_WIDTH)
 
         outer = QVBoxLayout(self)
@@ -411,13 +411,13 @@ class LamellaCardContainer(QWidget):
         self,
         columns: int = _N_COLS,
         parent: Optional[QWidget] = None,
-        mode: str = MODE_STANDARD,
+        mode: str = MODE_COZY,
     ) -> None:
         super().__init__(parent)
         self._cards: Dict[str, LamellaCardWidget] = {}   # lamella.id → card
         self._selected_id: Optional[str] = None
         self._n_cols: int = max(1, columns)
-        self._mode: str = mode if mode in CARD_MODES else MODE_STANDARD
+        self._mode: str = mode if mode in CARD_MODES else MODE_COZY
 
         self._grid = QGridLayout(self)
         self._grid.setSpacing(12)
