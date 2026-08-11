@@ -33,7 +33,6 @@ import fibsem.config as fibsem_cfg
 from fibsem.versioning import get_revision, get_version_string
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.structures import Experiment
     from fibsem.microscope import FibsemMicroscope
 
 # Support / issue destinations
@@ -143,13 +142,11 @@ def scrub_text(text: str) -> str:
     return scrubbed
 
 
-def _collect_files(
-    experiment: "Experiment", content: BugReportContent
-) -> List[str]:
+def _collect_files(experiment_path: str, content: BugReportContent) -> List[str]:
     """Resolve the absolute paths of the artifacts selected for inclusion."""
     from glob import glob
 
-    exp_path = str(experiment.path)
+    exp_path = str(experiment_path)
     files: List[str] = []
 
     def _add(path: str) -> None:
@@ -174,13 +171,13 @@ def _collect_files(
 
 
 def estimate_bundle_size(
-    experiment: Optional["Experiment"], content: BugReportContent
+    experiment_path: Optional[str], content: BugReportContent
 ) -> int:
     """Estimate the on-disk size (bytes) of the selected artifacts."""
-    if experiment is None:
+    if experiment_path is None:
         return 0
     total = 0
-    for path in _collect_files(experiment, content):
+    for path in _collect_files(experiment_path, content):
         try:
             total += os.path.getsize(path)
         except OSError:
@@ -212,7 +209,7 @@ def _render_report_text(content: BugReportContent) -> str:
 
 def build_bug_report_bundle(
     content: BugReportContent,
-    experiment: Optional["Experiment"],
+    experiment_path: Optional[str],
     output_dir: Optional[str] = None,
 ) -> str:
     """Build a scrubbed ``.zip`` bundle for the bug report and return its path.
@@ -226,8 +223,8 @@ def build_bug_report_bundle(
 
     if output_dir is None:
         # Prefer alongside the experiment; fall back to the log directory.
-        if experiment is not None and os.path.isdir(str(experiment.path)):
-            output_dir = str(experiment.path)
+        if experiment_path is not None and os.path.isdir(str(experiment_path)):
+            output_dir = str(experiment_path)
         else:
             output_dir = fibsem_cfg.LOG_PATH
     os.makedirs(output_dir, exist_ok=True)
@@ -240,9 +237,9 @@ def build_bug_report_bundle(
             scrub_text(json.dumps(content.system_context, indent=2)),
         )
 
-        if experiment is not None:
-            exp_path = str(experiment.path)
-            for path in _collect_files(experiment, content):
+        if experiment_path is not None:
+            exp_path = str(experiment_path)
+            for path in _collect_files(experiment_path, content):
                 arcname = os.path.relpath(path, os.path.dirname(exp_path))
                 ext = os.path.splitext(path)[1].lower()
                 try:

@@ -23,8 +23,8 @@ from PyQt5.QtWidgets import (
 )
 
 import fibsem.config as fibsem_cfg
-from fibsem.applications.autolamella.tools import bug_report
-from fibsem.applications.autolamella.tools.bug_report import BugReportContent
+from fibsem.tools import bug_report
+from fibsem.tools.bug_report import BugReportContent
 from fibsem.ui import stylesheets
 from fibsem.ui.utils import open_path_in_file_explorer
 from fibsem.ui.widgets.custom_widgets import (
@@ -33,7 +33,6 @@ from fibsem.ui.widgets.custom_widgets import (
 )
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.structures import Experiment
     from fibsem.microscope import FibsemMicroscope
 
 SEVERITY_OPTIONS = ["Low", "Normal", "High", "Crash"]
@@ -44,13 +43,13 @@ class BugReportDialog(QDialog):
 
     def __init__(
         self,
-        experiment: Optional["Experiment"] = None,
+        experiment_path: Optional[str] = None,
         microscope: Optional["FibsemMicroscope"] = None,
         traceback_text: str = "",
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
-        self.experiment = experiment
+        self.experiment_path = experiment_path
         self.microscope = microscope
         self._system_context = bug_report.collect_system_context(microscope)
 
@@ -121,7 +120,7 @@ class BugReportDialog(QDialog):
         self.checkbox_experiment.setChecked(True)
         self.checkbox_protocol.setChecked(True)
 
-        has_experiment = self.experiment is not None
+        has_experiment = self.experiment_path is not None
         for cb in (
             self.checkbox_logfile,
             self.checkbox_experiment,
@@ -194,7 +193,7 @@ class BugReportDialog(QDialog):
 
     def _update_preview(self):
         content = self._content()
-        size = bug_report.estimate_bundle_size(self.experiment, content)
+        size = bug_report.estimate_bundle_size(self.experiment_path, content)
         env = ", ".join(f"{k}={v}" for k, v in self._system_context.items())
         size_str = f"{size / 1e6:.1f} MB" if size else "0 MB"
         self.label_preview.setText(
@@ -237,7 +236,7 @@ class BugReportDialog(QDialog):
             return
         self._persist_email(content)
         try:
-            zip_path = bug_report.build_bug_report_bundle(content, self.experiment)
+            zip_path = bug_report.build_bug_report_bundle(content, self.experiment_path)
             bug_report.compose_support_email(content, zip_path)
         except Exception as e:
             logging.exception("Failed to create bug report bundle.")
@@ -272,14 +271,14 @@ class BugReportDialog(QDialog):
 
 
 def open_bug_report_dialog(
-    experiment: Optional["Experiment"] = None,
+    experiment_path: Optional[str] = None,
     microscope: Optional["FibsemMicroscope"] = None,
     traceback_text: str = "",
     parent: Optional[QWidget] = None,
 ) -> None:
     """Convenience helper to construct and show the bug report dialog."""
     dialog = BugReportDialog(
-        experiment=experiment,
+        experiment_path=experiment_path,
         microscope=microscope,
         traceback_text=traceback_text,
         parent=parent,

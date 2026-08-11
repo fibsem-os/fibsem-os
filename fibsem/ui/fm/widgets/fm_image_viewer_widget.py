@@ -183,7 +183,7 @@ def create_widget(
 
 def main():
     """Standalone application for testing."""
-    from fibsem.applications.autolamella.config import LOG_PATH
+    from fibsem.config import LOG_PATH
     viewer = napari.Viewer()
     widget = create_widget(viewer, LOG_PATH)
     viewer.window.add_dock_widget(widget, area="right", name="FM Image Viewer")
