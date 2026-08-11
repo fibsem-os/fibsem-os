@@ -28,6 +28,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from superqt import ensure_main_thread
 
 from fibsem import constants
 from fibsem.fm.acquisition import FMTiledAcquisitionRunner, OverviewDestination
@@ -203,8 +204,6 @@ class FMOverviewWidget(QWidget):
     # And for something starting or finishing on the FM, which is reported from
     # whichever thread finished with it -- for our own runs, the acquisition worker.
     _fm_acquiring_changed = pyqtSignal(bool)
-    # position (metres), state -- relayed off whichever thread moved the objective
-    _objective_moved = pyqtSignal(float, str)
 
     def __init__(
         self,
@@ -285,8 +284,12 @@ class FMOverviewWidget(QWidget):
         self.microscope.stage_position_changed.connect(self._on_stage_signal)
         self._fm_acquiring_changed.connect(self._on_fm_acquiring_changed)
         self.fm.acquiring_changed.connect(self._on_fm_acquiring_signal)
-        self._objective_moved.connect(self._on_objective_moved)
-        self.fm.objective.position_changed.connect(self._on_objective_signal)
+        # Marshalled by `@ensure_main_thread` on the slot rather than by relaying
+        # through a Qt signal like the three above. That decorator is the contract
+        # `FibsemMicroscope` states for its psygnals and what most of the UI does; the
+        # relay is this widget's own dialect. Still a plain bound method, so psygnal can
+        # hold it weakly and match it at disconnect time.
+        self.fm.objective.position_changed.connect(self._on_objective_moved)
         self._refresh_current_position()
         self._refresh_objective_info()
         self._refresh_orientation_banner()
@@ -1266,16 +1269,13 @@ class FMOverviewWidget(QWidget):
             position, self.fm.objective.focus_position
         )
 
-    def _on_objective_signal(self, position: float, state: str) -> None:
-        """Called by psygnal, on whichever thread moved the objective. No widgets here.
-
-        The counterpart of `_on_stage_signal` -- a real method rather than the Qt
-        signal's `emit` for the reason given where it is connected.
-        """
-        self._objective_moved.emit(position, state)
-
+    @ensure_main_thread
     def _on_objective_moved(self, position: float, state: str) -> None:
         """Something moved the objective, and said where it ended up.
+
+        Reached from psygnal, which fires on whichever thread did the moving -- a
+        z-stack or an autofocus sweep runs on a worker -- so this touches widgets only
+        because the decorator has already marshalled it.
 
         The values come from the signal rather than a fresh read, so this costs nothing
         and cannot disagree with the move that prompted it. That is the whole point:
@@ -2374,7 +2374,7 @@ class FMOverviewWidget(QWidget):
         for signal, slot in (
             (self.fm.acquisition_progress_signal, self._on_progress),
             (self.microscope.stage_position_changed, self._on_stage_signal),
-            (self.fm.objective.position_changed, self._on_objective_signal),
+            (self.fm.objective.position_changed, self._on_objective_moved),
             # Subscribed since FIB-441 and never in this list, though the comment above
             # has always claimed "without exception".
             (self.fm.acquiring_changed, self._on_fm_acquiring_signal),
