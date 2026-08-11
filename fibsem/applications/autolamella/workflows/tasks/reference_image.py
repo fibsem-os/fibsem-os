@@ -59,4 +59,10 @@ class AcquireReferenceImageTask(AutoLamellaTask):
             base = f"ReferenceImage-{task_name}"
 
         filename = f"ref_{base}-{utils.current_timestamp_v3()}"
-        self._acquire_set_of_reference_images(image_settings=image_settings, filename=filename)
+        # phase="final" because this set is what the task exists to produce. The
+        # default rule reads the role off the filename and would file a named set
+        # under "other", which is right for a task grabbing an extra set mid-run and
+        # wrong here -- it hid these images from the review panel entirely (FIB-579).
+        self._acquire_set_of_reference_images(image_settings=image_settings,
+                                              filename=filename,
+                                              phase="final")

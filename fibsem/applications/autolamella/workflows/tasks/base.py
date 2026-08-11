@@ -505,8 +505,13 @@ class AutoLamellaTask(ABC):
     def _acquire_set_of_reference_images(self,
                                  image_settings: ImageSettings,
                                  filename: Optional[str] = None,
-                                 field_of_views: Optional[Tuple[float, ...]] = None) -> None:
-        """Acquire a set of reference images."""
+                                 field_of_views: Optional[Tuple[float, ...]] = None,
+                                 phase: Optional[str] = None) -> None:
+        """Acquire a set of reference images.
+
+        `phase` names the role the images are recorded under; see
+        :meth:`_acquire_set_of_channels` for when to pass one.
+        """
         acquire_fib = self.config.reference_imaging.acquire_fib
         acquire_sem = self.config.reference_imaging.acquire_sem
         if field_of_views is None:
@@ -516,7 +521,8 @@ class AutoLamellaTask(ABC):
                                                 field_of_views=field_of_views,
                                                 filename=filename,
                                                 acquire_sem=acquire_sem,
-                                                acquire_fib=acquire_fib)
+                                                acquire_fib=acquire_fib,
+                                                phase=phase)
 
     def _record_output(self, role: str, image: Optional[Union[FibsemImage, "FluorescenceImage"]]) -> None:
         """Record where an acquired image was written, under the given role.
@@ -573,14 +579,23 @@ class AutoLamellaTask(ABC):
                                  field_of_views: Optional[Tuple[float, ...]] = None,
                                  filename: Optional[str] = None,
                                  acquire_sem: bool = True,
-                                 acquire_fib: bool = True) -> None:
-        """Acquire a set of images for each sem/fib channel at given field of views."""
+                                 acquire_fib: bool = True,
+                                 phase: Optional[str] = None) -> None:
+        """Acquire a set of images for each sem/fib channel at given field of views.
+
+        `phase` is the role the images are recorded under, and defaults to reading it
+        off the filename. Pass it when a task names its own files but the set *is* the
+        task's reference set rather than an extra one -- AcquireReferenceImageTask
+        timestamps its filenames, so the default rule filed its only product under
+        "other" and the review panel, which asks for "final", never saw it (FIB-579).
+        """
 
         if field_of_views is None:
             field_of_views = (fcfg.REFERENCE_HFW_HIGH, fcfg.REFERENCE_HFW_SUPER)
         # only the default filename is the conventional final reference set; see
         # _acquire_channels for why one-off acquisitions are recorded separately.
-        phase = "final" if filename is None else "other"
+        if phase is None:
+            phase = "final" if filename is None else "other"
         if filename is None:
             filename = f"ref_{self.task_name}_final"
 
