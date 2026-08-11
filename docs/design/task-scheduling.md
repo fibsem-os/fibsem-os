@@ -10,7 +10,7 @@ immediately.
   `to_dict`/`from_dict`. `AutoLamellaWorkflowConfig.get_scheduled_at(task_name)`
   looks it up by name.
 - **Editor UI** — the task editor dialog (`WorkflowTaskEditorWidget`,
-  `fibsem/ui/widgets/workflow_task_editor_widget.py`) has a *Properties* panel with a
+  `fibsem/applications/autolamella/ui/workflow_task_editor_widget.py`) has a *Properties* panel with a
   "Schedule start time" checkbox + a `QDateTimeEdit` (12-hour AM/PM, up/down step
   arrows, no calendar popup). The picker is bounded to **now → now + 2 days**
   (`_MAX_SCHEDULE_DAYS_AHEAD`); a live hint shows how far ahead the time is

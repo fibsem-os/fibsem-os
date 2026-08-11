@@ -5,7 +5,7 @@ Exercises the task editor's PROPERTIES (optional/required), SCHEDULING
 edited AutoLamellaTaskDescription whenever Apply is clicked.
 
 Run directly:
-    python fibsem/ui/widgets/tests/test_workflow_task_editor_widget.py
+    python fibsem/applications/autolamella/ui/tests/test_workflow_task_editor_widget.py
 """
 import sys
 from datetime import datetime, timedelta
@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
-from fibsem.ui.widgets.workflow_task_editor_widget import WorkflowTaskEditorWidget
+from fibsem.applications.autolamella.ui.workflow_task_editor_widget import WorkflowTaskEditorWidget
 
 # The other tasks in the workflow — offered as selectable requirements.
 AVAILABLE_TASKS = ["Setup", "MillRough", "MillPolishing", "Sharpen"]

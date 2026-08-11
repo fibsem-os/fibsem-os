@@ -46,7 +46,7 @@ from fibsem.applications.autolamella.ui.autolamella_fluorescence_overview_tab im
 )
 from fibsem.applications.autolamella.workflows.tasks.queue import QueueOp, QueueResult
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
-from fibsem.ui import FibsemMinimapWidget
+from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
 from fibsem.ui.qt.gc import install_main_thread_gc
 from fibsem.ui.stylesheets import (
     PROGRESS_BAR_STYLESHEET,
@@ -71,13 +71,13 @@ from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor impo
 from fibsem.applications.autolamella.ui.autolamella_task_config_editor import (
     AutoLamellaProtocolTaskConfigEditor,
 )
-from fibsem.ui.widgets.lamella_card_widget import LamellaCardContainer
-from fibsem.ui.widgets.lamella_task_image_widget import LamellaTaskImageWidget
+from fibsem.applications.autolamella.ui.lamella_card_widget import LamellaCardContainer
+from fibsem.applications.autolamella.ui.lamella_task_image_widget import LamellaTaskImageWidget
 from fibsem.structures import BeamType
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
-from fibsem.ui.widgets.lamella_workflow_widget import LamellaWorkflowWidget
+from fibsem.applications.autolamella.ui.lamella_workflow_widget import LamellaWorkflowWidget
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
-from fibsem.ui.widgets.workflow_timeline_widget import WorkflowProgressWidget
+from fibsem.applications.autolamella.ui.workflow_timeline_widget import WorkflowProgressWidget
 from fibsem.utils import format_duration
 from fibsem.ui.tokens import (
     SURFACE_COLOR,

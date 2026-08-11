@@ -22,7 +22,7 @@ from fibsem.applications.autolamella.structures import (
     Lamella,
 )
 from fibsem.ui.stylesheets import NAPARI_STYLE
-from fibsem.ui.widgets.lamella_workflow_widget import LamellaWorkflowWidget
+from fibsem.applications.autolamella.ui.lamella_workflow_widget import LamellaWorkflowWidget
 
 # ── sample data ──────────────────────────────────────────────────────────────
 

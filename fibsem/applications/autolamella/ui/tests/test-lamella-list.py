@@ -21,7 +21,7 @@ from fibsem.applications.autolamella.structures import (
     DefectType,
     Lamella,
 )
-from fibsem.ui.widgets.lamella_list_widget import LamellaListWidget
+from fibsem.applications.autolamella.ui.lamella_list_widget import LamellaListWidget
 
 
 def _make_lamella(

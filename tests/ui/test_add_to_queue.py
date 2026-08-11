@@ -30,7 +30,7 @@ from fibsem.applications.autolamella.structures import (
     Lamella,
 )
 from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
-from fibsem.ui.widgets.workflow_timeline_widget import WorkflowProgressWidget
+from fibsem.applications.autolamella.ui.workflow_timeline_widget import WorkflowProgressWidget
 
 TASKS = ["Trench", "Undercut", "Polishing"]
 

@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (
 from fibsem.ui.icon import fibsem_icon
 
 from fibsem.applications.autolamella.structures import DefectState, DefectType, Lamella
-from fibsem.ui.widgets.lamella_list_widget import _defect_icon, _status_text
+from fibsem.applications.autolamella.ui.lamella_list_widget import _defect_icon, _status_text
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import (
     NEUTRAL_200,

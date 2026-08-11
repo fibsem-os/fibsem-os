@@ -33,7 +33,7 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (
 from fibsem.applications.autolamella.ui.autolamella_global_task_editor_dialog import AutoLamellaGlobalTaskEditDialog
 from fibsem.ui.widgets.canvas.quad_view import LamellaEditorView, MicroscopeViewController
 from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWidget
-from fibsem.ui.widgets.lamella_default_config_widget import LamellaDefaultConfigWidget
+from fibsem.applications.autolamella.ui.lamella_default_config_widget import LamellaDefaultConfigWidget
 from fibsem.ui.widgets.custom_widgets import (
     TaskNameListWidget,
     ValueComboBox,

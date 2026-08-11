@@ -21,7 +21,7 @@ from fibsem.applications.autolamella.structures import (
     DefectType,
     Lamella,
 )
-from fibsem.ui.widgets.lamella_card_widget import LamellaCardContainer
+from fibsem.applications.autolamella.ui.lamella_card_widget import LamellaCardContainer
 
 
 def _make_lamella(number, petname, last_task="", in_progress="", defect_state=DefectType.NONE):

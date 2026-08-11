@@ -4,9 +4,9 @@ Opens the review panel for one lamella of a real experiment, without launching t
 whole application. Defaults to the most recent experiment on this machine that has
 any completed tasks.
 
-    python fibsem/ui/widgets/tests/test_lamella_task_image_widget.py
-    python fibsem/ui/widgets/tests/test_lamella_task_image_widget.py <experiment.yaml>
-    python fibsem/ui/widgets/tests/test_lamella_task_image_widget.py --lamella 02-awake-stork
+    python fibsem/applications/autolamella/ui/tests/test_lamella_task_image_widget.py
+    python fibsem/applications/autolamella/ui/tests/test_lamella_task_image_widget.py <experiment.yaml>
+    python fibsem/applications/autolamella/ui/tests/test_lamella_task_image_widget.py --lamella 02-awake-stork
 
 Also reports, per task, whether its images were found through the paths the run
 recorded or through the filename convention -- the two routes the panel supports.
@@ -26,7 +26,7 @@ from fibsem.applications.autolamella.task_outputs import (
     final_reference_images,
     fluorescence_images,
 )
-from fibsem.ui.widgets.lamella_task_image_widget import LamellaTaskImageWidget
+from fibsem.applications.autolamella.ui.lamella_task_image_widget import LamellaTaskImageWidget
 
 LOG_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),

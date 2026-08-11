@@ -33,7 +33,7 @@ from fibsem.applications.autolamella.poses import (
 from fibsem.ui import notification_service
 from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
 from fibsem.ui.utils import message_box_ui
-from fibsem.ui.widgets.lamella_name_list_widget import LamellaNameListWidget
+from fibsem.applications.autolamella.ui.lamella_name_list_widget import LamellaNameListWidget
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.applications.autolamella.structures import Lamella

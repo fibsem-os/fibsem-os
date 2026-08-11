@@ -22,10 +22,10 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
-from fibsem.ui.widgets.lamella_list_widget import LamellaListWidget
-from fibsem.ui.widgets.workflow_config_widget import WorkflowConfigWidget
-from fibsem.ui.widgets.workflow_info_widget import WorkflowInfoWidget
-from fibsem.ui.widgets.workflow_task_editor_widget import WorkflowTaskEditorWidget
+from fibsem.applications.autolamella.ui.lamella_list_widget import LamellaListWidget
+from fibsem.applications.autolamella.ui.workflow_config_widget import WorkflowConfigWidget
+from fibsem.applications.autolamella.ui.workflow_info_widget import WorkflowInfoWidget
+from fibsem.applications.autolamella.ui.workflow_task_editor_widget import WorkflowTaskEditorWidget
 from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
 )

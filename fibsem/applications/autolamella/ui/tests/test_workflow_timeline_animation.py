@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
 from fibsem.ui import stylesheets
-from fibsem.ui.widgets.workflow_timeline_widget import (
+from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     StepStatus,
     WorkflowProgressWidget,
 )
