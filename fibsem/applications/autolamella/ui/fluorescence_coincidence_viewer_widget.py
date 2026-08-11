@@ -815,7 +815,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
         self.milling_viewer_widget = MillingTaskViewerWidget(
             microscope=self.microscope,
-            viewer=self.viewer,
             milling_task_config=milling_task_config,
             milling_enabled=False,
             parent=self,

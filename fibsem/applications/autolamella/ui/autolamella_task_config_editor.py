@@ -240,10 +240,9 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self.task_parameters_config_widget = AutoLamellaTaskParametersConfigWidget(parent=self)
         self.ref_image_params_widget = ReferenceImageParametersWidget(parent=self)
 
-        # Milling task editor (Column 3 — viewer=None, config panels only)
+        # Milling task editor (Column 3 — no controller, config panels only)
         self.milling_task_editor = MillingTaskViewerWidget(
             microscope=self.microscope,  # type: ignore[arg-type]
-            viewer=None,
             milling_enabled=False,
             parent=self,
         )

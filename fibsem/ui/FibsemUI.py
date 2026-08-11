@@ -135,7 +135,6 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
             self.milling_widget = MillingTaskViewerWidget(
                 microscope=self.microscope,
                 parent=self,
-                viewer=self.viewer,
                 image_widget=self.image_widget,  # lets it resolve the quad controller
             )
             if self.microscope.system.manipulator.enabled:
