@@ -98,6 +98,19 @@ class TestTheContractDownstreamInherited:
 
         assert downsample(small, 512) is small
 
+    def test_a_reduced_image_is_a_copy_rather_than_a_view(self):
+        """The cost the caller is paying, stated so it cannot be mistaken for a saving.
+
+        `arr[::n, ::n]` was free and shared the source's buffer, which also kept the
+        source alive. That sounds like this change reduces memory, and on the canvas it
+        does not: matplotlib copies at `imshow`, so the source was released either way.
+        Measured with weakrefs over twenty placed tiles, neither reduction leaves a
+        single source alive. What changes here is only that the copy happens earlier.
+        """
+        arr = np.zeros((1024, 1024), np.uint8)
+
+        assert not np.shares_memory(downsample(arr, 512), arr)
+
     @pytest.mark.parametrize("dtype", ["uint8", "uint16", "int16", "float32", "float64", "int32"])
     @pytest.mark.parametrize("shape", [(1024, 1024), (1024, 1024, 3), (1024, 1024, 4)])
     def test_dtype_and_channels_are_preserved(self, dtype, shape):

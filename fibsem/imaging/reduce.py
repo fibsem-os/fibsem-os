@@ -9,9 +9,11 @@ the picture is incomplete. For fluorescence that is the worst available failure 
 the small bright thing being what someone is looking for.
 
 Averaging over each block instead attenuates such a feature rather than removing it, and
-holds it steady while panning. It costs an allocation where sampling returned a view --
-though a strided view is not the saving it appears to be, since it keeps its parent's
-whole buffer alive behind it.
+holds it steady while panning. It costs an allocation where sampling returned a view.
+That is a real cost and not a hidden saving: a strided view does keep its parent's whole
+buffer alive, but matplotlib copies at ``imshow`` anyway, so on the canvas path the
+source was already released either way. Measured with weakrefs over twenty placed tiles,
+neither reduction leaves a single source alive.
 
 Kept out of the UI package so it is usable, and testable, without Qt.
 """
