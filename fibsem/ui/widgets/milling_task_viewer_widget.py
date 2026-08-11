@@ -4,8 +4,6 @@ import copy
 import logging
 from typing import Callable, List, Optional, TYPE_CHECKING
 
-import napari
-from napari.layers import Image as NapariImageLayer
 from PyQt5.QtCore import QTimer, pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
@@ -16,14 +14,11 @@ from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns2 import LinePattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import BeamType, FibsemImage, Point
-from fibsem.ui.napari.patterns import (
-    draw_milling_patterns_in_napari,
-    draw_milling_fov_rect,
-    is_pattern_placement_valid,
-    MILLING_PATTERN_LAYER_NAME,
-    MILLING_FOV_LAYER_NAME,
-)
-from fibsem.ui.napari.utilities import is_position_inside_layer
+# `is_pattern_placement_valid` is pure geometry despite living under `fibsem/ui/napari/`
+# — it validates a pattern against the image bounds and never touches a Viewer or Layer.
+# It is the last thing keeping this module coupled to that package, and it moves out with
+# the geometry extraction tracked on FIB-407 §1.
+from fibsem.ui.napari.patterns import is_pattern_placement_valid
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
 from fibsem.ui.widgets.milling_task_config_widget2 import MillingTaskConfigWidget2
 from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
@@ -44,18 +39,22 @@ def _apply_diff_to_pattern(pattern, diff: Point) -> None:
 
 
 class MillingTaskViewerWidget(QWidget):
-    """MillingTaskConfigWidget2 + napari pattern visualization + milling execution.
+    """MillingTaskConfigWidget2 + canvas pattern visualization + milling execution.
 
     Layout (top → bottom):
         MillingTaskConfigWidget2   — collapsible config panels (Task / Alignment / Acquisition / Stages)
         FibsemMillingWidget2       — Run / Pause / Stop + progress bars (hidden when milling_enabled=False)
 
-    Pattern visualization is driven by ``settings_changed`` — whenever the config changes the
-    milling pattern Shapes layers in the napari viewer are redrawn.  A FIB image layer must be
-    available (injected via ``set_fib_image()`` or discovered from the parent's ``image_widget``).
+    Pattern visualization is driven by ``settings_changed``: whenever the config changes the
+    stages are pushed to the FIB canvas through the reducer as a ``MillingSpec``. This needs
+    a :class:`MicroscopeViewController` — supplied directly via :meth:`set_controller`, or
+    discovered from an injected ``image_widget`` — and a FIB image, from
+    :meth:`set_fib_image` or the same image widget. Without a controller the widget is a
+    config editor with no display, which is how the coincidence viewer uses it (it draws
+    its own overlay on its own canvas).
 
-    Right-click on the FIB image layer shows a context menu to move patterns
-    and any extra actions injected by the parent widget.
+    Right-click on the FIB canvas shows a context menu to move patterns and any extra
+    actions injected by the parent widget.
     """
 
     settings_changed = pyqtSignal(FibsemMillingTaskConfig)
@@ -63,7 +62,6 @@ class MillingTaskViewerWidget(QWidget):
     def __init__(
         self,
         microscope: FibsemMicroscope,
-        viewer: Optional[napari.Viewer] = None,
         milling_task_config: Optional[FibsemMillingTaskConfig] = None,
         milling_enabled: bool = True,
         image_widget: Optional["FibsemImageSettingsWidget"] = None,
@@ -71,29 +69,23 @@ class MillingTaskViewerWidget(QWidget):
     ) -> None:
         super().__init__(parent)
         self.microscope = microscope
-        self.viewer: Optional[napari.Viewer] = viewer or napari.current_viewer()
         self._milling_enabled = milling_enabled
         self._image_widget = image_widget
         self._show_alignment_area: bool = True
         self.parent_widget = parent
 
         self._fib_image: Optional[FibsemImage] = None
-        self._fib_image_layer: Optional[NapariImageLayer] = None
-        self._pattern_layer_names: List[str] = []
         # Quad-view path (set in _init_canvas_overlay when a controller exists)
         self._controller = None
         self._fib_canvas = None
         self._background_milling_stages: List[FibsemMillingStage] = []
         self._patterns_visible = True  # eye-toggle state (mirrored onto MillingSpec.visible)
-        self._pattern_update_inflight = False
         self._pattern_update_pending = False
         self._settings_emit_pending: bool = False
         self._pending_settings: Optional[FibsemMillingTaskConfig] = None
         self._right_click_menu_action_provider: Optional[
             Callable[[ContextMenuConfig, Point], None]
         ] = None
-
-        self._right_click_callback = None
 
         self._setup_ui(milling_task_config)
         self._connect_signals()
@@ -148,11 +140,9 @@ class MillingTaskViewerWidget(QWidget):
         if iw is not None:
             try:
                 self._fib_image = iw.ib_image
-                # No layer pickup: the image widget is canvas-only now, so the hosts that
-                # inject an image_widget always take the controller path below. Callers
-                # still on napari (the coincidence viewer) supply their own layer through
-                # set_fib_image(). NOTE both reads used to sit in this try together — an
-                # AttributeError on the layer would have silently skipped the connect.
+                # NOTE this connect sits inside the try with a load-bearing statement
+                # after it — an exception on the line above silently skips both it and
+                # the wiring below, and patterns quietly stop following the live image.
                 iw.viewer_update_signal.connect(self._on_viewer_image_updated)
             except Exception:
                 pass
@@ -165,9 +155,10 @@ class MillingTaskViewerWidget(QWidget):
         Milling patterns and the read-only alignment-area display are reducer-owned
         (pushed via ``controller.set_overlay`` / ``set_alignment_display``); this just
         stores the controller + FIB canvas. Only the main microscope tab injects an
-        image_widget tied to the controller, so only it takes this path. Every other
-        caller — including the napari-based Lamella Editor — leaves ``_controller``
-        None and keeps the existing napari pattern path.
+        image_widget tied to the controller, so only it takes this path. Callers with no
+        image widget attach one themselves via :meth:`set_controller` (the Lamella
+        Editor), or leave ``_controller`` None and display nothing (the coincidence
+        viewer, which renders its own overlay).
         """
         self._controller = None
         self._fib_canvas = None
@@ -191,19 +182,10 @@ class MillingTaskViewerWidget(QWidget):
         """Directly attach a :class:`MicroscopeViewController` for callers that have no
         ``image_widget`` to discover one through (e.g. the Lamella Editor).
 
-        Switches this widget onto the canvas pattern path *additively* — patterns and
-        the read-only alignment display go through the reducer, and right-click
-        reposition moves to the FIB canvas signal. The napari path is left intact for
-        any caller that never sets a controller.
+        Switches this widget onto the canvas pattern path — patterns and the read-only
+        alignment display go through the reducer, and right-click reposition is driven by
+        the FIB canvas signal.
         """
-        # tear down the napari right-click callback if it was wired at construction
-        if self.viewer is not None and self._right_click_callback is not None:
-            try:
-                self.viewer.mouse_drag_callbacks.remove(self._right_click_callback)
-            except ValueError:
-                pass
-            self._right_click_callback = None
-
         self._controller = controller
         self._fib_canvas = (
             controller.get_canvas(BeamType.ION) if controller is not None else None
@@ -226,11 +208,6 @@ class MillingTaskViewerWidget(QWidget):
                 self._controller.set_alignment_display(BeamType.ION, None, False)
             except Exception:
                 pass
-        if self.viewer is not None and self._right_click_callback is not None:
-            try:
-                self.viewer.mouse_drag_callbacks.remove(self._right_click_callback)
-            except ValueError:
-                pass
         super().closeEvent(event)
 
     # ------------------------------------------------------------------
@@ -249,49 +226,16 @@ class MillingTaskViewerWidget(QWidget):
         self._right_click_menu_action_provider = action_provider
 
     def _register_right_click_callback(self) -> None:
-        if self._controller is not None:
-            # quad-view: reposition via the FIB canvas right-click signal
-            self._fib_canvas.canvas_right_clicked.connect(self._on_canvas_right_click)
+        if self._controller is None:
             return
-        if self.viewer is None:
-            return
-        if self._right_click_callback is not None:
-            try:
-                self.viewer.mouse_drag_callbacks.remove(self._right_click_callback)
-            except ValueError:
-                pass
-        self._right_click_callback = self._on_right_click
-        self.viewer.mouse_drag_callbacks.append(self._right_click_callback)
-
-    def _on_right_click(self, viewer: napari.Viewer, event) -> None:
-        if event.button != 2 or event.type != "mouse_press":
-            return
-        if self._fib_image_layer is None or self._fib_image is None:
-            return
-        if self._fib_image.metadata is None:
-            return
-        stages = self.config_widget.milling_stages_widget.get_enabled_stages()
-        if not stages:
-            return
-        if not is_position_inside_layer(event.position, self._fib_image_layer):
-            return
-
-        event.handled = True
-
-        coords = self._fib_image_layer.world_to_data(event.position)
-        point_clicked = conversions.image_to_microscope_image_coordinates(
-            coord=Point(x=coords[1], y=coords[0]),
-            image=self._fib_image.data,
-            pixelsize=self._fib_image.metadata.pixel_size.x,
-        )
-
-        self._show_reposition_menu(point_clicked, stages)
+        # quad-view: reposition via the FIB canvas right-click signal
+        self._fib_canvas.canvas_right_clicked.connect(self._on_canvas_right_click)
 
     def _on_canvas_right_click(self, x: float, y: float, modifiers) -> None:
-        """Quad-view FIB canvas right-click → pattern reposition menu.
+        """FIB canvas right-click → pattern reposition menu.
 
-        Mirrors ``_on_right_click`` but takes pixel coords straight from the canvas
-        signal (no napari ``world_to_data`` / layer hit-test). Reuses ``_move_patterns``.
+        Takes pixel coords straight from the canvas signal and reuses
+        ``_move_patterns``.
         """
         if self._fib_image is None or self._fib_image.metadata is None:
             return
@@ -311,12 +255,7 @@ class MillingTaskViewerWidget(QWidget):
         self._show_reposition_menu(point_clicked, stages)
 
     def _show_reposition_menu(self, point_clicked: Point, stages: list) -> None:
-        """Build + show the pattern-reposition context menu at the cursor.
-
-        Shared by the napari (:meth:`_on_right_click`) and canvas
-        (:meth:`_on_canvas_right_click`) entry points, which differ only in how
-        they derive ``point_clicked``.
-        """
+        """Build + show the pattern-reposition context menu at the cursor."""
         selected = self.config_widget.milling_stages_widget._list._selected_stage
         # Fall back to first enabled stage if selected stage is disabled
         if selected is None or not selected.enabled:
@@ -383,19 +322,16 @@ class MillingTaskViewerWidget(QWidget):
         self._on_settings_changed(self.config_widget.get_settings())
 
     # ------------------------------------------------------------------
-    # Viewer / pattern display
+    # Pattern display
     # ------------------------------------------------------------------
 
-    def set_fib_image(
-        self, image: FibsemImage, image_layer: Optional[NapariImageLayer]
-    ) -> None:
-        """Inject a FIB image and its napari layer for pattern display."""
+    def set_fib_image(self, image: FibsemImage) -> None:
+        """Inject the FIB image that patterns are drawn against."""
         self._fib_image = image
-        self._fib_image_layer = image_layer
         self._schedule_pattern_update()
 
     def set_alignment_area_visible(self, visible: bool) -> None:
-        """Show/hide the alignment area rectangle in the viewer."""
+        """Show/hide the alignment area rectangle on the canvas."""
         self._show_alignment_area = visible
         self._schedule_pattern_update()
 
@@ -413,60 +349,17 @@ class MillingTaskViewerWidget(QWidget):
             logging.error(f"MillingTaskViewerWidget: viewer image update error: {e}")
 
     def _update_pattern_display(self) -> None:
-        if self._pattern_update_inflight:
-            return
-        self._pattern_update_pending = False
+        """Debounced entry point: render the current stages onto the FIB canvas.
 
-        # quad-view canvas path: render on the FIB canvas overlay, skip napari
+        Clears the pending flag first, so a change arriving while the reducer call is in
+        flight schedules a fresh pass rather than being swallowed.
+        """
+        self._pattern_update_pending = False
         if self._controller is not None:
             self._update_canvas_patterns()
-            return
-
-        if self.viewer is None or self._fib_image_layer is None:
-            return
-        if self._fib_image is None or self._fib_image.metadata is None:
-            return
-
-        self._pattern_update_inflight = True
-        config = self.config_widget.get_settings()
-        stages = config.enabled_stages
-
-        if not stages:
-            self._clear_pattern_display()
-            self._pattern_update_inflight = False
-            return
-
-        pixelsize = self._fib_image.metadata.pixel_size.x
-
-        alignment_area = None
-        if config.alignment.enabled and self._show_alignment_area:
-            alignment_area = config.alignment.rect
-        try:
-            self._pattern_layer_names = draw_milling_patterns_in_napari(
-                viewer=self.viewer,
-                image_layer=self._fib_image_layer,
-                milling_stages=stages,
-                pixelsize=pixelsize,
-                draw_crosshair=True,
-                background_milling_stages=self._background_milling_stages,
-                alignment_area=alignment_area,
-            )
-            draw_milling_fov_rect(
-                viewer=self.viewer,
-                image_layer=self._fib_image_layer,
-                field_of_view=config.field_of_view,
-                pixelsize=pixelsize,
-            )
-        except Exception as e:
-            logging.error(f"MillingTaskViewerWidget: pattern display error: {e}")
-        finally:
-            self._pattern_update_inflight = False
-            if self._pattern_update_pending:
-                self._schedule_pattern_update()
-
 
     def _update_canvas_patterns(self) -> None:
-        """Push the current enabled stages to the FIB canvas via the reducer (quad-view)."""
+        """Push the current enabled stages to the FIB canvas via the reducer."""
         if self._controller is None:
             return
         if self._fib_image is None or self._fib_image.metadata is None:
@@ -475,7 +368,7 @@ class MillingTaskViewerWidget(QWidget):
         stages = config.enabled_stages
         if not stages:
             self._controller.remove_overlay(BeamType.ION, "milling")
-            self._update_canvas_alignment(None)  # no patterns → no alignment (match napari)
+            self._update_canvas_alignment(None)  # no patterns → no alignment
             return
         self._update_canvas_alignment(config)
         selected = self.config_widget.milling_stages_widget._list._selected_stage
@@ -493,8 +386,8 @@ class MillingTaskViewerWidget(QWidget):
     def _update_canvas_alignment(self, config) -> None:
         """Push the read-only alignment-area display to the controller (quad-view).
 
-        Mirrors napari: only shown alongside patterns (i.e. when stages exist);
-        pass ``config=None`` to hide. Yields to an active edit in the reducer.
+        Only shown alongside patterns (i.e. when stages exist); pass ``config=None`` to
+        hide. Yields to an active edit in the reducer.
         """
         if self._controller is None:
             return
@@ -505,20 +398,6 @@ class MillingTaskViewerWidget(QWidget):
         )
         rect = config.alignment.rect if show else None
         self._controller.set_alignment_display(BeamType.ION, rect, show)
-
-    def _clear_pattern_display(self) -> None:
-        """Remove milling pattern layers from the viewer."""
-        if self.viewer is None:
-            return
-        try:
-            for name in self._pattern_layer_names:
-                if name in self.viewer.layers:
-                    self.viewer.layers.remove(name)  # type: ignore
-            if MILLING_FOV_LAYER_NAME in self.viewer.layers:
-                self.viewer.layers.remove(MILLING_FOV_LAYER_NAME)  # type: ignore
-        except Exception as e:
-            logging.debug(f"MillingTaskViewerWidget: error removing layers: {e}")
-        self._pattern_layer_names = []
 
     # ------------------------------------------------------------------
     # Slots
@@ -549,13 +428,8 @@ class MillingTaskViewerWidget(QWidget):
     def _on_eye_toggled(self, visible: bool) -> None:
         self._patterns_visible = visible
         if self._controller is not None:
-            # quad-view: toggle the milling overlay's visibility through the reducer
+            # toggle the milling overlay's visibility through the reducer
             self._controller.set_overlay_visible(BeamType.ION, "milling", visible)
-            return
-        if self.viewer is None:
-            return
-        if MILLING_PATTERN_LAYER_NAME in self.viewer.layers:
-            self.viewer.layers[MILLING_PATTERN_LAYER_NAME].visible = visible
 
     # ------------------------------------------------------------------
     # Public API — required by FibsemMillingWidget2

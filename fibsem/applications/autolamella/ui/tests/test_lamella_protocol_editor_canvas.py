@@ -315,11 +315,11 @@ def _row_for(list_widget, name):
 # --- the shared widget must not regress for the other tabs ---------------------
 
 
-def test_milling_widget_keeps_its_napari_path_without_a_controller():
-    """set_controller is opt-in. Every caller that doesn't call it — the Microscope tab,
-    both task-config editors, the coincidence viewer — must be untouched by this phase."""
+def test_milling_widget_has_no_display_without_a_controller():
+    """set_controller is opt-in. Callers that never call it — both task-config editors and
+    the coincidence viewer — get a config editor with no pattern display."""
     microscope, _ = _session()
-    w = MillingTaskViewerWidget(microscope=microscope, viewer=None, milling_enabled=False)
+    w = MillingTaskViewerWidget(microscope=microscope, milling_enabled=False)
     assert w._controller is None, "widget claimed a controller it was never given"
     assert w._fib_canvas is None
 
@@ -327,7 +327,7 @@ def test_milling_widget_keeps_its_napari_path_without_a_controller():
 def test_milling_widget_switches_to_the_canvas_when_given_a_controller():
     microscope, _ = _session()
     controller = MicroscopeViewController(view=LamellaEditorView())
-    w = MillingTaskViewerWidget(microscope=microscope, viewer=None, milling_enabled=False)
+    w = MillingTaskViewerWidget(microscope=microscope, milling_enabled=False)
     w.set_controller(controller)
     assert w._controller is controller
     assert w._fib_canvas is controller.get_canvas(BeamType.ION)
@@ -344,22 +344,25 @@ class _FakeImageWidget(QWidget):
         self.ib_image = image
 
 
-def test_napari_callers_supply_their_own_fib_image_layer():
-    """The napari pattern path is gated on ``_fib_image_layer``, and ``set_fib_image()``
-    is now its *only* source. It used to also be picked up from ``iw.ib_layer``, but the
-    image widget dropped its layers when the Microscope tab moved to the canvas; the
-    remaining napari caller (the coincidence viewer) has always used set_fib_image().
+def test_a_controller_less_widget_takes_an_image_and_draws_nothing():
+    """The coincidence viewer holds this widget without ever giving it a controller: it
+    renders its own overlay on its own canvas and only wants the config panels.
+
+    So a controller-less pattern update must be a quiet no-op, not a raise. It reaches
+    here through the debounce, which sits behind a ``QTimer.singleShot`` — an exception
+    would surface from the Qt event loop rather than the caller, and under PyQt5 that
+    aborts the process (FIB-329) rather than failing a test.
     """
     microscope, _ = _session()
     image = FibsemImage.generate_blank_image(resolution=_RESOLUTION, hfw=_HFW)
-    sentinel = object()  # a napari layer, only ever passed through
 
-    w = MillingTaskViewerWidget(microscope=microscope, viewer=None, milling_enabled=False)
-    w.set_fib_image(image, sentinel)
+    w = MillingTaskViewerWidget(microscope=microscope, milling_enabled=False)
+    w.set_fib_image(image)
     assert w._fib_image is image
-    assert w._fib_image_layer is sentinel, (
-        "napari callers lost their image layer — patterns and the reposition menu "
-        "are both gated on it"
+
+    w._update_pattern_display()  # must not raise
+    assert w._pattern_update_pending is False, (
+        "the debounce flag was left set — every later update would be swallowed"
     )
 
 
@@ -375,7 +378,7 @@ def test_a_new_frame_refreshes_the_image_and_reschedules_the_patterns():
     iw = _FakeImageWidget(image)
 
     w = MillingTaskViewerWidget(
-        microscope=microscope, viewer=None, image_widget=iw, milling_enabled=False
+        microscope=microscope, image_widget=iw, milling_enabled=False
     )
     assert w._fib_image is image
 
@@ -393,7 +396,7 @@ def test_a_new_frame_refreshes_the_image_and_reschedules_the_patterns():
 def test_eye_toggle_routes_through_the_reducer_when_wired():
     microscope, _ = _session()
     controller = MicroscopeViewController(view=LamellaEditorView())
-    w = MillingTaskViewerWidget(microscope=microscope, viewer=None, milling_enabled=False)
+    w = MillingTaskViewerWidget(microscope=microscope, milling_enabled=False)
     w.set_controller(controller)
     w._on_eye_toggled(False)
     assert w._patterns_visible is False

@@ -170,7 +170,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         self.milling_task_editor = MillingTaskViewerWidget(
             microscope=self.microscope,
-            viewer=None,
             milling_enabled=False,
             parent=self,
         )
@@ -655,8 +654,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         if milling_task_config:
             self._current_milling_key = next(iter(milling_task_config))
-            # image_layer is unused on the canvas path (patterns render via the reducer)
-            self.milling_task_editor.set_fib_image(self.image, None)
+            self.milling_task_editor.set_fib_image(self.image)
             self.milling_task_editor.set_config(
                 milling_task_config[self._current_milling_key]
             )

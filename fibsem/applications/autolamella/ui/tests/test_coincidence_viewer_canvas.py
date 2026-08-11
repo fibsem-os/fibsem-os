@@ -61,6 +61,32 @@ def _fm_stack(channels: int = 2, z: int = 3, h: int = 512, w: int = 768) -> _Fak
     return _FakeFmImage((rng.random((channels, z, h, w)) * 4095).astype(np.uint16))
 
 
+def _coincidence_viewer():
+    """Build the whole viewer on a simulated FM microscope.
+
+    The FM configuration is not incidental: ``_connect_signals`` returns immediately when
+    ``microscope.fm is None``, so on a plain demo session the viewer constructs with none
+    of its signals wired and every interaction test would pass without testing anything.
+    """
+    import tempfile
+
+    from fibsem import config as cfg
+    from fibsem import utils
+    from fibsem.applications.autolamella.structures import Experiment
+    from fibsem.applications.autolamella.ui.fluorescence_coincidence_viewer_widget import (
+        FluorescenceCoincidenceViewerWidget,
+    )
+
+    microscope, _ = utils.setup_session(
+        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+    )
+    assert microscope.fm is not None, "expected an FM on the simulated Arctis"
+    return FluorescenceCoincidenceViewerWidget(
+        microscope=microscope,
+        experiment=Experiment(path=tempfile.mkdtemp(), name="coincidence-canvas-test"),
+    )
+
+
 # --- the regression this issue exists for --------------------------------------
 
 
@@ -296,6 +322,69 @@ def test_clear_resets_both_quadrants():
     fm.clear()
     assert fm._image is None and fm._data is None and fm._img_shape is None
     assert fm.canvas._display_base is None
+
+
+def test_the_viewer_builds_and_its_milling_widget_draws_nothing_itself():
+    """The whole widget, not just the two quadrants — nothing else covered this.
+
+    The coincidence viewer holds a ``MillingTaskViewerWidget`` for its config panels only:
+    it renders the selected stage itself, as the yellow rect on ``fib_canvas``. It never
+    hands that widget a controller, so the widget must display nothing and must not raise
+    when a pattern update fires.
+
+    This used to be true by accident rather than design. The widget took a ``viewer``
+    argument that defaulted to ``napari.current_viewer()``, so passing ``None`` did not
+    mean "no viewer" — it latched whichever napari viewer happened to be open (the
+    minimap's) and appended a mouse callback to it. The napari draw stayed inert only
+    because ``_fib_image_layer`` was also never set. Two independent accidents; the
+    argument is gone now (FIB-407).
+    """
+    widget = _coincidence_viewer()
+    milling = widget.milling_viewer_widget
+
+    assert not hasattr(milling, "viewer"), (
+        "the milling widget grew a viewer back — napari.current_viewer() latches the "
+        "minimap's viewer when one is open"
+    )
+    assert milling._controller is None, "coincidence viewer must not attach a controller"
+
+    image = _fib_image()
+    widget.set_fib_image(image)
+    assert milling._fib_image is image, "the widget lost the frame patterns are placed against"
+
+    # Reaches here through a QTimer.singleShot in the app, where a raise would escape the
+    # Qt event loop and abort the process under PyQt5 (FIB-329) rather than fail a test.
+    milling._update_pattern_display()
+    assert milling._pattern_update_pending is False
+
+
+def test_dragging_the_fib_rect_still_repositions_the_pattern():
+    """The drag is how an operator positions a coincidence mill, and it is the one path
+    that runs *through* the milling widget rather than around it
+    (``_on_fib_rect_changed`` → ``MillingTaskViewerWidget._move_patterns``).
+
+    Note the FM-enabled configuration: ``_connect_signals`` returns at its first line
+    when ``microscope.fm is None``, so on a plain demo session the viewer wires up
+    *nothing* and a drag test would pass vacuously against any breakage.
+    """
+    widget = _coincidence_viewer()
+    milling = widget.milling_viewer_widget
+    widget.set_fib_image(_fib_image())
+
+    overlay = widget.fib_canvas.rect_overlay
+    assert overlay.receivers(overlay.rect_changed), "the rect drag is not wired to anything"
+
+    stages = milling.config_widget.milling_stages_widget.get_enabled_stages()
+    assert stages, "no enabled milling stage to reposition"
+    before = stages[0].pattern.point
+
+    overlay.set_rect(x0=470.0, y0=150.0, width=60.0, height=60.0)
+    overlay.rect_changed.emit(overlay.get_rect())
+
+    after = milling.config_widget.milling_stages_widget.get_enabled_stages()[0].pattern.point
+    assert (after.x, after.y) != (before.x, before.y), (
+        "dragging the FIB rect no longer moves the milling pattern"
+    )
 
 
 def _main() -> int:

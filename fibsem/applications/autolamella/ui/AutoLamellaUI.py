@@ -560,7 +560,6 @@ class AutoLamellaUI(QMainWindow):
             self.tabWidget.addTab(self.movement_widget, "Movement")
             self.milling_task_config_widget = MillingTaskViewerWidget(
                 microscope=self.microscope,
-                viewer=self.viewer,
                 image_widget=self.image_widget,
                 parent=self,
             )

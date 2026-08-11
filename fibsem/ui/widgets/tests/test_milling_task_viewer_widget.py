@@ -5,13 +5,14 @@ Run directly:
 """
 import sys
 
-import napari
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QPushButton,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -20,18 +21,14 @@ from fibsem import utils
 from fibsem.config import AUTOLAMELLA_TASK_PROTOCOL_PATH
 from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import FibsemImage
+from fibsem.structures import BeamType, FibsemImage
+from fibsem.ui.stylesheets import NAPARI_STYLE
+from fibsem.ui.widgets.canvas.quad_view import (
+    LamellaEditorView,
+    MicroscopeViewController,
+)
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 
-import warnings
-
-# Suppress a specific upstream Napari/NumPy warning from shapes miter computation.
-warnings.filterwarnings(
-    "ignore",
-    message=r"'where' used without 'out', expect unit?ialized memory in output\. If this is intentional, use out=None\.",
-    category=UserWarning,
-    module=r"napari\.layers\.shapes\._shapes_utils",
-)
 
 def _load_task_configs(path: str) -> dict:
     try:
@@ -46,38 +43,33 @@ def _load_task_configs(path: str) -> dict:
     return configs
 
 
-def _add_fib_image(viewer: napari.Viewer, hfw: float = 150e-6):
-    """Add a blank FIB image to the viewer and return (FibsemImage, napari layer)."""
+def _show_fib_image(controller: MicroscopeViewController, hfw: float = 150e-6):
+    """Push a blank FIB image onto the canvas and return it."""
     image = FibsemImage.generate_blank_image(hfw=hfw, random=True)
-    layer = viewer.add_image(
-        image.data,
-        name="FIB Image",
-        colormap="gray",
-        opacity=0.9,
-        blending="additive",
-    )
-    return image, layer
+    controller.set_image(BeamType.ION, image)
+    return image
 
 
 def main() -> None:
     app = QApplication.instance() or QApplication(sys.argv)
-    app.setStyle("Fusion")
+    app.setStyleSheet(NAPARI_STYLE)
 
     microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
 
     task_configs = _load_task_configs(AUTOLAMELLA_TASK_PROTOCOL_PATH)
     initial_config = next(iter(task_configs.values()), FibsemMillingTaskConfig())
 
-    # ── napari viewer ────────────────────────────────────────────────────
-    viewer = napari.Viewer(title="MillingTaskViewerWidget — test")
+    # ── canvas ───────────────────────────────────────────────────────────
+    # Patterns render through the reducer onto the FIB canvas, so the harness needs a
+    # controller — this is the same view the Lamella Editor drives (FIB-407).
+    view = LamellaEditorView()
+    controller = MicroscopeViewController(view=view)
+    view.show_beams()
 
-    # Add a blank FIB image so pattern display works from the start
-    fib_image, fib_layer = _add_fib_image(viewer, hfw=initial_config.field_of_view)
+    fib_image = _show_fib_image(controller, hfw=initial_config.field_of_view)
 
     # ── sidebar container ────────────────────────────────────────────────
     sidebar = QWidget()
-    sidebar.setStyleSheet("background: #2b2d31; color: #d1d2d4;")
-    sidebar.resize(480, 900)
     sidebar_layout = QVBoxLayout(sidebar)
     sidebar_layout.setContentsMargins(8, 8, 8, 8)
     sidebar_layout.setSpacing(8)
@@ -92,7 +84,6 @@ def main() -> None:
     row_layout.addWidget(lbl)
 
     task_list = QListWidget()
-    task_list.setStyleSheet("background: #1e2124; border: none;")
     task_list.setFixedHeight(120)
     for key in task_configs:
         task_list.addItem(key)
@@ -102,16 +93,16 @@ def main() -> None:
     # ── viewer widget ────────────────────────────────────────────────────
     widget = MillingTaskViewerWidget(
         microscope=microscope,
-        viewer=viewer,
         milling_task_config=initial_config,
         milling_enabled=True,
     )
+    widget.set_controller(controller)
     # Inject the blank FIB image so patterns render immediately
-    widget.set_fib_image(fib_image, fib_layer)
+    widget.set_fib_image(fib_image)
     sidebar_layout.addWidget(widget, 1)
 
     # ── status + buttons ─────────────────────────────────────────────────
-    status = QLabel("Load a task to see patterns drawn in the viewer.")
+    status = QLabel("Load a task to see patterns drawn on the FIB canvas.")
     status.setStyleSheet("color: #909090; font-style: italic;")
     sidebar_layout.addWidget(status)
 
@@ -127,8 +118,14 @@ def main() -> None:
     btn_layout.addWidget(btn_clear)
     sidebar_layout.addWidget(btn_row)
 
-    # ── dock into napari ─────────────────────────────────────────────────
-    viewer.window.add_dock_widget(sidebar, area="right", name="Milling Task")
+    # ── window: canvas | sidebar ─────────────────────────────────────────
+    window = QSplitter(Qt.Horizontal)
+    window.addWidget(controller.widget)
+    window.addWidget(sidebar)
+    window.setStretchFactor(0, 3)
+    window.setStretchFactor(1, 2)
+    window.setWindowTitle("MillingTaskViewerWidget — test")
+    window.resize(1400, 900)
 
     # ── connections ──────────────────────────────────────────────────────
     def on_task_selected(item) -> None:
@@ -138,13 +135,9 @@ def main() -> None:
             return
         widget.update_from_settings(cfg)
         # Regenerate blank image at the task's field of view
-        nonlocal fib_image, fib_layer
-        try:
-            viewer.layers.remove("FIB Image")
-        except Exception:
-            pass
-        fib_image, fib_layer = _add_fib_image(viewer, hfw=cfg.field_of_view)
-        widget.set_fib_image(fib_image, fib_layer)
+        nonlocal fib_image
+        fib_image = _show_fib_image(controller, hfw=cfg.field_of_view)
+        widget.set_fib_image(fib_image)
         status.setText(f"Loaded: {key}  ({len(cfg.stages)} stages)")
 
     def on_settings_changed(cfg: FibsemMillingTaskConfig) -> None:
@@ -155,7 +148,7 @@ def main() -> None:
 
     def on_print() -> None:
         cfg = widget.get_config()
-        print(f"\nget_config():")
+        print("\nget_config():")
         print(f"  name={cfg.name}  fov={cfg.field_of_view * 1e6:.1f} µm")
         for s in cfg.stages:
             print(
@@ -176,7 +169,10 @@ def main() -> None:
         task_list.setCurrentRow(0)
         on_task_selected(task_list.item(0))
 
-    napari.run()
+    # Standalone harness: a plain Qt window, not a napari dock. napari was only ever
+    # hosting the widget here (FIB-407).
+    window.show()
+    sys.exit(app.exec_())
 
 
 if __name__ == "__main__":
