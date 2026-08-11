@@ -73,9 +73,16 @@ class RefractiveIndexWidget(QWidget):
     -------
     zeta_computed(float):
         Emitted after each recompute with the new zeta value.
+    factor_changed(float):
+        Emitted when the correction-factor spinbox moves under the user -- typed
+        directly, reset, or recomputed from an optical parameter. Deliberately
+        silent for :meth:`set_factor`, which mirrors an already-stored value:
+        the point of the signal is to tell a consumer that what is on screen is
+        no longer what has been applied (FIB-591).
     """
 
     zeta_computed = pyqtSignal(float)
+    factor_changed = pyqtSignal(float)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -201,6 +208,11 @@ class RefractiveIndexWidget(QWidget):
         )
 
         self.zeta_computed.connect(self._spin_factor.setValue)
+
+        # Relayed rather than exposed: set_factor blocks this spinbox's signals,
+        # so mirroring a stored factor stays silent while every user-facing route
+        # to it (typing, reset, a parameter edit feeding zeta through) reports.
+        self._spin_factor.valueChanged.connect(self.factor_changed)
 
     # ------------------------------------------------------------------
     # Public API

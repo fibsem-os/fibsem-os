@@ -454,6 +454,98 @@ def test_typed_factor_survives_refresh_and_armed_priority(qapp):
     assert tab._ri_widget.get_factor() == pytest.approx(1.8)
 
 
+def test_fm_surface_alone_asks_for_the_apply_press(qapp):
+    """FIB-590: the surface point corrects nothing until a factor is armed, and
+    nothing else on screen says so."""
+    w = _widget(qapp)
+    _setup_pre_mode(w)
+
+    assert w._ri_pre_correction_factor is None
+    assert w.data.ri_pre_correction_factor is None  # a run here corrects nothing
+    assert "press Apply" in w._ri_tab._lbl_warning.text()
+    # and the banner must not claim the run does it by itself
+    assert "applied during the run" not in w._ri_tab._lbl_mode.text()
+
+
+def test_run_with_a_surface_but_no_factor_says_why_nothing_moved(qapp):
+    """FIB-590: the RI tab opens only after a run, so the status line has to
+    carry this — it is where the user is looking when nothing moves."""
+    w = _widget(qapp)
+    _setup_pre_mode(w)
+
+    result = _result_from(w.data)
+    w._on_result_ready(result)
+
+    assert "no RI correction" in w._lbl_status.text()
+    assert "Refractive Index" in w._lbl_status.text()
+
+
+def test_unapplied_factor_edit_is_reported(qapp):
+    """FIB-591: Run uses the armed factor, not the spinbox, so a divergence
+    between them must be visible rather than silently ignored."""
+    w = _widget(qapp)
+    _setup_pre_mode(w)
+    tab = w._ri_tab
+
+    tab._ri_widget.set_factor(1.5)
+    tab._chk_rerun.setChecked(False)
+    tab._apply()
+    assert "stored — applied on the next run" in tab._lbl_warning.text()
+
+    # typed by hand, never applied: the run would still use 1.5
+    tab._ri_widget._spin_factor.setValue(1.8)
+    assert "1.800 not applied" in tab._lbl_warning.text()
+    assert "runs use 1.500" in tab._lbl_warning.text()
+    assert w.data.ri_pre_correction_factor == pytest.approx(1.5)
+
+    # applying it clears the divergence
+    tab._apply()
+    assert "not applied" not in tab._lbl_warning.text()
+    assert w.data.ri_pre_correction_factor == pytest.approx(1.8)
+
+
+def test_an_optical_parameter_edit_counts_as_an_unapplied_factor(qapp):
+    """FIB-591: the parameters feed the factor through zeta, so editing one is
+    just as un-applied as typing the number."""
+    from fibsem.correlation.refractive_index import _LUT_PATH
+
+    if not _LUT_PATH.exists():
+        pytest.skip("LUT CSV not present — the parameter spinboxes are disabled")
+
+    w = _widget(qapp)
+    _setup_pre_mode(w)
+    tab = w._ri_tab
+
+    tab._ri_widget.set_factor(1.5)
+    tab._chk_rerun.setChecked(False)
+    tab._apply()
+
+    tab._ri_widget._spin_n2.setValue(1.22)  # moves zeta well clear of 1.5
+    assert "not applied" in tab._lbl_warning.text()
+    assert "runs use 1.500" in tab._lbl_warning.text()
+
+
+def test_mirroring_a_stored_factor_is_not_an_unapplied_edit(qapp):
+    """set_factor blocks signals precisely so this stays quiet — otherwise every
+    refresh that mirrors the stored value would report a divergence."""
+    w = _widget(qapp)
+    _setup_pre_mode(w)
+    tab = w._ri_tab
+
+    w._ri_pre_correction_factor = 1.5950000000000002  # as loaded from JSON
+    result = CorrelationResult(
+        poi=[CorrelationPointOfInterest(image_px=Point(x=1.0, y=2.0))],
+        refractive_index_correction_factor=1.5950000000000002,
+        refractive_index_correction_mode="pre",
+    )
+    tab.set_result(result, input_data=w.data)
+
+    # the spinbox rounds to 3 decimals; that must not read as an edit
+    assert tab._ri_widget.get_factor() == pytest.approx(1.595)
+    assert "not applied" not in tab._lbl_warning.text()
+    assert "Correction applied" in tab._lbl_warning.text()
+
+
 def test_tilt_lock_preserves_manual_factor(qapp):
     from fibsem.ui.correlation.widgets.refractive_index_widget import (
         RefractiveIndexWidget,

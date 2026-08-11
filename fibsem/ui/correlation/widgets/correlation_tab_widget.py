@@ -1059,6 +1059,10 @@ class _RITab(QWidget):
         "armed":   "color: #e0c060; font-size: 11px;",
     }
 
+    # Half the factor spinbox's last decimal: a stored 1.5950000000000002 shows
+    # as 1.595, and that rounding must not read as an unapplied edit.
+    _FACTOR_EPS = 5e-4
+
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._poi: List[CorrelationPointOfInterest] = []
@@ -1152,6 +1156,13 @@ class _RITab(QWidget):
         layout.addWidget(self._lbl_multi_poi)
         layout.addStretch(1)
 
+        # Last, not beside the widget it listens to: the slot writes to
+        # _lbl_warning, which is built further down this method. The factor can
+        # move with no data change behind it — a parameter edit recomputes it —
+        # and until Apply is pressed that value is not the one a run would use
+        # (FIB-591).
+        self._ri_widget.factor_changed.connect(lambda _f: self._refresh_warning())
+
     @property
     def mode(self) -> Optional[str]:
         """'pre' when an FM surface exists, 'post' for a FIB surface, else None."""
@@ -1191,9 +1202,12 @@ class _RITab(QWidget):
 
         # Mode banner + pre-mode controls
         if mode == "pre":
+            # Deliberately not "applied during the run": the surface point alone
+            # corrects nothing, and a banner promising otherwise is what made a
+            # never-Applied correction read as a broken feature (FIB-590).
             self._lbl_mode.setText(
                 "FM surface mode: corrects the z of every input POI before "
-                "correlation (applied during the run)."
+                "correlation. Press Apply to arm the factor — runs then use it."
             )
         elif mode == "post":
             self._lbl_mode.setText(
@@ -1211,7 +1225,6 @@ class _RITab(QWidget):
         self._update_distance_label()
 
         result_factor = result.refractive_index_correction_factor if result else None
-        result_mode = result.refractive_index_correction_mode if result else None
 
         # Factor spinbox mirrors the authoritative stored factor. In pre mode a
         # newly armed input factor is the latest user intent and outranks the
@@ -1228,6 +1241,50 @@ class _RITab(QWidget):
         # Pre-mode preview table (stored factor, applied or armed)
         if mode == "pre" and self._input_pre_factor is not None:
             self._populate_pre_table(self._input_pre_factor)
+
+        self._refresh_warning()
+
+    def _refresh_warning(self) -> None:
+        """Report where the correction stands, most actionable state first.
+
+        Split out of :meth:`set_result` because the correction factor moves
+        without any data change — a parameter edit recomputes it — and a value
+        on screen that no run would use has to say so (FIB-591).
+        """
+        mode = self.mode
+        result_factor = (
+            self._result.refractive_index_correction_factor if self._result else None
+        )
+        result_mode = (
+            self._result.refractive_index_correction_mode if self._result else None
+        )
+
+        # An FM surface point on its own corrects nothing: the engine needs a
+        # factor too, and only Apply stores one. Nothing else on screen asks for
+        # that press, which is how placing the point and running read as a
+        # feature that does nothing (FIB-590).
+        if mode == "pre" and self._input_pre_factor is None and self._input_poi:
+            self._set_warning(
+                "FM surface placed — press Apply to arm the correction.",
+                level="armed",
+            )
+            return
+
+        # A factor typed or recomputed since the last Apply is not the one a run
+        # would use. Name both numbers: the disagreement is the whole point, and
+        # silently running the older one is what this replaces (FIB-591).
+        shown = self._ri_widget.get_factor()
+        if (
+            mode == "pre"
+            and self._input_pre_factor is not None
+            and abs(shown - self._input_pre_factor) > self._FACTOR_EPS
+        ):
+            self._set_warning(
+                f"Factor {shown:.3f} not applied — press Apply to use it "
+                f"(runs use {self._input_pre_factor:.3f}).",
+                level="armed",
+            )
+            return
 
         # "Armed" means the stored factor is not what produced the POI on screen.
         # Matching factors are not enough — a result corrected in *post* mode was
@@ -2617,6 +2674,18 @@ class CorrelationTabWidget(QWidget):
             if shift is not None:
                 msg += f", POI Δ{shift:.1f} px"
             self._lbl_status.setText(msg)
+        elif (
+            result.input_data is not None
+            and result.input_data.fm_surface_coordinate is not None
+            and result.input_data.ri_pre_correction_factor is None
+        ):
+            # The RI tab says this too, but it opens only after a run and the
+            # user has no reason to look: the run they just watched do nothing
+            # is where the FM surface point stops being self-explanatory.
+            self._lbl_status.setText(
+                "Done — no RI correction. Press Apply on the Refractive Index "
+                "tab to use the FM surface point."
+            )
         else:
             self._lbl_status.setText("Done.")
         self.result_changed.emit(result)
