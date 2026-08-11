@@ -23,6 +23,7 @@ from fibsem.ui.icon import fibsem_icon
 from fibsem.applications.autolamella.structures import DefectState, DefectType, Lamella
 from fibsem.applications.autolamella.ui.lamella_list_widget import _defect_icon, _status_text
 from fibsem.ui import stylesheets
+from fibsem.ui.widgets.custom_widgets import ElidedLabel
 from fibsem.ui.tokens import (
     NEUTRAL_200,
     NEUTRAL_550,
@@ -33,7 +34,12 @@ from fibsem.ui.tokens import (
 
 _CARD_WIDTH = 300
 _THUMB_PADDING = 6        # inset from card edges so rounded corners stay visible
-_THUMB_HEIGHT = 170
+# 3:2, matching the 1536x1024 frames the microscope acquires, so the thumbnail
+# scales rather than crops -- _arr_to_pixmap expands to fill. Kept small: at this
+# size it is a scanning cue ("which of these looks milled"), and every pixel of
+# width it takes comes off the status line, which is the part carrying detail.
+_THUMB_W = 66
+_THUMB_H = 44
 _BTN_SIZE = 24
 
 _CARD_STYLE = f"""
@@ -101,40 +107,33 @@ class LamellaCardWidget(QWidget):
         self._card.setStyleSheet(_CARD_STYLE)
         self._card.setFixedWidth(_CARD_WIDTH - 8)
 
-        card_layout = QVBoxLayout(self._card)
-        card_layout.setContentsMargins(_THUMB_PADDING, _THUMB_PADDING, _THUMB_PADDING, 0)
-        card_layout.setSpacing(0)
+        # A row, not a stack: the strip is one column in a 340px-wide scroll area,
+        # so height is what limits how many lamellae are visible at once. The old
+        # portrait card with its 170px thumbnail showed two (FIB-585).
+        card_layout = QHBoxLayout(self._card)
+        card_layout.setContentsMargins(_THUMB_PADDING, _THUMB_PADDING, _THUMB_PADDING, _THUMB_PADDING)
+        card_layout.setSpacing(6)
 
         # ── thumbnail ───────────────────────────────────────────────────
-        _thumb_w = _CARD_WIDTH - 8 - _THUMB_PADDING * 2
         self._thumb_label = QLabel()
-        self._thumb_label.setFixedSize(_thumb_w, _THUMB_HEIGHT)
+        self._thumb_label.setFixedSize(_THUMB_W, _THUMB_H)
         self._thumb_label.setAlignment(Qt.AlignCenter)
         self._thumb_label.setStyleSheet(f"background: {NEUTRAL_900}; border-radius: 4px;")
         card_layout.addWidget(self._thumb_label)
-
-        # ── divider ─────────────────────────────────────────────────────
-        sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setStyleSheet("color: #3a3d42;")
-        card_layout.addWidget(sep)
 
         # ── info section ─────────────────────────────────────────────────
         info = QWidget()
         info.setStyleSheet("background: transparent;")
         info_layout = QVBoxLayout(info)
-        info_layout.setContentsMargins(10, 8, 10, 10)
-        info_layout.setSpacing(3)
-
-        # name row: label + actions menu + defect icon
-        name_row = QHBoxLayout()
-        name_row.setSpacing(4)
+        info_layout.setContentsMargins(0, 0, 0, 0)
+        info_layout.setSpacing(2)
+        info_layout.addStretch(1)
 
         self._name_label = QLabel()
         self._name_label.setStyleSheet(
             f"font-size: 13px; font-weight: bold; color: {NEUTRAL_200}; background: transparent;"
         )
-        name_row.addWidget(self._name_label, 1)
+        info_layout.addWidget(self._name_label)
 
         self._btn_actions = QToolButton()
         self._btn_actions.setFixedSize(_BTN_SIZE, _BTN_SIZE)
@@ -156,24 +155,26 @@ class LamellaCardWidget(QWidget):
         self._action_move.triggered.connect(lambda: self.move_to_requested.emit(self.lamella))
         self._action_update.triggered.connect(lambda: self.update_position_requested.emit(self.lamella))
         self._action_remove.triggered.connect(self._on_remove_clicked)
-        name_row.addWidget(self._btn_actions)
 
         self._btn_defect = QToolButton()
         self._btn_defect.setFixedSize(_BTN_SIZE, _BTN_SIZE)
         self._btn_defect.setStyleSheet(_BTN_STYLE)
         self._btn_defect.clicked.connect(self._on_defect_clicked)
-        name_row.addWidget(self._btn_defect)
 
-        info_layout.addLayout(name_row)
-
-        self._status_label = QLabel()
+        # Elided, not wrapped: the status is a task name or a completion stamp, and
+        # wrapping one in this narrow middle column would grow the row and undo the
+        # density this layout exists for. ElidedLabel keeps the full string as its
+        # tooltip, and its Ignored width policy stops a long name widening the card.
+        self._status_label = ElidedLabel()
         self._status_label.setStyleSheet(
             f"font-size: 11px; color: {NEUTRAL_550}; background: transparent;"
         )
-        self._status_label.setWordWrap(True)
         info_layout.addWidget(self._status_label)
+        info_layout.addStretch(1)
 
-        card_layout.addWidget(info)
+        card_layout.addWidget(info, 1)
+        card_layout.addWidget(self._btn_defect, 0, Qt.AlignVCenter)
+        card_layout.addWidget(self._btn_actions, 0, Qt.AlignVCenter)
         outer.addWidget(self._card)
 
         # ── evented connections ──────────────────────────────────────────
@@ -203,9 +204,7 @@ class LamellaCardWidget(QWidget):
         )
 
         arr = self.lamella.get_thumbnail()
-        self._thumb_label.setPixmap(
-            _arr_to_pixmap(arr, _CARD_WIDTH - 8 - _THUMB_PADDING * 2, _THUMB_HEIGHT)
-        )
+        self._thumb_label.setPixmap(_arr_to_pixmap(arr, _THUMB_W, _THUMB_H))
 
     def mousePressEvent(self, event) -> None:
         self.clicked.emit(self.lamella)
