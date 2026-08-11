@@ -32,7 +32,7 @@ from fibsem.applications.autolamella.structures import (
 _FIBSEM = Path(__file__).resolve().parents[2] / "fibsem"
 _REPORTING = _FIBSEM / "applications" / "autolamella" / "tools" / "reporting.py"
 _DATA = _FIBSEM / "applications" / "autolamella" / "tools" / "data.py"
-_WIDGET = _FIBSEM / "ui" / "widgets" / "autolamella_generate_report_widget.py"
+_WIDGET = _FIBSEM / "applications" / "autolamella" / "ui" / "autolamella_generate_report_widget.py"
 
 
 def _report_sections() -> set:

@@ -30,7 +30,7 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (
     AcquireFluorescenceImageConfig,
     SpotBurnFiducialTaskConfig,
 )
-from fibsem.ui.widgets.autolamella_global_task_editor_dialog import AutoLamellaGlobalTaskEditDialog
+from fibsem.applications.autolamella.ui.autolamella_global_task_editor_dialog import AutoLamellaGlobalTaskEditDialog
 from fibsem.ui.widgets.canvas.quad_view import LamellaEditorView, MicroscopeViewController
 from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWidget
 from fibsem.ui.widgets.lamella_default_config_widget import LamellaDefaultConfigWidget
@@ -38,8 +38,8 @@ from fibsem.ui.widgets.custom_widgets import (
     TaskNameListWidget,
     ValueComboBox,
 )
-from fibsem.ui.widgets.autolamella_protocol_information_widget import ProtocolInformationWidget
-from fibsem.ui.widgets.autolamella_task_config_widget import AutoLamellaTaskParametersConfigWidget
+from fibsem.applications.autolamella.ui.autolamella_protocol_information_widget import ProtocolInformationWidget
+from fibsem.applications.autolamella.ui.autolamella_task_config_widget import AutoLamellaTaskParametersConfigWidget
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 from fibsem.ui.widgets.reference_image_parameters_widget import ReferenceImageParametersWidget
 from fibsem.ui.tokens import (

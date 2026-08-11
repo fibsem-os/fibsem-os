@@ -21,7 +21,7 @@ from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
 # in the core CI env (`pip install .`). Guard the import so they skip there instead
 # of erroring; the run_spot_burn and config tests below have no UI dependency.
 try:
-    from fibsem.ui.widgets.autolamella_task_config_widget import (
+    from fibsem.applications.autolamella.ui.autolamella_task_config_widget import (
         AutoLamellaTaskParametersConfigWidget,
         FloatParameterWidget,
         IntParameterWidget,

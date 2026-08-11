@@ -32,7 +32,7 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol, Experiment
 from fibsem.applications.autolamella.workflows.tasks.tasks import SpotBurnFiducialTaskConfig
 from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, MicroscopeState, Point
-from fibsem.ui.widgets.autolamella_lamella_protocol_editor import (
+from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
     ALIGNMENT_OVERLAY_ID,
     POI_OVERLAY_ID,
     AutoLamellaProtocolEditorWidget,
@@ -105,7 +105,7 @@ def test_editor_builds_without_a_microscope():
 
 
 def test_editor_is_napari_free():
-    import fibsem.ui.widgets.autolamella_lamella_protocol_editor as mod
+    import fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor as mod
 
     src = Path(mod.__file__).read_text()
     for pattern in ("import napari", "from napari", "self.viewer", "viewer.layers"):

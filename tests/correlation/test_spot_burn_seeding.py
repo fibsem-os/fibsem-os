@@ -96,7 +96,7 @@ def test_spot_burn_coordinates_matches_by_type():
     from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
         SpotBurnFiducialTaskConfig,
     )
-    from fibsem.ui.widgets.autolamella_lamella_protocol_editor import (
+    from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
         AutoLamellaProtocolEditorWidget,
     )
 
@@ -109,7 +109,7 @@ def test_spot_burn_coordinates_matches_by_type():
 
 
 def test_spot_burn_coordinates_empty_when_absent():
-    from fibsem.ui.widgets.autolamella_lamella_protocol_editor import (
+    from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
         AutoLamellaProtocolEditorWidget,
     )
 

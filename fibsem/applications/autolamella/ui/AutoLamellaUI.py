@@ -64,11 +64,11 @@ if (
         FibsemEmbeddedDetectionUI as FibsemEmbeddedDetectionWidget,
     )
 
-from fibsem.ui.widgets.autolamella_create_experiment_widget import (
+from fibsem.applications.autolamella.ui.autolamella_create_experiment_widget import (
     create_experiment_dialog,
 )
-from fibsem.ui.widgets.autolamella_load_experiment_widget import load_experiment_dialog
-from fibsem.ui.widgets.autolamella_load_task_protocol_widget import (
+from fibsem.applications.autolamella.ui.autolamella_load_experiment_widget import load_experiment_dialog
+from fibsem.applications.autolamella.ui.autolamella_load_task_protocol_widget import (
     load_task_protocol_dialog,
 )
 from fibsem.ui.fm.widgets import MinimapPlotWidget
@@ -113,10 +113,10 @@ warnings.filterwarnings(
 
 REPORTING_AVAILABLE: bool = False
 try:
-    from fibsem.ui.widgets.autolamella_generate_report_widget import (
+    from fibsem.applications.autolamella.ui.autolamella_generate_report_widget import (
         generate_report_dialog,
     )
-    from fibsem.ui.widgets.autolamella_overview_image_widget import (
+    from fibsem.applications.autolamella.ui.autolamella_overview_image_widget import (
         create_overview_image_widget,
     )
 

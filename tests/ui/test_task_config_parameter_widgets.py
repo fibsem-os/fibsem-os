@@ -34,7 +34,7 @@ from PyQt5.QtWidgets import (  # noqa: E402
 )
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig  # noqa: E402
-from fibsem.ui.widgets.autolamella_task_config_widget import (  # noqa: E402
+from fibsem.applications.autolamella.ui.autolamella_task_config_widget import (  # noqa: E402
     TASK_FORM_DEFAULTS,
     AutoLamellaTaskConfigWidget,
     AutoLamellaTaskParametersConfigWidget,
