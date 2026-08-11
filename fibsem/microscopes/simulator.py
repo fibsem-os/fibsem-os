@@ -176,6 +176,11 @@ class ImagingSystem:
 FM_ACTIVE_VIEW = 3
 FM_ACTIVE_DEVICE = 3
 
+# The chamber camera's place on the same channel, matching the numbers
+# `ThermoMicroscope.acquire_chamber_image` writes.
+CHAMBER_ACTIVE_VIEW = 4
+CHAMBER_ACTIVE_DEVICE = 3
+
 
 class SimulatedFluorescenceMicroscope(FluorescenceMicroscope):
     """The FM half of the one imaging channel a TFS system shares (FIB-518).
@@ -643,17 +648,39 @@ class DemoMicroscope(FibsemMicroscope):
         Returns:
             FibsemImage: The last acquired image.
         """
-        image = self.imaging_system.last_image.get(beam_type)
+        # `ThermoMicroscope.last_image` sets the channel and then reads the *active
+        # view's* buffer -- `imaging.get_image` "retrieves a microscope image currently
+        # present in the active view" -- so it is FIB-542's pair on the retrieval path
+        # (FIB-569). Claimed and checked here for the same reason, though the simulator
+        # has no window between the two: it reads a dict rather than making a second
+        # round trip, so only a caller that already lost the channel can trip the check.
+        with self._threading_lock:
+            self.set_channel(beam_type)
+            self._warn_if_channel_moved(beam_type, "last_image")
+            image = self.imaging_system.last_image.get(beam_type)
         logging.debug({"msg": "last_image", "beam_type": beam_type.name, "metadata": image.metadata.to_dict()})
         return image
 
     def acquire_chamber_image(self) -> FibsemImage:
         """Acquire an image of the chamber inside."""
-        image = FibsemImage(
-            data=np.random.randint(low=0, high=256, 
-                size=(1024, 1536), 
-                dtype=np.uint8),
-                metadata=None)
+        # The chamber camera is a third device on the shared channel, so looking at it
+        # takes the microscope away from whichever beam had it. Captured and put back in
+        # a `finally`, because a glance at the chamber that strands a running beam
+        # operation is FIB-517 with a different thief (FIB-545).
+        with self._threading_lock:
+            restore_view = self.imaging_system.active_view
+            restore_device = self.imaging_system.active_device
+            self.imaging_system.active_view = CHAMBER_ACTIVE_VIEW
+            self.imaging_system.active_device = CHAMBER_ACTIVE_DEVICE
+            try:
+                image = FibsemImage(
+                    data=np.random.randint(low=0, high=256,
+                        size=(1024, 1536),
+                        dtype=np.uint8),
+                        metadata=None)
+            finally:
+                self.imaging_system.active_view = restore_view
+                self.imaging_system.active_device = restore_device
         logging.debug({"msg": "acquire_chamber_image"})
         return image
 
@@ -688,28 +715,41 @@ class DemoMicroscope(FibsemMicroscope):
             logging.error(f"Error in acquisition worker: {e}")
 
     def autocontrast(self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None) -> None:
-        if reduced_area is not None:
-            self.set_reduced_area_scanning_mode(reduced_area, beam_type)
-        # TODO: implement auto-contrast
-        logging.info(f"Autocontrasting {beam_type.name} beam.")
-        sim_sleep(random.uniform(0.5, 1.0))  # simulate time taken to calculate auto-contrast
-        self.set_detector_brightness(random.uniform(0.4, 0.6), beam_type)
-        self.set_detector_contrast(random.uniform(0.4, 0.6), beam_type)
+        # Claims the channel and holds it for the routine, as `ThermoMicroscope`'s does:
+        # `run_auto_cb` optimises "the active detector in the active view", so a channel
+        # that is not still ours when it runs tunes the other column -- and unlike a
+        # stolen grab, that damage persists (FIB-569).
+        with self._threading_lock:
+            self.set_channel(beam_type)
+            if reduced_area is not None:
+                self.set_reduced_area_scanning_mode(reduced_area, beam_type)
+            # TODO: implement auto-contrast
+            logging.info(f"Autocontrasting {beam_type.name} beam.")
+            sim_sleep(random.uniform(0.5, 1.0))  # simulate time taken to calculate auto-contrast
+            self._warn_if_channel_moved(beam_type, "autocontrast")
+            self.set_detector_brightness(random.uniform(0.4, 0.6), beam_type)
+            self.set_detector_contrast(random.uniform(0.4, 0.6), beam_type)
 
         if reduced_area:
             self.set_full_frame_scanning_mode(beam_type)
         logging.debug({"msg": "autocontrast", "beam_type": beam_type.name})
 
     def auto_focus(self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None) -> None:        
-        if reduced_area is not None:
-            self.set_reduced_area_scanning_mode(reduced_area, beam_type)
-        # TODO: implement auto-focus
-        logging.info(f"Auto-focusing {beam_type.name} beam.")
-        wd: float = self.get("eucentric_height", beam_type=beam_type) # type: ignore
-        sim_sleep(random.uniform(0.5, 1.0))  # simulate time taken to calculate auto-focus
-        focus_adjustment = random.uniform(-100e-6, 100e-6)
-        new_wd = wd + focus_adjustment
-        self.set_working_distance(new_wd, beam_type)
+        # Same claim as `autocontrast`, for the same reason: `run_auto_focus` runs "in
+        # the active view", so losing the channel focuses the other column and leaves it
+        # that way. `imaging/tiled.py` calls this once per tile of an unattended run.
+        with self._threading_lock:
+            self.set_channel(beam_type)
+            if reduced_area is not None:
+                self.set_reduced_area_scanning_mode(reduced_area, beam_type)
+            # TODO: implement auto-focus
+            logging.info(f"Auto-focusing {beam_type.name} beam.")
+            wd: float = self.get("eucentric_height", beam_type=beam_type) # type: ignore
+            sim_sleep(random.uniform(0.5, 1.0))  # simulate time taken to calculate auto-focus
+            self._warn_if_channel_moved(beam_type, "auto_focus")
+            focus_adjustment = random.uniform(-100e-6, 100e-6)
+            new_wd = wd + focus_adjustment
+            self.set_working_distance(new_wd, beam_type)
 
         if reduced_area:
             self.set_full_frame_scanning_mode(beam_type)

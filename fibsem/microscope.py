@@ -2253,11 +2253,15 @@ class ThermoMicroscope(FibsemMicroscope):
         Raises:
             Exception: If there's an error while getting the last image.
         """
-        # set active view and device
-        self.set_channel(beam_type)
-
-        # get the last image
-        image = self.connection.imaging.get_image()
+        # One lock over the channel and the read, as `acquire_image` holds it over
+        # `set_channel` + `grab_frame` (FIB-542). `get_image` retrieves the image "in the
+        # active view", so this is the same pair on the retrieval path: a channel that is
+        # not still ours when the read lands returns whoever took it, and the metadata
+        # below is built from `beam_type` rather than from what came back, so it is
+        # labelled as though nothing happened (FIB-569).
+        with self._threading_lock:
+            self.set_channel(beam_type)
+            image = self.connection.imaging.get_image()
         image = AdornedImage(data=image.data.astype(np.uint8), metadata=image.metadata)
 
         # get the microscope state (for metadata)
@@ -2279,9 +2283,20 @@ class ThermoMicroscope(FibsemMicroscope):
 
     def acquire_chamber_image(self) -> FibsemImage:
         """Acquire an image of the chamber inside."""
-        self.connection.imaging.set_active_view(4)
-        self.connection.imaging.set_active_device(3)
-        image = self.connection.imaging.get_image()
+        # The chamber camera is a third device on the channel the beams and the FM
+        # share, so a glance at it takes the microscope away from whatever had it.
+        # Captured and put back in a `finally`: leaving the connection on the chamber
+        # camera strands whoever was mid-operation, which is FIB-517 with a different
+        # thief (FIB-545). Restores the view alone -- `set_active_device` changes the
+        # device *in the active view*, so the device comes back with it.
+        with self._threading_lock:
+            restore_view = self.connection.imaging.get_active_view()
+            self.connection.imaging.set_active_view(4)
+            self.connection.imaging.set_active_device(3)
+            try:
+                image = self.connection.imaging.get_image()
+            finally:
+                self.connection.imaging.set_active_view(restore_view)
         logging.debug({"msg": "acquire_chamber_image"})
         return FibsemImage(data=image.data, metadata=None)
 
@@ -2364,11 +2379,24 @@ class ThermoMicroscope(FibsemMicroscope):
             beam_type (BeamType) The imaging beam type for which to adjust the contrast.
         """
         logging.debug(f"Running autocontrast on {beam_type.name}.")
-        self.set_channel(beam_type)
-        if reduced_area is not None:
-            self.set_reduced_area_scanning_mode(reduced_area, beam_type)
+        # `run_auto_cb` optimises "the active detector in the active view", so the
+        # channel has to be ours for the whole routine, not just when it starts. Unlike
+        # a stolen grab this is a *write*: a routine that runs on the wrong view tunes
+        # the other column's brightness and contrast and leaves it that way (FIB-569).
+        #
+        # The reduced-area write is inside for the same reason -- outside it, the
+        # routine could run on the right view with someone else's scan region.
+        #
+        # A longer hold than FIB-542's single grab, and deliberately so: the operation
+        # itself is what needs the channel, so there is no narrower correct scope. It is
+        # seconds, and anything wanting the microscope during an autocontrast conflicts
+        # with it physically in any case.
+        with self._threading_lock:
+            self.set_channel(beam_type)
+            if reduced_area is not None:
+                self.set_reduced_area_scanning_mode(reduced_area, beam_type)
 
-        self.connection.auto_functions.run_auto_cb()
+            self.connection.auto_functions.run_auto_cb()
         if reduced_area is not None:
             self.set_full_frame_scanning_mode(beam_type)
 
@@ -2381,12 +2409,18 @@ class ThermoMicroscope(FibsemMicroscope):
             beam_type (BeamType): The imaging beam type for which to focus.
         """
         logging.debug(f"Running auto-focus on {beam_type.name}.")
-        self.set_channel(beam_type)
-        if reduced_area is not None:
-            self.set_reduced_area_scanning_mode(reduced_area, beam_type)
+        # Held for the same reason as `autocontrast`, and it matters more here:
+        # `run_auto_focus` runs "in the active view", and `imaging/tiled.py` calls this
+        # once per tile of an unattended tileset -- exactly the long run interleaved
+        # with GUI-thread reads that stopped a workflow task in FIB-517. Losing the
+        # channel focuses the other column and every later acquisition inherits it.
+        with self._threading_lock:
+            self.set_channel(beam_type)
+            if reduced_area is not None:
+                self.set_reduced_area_scanning_mode(reduced_area, beam_type)
 
-        # run the auto focus
-        self.connection.auto_functions.run_auto_focus()
+            # run the auto focus
+            self.connection.auto_functions.run_auto_focus()
 
         # restore the full frame scanning mode
         if reduced_area is not None:
