@@ -89,7 +89,7 @@ from fibsem.ui.widgets.overview_acquisition_settings_widget import (
 )
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.ui import AutoLamellaUI
+    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 
 
 COLOURS = CORRELATION_IMAGE_LAYER_PROPERTIES["colours"]

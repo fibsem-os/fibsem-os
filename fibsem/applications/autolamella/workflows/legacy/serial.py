@@ -58,7 +58,7 @@ from fibsem.applications.autolamella.structures import (
     create_new_lamella,
 )
 
-from fibsem.applications.autolamella.ui import AutoLamellaUI
+from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 from fibsem.applications.autolamella.workflows import actions
 from fibsem.applications.autolamella.workflows.legacy.autoliftout import (
     end_of_stage_update,

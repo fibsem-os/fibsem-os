@@ -34,7 +34,7 @@ except ImportError:
     logging.warning("Matplotlib not available. Minimap plot widget will be disabled.")
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.ui import AutoLamellaUI
+    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 
 
 class MinimapPlotWidget(QWidget):

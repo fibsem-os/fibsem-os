@@ -41,7 +41,7 @@ from fibsem.structures import (
 
 from fibsem.applications.autolamella.workflows import actions
 from fibsem.applications.autolamella.structures import AutoLamellaStage, Experiment, Lamella
-from fibsem.applications.autolamella.ui import AutoLamellaUI
+from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 from fibsem import config as fcfg
 
 

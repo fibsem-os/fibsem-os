@@ -19,7 +19,7 @@ from fibsem.structures import (
 )
 from fibsem.applications.autolamella.structures import Experiment
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.ui import AutoLamellaUI
+    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
     from fibsem.imaging.spot import SpotBurnSettings
 
 # CORE UI FUNCTIONS -> PROBS SEPARATE FILE

@@ -41,7 +41,7 @@ from fibsem.ui.tokens import (
     SURFACE_COLOR,
 )
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.ui import AutoLamellaUI
+    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 
 
 # Stylesheet constants

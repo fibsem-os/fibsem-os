@@ -80,7 +80,7 @@ from fibsem.structures import (
 )
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.ui import AutoLamellaUI
+    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
     from fibsem.fm.structures import FluorescenceImage
 

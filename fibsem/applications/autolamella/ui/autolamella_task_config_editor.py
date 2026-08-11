@@ -62,7 +62,7 @@ def _valid_resolution(resolution) -> Tuple[int, int]:
 
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.ui import AutoLamellaUI
+    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
     from fibsem.applications.autolamella.structures import Experiment
     from fibsem.structures import ReferenceImageParameters
     from fibsem.milling.tasks import FibsemMillingTaskConfig
