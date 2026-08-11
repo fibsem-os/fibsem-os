@@ -21,7 +21,7 @@ from superqt import ensure_main_thread
 from fibsem.ui.icon import fibsem_icon
 
 from fibsem.applications.autolamella.structures import DefectState, DefectType, Lamella
-from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_LIST, MODE_TILE
+from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY, MODE_STANDARD
 from fibsem.applications.autolamella.ui.lamella_list_widget import _defect_icon, _status_text
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
@@ -41,10 +41,10 @@ _THUMB_PADDING = 6        # inset from card edges so rounded corners stay visibl
 # width it takes comes off the status line, which is the part carrying detail.
 _THUMB_W = 66
 _THUMB_H = 44
-# The tile arrangement's thumbnail: the full card width less its padding, at the
-# height the card carried before it was made compact.
-_FULL_THUMB_W = _CARD_WIDTH - 8 - _THUMB_PADDING * 2
-_FULL_THUMB_H = 170
+# The cozy arrangement's thumbnail: the full card width less its padding, at the
+# height the card carried before the denser layouts existed.
+_COZY_THUMB_W = _CARD_WIDTH - 8 - _THUMB_PADDING * 2
+_COZY_THUMB_H = 170
 _BTN_SIZE = 24
 
 _CARD_STYLE = f"""
@@ -100,12 +100,12 @@ class LamellaCardWidget(QWidget):
     def __init__(
         self,
         lamella: Lamella,
-        mode: str = MODE_COMPACT,
+        mode: str = MODE_STANDARD,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.lamella = lamella
-        self._mode = mode if mode in CARD_MODES else MODE_COMPACT
+        self._mode = mode if mode in CARD_MODES else MODE_STANDARD
         self.setFixedWidth(_CARD_WIDTH)
 
         outer = QVBoxLayout(self)
@@ -118,7 +118,7 @@ class LamellaCardWidget(QWidget):
         self._card.setStyleSheet(_CARD_STYLE)
         self._card.setFixedWidth(_CARD_WIDTH - 8)
 
-        # The frame holds one content widget, which `_apply_layout` swaps. The two
+        # The frame holds one content widget, which `_apply_layout` swaps. The three
         # arrangements differ in geometry only -- same children, same signals, same
         # refresh() -- so nothing below this line knows which one is showing, and
         # there is no second display path to keep correct.
@@ -164,10 +164,10 @@ class LamellaCardWidget(QWidget):
         self._btn_defect.clicked.connect(self._on_defect_clicked)
 
         # Elided, not wrapped: the status is a task name or a completion stamp, and
-        # wrapping one in the compact row's narrow middle column would grow the row and
+        # wrapping one in the standard row's narrow middle column would grow the row and
         # undo the density that layout exists for. ElidedLabel keeps the full string as
         # its tooltip, and its Ignored width policy stops a long name widening the card.
-        # Used in both arrangements so the fixed height holds either way.
+        # Used in all three arrangements so the fixed height holds whichever is showing.
         self._status_label = ElidedLabel()
         self._status_label.setStyleSheet(
             f"font-size: 11px; color: {NEUTRAL_550}; background: transparent;"
@@ -187,7 +187,7 @@ class LamellaCardWidget(QWidget):
     # ------------------------------------------------------------------
 
     def set_mode(self, mode: str) -> None:
-        """Switch arrangement: tile, compact row, or one-line list.
+        """Switch arrangement: cozy tile, standard row, or compact one-liner.
 
         Cheap enough to call on every card at once: it rebuilds one container widget
         and re-parents the existing children into it. Nothing is recreated, so the
@@ -214,9 +214,9 @@ class LamellaCardWidget(QWidget):
             self._content.deleteLater()
 
         builder = {
-            MODE_TILE: self._build_tile,
+            MODE_COZY: self._build_cozy,
+            MODE_STANDARD: self._build_standard,
             MODE_COMPACT: self._build_compact,
-            MODE_LIST: self._build_list,
         }[self._mode]
         self._content = builder()
         self._content.setStyleSheet("background: transparent;")
@@ -230,9 +230,9 @@ class LamellaCardWidget(QWidget):
         for widget in (self._name_label, self._status_label,
                        self._btn_defect, self._btn_actions):
             widget.show()
-        # The list arrangement leaves the thumbnail out of the layout entirely; showing
-        # an unparented widget would pop it up as its own top-level window.
-        self._thumb_label.setVisible(self._mode != MODE_LIST)
+        # The compact arrangement leaves the thumbnail out of the layout entirely;
+        # showing an unparented widget would pop it up as its own top-level window.
+        self._thumb_label.setVisible(self._mode != MODE_COMPACT)
 
         # Qt caches size hints and only recomputes them when the layout is activated,
         # which for a card that has never been shown never happens -- so without this
@@ -241,7 +241,7 @@ class LamellaCardWidget(QWidget):
         self._card.updateGeometry()
         self.updateGeometry()
 
-    def _build_compact(self) -> QWidget:
+    def _build_standard(self) -> QWidget:
         """Row: thumbnail | name over status | defect | actions.
 
         The strip is one column in a 340px-wide scroll area, so height is what limits
@@ -270,7 +270,7 @@ class LamellaCardWidget(QWidget):
         row.addWidget(self._btn_actions, 0, Qt.AlignVCenter)
         return content
 
-    def _build_list(self) -> QWidget:
+    def _build_compact(self) -> QWidget:
         """One line: name, then status, then the buttons. No thumbnail.
 
         The status stays. Without it this is a name and two buttons, which is what
@@ -288,9 +288,9 @@ class LamellaCardWidget(QWidget):
         row.addWidget(self._btn_actions, 0, Qt.AlignVCenter)
         return content
 
-    def _build_tile(self) -> QWidget:
-        """Tile: large thumbnail over a name row and status — the original card."""
-        self._thumb_label.setFixedSize(_FULL_THUMB_W, _FULL_THUMB_H)
+    def _build_cozy(self) -> QWidget:
+        """Cozy: large thumbnail over a name row and status — the original card."""
+        self._thumb_label.setFixedSize(_COZY_THUMB_W, _COZY_THUMB_H)
 
         content = QWidget()
         column = QVBoxLayout(content)
@@ -337,10 +337,10 @@ class LamellaCardWidget(QWidget):
         )
 
         # Size read off the label rather than branched on the mode, so this stays one
-        # display path for every arrangement that has a thumbnail. The list has none,
-        # and reading a lamella's thumbnail off disk to scale it for a hidden label is
-        # the one thing worth skipping.
-        if self._mode != MODE_LIST:
+        # display path for every arrangement that has a thumbnail. The compact one has
+        # none, and reading a lamella's thumbnail off disk to scale it for a hidden
+        # label is the one thing worth skipping.
+        if self._mode != MODE_COMPACT:
             arr = self.lamella.get_thumbnail()
             self._thumb_label.setPixmap(
                 _arr_to_pixmap(arr, self._thumb_label.width(), self._thumb_label.height())
@@ -411,13 +411,13 @@ class LamellaCardContainer(QWidget):
         self,
         columns: int = _N_COLS,
         parent: Optional[QWidget] = None,
-        mode: str = MODE_COMPACT,
+        mode: str = MODE_STANDARD,
     ) -> None:
         super().__init__(parent)
         self._cards: Dict[str, LamellaCardWidget] = {}   # lamella.id → card
         self._selected_id: Optional[str] = None
         self._n_cols: int = max(1, columns)
-        self._mode: str = mode if mode in CARD_MODES else MODE_COMPACT
+        self._mode: str = mode if mode in CARD_MODES else MODE_STANDARD
 
         self._grid = QGridLayout(self)
         self._grid.setSpacing(12)

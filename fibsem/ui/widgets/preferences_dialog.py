@@ -16,7 +16,12 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.config import CARD_MODES, UserPreferences, card_mode_label
+from fibsem.config import (
+    CARD_MODES,
+    DisplayPreferences,
+    UserPreferences,
+    card_mode_label,
+)
 from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, QFileLineEdit
 
 # ---------------------------------------------------------------------------
@@ -232,11 +237,16 @@ class PreferencesDialog(QDialog):
         self._chk_border.setChecked(d.border_enabled)
         self._chk_dev_mode.setChecked(d.dev_mode)
         card_index = self._combo_card_mode.findData(d.lamella_card_mode)
-        # -1 for a value this build does not offer -- an older preferences file, or one
-        # hand-edited. Falling back to the first entry would silently rewrite it on the
-        # next save, so leave the current selection and let the user choose.
-        if card_index != -1:
-            self._combo_card_mode.setCurrentIndex(card_index)
+        if card_index == -1:
+            # A value this build does not offer -- a preferences file from an older
+            # build, or a hand-edited one. Fall back to the same default the card
+            # widget falls back to, so the dialog shows the layout actually on screen.
+            # Falling back to index 0 instead would put "Cozy" in the box over a strip
+            # drawing Standard, and OK would then apply a layout the user never chose.
+            card_index = self._combo_card_mode.findData(
+                DisplayPreferences().lamella_card_mode
+            )
+        self._combo_card_mode.setCurrentIndex(card_index)
 
         f = prefs.features
         self._chk_coincidence_milling.setChecked(f.coincidence_milling_enabled)

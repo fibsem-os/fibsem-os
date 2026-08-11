@@ -299,14 +299,22 @@ def save_tescan_manipulator_calibration(config: dict) -> None:
 # Here rather than beside the widget that draws them so the preferences dialog can offer
 # the choice without fibsem.ui importing AutoLamella, which is the dependency direction
 # FIB-553/554/555 removed.
-MODE_TILE = "tile"
-MODE_COMPACT = "compact"
-MODE_LIST = "list"
-CARD_MODES = (MODE_TILE, MODE_COMPACT, MODE_LIST)
+# Named for density rather than for what they draw, and ordered roomiest first, the
+# way Discord and Gmail order theirs. "Cozy" is the roomy one everywhere it appears in
+# a UI, so it cannot be the name of the tightest layout here -- someone reaching for it
+# expecting breathing room would get the densest thing on offer.
+#
+# The stored value is the label lowercased, deliberately: a preferences file that says
+# `compact` and a dialog that says "Standard" are a support conversation waiting to
+# happen.
+MODE_COZY = "cozy"          # large thumbnail tile
+MODE_STANDARD = "standard"  # small thumbnail beside the name
+MODE_COMPACT = "compact"    # one line, no thumbnail
+CARD_MODES = (MODE_COZY, MODE_STANDARD, MODE_COMPACT)
 _CARD_MODE_LABELS = {
-    MODE_TILE: "Large (thumbnail)",
+    MODE_COZY: "Cozy",
+    MODE_STANDARD: "Standard",
     MODE_COMPACT: "Compact",
-    MODE_LIST: "List (no thumbnail)",
 }
 
 
@@ -321,14 +329,14 @@ class DisplayPreferences:
     toasts_enabled: bool = False
     border_enabled: bool = True
     dev_mode: bool = False
-    # How the lamella strip draws each card: "tile" (large thumbnail), "compact"
-    # (small thumbnail beside the name) or "list" (no thumbnail, one line).
+    # How the lamella strip draws each card: "cozy" (large thumbnail), "standard"
+    # (small thumbnail beside the name) or "compact" (no thumbnail, one line).
     #
     # A plain string rather than an Enum on purpose: preferences are written with
     # yaml.safe_dump, which raises RepresenterError on an Enum -- and the write is
     # wrapped in a bare `except Exception: logging.warning`, so the failure would
     # surface as "my preferences do not save" with nothing pointing at the cause.
-    lamella_card_mode: str = "compact"
+    lamella_card_mode: str = MODE_STANDARD
 
 @dataclass
 class FeatureFlags:
