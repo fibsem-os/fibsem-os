@@ -1,8 +1,12 @@
 """The compact lamella card stays compact, and stays clickable (FIB-585).
 
 The card was a 300x240 portrait tile with a 170px thumbnail, stacked one per row in a
-340px strip, so two lamellae filled the panel. It is now a row -- thumbnail, name and
-status, buttons -- at roughly a third the height.
+340px strip, so two lamellae filled the panel. It is now a row by default -- thumbnail,
+name and status, buttons -- at roughly a third the height, with a toolbar button in the
+host that switches back to the tile.
+
+Both arrangements share one set of child widgets, re-parented between containers, so
+`refresh` stays a single display path and there is no second one to keep correct.
 
 Two properties are worth pinning, and neither is the pixel height:
 
@@ -122,3 +126,106 @@ def test_clicking_the_defect_button_does_not_select_the_card():
     QTest.mousePress(card._btn_defect, Qt.LeftButton)
 
     assert seen == []
+
+
+# ── the density toggle (FIB-585) ──────────────────────────────────────────────
+#
+# The two arrangements share one set of child widgets, re-parented between
+# containers, so what needs pinning is that nothing is lost in the move: the menus,
+# the psygnal connections and the container's selection all outlive a switch.
+
+
+def test_toggling_to_the_tile_and_back_restores_the_compact_height():
+    card = LamellaCardWidget(_lamella())
+    compact_h = card.sizeHint().height()
+
+    card.set_compact(False)
+    tile_h = card.sizeHint().height()
+    card.set_compact(True)
+
+    assert tile_h > compact_h * 2, "the tile is the tall arrangement"
+    assert card.sizeHint().height() == compact_h
+
+
+def test_the_menus_and_thumbnail_survive_a_toggle():
+    """The children are re-parented, not rebuilt, so everything hung off them stays."""
+    card = _shown(LamellaCardWidget(_lamella()))
+
+    card.set_compact(False)
+
+    assert len(card._btn_actions.menu().actions()) == 3
+    assert card._btn_defect.toolTip() == "No defect"
+    assert not card._thumb_label.pixmap().isNull()
+    assert card._thumb_label.height() > 100, "redrawn at the tile's size"
+
+
+def test_the_lamella_events_still_refresh_after_a_toggle():
+    """`refresh` is one path for both arrangements, and stays connected across a switch."""
+    lamella = _lamella()
+    card = _shown(LamellaCardWidget(lamella))
+
+    card.set_compact(False)
+    lamella.task_state.name = "Mill Undercut"
+    lamella.task_state.status = AutoLamellaTaskStatus.InProgress
+
+    assert card._status_label.text() == "Mill Undercut"
+
+
+def test_the_container_keeps_its_selection_across_a_toggle():
+    container = LamellaCardContainer(columns=1)
+    lamella = _lamella("kept")
+    container.add_lamella(lamella)
+    container._on_card_clicked(lamella)
+
+    container.set_compact(False)
+
+    assert container._selected_id == lamella.id
+    assert container.is_compact() is False
+
+
+def test_a_card_added_later_follows_the_current_mode():
+    container = LamellaCardContainer(columns=1)
+    container.set_compact(False)
+
+    card = container.add_lamella(_lamella("late"))
+
+    assert card._thumb_label.height() > 100
+
+
+def test_the_host_button_points_at_the_arrangement_it_switches_to():
+    """The button carries no checked state, so its icon and tooltip are the only thing
+    saying what it does -- and they must describe the *destination*, not where you are.
+
+    Called unbound against a stub: the host is a napari-backed window that cannot be
+    constructed headless, and these two methods touch nothing else on it.
+    """
+    import types
+
+    from PyQt5.QtWidgets import QToolButton
+
+    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
+        AutoLamellaSingleWindowUI,
+    )
+
+    host = types.SimpleNamespace(
+        lamella_card_container=LamellaCardContainer(columns=1),
+        btn_card_density=QToolButton(),
+    )
+    host.lamella_card_container.add_lamella(_lamella())
+    # bound onto the stub, because the toggle calls it through self
+    host._sync_card_density_button = types.MethodType(
+        AutoLamellaSingleWindowUI._sync_card_density_button, host
+    )
+
+    host._sync_card_density_button()
+    assert host.btn_card_density.toolTip() == "Show large cards"
+
+    AutoLamellaSingleWindowUI._on_toggle_card_density(host)
+
+    assert host.lamella_card_container.is_compact() is False
+    assert host.btn_card_density.toolTip() == "Show compact cards"
+
+    AutoLamellaSingleWindowUI._on_toggle_card_density(host)
+
+    assert host.lamella_card_container.is_compact() is True
+    assert host.btn_card_density.toolTip() == "Show large cards"
