@@ -20,7 +20,7 @@ pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
 from fibsem.applications.autolamella.workflows.tasks.queue import QueueOp, TaskQueue
-from fibsem.ui.widgets.workflow_timeline_widget import WorkflowProgressWidget
+from fibsem.applications.autolamella.ui.workflow_timeline_widget import WorkflowProgressWidget
 
 
 @pytest.fixture

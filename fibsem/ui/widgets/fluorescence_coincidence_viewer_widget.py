@@ -70,11 +70,11 @@ from fibsem.ui.widgets.custom_widgets import (
     IntegerValueSpinBox,
     TitledPanel,
 )
-from fibsem.ui.widgets.lamella_name_list_widget import LamellaNameListWidget
+from fibsem.applications.autolamella.ui.lamella_name_list_widget import LamellaNameListWidget
 from fibsem.ui.widgets.coincidence_milling_confirmation_dialog import (
     CoincidenceMillingConfirmationDialog,
 )
-from fibsem.ui.widgets.selected_lamella_widget import SelectedLamellaWidget
+from fibsem.applications.autolamella.ui.selected_lamella_widget import SelectedLamellaWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.overlays import RectOverlay, ScanDirectionArrowOverlay
 from fibsem.ui.tokens import (

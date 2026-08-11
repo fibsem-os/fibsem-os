@@ -19,7 +19,7 @@ from fibsem.ui.widgets.custom_widgets import (
     TitledPanel,
     ValueSpinBox,
 )
-from fibsem.ui.widgets.lamella_pose_list_widget import LamellaPoseListWidget
+from fibsem.applications.autolamella.ui.lamella_pose_list_widget import LamellaPoseListWidget
 from fibsem.ui.tokens import (
     NEUTRAL_550,
 )

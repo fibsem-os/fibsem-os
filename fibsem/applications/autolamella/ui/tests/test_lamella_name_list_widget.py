@@ -5,7 +5,7 @@ from pathlib import Path
 from PyQt5.QtWidgets import QApplication, QVBoxLayout, QWidget
 
 from fibsem.applications.autolamella.structures import Experiment
-from fibsem.ui.widgets.lamella_name_list_widget import LamellaNameListWidget
+from fibsem.applications.autolamella.ui.lamella_name_list_widget import LamellaNameListWidget
 
 EXPERIMENT_PATH = Path(
     "/home/patrick/github/fibsem/fibsem/applications/autolamella/log/"

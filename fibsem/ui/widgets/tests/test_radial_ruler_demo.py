@@ -31,7 +31,7 @@ from fibsem.ui.widgets.drag_distance import (
     _fmt_distance, _fmt_area,
 )
 from fibsem.ui.widgets.hud_ticker import HUDTicker
-from fibsem.ui.widgets.lamella_task_image_widget import ZoomableImageView
+from fibsem.applications.autolamella.ui.lamella_task_image_widget import ZoomableImageView
 from fibsem.ui.widgets.profile_line import ProfileLineOverlay
 from fibsem.ui.widgets.radial_menu import RadialMenuOverlay
 from fibsem.ui.widgets.zoom_loupe import ZoomLoupeOverlay

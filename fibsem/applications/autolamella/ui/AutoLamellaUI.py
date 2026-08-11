@@ -30,13 +30,13 @@ from fibsem.ui import (
     DETECTION_AVAILABLE,
     FibsemCryoDepositionWidget,
     FibsemImageSettingsWidget,
-    FibsemMinimapWidget,
     FibsemMovementWidget,
     FibsemSystemSetupWidget,
     FibsemSpotBurnWidget,
     MillingTaskViewerWidget,
     stylesheets,
 )
+from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui import utils as fui
@@ -54,8 +54,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.ui.widgets.lamella_name_list_widget import LamellaNameListWidget
-from fibsem.ui.widgets.selected_lamella_widget import SelectedLamellaWidget
+from fibsem.applications.autolamella.ui.lamella_name_list_widget import LamellaNameListWidget
+from fibsem.applications.autolamella.ui.selected_lamella_widget import SelectedLamellaWidget
 
 if (
     DETECTION_AVAILABLE
