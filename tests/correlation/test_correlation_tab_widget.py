@@ -454,11 +454,51 @@ def test_typed_factor_survives_refresh_and_armed_priority(qapp):
     assert tab._ri_widget.get_factor() == pytest.approx(1.8)
 
 
-def test_fm_surface_alone_asks_for_the_apply_press(qapp):
-    """FIB-590: the surface point corrects nothing until a factor is armed, and
-    nothing else on screen says so."""
+def _loaded_surface_without_a_factor(w):
+    """The state a saved correlation restores when it was never Applied: an FM
+    surface point and a POI, but no armed factor. Placing the point by hand arms
+    one, so this is the only route left to the un-armed state."""
+    w.set_data(
+        CorrelationInputData(
+            fm_surface_coordinate=_coord(z=10.0, pt=PointType.SURFACE_FM),
+            poi_coordinates=[_coord(z=30.0, pt=PointType.POI)],
+        )
+    )
+    w.data_changed.emit(w.data)
+
+
+def test_placing_the_fm_surface_arms_the_factor_on_screen(qapp):
+    """FIB-590: a plain Run has to apply the correction, so the point arms the
+    factor as it lands — whatever the spinbox is showing."""
+    w = _widget(qapp)
+    w._ri_tab._ri_widget.set_factor(1.42)
+
+    w._on_canvas_add_requested(1.0, 2.0, PointType.SURFACE_FM)
+
+    assert w._ri_pre_correction_factor == pytest.approx(1.42)
+    assert w.data.ri_pre_correction_factor == pytest.approx(1.42)
+    assert "not applied" not in w._ri_tab._lbl_warning.text()
+    # named as it lands; the next edit is free to reclaim the status line
+    assert "1.420" in w._lbl_status.text()
+
+
+def test_auto_arm_does_not_overwrite_a_chosen_factor(qapp):
+    """Re-placing the surface must not discard a factor the user applied."""
     w = _widget(qapp)
     _setup_pre_mode(w)
+    w._ri_tab._ri_widget.set_factor(1.2)
+    w._ri_tab._chk_rerun.setChecked(False)
+    w._ri_tab._apply()
+
+    w._on_canvas_add_requested(7.0, 8.0, PointType.SURFACE_FM)  # moved the point
+    assert w._ri_pre_correction_factor == pytest.approx(1.2)
+
+
+def test_a_loaded_surface_without_a_factor_asks_for_apply(qapp):
+    """FIB-590: a correlation saved before anyone pressed Apply restores a
+    surface point that corrects nothing, and has to say so."""
+    w = _widget(qapp)
+    _loaded_surface_without_a_factor(w)
 
     assert w._ri_pre_correction_factor is None
     assert w.data.ri_pre_correction_factor is None  # a run here corrects nothing
@@ -471,7 +511,7 @@ def test_run_with_a_surface_but_no_factor_says_why_nothing_moved(qapp):
     """FIB-590: the RI tab opens only after a run, so the status line has to
     carry this — it is where the user is looking when nothing moves."""
     w = _widget(qapp)
-    _setup_pre_mode(w)
+    _loaded_surface_without_a_factor(w)
 
     result = _result_from(w.data)
     w._on_result_ready(result)

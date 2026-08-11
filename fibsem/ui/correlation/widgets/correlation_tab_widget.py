@@ -1202,12 +1202,14 @@ class _RITab(QWidget):
 
         # Mode banner + pre-mode controls
         if mode == "pre":
-            # Deliberately not "applied during the run": the surface point alone
-            # corrects nothing, and a banner promising otherwise is what made a
-            # never-Applied correction read as a broken feature (FIB-590).
+            # Deliberately not "applied during the run": placing the point arms
+            # a factor only when one can be computed, and a banner promising the
+            # run does it regardless is what made a never-armed correction read
+            # as a broken feature (FIB-590). The warning line below carries which
+            # of the two it is; this only names the control that decides.
             self._lbl_mode.setText(
                 "FM surface mode: corrects the z of every input POI before "
-                "correlation. Press Apply to arm the factor — runs then use it."
+                "correlation. Apply sets the factor a run will use."
             )
         elif mode == "post":
             self._lbl_mode.setText(
@@ -2789,6 +2791,21 @@ class CorrelationTabWidget(QWidget):
                 "Pre-correction factor stored — run correlation to apply."
             )
 
+    def _auto_arm_pre_correction(self) -> Optional[float]:
+        """Arm the factor on screen as the FM surface point lands, so a plain Run
+        applies the correction (FIB-590). Returns what was armed, or None.
+
+        The spinbox value as-is, not a fresh ζ: it is already what the optical
+        parameters produced unless someone typed over it, and recomputing is a
+        parameter edit away. The one thing this must not be is silent — the
+        status line names the factor, and the RI tab reports it from there on.
+        """
+        if self._ri_pre_correction_factor is not None:
+            return None  # a factor already chosen outranks arming a fresh one
+        factor = self._ri_tab._ri_widget.get_factor()
+        self._ri_pre_correction_factor = factor
+        return factor
+
     def _clear_pre_correction_factor(self) -> None:
         """The pre-correction factor's lifecycle is tied to the FM surface point:
         removing the surface disarms the factor so it cannot silently re-apply
@@ -2877,9 +2894,19 @@ class CorrelationTabWidget(QWidget):
             self._clear_exclusive_siblings(spec)
         else:
             spec.list_widget.add_coordinate(coord)
+        # Before the emit: the armed factor is part of the data being announced.
+        armed = (
+            self._auto_arm_pre_correction() if pt is PointType.SURFACE_FM else None
+        )
         self._refresh_canvas(spec.adapter)
         self._coords_tab.update_headers()
         self.data_changed.emit(self.data)
+        if armed is not None:
+            # After the emit, which routes through _update_run_button and its
+            # "Ready." — the same ordering the RI status note already needs.
+            self._lbl_status.setText(
+                f"FM surface placed — RI ×{armed:.3f} armed. Run to apply."
+            )
 
     def _clear_exclusive_siblings(self, spec: _PointTypeSpec) -> None:
         """Enforce mutual exclusivity (one surface point at a time): clear the
