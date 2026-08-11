@@ -614,9 +614,13 @@ class WorkflowProgressWidget(QWidget):
         # progress, attention, supervised, Stop) and putting an additive button
         # next to Stop invites the wrong click.
         header_row = QHBoxLayout()
-        # Right margin clears the scroll bar column below, so the button's menu
-        # arrow does not sit directly on top of the scroll bar's arrow.
-        header_row.setContentsMargins(0, 0, 20, 0)
+        # 2px + the button's own 6px padding = the 8px the header label is inset by,
+        # so the two ends of the strip match. This used to reserve 20px for the
+        # scroll bar column below, which only appears when the queue overflows -- so
+        # on a short queue the button floated in an empty gutter. Nothing is lost by
+        # dropping it: the reservation was there to keep the button's menu arrow off
+        # the scroll bar's, and _ADD_BTN_STYLE hides that arrow (FIB-584).
+        header_row.setContentsMargins(0, 0, 2, 0)
         header_row.setSpacing(4)
 
         self._header = QLabel("Workflow")

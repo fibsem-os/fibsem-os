@@ -976,6 +976,10 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
                     box_color=_BG,
                     box_alpha=0.6,
                     location="lower right",
+                    # Unset, this inherits matplotlib's 10pt default, which is large
+                    # against the rest of the canvas chrome -- the hint, title, info
+                    # bar and legend are all 10-12px Qt text (FIB-583).
+                    font_properties={"size": 8},
                 )
                 self._ax.add_artist(self._scalebar_artist)
             except Exception:
