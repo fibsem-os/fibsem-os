@@ -1120,12 +1120,20 @@ class _RITab(QWidget):
 
         self._lbl_warning = QLabel("")
         self._lbl_warning.setStyleSheet("color: #e07b39; font-size: 11px;")
-        apply_layout.addWidget(self._lbl_warning)
-        apply_layout.addStretch(1)
+        # Wrapped, so the sentence sets the panel's height rather than its width.
+        # An unwrapped QLabel reports its whole line as its minimum width, which
+        # this pane's splitter then has to honour — one long warning and the
+        # correlation window can no longer be made narrow.
+        self._lbl_warning.setWordWrap(True)
+        # The label takes the leftover room itself; a trailing stretch would hand
+        # that room to empty space and leave it wrapping in a column of its own
+        # width, which is the opposite of the point.
+        apply_layout.addWidget(self._lbl_warning, stretch=1)
         layout.addWidget(apply_row)
 
         self._lbl_distance = QLabel("")
         self._lbl_distance.setStyleSheet("color: #a0c8ff; font-size: 11px;")
+        self._lbl_distance.setWordWrap(True)
         self._lbl_distance.setVisible(False)
         layout.addWidget(self._lbl_distance)
 
@@ -1162,6 +1170,10 @@ class _RITab(QWidget):
         # and until Apply is pressed that value is not the one a run would use
         # (FIB-591).
         self._ri_widget.factor_changed.connect(lambda _f: self._refresh_warning())
+
+        # set_result maintains this from here on, but it is not called until the
+        # first data change — and the tab is reachable before that now.
+        self._refresh_apply_enabled()
 
     @property
     def mode(self) -> Optional[str]:
@@ -1244,7 +1256,39 @@ class _RITab(QWidget):
         if mode == "pre" and self._input_pre_factor is not None:
             self._populate_pre_table(self._input_pre_factor)
 
+        self._refresh_apply_enabled()
         self._refresh_warning()
+
+    def _apply_blocked_reason(self) -> Optional[str]:
+        """Why Apply cannot be pressed right now, or None when it can.
+
+        Each mode needs something different, and only *post* needs a finished
+        run: it corrects a POI the correlation produced, whereas *pre* corrects
+        the input z and is set up before a run rather than after one.
+        """
+        mode = self.mode
+        if mode is None:
+            return (
+                "Place a surface point first — in the FIB image to correct the "
+                "correlated POI, or in the FM volume to correct the POI depth."
+            )
+        if mode == "pre":
+            if not self._input_poi:
+                return "Place at least one POI for the correction to move."
+            return None
+        if not self._poi:
+            return (
+                "Run the correlation first — the FIB-surface correction adjusts "
+                "a POI the correlation has already produced."
+            )
+        return None
+
+    def _refresh_apply_enabled(self) -> None:
+        reason = self._apply_blocked_reason()
+        self._btn_apply.setEnabled(reason is None)
+        self._btn_apply.setToolTip(
+            reason or "Store the correction factor and apply it."
+        )
 
     def _refresh_warning(self) -> None:
         """Report where the correction stands, most actionable state first.
@@ -1724,8 +1768,11 @@ class CorrelationTabWidget(QWidget):
         self._tabs.addTab(self._coords_tab, "Coordinates")
         self._tabs.addTab(self._results_tab, "Results")
         self._tabs.addTab(self._ri_tab, "Refractive Index")
-        self._tabs.setTabEnabled(3, False)
-        self._tabs.setTabToolTip(3, "Run correlation first to enable RI correction")
+        # Deliberately always enabled. Gating the whole tab on a finished run hid
+        # the optical parameters, the surface→POI depth readout and the preview
+        # table at exactly the moment an FM surface point has just been placed and
+        # the user wants to check them. Apply is what needs a run behind it, so
+        # Apply is what reports when it cannot be pressed (see _apply_blocked_reason).
 
         right_pane = QWidget()
         right_layout = QVBoxLayout(right_pane)
@@ -2570,11 +2617,17 @@ class CorrelationTabWidget(QWidget):
     # Run correlation
     # ------------------------------------------------------------------
 
-    def _update_run_button(self, data: Optional[CorrelationInputData] = None) -> None:
+    def _can_run(self, data: Optional[CorrelationInputData] = None) -> bool:
+        """Whether the current inputs can support a correlation run.
+
+        A predicate rather than a read of ``_btn_run.isEnabled()``: the button is
+        re-derived from ``data_changed``, so a caller that emits and then asks the
+        button gets the answer for the state it just announced, not the one it
+        meant to test.
+        """
         d = data if data is not None else self.data
-        running = self._worker is not None and self._worker.isRunning()
-        ok = (
-            not running
+        return (
+            not (self._worker is not None and self._worker.isRunning())
             and self._fib_image is not None
             and self._fm_image is not None
             and len(d.fib_coordinates) >= 4
@@ -2582,6 +2635,11 @@ class CorrelationTabWidget(QWidget):
             and len(d.poi_coordinates) >= 1
             and len(d.fib_coordinates) == len(d.fm_coordinates)
         )
+
+    def _update_run_button(self, data: Optional[CorrelationInputData] = None) -> None:
+        d = data if data is not None else self.data
+        running = self._worker is not None and self._worker.isRunning()
+        ok = self._can_run(d)
         self._btn_run.setEnabled(ok)
         if self._autosave_error is not None:
             # Outranks the readiness text: "Ready." while nothing is being saved
@@ -2637,7 +2695,6 @@ class CorrelationTabWidget(QWidget):
         self._ri_tab.set_result(
             result, input_data=self.data, fm_pixel_size_z=self._fm_pixel_size_z()
         )
-        self._tabs.setTabEnabled(3, True)
         self._overlay_result_on_fib(result)
         self._set_result_live(live)
         # after _update_run_button, which would otherwise overwrite it with "Ready."
@@ -2784,7 +2841,10 @@ class CorrelationTabWidget(QWidget):
         """Store the pre-correlation RI factor and optionally re-run."""
         self._ri_pre_correction_factor = factor
         self.data_changed.emit(self.data)  # auto-save + RI tab refresh
-        if rerun:
+        # Apply is reachable before the points can support a correlation now the
+        # RI tab is no longer gated on a finished run, and _run does not check --
+        # it would start a worker whose only outcome is an error on the status line.
+        if rerun and self._can_run():
             self._run()
         else:
             self._lbl_status.setText(
