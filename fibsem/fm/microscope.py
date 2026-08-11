@@ -64,8 +64,8 @@ class ObjectiveLens(ABC):
     #
     # Carries the values rather than being a bare "something moved", for the reason
     # `stage_position_changed` does: subscribers that each re-read would turn one move
-    # into a read per subscriber, and there are at least three displays. Read once, at
-    # the source, under the channel scope the move already holds -- see `_notify_moved`.
+    # into a read per subscriber, and there are at least three displays. Read once at
+    # the source instead -- see `_notify_moved` for what that costs.
     #
     # State travels with position because every display that wants one wants both: the
     # overview info bar renders "objective 10.061 mm (inserted)" from a single line.
@@ -123,10 +123,14 @@ class ObjectiveLens(ABC):
         Deliberately not called when a method returns early without moving -- an
         `insert` on an already-inserted objective has nothing to announce.
 
-        Both reads share one channel scope. On a TFS system that is what makes carrying
-        a payload nearly free: the scope is depth-counted, so this nests inside the one
-        the move already holds and costs no extra change of the microscope's active
-        view. Reading twice unscoped would cost two.
+        Both reads share one channel scope, so on a TFS system a move costs **one** extra
+        take of the shared imaging channel rather than two. Not zero: every caller
+        invokes this *after* its own scope has closed, deliberately, because psygnal is
+        synchronous -- inside, every subscriber's slot would run while the channel was
+        held, and a display refresh is not something to hold the microscope for.
+
+        One take per move is still the point of the exercise. What this replaces is a
+        read per *poll tick* by each display, and there are at least three of them.
 
         A read that fails must not turn a move that worked into a raised exception, so a
         failure here is logged and swallowed. The cost of missing one notification is a

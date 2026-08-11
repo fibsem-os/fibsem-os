@@ -107,11 +107,15 @@ class TestThePayload:
         assert moves[-1][1] == "Retracted"
 
     def test_both_reads_share_one_channel_scope(self, fm, monkeypatch):
-        """What makes the payload nearly free on a TFS system.
+        """What keeps the payload cheap on a TFS system.
 
         Position and state are each a device read that takes the shared imaging channel.
-        Read under one scope they cost a single change of the microscope's active view;
-        read separately they cost two, on every move, forever.
+        Under one scope a move costs a single change of the microscope's active view;
+        read separately it costs two, on every move, forever.
+
+        One rather than none: this runs after the move's own scope has closed, so that
+        subscribers do not execute while the channel is held. The saving is against the
+        per-poll reads it replaces, not against zero.
         """
         from contextlib import contextmanager
 
