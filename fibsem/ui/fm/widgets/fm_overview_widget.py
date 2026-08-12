@@ -236,6 +236,9 @@ class FMOverviewWidget(QWidget):
         # be fixed once and kept: re-deriving it from the newest image would shift the
         # whole scene each time one arrived. Taken from the first image displayed.
         self._origin: Optional[FibsemStagePosition] = None
+        # The camera half of the frame, kept rather than re-read -- see `_projection`.
+        # None until first resolved, and set back to None to force a re-read.
+        self._cached_projection: Optional[FMStageProjection] = None
         self._positions: List[FibsemStagePosition] = []
         # Which marked position is selected, by name. See `set_selected_position`.
         self._selected_position: Optional[str] = None
@@ -1105,7 +1108,46 @@ class FMOverviewWidget(QWidget):
         """The stage position canvas zero corresponds to, once one has been fixed."""
         return self._origin
 
-    def _frame(self) -> Optional[StageFrame]:
+    def _projection(self, fresh: bool = False) -> Optional[FMStageProjection]:
+        """The camera half of the frame, read once and kept.
+
+        `FMStageProjection.from_microscope` reads `camera.resolution`, `camera.pixel_size`
+        and `fm_image_geometry()`. On a TFS system the first two go through
+        `camera.binning`, which is a device read inside an `active_channel()` scope -- so
+        resolving a projection is several AutoScript round trips, and on the shared
+        connection at that.
+
+        `_frame` is called from the cursor readout and from the grid drag, both of which
+        fire on **every mouse-move event**. Reading the instrument once per pixel of
+        pointer travel, to render a text label, is what made the grid drag stutter on
+        hardware; the tile-grid overlay's own docstring asks the host to keep that
+        response cheap, and it had stopped being cheap.
+
+        Caching is safe because nothing in it varies the way the pointer does.
+        `FibsemHardwareGeometry` is system configuration -- camera tilt, shuttle
+        pre-tilt, the flip, compustage or not -- and does not change within a session.
+        Resolution and pixel size vary only with binning, which changes when somebody
+        changes it.
+
+        *fresh* re-reads, for the callers that need the current value rather than a
+        current-enough one. The split is the same one `ObjectiveLens.position_changed`
+        draws: **displays use the kept value, anything that commands the instrument
+        reads the device.** Of the ten callers here exactly one commands anything --
+        `_stage_position_at`, which turns a double-click into a stage move.
+        """
+        if fresh or self._cached_projection is None:
+            self._cached_projection = FMStageProjection.from_microscope(self.microscope)
+        return self._cached_projection
+
+    def invalidate_projection(self) -> None:
+        """Forget the kept projection, so the next frame re-reads it.
+
+        Called wherever the camera geometry could have moved under us -- a reconnect, a
+        binning change, the start of a run. Cheap: the next `_frame` pays one read.
+        """
+        self._cached_projection = None
+
+    def _frame(self, fresh: bool = False) -> Optional[StageFrame]:
         """The mapping between stage space and the canvas, or None if it cannot be had.
 
         The one place the two meet. Everything drawn from a stage position goes through
@@ -1117,8 +1159,10 @@ class FMOverviewWidget(QWidget):
         displayed, so a marker names the same piece of sample no matter what is on
         screen. The origin's rotation and tilt are what put the drawing in the current
         stage orientation -- t = -180 for FM.
+
+        *fresh* forces the camera geometry to be re-read -- see :meth:`_projection`.
         """
-        projection = FMStageProjection.from_microscope(self.microscope)
+        projection = self._projection(fresh=fresh)
         if projection is None:
             return None
 
@@ -1785,8 +1829,12 @@ class FMOverviewWidget(QWidget):
 
         Outside the limits counts as not usable for both: the stage cannot go there, so
         it is neither somewhere to move nor somewhere to put a lamella.
+
+        Reads the camera geometry rather than using the kept value: this is the one
+        caller whose answer drives the instrument, and a stale binning here would send
+        the stage somewhere other than where the click was.
         """
-        frame = self._frame()
+        frame = self._frame(fresh=True)
         if frame is None:
             return None
         try:
@@ -1970,6 +2018,10 @@ class FMOverviewWidget(QWidget):
         if self.is_acquiring:
             logging.warning("An overview acquisition is already running.")
             return
+        # A run plans a grid and drives the stage from the camera geometry, so it starts
+        # from a freshly read one rather than whatever the last drawing kept. The natural
+        # boundary: binning cannot change mid-run, and it is the only thing that moves.
+        self.invalidate_projection()
         # `is_acquiring`, not `is_streaming`: a z-stack or an autofocus sweep in the
         # control widget is not a stream, and this widget's own tileset was invisible to
         # that one, which is the direction that mattered (FIB-441).
