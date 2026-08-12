@@ -93,9 +93,40 @@ def _event(overlay, x, y, button=1, px=0.0, py=0.0):
 
 
 def _click(overlay, x, y):
-    """Press and release at one point, without moving between the two."""
+    """Press and release at one point, without moving between the two.
+
+    Ends by letting the deferred toggle out. A release no longer emits `tile_toggled`
+    directly -- it waits out the double-click interval first, because a double-click
+    here is a stage move rather than a tile edit (FIB-520). Firing the timer by hand
+    rather than waiting on it keeps these tests about *which* tile and *what value*,
+    and instant; the deferral itself is pinned separately below.
+    """
     overlay._on_press(_event(overlay, x, y))
     overlay._on_release(_event(overlay, x, y))
+    _flush_toggle(overlay)
+
+
+def _flush_toggle(overlay):
+    """Let a pending toggle out without waiting for the real interval."""
+    if overlay._toggle_timer.isActive():
+        overlay._toggle_timer.stop()
+        overlay._emit_pending_toggle()
+
+
+def _double_click(overlay, x, y):
+    """The four events matplotlib delivers for a double-click, in order.
+
+    press, release, press(dblclick=True), release -- the second press is the first
+    thing that says a double-click is happening, and it arrives *after* the release
+    that would otherwise have toggled.
+    """
+    for dblclick in (False, True):
+        press = _event(overlay, x, y)
+        press.dblclick = dblclick
+        overlay._on_press(press)
+        release = _event(overlay, x, y)
+        release.dblclick = False
+        overlay._on_release(release)
 
 
 def _drag(overlay, start, end, px_travel=50.0):
@@ -103,6 +134,7 @@ def _drag(overlay, start, end, px_travel=50.0):
     overlay._on_press(_event(overlay, *start))
     overlay._on_drag(_event(overlay, *end, px=px_travel, py=px_travel))
     overlay._on_release(_event(overlay, *end, px=px_travel, py=px_travel))
+    _flush_toggle(overlay)
 
 
 def test_the_centre_tile_coincides_with_the_displayed_image(qapp):
@@ -617,3 +649,126 @@ def test_a_move_drag_survives_the_grid_being_cleared_underneath_it(qapp):
 
     overlay._on_drag(_event(overlay, cx + 400.0, cy, px=50.0, py=50.0))
     overlay._on_release(_event(overlay, cx + 400.0, cy, px=50.0, py=50.0))
+
+
+class TestADoubleClickIsAStageMoveNotATileEdit:
+    """FIB-520, found on hardware.
+
+    Double-clicking the canvas moves the stage. Inside the grid that same gesture also
+    toggled the tile under the cursor, so a deliberate move silently edited what the
+    next run would acquire.
+
+    Both paths see the gesture: the canvas emits `canvas_double_clicked` from the second
+    press, and the overlay took raw press/release and treated each release as a click.
+    Nothing arbitrated, because the first release lands before anything knows a second
+    click is coming.
+    """
+
+    def test_a_double_click_does_not_toggle_the_tile(self, qapp):
+        """The defect. Measured before the fix: two emissions, not zero."""
+        overlay, _ = build(3, 3)
+        toggled = []
+        overlay.tile_toggled.connect(lambda r, c, e: toggled.append((r, c, e)))
+        cx, cy = _centre(overlay)
+
+        _double_click(overlay, cx, cy)
+        _flush_toggle(overlay)  # nothing should be left waiting, but prove it
+
+        assert toggled == [], (
+            "a double-click toggled the tile under the cursor -- it is a stage move, "
+            "and editing the acquisition plan on the way to one is silent"
+        )
+
+    def test_the_two_emissions_did_not_cancel_each_other(self, qapp):
+        """Why the bug was visible rather than harmlessly self-undoing.
+
+        The overlay reads `tile.enabled` from its own tiles, and those are not updated
+        between the two releases -- the mask lives in the settings widget and comes back
+        through a redraw. So both emissions carried the *same* value. This pins the
+        state that made that true, so a later change that starts mutating tiles in place
+        cannot quietly turn the double-emission into a no-op and look fixed.
+        """
+        overlay, tiles = build(3, 3)
+        centre = next(t for t in tiles if (t.row, t.col) == (1, 1))
+        cx, cy = _centre(overlay)
+
+        _double_click(overlay, cx, cy)
+
+        assert centre.enabled is True, (
+            "the overlay mutated its own tile -- it emits and lets the settings widget "
+            "own the mask, and two writers is how the two views drift apart"
+        )
+
+    def test_a_single_click_still_toggles(self, qapp):
+        """The other direction. Suppressing the double-click must not cost the click."""
+        overlay, _ = build(3, 3)
+        toggled = []
+        overlay.tile_toggled.connect(lambda r, c, e: toggled.append((r, c, e)))
+        cx, cy = _centre(overlay)
+
+        _click(overlay, cx, cy)
+
+        assert toggled == [(1, 1, False)]
+
+    def test_the_toggle_waits_rather_than_firing_and_being_undone(self, qapp):
+        """The mechanism, not just the outcome.
+
+        A release schedules the toggle and emits nothing yet; only the timer does. An
+        implementation that emitted immediately and undid it on the second press would
+        pass the two tests above and still write a mask it had to rewrite.
+        """
+        overlay, _ = build(3, 3)
+        toggled = []
+        overlay.tile_toggled.connect(lambda r, c, e: toggled.append((r, c, e)))
+        cx, cy = _centre(overlay)
+
+        overlay._on_press(_event(overlay, cx, cy))
+        overlay._on_release(_event(overlay, cx, cy))
+
+        assert toggled == [], "the toggle was emitted before the double-click interval"
+        assert overlay._pending_toggle == (1, 1, False)
+        assert overlay._toggle_timer.isActive()
+
+    def test_the_second_press_cancels_the_pending_toggle(self, qapp):
+        overlay, _ = build(3, 3)
+        cx, cy = _centre(overlay)
+        overlay._on_press(_event(overlay, cx, cy))
+        overlay._on_release(_event(overlay, cx, cy))
+
+        press = _event(overlay, cx, cy)
+        press.dblclick = True
+        overlay._on_press(press)
+
+        assert overlay._pending_toggle is None
+        assert not overlay._toggle_timer.isActive()
+
+    def test_the_second_press_takes_no_part_in_the_gesture(self, qapp):
+        """It returns before claiming, so the release after it does nothing either.
+
+        Without that, the second press would arm `_move_start` again and its release
+        would schedule a fresh toggle -- putting the bug straight back, one click later.
+        """
+        overlay, _ = build(3, 3)
+        cx, cy = _centre(overlay)
+
+        press = _event(overlay, cx, cy)
+        press.dblclick = True
+        overlay._on_press(press)
+
+        assert overlay._move_start is None
+
+    def test_detaching_drops_a_pending_toggle(self, qapp):
+        """It would otherwise fire into a host that has stopped listening, or -- on a
+        rebuilt tab -- into the wrong one."""
+        overlay, _ = build(3, 3)
+        toggled = []
+        overlay.tile_toggled.connect(lambda r, c, e: toggled.append((r, c, e)))
+        cx, cy = _centre(overlay)
+        overlay._on_press(_event(overlay, cx, cy))
+        overlay._on_release(_event(overlay, cx, cy))
+
+        overlay.detach()
+
+        assert overlay._pending_toggle is None
+        assert not overlay._toggle_timer.isActive()
+        assert toggled == []

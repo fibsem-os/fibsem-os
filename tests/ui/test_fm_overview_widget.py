@@ -558,9 +558,19 @@ def _end_gesture(overlay, event):
 
 
 def _click(overlay, x, y):
-    """Press and release at one point -- the gesture that toggles a tile."""
+    """Press and release at one point -- the gesture that toggles a tile.
+
+    Ends by letting the deferred toggle out. A release schedules the toggle rather than
+    emitting it, waiting out the double-click interval first, because a double-click on
+    the canvas is a stage move and used to toggle the tile under it as well (FIB-520).
+    Firing the timer by hand keeps these tests instant and about the wiring rather than
+    about the delay; the delay itself is pinned in `test_tile_grid_overlay.py`.
+    """
     overlay._on_press(_mouse(overlay, x, y))
     _end_gesture(overlay, _mouse(overlay, x, y))
+    if overlay._toggle_timer.isActive():
+        overlay._toggle_timer.stop()
+        overlay._emit_pending_toggle()
 
 
 @pytest.fixture(scope="module")

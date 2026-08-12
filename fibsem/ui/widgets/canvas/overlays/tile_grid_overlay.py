@@ -20,7 +20,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, List, Optional, Sequence, Tuple
 
-from PyQt5.QtCore import QObject, Qt, pyqtSignal
+from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
+from PyQt5.QtWidgets import QApplication
 
 from fibsem.imaging.tiling.geometry import TilePosition
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
@@ -95,6 +96,12 @@ class TileGridOverlay(QObject, CanvasOverlay):
         # coordinates drive the threshold, the data coordinates the displacement.
         self._move_start: Optional[Tuple[float, float, float, float, float, float]] = None
         self._move_active: bool = False
+        # A toggle waiting to find out whether it was half of a double-click. See
+        # `_schedule_toggle` for why it waits rather than firing and being undone.
+        self._pending_toggle: Optional[Tuple[int, int, bool]] = None
+        self._toggle_timer = QTimer(self)
+        self._toggle_timer.setSingleShot(True)
+        self._toggle_timer.timeout.connect(self._emit_pending_toggle)
 
     # ── lifecycle ────────────────────────────────────────────────────────
 
@@ -112,6 +119,9 @@ class TileGridOverlay(QObject, CanvasOverlay):
         ]
 
     def detach(self) -> None:
+        # A toggle still waiting out the double-click interval would otherwise fire into
+        # a host that has stopped listening -- or, on a rebuilt tab, into the wrong one.
+        self._cancel_pending_toggle()
         if self._canvas is not None:
             for cid in self._cids:
                 self._canvas.mpl_disconnect(cid)
@@ -448,6 +458,18 @@ class TileGridOverlay(QObject, CanvasOverlay):
         if not self._visible or not self._tiles:
             return
 
+        if getattr(event, "dblclick", False):
+            # The second press of a double-click, and the only warning that the first
+            # click was never a tile edit: the canvas turns this same press into a stage
+            # move. Drop the toggle the first release left pending and take no part in
+            # the gesture -- returning without claiming leaves `_move_start` unset, so
+            # the release that follows does nothing either.
+            #
+            # `getattr` because matplotlib sets `dblclick` on real events and the tests
+            # build the minimum an overlay reads.
+            self._cancel_pending_toggle()
+            return
+
         edges = self._edge_at(event.xdata, event.ydata)
         if edges is not None:
             self._resize_axes = edges
@@ -606,9 +628,41 @@ class TileGridOverlay(QObject, CanvasOverlay):
         ):
             tile = self._tile_at(event.xdata, event.ydata)
             if tile is not None:
-                self.tile_toggled.emit(tile.row, tile.col, not tile.enabled)
+                self._schedule_toggle(tile.row, tile.col, not tile.enabled)
 
         self._update_cursor(event)
+
+    # ── the click / double-click split ───────────────────────────────────
+
+    def _schedule_toggle(self, row: int, col: int, enabled: bool) -> None:
+        """Hold a toggle for the double-click interval before emitting it.
+
+        Double-clicking the canvas moves the stage. Inside the grid both gestures start
+        the same way, and this release arrives before anything knows whether a second
+        click is coming -- so a double-click used to move the stage *and* toggle the
+        tile under it. Twice, in fact: the overlay's own tiles are not updated between
+        the two releases, so both emissions carried the same value rather than undoing
+        each other (FIB-520).
+
+        Deferring, rather than emitting and undoing on the second press. Undoing is
+        snappier and writes a mask it then has to rewrite; this state decides what the
+        next run acquires, and never being briefly wrong is worth more here than never
+        being briefly slow.
+
+        The wait is the user's own `doubleClickInterval`, so it is as short as it can be
+        and still catch the double-clicks they actually make.
+        """
+        self._pending_toggle = (row, col, enabled)
+        self._toggle_timer.start(QApplication.doubleClickInterval())
+
+    def _cancel_pending_toggle(self) -> None:
+        self._toggle_timer.stop()
+        self._pending_toggle = None
+
+    def _emit_pending_toggle(self) -> None:
+        pending, self._pending_toggle = self._pending_toggle, None
+        if pending is not None:
+            self.tile_toggled.emit(*pending)
 
     def _restore_margin(self) -> None:
         if self._previous_margin is not None and self._canvas is not None:
