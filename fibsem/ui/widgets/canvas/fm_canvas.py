@@ -229,6 +229,12 @@ class FMCanvasWidget(QWidget):
         self._layers: List[FMLayer] = []
         self._pixel_size: Optional[float] = None
         self._canvas_shape: Optional[Tuple[int, int]] = None  # drawn-axes shape
+        # Planes as the last blend used them: reduced to display resolution. Set by
+        # `_recomposite` for `_show_composite` to keep, so a subclass holding an image
+        # does not reduce the originals a second time. Empty until the first composite,
+        # rather than absent -- an AttributeError inside a paint aborts the process
+        # under PyQt5 rather than raising (FIB-329).
+        self._blended_planes: Dict[str, np.ndarray] = {}
         self._shape: Optional[Tuple[int, int]] = None  # composite target shape (last upserted layer)
         # z-stack scrubbing: keep the full ZYX stack per channel + display state
         self._stacks: Dict[str, np.ndarray] = {}   # channel name -> ZYX stack
@@ -346,7 +352,39 @@ class FMCanvasWidget(QWidget):
         return False
 
     def set_channel(self, name: str, data: np.ndarray, color: Optional[str] = None) -> None:
-        """Upsert a channel's 2-D image (live path — no z-stack); display props preserved."""
+        """Upsert a channel's 2-D image (live path — no z-stack); display props preserved.
+
+        Setting several channels? Use :meth:`set_channels`. Each call here recomposites,
+        and a recomposite is not cheap.
+        """
+        self._set_channel_data(name, data, color)
+        self._recomposite()
+
+    def set_channels(
+        self, items: Sequence[Tuple[str, np.ndarray, Optional[str]]]
+    ) -> None:
+        """Upsert several channels and composite **once**, where a loop composites once
+        each.
+
+        A recomposite reduces every layer of this image and then re-renders every other
+        held image, reducing all of *their* layers too. So setting C channels one at a
+        time does C times the work of setting them together, and C-1 of the blends are
+        discarded by the next call in the same loop.
+
+        That was invisible while the reduction was a strided view costing nothing. It is
+        not invisible now it box-averages: measured on a 4-channel preview with one 10x10
+        overview also on the canvas, 148 ms per update channel-by-channel against 37 ms
+        batched -- for the same picture. The live overview preview updates once a tile,
+        so this is the difference between a run you can watch and one you cannot.
+        """
+        for name, data, color in items:
+            self._set_channel_data(name, data, color)
+        self._recomposite()
+
+    def _set_channel_data(
+        self, name: str, data: np.ndarray, color: Optional[str]
+    ) -> None:
+        """The layer half of `set_channel`, without the composite."""
         had_stack = self._stacks.pop(name, None) is not None
         self._mip_clim.pop(name, None)
         layer = self._upsert_layer(name, data, color)
@@ -354,7 +392,6 @@ class FMCanvasWidget(QWidget):
             layer.autocontrast = True
             layer.clim = None
             self._refresh_z_controls()  # a stack went away → maybe hide the z-controls
-        self._recomposite()
 
     def set_fm_image(self, image: "FluorescenceImage") -> None:
         """Composite every channel of an acquired ``FluorescenceImage`` (CZYX), keeping the
@@ -429,6 +466,12 @@ class FMCanvasWidget(QWidget):
         h, w = rgb.shape[:2]
         reshaped = self._canvas_shape != (h, w)
         self._canvas_shape = (h, w)
+        # The reduced planes the blend just used, for a subclass that wants to keep
+        # them. Handing them over rather than letting it reduce the originals again --
+        # the same arrays, the same answer, at full acquisition size.
+        self._blended_planes = {
+            layer.name: layer.data for layer in layers if layer.data is not None
+        }
         self._show_composite(rgb, reshaped)
 
     def _show_composite(self, rgb: np.ndarray, reshaped: bool) -> None:
@@ -614,6 +657,10 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         # Channel planes of everything placed, so a layer change can re-render images
         # composited long ago. Only the newest is in `_layers`; the rest are here.
         self._held: Dict[str, Dict[str, np.ndarray]] = {}
+        # The same planes at display resolution. Held images do not change while held,
+        # so their reduction is computed once here rather than on every re-render.
+        # Invalidated wherever `_held` is, and wherever the display cap moves.
+        self._held_reduced: Dict[str, Dict[str, np.ndarray]] = {}
 
     def _make_canvas(self) -> FibsemCanvasBase:
         return FibsemRealSpaceCanvas()
@@ -652,6 +699,7 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         image no longer placed leaks the pixels and leaves `_channel_still_shown`
         answering for a channel nothing displays.
         """
+        self._held_reduced.pop(key, None)
         return self._held.pop(key, None) is not None
 
     def clear_overviews(self) -> None:
@@ -659,6 +707,7 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         for key in list(self._held):
             self.canvas.remove_image(key)
         self._held.clear()
+        self._held_reduced.clear()
 
     def set_placement(self, centre: Tuple[float, float]) -> None:
         """Where the composite sits, in metres from the canvas origin.
@@ -700,9 +749,20 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         if self._shape:
             covers = (self._shape[1] * self._pixel_size, self._shape[0] * self._pixel_size)
         # Keep this image's planes, so a later layer change can re-render it once its
-        # channels are no longer the ones in `_layers`.
+        # channels are no longer the ones in `_layers`. Reduced once here rather than on
+        # every re-render: these are held at *acquisition* resolution -- a stitched 10x10
+        # mosaic is 10240px square per channel -- and they do not change while they are
+        # held, so re-reducing them per re-render is the same answer computed repeatedly.
+        # That cost nothing while the reduction was a strided view and is 9 ms a plane
+        # now it averages; `_restyle_others` runs it for every held image on every layer
+        # change, so it multiplied by both counts at once.
         self._held[key] = {
             layer.name: layer.data for layer in self._layers if layer.data is not None
+        }
+        self._held_reduced[key] = {
+            name: reduced
+            for name, reduced in self._blended_planes.items()
+            if name in self._held[key]
         }
         # Placed over other images rather than over a background, so it goes on as
         # colour plus coverage: an opaque frame hides whatever it covers, including
@@ -723,6 +783,16 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         else:
             self.canvas.update_image(key, placed)
         self._restyle_others(key)
+
+    def _reduced_plane(
+        self,
+        cached: Dict[str, np.ndarray],
+        planes: Dict[str, np.ndarray],
+        name: str,
+    ) -> np.ndarray:
+        """A held plane at display resolution, from the cache when it is there."""
+        hit = cached.get(name)
+        return self._reduce(planes[name]) if hit is None else hit
 
     def _reduce(self, plane: np.ndarray) -> np.ndarray:
         """A plane at the resolution the canvas will actually store.
@@ -778,8 +848,18 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         for key, planes in self._held.items():
             if key == current or key not in self.canvas.placed_keys:
                 continue
+            reduced = self._held_reduced.get(key) or {}
             layers = [
-                replace(layer, data=self._reduce(planes[layer.name]), _clim_cache=None)
+                replace(
+                    layer,
+                    # Cached at hold time: a held image's planes do not change, so the
+                    # reduction is the same answer on every re-render. Falls back rather
+                    # than indexing, so a cache that somehow missed an entry costs time
+                    # instead of raising out of a paint (FIB-329). Compared against None
+                    # explicitly -- `or` on an array raises rather than testing presence.
+                    data=self._reduced_plane(reduced, planes, layer.name),
+                    _clim_cache=None,
+                )
                 for layer in self._layers
                 if layer.name in planes
             ]
