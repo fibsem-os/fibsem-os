@@ -37,10 +37,12 @@ import logging
 import os
 import threading
 from copy import deepcopy
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional, Set
 
 from PyQt5.QtCore import pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
+    QCheckBox,
+    QFormLayout,
     QLabel,
     QPushButton,
     QScrollArea,
@@ -68,11 +70,13 @@ from fibsem.ui.tokens import (
     CURRENT_POSITION_COLOUR,
     SAVED_POSITION_COLOUR,
     SELECTED_POSITION_COLOUR,
+    SEMANTIC_WARNING_COLOR,
 )
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
     MinimapShapesOverlay,
     ShapeSpec,
 )
+from fibsem.ui.widgets.canvas.overlays.gridbar_overlay import GridBarOverlay
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointsOverlay
 from fibsem.ui.widgets.canvas.real_space_canvas import FibsemRealSpaceCanvas
 from fibsem.ui.widgets.canvas.stage_frame import StageFrame
@@ -80,6 +84,7 @@ from fibsem.ui.widgets.custom_widgets import (
     ContextMenu,
     ContextMenuConfig,
     TitledPanel,
+    ValueSpinBox,
 )
 from fibsem.ui.widgets.overview_acquisition_settings_widget import (
     OverviewAcquisitionSettingsWidget,
@@ -100,6 +105,11 @@ OVERVIEW_FOV_COLOUR = "#ce93d8"
 # The grid boundary a cryo holder's slot describes, as a radius in metres. Carried over
 # from the widget this replaces, where it was written inline as `1000e-6 / pixelsize`.
 GRID_BOUNDARY_RADIUS = 1000e-6
+# Cryo grid bar defaults, in microns -- the values the tab this replaces carried in
+# `GRIDBAR_IMAGE_LAYER_PROPERTIES`, which went with the napari layer they configured.
+DEFAULT_GRIDBAR_SPACING_UM = 100.0
+DEFAULT_GRIDBAR_WIDTH_UM = 20.0
+
 # Screen-space hit radius for picking a marker, matching the FM overview's. In pixels
 # rather than stage microns so how close you have to click does not change with zoom.
 PICK_RADIUS_PX = 12
@@ -182,6 +192,11 @@ class FibsemOverviewWidget(QWidget):
         self._cached_projection: Optional[BeamStageProjection] = None
         self._positions: List[FibsemStagePosition] = []
         self._selected_position: Optional[str] = None
+        # Positions a host has flagged, by name. What "flagged" means is the host's
+        # business -- for an experiment it is a lamella marked defective. Kept as names
+        # rather than as a predicate on the position so this stays ignorant of whatever
+        # the host is really looking at.
+        self._flagged: Set[str] = set()
         # Where the stage is, as far as anyone has told us. Cached rather than polled
         # so that everything drawn from it agrees by construction rather than because
         # two callers happened to poll together.
@@ -221,6 +236,12 @@ class FibsemOverviewWidget(QWidget):
         self.canvas.canvas_double_clicked.connect(self._on_canvas_double_clicked)
         self.canvas.canvas_right_clicked.connect(self._on_canvas_right_clicked)
 
+        # The grid's bars, where they should be. Off by default: it is a reference you
+        # turn on to check the overview against, not something to read the sample
+        # through. Added first so it sits under everything else.
+        self.gridbar_overlay = GridBarOverlay()
+        self.canvas.add_overlay(self.gridbar_overlay)
+
         # Where the sample and the stage can physically go -- the context an overview is
         # read against. Added before the position markers so it sits beneath them.
         self.context_overlay = MinimapShapesOverlay(zorder=4.0, crosshair_half_px=24)
@@ -240,6 +261,15 @@ class FibsemOverviewWidget(QWidget):
             color=SAVED_POSITION_COLOUR, marker="+", size=11
         )
         self.canvas.add_overlay(self.position_overlay)
+        # Flagged positions, on their own layer for the same reason the selection has
+        # one: `PointsOverlay` paints every point the same colour. Worth the third
+        # layer here rather than collapsing it into the others -- a lamella marked
+        # defective is one you should not be re-targeting, and the tab this replaces
+        # said so in colour.
+        self.flagged_position_overlay = PointsOverlay(
+            color=SEMANTIC_WARNING_COLOR, marker="+", size=11
+        )
+        self.canvas.add_overlay(self.flagged_position_overlay)
         # The selected position on its own layer rather than as a colour within the one
         # above: `PointsOverlay` paints every point the same. Added last, so it draws
         # over its unselected neighbours where markers crowd together.
@@ -250,6 +280,19 @@ class FibsemOverviewWidget(QWidget):
 
         self.settings_widget = OverviewAcquisitionSettingsWidget(self)
         self.settings_widget.settings_changed.connect(self._on_settings_changed)
+
+        self.checkbox_gridbars = QCheckBox("Show grid bars")
+        self.checkbox_gridbars.toggled.connect(self._on_gridbars_toggled)
+        self.spin_gridbar_spacing = ValueSpinBox(
+            suffix=" um", minimum=1.0, maximum=10000.0, step=10.0, decimals=1
+        )
+        self.spin_gridbar_spacing.setValue(DEFAULT_GRIDBAR_SPACING_UM)
+        self.spin_gridbar_width = ValueSpinBox(
+            suffix=" um", minimum=0.1, maximum=10000.0, step=5.0, decimals=1
+        )
+        self.spin_gridbar_width.setValue(DEFAULT_GRIDBAR_WIDTH_UM)
+        for _spin in (self.spin_gridbar_spacing, self.spin_gridbar_width):
+            _spin.valueChanged.connect(self._refresh_gridbars)
 
         self.button_acquire = QPushButton("Run Tile Collection")
         self.button_acquire.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
@@ -281,10 +324,12 @@ class FibsemOverviewWidget(QWidget):
 
         controls = QWidget()
         controls_layout = QVBoxLayout(controls)
+        self._controls_layout = controls_layout
         controls_layout.setContentsMargins(8, 8, 8, 8)
         controls_layout.setSpacing(10)
         controls_layout.addWidget(overviews_panel)
         controls_layout.addWidget(self.settings_widget)
+        controls_layout.addWidget(self._section("Display", self._display_panel()))
         controls_layout.addWidget(self._section("Overview", self._acquisition_panel()))
         controls_layout.addStretch()
 
@@ -321,8 +366,56 @@ class FibsemOverviewWidget(QWidget):
         layout.addWidget(self.label_status)
         return panel
 
+    def _display_panel(self) -> QWidget:
+        panel = QWidget()
+        layout = QFormLayout(panel)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.addRow(self.checkbox_gridbars)
+        layout.addRow("Bar spacing", self.spin_gridbar_spacing)
+        layout.addRow("Bar width", self.spin_gridbar_width)
+        return panel
+
     def _section(self, title: str, widget: QWidget) -> QWidget:
         return TitledPanel(title, content=widget)
+
+    # ── grid bars ────────────────────────────────────────────────────────
+
+    def _on_gridbars_toggled(self, checked: bool) -> None:
+        # The pitch controls only mean anything while the bars are drawn.
+        self.spin_gridbar_spacing.setEnabled(checked)
+        self.spin_gridbar_width.setEnabled(checked)
+        self.gridbar_overlay.set_visible(checked)
+        if checked:
+            self._refresh_gridbars()
+
+    def _refresh_gridbars(self) -> None:
+        """Re-measure the lattice against the canvas scale.
+
+        In metres through the frame rather than in pixels: the bars are a physical
+        feature of the holder, so a spacing set in microns has to stay that spacing
+        whatever the overview was acquired at. Silently does nothing before there is a
+        frame -- the controls are usable from the moment the tab opens, and nothing is
+        on screen to reference yet.
+        """
+        if not self.checkbox_gridbars.isChecked():
+            return
+        frame = self._frame()
+        if frame is None:
+            return
+        try:
+            centre = frame.to_canvas(
+                FibsemStagePosition(name="Grid Centre", x=0, y=0, z=0, r=0, t=0)
+            )
+            pitch = frame.length(
+                self.spin_gridbar_spacing.value() * constants.MICRO_TO_SI
+            )
+            width = frame.length(
+                self.spin_gridbar_width.value() * constants.MICRO_TO_SI
+            )
+        except Exception as e:
+            logger.debug(f"Could not place the grid bars: {e}")
+            return
+        self.gridbar_overlay.set_lattice(centre, pitch, width)
 
     # ── state ────────────────────────────────────────────────────────────
 
@@ -341,6 +434,23 @@ class FibsemOverviewWidget(QWidget):
             return self.settings_widget.get_settings().image_settings.beam_type
         except Exception:
             return BeamType.ELECTRON
+
+    def add_settings_section(self, title: str, widget: QWidget, first: bool = True) -> None:
+        """Let a host put its own section in the settings column.
+
+        In the column rather than beside it: a host's section is usually the subject of
+        the tab -- the lamella positions, here -- and a column of its own would read as
+        a third pane. `first` puts it at the top, above what this widget owns, because
+        the host's subject outranks the settings for the next acquisition.
+        """
+        section = self._section(title, widget)
+        if first:
+            self._controls_layout.insertWidget(0, section)
+        else:
+            # Before the trailing stretch, or it lands below the blank space.
+            self._controls_layout.insertWidget(
+                self._controls_layout.count() - 1, section
+            )
 
     def set_save_directory(self, path: Optional[str]) -> None:
         """Where acquired overviews are written. None means nowhere.
@@ -583,6 +693,7 @@ class FibsemOverviewWidget(QWidget):
         specs.extend(self._planned_overview_shape(frame))
         self.context_overlay.set_shapes(specs)
         self._refresh_position_markers()
+        self._refresh_gridbars()
 
     def _limit_shapes(self, frame: StageFrame) -> List[ShapeSpec]:
         """The travel limits, and the grid boundary a cryo holder describes."""
@@ -653,27 +764,47 @@ class FibsemOverviewWidget(QWidget):
             except Exception as e:
                 logger.debug(f"Could not mark the current stage position: {e}")
 
-        unselected, selected, labels = [], [], []
+        unselected, unselected_labels = [], []
+        flagged, flagged_labels = [], []
+        selected = []
         for position in self._positions:
             try:
                 point = frame.to_canvas(position)
             except Exception:
                 continue
-            if position.name and position.name == self._selected_position:
+            name = position.name or ""
+            # Selection wins over flagged: it is what the user is looking at right now,
+            # and a defective lamella they have just clicked should still read as the
+            # selected one.
+            if name and name == self._selected_position:
                 selected.append(point)
+            elif name in self._flagged:
+                flagged.append(point)
+                flagged_labels.append(name)
             else:
                 unselected.append(point)
-                labels.append(position.name or "")
-        self.position_overlay.set_points(unselected, labels=labels)
+                unselected_labels.append(name)
+        self.position_overlay.set_points(unselected, labels=unselected_labels)
+        self.flagged_position_overlay.set_points(flagged, labels=flagged_labels)
         self.selected_position_overlay.set_points(
             selected, labels=[self._selected_position] if selected else None
         )
 
     # ── the host's API ───────────────────────────────────────────────────
 
-    def set_positions(self, positions: List[FibsemStagePosition]) -> None:
-        """Mark these positions on the canvas, replacing whatever was marked."""
+    def set_positions(
+        self,
+        positions: List[FibsemStagePosition],
+        flagged: Optional[Iterable[str]] = None,
+    ) -> None:
+        """Mark these positions on the canvas, replacing whatever was marked.
+
+        *flagged* names a subset to draw in the warning colour. The widget does not
+        know or ask what that means; a host with an experiment passes the lamellae it
+        considers defective.
+        """
         self._positions = list(positions)
+        self._flagged = set(flagged or ())
         self._refresh_position_markers()
 
     def set_selected_position(self, name: Optional[str]) -> None:

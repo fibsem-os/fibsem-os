@@ -68,6 +68,12 @@ _TIP_FM_OVERVIEW   = (
     "canvas, beside the existing Overview tab. Still being finished, and it drives the "
     "same microscope as the Fluorescence controls."
 )
+_LBL_OVERVIEW_CANVAS = "Enable Overview (Canvas) Tab"
+_TIP_OVERVIEW_CANVAS = (
+    "Add a rebuilt Overview tab on the real-space canvas, beside the existing one. "
+    "Tiles are placed where they were acquired rather than stitched first. Still being "
+    "finished, and it drives the same microscope as the Overview tab it will replace."
+)
 _LBL_EDIT_QUEUE    = "Enable Editing the Running Queue"
 _TIP_EDIT_QUEUE    = (
     "Let the workflow timeline reorder, remove and re-run queued tasks while a run "
@@ -173,6 +179,8 @@ class PreferencesDialog(QDialog):
         self._chk_scripts.setToolTip(_TIP_SCRIPTS)
         self._chk_fm_overview = QCheckBox()
         self._chk_fm_overview.setToolTip(_TIP_FM_OVERVIEW)
+        self._chk_overview_canvas = QCheckBox()
+        self._chk_overview_canvas.setToolTip(_TIP_OVERVIEW_CANVAS)
         self._chk_edit_queue = QCheckBox()
         self._chk_edit_queue.setToolTip(_TIP_EDIT_QUEUE)
         features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
@@ -181,6 +189,7 @@ class PreferencesDialog(QDialog):
         features_form.addRow(_LBL_BUG_REPORT, self._chk_bug_report)
         features_form.addRow(_LBL_SCRIPTS, self._chk_scripts)
         features_form.addRow(_LBL_FM_OVERVIEW, self._chk_fm_overview)
+        features_form.addRow(_LBL_OVERVIEW_CANVAS, self._chk_overview_canvas)
         features_form.addRow(_LBL_EDIT_QUEUE, self._chk_edit_queue)
         self._stack.addWidget(features_page)
 
@@ -255,6 +264,7 @@ class PreferencesDialog(QDialog):
         self._chk_bug_report.setChecked(f.bug_report_enabled)
         self._chk_scripts.setChecked(f.scripts_enabled)
         self._chk_fm_overview.setChecked(f.fm_overview_tab)
+        self._chk_overview_canvas.setChecked(f.overview_canvas_tab)
         self._chk_edit_queue.setChecked(f.edit_running_queue)
 
         e = prefs.experiment
@@ -328,6 +338,7 @@ class PreferencesDialog(QDialog):
                 bug_report_enabled=self._chk_bug_report.isChecked(),
                 scripts_enabled=self._chk_scripts.isChecked(),
                 fm_overview_tab=self._chk_fm_overview.isChecked(),
+                overview_canvas_tab=self._chk_overview_canvas.isChecked(),
                 edit_running_queue=self._chk_edit_queue.isChecked(),
             ),
             movement=MovementPreferences(

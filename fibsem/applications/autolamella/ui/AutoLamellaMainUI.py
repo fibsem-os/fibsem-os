@@ -44,6 +44,9 @@ from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI, INST
 from fibsem.applications.autolamella.ui.autolamella_fluorescence_overview_tab import (
     AutoLamellaFluorescenceOverviewTab,
 )
+from fibsem.applications.autolamella.ui.autolamella_overview_tab import (
+    AutoLamellaOverviewTab,
+)
 from fibsem.applications.autolamella.workflows.tasks.queue import QueueOp, QueueResult
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
@@ -657,6 +660,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
         # Show or hide the FM Overview tab, building or dropping its widget to match
         self._apply_fm_overview_visibility()
+        self._apply_overview_canvas_visibility()
         # Toggle Tools -> Scripts. Hiding the menu hides the whole feature: it is the
         # only route to the manager dialog, and the dialog is the only thing that runs
         # a script. If a script is mid-run, leave it visible -- taking away the only
@@ -1091,6 +1095,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.minimap_widget.pushButton_load_image.setEnabled(enabled)
         if getattr(self, "fm_overview_tab", None) is not None:
             self.fm_overview_tab.set_interactive(enabled)
+        if getattr(self, "overview_canvas_tab", None) is not None:
+            self.overview_canvas_tab.set_interactive(enabled)
 
     def _set_border_state(self, state: str):
         """Update the tab widget border to reflect current workflow state.
@@ -1185,6 +1191,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Through the visibility path rather than straight to the builder, because
         # whether this system has a fluorescence detector at all is only known now.
         self._apply_fm_overview_visibility()
+        # Same for the rebuilt Overview tab, which holds its microscope for life and
+        # has to be handed the new one (or let go of the old) on every connection.
+        self._apply_overview_canvas_visibility()
         if (
             self.autolamella_ui is not None
             and self.autolamella_ui.microscope is not None
@@ -1387,6 +1396,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._create_main_tab()
         self.add_minimap_tab()
         self.add_fm_overview_tab()
+        self.add_overview_canvas_tab()
         self.add_protocol_editor_tab()
         self.add_lamella_editor_tab()
         self.add_workflow_tab()
@@ -1404,6 +1414,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         self.minimap_widget.set_experiment()
         self.fm_overview_tab.refresh_experiment()
+        self.overview_canvas_tab.refresh_experiment()
         self.task_widget.set_experiment(self.autolamella_ui.experiment)
         self.lamella_widget.set_experiment()
         experiment = self.autolamella_ui.experiment
@@ -1746,6 +1757,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         self._selected_card_lamella = lamella
         self.fm_overview_tab.set_selected(lamella)
+        self.overview_canvas_tab.set_selected(lamella)
         self.lamella_task_image_widget.set_lamella(lamella)
         if lamella is not None:
             self.lamella_widget.select_lamella(lamella.name)
@@ -1761,6 +1773,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_experiment_lamella_selected(self, lamella):
         """Sync card container and minimap when experiment-tab list selection changes."""
         self.fm_overview_tab.set_selected(lamella)
+        self.overview_canvas_tab.set_selected(lamella)
         if getattr(self, "_syncing_selection", False) or lamella is None:
             return
         if not hasattr(self, "lamella_card_container"):
@@ -1776,6 +1789,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_minimap_lamella_selected(self, lamella):
         """Sync experiment list and card container when minimap list selection changes."""
         self.fm_overview_tab.set_selected(lamella)
+        self.overview_canvas_tab.set_selected(lamella)
         if getattr(self, "_syncing_selection", False) or lamella is None:
             return
         self._syncing_selection = True
@@ -2263,6 +2277,75 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.tab_widget.indexOf(self.fm_overview_tab), False
         )
         self._apply_fm_overview_visibility()
+
+    def add_overview_canvas_tab(self):
+        """Reserve the rebuilt Overview tab, beside the napari one it will replace.
+
+        Behind `features.overview_canvas_tab`, off by default, and deliberately *beside*
+        rather than instead of the existing Overview tab: the two drive the same
+        instrument, and the napari one is what people are relying on until this has had
+        bench time. Swapping them is its own change, once it has (FIB-413, FIB-405).
+
+        Same shape as `add_fm_overview_tab` in every other respect -- created empty and
+        always, hidden when the flag is off, filled in on connection by
+        :class:`AutoLamellaOverviewTab`, which needs a microscope to build its widget
+        and says so through `availability_changed`.
+        """
+        self.overview_canvas_tab = AutoLamellaOverviewTab(self.autolamella_ui)
+        self.overview_canvas_tab.availability_changed.connect(
+            self._on_overview_canvas_availability
+        )
+        self.overview_canvas_tab.lamella_selected.connect(
+            self._on_overview_canvas_lamella_selected
+        )
+
+        self.tab_widget.insertTab(
+            3, self.overview_canvas_tab,
+            fibsem_icon("mdi:map-search-outline", color=GRAY_ICON_COLOR),
+            "Overview (Canvas)",
+        )
+        self.tab_widget.setTabEnabled(
+            self.tab_widget.indexOf(self.overview_canvas_tab), False
+        )
+        self._apply_overview_canvas_visibility()
+
+    def _apply_overview_canvas_visibility(self) -> None:
+        """Show or hide the rebuilt Overview tab, and build or tear down its widget.
+
+        Unlike the FM tab there is no capability to check: every system has beams, so
+        the flag is the only condition.
+        """
+        if getattr(self, "overview_canvas_tab", None) is None:
+            return
+        self.tab_widget.setTabVisible(
+            self.tab_widget.indexOf(self.overview_canvas_tab),
+            fibsem_cfg.FEATURE_OVERVIEW_CANVAS_TAB_ENABLED,
+        )
+        self.overview_canvas_tab.refresh_microscope()
+
+    def _on_overview_canvas_availability(self, available: bool) -> None:
+        self.tab_widget.setTabEnabled(
+            self.tab_widget.indexOf(self.overview_canvas_tab), available
+        )
+
+    def _on_overview_canvas_lamella_selected(self, lamella):
+        """Sync the other lists when the rebuilt Overview tab's list changes.
+
+        The same shape as `_on_minimap_lamella_selected`, minus the call back into the
+        tab that raised it -- that list already shows the selection.
+        """
+        self.fm_overview_tab.set_selected(lamella)
+        if getattr(self, "_syncing_selection", False) or lamella is None:
+            return
+        self._syncing_selection = True
+        try:
+            self.autolamella_ui.lamella_list.select(lamella.name)
+            if hasattr(self, "lamella_card_container"):
+                self.lamella_card_container.select_lamella(lamella.name)
+            if hasattr(self, "minimap_widget"):
+                self.minimap_widget.lamella_list.select(lamella.name)
+        finally:
+            self._syncing_selection = False
 
     def _on_fm_overview_lamella_selected(self, lamella):
         """Sync the other lists when the FM overview's list selection changes.

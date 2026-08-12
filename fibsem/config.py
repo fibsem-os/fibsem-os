@@ -359,6 +359,11 @@ class FeatureFlags:
     # first thing that lets a user change what a running workflow will do, on a real
     # sample, mid-session -- so it is offered only to people who ask (FIB-476).
     edit_running_queue: bool = False
+    # The rebuilt FIB/SEM Overview tab, on the real-space canvas. Off while it sits
+    # *beside* the napari Overview tab rather than replacing it: the two drive the same
+    # instrument, and the existing tab is the one people are relying on until this has
+    # had bench time (FIB-413, FIB-405).
+    overview_canvas_tab: bool = False
 
 @dataclass
 class MovementPreferences:
@@ -611,6 +616,7 @@ def apply_feature_flags(prefs: UserPreferences) -> None:
     global FEATURE_SCHEDULED_TASKS_ENABLED
     global FEATURE_FM_OVERVIEW_TAB_ENABLED
     global FEATURE_EDIT_RUNNING_QUEUE_ENABLED
+    global FEATURE_OVERVIEW_CANVAS_TAB_ENABLED
     f = prefs.features
     FEATURE_VIEWER_MOVEMENT_EVENTS = f.viewer_movement_events
     FEATURE_COINCIDENCE_MILLING_ENABLED = f.coincidence_milling_enabled
@@ -618,6 +624,7 @@ def apply_feature_flags(prefs: UserPreferences) -> None:
     FEATURE_SCHEDULED_TASKS_ENABLED = f.scheduled_tasks
     FEATURE_FM_OVERVIEW_TAB_ENABLED = f.fm_overview_tab
     FEATURE_EDIT_RUNNING_QUEUE_ENABLED = f.edit_running_queue
+    FEATURE_OVERVIEW_CANVAS_TAB_ENABLED = f.overview_canvas_tab
 
     # Also update the autolamella config module which re-exports these
     try:
@@ -645,3 +652,4 @@ FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = False
 FEATURE_SCHEDULED_TASKS_ENABLED = False
 FEATURE_FM_OVERVIEW_TAB_ENABLED = False
 FEATURE_EDIT_RUNNING_QUEUE_ENABLED = False
+FEATURE_OVERVIEW_CANVAS_TAB_ENABLED = False
