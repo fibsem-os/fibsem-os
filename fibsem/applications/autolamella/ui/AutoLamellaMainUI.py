@@ -1325,7 +1325,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.main_viewer = None
 
         # Create the AutoLamellaUI widget
-        self.autolamella_ui = AutoLamellaUI(viewer=None, parent_ui=self)
+        self.autolamella_ui = AutoLamellaUI(parent_ui=self)
 
         # Connect to workflow update signal from AutoLamellaUI
         self.autolamella_ui.workflow_update_signal.connect(self._on_workflow_update)

@@ -13,7 +13,6 @@ import os
 import threading
 from copy import deepcopy
 from typing import List, Optional, TYPE_CHECKING
-import napari
 from fibsem import conversions
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
 from fibsem.ui import notification_service
@@ -103,7 +102,9 @@ if TYPE_CHECKING:
         AutoLamellaSingleWindowUI,
     )
 
-# Suppress a specific upstream Napari/NumPy warning from shapes miter computation.
+# Suppress a specific upstream Napari/NumPy warning from shapes miter computation. This
+# module no longer imports napari, but the minimap still loads it, and a filter is matched
+# by module *name* — so this keeps working and is still worth having.
 warnings.filterwarnings(
     "ignore",
     message=r"'where' used without 'out', expect unit?ialized memory in output\. If this is intentional, use out=None\.",
@@ -169,7 +170,6 @@ class AutoLamellaUI(QMainWindow):
 
     def __init__(
         self,
-        viewer: napari.Viewer,
         parent_ui: "AutoLamellaSingleWindowUI",
     ) -> None:
         super().__init__()
@@ -178,9 +178,6 @@ class AutoLamellaUI(QMainWindow):
         self.parent_widget = parent_ui
 
         self._protocol_lock = threading.RLock()
-
-        # The main tab runs viewer-less; display is via the controller.
-        self.viewer = viewer
 
         self.experiment: Optional[Experiment] = None
         self.microscope: Optional[FibsemMicroscope] = None
@@ -567,7 +564,7 @@ class AutoLamellaUI(QMainWindow):
 
             if self.microscope.fm is not None:
                 self.fm_control_widget = FMControlWidget(
-                    microscope=self.microscope, viewer=self.viewer, parent=self
+                    microscope=self.microscope, parent=self
                 )
                 if self.settings is not None and self.settings.fm is not None:
                     self.fm_control_widget._apply_fluorescence_configuration(
@@ -773,22 +770,23 @@ class AutoLamellaUI(QMainWindow):
     #### FLUORESCENCE IMAGE VIEWER
 
     def _open_fm_image_viewer(self):
-        """Open a new napari viewer with the FM Image Viewer widget."""
+        """Open the FM Image Viewer as a standalone window."""
         if self.experiment is None:
             notification_service.show_toast(
                 "Please load an experiment first... [No Experiment Loaded]", "warning"
             )
             return
 
-        viewer = napari.Viewer(title="FM Image Viewer")
         experiment_path = str(self.experiment.path) if self.experiment.path else None
-        fm_image_viewer = FMImageViewerWidget(
-            viewer=viewer, start_directory=experiment_path, parent=self
+        # Parented to None so it gets its own taskbar entry and native minimise, like the
+        # coincidence viewer. That means nothing else owns it, so the reference here is
+        # what keeps it alive — drop it and Python collects the window mid-session.
+        self._fm_image_viewer_window = FMImageViewerWidget(
+            start_directory=experiment_path
         )
-        viewer.window.add_dock_widget(
-            fm_image_viewer, name="FM Image Viewer", area="right"
-        )
-        viewer.window.activate()
+        self._fm_image_viewer_window.resize(1180, 700)
+        self._fm_image_viewer_window.show()
+        self._fm_image_viewer_window.activateWindow()
 
     def _open_coincidence_milling_viewer(self):
         """Open FluorescenceCoincidenceViewerWidget as a standalone dialog."""

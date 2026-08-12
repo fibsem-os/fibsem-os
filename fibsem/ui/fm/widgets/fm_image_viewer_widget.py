@@ -1,193 +1,225 @@
-"""
-Simple napari widget for loading and displaying FluorescenceImages from file.
-"""
+"""Standalone viewer for loading and displaying FluorescenceImages from file."""
 from __future__ import annotations
-import logging
-from pathlib import Path
-from typing import Optional, Union
 
-import napari
-import numpy as np
-from PyQt5.QtCore import pyqtSignal, pyqtSlot
-from PyQt5.QtWidgets import QPushButton, QVBoxLayout, QWidget
+import logging
+import os
+from datetime import datetime
+from pathlib import Path
+from typing import List, Optional, Union
+
+from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot
+from PyQt5.QtWidgets import (
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
 from superqt import ensure_main_thread
 
-from fibsem.fm.structures import FluorescenceImage, FluorescenceChannelMetadata, FluorescenceImageMetadata
+from fibsem.fm.structures import FluorescenceImage
 from fibsem.ui.fm.widgets.load_image_dialog import LoadImageDialog
-from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET
+from fibsem.ui.stylesheets import NAPARI_STYLE, PRIMARY_BUTTON_STYLESHEET
+from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 
-
-def _image_metadata_to_napari_image_layer(
-    metadata: FluorescenceImageMetadata, image_shape: tuple[int, int], channel_index: int = 0
-) -> dict:
-    """Convert FluorescenceImageMetadata to a dictionary compatible with napari image layer.
-
-    This function extracts relevant metadata from the FluorescenceImageMetadata object
-    and formats it into a dictionary that can be used to create a napari image layer.
-
-    Args:
-        metadata: FluorescenceImageMetadata object containing image metadata
-        image_shape: Shape of the image (height, width)
-        channel_index: Index of the channel to extract metadata for (default is 0)
-
-    Returns:
-        A dictionary containing the metadata formatted for napari image layer.
-    """
-    # Convert structured metadata to dictionary for napari compatibility
-    metadata_dict = metadata.to_dict() if metadata else {}
-
-    channel_name = metadata.channels[channel_index].name
-    colormap = metadata.channels[channel_index].color or "gray"
-    pixel_size_x = metadata.pixel_size_x
-    pixel_size_y = metadata.pixel_size_y
-    pixel_size_z = metadata.pixel_size_z
-
-    return {
-        "name": channel_name,
-        "description": metadata.description or channel_name,
-        "metadata": metadata_dict,
-        "colormap": colormap,
-        "scale": (pixel_size_y, pixel_size_x),  # yx order for napari
-        "pixel_size_z": pixel_size_z,
-        "blending": "additive",
-    }
+# Qt.UserRole payload on each list row: the FluorescenceImage that row displays.
+_IMAGE_ROLE = int(Qt.UserRole)
 
 
 class FMImageViewerWidget(QWidget):
-    """Simple widget for loading and displaying FluorescenceImages."""
+    """Load FluorescenceImages from file and display them on the FM canvas.
+
+    One image is displayed at a time. Loading appends to the list rather than replacing,
+    so several files can be held open and switched between; ``FMCanvasWidget.set_fm_image``
+    resets the channel set on each call, and blending two *different* images was never a
+    workflow, so a list beats stacking them onto one canvas.
+
+    The canvas brings the per-channel colour/visibility/contrast popover, z-scrubbing,
+    max-projection and the scalebar with it — this widget only has to load files and
+    choose which one is shown.
+    """
 
     image_loaded_signal = pyqtSignal(FluorescenceImage)
 
     def __init__(
         self,
-        viewer: napari.Viewer,
         parent: Optional[QWidget] = None,
         start_directory: Optional[Union[str, Path]] = None,
     ):
         super().__init__(parent)
 
-        self.viewer = viewer
         self.start_directory = str(start_directory) if start_directory else None
+        self._images: List[FluorescenceImage] = []
 
-        self.initUI()
+        self.setWindowTitle("FM Image Viewer")
+        self._setup_ui()
+        self._connect_signals()
 
-    def initUI(self):
-        """Initialize the user interface."""
-        # Create load button
-        self.pushButton_load_image = QPushButton("Load Image...", self)
+    # ------------------------------------------------------------------
+    # UI
+    # ------------------------------------------------------------------
+
+    def _setup_ui(self) -> None:
+        # This opens as a top-level window with no parent, and a Qt stylesheet only
+        # cascades to children — so it inherits nothing from the main window and has to
+        # carry the dark theme itself. Same as the coincidence viewer and FibsemUI.
+        self.setStyleSheet(NAPARI_STYLE)
+
+        self.canvas = FMCanvasWidget()
+
+        self.pushButton_load_image = QPushButton("Load Images...")
         self.pushButton_load_image.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
+
+        self.label_images = QLabel("Loaded Images")
+        self.label_images.setStyleSheet("font-weight: bold; margin-top: 6px;")
+
+        self.listWidget_images = QListWidget()
+        self.listWidget_images.setToolTip(
+            "Loaded fluorescence images. Selecting one displays it on the canvas."
+        )
+
+        self.label_metadata = QLabel("No image loaded.")
+        self.label_metadata.setWordWrap(True)
+        self.label_metadata.setStyleSheet("color: #a0a0a0; font-size: 11px;")
+
+        sidebar = QWidget()
+        sidebar.setMaximumWidth(280)
+        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar_layout.setContentsMargins(10, 10, 10, 10)
+        sidebar_layout.setSpacing(8)
+        sidebar_layout.addWidget(self.pushButton_load_image)
+        sidebar_layout.addWidget(self.label_images)
+        sidebar_layout.addWidget(self.listWidget_images, 1)
+        sidebar_layout.addWidget(self.label_metadata)
+
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.addWidget(self.canvas)
+        splitter.addWidget(sidebar)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 0)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(splitter)
+
+    def _connect_signals(self) -> None:
         self.pushButton_load_image.clicked.connect(self.show_load_image_dialog)
+        self.listWidget_images.currentRowChanged.connect(self._on_row_changed)
+        self.image_loaded_signal.connect(self.add_image)
 
-        # Create layout
-        layout = QVBoxLayout()
-        layout.addWidget(self.pushButton_load_image)
-        layout.addStretch()
-        self.setLayout(layout)
+    # ------------------------------------------------------------------
+    # Loading
+    # ------------------------------------------------------------------
 
-        # Configure napari scale bar
-        self.viewer.scale_bar.visible = True
-        self.viewer.scale_bar.unit = "m"
-
-        # Connect signal
-        self.image_loaded_signal.connect(self.display_image)
-
-    def show_load_image_dialog(self):
-        """Show the load image dialog and display the loaded image."""
+    def show_load_image_dialog(self) -> None:
+        """Show the load dialog; every image it emits is appended to the list."""
         dialog = LoadImageDialog(self, start_directory=self.start_directory)
-
-        # Connect the dialog's signal to our signal
         dialog.image_loaded_signal.connect(self.image_loaded_signal.emit)
 
-        ret = dialog.exec_()
-        if ret:
+        if dialog.exec_():
             logging.info("Image loaded successfully")
         else:
             logging.info("Image loading canceled")
 
     @ensure_main_thread
     @pyqtSlot(FluorescenceImage)
-    def display_image(self, image: FluorescenceImage):
-        """Display the loaded image in napari viewer.
+    def add_image(self, image: FluorescenceImage) -> None:
+        """Append *image* to the list and show it.
 
-        Args:
-            image: FluorescenceImage object containing the image data and metadata
+        The dialog emits once per file, so a multi-file load lands here repeatedly and
+        the last one ends up displayed.
         """
+        self._images.append(image)
+
+        item = QListWidgetItem(self._display_name(image))
+        item.setData(_IMAGE_ROLE, len(self._images) - 1)
+        item.setToolTip(image.filepath or "")
+        self.listWidget_images.addItem(item)
+
+        # Selecting the new row drives _on_row_changed, which does the display.
+        self.listWidget_images.setCurrentRow(self.listWidget_images.count() - 1)
+
+    def display_image(self, image: FluorescenceImage) -> None:
+        """Display *image* on the canvas, replacing whatever was shown."""
         try:
-            # Convert structured metadata to dictionary for napari compatibility
-            image_height, image_width = image.data.shape[-2:]
-
-            for channel_index in range(image.data.shape[0]):
-                metadata_dict = _image_metadata_to_napari_image_layer(
-                    image.metadata, (image_height, image_width), channel_index=channel_index
-                )
-                layer_name = f"{metadata_dict['description']}-{metadata_dict['name']}"
-                self._update_napari_image_layer(
-                    layer_name, image.data[channel_index], metadata_dict
-                )
-
+            self.canvas.set_fm_image(image)
+            self.label_metadata.setText(self._describe(image))
             logging.info(f"Displayed image: {image.metadata.description}")
-
         except Exception as e:
             logging.error(f"Error displaying image: {e}")
 
-    def _update_napari_image_layer(
-        self, layer_name: str, image: np.ndarray, metadata_dict: dict
-    ):
-        """Update or create a napari image layer with the given metadata.
+    def _on_row_changed(self, row: int) -> None:
+        if 0 <= row < len(self._images):
+            self.display_image(self._images[row])
 
-        Args:
-            layer_name: Name of the napari image layer
-            image: Image data array
-            metadata_dict: Dictionary containing metadata for the image layer
+    # ------------------------------------------------------------------
+    # Presentation helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _display_name(image: FluorescenceImage) -> str:
+        """A filename where there is one, else the image's own description."""
+        if image.filepath:
+            return os.path.basename(image.filepath)
+        return getattr(image.metadata, "description", None) or "Untitled image"
+
+    @staticmethod
+    def _describe(image: FluorescenceImage) -> str:
+        """The summary shown under the list. Everything here is best-effort: images
+        loaded from disk vary in how much metadata they carry."""
+        md = image.metadata
+        parts: List[str] = [f"<b>{FMImageViewerWidget._display_name(image)}</b>"]
+
+        channels = getattr(md, "channels", None) or []
+        shape = getattr(image.data, "shape", ())
+        if channels:
+            n_z = shape[-3] if len(shape) >= 3 else 1
+            parts.append(f"{len(channels)} channel{'s' if len(channels) != 1 else ''} · {n_z} z-slice{'s' if n_z != 1 else ''}")
+            parts.append(", ".join(c.name for c in channels))
+        if len(shape) >= 2:
+            parts.append(f"{shape[-1]} × {shape[-2]} px")
+
+        pixel_size = getattr(md, "pixel_size_x", None)
+        if pixel_size:
+            parts.append(f"{pixel_size * 1e9:.0f} nm/px")
+        acquired = getattr(md, "acquisition_date", None)
+        if acquired:
+            parts.append(FMImageViewerWidget._format_acquired(acquired))
+
+        return "<br>".join(parts)
+
+    @staticmethod
+    def _format_acquired(acquired: str) -> str:
+        """ISO timestamps read badly in a sidebar; show a date and time instead.
+
+        The field is a free-form string, and images from other sources need not carry a
+        parseable one — anything unrecognised is shown as-is rather than dropped.
         """
-        # Make sure all images are 3D for napari reasons (required to transform)
-        if image.ndim == 2:
-            image = image[np.newaxis, ...]
-
-        # Add a singleton dimension for z if needed
-        if image.ndim == 3 and len(metadata_dict["scale"]) == 2:
-            metadata_dict["scale"] = (metadata_dict["pixel_size_z"], *metadata_dict["scale"])
-
-        if layer_name in self.viewer.layers:
-            # If the layer already exists, update it
-            self.viewer.layers[layer_name].data = image
-            self.viewer.layers[layer_name].metadata = metadata_dict["metadata"]
-            self.viewer.layers[layer_name].colormap = metadata_dict["colormap"]
-        else:
-            # If the layer does not exist, create a new one
-            self.viewer.add_image(
-                data=image,
-                name=layer_name,
-                metadata=metadata_dict["metadata"],
-                colormap=metadata_dict["colormap"],
-                scale=metadata_dict["scale"],
-                blending="additive",
-            )
+        try:
+            return datetime.fromisoformat(str(acquired)).strftime("%Y-%m-%d %H:%M")
+        except (TypeError, ValueError):
+            return str(acquired)
 
 
-def create_widget(
-    viewer: napari.Viewer, experiment_path: Optional[Union[str, Path]] = None
-) -> FMImageViewerWidget:
-    """Factory function to create the widget for napari plugin.
+def main() -> None:
+    """Standalone harness: the viewer in a plain Qt window."""
+    import sys
 
-    Args:
-        viewer: napari Viewer instance
-        experiment_path: Optional path to experiment directory to use as start directory
+    from PyQt5.QtWidgets import QApplication
 
-    Returns:
-        FMImageViewerWidget instance
-    """
-    widget = FMImageViewerWidget(viewer=viewer, start_directory=experiment_path)
-    return widget
-
-
-def main():
-    """Standalone application for testing."""
     from fibsem.config import LOG_PATH
-    viewer = napari.Viewer()
-    widget = create_widget(viewer, LOG_PATH)
-    viewer.window.add_dock_widget(widget, area="right", name="FM Image Viewer")
-    napari.run()
+    from fibsem.ui.stylesheets import NAPARI_STYLE
+
+    app = QApplication.instance() or QApplication(sys.argv)
+    app.setStyleSheet(NAPARI_STYLE)
+
+    widget = FMImageViewerWidget(start_directory=LOG_PATH)
+    widget.resize(1180, 700)
+    widget.show()
+
+    sys.exit(app.exec_())
 
 
 if __name__ == "__main__":
