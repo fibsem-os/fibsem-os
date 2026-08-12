@@ -12,11 +12,11 @@ from typing import Optional, Tuple
 
 import numpy as np
 
+from fibsem.imaging.reduce import downsample
 from fibsem.structures import FibsemImage
 from fibsem.ui.widgets.canvas.canvas_base import (
     _MAX_DISPLAY_PX,
     FibsemCanvasBase,
-    _downsample,
 )
 
 _logger = logging.getLogger(__name__)
@@ -78,7 +78,7 @@ class FibsemImageCanvas(FibsemCanvasBase):
         self._ax.axis("off")
         self._fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
-        self._display_base = _downsample(arr, _MAX_DISPLAY_PX)
+        self._display_base = downsample(arr, _MAX_DISPLAY_PX)
         self._is_gray = arr.ndim == 2
         self._norm = None  # recomputed lazily when contrast is engaged
         extent = (-0.5, w - 0.5, h - 0.5, -0.5)
@@ -128,7 +128,7 @@ class FibsemImageCanvas(FibsemCanvasBase):
         imgs = self._ax.get_images()
         if not imgs:
             return
-        self._display_base = _downsample(arr, _MAX_DISPLAY_PX)
+        self._display_base = downsample(arr, _MAX_DISPLAY_PX)
         self._is_gray = arr.ndim == 2
         self._norm = None
         to_show, clim = self._contrast_display()
