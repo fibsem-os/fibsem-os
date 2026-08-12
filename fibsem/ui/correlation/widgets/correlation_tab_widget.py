@@ -1059,6 +1059,10 @@ class _RITab(QWidget):
         "armed":   "color: #e0c060; font-size: 11px;",
     }
 
+    # Half the factor spinbox's last decimal: a stored 1.5950000000000002 shows
+    # as 1.595, and that rounding must not read as an unapplied edit.
+    _FACTOR_EPS = 5e-4
+
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._poi: List[CorrelationPointOfInterest] = []
@@ -1114,14 +1118,23 @@ class _RITab(QWidget):
         self._chk_rerun.setVisible(False)
         apply_layout.addWidget(self._chk_rerun)
 
-        self._lbl_warning = QLabel("")
-        self._lbl_warning.setStyleSheet("color: #e07b39; font-size: 11px;")
-        apply_layout.addWidget(self._lbl_warning)
         apply_layout.addStretch(1)
         layout.addWidget(apply_row)
 
+        # Its own row, under the button rather than beside it. Wrapping is what
+        # stops a long sentence setting the panel's minimum width — an unwrapped
+        # QLabel reports its whole line, and the pane's splitter has to honour it
+        # — but wrapping *inside* the button row only moved the problem: at 330px
+        # the text got an ~85px column and came out four ragged lines deep. Full
+        # width, two lines, and the row keeps its height.
+        self._lbl_warning = QLabel("")
+        self._lbl_warning.setStyleSheet("color: #e07b39; font-size: 11px;")
+        self._lbl_warning.setWordWrap(True)
+        layout.addWidget(self._lbl_warning)
+
         self._lbl_distance = QLabel("")
         self._lbl_distance.setStyleSheet("color: #a0c8ff; font-size: 11px;")
+        self._lbl_distance.setWordWrap(True)
         self._lbl_distance.setVisible(False)
         layout.addWidget(self._lbl_distance)
 
@@ -1151,6 +1164,17 @@ class _RITab(QWidget):
         self._lbl_multi_poi.setVisible(False)
         layout.addWidget(self._lbl_multi_poi)
         layout.addStretch(1)
+
+        # Last, not beside the widget it listens to: the slot writes to
+        # _lbl_warning, which is built further down this method. The factor can
+        # move with no data change behind it — a parameter edit recomputes it —
+        # and until Apply is pressed that value is not the one a run would use
+        # (FIB-591).
+        self._ri_widget.factor_changed.connect(lambda _f: self._refresh_warning())
+
+        # set_result maintains this from here on, but it is not called until the
+        # first data change — and the tab is reachable before that now.
+        self._refresh_apply_enabled()
 
     @property
     def mode(self) -> Optional[str]:
@@ -1191,9 +1215,14 @@ class _RITab(QWidget):
 
         # Mode banner + pre-mode controls
         if mode == "pre":
+            # Deliberately not "applied during the run": placing the point arms
+            # a factor only when one can be computed, and a banner promising the
+            # run does it regardless is what made a never-armed correction read
+            # as a broken feature (FIB-590). The warning line below carries which
+            # of the two it is; this only names the control that decides.
             self._lbl_mode.setText(
                 "FM surface mode: corrects the z of every input POI before "
-                "correlation (applied during the run)."
+                "correlation. Apply sets the factor a run will use."
             )
         elif mode == "post":
             self._lbl_mode.setText(
@@ -1211,7 +1240,6 @@ class _RITab(QWidget):
         self._update_distance_label()
 
         result_factor = result.refractive_index_correction_factor if result else None
-        result_mode = result.refractive_index_correction_mode if result else None
 
         # Factor spinbox mirrors the authoritative stored factor. In pre mode a
         # newly armed input factor is the latest user intent and outranks the
@@ -1228,6 +1256,82 @@ class _RITab(QWidget):
         # Pre-mode preview table (stored factor, applied or armed)
         if mode == "pre" and self._input_pre_factor is not None:
             self._populate_pre_table(self._input_pre_factor)
+
+        self._refresh_apply_enabled()
+        self._refresh_warning()
+
+    def _apply_blocked_reason(self) -> Optional[str]:
+        """Why Apply cannot be pressed right now, or None when it can.
+
+        Each mode needs something different, and only *post* needs a finished
+        run: it corrects a POI the correlation produced, whereas *pre* corrects
+        the input z and is set up before a run rather than after one.
+        """
+        mode = self.mode
+        if mode is None:
+            return (
+                "Place a surface point first — in the FIB image to correct the "
+                "correlated POI, or in the FM volume to correct the POI depth."
+            )
+        if mode == "pre":
+            if not self._input_poi:
+                return "Place at least one POI for the correction to move."
+            return None
+        if not self._poi:
+            return (
+                "Run the correlation first — the FIB-surface correction adjusts "
+                "a POI the correlation has already produced."
+            )
+        return None
+
+    def _refresh_apply_enabled(self) -> None:
+        reason = self._apply_blocked_reason()
+        self._btn_apply.setEnabled(reason is None)
+        self._btn_apply.setToolTip(
+            reason or "Store the correction factor and apply it."
+        )
+
+    def _refresh_warning(self) -> None:
+        """Report where the correction stands, most actionable state first.
+
+        Split out of :meth:`set_result` because the correction factor moves
+        without any data change — a parameter edit recomputes it — and a value
+        on screen that no run would use has to say so (FIB-591).
+        """
+        mode = self.mode
+        result_factor = (
+            self._result.refractive_index_correction_factor if self._result else None
+        )
+        result_mode = (
+            self._result.refractive_index_correction_mode if self._result else None
+        )
+
+        # An FM surface point on its own corrects nothing: the engine needs a
+        # factor too, and only Apply stores one. Nothing else on screen asks for
+        # that press, which is how placing the point and running read as a
+        # feature that does nothing (FIB-590).
+        if mode == "pre" and self._input_pre_factor is None and self._input_poi:
+            self._set_warning(
+                "FM surface placed — press Apply to arm the correction.",
+                level="armed",
+            )
+            return
+
+        # A factor typed or recomputed since the last Apply is not the one a run
+        # would use. Name both numbers: the disagreement is the whole point, and
+        # silently running the older one is what this replaces (FIB-591).
+        shown = self._ri_widget.get_factor()
+        if (
+            mode == "pre"
+            and self._input_pre_factor is not None
+            and abs(shown - self._input_pre_factor) > self._FACTOR_EPS
+        ):
+            self._set_warning(
+                f"Factor {shown:.3f} not applied — press Apply to use it "
+                f"(runs use {self._input_pre_factor:.3f}).",
+                level="armed",
+            )
+            return
 
         # "Armed" means the stored factor is not what produced the POI on screen.
         # Matching factors are not enough — a result corrected in *post* mode was
@@ -1665,8 +1769,11 @@ class CorrelationTabWidget(QWidget):
         self._tabs.addTab(self._coords_tab, "Coordinates")
         self._tabs.addTab(self._results_tab, "Results")
         self._tabs.addTab(self._ri_tab, "Refractive Index")
-        self._tabs.setTabEnabled(3, False)
-        self._tabs.setTabToolTip(3, "Run correlation first to enable RI correction")
+        # Deliberately always enabled. Gating the whole tab on a finished run hid
+        # the optical parameters, the surface→POI depth readout and the preview
+        # table at exactly the moment an FM surface point has just been placed and
+        # the user wants to check them. Apply is what needs a run behind it, so
+        # Apply is what reports when it cannot be pressed (see _apply_blocked_reason).
 
         right_pane = QWidget()
         right_layout = QVBoxLayout(right_pane)
@@ -2511,11 +2618,17 @@ class CorrelationTabWidget(QWidget):
     # Run correlation
     # ------------------------------------------------------------------
 
-    def _update_run_button(self, data: Optional[CorrelationInputData] = None) -> None:
+    def _can_run(self, data: Optional[CorrelationInputData] = None) -> bool:
+        """Whether the current inputs can support a correlation run.
+
+        A predicate rather than a read of ``_btn_run.isEnabled()``: the button is
+        re-derived from ``data_changed``, so a caller that emits and then asks the
+        button gets the answer for the state it just announced, not the one it
+        meant to test.
+        """
         d = data if data is not None else self.data
-        running = self._worker is not None and self._worker.isRunning()
-        ok = (
-            not running
+        return (
+            not (self._worker is not None and self._worker.isRunning())
             and self._fib_image is not None
             and self._fm_image is not None
             and len(d.fib_coordinates) >= 4
@@ -2523,6 +2636,11 @@ class CorrelationTabWidget(QWidget):
             and len(d.poi_coordinates) >= 1
             and len(d.fib_coordinates) == len(d.fm_coordinates)
         )
+
+    def _update_run_button(self, data: Optional[CorrelationInputData] = None) -> None:
+        d = data if data is not None else self.data
+        running = self._worker is not None and self._worker.isRunning()
+        ok = self._can_run(d)
         self._btn_run.setEnabled(ok)
         if self._autosave_error is not None:
             # Outranks the readiness text: "Ready." while nothing is being saved
@@ -2578,7 +2696,6 @@ class CorrelationTabWidget(QWidget):
         self._ri_tab.set_result(
             result, input_data=self.data, fm_pixel_size_z=self._fm_pixel_size_z()
         )
-        self._tabs.setTabEnabled(3, True)
         self._overlay_result_on_fib(result)
         self._set_result_live(live)
         # after _update_run_button, which would otherwise overwrite it with "Ready."
@@ -2617,6 +2734,18 @@ class CorrelationTabWidget(QWidget):
             if shift is not None:
                 msg += f", POI Δ{shift:.1f} px"
             self._lbl_status.setText(msg)
+        elif (
+            result.input_data is not None
+            and result.input_data.fm_surface_coordinate is not None
+            and result.input_data.ri_pre_correction_factor is None
+        ):
+            # The RI tab says this too, but it opens only after a run and the
+            # user has no reason to look: the run they just watched do nothing
+            # is where the FM surface point stops being self-explanatory.
+            self._lbl_status.setText(
+                "Done — no RI correction. Press Apply on the Refractive Index "
+                "tab to use the FM surface point."
+            )
         else:
             self._lbl_status.setText("Done.")
         self.result_changed.emit(result)
@@ -2713,12 +2842,30 @@ class CorrelationTabWidget(QWidget):
         """Store the pre-correlation RI factor and optionally re-run."""
         self._ri_pre_correction_factor = factor
         self.data_changed.emit(self.data)  # auto-save + RI tab refresh
-        if rerun:
+        # Apply is reachable before the points can support a correlation now the
+        # RI tab is no longer gated on a finished run, and _run does not check --
+        # it would start a worker whose only outcome is an error on the status line.
+        if rerun and self._can_run():
             self._run()
         else:
             self._lbl_status.setText(
                 "Pre-correction factor stored — run correlation to apply."
             )
+
+    def _auto_arm_pre_correction(self) -> Optional[float]:
+        """Arm the factor on screen as the FM surface point lands, so a plain Run
+        applies the correction (FIB-590). Returns what was armed, or None.
+
+        The spinbox value as-is, not a fresh ζ: it is already what the optical
+        parameters produced unless someone typed over it, and recomputing is a
+        parameter edit away. The one thing this must not be is silent — the
+        status line names the factor, and the RI tab reports it from there on.
+        """
+        if self._ri_pre_correction_factor is not None:
+            return None  # a factor already chosen outranks arming a fresh one
+        factor = self._ri_tab._ri_widget.get_factor()
+        self._ri_pre_correction_factor = factor
+        return factor
 
     def _clear_pre_correction_factor(self) -> None:
         """The pre-correction factor's lifecycle is tied to the FM surface point:
@@ -2808,9 +2955,19 @@ class CorrelationTabWidget(QWidget):
             self._clear_exclusive_siblings(spec)
         else:
             spec.list_widget.add_coordinate(coord)
+        # Before the emit: the armed factor is part of the data being announced.
+        armed = (
+            self._auto_arm_pre_correction() if pt is PointType.SURFACE_FM else None
+        )
         self._refresh_canvas(spec.adapter)
         self._coords_tab.update_headers()
         self.data_changed.emit(self.data)
+        if armed is not None:
+            # After the emit, which routes through _update_run_button and its
+            # "Ready." — the same ordering the RI status note already needs.
+            self._lbl_status.setText(
+                f"FM surface placed — RI ×{armed:.3f} armed. Run to apply."
+            )
 
     def _clear_exclusive_siblings(self, spec: _PointTypeSpec) -> None:
         """Enforce mutual exclusivity (one surface point at a time): clear the

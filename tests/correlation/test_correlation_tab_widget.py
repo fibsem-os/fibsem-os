@@ -131,6 +131,56 @@ def test_ri_tab_mode_follows_surface_type(qapp):
     assert tab.mode == "pre"
 
 
+_RI_TAB_INDEX = 3
+
+
+def test_ri_tab_is_reachable_before_any_run(qapp):
+    """The optical parameters, the depth readout and the preview table are what
+    a user wants right after placing an FM surface point — gating the whole tab
+    on a finished run hid them at exactly that moment."""
+    w = _widget(qapp)
+    assert w._tabs.isTabEnabled(_RI_TAB_INDEX)
+
+    w._on_canvas_add_requested(1.0, 2.0, PointType.SURFACE_FM)
+    assert w._tabs.isTabEnabled(_RI_TAB_INDEX)
+
+
+def test_apply_is_disabled_until_it_can_do_something(qapp):
+    """Apply carries the gating the tab used to, and says why it cannot be
+    pressed rather than accepting a press and reporting failure."""
+    w = _widget(qapp)
+    btn = w._ri_tab._btn_apply
+
+    # no surface at all
+    assert not btn.isEnabled()
+    assert "Place a surface point" in btn.toolTip()
+
+    # FM surface, no POI to move
+    w._on_canvas_add_requested(1.0, 2.0, PointType.SURFACE_FM)
+    assert not btn.isEnabled()
+    assert "POI" in btn.toolTip()
+
+    # FM surface + POI: usable with no result behind it, which is the point —
+    # the pre-mode correction is set up before a run, not after one
+    w._on_canvas_add_requested(5.0, 6.0, PointType.POI)
+    assert btn.isEnabled()
+
+
+def test_apply_stays_disabled_in_post_mode_until_there_is_a_result(qapp):
+    """Post mode corrects a POI the correlation produced, so unlike pre mode it
+    genuinely does need a run first."""
+    w = _widget(qapp)
+    btn = w._ri_tab._btn_apply
+
+    w._on_canvas_add_requested(1.0, 200.0, PointType.SURFACE)
+    w._on_canvas_add_requested(5.0, 6.0, PointType.POI)
+    assert not btn.isEnabled()
+    assert "Run the correlation first" in btn.toolTip()
+
+    w._on_result_ready(_result_from(w.data))
+    assert btn.isEnabled()
+
+
 def test_tilt_locked_to_zero_in_pre_mode(qapp):
     w = _widget(qapp)
     spin_tilt = w._ri_tab._ri_widget._spin_tilt
@@ -165,6 +215,8 @@ def test_apply_pre_stores_factor_and_reruns(qapp):
 
     runs = []
     w._run = lambda: runs.append(True)
+    # stands in for a runnable set of points; _update_run_button passes the data
+    w._can_run = lambda data=None: True
 
     w._ri_tab._ri_widget.set_factor(1.5)
     w._ri_tab._chk_rerun.setChecked(True)
@@ -173,6 +225,25 @@ def test_apply_pre_stores_factor_and_reruns(qapp):
     assert w._ri_pre_correction_factor == pytest.approx(1.5)
     assert w.data.ri_pre_correction_factor == pytest.approx(1.5)
     assert runs == [True]
+
+
+def test_apply_pre_does_not_rerun_what_cannot_run(qapp):
+    """The RI tab is reachable before the points can support a correlation, and
+    _run does not check — it would start a worker that only errors."""
+    w = _widget(qapp)
+    _setup_pre_mode(w)
+
+    runs = []
+    w._run = lambda: runs.append(True)
+    assert not w._can_run()  # no images, no fiducials
+
+    w._ri_tab._ri_widget.set_factor(1.5)
+    w._ri_tab._chk_rerun.setChecked(True)
+    w._ri_tab._apply()
+
+    assert w._ri_pre_correction_factor == pytest.approx(1.5)  # still stored
+    assert runs == []
+    assert "run correlation to apply" in w._lbl_status.text()
 
 
 def test_apply_pre_without_rerun_only_stores(qapp):
@@ -452,6 +523,138 @@ def test_typed_factor_survives_refresh_and_armed_priority(qapp):
     tab._ri_widget._spin_factor.setValue(1.8)
     tab.set_result(result, input_data=w.data)
     assert tab._ri_widget.get_factor() == pytest.approx(1.8)
+
+
+def _loaded_surface_without_a_factor(w):
+    """The state a saved correlation restores when it was never Applied: an FM
+    surface point and a POI, but no armed factor. Placing the point by hand arms
+    one, so this is the only route left to the un-armed state."""
+    w.set_data(
+        CorrelationInputData(
+            fm_surface_coordinate=_coord(z=10.0, pt=PointType.SURFACE_FM),
+            poi_coordinates=[_coord(z=30.0, pt=PointType.POI)],
+        )
+    )
+    w.data_changed.emit(w.data)
+
+
+def test_placing_the_fm_surface_arms_the_factor_on_screen(qapp):
+    """FIB-590: a plain Run has to apply the correction, so the point arms the
+    factor as it lands — whatever the spinbox is showing."""
+    w = _widget(qapp)
+    w._ri_tab._ri_widget.set_factor(1.42)
+
+    w._on_canvas_add_requested(1.0, 2.0, PointType.SURFACE_FM)
+
+    assert w._ri_pre_correction_factor == pytest.approx(1.42)
+    assert w.data.ri_pre_correction_factor == pytest.approx(1.42)
+    assert "not applied" not in w._ri_tab._lbl_warning.text()
+    # named as it lands; the next edit is free to reclaim the status line
+    assert "1.420" in w._lbl_status.text()
+
+
+def test_auto_arm_does_not_overwrite_a_chosen_factor(qapp):
+    """Re-placing the surface must not discard a factor the user applied."""
+    w = _widget(qapp)
+    _setup_pre_mode(w)
+    w._ri_tab._ri_widget.set_factor(1.2)
+    w._ri_tab._chk_rerun.setChecked(False)
+    w._ri_tab._apply()
+
+    w._on_canvas_add_requested(7.0, 8.0, PointType.SURFACE_FM)  # moved the point
+    assert w._ri_pre_correction_factor == pytest.approx(1.2)
+
+
+def test_a_loaded_surface_without_a_factor_asks_for_apply(qapp):
+    """FIB-590: a correlation saved before anyone pressed Apply restores a
+    surface point that corrects nothing, and has to say so."""
+    w = _widget(qapp)
+    _loaded_surface_without_a_factor(w)
+
+    assert w._ri_pre_correction_factor is None
+    assert w.data.ri_pre_correction_factor is None  # a run here corrects nothing
+    assert "press Apply" in w._ri_tab._lbl_warning.text()
+    # and the banner must not claim the run does it by itself
+    assert "applied during the run" not in w._ri_tab._lbl_mode.text()
+
+
+def test_run_with_a_surface_but_no_factor_says_why_nothing_moved(qapp):
+    """FIB-590: the RI tab opens only after a run, so the status line has to
+    carry this — it is where the user is looking when nothing moves."""
+    w = _widget(qapp)
+    _loaded_surface_without_a_factor(w)
+
+    result = _result_from(w.data)
+    w._on_result_ready(result)
+
+    assert "no RI correction" in w._lbl_status.text()
+    assert "Refractive Index" in w._lbl_status.text()
+
+
+def test_unapplied_factor_edit_is_reported(qapp):
+    """FIB-591: Run uses the armed factor, not the spinbox, so a divergence
+    between them must be visible rather than silently ignored."""
+    w = _widget(qapp)
+    _setup_pre_mode(w)
+    tab = w._ri_tab
+
+    tab._ri_widget.set_factor(1.5)
+    tab._chk_rerun.setChecked(False)
+    tab._apply()
+    assert "stored — applied on the next run" in tab._lbl_warning.text()
+
+    # typed by hand, never applied: the run would still use 1.5
+    tab._ri_widget._spin_factor.setValue(1.8)
+    assert "1.800 not applied" in tab._lbl_warning.text()
+    assert "runs use 1.500" in tab._lbl_warning.text()
+    assert w.data.ri_pre_correction_factor == pytest.approx(1.5)
+
+    # applying it clears the divergence
+    tab._apply()
+    assert "not applied" not in tab._lbl_warning.text()
+    assert w.data.ri_pre_correction_factor == pytest.approx(1.8)
+
+
+def test_an_optical_parameter_edit_counts_as_an_unapplied_factor(qapp):
+    """FIB-591: the parameters feed the factor through zeta, so editing one is
+    just as un-applied as typing the number."""
+    from fibsem.correlation.refractive_index import _LUT_PATH
+
+    if not _LUT_PATH.exists():
+        pytest.skip("LUT CSV not present — the parameter spinboxes are disabled")
+
+    w = _widget(qapp)
+    _setup_pre_mode(w)
+    tab = w._ri_tab
+
+    tab._ri_widget.set_factor(1.5)
+    tab._chk_rerun.setChecked(False)
+    tab._apply()
+
+    tab._ri_widget._spin_n2.setValue(1.22)  # moves zeta well clear of 1.5
+    assert "not applied" in tab._lbl_warning.text()
+    assert "runs use 1.500" in tab._lbl_warning.text()
+
+
+def test_mirroring_a_stored_factor_is_not_an_unapplied_edit(qapp):
+    """set_factor blocks signals precisely so this stays quiet — otherwise every
+    refresh that mirrors the stored value would report a divergence."""
+    w = _widget(qapp)
+    _setup_pre_mode(w)
+    tab = w._ri_tab
+
+    w._ri_pre_correction_factor = 1.5950000000000002  # as loaded from JSON
+    result = CorrelationResult(
+        poi=[CorrelationPointOfInterest(image_px=Point(x=1.0, y=2.0))],
+        refractive_index_correction_factor=1.5950000000000002,
+        refractive_index_correction_mode="pre",
+    )
+    tab.set_result(result, input_data=w.data)
+
+    # the spinbox rounds to 3 decimals; that must not read as an edit
+    assert tab._ri_widget.get_factor() == pytest.approx(1.595)
+    assert "not applied" not in tab._lbl_warning.text()
+    assert "Correction applied" in tab._lbl_warning.text()
 
 
 def test_tilt_lock_preserves_manual_factor(qapp):
