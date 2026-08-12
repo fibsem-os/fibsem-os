@@ -10,6 +10,7 @@ Usage::
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from PyQt5.QtCore import pyqtSignal
@@ -20,16 +21,23 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.correlation.refractive_index import ZetaParams, _LUT_PATH, _ensure_lut, lookup_zeta
+from fibsem.correlation.refractive_index import (
+    ZetaParams,
+    _ensure_lut,
+    lookup_zeta,
+    lut_error,
+)
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueSpinBox
 from fibsem.ui.tokens import (
     NEUTRAL_500,
 )
 
-_LUT_MISSING_MSG = (
-    f"Correction factor calculator unavailable: LUT file not found at\n{_LUT_PATH}\n"
-    "The correction factor can still be edited manually."
-)
+
+def _lut_unavailable_msg(reason: str) -> str:
+    return (
+        f"Correction factor calculator unavailable — {reason}.\n"
+        "The correction factor can still be edited manually."
+    )
 
 # Default values representative of typical cryo-CLEM conditions
 _DEFAULTS = ZetaParams(
@@ -94,8 +102,9 @@ class RefractiveIndexWidget(QWidget):
         try:
             _ensure_lut()
         except Exception as e:
-            import logging
-            logging.warning(f"Failed to download refractive index LUT: {e}")
+            # Bounded and attempted once per process (see _ensure_lut); the panel
+            # reports the outcome, so this only needs to not take the window down.
+            logging.warning(f"Refractive-index LUT unavailable: {e}")
         self._setup_ui()
         self._connect_signals()
         self._recompute()
@@ -156,25 +165,32 @@ class RefractiveIndexWidget(QWidget):
         )
         self._btn_reset_factor.clicked.connect(lambda: self._spin_factor.setValue(_DEFAULT_FACTOR))
 
-        lut_available = _LUT_PATH.exists()
-        self._lut_available = lut_available
-        if not lut_available:
-            self._lut_warning = QLabel("LUT not found — calculator disabled. Edit correction factor manually.")
+        # Whether the LUT *works*, not whether a file is sitting there: a
+        # truncated download parses as nothing, and testing existence left every
+        # spinbox enabled over a calculator that silently never answered (FIB-592).
+        error = lut_error()
+        self._lut_available = error is None
+        self._lut_message = "" if error is None else _lut_unavailable_msg(error)
+        if error is not None:
+            self._lut_warning = QLabel(
+                "Lookup table unavailable — calculator disabled. "
+                "Edit the correction factor manually."
+            )
             self._lut_warning.setStyleSheet(
                 "color: #f0a500; font-style: italic; font-size: 11px; padding: 4px 8px;"
             )
             self._lut_warning.setWordWrap(True)
-            self._lut_warning.setToolTip(_LUT_MISSING_MSG)
+            self._lut_warning.setToolTip(self._lut_message)
             form.addRow(self._lut_warning)
 
             for spin in (self._spin_tilt, self._spin_depth, self._spin_na, self._spin_n2, self._spin_wl):
                 spin.setEnabled(False)
-                spin.setToolTip(_LUT_MISSING_MSG)
+                spin.setToolTip(self._lut_message)
 
         panel = TitledPanel("Optical Parameters", content=form_widget)
         panel.add_header_widget(self._btn_reset_factor)
-        if not lut_available:
-            panel.setToolTip(_LUT_MISSING_MSG)
+        if error is not None:
+            panel.setToolTip(self._lut_message)
         outer.addWidget(panel)
         outer.addStretch(1)
 
@@ -254,7 +270,7 @@ class RefractiveIndexWidget(QWidget):
         else:
             self._spin_tilt.setEnabled(self._lut_available)
             self._spin_tilt.setToolTip(
-                _TILT_TOOLTIP if self._lut_available else _LUT_MISSING_MSG
+                _TILT_TOOLTIP if self._lut_available else self._lut_message
             )
             if self._tilt_before_lock is not None:
                 self._spin_tilt.setValue(self._tilt_before_lock)
@@ -315,7 +331,7 @@ class RefractiveIndexWidget(QWidget):
 
     def _recompute(self, _value: object = None, *, update_factor: bool = True) -> None:
         # _value swallows the float from QDoubleSpinBox.valueChanged connections.
-        if not _LUT_PATH.exists():
+        if not self._lut_available:
             return
         params = self.get_params()
         try:
@@ -330,4 +346,13 @@ class RefractiveIndexWidget(QWidget):
             if update_factor:
                 self.zeta_computed.emit(zeta)
         except Exception:
+            # Out-of-range parameters are the ordinary case here and the controls
+            # already bound them, so this is not an error dialog — but it is not
+            # nothing either. Swallowed in silence, a LUT that answered no
+            # question read as one that agreed with every answer (FIB-592).
+            logging.warning(
+                f"Zeta lookup failed for {params}; correction factor left at "
+                f"{self._spin_factor.value():.3f}",
+                exc_info=True,
+            )
             self._zeta = None
