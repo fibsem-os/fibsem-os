@@ -183,6 +183,12 @@ class FibsemMillingWidget2(QWidget):
 
         self._milling_thread.start()
 
+        # Lock the controls now rather than waiting for the first progress signal to
+        # arrive -- preparing the milling conditions takes seconds, and the editor was
+        # live for all of them. `config` above is already built, so a late edit could
+        # not have reached this run anyway; what it could do is be written back after.
+        self._update_button_states()
+
     def _milling_worker(
         self, microscope: FibsemMicroscope, milling_task_config: FibsemMillingTaskConfig
     ):
@@ -224,8 +230,9 @@ class FibsemMillingWidget2(QWidget):
 
     @ensure_main_thread
     def _update_button_states(self):
-        """Update the enabled/disabled state of buttons based on current milling state."""
-        if self.is_milling:
+        """Update the enabled/disabled state of the controls for the milling state."""
+        milling = self.is_milling
+        if milling:
             self.pushButton_run_milling.setEnabled(False)
             self.pushButton_stop_milling.setEnabled(True)
             self.pushButton_stop_milling.setVisible(True)
@@ -237,3 +244,12 @@ class FibsemMillingWidget2(QWidget):
             self.pushButton_stop_milling.setVisible(False)
             self.pushButton_pause_milling.setEnabled(False)
             self.pushButton_pause_milling.setVisible(False)
+
+        # The stage and pattern editor is part of the milling controls, not scenery:
+        # the run holds its own deep copy of the config, so an edit made mid-mill does
+        # not reach the beam -- but it is written back as the task's config when the
+        # task finishes, leaving the protocol claiming a pattern position that was
+        # never milled (FIB-580). Explicitly disabling a child survives the workflow
+        # enabling this widget's parent, and the `finally` in _milling_worker means
+        # the unlock runs even when the task raises.
+        self.parent_widget.config_widget.setEnabled(not milling)

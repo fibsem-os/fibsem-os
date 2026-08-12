@@ -237,6 +237,12 @@ class MillingTaskViewerWidget(QWidget):
         Takes pixel coords straight from the canvas signal and reuses
         ``_move_patterns``.
         """
+        # The canvas is not part of the editor, so disabling that panel does not reach
+        # this menu -- it has to be turned away itself while a mill is running
+        # (FIB-580). Offering "Move Patterns Here" over a lamella being milled invites
+        # exactly the edit the lock exists to prevent.
+        if self.is_milling:
+            return
         if self._fib_image is None or self._fib_image.metadata is None:
             return
         stages = self.config_widget.milling_stages_widget.get_enabled_stages()
@@ -285,6 +291,10 @@ class MillingTaskViewerWidget(QWidget):
 
     def _move_patterns(self, point: Point, move_all: bool) -> None:
         """Move patterns to point. move_all=True shifts all relative to selected; False moves only selected."""
+        # Guarded as well as the menu that opens it: this is the mutation, and a menu
+        # already on screen when a run starts would otherwise still act on it.
+        if self.is_milling:
+            return
         stages = self.config_widget.milling_stages_widget.get_enabled_stages()
         if not stages or self._fib_image is None:
             return
