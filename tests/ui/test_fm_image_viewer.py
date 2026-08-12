@@ -17,7 +17,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pytest
-from PyQt5.QtWidgets import QApplication
+
+# CI installs `.[test]`, not `.[ui]`, so PyQt5 is absent there. Without this the
+# module-level imports below turn a skip into a collection error.
+pytest.importorskip("PyQt5")
+
+from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 from fibsem.fm.structures import (
     FluorescenceChannelMetadata,
