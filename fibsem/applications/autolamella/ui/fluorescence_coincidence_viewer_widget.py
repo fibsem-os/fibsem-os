@@ -70,6 +70,7 @@ from fibsem.ui.widgets.custom_widgets import (
     IntegerValueSpinBox,
     TitledPanel,
 )
+from fibsem.applications.autolamella.poses import sync_fluorescence_pose
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import LamellaNameListWidget
 from fibsem.ui.widgets.coincidence_milling_confirmation_dialog import (
     CoincidenceMillingConfirmationDialog,
@@ -1446,8 +1447,24 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             state.objective_position = existing_pose.objective_position
 
         lamella.poses[pose_name] = state
+
+        # Replacing the milling pose moves the lamella, so what is derived from it has to
+        # follow: the milling angle, and the fluorescence pose, which describes the same
+        # piece of sample from the other side. Left behind, that pose would go on naming
+        # where this lamella used to be -- and nothing about a stale pose looks wrong.
+        if pose_name == "MILLING":
+            lamella.update_milling_angle(self.microscope)
+            if sync_fluorescence_pose(self.microscope, lamella):
+                self.selected_lamella_widget.refresh_pose(
+                    "FLUORESCENCE", lamella.fluorescence_pose.stage_position.pretty
+                )
+
         if self.experiment is not None:
             self.experiment.save()
+            # The FM overview canvas draws these positions itself rather than reading
+            # them back, so a pose that moved here is one it only hears about by being
+            # told.
+            self.experiment.positions.events.changed.emit()
         self.selected_lamella_widget.refresh_pose(
             pose_name, state.stage_position.pretty
         )
