@@ -163,16 +163,48 @@ def test_the_menus_and_thumbnail_survive_a_toggle():
 
 
 def test_the_lamella_events_still_refresh_after_a_toggle():
-    """`refresh` is one path for both arrangements, and stays connected across a switch."""
+    """`refresh` is one path for both arrangements, and stays connected across a switch.
+
+    Driven from `description` rather than `task_state`: the two task_state connections
+    are disabled (FIB-604), so writing them no longer refreshes anything. What this test
+    is actually about is unaffected -- that `set_mode` rebuilds the arrangement without
+    dropping the subscriptions that remain.
+    """
     lamella = _lamella()
     card = _shown(LamellaCardWidget(lamella, mode=MODE_STANDARD))
 
     card.set_mode(MODE_COZY)
     assert card.mode() == MODE_COZY, "the switch has to have happened"
+    lamella.description = "notched on the left"
+
+    assert card._card.toolTip() == "notched on the left"
+
+
+def test_a_task_state_write_no_longer_refreshes_the_card():
+    """The disabling, asserted where it is visible rather than only in the source.
+
+    Written by the workflow's worker thread, so the marshalled refresh arrived after
+    `clear()` may have destroyed the card -- and that is a process abort, not a logged
+    traceback (FIB-329). `_on_workflow_update` refreshes the card by name instead.
+
+    The status label is therefore expected to lag a live write until that update lands,
+    which is the whole trade: slightly stale beats a lost run.
+    """
+    lamella = _lamella()
+    card = _shown(LamellaCardWidget(lamella, mode=MODE_STANDARD))
+    before = card._status_label.text()
+
     lamella.task_state.name = "Mill Undercut"
     lamella.task_state.status = AutoLamellaTaskStatus.InProgress
 
-    assert card._status_label.text() == "Mill Undercut"
+    assert card._status_label.text() == before, (
+        "a task_state write reached the card -- the cross-thread subscription is back"
+    )
+    card.refresh()
+    assert card._status_label.text() == "Mill Undercut", (
+        "and an explicit refresh must still pick the new state up, or the card would "
+        "never show it at all"
+    )
 
 
 def test_the_container_keeps_its_selection_across_a_toggle():

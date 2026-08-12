@@ -176,9 +176,27 @@ class LamellaRowWidget(QWidget):
         # written by GUI widgets; marshalling is a no-op for them, because
         # ensure_main_thread runs inline when already on the GUI thread.
         #
+        # The two task_state connections are DISABLED, not deleted, and the difference
+        # matters -- see FIB-604. Marshalling makes the refresh arrive *later*, by which
+        # point `clear()` may have destroyed this widget, and an exception escaping a Qt
+        # slot is not a logged traceback: PyQt5 calls qFatal and the process aborts
+        # (FIB-329, no excepthook installed). That is what happened on 2026-08-12 --
+        # the app died mid-workflow, and the abort killed a thumbnail write partway
+        # through, leaving a 0-byte file that then aborted every later load (FIB-602).
+        #
+        # `_on_workflow_update` refreshes this row by name, so the display still follows
+        # a run. What is lost is determinism: its InProgress update is emitted *before*
+        # `pre_task` writes the new name and status, and only arrives after because
+        # delivery is queued. A row can therefore show the previous task for the length
+        # of the current one. Slightly stale beats a lost run -- Patrick's call, and the
+        # right one while the crash is fatal.
+        #
+        # Restore these only once FIB-604 gives the refresh a trigger that fires after
+        # the write; at that point they should be deleted rather than re-enabled.
+        #
         # type: ignore because @evented adds .events dynamically and pyright can't see it.
-        lamella.task_state.events.name.connect(self.refresh)    # type: ignore[union-attr]
-        lamella.task_state.events.status.connect(self.refresh)  # type: ignore[union-attr]
+        # lamella.task_state.events.name.connect(self.refresh)    # DISABLED: FIB-604
+        # lamella.task_state.events.status.connect(self.refresh)  # DISABLED: FIB-604
         lamella.events.defect.connect(self.refresh)             # type: ignore[union-attr]
         lamella.events.description.connect(self.refresh)        # type: ignore[union-attr]
 

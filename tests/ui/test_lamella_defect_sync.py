@@ -14,6 +14,7 @@ Driven through `LamellaNameListWidget` rather than a bare `_LamellaRow`: the def
 button is hidden until `enable_defect_button(True)`, and `refresh` skips a hidden
 button, so a bare row silently asserts nothing.
 """
+import ast
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -151,14 +152,41 @@ def test_every_host_of_the_list_can_persist_a_defect(module, widget, handler):
     assert "experiment.save()" in src, f"{widget}.{handler} must persist the change"
 
 
+def _connect_chains(source: str):
+    """Every `a.b.c.connect(...)` in *source*, as its attribute chain.
+
+    AST rather than substring matching, because the two task_state connections in the
+    list and card widgets are commented out rather than deleted (FIB-604) -- and a
+    `"task_state.events" in src` check passes happily on a comment. That is the shape
+    of test that passes for the wrong reason; the parser does not read comments at all.
+
+    Hand-walked rather than `ast.unparse`, which is 3.9+. CI never catches that here
+    (these tests need PyQt5, which the CI env does not install, so they are skipped
+    there) but the package supports 3.8 and someone runs them locally on it.
+    """
+    chains = []
+    for node in ast.walk(ast.parse(source)):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        if node.func.attr != "connect":
+            continue
+        parts, cur = [], node.func
+        while isinstance(cur, ast.Attribute):
+            parts.append(cur.attr)
+            cur = cur.value
+        if isinstance(cur, ast.Name):
+            parts.append(cur.id)
+        chains.append(list(reversed(parts)))
+    return chains
+
+
 @pytest.mark.parametrize(
     "module, widget",
     [
-        # `_LamellaRow` is deliberately absent: it no longer subscribes to task_state at
-        # all. The marshalled callback still arrived after `set_lamella` had replaced the
-        # row and Qt had destroyed its widgets -- @ensure_main_thread makes the *thread*
-        # right and says nothing about whether the receiver still exists. It is refreshed
-        # from `_on_workflow_update` instead, like the other two.
+        (
+            "fibsem.applications.autolamella.ui.lamella_name_list_widget",
+            "_LamellaRow",
+        ),
         ("fibsem.applications.autolamella.ui.lamella_list_widget", "LamellaRowWidget"),
         (
             "fibsem.applications.autolamella.ui.lamella_card_widget",
@@ -166,29 +194,70 @@ def test_every_host_of_the_list_can_persist_a_defect(module, widget, handler):
         ),
     ],
 )
-def test_every_task_state_subscriber_marshals_its_refresh(module, widget):
-    """All three lists subscribe to task_state, so all three must marshal (FIB-565).
+def test_no_widget_holds_a_live_task_state_subscription(module, widget):
+    """None of the three may subscribe to task_state. Inverted from FIB-565.
 
-    The behavioural test above covers `_LamellaRow` only -- the other two need a
-    microscope-shaped host to construct. This reads the source instead, which is enough
-    to catch the failure that matters: someone removing @ensure_main_thread from one
-    widget while the subscription stays.
+    FIB-565 required the opposite -- subscribe, but marshal. That was the wrong
+    conclusion, and it took a day to show it. Marshalling fixes *which thread* touches
+    the widget and says nothing about *whether the widget still exists*: the callback
+    arrives later, by which point the list may have been cleared and Qt may have
+    destroyed the receiver.
 
-    Resolved through `importlib` rather than a hardcoded path: these three files moved
-    package twice in one day (FIB-558/559), and a path-based read would have broken
-    silently rather than failed loudly.
+    The cost of being wrong is not a logged traceback. No `sys.excepthook` is installed
+    anywhere in the package, so PyQt5 calls qFatal and the process aborts (FIB-329). On
+    2026-08-12 that killed a run mid-workflow and, because the abort landed inside a
+    thumbnail write, left a 0-byte file that aborted every subsequent load (FIB-602).
+
+    `_LamellaRow`'s connections are deleted (FIB-603); the other two are commented out
+    pending FIB-604, which has to give the refresh a trigger that fires after the write
+    before they can go for good. Either way there is nothing live for the parser to
+    find, which is what this asserts.
+
+    Resolved through `importlib` rather than a hardcoded path: these files moved package
+    twice in one day (FIB-558/559), and a path-based read would have broken silently
+    rather than failed loudly.
+    """
+    import importlib
+    from pathlib import Path
+
+    src = Path(importlib.import_module(module).__file__).read_text()
+    live = [c for c in _connect_chains(src) if "task_state" in c]
+
+    assert live == [], (
+        f"{widget} has a live task_state subscription {live} -- written from the "
+        f"workflow's worker thread, delivered to a widget that may since have been "
+        f"destroyed, and fatal rather than logged when it lands (FIB-329/603/604)"
+    )
+
+
+@pytest.mark.parametrize(
+    "module, widget",
+    [
+        (
+            "fibsem.applications.autolamella.ui.lamella_name_list_widget",
+            "_LamellaRow",
+        ),
+        ("fibsem.applications.autolamella.ui.lamella_list_widget", "LamellaRowWidget"),
+        (
+            "fibsem.applications.autolamella.ui.lamella_card_widget",
+            "LamellaCardWidget",
+        ),
+    ],
+)
+def test_every_refresh_stays_marshalled(module, widget):
+    """@ensure_main_thread stays on all three, even with the subscriptions gone.
+
+    Not redundant. It is what makes re-enabling a connection -- or any future
+    cross-thread caller -- land on the GUI thread rather than corrupting Qt state from
+    a worker. Removing the marshalling is the change that would make the commented-out
+    lines in the list and card widgets dangerous to restore.
     """
     import importlib
     from pathlib import Path
 
     src = Path(importlib.import_module(module).__file__).read_text()
 
-    assert "task_state.events" in src, (
-        f"{widget} no longer subscribes to task_state -- if that is deliberate, this "
-        "test and FIB-565 both need updating"
-    )
     assert "from superqt import ensure_main_thread" in src, f"{widget} lost the import"
     assert "    @ensure_main_thread\n    def refresh(self)" in src, (
-        f"{widget}.refresh is not marshalled, but it subscribes to task_state, which "
-        "the workflow writes from the FunctionWorker thread (FIB-565)"
+        f"{widget}.refresh is not marshalled (FIB-565)"
     )
