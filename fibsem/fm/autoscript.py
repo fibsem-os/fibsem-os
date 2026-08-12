@@ -692,6 +692,18 @@ class ThermoFisherFluorescenceMicroscope(FluorescenceMicroscope):
         self.connection.imaging.set_active_view(self._active_view)
         self.connection.imaging.set_active_device(self._active_device)
 
+    def _channel_is_ours(self) -> bool:
+        """Whether the connection is already pointed at the FM.
+
+        The view alone answers it, for the same reason only the view is captured and
+        restored: AutoScript documents `set_active_device` as changing the device *in
+        the active view*, so the device follows the view rather than varying under it.
+
+        One read, and deliberately not under the lock -- taking the lock to find out
+        whether we need the lock would defeat the whole point.
+        """
+        return self.connection.imaging.get_active_view() == self._active_view
+
     @contextmanager
     def active_channel(self):
         """Point the shared connection at the FM for the length of the block, then put
@@ -720,7 +732,27 @@ class ThermoFisherFluorescenceMicroscope(FluorescenceMicroscope):
         outermost scope. A tileset holds the channel for the whole run; each tile's
         acquisition opens a scope inside it and must not restore the beam view between
         tiles.
+
+        **Nothing to change means nothing to lock.** When the connection is already on
+        the FM there is no view to set and therefore none to put back, so the scope does
+        no work and takes no lock. That is not a micro-optimisation: the live stream
+        re-takes this lock every frame in a loop with nothing between iterations, so a
+        waiter is *starved* rather than delayed -- Python locks are not fair, and a
+        thread that releases and immediately re-acquires usually wins against one that
+        was already waiting. Moving the objective while streaming was unusable for
+        exactly this reason, and it was unaffected by halving the number of acquisitions,
+        which is what a queueing problem would have responded to.
+
+        The fast path is safe against FIB-517 by construction: it performs **no writes**
+        to the channel, so it cannot leave the connection somewhere the next beam
+        operation does not expect. What it does accept is reading a value that another
+        thread has since invalidated -- but the body has always run unlocked, so that
+        race is not new, and a live stream re-forces the FM every frame anyway.
         """
+        if self._channel_depth == 0 and self._channel_is_ours():
+            yield
+            return
+
         with self._channel_lock:
             if self._channel_depth == 0:
                 self._restore_view = self.connection.imaging.get_active_view()

@@ -226,6 +226,15 @@ class SimulatedFluorescenceMicroscope(FluorescenceMicroscope):
         self.parent.imaging_system.active_view = self._active_view
         self.parent.imaging_system.active_device = self._active_device
 
+    def _channel_is_ours(self) -> bool:
+        """Whether the shared channel is already pointed at the FM.
+
+        The view alone answers it, matching the driver, where the device follows the
+        view. Read outside the lock on purpose: taking the lock to find out whether the
+        lock is needed would defeat the point of asking.
+        """
+        return self.parent.imaging_system.active_view == self._active_view
+
     @contextmanager
     def active_channel(self):
         """Hold the channel on the FM for the length of the block, then put it back.
@@ -240,8 +249,18 @@ class SimulatedFluorescenceMicroscope(FluorescenceMicroscope):
         the active view*, so the view owns it and it comes back with it. Here the two
         are independent fields, and putting only the view back would leave
         `active_device` reporting the FM for the rest of the session.
+
+        Skips both the lock and the bookkeeping when the channel is already the FM, as
+        the driver does -- there is nothing to set, so nothing to put back. Modelled
+        here because that fast path is what makes the objective usable while streaming,
+        and a simulator that always took the lock would let a change reintroduce the
+        contention with every test still green.
         """
         if self.parent is None:
+            yield
+            return
+
+        if self._channel_depth == 0 and self._channel_is_ours():
             yield
             return
 
