@@ -225,3 +225,18 @@ def fib_image():
             microscope_state=MicroscopeState(),
         ),
     )
+
+
+def test_the_lock_survives_the_workflow_enabling_this_widget(widget):
+    """`update_milling_config_ui` calls setEnabled(True) on the *viewer* when it hands a
+    config to the UI. Qt re-enables children on that call unless they were disabled in
+    their own right -- which is why the lock is applied to `config_widget` directly
+    rather than by disabling the panel through its parent.
+    """
+    _start_milling(widget)
+
+    widget.setEnabled(True)  # what the workflow does
+
+    assert widget.config_widget.isEnabled() is False
+    _finish_milling(widget)
+    assert widget.config_widget.isEnabled() is True
