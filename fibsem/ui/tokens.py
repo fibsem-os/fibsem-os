@@ -40,6 +40,15 @@ DEFECT_ORANGE_COLOR = "#e8a020"
 CANVAS_BG = "#1e2124"
 PRIMARY_ACCENT = "#3a6ea5"  # matches the quad-view selection border
 
+# Stage markers on a real-space canvas. Shared by the fluorescence and FIB/SEM
+# overviews on purpose: a user reads both tabs, and yellow meaning "the stage is here"
+# on one and something else on the other is worse than either colour alone. They were
+# defined privately in the FM overview and would have been copied verbatim into the
+# second one, which is how two constants that must agree stop agreeing.
+CURRENT_POSITION_COLOUR = "#ffee58"   # where the stage is now
+SAVED_POSITION_COLOUR = "#26c6da"     # a marked position
+SELECTED_POSITION_COLOUR = "#76ff03"  # the marked position under the selection
+
 # ---------------------------------------------------------------------------
 # Napari-dark surface palette
 #

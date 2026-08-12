@@ -50,13 +50,18 @@ from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
     FMOverviewConfirmationDialog,
 )
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
-from fibsem.ui.fm.widgets.overview_list_widget import OverviewListWidget
+from fibsem.ui.widgets.overview_list_widget import OverviewListWidget
 from fibsem.ui.fm.widgets.tile_grid_options_panel import TileGridOptionsPanel
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
     MinimapShapesOverlay,
     ShapeSpec,
+)
+from fibsem.ui.tokens import (
+    CURRENT_POSITION_COLOUR,
+    SAVED_POSITION_COLOUR,
+    SELECTED_POSITION_COLOUR,
 )
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointsOverlay
 from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import TileGridOverlay
@@ -105,17 +110,12 @@ PREVIEW_KEY = "fm-preview"
 # Radius of the specimen grid, for the boundary circle. Matches the minimap's.
 GRID_RADIUS_M = 1000e-6
 
-# All three position markers are crosshairs, so colour is the only thing telling them
-# apart -- they have to stay far enough apart to read at a glance, and away from the red
-# the canvas draws its origin in.
+# The three position markers (`CURRENT_`/`SAVED_`/`SELECTED_POSITION_COLOUR`) are
+# imported from `tokens` rather than defined here: all three are crosshairs, so colour
+# is the only thing telling them apart, and the FIB/SEM overview draws the same three
+# things. A user reads both tabs, and the markers meaning different things on each is
+# worse than any one choice of colour.
 #
-# Yellow for "you are here".
-CURRENT_POSITION_COLOUR = "#ffee58"
-# Cyan for positions a user saved, against the yellow of where the stage is.
-SAVED_POSITION_COLOUR = "#26c6da"
-# Lime for the one selected, matching the minimap so the same position reads the same
-# way on both. Bright enough to find at a glance among a grid full of cyan.
-SELECTED_POSITION_COLOUR = "#76ff03"
 # Muted, because the holder slots are structural context like the limits rather
 # than something anyone marked -- and they would otherwise read as saved positions.
 SLOT_COLOUR = "#90a4ae"

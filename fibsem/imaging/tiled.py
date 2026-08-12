@@ -310,6 +310,17 @@ class TiledAcquisitionRunner:
                 "n_rows": self.settings.nrows,
                 "n_cols": self.settings.ncols,
                 "image": self._canvas,
+                # The tile itself, alongside the growing stitch buffer above. A
+                # real-space display places each tile where it was acquired, and the
+                # buffer cannot say where that is: it holds integer pixel offsets, so
+                # the error against the true stage position accumulates across the grid
+                # (FIB-399). The tile carries its own stage position, pixel size and
+                # geometry, which is everything a placement needs -- and it is the
+                # position the stage actually reached, not the one it was asked for.
+                #
+                # Additive: every existing consumer reads `counter`/`total`/`msg`/
+                # `image`, so nothing has to change to ignore this.
+                "tile": image,
                 "counter": self._n_tiles_acquired,
                 "total": total_tiles,
             })
