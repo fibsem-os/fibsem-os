@@ -257,14 +257,30 @@ class AutoLamellaTask(ABC):
         # post-task
         if self.lamella.task_state is None:
             raise ValueError("Task state is not set. Did you run pre_task()?")
+        # Before the status, not after. Setting the status fires `task_state.events.status`,
+        # which the lamella card subscribes to; its handler is `@ensure_main_thread`, so the
+        # read is queued to the GUI thread while this one carries straight on. Writing
+        # afterwards meant the card read the file at the moment it was being written --
+        # `OSError: image file is truncated`, reported from the microscope -- and, even
+        # when it survived that, read the *previous* thumbnail, so the picture from the
+        # task that had just finished was never the one shown.
+        #
+        # Guarded, because ordering it first would otherwise let a thumbnail failure stop
+        # a finished task being marked Completed. A missing picture is worth far less than
+        # an accurate task state.
+        if self._last_fib_image is not None:
+            try:
+                self.lamella.save_thumbnail(self._last_fib_image)
+            except Exception as e:
+                logging.warning(
+                    f"Could not save the thumbnail for {self.lamella.name}: {e}"
+                )
         self.lamella.task_state.status = AutoLamellaTaskStatus.Completed
         self.lamella.task_state.status_message = ""
         self.log_status_message(message="FINISHED", display_message="Finished")
         self.log_task_config()
         self.lamella.task_config[self.task_name] = deepcopy(self.config)
         self._record_outcome()
-        if self._last_fib_image is not None:
-            self.lamella.save_thumbnail(self._last_fib_image)
 
     def log_task_config(self) -> None:
         """Log the task configuration to the log file. This can be used for debugging or reporting."""
