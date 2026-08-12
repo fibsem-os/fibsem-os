@@ -77,78 +77,84 @@ def acquire_z_stack(
 ) -> Optional[FluorescenceImage]:
     """Acquire a Z-stack of images for a given channel."""
 
-    z_init = microscope.objective.position  # initial z position of the objective
-    z_positions = zparams.generate_positions(z_init=z_init)
-    images: List[FluorescenceImage] = []
+    # Claimed for the whole stack, as a tileset claims it for a whole run. Each z
+    # step is a move and an acquisition, and each of those opened and closed its own
+    # scope -- 23 for a single-channel 11-slice stack, 45 for two channels, every one
+    # a capture, a set and a restore, and a visible flick of the microscope's own
+    # active view. The depth count stops the inner scopes restoring between slices.
+    with microscope.active_channel():
+        z_init = microscope.objective.position  # initial z position of the objective
+        z_positions = zparams.generate_positions(z_init=z_init)
+        images: List[FluorescenceImage] = []
 
-    if not isinstance(channel_settings, list):
-        channel_settings = [channel_settings]
+        if not isinstance(channel_settings, list):
+            channel_settings = [channel_settings]
 
-    if zparams.order == ZStackOrder.Z_LEVEL:
-        # Z-level-wise: for each z-plane, acquire all channels
-        z_level_images: List[List[FluorescenceImage]] = []
-        for j, z in enumerate(z_positions):
-            if stop_event and stop_event.is_set():
-                logging.info("Z-stack acquisition cancelled before z-level acquisition")
-                microscope.objective.move_absolute(z_init)
-                return None
-
-            microscope.objective.move_absolute(z)
-            ch_images: List[FluorescenceImage] = []
-            for i, ch in enumerate(channel_settings):
-                microscope.acquisition_progress_signal.emit({
-                    "state": "acquiring",
-                    "task": "z-stack",
-                    "channel": ch.name,
-                    "channel_index": i + 1,
-                    "total_channels": len(channel_settings),
-                    "zlevel": j + 1,
-                    "total_zlevels": len(z_positions),
-                })
-                if stop_event and stop_event.is_set():
-                    logging.info("Z-stack acquisition cancelled during z-level acquisition")
-                    microscope.objective.move_absolute(z_init)
-                    return None
-                ch_images.append(microscope.acquire_image(channel_settings=ch))
-            z_level_images.append(ch_images)
-
-        # Transpose [z][ch] -> per-channel z-stacks
-        for i in range(len(channel_settings)):
-            ch_z_imgs = [z_level_images[j][i] for j in range(len(z_positions))]
-            images.append(FluorescenceImage.create_z_stack(ch_z_imgs))
-    else:
-        # Channel-wise (default): for each channel, acquire all z-planes
-        for i, ch in enumerate(channel_settings):
-            if stop_event and stop_event.is_set():
-                logging.info("Z-stack acquisition cancelled before channel acquisition")
-                microscope.objective.move_absolute(z_init)
-                return None
-
-            ch_images = []
+        if zparams.order == ZStackOrder.Z_LEVEL:
+            # Z-level-wise: for each z-plane, acquire all channels
+            z_level_images: List[List[FluorescenceImage]] = []
             for j, z in enumerate(z_positions):
-                microscope.acquisition_progress_signal.emit({
-                    "state": "acquiring",
-                    "task": "z-stack",
-                    "channel": ch.name,
-                    "channel_index": i + 1,
-                    "total_channels": len(channel_settings),
-                    "zlevel": j + 1,
-                    "total_zlevels": len(z_positions),
-                })
                 if stop_event and stop_event.is_set():
-                    logging.info("Z-stack acquisition cancelled during z-stack")
+                    logging.info("Z-stack acquisition cancelled before z-level acquisition")
                     microscope.objective.move_absolute(z_init)
                     return None
 
                 microscope.objective.move_absolute(z)
-                ch_images.append(microscope.acquire_image(channel_settings=ch))
+                ch_images: List[FluorescenceImage] = []
+                for i, ch in enumerate(channel_settings):
+                    microscope.acquisition_progress_signal.emit({
+                        "state": "acquiring",
+                        "task": "z-stack",
+                        "channel": ch.name,
+                        "channel_index": i + 1,
+                        "total_channels": len(channel_settings),
+                        "zlevel": j + 1,
+                        "total_zlevels": len(z_positions),
+                    })
+                    if stop_event and stop_event.is_set():
+                        logging.info("Z-stack acquisition cancelled during z-level acquisition")
+                        microscope.objective.move_absolute(z_init)
+                        return None
+                    ch_images.append(microscope.acquire_image(channel_settings=ch))
+                z_level_images.append(ch_images)
 
-            images.append(FluorescenceImage.create_z_stack(ch_images))
+            # Transpose [z][ch] -> per-channel z-stacks
+            for i in range(len(channel_settings)):
+                ch_z_imgs = [z_level_images[j][i] for j in range(len(z_positions))]
+                images.append(FluorescenceImage.create_z_stack(ch_z_imgs))
+        else:
+            # Channel-wise (default): for each channel, acquire all z-planes
+            for i, ch in enumerate(channel_settings):
+                if stop_event and stop_event.is_set():
+                    logging.info("Z-stack acquisition cancelled before channel acquisition")
+                    microscope.objective.move_absolute(z_init)
+                    return None
 
-    # restore objective to initial position
-    microscope.objective.move_absolute(z_init)
+                ch_images = []
+                for j, z in enumerate(z_positions):
+                    microscope.acquisition_progress_signal.emit({
+                        "state": "acquiring",
+                        "task": "z-stack",
+                        "channel": ch.name,
+                        "channel_index": i + 1,
+                        "total_channels": len(channel_settings),
+                        "zlevel": j + 1,
+                        "total_zlevels": len(z_positions),
+                    })
+                    if stop_event and stop_event.is_set():
+                        logging.info("Z-stack acquisition cancelled during z-stack")
+                        microscope.objective.move_absolute(z_init)
+                        return None
 
-    return FluorescenceImage.create_multi_channel_image(images)
+                    microscope.objective.move_absolute(z)
+                    ch_images.append(microscope.acquire_image(channel_settings=ch))
+
+                images.append(FluorescenceImage.create_z_stack(ch_images))
+
+        # restore objective to initial position
+        microscope.objective.move_absolute(z_init)
+
+        return FluorescenceImage.create_multi_channel_image(images)
 
 
 def acquire_image(
