@@ -1199,14 +1199,27 @@ class DemoMicroscope(FibsemMicroscope):
             return self.stage_system.is_linked
         
         # detector properties
-        if key == "detector_type":
-            return detector.type
-        if key == "detector_mode":
-            return detector.mode
-        if key == "detector_brightness":
-            return detector.brightness
-        if key == "detector_contrast":
-            return detector.contrast
+        #
+        # Set-then-read against the shared channel, modelled for the same reason FIB-518
+        # modelled the acquisition pair: on hardware `connection.detector` resolves
+        # against the *active device*, so a read whose channel has moved answers from the
+        # other column's detector. Silently, because the value is a bare float or string
+        # with nothing in it to say which device replied (FIB-544).
+        #
+        # Warned rather than answered wrongly, as everywhere else here -- the point is to
+        # make a silent hardware failure visible in a log and catchable in a test, not to
+        # give the simulator a second way to be wrong.
+        if key in ("detector_type", "detector_mode", "detector_brightness", "detector_contrast"):
+            self.set_channel(beam_type)
+            self._warn_if_channel_moved(beam_type, f"reading {key}")
+            if key == "detector_type":
+                return detector.type
+            if key == "detector_mode":
+                return detector.mode
+            if key == "detector_brightness":
+                return detector.brightness
+            if key == "detector_contrast":
+                return detector.contrast
 
         # manipulator properties
         if key == "manipulator_position":
@@ -1294,18 +1307,26 @@ class DemoMicroscope(FibsemMicroscope):
             return
 
         # detector
-        if key == "detector_type":
-            detector.type = value
-            return
-        if key == "detector_mode":
-            detector.mode = value
-            return 
-        if key == "detector_contrast":
-            detector.contrast = value
-            return
-        if key == "detector_brightness":
-            detector.brightness = value
-            return
+        #
+        # The write half of the same pair, and the worse one: a read whose channel moved
+        # misreports a value, a write whose channel moved reconfigures the *other*
+        # column's detector -- brightness or contrast landing on the beam nobody asked
+        # about, and staying there (FIB-544).
+        if key in ("detector_type", "detector_mode", "detector_brightness", "detector_contrast"):
+            self.set_channel(beam_type)
+            self._warn_if_channel_moved(beam_type, f"writing {key}")
+            if key == "detector_type":
+                detector.type = value
+                return
+            if key == "detector_mode":
+                detector.mode = value
+                return
+            if key == "detector_contrast":
+                detector.contrast = value
+                return
+            if key == "detector_brightness":
+                detector.brightness = value
+                return
         
         # system properties
         if key == "beam_enabled":

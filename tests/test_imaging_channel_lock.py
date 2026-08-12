@@ -220,3 +220,103 @@ def test_the_locked_region_stays_narrow(thermo):
             f"the block at line {block.lineno} holds the process-wide lock across "
             f"{widened}, which blocks every other caller for longer than the frame"
         )
+
+
+"""The detector property pairs (FIB-544).
+
+The same defect on the property path, and the most exposed instance of it. `_get` and
+`_set` each did `set_channel(beam_type)` and then reached for `connection.detector.…`,
+which resolves against the *active device* — so a channel taken in between makes the read
+answer from the other column, silently, and makes the write land on the other column's
+detector and stay there.
+
+More exposed than the acquisition pair for two reasons. `get_detector_settings` is four
+of these back to back, and `get_microscope_state()` calls it once per beam — so one state
+read with no `beam_type` is eight pairs. And that path is polled from the GUI thread by
+the minimap's stage refresh and the coincidence viewer, which is exactly how FIB-517
+stopped a workflow task.
+
+Attribute accesses rather than calls, so these key on `self.connection.detector.…`
+instead of going through `_calls_named`.
+"""
+
+
+def _attr_chain(node: ast.AST) -> list:
+    """`self.connection.detector.type.value` -> the parts, outermost last."""
+    parts = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if isinstance(node, ast.Name):
+        parts.append(node.id)
+    return list(reversed(parts))
+
+
+def _detector_accesses(node: ast.AST) -> list:
+    """Every `self.connection.detector.<something>` access anywhere under `node`.
+
+    Deduplicated by line: walking an attribute chain yields the outer node and each of
+    its prefixes, so one access would otherwise be reported several times.
+    """
+    lines = {}
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Attribute):
+            continue
+        chain = _attr_chain(child)
+        if chain[:3] == ["self", "connection", "detector"] and len(chain) > 3:
+            lines[child.lineno] = child
+    return list(lines.values())
+
+
+def test_every_detector_access_is_locked(thermo):
+    """The defect. A read or a write against a channel that may no longer be ours."""
+    accesses = _detector_accesses(thermo)
+    assert accesses, "no connection.detector access found -- the probe missed, not the code"
+
+    locked = {
+        access.lineno
+        for block in _locked_blocks(thermo)
+        for access in _detector_accesses(block)
+    }
+    unlocked = sorted({a.lineno for a in accesses} - locked)
+    assert unlocked == [], (
+        f"connection.detector is reached without the lock at line(s) {unlocked}: it "
+        f"resolves against the active device, so whatever took the shared channel after "
+        f"set_channel is the detector this reads or writes (FIB-544)"
+    )
+
+
+def test_the_detector_pairs_set_the_channel_in_the_same_block(thermo):
+    """A lock around the access alone guards nothing — the pair has to be together."""
+    for block in _locked_blocks(thermo):
+        if not _detector_accesses(block):
+            continue
+        assert _calls_named(block, "set_channel"), (
+            f"the block at line {block.lineno} locks a detector access but not the "
+            f"set_channel that precedes it, so the channel can still be taken in between"
+        )
+
+
+def test_get_detector_settings_holds_the_lock_across_the_group(thermo):
+    """Four locked pairs still let the channel move between them.
+
+    Each value would be correct on its own and the four could still describe two
+    different states, and each pair re-claims the channel — so a contended read flips the
+    active view four times rather than once. `_threading_lock` is an RLock, so holding it
+    across the group costs the pairs inside nothing.
+    """
+    override = next(
+        (
+            node
+            for node in ast.walk(thermo)
+            if isinstance(node, ast.FunctionDef) and node.name == "get_detector_settings"
+        ),
+        None,
+    )
+    assert override is not None, (
+        "ThermoMicroscope no longer overrides get_detector_settings, so its four reads "
+        "are four independent claims on the shared channel"
+    )
+    assert _locked_blocks(override), (
+        "get_detector_settings does not hold the lock across its four reads"
+    )
