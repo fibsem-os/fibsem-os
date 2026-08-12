@@ -1,10 +1,9 @@
 import logging
-from typing import Any, List, Optional, Tuple
+from typing import List, Optional, Tuple
 from dataclasses import dataclass
 
 import napari
 import numpy as np
-from napari.layers import Points as NapariPointsLayer
 
 try:
     from packaging.version import InvalidVersion, Version
@@ -15,14 +14,12 @@ from fibsem import constants
 from fibsem.microscope import FibsemMicroscope
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import (
-    FibsemImage,
     FibsemStagePosition,
     Point,
 )
 from fibsem.ui.napari.properties import (
     IMAGING_CROSSHAIR_LAYER_PROPERTIES,
     IMAGING_SCALEBAR_LAYER_PROPERTIES,
-    POINT_LAYER_PROPERTIES,
 )
 
 CROSSHAIR_LAYER_NAME = IMAGING_CROSSHAIR_LAYER_PROPERTIES["name"]
@@ -36,200 +33,6 @@ class NapariShapeOverlay:
     label: str
     shape_type: str  # "rectangle", "ellipse", or "line"
 
-
-
-def draw_crosshair_in_napari(
-    viewer: napari.Viewer,
-    sem_shape: Tuple[int, int],
-    fib_shape: Optional[Tuple[int, int]] = None,
-    fm_shape: Optional[Tuple[int, int]] = None,
-    is_checked: bool = False,
-    size_ratio: float = 0.05,
-) -> None:
-    """Draw a crosshair in the napari viewer at the centre of each image. 
-    The crosshair is drawn using the shapes layer in napari.
-    Args:
-        viewer: napari viewer object
-        sem_shape: shape of the SEM image
-        fib_shape: shape of the FIB image (Optional)
-        fm_shape: shape of the FM image (Optional)
-        is_checked: boolean value to check if the crosshair is displayed
-        size_ratio: size of the crosshair (percentage of the image size)
-    """
-
-    layers_in_napari = []
-    for layer in viewer.layers:
-        layers_in_napari.append(layer.name)
-
-    if not is_checked:
-        if CROSSHAIR_LAYER_NAME in layers_in_napari:
-            viewer.layers[CROSSHAIR_LAYER_NAME].opacity = 0
-            return
-
-    # get the centre points of the images
-    crosshair_centres = [[sem_shape[0] // 2, sem_shape[1] // 2]]
-    if fib_shape is not None:
-        fib_centre = [fib_shape[0] // 2, sem_shape[1] + fib_shape[1] // 2]
-        crosshair_centres.append(fib_centre)
-    if fm_shape is not None:
-        fm_centre = [sem_shape[0] + fm_shape[0] // 2, fm_shape[1] // 2]
-        crosshair_centres.append(fm_centre)
-
-    # compute the size of the crosshair
-    size_px = size_ratio * sem_shape[1]
-
-    crosshairs = []
-    for cy, cx in crosshair_centres:
-        horizontal_line = [[cy, cx - size_px], [cy, cx + size_px]]
-        vertical_line = [[cy - size_px, cx], [cy + size_px, cx]]
-        crosshairs.extend([horizontal_line, vertical_line])
-
-    # create a crosshair using shapes layer, or update the existing one
-    if CROSSHAIR_LAYER_NAME not in layers_in_napari:
-        viewer.add_shapes(
-            data=crosshairs,
-            shape_type=IMAGING_CROSSHAIR_LAYER_PROPERTIES["shape_type"],
-            edge_width=IMAGING_CROSSHAIR_LAYER_PROPERTIES["edge_width"],
-            edge_color=IMAGING_CROSSHAIR_LAYER_PROPERTIES["edge_color"],
-            face_color=IMAGING_CROSSHAIR_LAYER_PROPERTIES["face_color"],
-            opacity=IMAGING_CROSSHAIR_LAYER_PROPERTIES["opacity"],
-            blending=IMAGING_CROSSHAIR_LAYER_PROPERTIES["blending"],
-            name=CROSSHAIR_LAYER_NAME,
-        )
-    else:
-        viewer.layers[CROSSHAIR_LAYER_NAME].data = crosshairs
-        viewer.layers[CROSSHAIR_LAYER_NAME].opacity = 0.8
-
-def _scale_length_value(hfw: float) -> Tuple[float, float]:
-    scale_length_value = hfw * constants.METRE_TO_MICRON * 0.2
-
-    if scale_length_value > 0 and scale_length_value < 100:
-        scale_length_value = round(scale_length_value / 5) * 5
-    if scale_length_value > 100 and scale_length_value < 500:
-        scale_length_value = round(scale_length_value / 25) * 25
-    if scale_length_value > 500 and scale_length_value < 1000:
-        scale_length_value = round(scale_length_value / 50) * 50
-
-    scale_ratio = scale_length_value / (hfw * constants.METRE_TO_MICRON)
-
-    return scale_ratio, scale_length_value
-
-def draw_scalebar_in_napari(
-    viewer: napari.Viewer,
-    sem_shape: Tuple[int, int],
-    sem_fov: float,
-    fib_shape: Tuple[int, int],
-    fib_fov: float,
-    is_checked: bool = False,
-    width: float = 0.1,
-) -> None:
-    """Draw a scalebar in napari viewer for each image independently."""
-    layers_in_napari = []
-    for layer in viewer.layers:
-        layers_in_napari.append(layer.name)
-
-    # if not showing the scalebar, hide the layer and return
-    if not is_checked:
-        if SCALEBAR_LAYER_NAME in layers_in_napari:
-            viewer.layers[SCALEBAR_LAYER_NAME].opacity = 0
-        return
-
-    h, w = 0.9, 0.15
-    location_points = [
-        [int(sem_shape[0] * h), int(sem_shape[1] * w)],
-        [int(fib_shape[0] * h), int(sem_shape[1] + fib_shape[1] * w)],
-    ]
-
-    # making the scale bar line
-    scale_bar_shape = []
-    scale_bar_txt = []
-    h1 = 25
-    h2 = 50
-
-    for i, pt in enumerate(location_points):
-        if i == 0:
-            scale_ratio, scale_value = _scale_length_value(sem_fov)
-            length = scale_ratio * sem_shape[1]
-        else:
-            scale_ratio, scale_value = _scale_length_value(fib_fov)
-            length = scale_ratio * fib_shape[1]
-
-        hwidth = 0.5 * length
-        main_line = [
-            [pt[0] + h1, int(pt[1] - hwidth)],
-            [pt[0] + h1, int(pt[1] + hwidth)],
-        ]
-        left_line = [
-            [pt[0] + h2, int(pt[1] - hwidth)],
-            [pt[0], int(pt[1] - hwidth)],
-        ]
-        right_line = [
-            [pt[0] + h2, int(pt[1] + hwidth)],
-            [pt[0], int(pt[1] + hwidth)],
-        ]
-        scale_bar_shape.extend([main_line, left_line, right_line])
-        scale_bar_txt.extend([f"{scale_value} um", "", ""])
-
-    scale_bar_txt = {
-        "string": scale_bar_txt,
-        "color": IMAGING_SCALEBAR_LAYER_PROPERTIES["text"]["color"],
-        "translation": IMAGING_SCALEBAR_LAYER_PROPERTIES["text"]["translation"],
-    }
-
-    if SCALEBAR_LAYER_NAME not in layers_in_napari:
-        viewer.add_shapes(
-            data=scale_bar_shape,
-            shape_type=IMAGING_SCALEBAR_LAYER_PROPERTIES["shape_type"],
-            edge_width=IMAGING_SCALEBAR_LAYER_PROPERTIES["edge_width"],
-            edge_color=IMAGING_SCALEBAR_LAYER_PROPERTIES["edge_color"],
-            name=SCALEBAR_LAYER_NAME,
-            text=scale_bar_txt,
-            opacity=1,
-        )
-    else:
-        viewer.layers[SCALEBAR_LAYER_NAME].data = scale_bar_shape
-        viewer.layers[SCALEBAR_LAYER_NAME].opacity = 1
-        viewer.layers[SCALEBAR_LAYER_NAME].text = scale_bar_txt
-
-
-def is_position_inside_layer(position: Tuple[float, float], target_layer) -> bool:
-    """Check if the position of the event is inside the bounds of the target layer.
-    Args:
-        event: napari event object containing the position
-        target_layer: the layer to check against
-    Returns:
-        bool: True if the position is inside the layer bounds, False otherwise.
-    """
-    coords = target_layer.world_to_data(position)
-
-    extent_min = target_layer.extent.data[0]  # (z, y, x)
-    extent_max = target_layer.extent.data[1]
-
-    # if they are 4d, remove the first dimension
-    if len(coords) == 4:
-        logging.warning(f"4D coordinates detected: {coords}, removing first dimension")
-        coords = coords[1:]
-        extent_min = extent_min[1:]
-        extent_max = extent_max[1:]
-
-    # convert the above logs into a json msg
-    msgd = {
-        "target_layer": target_layer.name,
-        "event_position": position,
-        "coords": coords,
-        "extent_min": extent_min,
-        "extent_max": extent_max,
-    }
-    logging.debug(msgd)
-
-    for i, coord in enumerate(coords):
-        if coord < extent_min[i] or coord > extent_max[i]:
-            logging.debug(
-                f"Coordinate {coord} is out of bounds ({extent_min[i]}, {extent_max[i]})"
-            )
-            return False
-
-    return True
 
 
 def create_crosshair_shape(point: Point, size: int, scale: Optional[Tuple[float, float]] = None) -> List[np.ndarray]:
@@ -450,95 +253,3 @@ def update_text_overlay(viewer: napari.Viewer, microscope: FibsemMicroscope,
         viewer.text_overlay.position = "bottom_left"
 
 
-def _napari_supports_border_width() -> bool:
-    """Return True if the installed napari version uses border width terminology."""
-    version_str = napari.__version__
-    if Version is not None:
-        try:
-            return Version(version_str) >= Version("0.5.0")
-        except InvalidVersion:
-            logging.debug("Unable to parse napari version with packaging: %s", version_str)
-
-    try:
-        parts = version_str.split(".")
-        parts = [int("".join(filter(str.isdigit, p)) or 0) for p in parts[:3]]
-        parts.extend([0] * (3 - len(parts)))
-        return tuple(parts[:3]) >= (0, 5, 0)
-    except Exception:
-        logging.debug("Unable to parse napari version string: %s", version_str)
-        return False
-
-
-def add_points_layer(
-    viewer: napari.Viewer,
-    data: np.ndarray,
-    name: str = "Points",
-    size: int = 10,
-    text: Optional[dict] = None,
-    border_width: int = 1,
-    border_width_is_relative: bool = True,
-    border_color: str = "white",
-    face_color: str = "white",
-    blending: str = "translucent",
-    symbol: str = "o",
-    ndim: int = 2,
-    opacity: float = 1.0,
-    **kwargs: Any,
-) -> NapariPointsLayer:
-    """Version-agnostic helper for adding point annotations to napari."""
-    defaults = POINT_LAYER_PROPERTIES
-    layer_name = defaults["name"] if name is None else name
-    layer_size = defaults["size"] if size is None else size
-    layer_text = defaults["text"] if text is None else text
-    layer_blending = defaults["blending"] if blending is None else blending
-    layer_symbol = defaults["symbol"] if symbol is None else symbol
-    layer_ndim = defaults["ndim"] if ndim is None else ndim
-    layer_opacity = defaults["opacity"] if opacity is None else opacity
-    layer_border_width = (
-        defaults["border_width"] if border_width is None else border_width
-    )
-    layer_border_width_is_relative = (
-        defaults["border_width_is_relative"]
-        if border_width_is_relative is None
-        else border_width_is_relative
-    )
-    layer_border_color = (
-        defaults["border_color"] if border_color is None else border_color
-    )
-    layer_face_color = (
-        defaults["face_color"] if face_color is None else face_color
-    )
-
-    layer_kwargs = {
-        "data": data,
-        "name": layer_name,
-        "size": layer_size,
-        "text": layer_text,
-        "blending": layer_blending,
-        "symbol": layer_symbol,
-        "ndim": layer_ndim,
-        "opacity": layer_opacity,
-    }
-
-    if _napari_supports_border_width():
-        layer_kwargs.update(
-            {
-                "border_width": layer_border_width,
-                "border_width_is_relative": layer_border_width_is_relative,
-                "border_color": layer_border_color,
-                "face_color": layer_face_color,
-            }
-        )
-    else:
-        layer_kwargs.update(
-            {
-                "edge_width": layer_border_width,
-                "edge_width_is_relative": layer_border_width_is_relative,
-                "edge_color": layer_border_color,
-                "face_color": layer_face_color,
-            }
-        )
-
-    layer_kwargs.update(kwargs)
-
-    return viewer.add_points(**layer_kwargs)
