@@ -1400,12 +1400,22 @@ class AutoLamellaUI(QMainWindow):
 
         lamella.poses[pose_name] = state
 
-        # if the milling pose changed, keep the milling angle consistent with it
+        # Replacing the milling pose moves the lamella, so what is derived from it has to
+        # follow: the milling angle, and the fluorescence pose, which describes the same
+        # piece of sample from the other side. Left behind, that pose would go on naming
+        # where this lamella used to be -- and nothing about a stale pose looks wrong.
         if pose_name == "MILLING":
             lamella.update_milling_angle(self.microscope)
+            if sync_fluorescence_pose(self.microscope, lamella):
+                self.selected_lamella_widget.refresh_pose(
+                    "FLUORESCENCE", lamella.fluorescence_pose.stage_position.pretty
+                )
 
         self.experiment.save()
         self.selected_lamella_widget.refresh_pose(pose_name, state.stage_position.pretty)
+        # The FM overview canvas draws these positions itself rather than reading them
+        # back, so a pose that moved here is one it only hears about by being told.
+        self.experiment.positions.events.changed.emit()
         notification_service.show_toast(
             f"Set current position as pose '{pose_name}' for {lamella.name}.", "info"
         )
