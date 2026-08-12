@@ -636,6 +636,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._toasts_enabled = d.toasts_enabled
         self._border_enabled = d.border_enabled
         self.dev_mode = d.dev_mode
+        # The lamella strip's density. Guarded because _apply_preferences also runs
+        # before the Lamella tab is built.
+        if hasattr(self, "lamella_card_container"):
+            self.lamella_card_container.set_mode(d.lamella_card_mode)
         # Sync Test menu toggle actions
         self.action_sound_toggle.setChecked(d.sound_enabled)
         self.action_toasts_toggle.setChecked(d.toasts_enabled)
@@ -1565,7 +1569,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         outer_splitter.setChildrenCollapsible(True)
 
         # ── Left: 1-column card strip ──────────────────────────────────────
-        self.lamella_card_container = LamellaCardContainer(columns=1)
+        self.lamella_card_container = LamellaCardContainer(
+            columns=1, mode=self._preferences.display.lamella_card_mode
+        )
         self.lamella_card_container.defect_changed.connect(
             self._on_lamella_defect_changed
         )
@@ -1586,6 +1592,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         card_scroll.setStyleSheet(
             "QScrollArea { border: none; background: transparent; }"
         )
+
         card_scroll.setMaximumWidth(340)
 
         outer_splitter.addWidget(card_scroll)
