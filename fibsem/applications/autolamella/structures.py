@@ -947,10 +947,35 @@ class Lamella:
             if _THUMBNAIL_PLACEHOLDER is None:
                 _THUMBNAIL_PLACEHOLDER = _make_thumbnail_placeholder()
             return _THUMBNAIL_PLACEHOLDER
-        return np.asarray(Image.open(thumb_path).convert("RGB"))
+        try:
+            return np.asarray(Image.open(thumb_path).convert("RGB"))
+        except OSError as e:
+            # A thumbnail that will not open is not a reason to lose the card. `save_thumbnail`
+            # writes atomically now, so a torn file should no longer be produced -- but one
+            # written before that fix is still on disk, and any other corruption lands here
+            # too. This is reached from a Qt slot, where an escaping exception aborts the
+            # process under PyQt5 rather than raising (FIB-329).
+            logging.warning(f"Could not read the thumbnail at {thumb_path}: {e}")
+            if _THUMBNAIL_PLACEHOLDER is None:
+                _THUMBNAIL_PLACEHOLDER = _make_thumbnail_placeholder()
+            return _THUMBNAIL_PLACEHOLDER
 
     def save_thumbnail(self, image: "FibsemImage") -> None:
-        """Save a thumbnail of the given image to disk as thumbnail.png."""
+        """Save a thumbnail of the given image to disk as thumbnail.png.
+
+        Written to a temporary file and moved into place, so a reader never sees a
+        partly-written one. `get_thumbnail` runs from the lamella cards on the GUI
+        thread while saving happens on a worker (FIB-563), so the two do overlap: the
+        reported failure was `OSError: image file is truncated` out of `Image.open`,
+        with the existence check passing because the file was there, just incomplete.
+
+        `os.replace` is atomic on POSIX and on Windows, provided the temporary file is
+        on the same filesystem -- hence writing it in the same directory rather than
+        somewhere under /tmp. A reader sees either the previous thumbnail or the new
+        one, never a partial.
+        """
+        import tempfile
+
         from PIL import Image
         import numpy as np
         data = image.filtered_data
@@ -959,7 +984,22 @@ class Lamella:
         # writes directly rather than through FibsemImage.save, so it makes its
         # own directory -- construction no longer does (FIB-420).
         os.makedirs(self.path, exist_ok=True)
-        Image.fromarray(data.astype(np.uint8)).save(os.path.join(self.path, "thumbnail.png"))
+        destination = os.path.join(self.path, "thumbnail.png")
+        handle, staged = tempfile.mkstemp(
+            dir=self.path, prefix=".thumbnail-", suffix=".png"
+        )
+        os.close(handle)
+        try:
+            Image.fromarray(data.astype(np.uint8)).save(staged)
+            os.replace(staged, destination)
+        except BaseException:
+            # Including cancellation: a staged file left behind would accumulate in the
+            # lamella directory, and it is hidden, so nobody would notice it doing so.
+            try:
+                os.remove(staged)
+            except OSError:
+                pass
+            raise
 
     # def get_task_config_by_type(self, task_type: Type['AutoLamellaTaskConfig']) -> Dict[str, AutoLamellaTaskConfig]:
     #     """Get the task configuration by type."""
