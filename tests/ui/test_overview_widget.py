@@ -433,6 +433,128 @@ class TestThingsOnlyRunningItFound:
         assert widget.label_status.text(), "the outcome was never reported"
 
 
+class TestTheRunOwnsItsSettings:
+    """Reading the settings must not rewrite what a running acquisition is using.
+
+    Reported from a real run: tile (0,0) acquired, then tile (0,1) died in
+    `os.path.join(None, filename)`. The cause was not the acquisition at all --
+    `OverviewAcquisitionSettingsWidget.get_settings()` mutates and returns the settings
+    widget's *own* `ImageSettings`, resetting `path` from its text box. The stage moving
+    between tiles refreshed the overlays, which read the beam type through that call,
+    which set the run's output path back to None.
+    """
+
+    def test_reading_the_settings_does_not_disturb_a_run(self, widget, microscope,
+                                                         monkeypatch, tmp_path):
+        """The reported sequence, end to end: start a run, then do everything a stage
+        move between tiles does, and check the run's settings still name a path.
+
+        The empty path box is the crucial part of the setup -- that is what
+        `get_settings()` reads back as `None`.
+        """
+        captured = {}
+
+        def fake_worker(fn, *args):
+            captured["settings"] = args[0]
+
+            class _W:
+                def start(self_inner):
+                    pass
+
+                def is_alive(self_inner):
+                    return True  # a run is under way
+
+            return _W()
+
+        widget.set_save_directory(str(tmp_path))
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker", fake_worker
+        )
+        widget.acquire()
+        running = captured["settings"]
+        assert running.image_settings.path, "the run started with no path"
+
+        # Now empty the box, as a widget whose host never filled it would be, and do
+        # everything a stage move mid-run triggers.
+        widget.settings_widget.image_settings_widget.path_edit.setText("")
+        for _ in range(5):
+            _ = widget.beam_type
+            widget._refresh_position_markers()
+            widget._refresh_context_overlays()
+            widget._on_stage_moved(microscope.get_stage_position())
+
+        assert running.image_settings.path, (
+            "reading the widget mid-run reset the running acquisition's output path — "
+            "the second tile would die in os.path.join(None, filename)"
+        )
+
+    def test_the_runner_gets_its_own_copy_of_the_settings(self, widget, microscope,
+                                                          monkeypatch, tmp_path):
+        """Even with nothing else reading, handing a background runner the widget's own
+        instance means any later edit reaches into a run in progress."""
+        captured = {}
+
+        def fake_worker(fn, *args):
+            captured["settings"] = args[0] if args else None
+
+            class _W:
+                def start(self_inner):
+                    pass
+
+                def is_alive(self_inner):
+                    return False
+
+            return _W()
+
+        widget.set_save_directory(str(tmp_path))
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker", fake_worker
+        )
+        widget.acquire()
+
+        handed_over = captured["settings"]
+        assert handed_over is not None
+        assert handed_over.image_settings is not (
+            widget.settings_widget.image_settings_widget._settings
+        ), "the runner was handed the settings widget's own object"
+
+    def test_the_save_directory_fills_the_path_box(self, widget, tmp_path):
+        """From the experiment by default, and visible so a user can see and change it.
+
+        An empty box is also what made `get_settings()` read the path back as None.
+        """
+        widget.set_save_directory(str(tmp_path))
+        assert widget.settings_widget.image_settings_widget.path_edit.text() == str(
+            tmp_path
+        )
+        assert widget._settings().image_settings.path == str(tmp_path)
+
+    def test_a_run_always_has_somewhere_to_write(self, widget, monkeypatch):
+        """No host directory and an empty box still has to produce a usable path --
+        finding out at the second tile is the worst possible time."""
+        widget.set_save_directory(None)
+        widget.settings_widget.image_settings_widget.path_edit.setText("")
+        captured = {}
+
+        def fake_worker(fn, *args):
+            captured["settings"] = args[0]
+
+            class _W:
+                def start(self_inner):
+                    pass
+
+                def is_alive(self_inner):
+                    return False
+
+            return _W()
+
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker", fake_worker
+        )
+        widget.acquire()
+        assert captured["settings"].image_settings.path, "the run had nowhere to write"
+
+
 class TestLifecycle:
     def test_closing_releases_every_microscope_subscription(self, microscope):
         """psygnal subscriptions outlive the widget -- they belong to the microscope --

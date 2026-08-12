@@ -20,6 +20,7 @@ Run directly:
 from __future__ import annotations
 
 import itertools
+import os
 
 import numpy as np
 import pytest
@@ -241,6 +242,106 @@ class TestParityWithTheTiledReprojection:
         assert from_live.to_plane(target, base)[0] == pytest.approx(-100e-6), (
             "the live projection should have flipped -- otherwise this test proves nothing"
         )
+
+
+class TestEveryOrientationPair:
+    """An overview acquired at one orientation, markers recorded at another.
+
+    This is the case the tab is actually used in: lamellae are recorded at the milling
+    pose, and an overview may be acquired at SEM, FIB or MILLING. All nine pairs have to
+    place markers where the tab being replaced places them.
+
+    It is also where the first version of this class was wrong. On a stage that is not a
+    compustage, reaching the ion beam means rotating 180 degrees, and
+    `reproject_stage_positions_onto_image2` applies a compucentric correction for that
+    which `calculate_reprojected_stage_position2` — the function this class was
+    transcribed from — does not. Four of the nine pairs were out by **1.3 to 2.1 mm**.
+
+    Invisible on a compustage, where every orientation shares one rotation. Hence both
+    stage types here.
+    """
+
+    SHAPE = (1024, 1536)
+    PIXEL_SIZE = 2e-7
+
+    @staticmethod
+    def _configured(filename):
+        import fibsem.config as fibsem_config
+
+        path = os.path.join(os.path.dirname(fibsem_config.__file__), "config", filename)
+        scope, _ = utils.setup_session(manufacturer="Demo", config_path=path)
+        return scope
+
+    def _image(self, scope, base, beam_type):
+        state = scope.get_microscope_state(beam_type=beam_type)
+        state.stage_position = base
+        h, w = self.SHAPE
+        image = FibsemImage.generate_blank_image(
+            resolution=(w, h), hfw=w * self.PIXEL_SIZE
+        )
+        image.metadata.image_settings = ImageSettings(
+            hfw=w * self.PIXEL_SIZE, beam_type=beam_type
+        )
+        image.metadata.microscope_state = state
+        image.metadata.system_info = scope.system.info
+        image.metadata.hardware_geometry = scope.hardware_geometry()
+        return image
+
+    @pytest.mark.parametrize(
+        "config, compustage",
+        [
+            ("sim-arctis-configuration.yaml", True),
+            ("tfs-aquilos2-configuration.yaml", False),
+        ],
+    )
+    @pytest.mark.parametrize("overview_at", ["SEM", "FIB", "MILLING"])
+    @pytest.mark.parametrize("marker_at", ["SEM", "FIB", "MILLING"])
+    @pytest.mark.parametrize("beam_type", BEAMS)
+    def test_it_agrees_with_the_tab_it_replaces(
+        self, config, compustage, overview_at, marker_at, beam_type
+    ):
+        scope = self._configured(config)
+        assert scope.stage_is_compustage is compustage, "config assumption drifted"
+
+        overview_pose = scope.get_orientation(overview_at)
+        marker_pose = scope.get_orientation(marker_at)
+        base = FibsemStagePosition(
+            x=0.0, y=0.0, z=0.0, r=overview_pose.r, t=overview_pose.t
+        )
+        scope.get_stage_position = lambda: base  # type: ignore[method-assign]
+        image = self._image(scope, base, beam_type)
+
+        target = FibsemStagePosition(
+            x=150e-6, y=-60e-6, z=0.0, r=marker_pose.r, t=marker_pose.t
+        )
+        (point,) = reproject_stage_positions_onto_image2(image, [target])
+        expected = (
+            (point.x - self.SHAPE[1] / 2) * self.PIXEL_SIZE,
+            (point.y - self.SHAPE[0] / 2) * self.PIXEL_SIZE,
+        )
+
+        projection = BeamStageProjection.from_image(image)
+        assert projection is not None
+        got = projection.to_plane(target, base)
+
+        assert got[0] == pytest.approx(expected[0], abs=1e-12)
+        assert got[1] == pytest.approx(expected[1], abs=1e-12)
+
+    def test_the_correction_only_fires_across_a_half_turn(self):
+        """It is keyed on rotation alone. A tilt-only difference — every pair on a
+        compustage, and SEM/MILLING everywhere — must be left alone, or positions that
+        need no correction get one."""
+        scope = self._configured("tfs-aquilos2-configuration.yaml")
+        sem = scope.get_orientation("SEM")
+        milling = scope.get_orientation("MILLING")
+        assert sem.r == pytest.approx(milling.r), "these differ in rotation here"
+
+        base = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=sem.r, t=sem.t)
+        same_rotation = FibsemStagePosition(
+            x=90e-6, y=0.0, z=0.0, r=milling.r, t=milling.t
+        )
+        corrected = BeamStageProjection._compucentric_corrected(same_rotation, base)
+        assert corrected is same_rotation, "a tilt-only difference was 'corrected'"
 
 
 class TestRoundTrip:

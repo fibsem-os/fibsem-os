@@ -423,17 +423,44 @@ class FibsemOverviewWidget(QWidget):
     def is_acquiring(self) -> bool:
         return self._worker is not None and self._worker.is_alive()
 
+    def _settings(self) -> Optional[OverviewAcquisitionSettings]:
+        """The planned acquisition, read from the settings widget.
+
+        Note what `OverviewAcquisitionSettingsWidget.get_settings()` actually does: it
+        *mutates and returns the widget's own* `ImageSettings`, resetting `path` from
+        its text box among other fields. So the object it hands back is shared, and
+        every later call rewrites it.
+
+        That is safe to read from here only because `acquire` deep-copies before giving
+        anything to the runner. Before it did, this exact call -- reached from an
+        overlay refresh when the stage moved between tiles -- reset a running
+        acquisition's output path to None, and the second tile died in
+        `os.path.join(None, filename)`. The first tile had already succeeded, so it
+        looked like a failure part-way through a run rather than a configuration
+        problem.
+
+        Deliberately not cached. A cache would go stale the moment a host called
+        `update_from_settings`, which suppresses `settings_changed` while it populates
+        -- and a silently stale plan is worse than re-reading a few spinboxes. These
+        are widget reads, not hardware.
+        """
+        try:
+            return self.settings_widget.get_settings()
+        except Exception as e:
+            logger.debug(f"Could not read the overview settings: {e}")
+            return None
+
     @property
     def beam_type(self) -> BeamType:
         """The beam the overview is acquired and projected in.
 
-        Read from the settings rather than kept, so the projection cannot describe one
-        beam while the acquisition uses the other.
+        Read rather than kept, so the projection cannot describe one beam while the
+        acquisition uses the other.
         """
-        try:
-            return self.settings_widget.get_settings().image_settings.beam_type
-        except Exception:
+        settings = self._settings()
+        if settings is None:
             return BeamType.ELECTRON
+        return settings.image_settings.beam_type
 
     def add_settings_section(self, title: str, widget: QWidget, first: bool = True) -> None:
         """Let a host put its own section in the settings column.
@@ -458,8 +485,17 @@ class FibsemOverviewWidget(QWidget):
         The widget opens standalone against a simulator as often as it runs inside an
         experiment, and inventing a directory for those runs would scatter files through
         whatever working directory it happened to be launched from.
+
+        Written into the settings widget rather than only kept here, so a user can see
+        where a run will go and change it. It is also what stops `get_settings()`
+        reading an empty box back as `path=None`.
         """
         self._save_directory = path
+        if path:
+            try:
+                self.settings_widget.image_settings_widget.path_edit.setText(str(path))
+            except Exception as e:
+                logger.debug(f"Could not show the save directory: {e}")
 
     def set_interactive(self, enabled: bool) -> None:
         """Allow or forbid starting work, for a host that has taken the instrument."""
@@ -741,8 +777,10 @@ class FibsemOverviewWidget(QWidget):
         position = self._stage_position
         if position is None:
             return []
+        settings = self._settings()
+        if settings is None:
+            return []
         try:
-            settings = self.settings_widget.get_settings()
             cx, cy = frame.to_canvas(position)
             width = frame.length(settings.total_fov_x)
             height = frame.length(settings.total_fov_y)
@@ -1024,14 +1062,21 @@ class FibsemOverviewWidget(QWidget):
         """Start a tiled overview acquisition."""
         if self.is_acquiring:
             return
-        settings = self.settings_widget.get_settings()
+        # Deep-copied before anything else touches it. `get_settings()` returns the
+        # settings widget's own instance, and handing that to a background runner means
+        # any later read of the widget rewrites what the run is using.
+        settings = deepcopy(self.settings_widget.get_settings())
         if not settings.image_settings.filename:
             notification_service.show_toast(
                 "Please enter a filename for the overview.", "error"
             )
             return
         settings.image_settings.save = True
-        settings.image_settings.path = self._save_directory or os.getcwd()
+        if not settings.image_settings.path:
+            # Nothing in the path box and no host directory: the run still has to go
+            # somewhere, and failing at the second tile with `os.path.join(None, ...)`
+            # is the worst way to find out.
+            settings.image_settings.path = self._save_directory or os.getcwd()
 
         # A new record before the first tile arrives, so every tile has somewhere to go
         # and the run is on the canvas from the moment it starts.
