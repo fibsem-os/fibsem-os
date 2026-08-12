@@ -658,13 +658,18 @@ class FMOverviewWidget(QWidget):
             self.tile_grid_overlay.clear()
             return
 
-        try:
-            width, height = self.fm.camera.resolution
-            pixel_size = self.fm.camera.pixel_size[0]
-        except Exception as e:
-            logging.debug(f"Could not read the camera geometry for the tile grid: {e}")
+        # Off the kept projection, which carries exactly these two. Read straight from
+        # the camera they are two `active_channel()` scopes, and this runs on every
+        # motion event of a grid drag -- so each scope set the shared view to the FM and
+        # put it back, per mouse-move, which is visible as the active view flicking in
+        # the microscope's own UI. See `_projection` for why keeping it is safe.
+        projection = self._projection()
+        if projection is None:
+            logging.debug("Could not read the camera geometry for the tile grid")
             self.tile_grid_overlay.clear()
             return
+        height, width = projection.shape
+        pixel_size = projection.pixel_size
 
         parameters = self.settings_widget.parameters
         tiles = compute_tile_grid_from_fov(
@@ -2349,7 +2354,14 @@ class FMOverviewWidget(QWidget):
             # so saying so is all that is needed: coarser pixels over the same count
             # cover the same ground, and the mosaic lands at the size it represents.
             stride = payload.get("preview_stride", 1) or 1
-            self.canvas.set_pixel_size(self.fm.camera.pixel_size[0] * stride)
+            # Off the kept projection: read from the camera this is an `active_channel()`
+            # scope, and this runs once a tile *during the run* -- so the display was
+            # taking the shared channel from the acquisition that was using it. `acquire`
+            # invalidates first, so the value is this run's.
+            projection = self._projection()
+            if projection is None:
+                return
+            self.canvas.set_pixel_size(projection.pixel_size * stride)
 
             # This run's channels, and only these. `set_channel` upserts, so a channel
             # switched off since the last run would otherwise keep its layer -- still
