@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import logging
-import time
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Callable, List, Optional, Tuple, Dict, Any, Set, Union, Type
+from typing import List, Optional, Tuple, Dict, Any, Set, Union, Type
 
-import matplotlib.pyplot as plt
 from matplotlib.colors import to_rgba
 import napari
 import numpy as np
@@ -33,8 +31,7 @@ from fibsem.structures import (
     Point,
     calculate_fiducial_area_v2,
 )
-from fibsem.milling.patterning.utils import create_pattern_mask
-from fibsem.ui.napari.properties import ALIGNMENT_LAYER_PROPERTIES, MILLING_FOV_LAYER_PROPERTIES
+from fibsem.ui.napari.properties import ALIGNMENT_LAYER_PROPERTIES
 
 # colour wheel
 COLOURS = ["yellow", "cyan", "magenta", "lime", "orange", "hotpink", "green", "blue", "red", "purple"]
@@ -563,161 +560,6 @@ def draw_milling_patterns_in_napari(
     )
 
     return layer_name_list  # list of milling pattern layers
-
-def draw_alignment_area(viewer: napari.Viewer,
-                        reduced_area: FibsemRectangle,
-                        image_shape: Tuple[int, int],
-                        translate: Tuple[float, float]):
-    """Draw the alignment area layer in napari.
-    Args:
-        viewer: napari viewer instance
-        reduced_area: FibsemRectangle defining the alignment area
-        image_shape: shape of the image to draw on
-        translate: translation of the FIB image layer
-    Returns:
-        layer_name: name of the alignment area layer"""
-
-    # add alignment area to napari
-    data = convert_reduced_area_to_napari_shape(reduced_area=reduced_area,
-                                                image_shape=image_shape,
-                                                )
-    layer_name = MILLING_ALIGNMENT_AREA_LAYER_NAME
-    if layer_name in viewer.layers:
-        viewer.layers.remove(layer_name)
-
-    viewer.add_shapes(data=data, name=layer_name,
-        shape_type=ALIGNMENT_LAYER_PROPERTIES["shape_type"],
-        edge_color=ALIGNMENT_LAYER_PROPERTIES["edge_color"],
-        edge_width=ALIGNMENT_LAYER_PROPERTIES["edge_width"],
-        face_color=ALIGNMENT_LAYER_PROPERTIES["face_color"],
-        opacity=ALIGNMENT_LAYER_PROPERTIES["opacity"],
-        translate=translate) # match the fib layer translation
-
-    return layer_name
-
-
-def setup_editable_alignment_layer(
-    viewer: napari.Viewer,
-    reduced_area: FibsemRectangle,
-    image_shape: Tuple[int, int],
-    translate: Tuple[float, float],
-    on_change: Callable[[FibsemRectangle], None],
-    editable: bool = True,
-) -> None:
-    """Create or update an alignment area shapes layer.
-
-    If the layer already exists it is updated in-place (preserving the event
-    connection).  If it does not exist it is created and on_change is connected
-    to layer.events.data.
-
-    Args:
-        viewer: napari viewer instance
-        reduced_area: initial rectangle to display
-        image_shape: (H, W) of the reference image — used for coordinate conversion
-        translate: translation of the FIB image layer
-        on_change: called with the updated FibsemRectangle after each drag/resize
-        editable: if True, activate the layer in select mode; if False, set pan_zoom
-    """
-    data = convert_reduced_area_to_napari_shape(reduced_area, image_shape)
-    layer_name = MILLING_ALIGNMENT_AREA_LAYER_NAME
-
-    if layer_name in viewer.layers:
-        shapes_layer: NapariShapesLayers = viewer.layers[layer_name]  # type: ignore
-        shapes_layer.data = data
-    else:
-        shapes_layer = viewer.add_shapes(
-            data=data,
-            name=layer_name,
-            shape_type=ALIGNMENT_LAYER_PROPERTIES["shape_type"],
-            edge_color=ALIGNMENT_LAYER_PROPERTIES["edge_color"],
-            edge_width=ALIGNMENT_LAYER_PROPERTIES["edge_width"],
-            face_color=ALIGNMENT_LAYER_PROPERTIES["face_color"],
-            opacity=ALIGNMENT_LAYER_PROPERTIES["opacity"],
-            translate=translate,
-        )
-
-        def _on_data_changed(event):
-            layer_data = shapes_layer.data
-            if not layer_data:
-                return
-            rect = convert_shape_to_image_area(layer_data[0], image_shape)
-            on_change(rect)
-
-        shapes_layer.events.data.connect(_on_data_changed)
-
-    shapes_layer.visible = True
-    if editable:
-        viewer.layers.selection.active = shapes_layer
-        shapes_layer.mode = "select"
-        shapes_layer.selected_data.clear()
-    else:
-        shapes_layer.mode = "pan_zoom"
-
-
-def draw_milling_fov_rect(
-    viewer: napari.Viewer,
-    image_layer: NapariImageLayer,
-    field_of_view: float,
-    pixelsize: float,
-) -> Optional[str]:
-    """Draw a rectangle showing the milling FOV when it is smaller than the image FOV.
-
-    Args:
-        viewer: napari viewer instance
-        image_layer: the reference image layer
-        field_of_view: milling horizontal field of view in metres
-        pixelsize: image pixel size in metres/pixel
-    Returns:
-        layer name if drawn, else None
-    """
-    image_shape = image_layer.data.shape
-    image_fov = pixelsize * image_shape[1]
-    layer_name = MILLING_FOV_LAYER_NAME
-
-    if field_of_view >= image_fov:
-        if layer_name in viewer.layers:
-            viewer.layers.remove(layer_name)
-        return None
-
-    ratio = field_of_view / image_fov
-    cy, cx = image_shape[0] / 2, image_shape[1] / 2
-    half_h = ratio * image_shape[0] / 2
-    half_w = ratio * image_shape[1] / 2
-    data = np.array([
-        [cy - half_h, cx - half_w],
-        [cy - half_h, cx + half_w],
-        [cy + half_h, cx + half_w],
-        [cy + half_h, cx - half_w],
-    ])
-
-    fov_um = field_of_view * 1e6
-    label = f"Milling FOV ({fov_um:.0f}um)"
-    text_props = {
-        "string": [label],
-        "size": 12,
-        "color": "white",
-        "anchor": "upper_left",
-        "translation": np.array([5, 5]),
-    }
-
-    if layer_name in viewer.layers:
-        viewer.layers[layer_name].data = [data]
-        viewer.layers[layer_name].text.string = [label]
-    else:
-        viewer.add_shapes(
-            data=[data],
-            name=layer_name,
-            shape_type=MILLING_FOV_LAYER_PROPERTIES["shape_type"],
-            edge_color=MILLING_FOV_LAYER_PROPERTIES["edge_color"],
-            edge_width=MILLING_FOV_LAYER_PROPERTIES["edge_width"],
-            face_color=MILLING_FOV_LAYER_PROPERTIES["face_color"],
-            opacity=MILLING_FOV_LAYER_PROPERTIES["opacity"],
-            translate=image_layer.translate,
-            text=text_props,
-        )
-
-    return layer_name
-
 
 def convert_point_to_napari(resolution: list, pixel_size: float, centre: Point):
     icy, icx = resolution[1] // 2, resolution[0] // 2
