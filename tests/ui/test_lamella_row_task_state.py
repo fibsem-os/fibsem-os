@@ -80,13 +80,23 @@ class TestItDoesNotSubscribeAcrossThreads:
         unreachable however it would otherwise have been arrived at.
         """
         source = textwrap.dedent(inspect.getsource(_LamellaRow.__init__))
-        connects = [
-            ast.unparse(node)
-            for node in ast.walk(ast.parse(source))
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "connect"
-        ]
+        # Hand-walked rather than `ast.unparse`, which is 3.9+. The package supports
+        # 3.8, and CI cannot catch the difference here -- these tests need PyQt5, which
+        # the CI env does not install, so they are skipped there and a 3.9-only call
+        # would only fail for someone running them locally on 3.8.
+        connects = []
+        for node in ast.walk(ast.parse(source)):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+                continue
+            if node.func.attr != "connect":
+                continue
+            parts, cur = [], node.func
+            while isinstance(cur, ast.Attribute):
+                parts.append(cur.attr)
+                cur = cur.value
+            if isinstance(cur, ast.Name):
+                parts.append(cur.id)
+            connects.append(list(reversed(parts)))
         task_state_subscriptions = [c for c in connects if "task_state" in c]
 
         assert task_state_subscriptions == [], (

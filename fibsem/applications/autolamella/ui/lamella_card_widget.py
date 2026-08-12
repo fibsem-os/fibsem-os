@@ -177,8 +177,21 @@ class LamellaCardWidget(QWidget):
         self._apply_layout()
 
         # ── evented connections ──────────────────────────────────────────
-        lamella.task_state.events.name.connect(self.refresh)    # type: ignore[union-attr]
-        lamella.task_state.events.status.connect(self.refresh)  # type: ignore[union-attr]
+        # The two task_state connections are DISABLED, not deleted -- see FIB-604 for
+        # why they cannot simply go, and `lamella_list_widget` for the same block.
+        # Written by the workflow's worker thread, so the @ensure_main_thread refresh
+        # arrives later, by which point `clear()`'s deleteLater may have taken this card
+        # down. An exception escaping a Qt slot aborts the process under PyQt5 (FIB-329,
+        # no excepthook installed) -- this card is where that was proved on 2026-08-12,
+        # crashing on a thumbnail the worker was still writing, killing the write partway
+        # and leaving a 0-byte file (FIB-602).
+        #
+        # `_on_workflow_update` refreshes this card by name, so it still follows a run;
+        # what is lost is determinism, since that update is emitted before `pre_task`
+        # writes the state it should show. Stale beats a lost run while the crash is
+        # fatal. Delete these once FIB-604 lands a trigger that fires after the write.
+        # lamella.task_state.events.name.connect(self.refresh)    # DISABLED: FIB-604
+        # lamella.task_state.events.status.connect(self.refresh)  # DISABLED: FIB-604
         lamella.events.defect.connect(self.refresh)             # type: ignore[union-attr]
         lamella.events.description.connect(self.refresh)        # type: ignore[union-attr]
 
