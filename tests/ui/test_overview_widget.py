@@ -6,6 +6,11 @@ where it was acquired, and that is what these tests pin -- along with the two ru
 old widget broke: no hardware read on a UI event, and one derivation for both directions
 so a click resolves to the position the marker was drawn from.
 
+The payload the placement reads is pinned in `tests/test_tiled_progress_payload.py`
+rather than here: it is a contract on shared acquisition code, and this module is gated
+on PyQt5, which CI does not install -- so a test of it living here would never run
+where it matters.
+
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python -m pytest tests/ui/test_overview_widget.py
 """
@@ -31,7 +36,6 @@ from fibsem.structures import (  # noqa: E402
     FibsemImage,
     FibsemStagePosition,
     ImageSettings,
-    OverviewAcquisitionSettings,
 )
 from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget  # noqa: E402
 
@@ -454,33 +458,3 @@ class TestLifecycle:
         with pytest.raises(TypeError):
             FibsemOverviewWidget(microscope, viewer=object())  # type: ignore[call-arg]
         widget.close()
-
-
-def test_the_tiled_progress_signal_carries_the_tile(microscope):
-    """The placement depends on it, and it is an additive key on a shared signal -- so
-    a consumer reading only `counter`/`total`/`image` is unaffected, and this is what
-    says the key is still there."""
-    from fibsem.imaging.tiled import TiledAcquisitionRunner
-
-    payloads = []
-    microscope.tiled_acquisition_signal.connect(payloads.append)
-    try:
-        settings = OverviewAcquisitionSettings(
-            image_settings=ImageSettings(
-                hfw=100e-6, resolution=(64, 64), beam_type=BeamType.ELECTRON,
-                save=False, path="/tmp/overview-test", filename="t",
-            ),
-            nrows=1, ncols=2,
-        )
-        TiledAcquisitionRunner(microscope, settings).run()
-    finally:
-        microscope.tiled_acquisition_signal.disconnect(payloads.append)
-
-    tiles = [p for p in payloads if p.get("tile") is not None]
-    assert len(tiles) == 2, "the per-tile update did not carry its tile"
-    for payload in tiles:
-        tile = payload["tile"]
-        assert tile.metadata.stage_position is not None
-        assert tile.metadata.pixel_size.x
-        # The keys every existing consumer reads, still present.
-        assert {"counter", "total", "msg", "image"} <= set(payload)
