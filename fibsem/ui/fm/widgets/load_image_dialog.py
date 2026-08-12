@@ -22,7 +22,11 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.fm.structures import FluorescenceImage
-from fibsem.ui.stylesheets import CONFIRM_BUTTON_STYLESHEET, SECONDARY_BUTTON_STYLESHEET
+from fibsem.ui.stylesheets import (
+    CONFIRM_BUTTON_STYLESHEET,
+    NAPARI_STYLE,
+    SECONDARY_BUTTON_STYLESHEET,
+)
 from fibsem.ui.tokens import (
     NEUTRAL_650,
 )
@@ -38,6 +42,10 @@ class LoadImageDialog(QDialog):
         self.setWindowTitle("Load Fluorescence Image")
         self.setModal(True)
         self.resize(500, 200)
+        # A dialog is its own top-level window and does not pick up the stylesheet its
+        # parent carries, so it has to set the theme itself. This used to come free from
+        # napari, which styles the QApplication; nothing does that any more.
+        self.setStyleSheet(NAPARI_STYLE)
 
         self.loaded_images: List[FluorescenceImage] = []
         self.selected_file_paths: List[str] = []
