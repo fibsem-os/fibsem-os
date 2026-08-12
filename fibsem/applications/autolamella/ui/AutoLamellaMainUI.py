@@ -2012,6 +2012,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             if experiment is not None and lamella_name is not None:
                 lamella = experiment.get_lamella_by_name(lamella_name)
 
+            # The name list is refreshed from here rather than subscribing per row.
+            # `_LamellaRow` used to connect to `task_state.events.name`/`.status`, which
+            # the workflow writes from its worker thread; the marshalled refresh then
+            # arrived after the row had been replaced and its widgets destroyed
+            # (`RuntimeError: wrapped C/C++ object of type QLabel has been deleted`).
+            # It joins the other two on the same named-lamella path, so it costs one row
+            # -- unlike them, though, nothing else was refreshing this list mid-workflow.
             if lamella is not None:
                 self.lamella_list_widget.refresh_lamella(lamella)
                 timings["lamella_list.refresh_lamella"] = time.time() - t1
@@ -2019,12 +2026,18 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 self.lamella_card_container.refresh_lamella(lamella)
                 timings["lamella_cards.refresh_lamella"] = time.time() - t1
                 t1 = time.time()
+                self.autolamella_ui.lamella_list.refresh_lamella(lamella)
+                timings["lamella_name_list.refresh_lamella"] = time.time() - t1
+                t1 = time.time()
             else:
                 self.lamella_list_widget.refresh_all()
                 timings["lamella_list.refresh_all"] = time.time() - t1
                 t1 = time.time()
                 self.lamella_card_container.refresh_all()
                 timings["lamella_cards.refresh_all"] = time.time() - t1
+                t1 = time.time()
+                self.autolamella_ui.lamella_list.refresh_all()
+                timings["lamella_name_list.refresh_all"] = time.time() - t1
                 t1 = time.time()
             self._on_lamella_card_selected(
                 getattr(self, "_selected_card_lamella", None)
