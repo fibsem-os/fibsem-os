@@ -5,6 +5,11 @@ inverse of :meth:`FibsemMicroscope.project_fm_stable_move`: that one asks where 
 would send the stage, these ask where the stage already is on screen. Both run the same
 projection, so a marker drawn here lands where clicking there would take you.
 
+The projection itself is not fluorescence-specific and lives in
+:mod:`fibsem.transformations`, taking the camera's view tilt as an argument. What is
+fluorescence-specific, and stays here, is the camera image transform and the shape of a
+fluorescence image's metadata.
+
 Microscope-free by design. Everything the projection reads comes from the image's own
 :class:`FibsemHardwareGeometry` and stage position, so a saved overview reprojects correctly
 even when the stage has since moved or the display transform has since been flipped --
@@ -25,158 +30,14 @@ from typing import TYPE_CHECKING, List, Tuple
 import numpy as np
 
 from fibsem.fm.structures import FibsemHardwareGeometry
-from fibsem.movement import rotation_angle_is_smaller
 from fibsem.structures import FibsemStagePosition, Point
+from fibsem.transformations import (
+    inverse_view_corrected_dy,
+    view_corrected_stage_movement,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.fm.structures import FluorescenceImage
-
-
-def _projection_terms(
-    geometry: FibsemHardwareGeometry,
-    stage_rotation: float,
-    stage_tilt: float,
-) -> Tuple[float, float, float]:
-    """The sign and angle terms both directions of the projection share.
-
-    Factored out rather than written twice: the forward and the inverse differ only in
-    the arithmetic that follows, and a sign convention that drifts between them would
-    make a click land somewhere other than where the marker was drawn -- while each
-    direction on its own still looked self-consistent.
-
-    Returns:
-        (compustage_sign, corrected_pretilt_angle, stage_tilt), where `stage_tilt` has
-        the compustage half-turn already folded in.
-    """
-    sem_column_tilt = np.deg2rad(geometry.column_tilt)
-    stage_pretilt = np.deg2rad(geometry.shuttle_pre_tilt)
-    rotation_flat_to_eb = np.deg2rad(geometry.rotation_reference) % (2 * np.pi)
-    rotation_flat_to_ion = np.deg2rad(geometry.rotation_180) % (2 * np.pi)
-
-    stage_rotation = stage_rotation % (2 * np.pi)
-
-    # The forward flips expected_y once for a compustage and a second time at the FIB
-    # orientation, so the two cancel there. The orientation is derived from the pose
-    # rather than from a live microscope's `get_stage_orientation`.
-    #
-    # The rotation test is not redundant with the tilt test: a compustage cannot
-    # rotate, so `get_stage_orientation` reports FIB only at the reference rotation.
-    # Keying on tilt alone would call an unreachable pose FIB and flip the sign
-    # against the live path -- which is a disagreement no physical run can surface,
-    # and so exactly the kind that survives.
-    compustage_sign = 1.0
-    is_fib_orientation = False
-    if geometry.is_compustage:
-        fib_orientation_tilt = np.deg2rad(
-            geometry.fib_column_tilt - geometry.shuttle_pre_tilt - 180
-        )
-        is_fib_orientation = bool(
-            np.isclose(stage_tilt, fib_orientation_tilt, atol=0.1)
-            and rotation_angle_is_smaller(stage_rotation, rotation_flat_to_eb, atol=5)
-        )
-        compustage_sign = 1.0 if is_fib_orientation else -1.0
-        stage_tilt = stage_tilt + np.pi
-
-    pretilt_sign = 1.0
-    if rotation_angle_is_smaller(stage_rotation, rotation_flat_to_eb, atol=5):
-        pretilt_sign = 1.0
-    if rotation_angle_is_smaller(stage_rotation, rotation_flat_to_ion, atol=5):
-        pretilt_sign = -1.0
-    if is_fib_orientation:
-        pretilt_sign = -1.0
-
-    corrected_pretilt_angle = pretilt_sign * (stage_pretilt + sem_column_tilt)
-
-    return compustage_sign, corrected_pretilt_angle, stage_tilt
-
-
-def view_corrected_stage_movement(
-    expected_y: float,
-    geometry: FibsemHardwareGeometry,
-    stage_rotation: float,
-    stage_tilt: float,
-) -> Tuple[float, float]:
-    """Split an in-image y-displacement across the stage y- and z-axes.
-
-    The microscope-free form of
-    :meth:`FibsemMicroscope._view_corrected_stage_movement` at the camera's view tilt.
-
-    Args:
-        expected_y: displacement along the image y-axis, in metres.
-        geometry: the geometry the image was captured under.
-        stage_rotation: stage rotation at acquisition, in radians.
-        stage_tilt: stage tilt at acquisition, in radians.
-
-    Returns:
-        (dy, dz) stage movement, in metres.
-    """
-    compustage_sign, corrected_pretilt_angle, stage_tilt = _projection_terms(
-        geometry, stage_rotation, stage_tilt
-    )
-
-    if geometry.is_compustage:
-        expected_y = expected_y * compustage_sign
-
-    perspective_tilt_adjustment = (
-        -corrected_pretilt_angle - np.deg2rad(geometry.camera_tilt)
-    )
-    y_sample_move = expected_y / np.cos(stage_tilt + perspective_tilt_adjustment)
-
-    return (
-        float(y_sample_move * np.cos(corrected_pretilt_angle)),
-        float(-y_sample_move * np.sin(corrected_pretilt_angle)),
-    )
-
-
-def inverse_view_corrected_dy(
-    dy: float,
-    dz: float,
-    geometry: FibsemHardwareGeometry,
-    stage_rotation: float,
-    stage_tilt: float,
-) -> float:
-    """Recover an in-image y-displacement from a y/z stage movement.
-
-    The microscope-free form of
-    :meth:`FibsemMicroscope._inverse_view_corrected_stage_movement`, parameterised by
-    the geometry rather than reading it off a live instrument. The two are held
-    together by a parity test across the full pose matrix, because a projection that
-    silently disagrees with the one used to move the stage puts every overlay in the
-    wrong place.
-
-    Args:
-        dy: stage y movement, in metres.
-        dz: stage z movement, in metres.
-        geometry: the geometry the image was captured under.
-        stage_rotation: stage rotation at acquisition, in radians.
-        stage_tilt: stage tilt at acquisition, in radians.
-
-    Returns:
-        The in-image y-displacement that would produce that stage movement, in metres.
-    """
-    compustage_sign, corrected_pretilt_angle, stage_tilt = _projection_terms(
-        geometry, stage_rotation, stage_tilt
-    )
-
-    perspective_tilt_adjustment = (
-        -corrected_pretilt_angle - np.deg2rad(geometry.camera_tilt)
-    )
-
-    # Undo y_move = y_sample_move * cos(a) and z_move = -y_sample_move * sin(a),
-    # taking whichever component is larger so the division stays conditioned.
-    cos_pretilt = np.cos(corrected_pretilt_angle)
-    sin_pretilt = np.sin(corrected_pretilt_angle)
-    if abs(cos_pretilt) > abs(sin_pretilt):
-        y_sample_move = dy / cos_pretilt
-    else:
-        y_sample_move = -dz / sin_pretilt
-
-    expected_y = y_sample_move * np.cos(stage_tilt + perspective_tilt_adjustment)
-
-    if geometry.is_compustage:
-        expected_y *= compustage_sign
-
-    return float(expected_y)
 
 
 def project_stage_position(
@@ -205,6 +66,7 @@ def project_stage_position(
     dy = inverse_view_corrected_dy(
         dy=delta.y,
         dz=delta.z,
+        view_tilt=np.deg2rad(geometry.camera_tilt),
         geometry=geometry,
         stage_rotation=base_position.r or 0.0,
         stage_tilt=base_position.t or 0.0,
@@ -248,6 +110,7 @@ def project_image_point(
     dx, dy = geometry.transform.apply_to_delta(dx, dy)
     y_move, z_move = view_corrected_stage_movement(
         expected_y=dy,
+        view_tilt=np.deg2rad(geometry.camera_tilt),
         geometry=geometry,
         stage_rotation=base_position.r or 0.0,
         stage_tilt=base_position.t or 0.0,

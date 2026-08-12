@@ -12,12 +12,10 @@ import pytest
 from fibsem import utils
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.reprojection import (
-    inverse_view_corrected_dy,
     project_image_point,
     project_stage_position,
     reproject_stage_positions_onto_fm_image,
     stage_position_from_fm_image,
-    view_corrected_stage_movement,
 )
 from fibsem.fm.structures import (
     CameraImageTransform,
@@ -25,6 +23,10 @@ from fibsem.fm.structures import (
     FibsemHardwareGeometry,
 )
 from fibsem.structures import FibsemStagePosition, Point
+from fibsem.transformations import (
+    inverse_view_corrected_dy,
+    view_corrected_stage_movement,
+)
 
 TRANSFORMS = list(CameraImageTransform)
 SHAPE = (1024, 1024)
@@ -92,6 +94,7 @@ class TestParityWithTheLiveMicroscope:
         )
         pure = inverse_view_corrected_dy(
             dy=12e-6, dz=-3e-6,
+            view_tilt=np.deg2rad(microscope.fm.camera_tilt),
             geometry=microscope.fm_image_geometry(),
             stage_rotation=position.r,
             stage_tilt=position.t,
@@ -119,6 +122,7 @@ class TestParityWithTheLiveMicroscope:
         )
         dy, dz = view_corrected_stage_movement(
             17e-6,
+            view_tilt=np.deg2rad(microscope.fm.camera_tilt),
             geometry=microscope.fm_image_geometry(),
             stage_rotation=position.r,
             stage_tilt=position.t,
@@ -142,6 +146,7 @@ class TestParityWithTheLiveMicroscope:
         )
         pure = inverse_view_corrected_dy(
             dy=12e-6, dz=-3e-6,
+            view_tilt=np.deg2rad(microscope.fm.camera_tilt),
             geometry=microscope.fm_image_geometry(),
             stage_rotation=position.r,
             stage_tilt=position.t,
