@@ -115,73 +115,80 @@ def run_autofocus(
     if not microscope.has_valid_orientation():
         raise ValueError("Microscope orientation is not valid for autofocus")
 
-    # Set up default z parameters if not provided
-    if z_parameters is None:
-        z_parameters = ZParameters(zmin=-10e-6, zmax=10e-6, zstep=1e-6)
+    # Held for the whole sweep, as a tileset holds it for a whole run. Without it
+    # every step took and returned the channel on its own -- measured at 43 scopes
+    # for one sweep, each a capture, a set and a restore, and each a visible flick
+    # of the active view in the microscope's own UI. The depth count is what makes
+    # this work: the moves and acquisitions inside open their own scopes and must
+    # not restore between steps.
+    with microscope.active_channel():
+        # Set up default z parameters if not provided
+        if z_parameters is None:
+            z_parameters = ZParameters(zmin=-10e-6, zmax=10e-6, zstep=1e-6)
 
-    # Generate z positions around current objective position
-    z_positions = z_parameters.generate_positions(microscope.objective.position)
+        # Generate z positions around current objective position
+        z_positions = z_parameters.generate_positions(microscope.objective.position)
 
-    # Validate focus measure method
-    get_focus_measure_function(method)  # Will raise error if invalid
+        # Validate focus measure method
+        get_focus_measure_function(method)  # Will raise error if invalid
 
-    # Apply channel settings if provided
-    if channel_settings is not None:
-        microscope.set_channel(channel_settings=channel_settings)
+        # Apply channel settings if provided
+        if channel_settings is not None:
+            microscope.set_channel(channel_settings=channel_settings)
 
-    microscope.acquisition_progress_signal.emit({"state": "autofocus"})
-    logging.info(f"Starting autofocus: {len(z_positions)} positions, method='{method}'")
+        microscope.acquisition_progress_signal.emit({"state": "autofocus"})
+        logging.info(f"Starting autofocus: {len(z_positions)} positions, method='{method}'")
 
-    initial_z = microscope.objective.position
-    iterations: list[AutoFocusIteration] = []
+        initial_z = microscope.objective.position
+        iterations: list[AutoFocusIteration] = []
 
-    for i, z_pos in enumerate(z_positions):
-        if stop_event and stop_event.is_set():
-            logging.info("Autofocus cancelled")
-            microscope.objective.move_absolute(initial_z)
-            return None
+        for i, z_pos in enumerate(z_positions):
+            if stop_event and stop_event.is_set():
+                logging.info("Autofocus cancelled")
+                microscope.objective.move_absolute(initial_z)
+                return None
 
-        # Same payload shape the z-stack and channel loops emit, so a viewer that
-        # renders within-tile progress renders this too. Without it the bars froze for
-        # the whole sweep -- which on per-tile autofocus is most of the run.
-        microscope.acquisition_progress_signal.emit({
-            "state": "acquiring",
-            "task": "autofocus",
-            "channel": channel_settings.name if channel_settings is not None else "",
-            "zlevel": i + 1,
-            "total_zlevels": len(z_positions),
-            "pass_index": pass_index,
-            "total_passes": total_passes,
-        })
+            # Same payload shape the z-stack and channel loops emit, so a viewer that
+            # renders within-tile progress renders this too. Without it the bars froze for
+            # the whole sweep -- which on per-tile autofocus is most of the run.
+            microscope.acquisition_progress_signal.emit({
+                "state": "acquiring",
+                "task": "autofocus",
+                "channel": channel_settings.name if channel_settings is not None else "",
+                "zlevel": i + 1,
+                "total_zlevels": len(z_positions),
+                "pass_index": pass_index,
+                "total_passes": total_passes,
+            })
 
-        microscope.objective.move_absolute(z_pos)
-        image = microscope.acquire_image()
-        image_data = image.crop(roi) if roi is not None else image.data
-        focus_score = calculate_focus_quality(image_data, method=method)
-        iterations.append(AutoFocusIteration(
-            working_distance=float(z_pos),
-            focus_score=float(focus_score),
-            pass_index=0,
-            image=image_data,
-        ))
-        logging.debug(
-            f"Z[{i + 1}/{len(z_positions)}]: {z_pos * 1e6:.1f} μm, Score: {focus_score:.4f}"
+            microscope.objective.move_absolute(z_pos)
+            image = microscope.acquire_image()
+            image_data = image.crop(roi) if roi is not None else image.data
+            focus_score = calculate_focus_quality(image_data, method=method)
+            iterations.append(AutoFocusIteration(
+                working_distance=float(z_pos),
+                focus_score=float(focus_score),
+                pass_index=0,
+                image=image_data,
+            ))
+            logging.debug(
+                f"Z[{i + 1}/{len(z_positions)}]: {z_pos * 1e6:.1f} μm, Score: {focus_score:.4f}"
+            )
+
+        best_idx = int(np.argmax([it.focus_score for it in iterations]))
+        best = iterations[best_idx]
+
+        microscope.objective.move_absolute(best.working_distance)
+        logging.info(f"Autofocus complete: Best position {best.working_distance * 1e6:.1f} μm (score: {best.focus_score:.4f})")
+
+        result = AutoFocusResult(
+            image=best.image,
+            working_distance=best.working_distance,
+            initial_working_distance=initial_z,
+            focus_score=best.focus_score,
+            iterations=iterations,
+            method=method,
         )
-
-    best_idx = int(np.argmax([it.focus_score for it in iterations]))
-    best = iterations[best_idx]
-
-    microscope.objective.move_absolute(best.working_distance)
-    logging.info(f"Autofocus complete: Best position {best.working_distance * 1e6:.1f} μm (score: {best.focus_score:.4f})")
-
-    result = AutoFocusResult(
-        image=best.image,
-        working_distance=best.working_distance,
-        initial_working_distance=initial_z,
-        focus_score=best.focus_score,
-        iterations=iterations,
-        method=method,
-    )
 
     if save_plot:
         plot_autofocus(result)
