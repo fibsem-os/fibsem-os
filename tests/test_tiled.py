@@ -460,3 +460,77 @@ def test_an_unmasked_run_still_reports_the_whole_grid(tmp_path):
     runner, emitted = _demo_runner(_make_settings(2, 3), tmp_path)
     assert emitted[0]["total"] == 6
     assert len(runner._ordered) == 6
+
+
+def test_the_grid_is_measured_from_the_centre_it_is_given(tmp_path):
+    """A grid dragged off the stage has to acquire where it was dragged to.
+
+    Asserted on the projected tile positions rather than on `_centre_position`: what
+    matters is where the stage is sent, and a runner that stored the centre and then
+    measured from somewhere else would pass the weaker check.
+    """
+    from fibsem import utils
+    from fibsem.structures import FibsemStagePosition
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    here = microscope.get_stage_position()
+    elsewhere = FibsemStagePosition(
+        x=here.x + 250e-6, y=here.y - 100e-6, z=here.z, r=here.r, t=here.t
+    )
+
+    settings = _make_settings(1, 1)
+    settings.image_settings.path = str(tmp_path)
+    settings.image_settings.filename = "overview-image"
+    runner = TiledAcquisitionRunner(
+        microscope, settings, centre_position=elsewhere
+    )
+    runner._setup()
+    runner._compute_grid()
+
+    # A 1x1 grid is centred on the centre, so its one tile lands there.
+    only_tile = runner._tile_stage_positions[0]
+    assert only_tile.x == pytest.approx(elsewhere.x, abs=1e-9)
+    assert only_tile.x != pytest.approx(here.x, abs=1e-9)
+
+
+def test_no_centre_means_wherever_the_stage_is(tmp_path):
+    """None is not "the stage position at the time the runner was built" -- it is
+    resolved when the run starts, so a stage that moved in between is honoured."""
+    from fibsem import utils
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    settings = _make_settings(1, 1)
+    settings.image_settings.path = str(tmp_path)
+    settings.image_settings.filename = "overview-image"
+    runner = TiledAcquisitionRunner(microscope, settings)
+    runner._setup()
+    runner._compute_grid()
+
+    here = microscope.get_stage_position()
+    assert runner._tile_stage_positions[0].x == pytest.approx(here.x, abs=1e-9)
+
+
+def test_a_run_with_no_tiles_is_refused_before_it_starts(tmp_path):
+    """Left to run it walked zero tiles, emitted a *successful* terminal payload,
+    restored the stage, and only then died in `_stitch` with "No tiles were acquired"
+    -- so a consumer saw the run finish and then saw it fail.
+
+    Refused before `_setup`, so nothing is emitted and no directory is made: a run with
+    nothing selected is a configuration error, not an acquisition that failed.
+    """
+    from fibsem import utils
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    emitted = []
+    microscope.tiled_acquisition_signal.connect(emitted.append)
+
+    settings = _make_settings(2, 2)
+    settings.tile_mask = [[False, False], [False, False]]
+    settings.image_settings.path = str(tmp_path)
+    settings.image_settings.filename = "overview-image"
+
+    with pytest.raises(ValueError, match="No tiles are selected"):
+        TiledAcquisitionRunner(microscope, settings).run_and_stitch()
+
+    assert not emitted, "a refused run told consumers it had started"
+    assert not list(tmp_path.iterdir()), "a refused run left a directory behind"

@@ -78,12 +78,14 @@ from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
     ShapeSpec,
 )
 from fibsem.ui.widgets.canvas.overlays.gridbar_overlay import GridBarOverlay
+from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import TileGridOverlay
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointsOverlay
 from fibsem.ui.widgets.canvas.real_space_canvas import FibsemRealSpaceCanvas
 from fibsem.ui.widgets.canvas.stage_frame import StageFrame
 from fibsem.ui.widgets.custom_widgets import (
     ContextMenu,
     ContextMenuConfig,
+    IconToolButton,
     TitledPanel,
     ValueComboBox,
     ValueSpinBox,
@@ -102,7 +104,14 @@ logger = logging.getLogger(__name__)
 SLOT_COLOUR = "#90a4ae"
 LIMITS_COLOUR = "#ffca28"
 GRID_BOUNDARY_COLOUR = "#ff5252"
-OVERVIEW_FOV_COLOUR = "#ce93d8"
+
+# The canvas key the in-progress mosaic is drawn under. Its own, so a run that dies
+# leaves no half-filled overview behind pretending to be a finished one.
+PREVIEW_KEY = "acquisition-preview"
+
+# Icon buttons that sit in a `TitledPanel` header. Matches the fluorescence overview,
+# so the two tabs' section headers line up.
+_HEADER_BTN_SIZE = 26
 
 # The grid boundary a cryo holder's slot describes, as a radius in metres. Carried over
 # from the widget this replaces, where it was written inline as `1000e-6 / pixelsize`.
@@ -183,6 +192,11 @@ class OverviewRecord:
         # What was placed, kept so a view switch can re-place it. Display-reduced --
         # see `FibsemOverviewWidget._stored_tile`.
         self.images: List["_PlacedTile"] = []
+        # How many tiles the run has acquired, once something says. An overview is one
+        # image on the canvas now, so the images it holds no longer count them, and a
+        # mosaic loaded from disk cannot say how many it was made of -- which is why
+        # this is None rather than 1.
+        self.tiles: Optional[int] = None
 
     @property
     def detail(self) -> str:
@@ -193,10 +207,10 @@ class OverviewRecord:
         rather than what is on the canvas.
         """
         parts = []
-        # From the images it holds, not the canvas keys: the keys are cleared while
-        # another view is displayed, so counting those made an overview report no tiles
-        # merely because you were looking somewhere else.
-        count = len(self.images)
+        # Counted by the run, not derived from what is on the canvas: an overview is a
+        # single placed image, so there is nothing on the canvas left to count, and the
+        # keys are cleared anyway while another view is displayed.
+        count = self.tiles
         if count:
             parts.append(f"{count} tile{'s' if count != 1 else ''}")
         if self.pixel_size:
@@ -256,10 +270,13 @@ class FibsemOverviewWidget(QWidget):
         # The view the canvas is showing. None only before the stage position and the
         # settings are both known; `_seed_frame` fills it in from where the stage is.
         self._current_view: Optional["OverviewView"] = None
-        # Whether the displayed view has been decided by something other than where the
-        # stage happens to be -- an image arriving, or the user picking one. Until then
-        # the canvas is a live plan of the next run and follows the stage.
-        self._view_pinned = False
+        # The view the next run would have landed in, last time anything looked. Kept
+        # so a *change* can be told from a refresh -- see `_follow_the_acquisition_view`.
+        self._planned_view: Optional["OverviewView"] = None
+        # Where the next run is planned around, if the grid has been dragged off the
+        # stage. None means "wherever the stage is", which is also what the runner
+        # falls back to -- so the drawn grid and the acquisition agree by default.
+        self._target: Optional[FibsemStagePosition] = None
         self._positions: List[FibsemStagePosition] = []
         self._selected_position: Optional[str] = None
         # Positions a host has flagged, by name. What "flagged" means is the host's
@@ -311,6 +328,14 @@ class FibsemOverviewWidget(QWidget):
         # through. Added first so it sits under everything else.
         self.gridbar_overlay = GridBarOverlay()
         self.canvas.add_overlay(self.gridbar_overlay)
+
+        # What the next run would acquire, tile by tile. Clickable: a tile toggles in
+        # or out, an edge resizes the grid, the interior drags it somewhere else.
+        self.tile_grid_overlay = TileGridOverlay()
+        self.tile_grid_overlay.tile_toggled.connect(self._on_tile_toggled)
+        self.tile_grid_overlay.grid_resize_requested.connect(self._on_grid_resized)
+        self.tile_grid_overlay.grid_move_requested.connect(self._on_grid_moved)
+        self.canvas.add_overlay(self.tile_grid_overlay)
 
         # Where the sample and the stage can physically go -- the context an overview is
         # read against. Added before the position markers so it sits beneath them.
@@ -380,9 +405,6 @@ class FibsemOverviewWidget(QWidget):
         self.button_cancel.setStyleSheet(stylesheets.DANGER_BUTTON_STYLESHEET)
         self.button_cancel.clicked.connect(self.cancel)
         self.button_cancel.setVisible(False)
-        self.button_load = QPushButton("Load Overview")
-        self.button_load.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.button_load.clicked.connect(self._prompt_for_overview)
 
         self.label_status = QLabel("")
         self.label_status.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
@@ -400,6 +422,17 @@ class FibsemOverviewWidget(QWidget):
         self.overview_list.visibility_toggled.connect(self.set_overview_visible)
         self.overview_list.remove_requested.connect(self.remove_overview)
         overviews_panel = self._section("Overviews", self.overview_list)
+        # In the panel header rather than under the list: loading acts on the section
+        # as a whole, not on any row in it, and a full-width button below the rows read
+        # as a fourth row. Same icon and size as the fluorescence tab's, because it is
+        # the same action on the same kind of section.
+        self.button_load = IconToolButton(
+            icon="mdi:image-plus-outline",
+            tooltip="Load a saved overview",
+            size=_HEADER_BTN_SIZE,
+        )
+        self.button_load.clicked.connect(self._prompt_for_overview)
+        overviews_panel.add_header_widget(self.button_load)
 
         controls = QWidget()
         controls_layout = QVBoxLayout(controls)
@@ -440,7 +473,6 @@ class FibsemOverviewWidget(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.addWidget(self.button_acquire)
         layout.addWidget(self.button_cancel)
-        layout.addWidget(self.button_load)
         layout.addWidget(self.progress)
         layout.addWidget(self.label_status)
         return panel
@@ -466,21 +498,25 @@ class FibsemOverviewWidget(QWidget):
     def _on_view_selected(self, _index: int) -> None:
         view = self.combo_view.value()
         if isinstance(view, OverviewView):
-            # Chosen, so the canvas stops following the stage -- otherwise re-posing
-            # would silently undo the choice.
-            self._view_pinned = True
             self.show_view(view)
 
     def _refresh_view_selector(self) -> None:
-        """List the views something has been placed in, and say what is not shown.
+        """List the views worth switching to, and say what is not shown.
+
+        Everything something has been placed in, plus the one being shown, plus **the
+        one the next run would land in** even if nothing has been acquired there. That
+        last is what makes a re-posed stage usable: the planned grid refuses to draw on
+        a view the run will not appear in, so after moving to the milling pose the plan
+        is somewhere else -- and without an entry for it there is no way to go and look.
 
         Signals blocked while repopulating: setting the items fires
         `currentIndexChanged`, which would call `show_view` and switch the canvas to
         whatever landed at index 0.
         """
-        views = self.views
-        if self._current_view is not None and self._current_view not in views:
-            views = views + [self._current_view]
+        views = list(self.views)
+        for view in (self._current_view, self.acquisition_view):
+            if view is not None and view not in views:
+                views.append(view)
 
         self.combo_view.blockSignals(True)
         self.combo_view.clear()
@@ -647,16 +683,69 @@ class FibsemOverviewWidget(QWidget):
 
     def _apply_enabled_state(self) -> None:
         running = self._running
-        self.button_acquire.setEnabled(self._interactive and not running)
+        # Nothing selected is a real state now that tiles can be clicked off, and it
+        # is one the runner cannot do anything with. Refused here as well as in
+        # `acquire`, so it reads as unavailable rather than failing when pressed.
+        has_tiles = self._planned_tile_count() > 0
+        self.button_acquire.setEnabled(self._interactive and not running and has_tiles)
+        self.button_acquire.setToolTip(
+            "" if has_tiles else "No tiles are selected. Click a tile to include it."
+        )
         self.button_acquire.setText(
             "Running Tile Collection…" if running else "Run Tile Collection"
         )
         self.button_cancel.setVisible(running)
         self.settings_widget.setEnabled(self._interactive and not running)
 
+    def _planned_tile_count(self) -> int:
+        """How many tiles the next run would acquire. 0 if the settings cannot be read."""
+        settings = self._settings()
+        return 0 if settings is None else settings.n_enabled_tiles
+
     def _on_settings_changed(self) -> None:
         """The planned overview changed shape, so redraw what it would cover."""
+        self._follow_the_acquisition_view()
+        if self.tile_grid_overlay.is_dragging:
+            # Dragging an edge writes rows and columns to the settings widget, so this
+            # runs on every motion event of a resize too -- and the grid is the only
+            # thing that changed. `TileGridOverlay` asks its host to keep this cheap
+            # for exactly this reason.
+            self._refresh_tile_grid()
+            # Cheap, and it has to keep up: resizing drops a mask that no longer fits
+            # the grid, which can take the tile count from zero back to full. Left to
+            # the end of the drag the button would stay disabled with tiles selected.
+            self._apply_enabled_state()
+            return
         self._refresh_context_overlays()
+        # Masking the last tile off has to reach the button, and a tile is toggled from
+        # the canvas rather than from the controls that already refresh it.
+        self._apply_enabled_state()
+
+    def _follow_the_acquisition_view(self) -> None:
+        """Show the view the next run would land in, whenever that changes.
+
+        A view is `(beam, orientation)`, and both halves are things a user changes
+        deliberately: picking a beam in the settings, or re-posing the stage. Either
+        way what they have said is "the next run happens *there*", and the canvas has
+        to show there -- otherwise the planned grid vanishes at exactly the moment they
+        are planning, since it refuses to draw on a view the run will not land in.
+
+        This was once beam-only, on the theory that moving the stage is not a statement
+        about what to look at. That distinction does not survive contact: a stage move
+        *within* an orientation does not change the view at all, so the only move this
+        reacts to is a change of orientation -- which is as deliberate as choosing a
+        beam, and never happens by accident.
+
+        On change, not on every refresh, which is what leaves room for the view
+        selector: an explicit choice stands until the next run would land somewhere
+        else.
+        """
+        view = self.acquisition_view
+        if view is None or view == self._planned_view:
+            return
+        self._planned_view = view
+        if view != self._current_view:
+            self.show_view(view)
 
     # ── the frame ────────────────────────────────────────────────────────
 
@@ -734,15 +823,11 @@ class FibsemOverviewWidget(QWidget):
         if view is None or self._stage_position is None:
             return
 
-        # Follow the stage only while nothing has decided otherwise. Once an image has
-        # been placed, or the user has picked a view, the displayed view is theirs and
-        # re-posing the stage must not drag them off it -- that is what
-        # `_refresh_view_note` is for.
-        #
-        # A pin rather than "is the canvas empty": `show_view` clears the canvas before
-        # re-placing, and this runs from inside it, so an emptiness test flips the view
-        # back to the stage's half way through switching to another one.
-        if not self._view_pinned and view != self._current_view:
+        # Only the very first time, to give the canvas something to draw in. Steering
+        # after that belongs to `_follow_the_acquisition_view`, which acts on *changes*
+        # -- this runs on every refresh, including from inside `show_view`, so choosing
+        # here would undo a switch half way through making it.
+        if self._current_view is None:
             self._current_view = view
             self._refresh_view_selector()
 
@@ -917,10 +1002,6 @@ class FibsemOverviewWidget(QWidget):
         view = self._view_of(image)
         if view is None:
             return None
-        # An image decides the view from here on, so the canvas stops following the
-        # stage. Set before the switch below, because `show_view` refreshes the
-        # overlays and the seeding that runs there would otherwise pull the view back.
-        self._view_pinned = True
         if self._current_view is None:
             self._current_view = view
             self._refresh_view_selector()
@@ -1004,20 +1085,44 @@ class FibsemOverviewWidget(QWidget):
             covers=(width * pixel_size, height * pixel_size),
         )
 
-    def _place_tile(self, tile: FibsemImage, record_id: str) -> None:
-        """Place one acquired tile, and attach it to the run that produced it."""
-        record = self._records.get(record_id)
+    def _show_preview(self, preview: FibsemImage) -> None:
+        """Show the mosaic-so-far, as one image, under its own key.
+
+        Stateless: it redisplays whatever it is handed rather than accumulating tiles
+        of its own, which is what makes it correct when a frame is dropped.
+
+        One image rather than one per tile, which is the whole point. Placing tiles
+        individually put each one where the stage actually reached, which the stitch
+        buffer cannot express (FIB-399) -- but that accuracy never survived the run:
+        the buffer is what gets saved, so reloading the overview showed the nominal
+        placement anyway. What it did cost was an artist per tile, and the canvas
+        repaints every artist on every draw, so dragging anything slowed down by about
+        2 ms for every tile ever acquired (FIB-627).
+
+        Its own key, not the record's: an in-progress preview must not survive as a
+        finished overview if the run dies, and the real stitch replaces it at the end.
+        """
+        if self.place_image(preview, key=PREVIEW_KEY) is None:
+            logger.debug("Could not place the acquisition preview.")
+
+    def _clear_preview(self) -> None:
+        self.canvas.remove_image(PREVIEW_KEY)
+
+    def _place_finished_mosaic(self, mosaic: FibsemImage) -> None:
+        """Swap the preview for the stitched overview the run actually produced."""
+        record = self._records.get(getattr(self, "_active_record", None) or "")
+        self._clear_preview()
         if record is None:
             return
-        if record.view is None:
-            record.view = self._view_of(tile)
-        key = self.place_image(tile, key=f"{record_id}-tile-{len(record.keys)}")
-        if key is not None:
-            record.keys.append(key)
-            record.images.append(self._stored_tile(tile))
-            if record.pixel_size is None:
-                record.pixel_size = self._pixel_size_of(tile)
-            self._refresh_overview_list()
+        record.view = self._view_of(mosaic)
+        key = self.place_image(mosaic, key=record.id)
+        if key is None:
+            logger.debug("The finished overview could not be placed.")
+            return
+        record.keys = [key]
+        record.images = [self._stored_tile(mosaic)]
+        record.pixel_size = self._pixel_size_of(mosaic)
+        self._refresh_overview_list()
 
     def set_overview_visible(self, record_id: str, visible: bool) -> bool:
         """Show or hide every tile of one overview. False if the id is unknown."""
@@ -1033,22 +1138,15 @@ class FibsemOverviewWidget(QWidget):
     def remove_overview(self, record_id: str) -> bool:
         """Take one overview off the canvas entirely. False if the id is unknown.
 
-        Removing the last one puts the tab back where it started, so it goes back to
-        following the stage too. Otherwise you would be left looking at an empty canvas
-        pinned to a view nothing is in, which is the state this whole seeding exists to
-        avoid -- and the pin came from an image that is no longer there to justify it.
-        Cleared before the refresh below, so the canvas re-points in the same pass.
-
-        Hidden is not removed: `set_overview_visible` leaves the record, and a view you
-        can bring back with a checkbox is still a view you chose to be in.
+        The canvas stays on the view the removed overview was in rather than jumping
+        elsewhere: the view still describes where the next run would land if the stage
+        is there, and `_follow_the_acquisition_view` moves it when that stops being true.
         """
         record = self._records.pop(record_id, None)
         if record is None:
             return False
         for key in record.keys:
             self.canvas.remove_image(key)
-        if not self._records:
-            self._view_pinned = False
         self._refresh_context_overlays()
         self._refresh_overview_list()
         return True
@@ -1109,11 +1207,150 @@ class FibsemOverviewWidget(QWidget):
         specs: List[ShapeSpec] = []
         specs.extend(self._limit_shapes(frame))
         specs.extend(self._slot_shapes(frame))
-        specs.extend(self._planned_overview_shape(frame))
         self.context_overlay.set_shapes(specs)
+        self._refresh_tile_grid()
         self._refresh_position_markers()
         self._refresh_gridbars()
-        self._refresh_view_note()
+        # The selector, not just the note: the list includes the view the next run
+        # would land in, and that changes when the stage re-poses -- which does not
+        # change the *displayed* view, so nothing else here would refresh it.
+        self._refresh_view_selector()
+
+    # ── the planned tileset ──────────────────────────────────────────────
+
+    def _grid_centre(self) -> Optional[FibsemStagePosition]:
+        """The stage position the next overview will be centred on.
+
+        A target if the grid has been dragged somewhere, otherwise wherever the stage
+        is -- which is what the runner falls back to, so the drawn grid and the
+        acquisition agree without either being told about the other.
+        """
+        return self._target or self._stage_position
+
+    def _refresh_tile_grid(self) -> None:
+        """Redraw the planned tileset.
+
+        Drawn as *tiles*, not as one rectangle: the rectangle said how much ground a
+        run would cover and nothing else, and the things worth seeing before pressing
+        the button are where the seams fall and which tiles are in.
+
+        Only in the view the run would land in, for the same reason the footprint was:
+        drawn on another view it promises coverage this canvas will never show. The
+        lattice is regular in the displayed frame at any tilt, because tiles are
+        *defined* by displayed-frame offsets handed to `project_stable_move` -- the
+        tilt is absorbed into the stage moves, not into where the tiles appear, so
+        none of the foreshortening in FIB-615 applies here.
+        """
+        settings = self._settings()
+        centre = self._grid_centre()
+        frame = self._frame()
+        if (
+            settings is None
+            or centre is None
+            or frame is None
+            or self.acquisition_view != self._current_view
+        ):
+            self.tile_grid_overlay.clear()
+            return
+
+        width, height = settings.image_settings.resolution
+        if not width or not settings.image_settings.hfw:
+            self.tile_grid_overlay.clear()
+            return
+
+        try:
+            tiles = tiled.compute_tile_grid(settings, mask=settings.tile_mask)
+            anchor = self.canvas.metres_to_canvas(*frame.offset(centre))
+        except Exception as e:
+            logger.debug(f"Could not place the planned tileset: {e}")
+            self.tile_grid_overlay.clear()
+            return
+
+        self.tile_grid_overlay.set_anchor(anchor)
+        # No `display_pixel_size`: the overlay reads it off the canvas at draw time, so
+        # the grid keeps describing the image underneath it when that image changes --
+        # which it does mid-run, as tiles land.
+        self.tile_grid_overlay.set_grid(
+            tiles,
+            (height, width),
+            settings.image_settings.hfw / width,
+            overlap=settings.overlap,
+        )
+
+    def _may_edit_the_plan(self) -> bool:
+        """Whether a canvas gesture is allowed to change what the next run does.
+
+        The same two facts the context menu is gated on. A run in progress is reading
+        this plan, and a host that has taken the instrument is usually iterating an
+        experiment -- neither is a moment to redraw the grid underneath.
+        """
+        return not (self._running or self.is_acquiring or not self._interactive)
+
+    def _on_grid_resized(self, rows: int, cols: int) -> None:
+        """An edge of the grid was dragged.
+
+        Writes to the settings widget, which owns rows and columns: the canvas is a
+        view of that state, not a second copy of it. The redraw comes back through
+        `settings_changed`.
+        """
+        if not self._may_edit_the_plan():
+            return
+        self.settings_widget.set_grid_size(rows, cols)
+
+    def _on_tile_toggled(self, row: int, col: int, enabled: bool) -> None:
+        """A tile was clicked. Writes into the mask the settings widget carries."""
+        if not self._may_edit_the_plan():
+            return
+        settings = self._settings()
+        if settings is None:
+            return
+        mask = settings.tile_mask
+        if mask is None:
+            mask = [[True] * settings.ncols for _ in range(settings.nrows)]
+        if not (0 <= row < len(mask) and 0 <= col < len(mask[row])):
+            return
+        mask[row][col] = enabled
+        self.settings_widget.tile_mask = mask
+
+    def _on_grid_moved(self, x: float, y: float) -> None:
+        """The grid was dragged: plan the next overview around where it landed.
+
+        Deliberately does *not* move the stage. Setting a run up and driving the
+        instrument are separate acts, and a drag is exploratory -- you push the grid
+        around to see what it would cover. The stage goes there when the run does.
+
+        The resolved position keeps the stage's own rotation and tilt, like a click
+        does, so the run stays in the view it was planned in and does not re-pose the
+        stage to reach its own grid.
+        """
+        if not self._may_edit_the_plan():
+            return
+        frame = self._frame()
+        if frame is None:
+            return
+        try:
+            self._target = self._posed_like_the_stage(frame.to_stage(x, y))
+        except Exception as e:
+            logger.debug(f"Could not resolve the dragged grid position: {e}")
+            return
+        # Only the grid. A drag emits on every motion event, and the full context
+        # refresh redraws the limits, the slots, every marker and the lattice as well
+        # -- none of which move when the grid does. Measured on a canvas holding four
+        # acquired tilesets: 90 ms per motion event, growing about 2 ms with every tile
+        # ever placed, because each refresh repaints the whole canvas.
+        self._refresh_tile_grid()
+
+    def clear_target(self) -> None:
+        """Plan the next overview around the stage position again."""
+        if self._target is None:
+            return
+        self._target = None
+        self._refresh_tile_grid()
+
+    @property
+    def target(self) -> Optional[FibsemStagePosition]:
+        """Where the next run is planned around, or None for wherever the stage is."""
+        return self._target
 
     @staticmethod
     def _landmark(frame: StageFrame, x: float, y: float, name: str = "") -> FibsemStagePosition:
@@ -1203,32 +1440,6 @@ class FibsemOverviewWidget(QWidget):
                                    color=SLOT_COLOUR, label=slot.position.name or ""))
         return specs
 
-    def _planned_overview_shape(self, frame: StageFrame) -> List[ShapeSpec]:
-        """What the next run would cover, centred on where the stage is.
-
-        Drawn from the settings rather than from anything acquired, so it answers "if I
-        press the button now, what do I get?" before there is anything on screen.
-        """
-        position = self._stage_position
-        if position is None:
-            return []
-        # Only where the run would actually land. Drawn on another view it would promise
-        # coverage this canvas is never going to show.
-        if self.acquisition_view != self._current_view:
-            return []
-        settings = self._settings()
-        if settings is None:
-            return []
-        try:
-            cx, cy = frame.to_canvas(position)
-            width = frame.length(settings.total_fov_x)
-            height = frame.length(settings.total_fov_y)
-        except Exception as e:
-            logger.debug(f"Could not draw the planned overview footprint: {e}")
-            return []
-        return [ShapeSpec(kind="rect", cx=cx, cy=cy, width=width, height=height,
-                          color=OVERVIEW_FOV_COLOUR, label="Overview FoV")]
-
     def _refresh_position_markers(self) -> None:
         """Redraw the current stage position and every marked position."""
         frame = self._frame()
@@ -1309,6 +1520,9 @@ class FibsemOverviewWidget(QWidget):
         if self._running:
             self._refresh_position_markers()
             return
+        # A re-pose changes which view the next run lands in, and the canvas follows it
+        # the same way it follows a change of beam.
+        self._follow_the_acquisition_view()
         self._refresh_context_overlays()
 
     def _refresh_current_position(self) -> None:
@@ -1490,17 +1704,7 @@ class FibsemOverviewWidget(QWidget):
             logger.debug(f"Could not resolve the clicked position: {e}")
             return None
 
-        # Steering never reorients. The click says *where on the sample*, not which way
-        # to look at it, so the stage's own rotation and tilt are kept and the move is
-        # pure x/y/z. Without this the target carries the view *origin's* pose, and a
-        # stage sitting at a slightly different tilt within the same orientation would
-        # be tilted back to it as a side effect of a click.
-        current = self._stage_position
-        if current is not None:
-            if current.r is not None:
-                target.r = current.r
-            if current.t is not None:
-                target.t = current.t
+        target = self._posed_like_the_stage(target)
 
         limits = getattr(self.microscope._stage, "limits", None)
         if limits and not target.is_within_limits(limits, axes=["x", "y"]):
@@ -1508,6 +1712,28 @@ class FibsemOverviewWidget(QWidget):
                 "That position is outside the stage limits.", "warning"
             )
             return None
+        return target
+
+    def _posed_like_the_stage(
+        self, target: FibsemStagePosition
+    ) -> FibsemStagePosition:
+        """A resolved position, wearing the pose the stage is actually in.
+
+        Neither steering nor planning reorients. A point on the canvas says *where on
+        the sample*, not which way to look at it, so the stage's own rotation and tilt
+        are kept and any move is pure x/y/z. Without this the position carries the view
+        *origin's* pose, and a stage sitting at a slightly different tilt within the
+        same orientation would be tilted back to it as a side effect.
+
+        Shared by the click and by a dragged tile grid, so a run planned around a
+        dragged centre cannot end up asking for a pose a click would have refused.
+        """
+        current = self._stage_position
+        if current is not None:
+            if current.r is not None:
+                target.r = current.r
+            if current.t is not None:
+                target.t = current.t
         return target
 
     def _view_matches_stage(self) -> bool:
@@ -1555,6 +1781,13 @@ class FibsemOverviewWidget(QWidget):
                 "Please enter a filename for the overview.", "error"
             )
             return
+        if settings.n_enabled_tiles == 0:
+            notification_service.show_toast(
+                "No tiles are selected, so there is nothing to acquire. "
+                "Click a tile in the grid to include it.",
+                "warning",
+            )
+            return
         settings.image_settings.save = True
         if not settings.image_settings.path:
             # Nothing in the path box and no host directory: the run still has to go
@@ -1573,10 +1806,18 @@ class FibsemOverviewWidget(QWidget):
 
         self._stop_event.clear()
         self._set_running(True)
-        self._worker = FunctionWorker(self._acquire_worker, settings)
+        # Copied with the settings: the target can be dragged again while the run is
+        # under way, and the run has to keep the grid it was started with.
+        self._worker = FunctionWorker(
+            self._acquire_worker, settings, deepcopy(self._target)
+        )
         self._worker.start()
 
-    def _acquire_worker(self, settings: OverviewAcquisitionSettings) -> None:
+    def _acquire_worker(
+        self,
+        settings: OverviewAcquisitionSettings,
+        centre_position: Optional[FibsemStagePosition] = None,
+    ) -> None:
         """Runs off the GUI thread. Only signals may cross back."""
         from fibsem.cancellation import OperationCancelledError
 
@@ -1586,6 +1827,7 @@ class FibsemOverviewWidget(QWidget):
                 microscope=self.microscope,
                 settings=settings,
                 stop_event=self._stop_event,
+                centre_position=centre_position,
             )
             self.overview_acquired.emit(self._mosaic)
         except OperationCancelledError:
@@ -1627,16 +1869,38 @@ class FibsemOverviewWidget(QWidget):
         if result.get("error"):
             notification_service.show_toast(str(result["error"]), "error")
             self.label_status.setText("Acquisition failed.")
+            self._drop_unfinished_run()
         elif result.get("cancelled"):
             notification_service.show_toast("Tile collection cancelled.", "warning")
             self.label_status.setText(
                 f"Cancelled after {self._tiles_acquired} tile(s)."
             )
+            self._drop_unfinished_run()
         else:
             notification_service.show_toast("Tile collection finished.")
             self.label_status.setText(f"Acquired {self._tiles_acquired} tile(s).")
+            if self._mosaic is not None:
+                self._place_finished_mosaic(self._mosaic)
+            else:
+                self._drop_unfinished_run()
         # The stage went home at the end of the run, so the planned footprint moved.
         self._refresh_context_overlays()
+
+    def _drop_unfinished_run(self) -> None:
+        """Take the preview off the canvas, and the run's empty record with it.
+
+        A cancelled or failed run has no stitched overview to swap in. The preview it
+        left is a partial mosaic that was never saved, so keeping it would put
+        something on the canvas that matches no file -- and leave a record listing an
+        overview that does not exist. What was acquired is on disk as tiles either way.
+        """
+        self._clear_preview()
+        record_id = getattr(self, "_active_record", None)
+        record = self._records.get(record_id or "")
+        if record is not None and not record.keys:
+            self._records.pop(record_id, None)
+            self._refresh_overview_list()
+        self._active_record = None
 
     # ── progress ─────────────────────────────────────────────────────────
 
@@ -1664,9 +1928,17 @@ class FibsemOverviewWidget(QWidget):
                 )
             )
 
-        tile = payload.get("tile")
-        if tile is not None and getattr(self, "_active_record", None):
-            self._place_tile(tile, self._active_record)
+        preview = payload.get("preview")
+        record = self._records.get(getattr(self, "_active_record", None) or "")
+        if preview is not None and record is not None:
+            self._show_preview(preview)
+            # The row says how many tiles this run has, and it says it while the run is
+            # going -- a row reading "0 tiles" beside a filling mosaic is the list
+            # contradicting the canvas.
+            if counter:
+                record.tiles = counter
+                record.pixel_size = self._pixel_size_of(preview)
+                self._refresh_overview_list()
 
     # ── lifecycle ────────────────────────────────────────────────────────
 

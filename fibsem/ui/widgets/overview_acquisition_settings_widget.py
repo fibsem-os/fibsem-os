@@ -259,6 +259,27 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         self._tile_mask = None if mask is None else [[bool(v) for v in row] for row in mask]
         self._on_changed()
 
+    def set_grid_size(self, rows: int, cols: int) -> None:
+        """Set both grid dimensions as a single change.
+
+        Setting the two spin boxes one after the other emits `settings_changed` twice
+        and passes through a size nobody asked for -- the new row count against the old
+        column count. That is invisible when a spin box is nudged by hand, and constant
+        when an edge is dragged on the canvas, which emits on every motion event.
+        """
+        rows, cols = int(rows), int(cols)
+        if (rows, cols) == (int(self.nrows_spinbox.value()), int(self.ncols_spinbox.value())):
+            return
+        for spinbox in (self.nrows_spinbox, self.ncols_spinbox):
+            spinbox.blockSignals(True)
+        try:
+            self.nrows_spinbox.setValue(rows)
+            self.ncols_spinbox.setValue(cols)
+        finally:
+            for spinbox in (self.nrows_spinbox, self.ncols_spinbox):
+                spinbox.blockSignals(False)
+        self._on_changed()
+
     def get_settings(self) -> OverviewAcquisitionSettings:
         """Read current widget values and return OverviewAcquisitionSettings."""
         image_settings: ImageSettings = self.image_settings_widget.get_settings()

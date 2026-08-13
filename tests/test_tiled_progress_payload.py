@@ -73,30 +73,37 @@ def test_every_tile_update_carries_the_keys_its_consumers_index(payloads):
     assert [p["counter"] for p in updates] == [1, 2]
 
 
-def test_a_tile_update_carries_the_tile_itself(payloads):
+def test_a_tile_update_carries_a_placeable_preview(payloads):
     """The key the real-space overview places from.
 
-    The growing stitch buffer under `image` cannot answer where a tile belongs: it
-    holds integer pixel offsets, so the error against the true stage position
-    accumulates across the grid (FIB-399). The tile carries the position the stage
-    actually reached.
+    `image` alongside it is the full-size buffer as a bare array, which the napari
+    minimap assigns straight into a layer -- so it cannot answer *where* the mosaic
+    is. `preview` is the same mosaic, decimated, carrying the metadata a real-space
+    display needs to place it: position, pixel size, beam and geometry.
     """
     for payload in _per_tile(payloads):
-        tile = payload.get("tile")
-        assert tile is not None, "the per-tile update stopped carrying its tile"
-        assert tile.metadata.stage_position is not None
-        assert tile.metadata.pixel_size.x, "a tile with no scale cannot be placed"
-        assert tile.metadata.hardware_geometry is not None
+        preview = payload.get("preview")
+        assert preview is not None, "the per-tile update stopped carrying its preview"
+        assert preview.metadata.stage_position is not None
+        assert preview.metadata.pixel_size.x, "a mosaic with no scale cannot be placed"
+        assert preview.metadata.hardware_geometry is not None
+        assert preview.metadata.image_settings.beam_type is not None
 
 
-def test_the_tiles_are_distinguishable_by_where_they_were_acquired(payloads):
-    """Two tiles carrying the same position would place on top of each other, and the
-    display would look like a run that only ever acquired one."""
-    positions = [
-        (p["tile"].metadata.stage_position.x, p["tile"].metadata.stage_position.y)
-        for p in _per_tile(payloads)
+def test_the_preview_fills_as_the_run_goes(payloads):
+    """A preview that never changed would satisfy every structural check above while
+    showing the same empty mosaic for the length of the run."""
+    filled = [
+        int((p["preview"].data > 0).sum()) for p in _per_tile(payloads)
     ]
-    assert len(set(positions)) == len(positions), f"tiles share a position: {positions}"
+    assert filled[-1] > filled[0], f"the preview did not fill: {filled}"
+
+
+def test_the_preview_describes_the_whole_grid_from_the_first_tile(payloads):
+    """It is the mosaic, not the tile: its shape is the finished grid's from the
+    start, so a display places it once rather than resizing it on every update."""
+    shapes = {p["preview"].data.shape for p in _per_tile(payloads)}
+    assert len(shapes) == 1, f"the preview changed shape mid-run: {shapes}"
 
 
 def test_the_run_ends_with_a_terminal_update(payloads):
