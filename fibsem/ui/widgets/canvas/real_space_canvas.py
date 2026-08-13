@@ -122,12 +122,7 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         if reference_pixel_size:
             self._pixel_size = reference_pixel_size  # drives the scalebar
 
-        # Square pixels from the outset, not just once an image happens to arrive.
-        # imshow sets this per-artist, so an empty canvas would otherwise be "auto":
-        # the axes would stretch to the widget and draw a square grid as a rectangle --
-        # a resize alone distorted it 3x. Overlays are drawn in this frame whether or
-        # not anything has been acquired, so the frame has to be honest first.
-        self._ax.set_aspect("equal", adjustable="box")
+        self._apply_axes_convention()
 
         self.set_background_color(_DEFAULT_BACKGROUND)
         # Contrast/gamma acts on a single frame; there is no meaning yet for "the"
@@ -273,6 +268,30 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         self._placed.clear()
         self._fitted_extent = None
         super().clear()
+        # `cla()` takes the aspect and the y direction with it.
+        self._apply_axes_convention()
+
+    def _apply_axes_convention(self) -> None:
+        """Square pixels and y running *down*, whether or not anything is placed.
+
+        Both are set by `imshow` per artist, so a canvas with no images inherits
+        matplotlib's defaults instead: axes that stretch to the widget, and a y axis
+        that increases upwards. Neither is survivable here, because overlays are drawn
+        in this frame whether or not anything has been acquired.
+
+        The aspect was the visible one first -- a resize alone drew a square lattice as
+        a rectangle, 3x out. The y direction is worse and stayed hidden longer: with
+        nothing placed the scene is drawn *vertically mirrored*, and flips the right way
+        up the moment the first tile lands. Nothing showed it while an empty canvas drew
+        nothing; it appeared as soon as the overlays did (FIB-616), first as labels
+        sitting under their shapes instead of over them.
+
+        Applied by inverting rather than by setting limits: matplotlib's autoscale
+        preserves the axis direction, so this survives every later refit.
+        """
+        self._ax.set_aspect("equal", adjustable="box")
+        if not self._ax.yaxis_inverted():
+            self._ax.invert_yaxis()
 
     def set_reference_pixel_size(self, pixel_size: float) -> bool:
         """Fix the canvas scale before anything is placed.
