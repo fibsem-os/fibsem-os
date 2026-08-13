@@ -1565,17 +1565,28 @@ class TestTheViewChips:
     @pytest.mark.parametrize(
         "orientation, beam, expected",
         [
-            ("SEM", BeamType.ELECTRON, "SEM"),
-            ("FIB", BeamType.ION, "FIB"),
-            ("MILLING", BeamType.ION, "FIB · Milling"),
-            ("MILLING", BeamType.ELECTRON, "SEM · Milling"),
-            ("SEM", BeamType.ION, "FIB · SEM pose"),
+            ("SEM", BeamType.ELECTRON, "SEM @ SEM"),
+            ("FIB", BeamType.ION, "FIB @ FIB"),
+            ("MILLING", BeamType.ION, "FIB @ Milling"),
+            ("MILLING", BeamType.ELECTRON, "SEM @ Milling"),
+            ("SEM", BeamType.ION, "FIB @ SEM"),
         ],
     )
-    def test_a_view_is_named_beam_first(self, orientation, beam, expected):
-        """Words are spent only on the surprising combinations, which is what makes
-        them legible as the odd ones."""
+    def test_a_view_names_both_facts_in_the_same_shape(self, orientation, beam, expected):
+        """Beam then orientation, always both. Dropping the orientation when it matched
+        the beam read well until you met the ones it kept, and then "FIB · SEM pose" had
+        to be decoded rather than read."""
         assert OverviewView(beam_type=beam, orientation=orientation).label == expected
+
+    def test_a_view_can_spell_itself_out(self):
+        """The chip is glanceable; the tooltip is where the words go."""
+        view = OverviewView(beam_type=BeamType.ION, orientation="MILLING")
+        assert view.describe == "Ion beam, stage at the Milling orientation."
+
+    def test_an_acronym_orientation_keeps_its_case(self):
+        """`title()` alone gives "Sem", which reads as a mistake."""
+        view = OverviewView(beam_type=BeamType.ION, orientation="SEM")
+        assert view.label == "FIB @ SEM"
 
     def test_the_view_is_named_even_when_there_is_only_one(self, widget):
         """A lone chip says nothing the info bar does not, and it is still worth drawing:
@@ -1591,7 +1602,7 @@ class TestTheViewChips:
         widget.settings_widget.beam_type_combo.set_value(BeamType.ION)
 
         labels = {b.text() for b in widget._view_chip_buttons.values()}
-        assert {"SEM", "FIB · SEM pose"} <= labels
+        assert {"SEM @ SEM", "FIB @ SEM"} <= labels
         # Placed on the canvas, not merely constructed: they were once sized from a
         # layout that answered with nothing, so they reported themselves visible and
         # drew at zero size.

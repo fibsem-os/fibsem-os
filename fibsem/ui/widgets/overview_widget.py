@@ -188,31 +188,45 @@ class OverviewView(NamedTuple):
 
     @property
     def label(self) -> str:
-        """A short name, beam first, saying the pose only when it is not the matching one.
+        """The beam, then the orientation the stage is in: "FIB @ Milling".
 
-        The orientations are named after the beams -- "SEM" is the pose where the sample
-        faces the electron column -- so pairing the two reads as a tautology one way
-        ("SEM . Electron") and a contradiction the other ("SEM . Ion"). Neither is, but
-        nothing on screen said so.
+        Both facts, always, in the same shape -- so nothing is implied by leaving one
+        out. An earlier version dropped the orientation when it matched the beam
+        ("SEM" for electron at the SEM pose) which read well until you met the ones it
+        kept, and then "FIB · SEM pose" had to be decoded rather than read.
 
         Beam first because that is what you are looking *through*, and it is how people
-        say it: "the FIB overview". The pose is spent only on the combinations that are
-        actually surprising, which is what makes them legible as the odd ones:
+        say it: "the FIB overview". "@" rather than a separator because the second half
+        is a place, and reading it as "at" is exactly right.
 
-            Electron at the SEM pose      -> SEM
-            Ion at the FIB pose           -> FIB
-            Ion at the milling pose       -> FIB . Milling
-            Electron at the milling pose  -> SEM . Milling
-            Ion at the SEM pose           -> FIB . SEM pose
+        The orientations are named after the beams -- "SEM" is the pose where the sample
+        faces the electron column -- so "SEM @ SEM" says the electron beam looking at
+        the pose meant for it, and repeats itself for a reason. `describe` spells the
+        whole thing out for a tooltip, where there is room.
         """
-        beam = "SEM" if self.beam_type is BeamType.ELECTRON else "FIB"
-        if self.orientation == beam:
-            return beam
-        pose = self.orientation.title()
-        # "FIB . SEM pose" rather than "FIB . SEM", which would read as two beams.
-        if self.orientation in ("SEM", "FIB"):
-            pose = f"{self.orientation} pose"
-        return f"{beam} · {pose}"
+        return f"{self.beam_label} @ {self.orientation_label}"
+
+    @property
+    def beam_label(self) -> str:
+        """The beam, as the instrument is spoken about: SEM and FIB, not electron/ion."""
+        return "SEM" if self.beam_type is BeamType.ELECTRON else "FIB"
+
+    @property
+    def orientation_label(self) -> str:
+        """The orientation, cased as it is said.
+
+        `title()` alone turns the two that are acronyms into "Sem" and "Fib", which
+        reads as a mistake and undoes the point of naming both halves clearly.
+        """
+        if self.orientation.upper() in ("SEM", "FIB", "FM"):
+            return self.orientation.upper()
+        return self.orientation.title()
+
+    @property
+    def describe(self) -> str:
+        """The same thing as a sentence, for a tooltip."""
+        beam = "Electron" if self.beam_type is BeamType.ELECTRON else "Ion"
+        return f"{beam} beam, stage at the {self.orientation_label} orientation."
 
 
 class OverviewRecord:
@@ -610,9 +624,12 @@ class FibsemOverviewWidget(QWidget):
             # shown: that is the difference between "what am I looking at" and "where
             # will the next overview appear", and on this tab they come apart.
             chip.setToolTip(
-                "Where the next acquisition would appear"
-                if view == acquisition
-                else "Nothing acquired now would appear here"
+                f"{view.describe}\n"
+                + (
+                    "Where the next acquisition would appear."
+                    if view == acquisition
+                    else "Nothing acquired now would appear here."
+                )
             )
             chip.setStyleSheet(
                 _VIEW_CHIP_STYLE_ACTIVE if view == acquisition else _VIEW_CHIP_STYLE
