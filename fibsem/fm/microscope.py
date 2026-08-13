@@ -671,6 +671,11 @@ class FluorescenceMicroscope(ABC):
     # start it can grey its controls out. Emitted from whichever thread set the flag --
     # connect with `@ensure_main_thread` if the slot touches widgets.
     acquiring_changed = Signal(bool)
+    # Raised when the user's image transform changes. It is part of
+    # `fm_image_geometry()`, so it is an input to every projection between stage space
+    # and a canvas -- a display that keeps one has to be told, and had no way to know
+    # (FIB-521). Same threading contract as the signals above.
+    transform_changed = Signal(object)  # CameraImageTransform
 
     def __init__(self, parent: Optional["FibsemMicroscope"] = None):
         """Initialize the fluorescence microscope with default components.
@@ -997,10 +1002,18 @@ class FluorescenceMicroscope(ABC):
             raise ValueError(
                 f"Invalid transform '{transform}'. Must be a CameraImageTransform enum value or None"
             )
+        previous = self._transform
         self._transform = (
             transform if transform is not None else CameraImageTransform.NONE
         )
         logging.info(f"Image transform set to: {transform}")
+        # Announced, because this is not only a display preference: `fm_image_geometry()`
+        # carries it, so it is an input to every projection between stage space and a
+        # canvas. A view holding a projection has no other way to learn it moved
+        # (FIB-521). Only on a real change -- the camera widget re-applies the saved
+        # transform on load, and a redraw for a value that did not move is noise.
+        if self._transform is not previous:
+            self.transform_changed.emit(self._transform)
 
     @property
     def camera_tilt(self) -> float:
