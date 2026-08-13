@@ -555,6 +555,183 @@ class TestTheRunOwnsItsSettings:
         assert captured["settings"].image_settings.path, "the run had nowhere to write"
 
 
+class TestViews:
+    """Images from different beams or orientations must not share the canvas.
+
+    A view is (beam, orientation), and two images register only if they share one:
+    otherwise they are pictures of the same sample from different directions, and
+    compositing them says something untrue. The canvas shows one view at a time.
+
+    These use an **Aquilos2** configuration rather than the module's compustage
+    microscope, deliberately. On a compustage every orientation shares one rotation, so
+    the views are far less distinguishable — which is exactly how the first version of
+    this widget mixed them without anything looking wrong.
+    """
+
+    @staticmethod
+    def _scope():
+        import fibsem.config as fibsem_config
+
+        path = os.path.join(
+            os.path.dirname(fibsem_config.__file__),
+            "config",
+            "tfs-aquilos2-configuration.yaml",
+        )
+        scope, _ = utils.setup_session(manufacturer="Demo", config_path=path)
+        return scope
+
+    @staticmethod
+    def _at_orientation(scope, name, dx=0.0):
+        pose = scope.get_orientation(name)
+        return FibsemStagePosition(x=dx, y=0.0, z=0.0, r=pose.r, t=pose.t)
+
+    def _image(self, scope, orientation, beam_type, dx=0.0):
+        position = self._at_orientation(scope, orientation, dx)
+        image = FibsemImage.generate_blank_image(resolution=(128, 128), hfw=128 * 2e-7)
+        image.data = (np.random.default_rng(0).random((128, 128)) * 255).astype(np.uint8)
+        state = scope.get_microscope_state(beam_type=beam_type)
+        state.stage_position = position
+        image.metadata.image_settings = ImageSettings(
+            hfw=128 * 2e-7, beam_type=beam_type
+        )
+        image.metadata.microscope_state = state
+        image.metadata.system_info = scope.system.info
+        image.metadata.hardware_geometry = scope.hardware_geometry()
+        return image
+
+    @pytest.fixture
+    def widget(self):
+        w = FibsemOverviewWidget(self._scope())
+        w.resize(900, 700)
+        yield w
+        w.close()
+
+    def test_a_view_is_derived_from_the_image_not_asked_for(self, widget):
+        scope = widget.microscope
+        view = widget._view_of(self._image(scope, "FIB", BeamType.ION))
+        assert view.orientation == "FIB"
+        assert view.beam_type is BeamType.ION
+
+    def test_images_from_another_view_do_not_share_the_canvas(self, widget):
+        scope = widget.microscope
+        widget.set_image(self._image(scope, "SEM", BeamType.ELECTRON))
+        widget.set_image(self._image(scope, "SEM", BeamType.ELECTRON, dx=60e-6))
+        assert len(widget.canvas.placed_keys) == 2
+
+        widget.set_image(self._image(scope, "FIB", BeamType.ION))
+        assert widget.current_view.orientation == "FIB"
+        assert len(widget.canvas.placed_keys) == 1, (
+            "the SEM images are still on the canvas beneath a FIB one"
+        )
+        assert len(widget.views) == 2, "both views should be known"
+
+    def test_switching_back_re_places_the_view_that_was_left(self, widget):
+        scope = widget.microscope
+        widget.set_image(self._image(scope, "SEM", BeamType.ELECTRON))
+        widget.set_image(self._image(scope, "SEM", BeamType.ELECTRON, dx=60e-6))
+        sem_view = widget.current_view
+        widget.set_image(self._image(scope, "FIB", BeamType.ION))
+
+        assert widget.show_view(sem_view) is True
+        assert widget.current_view == sem_view
+        assert len(widget.canvas.placed_keys) == 2, "the SEM images did not come back"
+        assert widget.show_view(sem_view) is False, "switching to the current view is a no-op"
+
+    def test_each_view_keeps_its_own_origin(self, widget):
+        """Everything in a view is placed relative to that view's anchor. One shared
+        origin would put the FIB tiles wherever the SEM overview happened to start."""
+        scope = widget.microscope
+        widget.set_image(self._image(scope, "SEM", BeamType.ELECTRON))
+        widget.set_image(self._image(scope, "FIB", BeamType.ION))
+
+        assert len(widget._origins) == 2
+        origins = list(widget._origins.values())
+        assert origins[0].t != pytest.approx(origins[1].t), (
+            "the two views share an origin pose"
+        )
+
+    def test_the_projection_is_per_view(self, widget):
+        """The stale-cache bug: after switching beam, drawing kept using the electron
+        projection (view tilt 0) while a click resolved through the ion one (0.91 rad),
+        so markers were drawn in one projection and clicks answered in another."""
+        scope = widget.microscope
+        widget.set_image(self._image(scope, "SEM", BeamType.ELECTRON))
+        widget.set_image(self._image(scope, "FIB", BeamType.ION))
+
+        tilts = {v.label: widget._projection(v)._view_tilt() for v in widget.views}
+        assert len(set(round(t, 6) for t in tilts.values())) == 2, (
+            f"both views resolved to the same projection: {tilts}"
+        )
+
+    def test_the_planned_footprint_is_only_drawn_where_the_run_would_land(self, widget):
+        """Drawn on another view it promises coverage this canvas will never show."""
+        scope = widget.microscope
+        widget._stage_position = self._at_orientation(scope, "SEM")
+        widget.set_image(self._image(scope, "SEM", BeamType.ELECTRON))
+        widget._refresh_context_overlays()
+        labels = {s.label for s in widget.context_overlay._specs}
+        assert "Overview FoV" in labels, "the footprint is missing in its own view"
+
+        # Same canvas, but now the stage is at FIB: the next run lands elsewhere.
+        widget._stage_position = self._at_orientation(scope, "FIB")
+        widget._refresh_context_overlays()
+        labels = {s.label for s in widget.context_overlay._specs}
+        assert "Overview FoV" not in labels, (
+            "the footprint was drawn on a view the run will not appear in"
+        )
+
+    def test_it_says_when_the_stage_is_looking_somewhere_else(self, widget):
+        """Silent when they agree -- a note that is always there stops being read."""
+        scope = widget.microscope
+        widget._stage_position = self._at_orientation(scope, "SEM")
+        widget.set_image(self._image(scope, "SEM", BeamType.ELECTRON))
+        widget._refresh_view_note()
+        assert not widget.label_view_note.text()
+
+        widget._stage_position = self._at_orientation(scope, "FIB")
+        widget._refresh_view_note()
+        assert "the stage is at" in widget.label_view_note.text()
+
+    def test_an_overview_still_reports_its_size_from_another_view(self, widget):
+        """The list describes what an overview *holds*, not what happens to be drawn.
+        Counting canvas keys made one report no tiles merely because you were looking
+        at a different view."""
+        scope = widget.microscope
+        widget.set_image(self._image(scope, "SEM", BeamType.ELECTRON))
+        sem_record = widget.overviews[0]
+        assert sem_record.detail.startswith("1 tile")
+
+        widget.set_image(self._image(scope, "FIB", BeamType.ION))
+        assert sem_record.keys == [], "the SEM record should not be on the canvas now"
+        assert sem_record.detail.startswith("1 tile"), (
+            f"reads {sem_record.detail!r} while another view is displayed"
+        )
+
+    def test_markers_reproject_when_the_view_changes(self, widget):
+        """A stage position is 3-D, so it is drawable in any view -- it just lands
+        somewhere else. Switching view has to move the markers with it."""
+        scope = widget.microscope
+        widget.set_image(self._image(scope, "SEM", BeamType.ELECTRON))
+        sem_view = widget.current_view
+        mark = self._at_orientation(scope, "SEM", dx=120e-6)
+        mark.name = "A"
+        widget.set_positions([mark])
+        in_sem = list(widget.position_overlay._points)
+
+        widget.set_image(self._image(scope, "FIB", BeamType.ION))
+        widget.set_positions([mark])
+        in_fib = list(widget.position_overlay._points)
+
+        assert in_sem and in_fib
+        assert in_sem != in_fib, "the marker did not move when the view did"
+
+        widget.show_view(sem_view)
+        widget.set_positions([mark])
+        assert widget.position_overlay._points == pytest.approx(in_sem), (
+            "coming back to a view did not restore where its markers sit"
+        )
+
+
 class TestLifecycle:
     def test_closing_releases_every_microscope_subscription(self, microscope):
         """psygnal subscriptions outlive the widget -- they belong to the microscope --

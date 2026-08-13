@@ -37,7 +37,7 @@ import logging
 import os
 import threading
 from copy import deepcopy
-from typing import Dict, Iterable, List, Optional, Set
+from typing import Dict, Iterable, List, NamedTuple, Optional, Set
 
 from PyQt5.QtCore import pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
@@ -55,6 +55,7 @@ from superqt import ensure_main_thread
 
 from fibsem import constants
 from fibsem.imaging import tiled
+from fibsem.imaging.reduce import downsample
 from fibsem.microscope import FibsemMicroscope
 from fibsem.projection import BeamStageProjection
 from fibsem.structures import (
@@ -84,6 +85,7 @@ from fibsem.ui.widgets.custom_widgets import (
     ContextMenu,
     ContextMenuConfig,
     TitledPanel,
+    ValueComboBox,
     ValueSpinBox,
 )
 from fibsem.ui.widgets.overview_acquisition_settings_widget import (
@@ -115,6 +117,37 @@ DEFAULT_GRIDBAR_WIDTH_UM = 20.0
 PICK_RADIUS_PX = 12
 
 
+class _PlacedTile(NamedTuple):
+    """One image a record placed: the pixels, where it was taken, and at what scale."""
+
+    data: object  # np.ndarray, display-reduced
+    position: FibsemStagePosition
+    pixel_size: float
+
+
+class OverviewView(NamedTuple):
+    """One way of looking at the sample: a beam, and a stage orientation.
+
+    Two images register with each other only if they were taken through the same beam
+    with the stage at the same orientation. Otherwise they are pictures from different
+    directions -- foreshortened relative to each other, and on a stage that rotates,
+    mirrored as well -- so compositing them on one canvas says something untrue.
+
+    Derived, never asked for. An image records its own beam in
+    `image_settings.beam_type` and its own pose in `microscope_state.stage_position`,
+    and `get_stage_orientation` turns the pose into a name using nothing but arithmetic
+    over the configured orientations. Verified: supplying the pose costs **zero**
+    hardware reads, which is what lets a view be derived on every overlay refresh.
+    """
+
+    beam_type: BeamType
+    orientation: str  # "SEM" / "FIB" / "MILLING" / "NONE"
+
+    @property
+    def label(self) -> str:
+        return f"{self.orientation} · {self.beam_type.name.title()}"
+
+
 class OverviewRecord:
     """One overview on the canvas, and the canvas keys holding it.
 
@@ -127,12 +160,20 @@ class OverviewRecord:
     given, and both overviews use the same list.
     """
 
-    def __init__(self, record_id: str, label: str, keys: List[str]) -> None:
+    def __init__(self, record_id: str, label: str, keys: List[str],
+                 view: Optional["OverviewView"] = None) -> None:
         self.id = record_id
         self.label = label
         self.keys = list(keys)
         self.visible = True
         self.pixel_size: Optional[float] = None
+        # Which way of looking at the sample this was acquired in. Records outlive the
+        # canvas's contents -- switching view clears the images and re-places only the
+        # ones belonging to the new view -- so this is what says which those are.
+        self.view: Optional["OverviewView"] = view
+        # What was placed, kept so a view switch can re-place it. Display-reduced --
+        # see `FibsemOverviewWidget._stored_tile`.
+        self.images: List["_PlacedTile"] = []
 
     @property
     def detail(self) -> str:
@@ -143,10 +184,16 @@ class OverviewRecord:
         rather than what is on the canvas.
         """
         parts = []
-        if self.keys:
-            parts.append(f"{len(self.keys)} tile{'s' if len(self.keys) != 1 else ''}")
+        # From the images it holds, not the canvas keys: the keys are cleared while
+        # another view is displayed, so counting those made an overview report no tiles
+        # merely because you were looking somewhere else.
+        count = len(self.images)
+        if count:
+            parts.append(f"{count} tile{'s' if count != 1 else ''}")
         if self.pixel_size:
             parts.append(f"{self.pixel_size * constants.SI_TO_MICRO:.2f} µm/px")
+        if self.view is not None:
+            parts.append(self.view.label)
         return " · ".join(parts)
 
 
@@ -187,9 +234,14 @@ class FibsemOverviewWidget(QWidget):
         # Stage position the canvas frame is built around. Fixed once and kept:
         # re-deriving it from whatever arrived last would shift the whole scene each
         # time a tile landed. Taken from the first image placed.
-        self._origin: Optional[FibsemStagePosition] = None
-        # The beam half of the frame, kept rather than re-read -- see `_projection`.
-        self._cached_projection: Optional[BeamStageProjection] = None
+        # One origin and one projection *per view*. A view is a direction the sample
+        # is seen from, and everything placed in it is placed relative to that view's
+        # own anchor -- so a single origin would put the FIB overview's tiles wherever
+        # the SEM one happened to start.
+        self._origins: Dict["OverviewView", FibsemStagePosition] = {}
+        self._projections: Dict["OverviewView", BeamStageProjection] = {}
+        # The view the canvas is currently showing. None until something is placed.
+        self._current_view: Optional["OverviewView"] = None
         self._positions: List[FibsemStagePosition] = []
         self._selected_position: Optional[str] = None
         # Positions a host has flagged, by name. What "flagged" means is the host's
@@ -281,6 +333,15 @@ class FibsemOverviewWidget(QWidget):
         self.settings_widget = OverviewAcquisitionSettingsWidget(self)
         self.settings_widget.settings_changed.connect(self._on_settings_changed)
 
+        # Which way of looking at the sample the canvas is showing. Populated from what
+        # has actually been placed -- an empty selector means nothing is on the canvas
+        # yet, which is the honest state rather than a list of hypotheticals.
+        self.combo_view = ValueComboBox()
+        self.combo_view.currentIndexChanged.connect(self._on_view_selected)
+        self.label_view_note = QLabel("")
+        self.label_view_note.setWordWrap(True)
+        self.label_view_note.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
+
         self.checkbox_gridbars = QCheckBox("Show grid bars")
         self.checkbox_gridbars.toggled.connect(self._on_gridbars_toggled)
         self.spin_gridbar_spacing = ValueSpinBox(
@@ -370,6 +431,8 @@ class FibsemOverviewWidget(QWidget):
         panel = QWidget()
         layout = QFormLayout(panel)
         layout.setContentsMargins(4, 4, 4, 4)
+        layout.addRow("View", self.combo_view)
+        layout.addRow(self.label_view_note)
         layout.addRow(self.checkbox_gridbars)
         layout.addRow("Bar spacing", self.spin_gridbar_spacing)
         layout.addRow("Bar width", self.spin_gridbar_width)
@@ -379,6 +442,56 @@ class FibsemOverviewWidget(QWidget):
         return TitledPanel(title, content=widget)
 
     # ── grid bars ────────────────────────────────────────────────────────
+
+    # ── the view selector ────────────────────────────────────────────────
+
+    def _on_view_selected(self, _index: int) -> None:
+        view = self.combo_view.value()
+        if isinstance(view, OverviewView):
+            self.show_view(view)
+
+    def _refresh_view_selector(self) -> None:
+        """List the views something has been placed in, and say what is not shown.
+
+        Signals blocked while repopulating: setting the items fires
+        `currentIndexChanged`, which would call `show_view` and switch the canvas to
+        whatever landed at index 0.
+        """
+        views = self.views
+        if self._current_view is not None and self._current_view not in views:
+            views = views + [self._current_view]
+
+        self.combo_view.blockSignals(True)
+        self.combo_view.clear()
+        for view in views:
+            self.combo_view.addItem(view.label, view)
+        if self._current_view is not None and self._current_view in views:
+            self.combo_view.setCurrentIndex(views.index(self._current_view))
+        self.combo_view.blockSignals(False)
+        self.combo_view.setEnabled(len(views) > 1)
+        self._refresh_view_note()
+
+    def _refresh_view_note(self) -> None:
+        """Say when the canvas is not showing where the stage is pointing.
+
+        Silent when they agree, which is the normal case -- a note that is always there
+        stops being read. The one it has to make is the confusing one: the planned
+        footprint is missing because the next run would land in a different view.
+        """
+        acquisition = self.acquisition_view
+        if (
+            acquisition is None
+            or self._current_view is None
+            or acquisition == self._current_view
+        ):
+            self.label_view_note.clear()
+            self.label_view_note.setVisible(False)
+            return
+        self.label_view_note.setText(
+            f"Showing {self._current_view.label}; the stage is at "
+            f"{acquisition.label}, so the next acquisition would not appear here."
+        )
+        self.label_view_note.setVisible(True)
 
     def _on_gridbars_toggled(self, checked: bool) -> None:
         # The pitch controls only mean anything while the bars are drawn.
@@ -517,50 +630,143 @@ class FibsemOverviewWidget(QWidget):
 
     # ── the frame ────────────────────────────────────────────────────────
 
-    def _projection(self, fresh: bool = False) -> Optional[BeamStageProjection]:
-        """The beam projection, built once and kept.
+    def _projection(
+        self, view: Optional["OverviewView"] = None, fresh: bool = False
+    ) -> Optional[BeamStageProjection]:
+        """The projection for a view, built once per view and kept.
 
         Kept because building it reads the scan rotation off the instrument, and doing
         that per use would be a hardware read on a mouse move. `fresh=True` forces a
         re-read for the one caller whose answer drives the stage, where a stale scan
         rotation would send it somewhere other than where the click was.
+
+        Keyed by view rather than held singly. A single cache went stale the moment the
+        beam selector changed: drawing kept using the electron projection (view tilt 0)
+        while a click resolved through the ion one (0.91 rad), so markers were drawn in
+        one projection and clicks answered in another.
         """
-        if fresh or self._cached_projection is None:
+        view = view or self._current_view
+        if view is None:
+            return None
+        if fresh or view not in self._projections:
             projection = BeamStageProjection.from_microscope(
-                self.microscope, self.beam_type
+                self.microscope, view.beam_type
             )
             if projection is None:
-                return self._cached_projection
-            self._cached_projection = projection
-        return self._cached_projection
+                return self._projections.get(view)
+            self._projections[view] = projection
+        return self._projections[view]
 
     def invalidate_projection(self) -> None:
-        """Force the projection to be re-read. For a host that changed the instrument."""
-        self._cached_projection = None
+        """Force every projection to be re-read. For a host that changed the instrument."""
+        self._projections.clear()
 
-    def _frame(self, fresh: bool = False) -> Optional[StageFrame]:
-        """Stage positions and canvas coordinates, about the origin.
+    def _frame(
+        self, view: Optional["OverviewView"] = None, fresh: bool = False
+    ) -> Optional[StageFrame]:
+        """Stage positions and canvas coordinates, about a view's own origin.
 
-        None until there is an origin *and* a canvas scale: the canvas takes its scale
-        from the first image placed, so nothing can be drawn in stage coordinates before
-        then. That is why `_refresh_context_overlays` is safe to call at any time and
-        simply does nothing early on.
+        None until the view has an origin *and* the canvas has a scale: the canvas takes
+        its scale from the first image placed, so nothing can be drawn in stage
+        coordinates before then. That is why `_refresh_context_overlays` is safe to call
+        at any time and simply does nothing early on.
         """
-        projection = self._projection(fresh=fresh)
-        if projection is None or self._origin is None:
+        view = view or self._current_view
+        if view is None:
+            return None
+        origin = self._origins.get(view)
+        projection = self._projection(view, fresh=fresh)
+        if projection is None or origin is None:
             return None
         if self.canvas.reference_pixel_size is None:
             return None
-        return StageFrame(self.canvas, self._origin, projection)
+        return StageFrame(self.canvas, origin, projection)
 
-    def _set_origin_from(self, image: FibsemImage) -> None:
-        """Anchor the canvas on the first image placed, if it is not anchored yet."""
-        if self._origin is not None:
+    def _set_origin_from(self, image: FibsemImage, view: "OverviewView") -> None:
+        """Anchor a view on the first image placed in it, if it is not anchored yet."""
+        if view in self._origins:
             return
         position = self._position_of(image)
         if position is None:
             return
-        self._origin = deepcopy(position)
+        self._origins[view] = deepcopy(position)
+
+    # ── views ────────────────────────────────────────────────────────────
+
+    def _view_of(self, image: FibsemImage) -> Optional["OverviewView"]:
+        """The view an image was acquired in, from its own metadata alone."""
+        metadata = getattr(image, "metadata", None)
+        position = self._position_of(image)
+        if metadata is None or position is None:
+            return None
+        try:
+            beam_type = metadata.image_settings.beam_type
+            orientation = self.microscope.get_stage_orientation(stage_position=position)
+        except Exception as e:
+            logger.debug(f"Could not tell which view an image belongs to: {e}")
+            return None
+        return OverviewView(beam_type=beam_type, orientation=orientation)
+
+    @property
+    def acquisition_view(self) -> Optional["OverviewView"]:
+        """The view the *next* run would produce.
+
+        Distinct from the displayed view, and deliberately: you can look at the SEM
+        overview while the stage sits at FIB. Derived from the cached stage position, so
+        it costs no hardware access -- `get_stage_orientation` with a pose supplied is
+        arithmetic over the configured orientations.
+        """
+        if self._stage_position is None:
+            return None
+        try:
+            orientation = self.microscope.get_stage_orientation(
+                stage_position=self._stage_position
+            )
+        except Exception as e:
+            logger.debug(f"Could not tell which view the stage is in: {e}")
+            return None
+        return OverviewView(beam_type=self.beam_type, orientation=orientation)
+
+    @property
+    def current_view(self) -> Optional["OverviewView"]:
+        """The view the canvas is showing."""
+        return self._current_view
+
+    @property
+    def views(self) -> List["OverviewView"]:
+        """Every view something has been placed in, in the order they first appeared."""
+        seen: List["OverviewView"] = []
+        for record in self._records.values():
+            if record.view is not None and record.view not in seen:
+                seen.append(record.view)
+        return seen
+
+    def show_view(self, view: "OverviewView") -> bool:
+        """Show one view, re-placing the images that belong to it.
+
+        The canvas holds one view at a time because images from different views do not
+        register. Switching is a re-place rather than N canvases: the images are already
+        reduced for display, and one canvas means one set of overlays, one selection and
+        one zoom rather than N of each kept in step.
+        """
+        if view == self._current_view:
+            return False
+        self._current_view = view
+        self.canvas.clear_images()
+        for record in self._records.values():
+            record.keys = []
+            if record.view != view:
+                continue
+            for image in record.images:
+                key = self._place_on_canvas(image, view)
+                if key is not None:
+                    record.keys.append(key)
+            for key in record.keys:
+                self.canvas.set_image_visible(key, record.visible)
+        self._refresh_view_selector()
+        self._refresh_context_overlays()
+        self._refresh_overview_list()
+        return True
 
     @staticmethod
     def _position_of(image: FibsemImage) -> Optional[FibsemStagePosition]:
@@ -581,6 +787,10 @@ class FibsemOverviewWidget(QWidget):
                     zorder: Optional[float] = None) -> Optional[str]:
         """Put one image on the canvas where it was acquired.
 
+        Switches the canvas to the image's own view first, if it is not already there:
+        you placed the image in order to look at it, and it would otherwise be recorded
+        into a view nothing is showing.
+
         Returns the canvas key, or None if the image cannot be placed -- which is the
         case for anything acquired before the stage position and pixel size were
         recorded. Refused rather than placed at the origin: an image in the wrong place
@@ -592,31 +802,53 @@ class FibsemOverviewWidget(QWidget):
             logger.debug("Cannot place an image with no stage position or pixel size.")
             return None
 
-        self._set_origin_from(image)
+        view = self._view_of(image)
+        if view is None:
+            return None
+        if self._current_view is None:
+            self._current_view = view
+            self._refresh_view_selector()
+        elif view != self._current_view:
+            self.show_view(view)
+
+        self._set_origin_from(image, view)
         # The canvas needs a scale before a frame can exist, and the frame is what turns
         # a stage position into an offset -- so the first image sets the scale and is
-        # placed at the origin by definition.
+        # placed at the origin by definition. Shared across views: the scale is only how
+        # many metres a canvas pixel is worth, and placement is in metres either way.
         if self.canvas.reference_pixel_size is None:
             self.canvas.set_reference_pixel_size(pixel_size)
 
-        frame = self._frame()
-        if frame is None:
-            return None
-        try:
-            centre = frame.offset(position)
-        except Exception as e:
-            logger.debug(f"Could not place an image: {e}")
-            return None
-
-        key = self.canvas.add_image(
-            image.filtered_data,
-            centre=centre,
-            pixel_size=pixel_size,
+        return self._place_on_canvas(
+            _PlacedTile(
+                data=downsample(image.filtered_data, self.canvas._display_max_px),
+                position=deepcopy(position),
+                pixel_size=pixel_size,
+            ),
+            view,
             key=key,
             zorder=zorder,
         )
+
+    def _place_on_canvas(
+        self, tile: "_PlacedTile", view: "OverviewView",
+        key: Optional[str] = None, zorder: Optional[float] = None,
+    ) -> Optional[str]:
+        """Draw a stored tile in *view*. Shared by first placement and re-placement."""
+        frame = self._frame(view)
+        if frame is None:
+            return None
+        try:
+            centre = frame.offset(tile.position)
+        except Exception as e:
+            logger.debug(f"Could not place an image: {e}")
+            return None
+        placed = self.canvas.add_image(
+            tile.data, centre=centre, pixel_size=tile.pixel_size,
+            key=key, zorder=zorder,
+        )
         self._refresh_context_overlays()
-        return key
+        return placed
 
     def set_image(self, image: FibsemImage) -> Optional[str]:
         """Place a whole overview as one image, and record it as one.
@@ -627,6 +859,7 @@ class FibsemOverviewWidget(QWidget):
         """
         self._record_count += 1
         record_id = f"overview-{self._record_count}"
+        view = self._view_of(image)
         key = self.place_image(image, key=record_id)
         if key is None:
             notification_service.show_toast(
@@ -635,20 +868,38 @@ class FibsemOverviewWidget(QWidget):
                 "warning",
             )
             return None
-        record = OverviewRecord(record_id, os.path.basename(record_id), [key])
+        record = OverviewRecord(record_id, os.path.basename(record_id), [key], view=view)
         record.pixel_size = self._pixel_size_of(image)
+        record.images.append(self._stored_tile(image))
         self._records[record_id] = record
         self._refresh_overview_list()
         return record_id
+
+    def _stored_tile(self, image: FibsemImage) -> "_PlacedTile":
+        """What a record keeps so it can be re-placed after a view switch.
+
+        The *display-reduced* array, not the original: it is exactly what the canvas
+        holds anyway, so keeping it costs no more than the canvas already does -- where
+        keeping full-resolution tiles would be hundreds of megabytes for a large
+        tileset, to redraw something that is decimated on the way to the screen.
+        """
+        return _PlacedTile(
+            data=downsample(image.filtered_data, self.canvas._display_max_px),
+            position=deepcopy(self._position_of(image)),
+            pixel_size=self._pixel_size_of(image),
+        )
 
     def _place_tile(self, tile: FibsemImage, record_id: str) -> None:
         """Place one acquired tile, and attach it to the run that produced it."""
         record = self._records.get(record_id)
         if record is None:
             return
+        if record.view is None:
+            record.view = self._view_of(tile)
         key = self.place_image(tile, key=f"{record_id}-tile-{len(record.keys)}")
         if key is not None:
             record.keys.append(key)
+            record.images.append(self._stored_tile(tile))
             if record.pixel_size is None:
                 record.pixel_size = self._pixel_size_of(tile)
             self._refresh_overview_list()
@@ -730,6 +981,7 @@ class FibsemOverviewWidget(QWidget):
         self.context_overlay.set_shapes(specs)
         self._refresh_position_markers()
         self._refresh_gridbars()
+        self._refresh_view_note()
 
     def _limit_shapes(self, frame: StageFrame) -> List[ShapeSpec]:
         """The travel limits, and the grid boundary a cryo holder describes."""
@@ -776,6 +1028,10 @@ class FibsemOverviewWidget(QWidget):
         """
         position = self._stage_position
         if position is None:
+            return []
+        # Only where the run would actually land. Drawn on another view it would promise
+        # coverage this canvas is never going to show.
+        if self.acquisition_view != self._current_view:
             return []
         settings = self._settings()
         if settings is None:
