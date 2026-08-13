@@ -1723,6 +1723,11 @@ class _StubHost:
     a window that cannot be built in this environment rather than papering over
     something introduced with the tab. The methods borrowed below touch only the tab
     widget and the two attributes set in `__init__`.
+
+    Borrowing is explicit, so a method that calls a *helper* on the real window needs
+    that helper listed here too. Forgetting is not a readable failure: the missing
+    attribute raises inside a psygnal slot, and PyQt5 turns any exception escaping a
+    slot into `qFatal` -- the run aborts with a C-level traceback and no test name.
     """
 
     from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
@@ -1730,8 +1735,9 @@ class _StubHost:
     )
 
     add_fm_overview_tab = _Real.add_fm_overview_tab
-    _apply_fm_overview_visibility = _Real._apply_fm_overview_visibility
+    _refresh_fm_overview_microscope = _Real._refresh_fm_overview_microscope
     _on_fm_overview_availability = _Real._on_fm_overview_availability
+    _fm_overview_unavailable_reason = _Real._fm_overview_unavailable_reason
     _refresh_fm_overview_positions = _Real._refresh_fm_overview_positions
     _on_fm_overview_lamella_selected = _Real._on_fm_overview_lamella_selected
     _set_minimap_workflow_enabled = _Real._set_minimap_workflow_enabled
@@ -1813,60 +1819,106 @@ def test_the_tab_comes_alive_when_fluorescence_connects(qapp):
     host._teardown_fm_overview_widget()
 
 
-def test_a_microscope_without_fluorescence_hides_the_tab(qapp):
-    """A system with no FM will never drive this tab, so showing it means a permanently
-    greyed-out tab with nothing to say why. Distinct from *not connected yet*, which is
-    temporary and covered below."""
+def test_a_microscope_without_fluorescence_greys_the_tab_and_says_why(qapp):
+    """A system with no FM will never drive this tab. It stays in the tab bar rather
+    than being withdrawn -- a tab that vanishes once you connect is more startling than
+    one that is simply dim -- so the tooltip is what keeps that from being a greyed tab
+    with nothing to say for itself."""
     host = _StubHost(microscope=_plain_microscope())
 
-    host._apply_fm_overview_visibility()
-
-    index = host.tab_widget.indexOf(host.fm_overview_tab)
-    assert not host.tab_widget.isTabVisible(index)
-    assert host.fm_overview_widget is None
-
-
-def test_no_microscope_yet_leaves_the_tab_visible_but_disabled(qapp):
-    """The other absence. Waiting for a connection is what every other tab does, and a
-    tab that vanishes until you connect is harder to find than a dim one."""
-    host = _StubHost(microscope=None)
-
-    host._apply_fm_overview_visibility()
+    host._refresh_fm_overview_microscope()
 
     index = host.tab_widget.indexOf(host.fm_overview_tab)
     assert host.tab_widget.isTabVisible(index)
     assert not host.tab_widget.isTabEnabled(index)
+    assert host.tab_widget.tabToolTip(index) == "No Fluorescence Microscope Available"
     assert host.fm_overview_widget is None
 
 
-def test_connecting_a_microscope_without_fluorescence_takes_the_tab_away(qapp):
-    """Whether the system has an FM is only known once something is connected, so the
-    tab starts visible and has to be withdrawn rather than never shown."""
+def test_no_microscope_yet_says_something_different(qapp):
+    """The other absence. Both look identical on the tab bar, but one is waiting for
+    something about to happen and the other is a fact about this system -- so telling
+    the user to connect a microscope is only right for one of them."""
+    host = _StubHost(microscope=None)
+
+    host._refresh_fm_overview_microscope()
+
+    index = host.tab_widget.indexOf(host.fm_overview_tab)
+    assert host.tab_widget.isTabVisible(index)
+    assert not host.tab_widget.isTabEnabled(index)
+    assert host.tab_widget.tabToolTip(index) == "Connect a microscope to use the FM Overview"
+    assert host.fm_overview_widget is None
+
+
+def test_connecting_a_microscope_without_fluorescence_keeps_the_tab(qapp):
+    """Whether the system has an FM is only known once something is connected. The tab
+    does not move -- only the reason it gives changes, from 'connect one' to 'this
+    system has none'."""
     host = _StubHost(microscope=None)
     index = host.tab_widget.indexOf(host.fm_overview_tab)
     assert host.tab_widget.isTabVisible(index)
 
     host.autolamella_ui.microscope = _plain_microscope()
-    host._apply_fm_overview_visibility()
+    host._refresh_fm_overview_microscope()
 
-    assert not host.tab_widget.isTabVisible(index)
+    assert host.tab_widget.isTabVisible(index)
+    assert not host.tab_widget.isTabEnabled(index)
+    assert host.tab_widget.tabToolTip(index) == "No Fluorescence Microscope Available"
 
 
 def test_a_microscope_with_fluorescence_brings_the_tab_back(qapp):
-    """And the reverse, so swapping between systems in one session settles correctly."""
+    """And the reverse, so swapping between systems in one session settles correctly.
+
+    The tooltip has to be cleared, not just the tab enabled: a stale "No Fluorescence
+    Microscope Available" sitting on a working tab is worse than no tooltip at all."""
     from fibsem.ui.fm.overview_app import build_microscope
 
     host = _StubHost(microscope=_plain_microscope())
-    host._apply_fm_overview_visibility()
+    host._refresh_fm_overview_microscope()
     index = host.tab_widget.indexOf(host.fm_overview_tab)
-    assert not host.tab_widget.isTabVisible(index)
+    assert not host.tab_widget.isTabEnabled(index)
 
     host.autolamella_ui.microscope = build_microscope()
-    host._apply_fm_overview_visibility()
+    host._refresh_fm_overview_microscope()
 
     assert host.tab_widget.isTabVisible(index)
     assert host.tab_widget.isTabEnabled(index)
+    assert host.tab_widget.tabToolTip(index) == ""
     assert isinstance(host.fm_overview_widget, FMOverviewWidget)
+
+    host._teardown_fm_overview_widget()
+
+
+def test_a_greyed_tab_always_says_why(qapp):
+    """The invariant behind the tests above, stated once over every state the tab has.
+
+    Written as a sweep rather than another case-by-case test because the thing worth
+    protecting is that no *future* unavailable state can add a greyed tab with nothing
+    on it -- which is exactly the failure a per-case test cannot catch.
+    """
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    for label, microscope in (
+        ("no microscope", None),
+        ("no fluorescence detector", _plain_microscope()),
+        ("fluorescence available", build_microscope()),
+    ):
+        host = _StubHost(microscope=microscope)
+        host._refresh_fm_overview_microscope()
+        index = host.tab_widget.indexOf(host.fm_overview_tab)
+
+        assert host.tab_widget.isTabVisible(index), f"{label}: the tab is never hidden"
+        if host.tab_widget.isTabEnabled(index):
+            assert host.tab_widget.tabToolTip(index) == "", (
+                f"{label}: a usable tab should not carry a reason it cannot be used"
+            )
+        else:
+            assert host.tab_widget.tabToolTip(index), (
+                f"{label}: greyed out with nothing to say why"
+            )
+
+        if host.fm_overview_widget is not None:
+            host._teardown_fm_overview_widget()
 
     host._teardown_fm_overview_widget()
 
@@ -1994,7 +2046,7 @@ def test_everything_tolerates_the_tab_being_dead(qapp):
     host._build_fm_overview_widget()           # must not raise
     host._update_fm_overview_experiment()      # must not raise
     host._set_minimap_workflow_enabled(False)  # must not raise
-    host._apply_fm_overview_visibility()       # must not raise
+    host._refresh_fm_overview_microscope()       # must not raise
 
     assert getattr(host, "fm_overview_widget", None) is None
 
@@ -2627,7 +2679,7 @@ def test_the_host_tolerates_no_fm_overview_tab(qapp):
     """Both updates are called from paths that run on every system, including those
     with the tab switched off or no fluorescence detector at all."""
     host = _StubHost(microscope=_plain_microscope())
-    host._apply_fm_overview_visibility()
+    host._refresh_fm_overview_microscope()
 
     host._update_fm_overview_positions()   # must not raise
     host._update_fm_overview_selection(None)  # must not raise
