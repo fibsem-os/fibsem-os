@@ -508,3 +508,29 @@ def test_no_centre_means_wherever_the_stage_is(tmp_path):
 
     here = microscope.get_stage_position()
     assert runner._tile_stage_positions[0].x == pytest.approx(here.x, abs=1e-9)
+
+
+def test_a_run_with_no_tiles_is_refused_before_it_starts(tmp_path):
+    """Left to run it walked zero tiles, emitted a *successful* terminal payload,
+    restored the stage, and only then died in `_stitch` with "No tiles were acquired"
+    -- so a consumer saw the run finish and then saw it fail.
+
+    Refused before `_setup`, so nothing is emitted and no directory is made: a run with
+    nothing selected is a configuration error, not an acquisition that failed.
+    """
+    from fibsem import utils
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    emitted = []
+    microscope.tiled_acquisition_signal.connect(emitted.append)
+
+    settings = _make_settings(2, 2)
+    settings.tile_mask = [[False, False], [False, False]]
+    settings.image_settings.path = str(tmp_path)
+    settings.image_settings.filename = "overview-image"
+
+    with pytest.raises(ValueError, match="No tiles are selected"):
+        TiledAcquisitionRunner(microscope, settings).run_and_stitch()
+
+    assert not emitted, "a refused run told consumers it had started"
+    assert not list(tmp_path.iterdir()), "a refused run left a directory behind"

@@ -256,6 +256,9 @@ class FibsemOverviewWidget(QWidget):
         # The view the canvas is showing. None only before the stage position and the
         # settings are both known; `_seed_frame` fills it in from where the stage is.
         self._current_view: Optional["OverviewView"] = None
+        # The beam the settings last named, so a change of beam can be told from any
+        # other settings change. See `_follow_the_planned_beam`.
+        self._planned_beam: Optional[BeamType] = None
         # Whether the displayed view has been decided by something other than where the
         # stage happens to be -- an image arriving, or the user picking one. Until then
         # the canvas is a live plan of the next run and follows the stage.
@@ -484,15 +487,22 @@ class FibsemOverviewWidget(QWidget):
             self.show_view(view)
 
     def _refresh_view_selector(self) -> None:
-        """List the views something has been placed in, and say what is not shown.
+        """List the views worth switching to, and say what is not shown.
+
+        Everything something has been placed in, plus the one being shown, plus **the
+        one the next run would land in** even if nothing has been acquired there. That
+        last is what makes a re-posed stage usable: the planned grid refuses to draw on
+        a view the run will not appear in, so after moving to the milling pose the plan
+        is somewhere else -- and without an entry for it there is no way to go and look.
 
         Signals blocked while repopulating: setting the items fires
         `currentIndexChanged`, which would call `show_view` and switch the canvas to
         whatever landed at index 0.
         """
-        views = self.views
-        if self._current_view is not None and self._current_view not in views:
-            views = views + [self._current_view]
+        views = list(self.views)
+        for view in (self._current_view, self.acquisition_view):
+            if view is not None and view not in views:
+                views.append(view)
 
         self.combo_view.blockSignals(True)
         self.combo_view.clear()
@@ -659,16 +669,65 @@ class FibsemOverviewWidget(QWidget):
 
     def _apply_enabled_state(self) -> None:
         running = self._running
-        self.button_acquire.setEnabled(self._interactive and not running)
+        # Nothing selected is a real state now that tiles can be clicked off, and it
+        # is one the runner cannot do anything with. Refused here as well as in
+        # `acquire`, so it reads as unavailable rather than failing when pressed.
+        has_tiles = self._planned_tile_count() > 0
+        self.button_acquire.setEnabled(self._interactive and not running and has_tiles)
+        self.button_acquire.setToolTip(
+            "" if has_tiles else "No tiles are selected. Click a tile to include it."
+        )
         self.button_acquire.setText(
             "Running Tile Collection…" if running else "Run Tile Collection"
         )
         self.button_cancel.setVisible(running)
         self.settings_widget.setEnabled(self._interactive and not running)
 
+    def _planned_tile_count(self) -> int:
+        """How many tiles the next run would acquire. 0 if the settings cannot be read."""
+        settings = self._settings()
+        return 0 if settings is None else settings.n_enabled_tiles
+
     def _on_settings_changed(self) -> None:
         """The planned overview changed shape, so redraw what it would cover."""
+        self._follow_the_planned_beam()
+        if self.tile_grid_overlay.is_dragging:
+            # Dragging an edge writes rows and columns to the settings widget, so this
+            # runs on every motion event of a resize too -- and the grid is the only
+            # thing that changed. `TileGridOverlay` asks its host to keep this cheap
+            # for exactly this reason.
+            self._refresh_tile_grid()
+            # Cheap, and it has to keep up: resizing drops a mask that no longer fits
+            # the grid, which can take the tile count from zero back to full. Left to
+            # the end of the drag the button would stay disabled with tiles selected.
+            self._apply_enabled_state()
+            return
         self._refresh_context_overlays()
+        # Masking the last tile off has to reach the button, and a tile is toggled from
+        # the canvas rather than from the controls that already refresh it.
+        self._apply_enabled_state()
+
+    def _follow_the_planned_beam(self) -> None:
+        """Show the view the next run would land in when the beam changes.
+
+        Choosing a beam is a statement about the *next acquisition*, so the canvas has
+        to show where that run will appear. Without this the planned grid vanishes at
+        exactly the moment you are planning: it refuses to draw on a view the run will
+        not land in, and switching beam is precisely what makes the displayed view stop
+        being that one.
+
+        Deliberately not the same treatment a stage move gets. Moving the stage is not
+        a statement about what to look at, and following it would drag the reader off
+        the overview they are reading -- which is what the view pin exists to prevent.
+        Choosing a beam has no other meaning.
+        """
+        beam = self.beam_type
+        if beam == self._planned_beam:
+            return
+        self._planned_beam = beam
+        view = self.acquisition_view
+        if view is not None and view != self._current_view:
+            self.show_view(view)
 
     # ── the frame ────────────────────────────────────────────────────────
 
@@ -1125,7 +1184,10 @@ class FibsemOverviewWidget(QWidget):
         self._refresh_tile_grid()
         self._refresh_position_markers()
         self._refresh_gridbars()
-        self._refresh_view_note()
+        # The selector, not just the note: the list includes the view the next run
+        # would land in, and that changes when the stage re-poses -- which does not
+        # change the *displayed* view, so nothing else here would refresh it.
+        self._refresh_view_selector()
 
     # ── the planned tileset ──────────────────────────────────────────────
 
@@ -1244,14 +1306,19 @@ class FibsemOverviewWidget(QWidget):
         except Exception as e:
             logger.debug(f"Could not resolve the dragged grid position: {e}")
             return
-        self._refresh_context_overlays()
+        # Only the grid. A drag emits on every motion event, and the full context
+        # refresh redraws the limits, the slots, every marker and the lattice as well
+        # -- none of which move when the grid does. Measured on a canvas holding four
+        # acquired tilesets: 90 ms per motion event, growing about 2 ms with every tile
+        # ever placed, because each refresh repaints the whole canvas.
+        self._refresh_tile_grid()
 
     def clear_target(self) -> None:
         """Plan the next overview around the stage position again."""
         if self._target is None:
             return
         self._target = None
-        self._refresh_context_overlays()
+        self._refresh_tile_grid()
 
     @property
     def target(self) -> Optional[FibsemStagePosition]:
@@ -1682,6 +1749,13 @@ class FibsemOverviewWidget(QWidget):
         if not settings.image_settings.filename:
             notification_service.show_toast(
                 "Please enter a filename for the overview.", "error"
+            )
+            return
+        if settings.n_enabled_tiles == 0:
+            notification_service.show_toast(
+                "No tiles are selected, so there is nothing to acquire. "
+                "Click a tile in the grid to include it.",
+                "warning",
             )
             return
         settings.image_settings.save = True

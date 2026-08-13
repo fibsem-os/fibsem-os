@@ -1436,3 +1436,114 @@ class TestThePlannedTileset:
         assert (settings.nrows, settings.ncols) != (5, 5)
         assert settings.tile_mask is None
         assert widget.target is None
+
+
+class TestARunNeedsTiles:
+    """Masking every tile off is a state the runner cannot do anything with.
+
+    It only became reachable once tiles could be clicked off the canvas, and left
+    alone it crashed *after* reporting success -- the run walked zero tiles, emitted a
+    finished payload, then died at stitch time.
+    """
+
+    def test_the_button_goes_away_with_the_last_tile(self, widget):
+        assert widget.button_acquire.isEnabled()
+        widget.settings_widget.tile_mask = [[False] * 3 for _ in range(3)]
+        assert not widget.button_acquire.isEnabled()
+        assert "No tiles" in widget.button_acquire.toolTip()
+
+    def test_it_comes_back_with_a_tile(self, widget):
+        widget.settings_widget.tile_mask = [[False] * 3 for _ in range(3)]
+        widget._on_tile_toggled(1, 1, True)
+        assert widget.button_acquire.isEnabled()
+
+    def test_acquiring_with_nothing_selected_starts_no_run(
+        self, widget, monkeypatch, tmp_path
+    ):
+        """The button is the affordance, not the guard: a host calling this directly,
+        or a mask emptied between the click and here, is what this is for."""
+        started = []
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker",
+            lambda *a, **k: started.append(a) or (_ for _ in ()).throw(AssertionError),
+        )
+        widget.set_save_directory(str(tmp_path))
+        widget.settings_widget.tile_mask = [[False] * 3 for _ in range(3)]
+
+        widget.acquire()
+        assert not started
+        assert not widget.is_acquiring
+
+
+class TestTheCanvasFollowsTheBeamYouPlanWith:
+    """Choosing a beam says what the *next run* will be, so the canvas has to show
+    where that run will land.
+
+    Reported from the tab: switching to the ion beam made the planned grid vanish.
+    It was refusing to draw on a view the run would not land in -- which was correct,
+    but the answer is to move the canvas rather than to hide the plan. An empty canvas
+    already followed, because nothing had pinned the view; one with an overview on it
+    did not, which is the normal case.
+    """
+
+    @staticmethod
+    def _image(scope, beam_type):
+        position = scope.get_stage_position()
+        hfw = 128 * 2e-7
+        image = FibsemImage.generate_blank_image(resolution=(128, 128), hfw=hfw)
+        image.data = (np.random.default_rng(0).random((128, 128)) * 255).astype(np.uint8)
+        state = scope.get_microscope_state(beam_type=beam_type)
+        state.stage_position = position
+        image.metadata.image_settings = ImageSettings(hfw=hfw, beam_type=beam_type)
+        image.metadata.microscope_state = state
+        image.metadata.system_info = scope.system.info
+        image.metadata.hardware_geometry = scope.hardware_geometry()
+        return image
+
+    def test_switching_beam_keeps_the_plan_on_screen(self, widget, microscope):
+        widget.set_image(self._image(microscope, BeamType.ELECTRON))
+        assert widget.tile_grid_overlay._tiles
+
+        widget.settings_widget.beam_type_combo.set_value(BeamType.ION)
+
+        assert widget.current_view.beam_type is BeamType.ION
+        assert widget.tile_grid_overlay._tiles, "the planned grid disappeared"
+
+    def test_switching_back_brings_the_overview_with_it(self, widget, microscope):
+        """The images are kept per view, so this is a switch and not a loss."""
+        widget.set_image(self._image(microscope, BeamType.ELECTRON))
+        assert len(widget.canvas.placed_keys) == 1
+
+        widget.settings_widget.beam_type_combo.set_value(BeamType.ION)
+        assert len(widget.canvas.placed_keys) == 0, "the ion view is empty, as it should be"
+
+        widget.settings_widget.beam_type_combo.set_value(BeamType.ELECTRON)
+        assert len(widget.canvas.placed_keys) == 1, "the electron overview did not come back"
+
+    def test_a_stage_move_still_does_not_steal_the_view(self, widget, microscope):
+        """The distinction this rests on: choosing a beam is a statement about the next
+        run, moving the stage is not. Following a stage move would drag the reader off
+        the overview they are reading."""
+        widget.set_image(self._image(microscope, BeamType.ELECTRON))
+        showing = widget.current_view
+
+        pose = microscope.get_orientation("MILLING")
+        widget._on_stage_moved(
+            FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t)
+        )
+        assert widget.current_view == showing
+
+    def test_the_view_the_run_would_land_in_is_always_selectable(self, widget, microscope):
+        """And when a stage move does take the plan elsewhere, there has to be a way to
+        go and look at it -- the selector only listed views something had been placed
+        in, so an empty one was unreachable."""
+        widget.set_image(self._image(microscope, BeamType.ELECTRON))
+        pose = microscope.get_orientation("MILLING")
+        widget._on_stage_moved(
+            FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t)
+        )
+
+        offered = [widget.combo_view.itemData(i) for i in range(widget.combo_view.count())]
+        assert widget.acquisition_view in offered, (
+            "the view the next run lands in cannot be selected"
+        )

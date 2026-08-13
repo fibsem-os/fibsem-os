@@ -119,6 +119,16 @@ class TiledAcquisitionRunner:
         that was cancelled or failed, left consumers with no way to tell "done" from
         "still going" -- the progress bar simply stopped moving.
         """
+        # Before `_setup`, which emits progress and makes a directory. A run with no
+        # tiles is a configuration error, not an acquisition that failed: left to run
+        # it walked zero tiles, emitted a *successful* terminal payload, restored the
+        # stage and only then died in `_stitch` with "No tiles were acquired" -- so a
+        # consumer saw the run finish and then saw it fail.
+        if self.settings.n_enabled_tiles == 0:
+            raise ValueError(
+                "No tiles are selected, so there is nothing to acquire. "
+                "Enable at least one tile in the grid."
+            )
         self._setup()
         self._compute_grid()
         outcome, message = "finished", "Acquisition Complete"
