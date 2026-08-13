@@ -85,6 +85,7 @@ from fibsem.ui.widgets.canvas.stage_frame import StageFrame
 from fibsem.ui.widgets.custom_widgets import (
     ContextMenu,
     ContextMenuConfig,
+    IconToolButton,
     TitledPanel,
     ValueComboBox,
     ValueSpinBox,
@@ -107,6 +108,10 @@ GRID_BOUNDARY_COLOUR = "#ff5252"
 # The canvas key the in-progress mosaic is drawn under. Its own, so a run that dies
 # leaves no half-filled overview behind pretending to be a finished one.
 PREVIEW_KEY = "acquisition-preview"
+
+# Icon buttons that sit in a `TitledPanel` header. Matches the fluorescence overview,
+# so the two tabs' section headers line up.
+_HEADER_BTN_SIZE = 26
 
 # The grid boundary a cryo holder's slot describes, as a radius in metres. Carried over
 # from the widget this replaces, where it was written inline as `1000e-6 / pixelsize`.
@@ -400,9 +405,6 @@ class FibsemOverviewWidget(QWidget):
         self.button_cancel.setStyleSheet(stylesheets.DANGER_BUTTON_STYLESHEET)
         self.button_cancel.clicked.connect(self.cancel)
         self.button_cancel.setVisible(False)
-        self.button_load = QPushButton("Load Overview")
-        self.button_load.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.button_load.clicked.connect(self._prompt_for_overview)
 
         self.label_status = QLabel("")
         self.label_status.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
@@ -420,6 +422,17 @@ class FibsemOverviewWidget(QWidget):
         self.overview_list.visibility_toggled.connect(self.set_overview_visible)
         self.overview_list.remove_requested.connect(self.remove_overview)
         overviews_panel = self._section("Overviews", self.overview_list)
+        # In the panel header rather than under the list: loading acts on the section
+        # as a whole, not on any row in it, and a full-width button below the rows read
+        # as a fourth row. Same icon and size as the fluorescence tab's, because it is
+        # the same action on the same kind of section.
+        self.button_load = IconToolButton(
+            icon="mdi:image-plus-outline",
+            tooltip="Load a saved overview",
+            size=_HEADER_BTN_SIZE,
+        )
+        self.button_load.clicked.connect(self._prompt_for_overview)
+        overviews_panel.add_header_widget(self.button_load)
 
         controls = QWidget()
         controls_layout = QVBoxLayout(controls)
@@ -460,7 +473,6 @@ class FibsemOverviewWidget(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.addWidget(self.button_acquire)
         layout.addWidget(self.button_cancel)
-        layout.addWidget(self.button_load)
         layout.addWidget(self.progress)
         layout.addWidget(self.label_status)
         return panel
