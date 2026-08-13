@@ -44,6 +44,14 @@ To run:
 fibsem-autolamella-ui
 ```
 
+Two flags skip the clicks that start every session, for development against a
+simulator or an instrument you reconnect to all day. `--quickstart` connects with the
+default microscope configuration as soon as the window is up; `--quickload` does that
+and then reopens the most recent experiment:
+```bash
+fibsem-autolamella-ui --quickload
+```
+
 ### Offline Installation
 For computers with no internet connection, you can download the dependencies on a separate internet connected computer and transfer it to the Support PC (e.g. via USB).
 
