@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 import threading
 from dataclasses import dataclass, replace
@@ -13,6 +14,7 @@ import matplotlib.patches as patches
 from fibsem import utils
 from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
 from fibsem.fm.calibration import run_autofocus, run_coarse_fine_autofocus
+from fibsem.imaging.reduce import downsample
 from fibsem.imaging.tiling.geometry import (
     TilePosition,
     compute_tile_grid_from_fov,
@@ -927,7 +929,26 @@ class FMTiledAcquisitionRunner:
             if data.shape[0] != self._preview_canvas.shape[0]:
                 data = data[: self._preview_canvas.shape[0]]
 
-            thumb = data[:, ::stride, ::stride]
+            # Averaged, not sampled. `data[:, ::stride, ::stride]` was free and wrong:
+            # it does not blur what it leaves out, it deletes it, and at a typical
+            # stride of 8 that is 63 pixels in 64. A punctum a couple of pixels across
+            # is then present or absent depending on where it happens to land, with
+            # nothing on screen saying the picture is incomplete -- and the small bright
+            # thing is what someone is looking for. This is FIB-589's reduction, which
+            # the canvas path already uses, reaching the preview path (FIB-629).
+            #
+            # Per plane, not on the stack: `downsample` reads shape as (y, x[, c]), so
+            # a (channels, y, x) array would be reduced across *channels* and y. A
+            # 5-channel stack would also fall to the numpy branch, which is right
+            # answer, wrong axes, and 200x slower.
+            #
+            # `max_px` expressed as the size the thumbnail must come out at, so the
+            # factor it derives is the stride and the shape is unchanged: both give
+            # ceil(n / stride).
+            thumb = np.stack([
+                downsample(plane, math.ceil(max(plane.shape[:2]) / stride))
+                for plane in data
+            ])
             y0 = tile.canvas_y // stride
             x0 = tile.canvas_x // stride
             h = min(thumb.shape[1], self._preview_canvas.shape[1] - y0)
