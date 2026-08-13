@@ -6,7 +6,6 @@ import time
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional, Set
 
-import fibsem.config as fcfg
 from fibsem.constants import DATETIME_DISPLAY_AMPM
 import pandas as pd
 
@@ -137,11 +136,9 @@ class TaskManager:
                 )
                 continue
 
-            # Wait until the task's scheduled start time, if set and in the future
-            # (only when the scheduled-tasks feature is enabled; otherwise any
-            # saved scheduled_at is left dormant and the task runs immediately).
+            # Wait until the task's scheduled start time, if set and in the future.
             scheduled_at = self.experiment.task_protocol.workflow_config.get_scheduled_at(item.task_name)
-            if scheduled_at is not None and fcfg.FEATURE_SCHEDULED_TASKS_ENABLED:
+            if scheduled_at is not None:
                 self._wait_until_scheduled(scheduled_at, item.task_name, lamella)
                 if self.is_stopped:
                     break

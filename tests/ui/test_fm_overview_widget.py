@@ -40,21 +40,6 @@ from fibsem.ui.widgets.custom_widgets import ValueComboBox
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 
 
-@pytest.fixture(autouse=True)
-def _restore_fm_overview_flag():
-    """`FEATURE_FM_OVERVIEW_TAB_ENABLED` is a module global that several tests here set.
-
-    Restored around every test rather than by whoever set it: the flag has to stay on
-    for the whole of a test that uses the tab, not just while the tab is built, so the
-    setter cannot also be the restorer.
-    """
-    import fibsem.config as fibsem_cfg
-
-    previous = fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED
-    yield
-    fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED = previous
-
-
 @pytest.fixture(scope="module")
 def qapp():
     app = QApplication.instance() or QApplication([])
@@ -1753,25 +1738,14 @@ class _StubHost:
     _rebuild_lamella_list = _Real._rebuild_lamella_list
     _wire_position_events = _Real._wire_position_events
 
-    def __init__(self, microscope=None, experiment=None, tab_enabled=True):
-        import fibsem.config as fibsem_cfg
+    def __init__(self, microscope=None, experiment=None):
         from PyQt5.QtWidgets import QTabWidget
 
         self.tab_widget = QTabWidget()
         self.autolamella_ui = type(
             "_UI", (), {"microscope": microscope, "experiment": experiment}
         )()
-        # The tab is behind a preference that is off by default, so these tests turn it
-        # on and leave it on -- `_restore_fm_overview_flag` puts it back afterwards.
-        fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED = tab_enabled
         self.add_fm_overview_tab()
-
-    def set_flag(self, enabled: bool):
-        """Toggle the preference and re-apply it, as the dialog does on accept."""
-        import fibsem.config as fibsem_cfg
-
-        fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED = enabled
-        self._apply_fm_overview_visibility()
 
     @property
     def tab_enabled(self):
@@ -2008,59 +1982,14 @@ def test_the_workflow_lock_survives_there_being_no_fm_tab(qapp):
     host._set_minimap_workflow_enabled(False)  # must not raise
 
 
-def test_the_fm_overview_tab_is_behind_a_preference(qapp):
-    """Off by default, and hidden rather than absent -- which is what lets the
-    preference take effect immediately instead of at the next launch."""
-    from fibsem.ui.fm.overview_app import build_microscope
-
-    host = _StubHost(microscope=build_microscope(), tab_enabled=False)
-    index = host.tab_widget.indexOf(host.fm_overview_tab)
-
-    assert not host.tab_widget.isTabVisible(index)
-    assert host.fm_overview_widget is None
-
-
-def test_switching_the_preference_on_shows_the_tab_without_a_restart(qapp):
-    """The reason the tab is hidden rather than skipped."""
-    from fibsem.ui.fm.overview_app import build_microscope
-
-    host = _StubHost(microscope=build_microscope(), tab_enabled=False)
-    index = host.tab_widget.indexOf(host.fm_overview_tab)
-
-    host.set_flag(True)
-
-    assert host.tab_widget.isTabVisible(index)
-    assert host.tab_widget.isTabEnabled(index)
-    assert isinstance(host.fm_overview_widget, FMOverviewWidget)
-
-    host._teardown_fm_overview_widget()
-
-
-def test_switching_it_off_again_releases_the_widget(qapp):
-    """Hidden is not enough on its own: the widget subscribes to the microscope's stage
-    signal for its lifetime, so one left behind keeps working for a feature that has
-    been switched off."""
-    from fibsem.ui.fm.overview_app import build_microscope
-
-    microscope = build_microscope()
-    before = len(microscope.stage_position_changed)
-    host = _StubHost(microscope=microscope, tab_enabled=True)
-    index = host.tab_widget.indexOf(host.fm_overview_tab)
-    assert len(microscope.stage_position_changed) == before + 1
-
-    host.set_flag(False)
-
-    assert not host.tab_widget.isTabVisible(index)
-    assert host.fm_overview_widget is None
-    assert len(microscope.stage_position_changed) == before
-
-
-def test_everything_tolerates_the_tab_being_switched_off(qapp):
+def test_everything_tolerates_the_tab_being_dead(qapp):
     """The host calls into the tab from several places -- connection, experiment update,
-    workflow lock -- and none of them should have to know whether it exists."""
-    from fibsem.ui.fm.overview_app import build_microscope
+    workflow lock -- and none of them should have to know whether it has a widget.
 
-    host = _StubHost(microscope=build_microscope(), tab_enabled=False)
+    Distinct from `test_a_microscope_without_fluorescence_hides_the_tab`, which asks
+    what the tab bar looks like: this one asks whether the other entry points survive
+    the same state."""
+    host = _StubHost(microscope=_plain_microscope())
 
     host._build_fm_overview_widget()           # must not raise
     host._update_fm_overview_experiment()      # must not raise
@@ -2068,37 +1997,6 @@ def test_everything_tolerates_the_tab_being_switched_off(qapp):
     host._apply_fm_overview_visibility()       # must not raise
 
     assert getattr(host, "fm_overview_widget", None) is None
-
-
-def test_the_preference_reaches_the_config_flag():
-    """`apply_feature_flags` is what turns the stored preference into the module
-    global the UI reads, and a flag added to one without the other is silently dead."""
-    import fibsem.config as fibsem_cfg
-
-    prefs = fibsem_cfg.UserPreferences()
-    prefs.features.fm_overview_tab = True
-    previous = fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED
-    try:
-        fibsem_cfg.apply_feature_flags(prefs)
-        assert fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED is True
-
-        prefs.features.fm_overview_tab = False
-        fibsem_cfg.apply_feature_flags(prefs)
-        assert fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED is False
-    finally:
-        fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED = previous
-
-
-def test_the_preference_survives_a_round_trip_through_yaml():
-    """It is stored in user-preferences.yaml, so it has to serialise."""
-    import fibsem.config as fibsem_cfg
-
-    prefs = fibsem_cfg.UserPreferences()
-    prefs.features.fm_overview_tab = True
-
-    restored = fibsem_cfg.UserPreferences.from_dict(prefs.to_dict())
-
-    assert restored.features.fm_overview_tab is True
 
 
 # ── layout: the actions live in the column, not across the widget ────────
@@ -3386,15 +3284,11 @@ def test_a_confirmed_move_re_marks_the_canvas(qapp, tmp_path, monkeypatch):
 
 def _tab_with(qapp, tmp_path, positions=()):
     """A `AutoLamellaFluorescenceOverviewTab` with a live overview and an experiment."""
-    import fibsem.config as fibsem_cfg
     from fibsem.applications.autolamella.ui.autolamella_fluorescence_overview_tab import (
         AutoLamellaFluorescenceOverviewTab,
     )
     from fibsem.ui.fm.overview_app import build_microscope
 
-    # The tab is behind a preference that is off by default, and `refresh_microscope`
-    # reads it. `_restore_fm_overview_flag` puts it back afterwards.
-    fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED = True
     microscope = build_microscope()
     experiment = _experiment_with(positions, tmp_path)
     ui = type(

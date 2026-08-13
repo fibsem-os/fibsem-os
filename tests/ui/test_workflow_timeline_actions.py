@@ -263,31 +263,6 @@ def test_a_vanished_row_is_reported():
     assert describe("move_up", QueueOp.NOT_FOUND) == "Trench for L1 is no longer in the queue."
 
 
-def test_the_feature_flag_reaches_the_runtime_constant():
-    """Editing a live queue is off unless asked for, like every other flag here.
-
-    The dialog round trip is covered in test_preferences_dialog.py; this is the
-    last link, from the preference to the constant AutoLamellaMainUI reads when
-    it decides whether to offer the actions at all.
-    """
-    import fibsem.config as fibsem_cfg
-    from fibsem.config import FeatureFlags, UserPreferences
-
-    assert FeatureFlags().edit_running_queue is False
-
-    previous = fibsem_cfg.FEATURE_EDIT_RUNNING_QUEUE_ENABLED
-    try:
-        fibsem_cfg.apply_feature_flags(
-            UserPreferences(features=FeatureFlags(edit_running_queue=True))
-        )
-        assert fibsem_cfg.FEATURE_EDIT_RUNNING_QUEUE_ENABLED is True
-
-        fibsem_cfg.apply_feature_flags(UserPreferences(features=FeatureFlags()))
-        assert fibsem_cfg.FEATURE_EDIT_RUNNING_QUEUE_ENABLED is False
-    finally:
-        fibsem_cfg.FEATURE_EDIT_RUNNING_QUEUE_ENABLED = previous
-
-
 def test_the_dark_theme_greys_disabled_menu_items():
     """Load-bearing for the whole menu design, and easy to lose in a restyle.
 

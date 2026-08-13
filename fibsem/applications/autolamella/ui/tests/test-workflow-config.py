@@ -89,6 +89,7 @@ class TestWindow(QWidget):
         toggle_row = QHBoxLayout()
         toggle_row.setSpacing(6)
         for label, fn in [
+            ("Schedule",  self.workflow_widget.enable_schedule_button),
             ("Supervise", self.workflow_widget.enable_supervise_button),
             ("Edit",      self.workflow_widget.enable_edit_button),
             ("Remove",    self.workflow_widget.enable_remove_button),
