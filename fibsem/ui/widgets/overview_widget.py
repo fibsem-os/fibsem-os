@@ -592,12 +592,13 @@ class FibsemOverviewWidget(QWidget):
             chip.deleteLater()
         self._view_chip_buttons = {}
 
-        # One view is not a choice, so chips would only say what the info bar already
-        # says -- over the data, which is the one place not to say anything twice.
-        if len(views) < 2:
-            self._refresh_view_note()
-            return
-
+        # Shown even when there is only one, which was not the first answer: a lone chip
+        # says nothing the info bar does not, and chrome over the data has to earn its
+        # place. But a control nobody can see does not exist, and the first time there
+        # *are* two views is the worst moment to discover that a way of switching
+        # between them has been there all along. One chip also states plainly which view
+        # the tab opened in, at the top of the canvas rather than in the corner among
+        # the coordinates.
         acquisition = self.acquisition_view
         x = _CANVAS_CHROME_MARGIN
         for view in views:
@@ -1309,6 +1310,7 @@ class FibsemOverviewWidget(QWidget):
         specs.extend(self._limit_shapes(frame))
         specs.extend(self._slot_shapes(frame))
         self.context_overlay.set_shapes(specs)
+        self._declare_working_area(frame)
         self._refresh_tile_grid()
         self._refresh_stage_info()
         self._refresh_position_markers()
@@ -1328,6 +1330,46 @@ class FibsemOverviewWidget(QWidget):
         acquisition agree without either being told about the other.
         """
         return self._target or self._stage_position
+
+    def _declare_working_area(self, frame: StageFrame) -> None:
+        """Tell the canvas how much ground this tab is describing.
+
+        Without it the canvas frames the images alone, and with none it frames whatever
+        matplotlib made of the overlays -- a region of no particular shape. Keeping
+        pixels square then costs the *axes*, which shrink to fit, and the canvas draws
+        as a band across the middle of the widget with black either side. That is what
+        an empty tab looked like, which since FIB-616 is a tab with plenty to show.
+
+        The area is what the overlays actually cover: the grid boundary where there is
+        one, and the planned run otherwise -- so opening the tab frames the sample and
+        the plan rather than one tile's worth of nothing. A *minimum*: acquired images
+        outside it still draw and still pull the view out to include them.
+
+        Declared in metres about the grid centre. `set_world_extent` is idempotent, so
+        restating the same area on every refresh is not a change and does not disturb
+        the view; a real change refits, which is wanted -- the area only changes when
+        the plan does.
+        """
+        span = 2 * GRID_BOUNDARY_RADIUS if self._draws_grid_boundary() else None
+        settings = self._settings()
+        if settings is not None:
+            planned = max(settings.total_fov_x, settings.total_fov_y)
+            span = planned if span is None else max(span, planned)
+        if not span:
+            return
+        try:
+            centre = frame.offset(self._landmark(frame, 0.0, 0.0))
+        except Exception as e:
+            logger.debug(f"Could not place the working area: {e}")
+            return
+        self.canvas.set_world_extent(span, span, centre)
+
+    def _draws_grid_boundary(self) -> bool:
+        """Whether the holder's grid boundary is being drawn, which bounds the view."""
+        return bool(
+            getattr(self.microscope._stage, "limits", None)
+            and self.microscope.stage_is_compustage
+        )
 
     def _refresh_tile_grid(self) -> None:
         """Redraw the planned tileset.
@@ -1495,7 +1537,7 @@ class FibsemOverviewWidget(QWidget):
     def _limit_shapes(self, frame: StageFrame) -> List[ShapeSpec]:
         """The travel limits, and the grid boundary a cryo holder describes."""
         limits = getattr(self.microscope._stage, "limits", None)
-        if not limits or not self.microscope.stage_is_compustage:
+        if not self._draws_grid_boundary():
             return []
         try:
             cx, cy = frame.to_canvas(self._landmark(frame, 0.0, 0.0, "Grid Centre"))

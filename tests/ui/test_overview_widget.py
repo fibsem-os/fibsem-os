@@ -1577,10 +1577,14 @@ class TestTheViewChips:
         them legible as the odd ones."""
         assert OverviewView(beam_type=beam, orientation=orientation).label == expected
 
-    def test_one_view_is_not_a_choice(self, widget):
-        """Chips saying only what the info bar already says are chrome over the data,
-        which is the one place not to say anything twice."""
-        assert widget._view_chip_buttons == {}
+    def test_the_view_is_named_even_when_there_is_only_one(self, widget):
+        """A lone chip says nothing the info bar does not, and it is still worth drawing:
+        a control nobody can see does not exist, and the first time there are two views
+        is the worst moment to discover that switching was possible all along."""
+        chips = widget._view_chip_buttons
+        assert len(chips) == 1
+        assert next(iter(chips)) == widget.current_view
+        assert next(iter(chips.values())).isChecked()
 
     def test_a_chip_appears_for_every_view_worth_switching_to(self, widget, microscope):
         widget.set_image(self._image(microscope, "SEM", BeamType.ELECTRON))

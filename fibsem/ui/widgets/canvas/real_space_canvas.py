@@ -287,6 +287,15 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
 
         Applied by inverting rather than by setting limits: matplotlib's autoscale
         preserves the axis direction, so this survives every later refit.
+
+        `adjustable="box"` is kept deliberately, though it is what leaves black bands
+        when the framing does not match the widget's shape: it gives away the *axes*
+        rather than the view. `"datalim"` fills the widget instead, and costs more than
+        it saves -- matplotlib then adjusts limits a caller has set, so a declared
+        working area drifts and a view asked to hold still does not (three fluorescence
+        tests measured it moving 5000 -> 5831). Callers keep the limits they set here,
+        and it is the caller's job to frame something the widget's shape can hold:
+        `_pad_to_widget_aspect` does exactly that.
         """
         self._ax.set_aspect("equal", adjustable="box")
         if not self._ax.yaxis_inverted():
@@ -531,6 +540,25 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
             except (ValueError, NotImplementedError):
                 pass
         self._crosshair_artists = []
+
+    def resizeEvent(self, event) -> None:
+        """Re-frame on a resize, because the framing is widget-shaped.
+
+        `_pad_to_widget_aspect` grows the framed region to the widget's proportions, so
+        that `aspect="equal"` has nothing left to take out of the axes box. A region
+        padded to the shape the widget *was* stops matching the moment it changes, and
+        the difference comes straight back off the axes as bands down the sides or
+        across the top -- which is what an overview framed before its splitter settled
+        looked like.
+
+        Guarded on `auto_fit` like every other refit, so a canvas whose owner has taken
+        charge of the camera is not re-framed behind its back.
+        """
+        super().resizeEvent(event)
+        if self.auto_fit:
+            self._fitted_extent = None  # the padded extent is stale, whatever it was
+            self._fit_view()
+            self.draw_idle()
 
     def _remove_artist(self, placed: PlacedImage) -> None:
         try:
