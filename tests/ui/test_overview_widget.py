@@ -80,26 +80,33 @@ def _at(base: FibsemStagePosition, dx: float = 0.0, dy: float = 0.0, name=None):
 
 
 class TestTheInversion:
-    """Tiles are placed where they were acquired, not assembled into one image first."""
+    """Images are placed where they were acquired, rather than reprojected onto one.
 
-    def test_each_tile_lands_at_its_own_position(self, widget, microscope):
-        """The whole point of the move. The old tab replaced one image per progress
-        update with the growing stitch buffer, so nothing appeared until the buffer
-        existed and every tile shared one placement."""
+    The tab this replaces stitched a mosaic and then reprojected stage positions onto
+    its pixels, so everything on screen was gated on the stitch. Here what is placed
+    carries its own stage position and is put there.
+
+    The overview itself is one image, not one per tile. That was a deliberate reversal:
+    placing tiles individually put each where the stage actually reached, which the
+    stitch buffer cannot express (FIB-399) -- but the buffer is what gets saved, so the
+    accuracy never survived a reload, and an artist per tile cost about 2 ms of redraw
+    for every tile ever acquired (FIB-627).
+    """
+
+    def test_the_mosaic_is_placed_where_the_run_was_centred(self, widget, microscope):
+        """It is placed from its own metadata like anything else, so it lands where the
+        grid was rather than wherever the display supposes."""
         base = microscope.get_stage_position()
-        widget._record_count += 1
-        widget._active_record = "run"
-        from fibsem.ui.widgets.overview_widget import OverviewRecord
+        widget.place_image(_tile(microscope, _at(base)), key="anchor")
+        reference = widget.canvas.reference_pixel_size
 
-        widget._records["run"] = OverviewRecord("run", "run", [])
+        away = _at(base, dx=80e-6, dy=-30e-6)
+        widget.place_image(_tile(microscope, away), key="mosaic")
 
-        offsets = [(0.0, 0.0), (50e-6, 0.0), (0.0, 50e-6)]
-        for dx, dy in offsets:
-            widget._place_tile(_tile(microscope, _at(base, dx, dy)), "run")
-
-        assert len(widget._records["run"].keys) == 3, "tiles replaced instead of placing"
-        extents = [widget.canvas._placed[k].extent for k in widget.canvas.placed_keys]
-        assert len(set(extents)) == 3, "tiles were placed on top of each other"
+        anchor = widget.canvas._placed["anchor"].extent
+        mosaic = widget.canvas._placed["mosaic"].extent
+        centre_dx = ((mosaic[0] + mosaic[1]) - (anchor[0] + anchor[1])) / 2.0
+        assert centre_dx == pytest.approx(80e-6 / reference, rel=1e-6)
 
     def test_a_tile_is_placed_where_it_landed_not_where_it_was_aimed(
         self, widget, microscope
@@ -391,22 +398,19 @@ class TestTheHostContract:
         """A run is many tiles but one overview -- that is what a user acquired and what
         they mean when they hide it."""
         base = microscope.get_stage_position()
-        from fibsem.ui.widgets.overview_widget import OverviewRecord
+        widget.set_image(_tile(microscope, _at(base)))
+        record_id = widget.overviews[0].id
+        assert len(widget.canvas.placed_keys) == 1
 
-        widget._records["run"] = OverviewRecord("run", "run", [])
-        for dx in (0.0, 50e-6, 100e-6):
-            widget._place_tile(_tile(microscope, _at(base, dx)), "run")
-        assert len(widget.canvas.placed_keys) == 3
-
-        assert widget.set_overview_visible("run", False)
+        assert widget.set_overview_visible(record_id, False)
         assert all(
             not widget.canvas._placed[k].artist.get_visible()
             for k in widget.canvas.placed_keys
         )
 
-        assert widget.remove_overview("run")
+        assert widget.remove_overview(record_id)
         assert widget.canvas.placed_keys == []
-        assert widget.remove_overview("run") is False
+        assert widget.remove_overview(record_id) is False
 
 
 class TestThingsOnlyRunningItFound:
@@ -445,8 +449,8 @@ class TestThingsOnlyRunningItFound:
 
     def test_the_list_keeps_up_with_a_run_in_progress(self, widget, microscope):
         """The row shows a tile count, so it has to be rebuilt as tiles land -- not only
-        when the run finishes. A run showing "0 tiles" while nine sit on the canvas
-        beside it is the list contradicting the display.
+        when the run finishes. A run showing "0 tiles" while a mosaic fills on the
+        canvas beside it is the list contradicting the display.
 
         Read off the *row widget*, not the record: the record is updated either way, so
         asserting on it proves nothing about what reaches the screen.
@@ -455,11 +459,15 @@ class TestThingsOnlyRunningItFound:
 
         base = microscope.get_stage_position()
         widget._records["run"] = OverviewRecord("run", "run", [])
+        widget._active_record = "run"
         widget._refresh_overview_list()
         assert widget.overview_list._list.count() == 1
 
-        for i, dx in enumerate((0.0, 50e-6, 100e-6), start=1):
-            widget._place_tile(_tile(microscope, _at(base, dx)), "run")
+        for i in (1, 2, 3):
+            widget._apply_progress({
+                "msg": "Tile Collected", "counter": i, "total": 3,
+                "preview": _tile(microscope, _at(base)),
+            })
             row = widget.overview_list._rows["run"]
             assert row.detail_label.text().startswith(f"{i} tile"), (
                 f"after {i} tile(s) the row still reads {row.detail_label.text()!r}"
@@ -782,19 +790,21 @@ class TestViews:
         widget._refresh_view_note()
         assert "the stage is at" in widget.label_view_note.text()
 
-    def test_an_overview_still_reports_its_size_from_another_view(self, widget):
-        """The list describes what an overview *holds*, not what happens to be drawn.
-        Counting canvas keys made one report no tiles merely because you were looking
-        at a different view."""
+    def test_an_overview_still_reports_itself_from_another_view(self, widget):
+        """The list describes what an overview *is*, not what happens to be drawn.
+        Deriving the row from the canvas made one report nothing merely because you
+        were looking at a different view."""
         scope = widget.microscope
         widget.set_image(self._image(scope, "SEM", BeamType.ELECTRON))
         sem_record = widget.overviews[0]
-        assert sem_record.detail.startswith("1 tile")
+        described = sem_record.detail
+        assert described, "the row said nothing about the overview it lists"
 
         widget.set_image(self._image(scope, "FIB", BeamType.ION))
         assert sem_record.keys == [], "the SEM record should not be on the canvas now"
-        assert sem_record.detail.startswith("1 tile"), (
-            f"reads {sem_record.detail!r} while another view is displayed"
+        assert sem_record.detail == described, (
+            f"reads {sem_record.detail!r} while another view is displayed, "
+            f"and {described!r} while it is"
         )
 
     def test_clicking_a_view_the_stage_is_not_in_is_refused(self, widget, monkeypatch):

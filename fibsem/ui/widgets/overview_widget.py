@@ -104,6 +104,10 @@ SLOT_COLOUR = "#90a4ae"
 LIMITS_COLOUR = "#ffca28"
 GRID_BOUNDARY_COLOUR = "#ff5252"
 
+# The canvas key the in-progress mosaic is drawn under. Its own, so a run that dies
+# leaves no half-filled overview behind pretending to be a finished one.
+PREVIEW_KEY = "acquisition-preview"
+
 # The grid boundary a cryo holder's slot describes, as a radius in metres. Carried over
 # from the widget this replaces, where it was written inline as `1000e-6 / pixelsize`.
 GRID_BOUNDARY_RADIUS = 1000e-6
@@ -183,6 +187,11 @@ class OverviewRecord:
         # What was placed, kept so a view switch can re-place it. Display-reduced --
         # see `FibsemOverviewWidget._stored_tile`.
         self.images: List["_PlacedTile"] = []
+        # How many tiles the run has acquired, once something says. An overview is one
+        # image on the canvas now, so the images it holds no longer count them, and a
+        # mosaic loaded from disk cannot say how many it was made of -- which is why
+        # this is None rather than 1.
+        self.tiles: Optional[int] = None
 
     @property
     def detail(self) -> str:
@@ -193,10 +202,10 @@ class OverviewRecord:
         rather than what is on the canvas.
         """
         parts = []
-        # From the images it holds, not the canvas keys: the keys are cleared while
-        # another view is displayed, so counting those made an overview report no tiles
-        # merely because you were looking somewhere else.
-        count = len(self.images)
+        # Counted by the run, not derived from what is on the canvas: an overview is a
+        # single placed image, so there is nothing on the canvas left to count, and the
+        # keys are cleared anyway while another view is displayed.
+        count = self.tiles
         if count:
             parts.append(f"{count} tile{'s' if count != 1 else ''}")
         if self.pixel_size:
@@ -1075,20 +1084,44 @@ class FibsemOverviewWidget(QWidget):
             covers=(width * pixel_size, height * pixel_size),
         )
 
-    def _place_tile(self, tile: FibsemImage, record_id: str) -> None:
-        """Place one acquired tile, and attach it to the run that produced it."""
-        record = self._records.get(record_id)
+    def _show_preview(self, preview: FibsemImage) -> None:
+        """Show the mosaic-so-far, as one image, under its own key.
+
+        Stateless: it redisplays whatever it is handed rather than accumulating tiles
+        of its own, which is what makes it correct when a frame is dropped.
+
+        One image rather than one per tile, which is the whole point. Placing tiles
+        individually put each one where the stage actually reached, which the stitch
+        buffer cannot express (FIB-399) -- but that accuracy never survived the run:
+        the buffer is what gets saved, so reloading the overview showed the nominal
+        placement anyway. What it did cost was an artist per tile, and the canvas
+        repaints every artist on every draw, so dragging anything slowed down by about
+        2 ms for every tile ever acquired (FIB-627).
+
+        Its own key, not the record's: an in-progress preview must not survive as a
+        finished overview if the run dies, and the real stitch replaces it at the end.
+        """
+        if self.place_image(preview, key=PREVIEW_KEY) is None:
+            logger.debug("Could not place the acquisition preview.")
+
+    def _clear_preview(self) -> None:
+        self.canvas.remove_image(PREVIEW_KEY)
+
+    def _place_finished_mosaic(self, mosaic: FibsemImage) -> None:
+        """Swap the preview for the stitched overview the run actually produced."""
+        record = self._records.get(getattr(self, "_active_record", None) or "")
+        self._clear_preview()
         if record is None:
             return
-        if record.view is None:
-            record.view = self._view_of(tile)
-        key = self.place_image(tile, key=f"{record_id}-tile-{len(record.keys)}")
-        if key is not None:
-            record.keys.append(key)
-            record.images.append(self._stored_tile(tile))
-            if record.pixel_size is None:
-                record.pixel_size = self._pixel_size_of(tile)
-            self._refresh_overview_list()
+        record.view = self._view_of(mosaic)
+        key = self.place_image(mosaic, key=record.id)
+        if key is None:
+            logger.debug("The finished overview could not be placed.")
+            return
+        record.keys = [key]
+        record.images = [self._stored_tile(mosaic)]
+        record.pixel_size = self._pixel_size_of(mosaic)
+        self._refresh_overview_list()
 
     def set_overview_visible(self, record_id: str, visible: bool) -> bool:
         """Show or hide every tile of one overview. False if the id is unknown."""
@@ -1839,16 +1872,38 @@ class FibsemOverviewWidget(QWidget):
         if result.get("error"):
             notification_service.show_toast(str(result["error"]), "error")
             self.label_status.setText("Acquisition failed.")
+            self._drop_unfinished_run()
         elif result.get("cancelled"):
             notification_service.show_toast("Tile collection cancelled.", "warning")
             self.label_status.setText(
                 f"Cancelled after {self._tiles_acquired} tile(s)."
             )
+            self._drop_unfinished_run()
         else:
             notification_service.show_toast("Tile collection finished.")
             self.label_status.setText(f"Acquired {self._tiles_acquired} tile(s).")
+            if self._mosaic is not None:
+                self._place_finished_mosaic(self._mosaic)
+            else:
+                self._drop_unfinished_run()
         # The stage went home at the end of the run, so the planned footprint moved.
         self._refresh_context_overlays()
+
+    def _drop_unfinished_run(self) -> None:
+        """Take the preview off the canvas, and the run's empty record with it.
+
+        A cancelled or failed run has no stitched overview to swap in. The preview it
+        left is a partial mosaic that was never saved, so keeping it would put
+        something on the canvas that matches no file -- and leave a record listing an
+        overview that does not exist. What was acquired is on disk as tiles either way.
+        """
+        self._clear_preview()
+        record_id = getattr(self, "_active_record", None)
+        record = self._records.get(record_id or "")
+        if record is not None and not record.keys:
+            self._records.pop(record_id, None)
+            self._refresh_overview_list()
+        self._active_record = None
 
     # ── progress ─────────────────────────────────────────────────────────
 
@@ -1876,9 +1931,17 @@ class FibsemOverviewWidget(QWidget):
                 )
             )
 
-        tile = payload.get("tile")
-        if tile is not None and getattr(self, "_active_record", None):
-            self._place_tile(tile, self._active_record)
+        preview = payload.get("preview")
+        record = self._records.get(getattr(self, "_active_record", None) or "")
+        if preview is not None and record is not None:
+            self._show_preview(preview)
+            # The row says how many tiles this run has, and it says it while the run is
+            # going -- a row reading "0 tiles" beside a filling mosaic is the list
+            # contradicting the canvas.
+            if counter:
+                record.tiles = counter
+                record.pixel_size = self._pixel_size_of(preview)
+                self._refresh_overview_list()
 
     # ── lifecycle ────────────────────────────────────────────────────────
 
