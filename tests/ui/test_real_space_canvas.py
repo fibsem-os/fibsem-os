@@ -94,6 +94,50 @@ def test_positive_x_is_right_and_positive_y_is_down():
     assert (f[2] + f[3]) / 2 > (o[2] + o[3]) / 2  # +y drew further down
 
 
+def _renders_y_downward(canvas) -> bool:
+    """Whether a larger canvas y actually lands lower on screen.
+
+    Through `transData` rather than off the axis flag, because the flag is a means:
+    what matters is where a point is drawn. Display y increases upward, so drawing
+    +y downward means +y transforms to a *smaller* display y than -y.
+    """
+    lower = canvas._ax.transData.transform((0.0, 100.0))[1]
+    upper = canvas._ax.transData.transform((0.0, -100.0))[1]
+    return lower < upper
+
+
+def test_y_runs_down_before_any_image_is_placed():
+    """The extents above are only half the statement -- which way the axis *runs*
+    decides where they land on screen, and matplotlib's default is y up.
+
+    `imshow` sets the direction per artist, so a canvas holding images was right by
+    accident while an empty one drew the whole scene **vertically mirrored**: a marker
+    at +100 um appeared where -100 um belongs, and the scene flipped the right way up
+    the moment the first tile arrived. Nothing showed it while an empty canvas drew
+    nothing, so it surfaced only once the overlays did (FIB-616) -- first as shape
+    labels sitting under their shapes instead of over them.
+    """
+    assert _renders_y_downward(_canvas())
+
+
+def test_y_still_runs_down_once_an_image_is_placed():
+    """The direction must not depend on what is on the canvas, or the scene flips
+    under the user as the first tile lands."""
+    c = _canvas()
+    c.add_image(_img(), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE, key="a")
+    assert _renders_y_downward(c)
+
+
+def test_the_axes_convention_survives_a_clear():
+    """`cla()` takes the aspect and the y direction with it, and `clear` is how a host
+    hands the canvas to a different experiment."""
+    c = _canvas()
+    c.add_image(_img(), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE, key="a")
+    c.clear()
+    assert _renders_y_downward(c)
+    assert c._ax.get_aspect() == 1.0, "square pixels were lost with the axes"
+
+
 def test_a_coarser_image_covers_proportionally_more_ground():
     """Different binning must compose at true relative size, not equal size."""
     c = _canvas()
