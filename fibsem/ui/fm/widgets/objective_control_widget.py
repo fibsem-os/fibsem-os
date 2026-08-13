@@ -252,6 +252,30 @@ class ObjectiveControlWidget(QWidget):
         self.pushButton_insert_objective.setEnabled(enabled)
         self.pushButton_retract_objective.setEnabled(enabled)
 
+    def _flash_focus_target(self, new_pos_um: float, step_um: float) -> None:
+        """Flash where the objective is going, on the canvas being scrolled (FIB-635).
+
+        The beam canvases have done this for the working distance since the quad view
+        shipped -- `flash_message(f"WD {v:.3f} mm")` -- and the FM, the one you focus by
+        while watching the stream, showed nothing.
+
+        Not a duplicate of the `OBJECTIVE` field in the info bar, which reports where the
+        objective *is*: persistent, device-truthful, and deliberately behind during a
+        burst, because `_wheel_is_driving` suppresses the intermediates rather than let
+        the number snap backwards past your own scrolling (FIB-625). This is the
+        *command* -- where the next move is headed -- so a target is the right thing to
+        show, and transient is the right lifetime.
+
+        The step is included because it is the one piece of state that silently changes
+        what the gesture means: leave it at 50 um and your first notch jumps 50. Signed,
+        so it doubles as a direction indicator. It does not change across a burst, which
+        is why it costs nothing to read twice.
+        """
+        canvas = self.sender()
+        if canvas is None or not hasattr(canvas, "flash_message"):
+            return
+        canvas.flash_message(f"OBJ {new_pos_um:.1f} um  ({step_um:+.1f} um)")
+
     def _objective_busy_reason(self) -> Optional[str]:
         """What is driving the objective right now, phrased for a warning, or None.
 
@@ -711,6 +735,7 @@ class ObjectiveControlWidget(QWidget):
         self.doubleSpinBox_objective_position.blockSignals(True)
         self.doubleSpinBox_objective_position.setValue(new_pos_um)
         self.doubleSpinBox_objective_position.blockSignals(False)
+        self._flash_focus_target(new_pos_um, step_um)
 
         self._wheel_target_um = new_pos_um
         self._execute_wheel_move()
