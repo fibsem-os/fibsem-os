@@ -518,6 +518,17 @@ class FibsemOverviewWidget(QWidget):
         whatever the overview was acquired at. Silently does nothing before there is a
         frame -- the controls are usable from the moment the tab opens, and nothing is
         on screen to reference yet.
+
+        The pitch is still `frame.length()`, and still one number for both axes, which
+        is wrong in the same way the travel envelope was: a square lattice on the sample
+        is not square in a tilted view, so at the milling pose the horizontal bars sit
+        about four times too far apart. Deliberately left (FIB-615) -- the fix is
+        `_canvas_span` and a per-axis `set_lattice`, and it is not what anyone is
+        waiting on.
+
+        The lattice *centre* is fixed here, because it was a different bug: grid centre
+        is a place, and built with its own rotation it read as a position recorded half
+        a turn away. See :meth:`_landmark`.
         """
         if not self.checkbox_gridbars.isChecked():
             return
@@ -525,9 +536,7 @@ class FibsemOverviewWidget(QWidget):
         if frame is None:
             return
         try:
-            centre = frame.to_canvas(
-                FibsemStagePosition(name="Grid Centre", x=0, y=0, z=0, r=0, t=0)
-            )
+            centre = frame.to_canvas(self._landmark(frame, 0.0, 0.0, "Grid Centre"))
             pitch = frame.length(
                 self.spin_gridbar_spacing.value() * constants.MICRO_TO_SI
             )
@@ -1001,24 +1010,75 @@ class FibsemOverviewWidget(QWidget):
         self._refresh_gridbars()
         self._refresh_view_note()
 
+    @staticmethod
+    def _landmark(frame: StageFrame, x: float, y: float, name: str = "") -> FibsemStagePosition:
+        """A stage position that is a *place*, in the frame's own pose.
+
+        Grid centre and the corners of the travel envelope are places, not recorded
+        poses, so the rotation has to come from somewhere. Taking the frame's means
+        `BeamStageProjection` sees no rotation difference and leaves the compucentric
+        correction alone -- it is there to flip positions *recorded* half a turn away,
+        and firing it on a synthetic landmark would move the travel limits by the
+        instrument's compucentric calibration for no reason. Tilt is not read at all
+        (the projection takes it from the base), and is carried only so the position
+        is complete.
+        """
+        origin = frame.origin
+        return FibsemStagePosition(
+            name=name, x=x, y=y, z=0.0, r=origin.r, t=origin.t
+        )
+
+    def _canvas_span(self, frame: StageFrame, length: float) -> Tuple[float, float]:
+        """A stage-space step of *length* metres, in canvas pixels, per axis.
+
+        Not `frame.length()` twice. That divides by the canvas scale and stops, which
+        is right for x and wrong for y: the view foreshortens stage y by a factor that
+        changes with the beam and the pose -- 1.00 looking down the pose a beam is
+        named after, 0.26 for the ion beam at the milling pose. A lattice or a boundary
+        sized by the scale alone is the same size in every view, and therefore right in
+        at most one of them.
+
+        Measured through the frame rather than derived from the geometry, so it cannot
+        disagree with where the frame puts a marker. Absolute, because a view can flip
+        an axis and a span has no sign.
+        """
+        anchor = self._landmark(frame, 0.0, 0.0)
+        ox, oy = frame.to_canvas(anchor)
+        along_x, _ = frame.to_canvas(self._landmark(frame, length, 0.0))
+        _, along_y = frame.to_canvas(self._landmark(frame, 0.0, length))
+        return abs(along_x - ox), abs(along_y - oy)
+
     def _limit_shapes(self, frame: StageFrame) -> List[ShapeSpec]:
         """The travel limits, and the grid boundary a cryo holder describes."""
         limits = getattr(self.microscope._stage, "limits", None)
         if not limits or not self.microscope.stage_is_compustage:
             return []
         try:
-            centre = FibsemStagePosition(name="Grid Centre", x=0, y=0, z=0, r=0, t=0)
-            cx, cy = frame.to_canvas(centre)
-            width = frame.length(limits["x"].max - limits["x"].min)
-            height = frame.length(limits["y"].max - limits["y"].min)
+            cx, cy = frame.to_canvas(self._landmark(frame, 0.0, 0.0, "Grid Centre"))
+            # Every corner, not a width and a height: the projection can flip either
+            # axis, and reading the envelope off the extremes of the projected corners
+            # is true whatever it does to them. The box stays axis-aligned -- the
+            # terms are a scale per axis and a possible flip of both.
+            corners = [
+                frame.to_canvas(self._landmark(frame, x, y))
+                for x in (limits["x"].min, limits["x"].max)
+                for y in (limits["y"].min, limits["y"].max)
+            ]
+            xs = [point[0] for point in corners]
+            ys = [point[1] for point in corners]
+            width, height = max(xs) - min(xs), max(ys) - min(ys)
+            box_cx, box_cy = (max(xs) + min(xs)) / 2, (max(ys) + min(ys)) / 2
+            # A circle on the sample, so an ellipse on screen everywhere but the two
+            # views where the beam looks down the pose it is named after.
+            span_x, span_y = self._canvas_span(frame, GRID_BOUNDARY_RADIUS)
         except Exception as e:
             logger.debug(f"Could not draw the stage limits: {e}")
             return []
         return [
-            ShapeSpec(kind="rect", cx=cx, cy=cy, width=width, height=height,
+            ShapeSpec(kind="rect", cx=box_cx, cy=box_cy, width=width, height=height,
                       color=LIMITS_COLOUR, label="Stage Limits"),
-            ShapeSpec(kind="circle", cx=cx, cy=cy,
-                      radius=frame.length(GRID_BOUNDARY_RADIUS),
+            ShapeSpec(kind="ellipse", cx=cx, cy=cy,
+                      width=2 * span_x, height=2 * span_y,
                       color=GRID_BOUNDARY_COLOUR, label="Grid Boundary"),
         ]
 
