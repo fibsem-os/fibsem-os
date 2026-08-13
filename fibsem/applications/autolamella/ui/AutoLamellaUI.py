@@ -12,6 +12,7 @@ import logging
 import os
 import threading
 from copy import deepcopy
+from pathlib import Path
 from typing import List, Optional, TYPE_CHECKING
 from fibsem import conversions
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
@@ -490,6 +491,69 @@ class AutoLamellaUI(QMainWindow):
             return
 
         self._adopt_experiment(experiment)
+
+    def quickstart(self, load_experiment: bool = False) -> None:
+        """Connect to the microscope without waiting to be clicked (``--quickstart``).
+
+        The developer shortcut past the two clicks that start every session: the same
+        calls the Connection tab and the load dialog make, with the default microscope
+        configuration and the most recent experiment assumed.
+
+        Every failure here is reported and swallowed rather than raised. This runs
+        unattended on the way up, and an unreachable microscope or an experiment that
+        has moved should still leave the ordinary window -- the one where the user can
+        pick a different configuration -- rather than a half-started application.
+        """
+        if self.system_widget.microscope is None:
+            try:
+                self.system_widget.connect_to_microscope()
+            except Exception as e:
+                logging.warning(f"Quickstart: unable to connect to the microscope: {e}")
+                notification_service.show_toast(
+                    f"Quickstart: could not connect to the microscope: {e}", "error"
+                )
+                return
+
+        # connect_to_microscope reports its own failures and returns without a
+        # microscope (an unselectable configuration, say). Nothing below works
+        # without one, so stop here rather than reporting a second failure.
+        if self.system_widget.microscope is None:
+            return
+
+        if load_experiment:
+            self.quickload_experiment()
+
+    def quickload_experiment(self) -> None:
+        """Reopen the most recent experiment, skipping the load dialog (``--quickload``).
+
+        Requires a connected microscope, as the dialog path does: the tabs that adopt
+        an experiment are built at connection time.
+        """
+        experiment_path = fibsem_cfg.get_last_experiment_file()
+
+        if experiment_path is None:
+            msg = "Quickload: no recent experiment to load."
+            logging.warning(msg)
+            notification_service.show_toast(msg, "warning")
+            return
+
+        try:
+            experiment = Experiment.load(Path(experiment_path))
+        except Exception as e:
+            logging.warning(f"Quickload: unable to load {experiment_path}: {e}")
+            notification_service.show_toast(f"Quickload: could not load experiment: {e}", "error")
+            return
+
+        # The same bar the load dialog sets. An experiment with no protocol has
+        # nothing to run, and adopting one here would only look loaded.
+        if experiment.task_protocol is None:
+            msg = f"Quickload: {experiment.name} has no protocol; not loaded."
+            logging.warning(msg)
+            notification_service.show_toast(msg, "warning")
+            return
+
+        self._adopt_experiment(experiment)
+        logging.info(f"Quickload: loaded experiment {experiment.name} from {experiment_path}")
 
     def _adopt_experiment(self, experiment: Experiment) -> None:
         """Make ``experiment`` the current one, and point logging at its logfile.
