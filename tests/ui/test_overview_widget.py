@@ -124,6 +124,52 @@ class TestTheInversion:
             "the tile was not placed at the position it recorded"
         )
 
+    def test_a_tile_covers_the_ground_it_images(self, widget, microscope):
+        """A tile is drawn at the size it *images*, not the size it is stored at.
+
+        The canvas decimates for display and sizes an image from `shape x pixel_size`
+        unless told what it covers. Once tiles started being stored display-reduced —
+        so a view switch can re-place them — handing that reduced array over without
+        `covers` drew every 1024 px tile as if it imaged 512 px of sample: right
+        positions, half size, and a mosaic full of black gaps.
+
+        Asserted as *abutment*, which is what a user sees. A 2x2 at zero overlap has to
+        meet, not leave a gap and not overlap.
+        """
+        base = microscope.get_stage_position()
+        # 256 px at this hfw, so the canvas's 512 px cap does not reduce it and only
+        # the deliberate reduction below can shrink anything.
+        hfw = 256 * 4e-7
+        widget.place_image(_tile(microscope, _at(base), shape=(256, 256), hfw=hfw),
+                           key="a")
+        widget.place_image(
+            _tile(microscope, _at(base, dx=hfw), shape=(256, 256), hfw=hfw), key="b"
+        )
+
+        left = widget.canvas._placed["a"].extent
+        right = widget.canvas._placed["b"].extent
+        assert right[0] == pytest.approx(left[1], rel=1e-9), (
+            f"tiles do not abut: left ends at {left[1]:.1f}, right starts at "
+            f"{right[0]:.1f} canvas px"
+        )
+
+    def test_a_reduced_tile_is_still_placed_at_full_size(self, widget, microscope):
+        """The same property where the reduction actually bites — an image larger than
+        the canvas's display cap, which is every real tile."""
+        base = microscope.get_stage_position()
+        cap = widget.canvas._display_max_px
+        big = cap * 2
+        hfw = big * 1e-7
+        widget.place_image(_tile(microscope, _at(base), shape=(big, big), hfw=hfw),
+                           key="big")
+
+        extent = widget.canvas._placed["big"].extent
+        drawn_width_m = (extent[1] - extent[0]) * widget.canvas.reference_pixel_size
+        assert drawn_width_m == pytest.approx(hfw, rel=1e-9), (
+            f"a {big}px tile imaging {hfw * 1e6:.0f} um was drawn covering "
+            f"{drawn_width_m * 1e6:.0f} um"
+        )
+
     def test_an_image_that_does_not_say_where_it_was_taken_is_refused(
         self, widget, microscope
     ):

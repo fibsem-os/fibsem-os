@@ -37,7 +37,7 @@ import logging
 import os
 import threading
 from copy import deepcopy
-from typing import Dict, Iterable, List, NamedTuple, Optional, Set
+from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
 from PyQt5.QtCore import pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
@@ -118,11 +118,20 @@ PICK_RADIUS_PX = 12
 
 
 class _PlacedTile(NamedTuple):
-    """One image a record placed: the pixels, where it was taken, and at what scale."""
+    """One image a record placed: the pixels, where it was taken, and what it covers.
+
+    `covers` is the ground in metres, measured from the image's *original* shape before
+    reduction. It has to be carried rather than re-derived, because `data` is decimated
+    for display: the canvas sizes an image from `shape x pixel_size` unless told
+    otherwise, so a 1024 px tile stored at 512 px was drawn covering half the ground it
+    actually images -- a mosaic with black gaps between every tile, at the right
+    positions and the wrong size.
+    """
 
     data: object  # np.ndarray, display-reduced
     position: FibsemStagePosition
     pixel_size: float
+    covers: Tuple[float, float]  # (width, height) in metres
 
 
 class OverviewView(NamedTuple):
@@ -831,14 +840,7 @@ class FibsemOverviewWidget(QWidget):
             self.canvas.set_reference_pixel_size(pixel_size)
 
         return self._place_on_canvas(
-            _PlacedTile(
-                data=downsample(image.filtered_data, self.canvas._display_max_px),
-                position=deepcopy(position),
-                pixel_size=pixel_size,
-            ),
-            view,
-            key=key,
-            zorder=zorder,
+            self._stored_tile(image), view, key=key, zorder=zorder
         )
 
     def _place_on_canvas(
@@ -856,7 +858,7 @@ class FibsemOverviewWidget(QWidget):
             return None
         placed = self.canvas.add_image(
             tile.data, centre=centre, pixel_size=tile.pixel_size,
-            key=key, zorder=zorder,
+            key=key, zorder=zorder, covers=tile.covers,
         )
         self._refresh_context_overlays()
         return placed
@@ -894,10 +896,15 @@ class FibsemOverviewWidget(QWidget):
         keeping full-resolution tiles would be hundreds of megabytes for a large
         tileset, to redraw something that is decimated on the way to the screen.
         """
+        data = image.filtered_data
+        pixel_size = self._pixel_size_of(image)
+        height, width = data.shape[0], data.shape[1]
         return _PlacedTile(
-            data=downsample(image.filtered_data, self.canvas._display_max_px),
+            data=downsample(data, self.canvas._display_max_px),
             position=deepcopy(self._position_of(image)),
-            pixel_size=self._pixel_size_of(image),
+            pixel_size=pixel_size,
+            # From the shape *before* reduction: this is the ground the image images.
+            covers=(width * pixel_size, height * pixel_size),
         )
 
     def _place_tile(self, tile: FibsemImage, record_id: str) -> None:
