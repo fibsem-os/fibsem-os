@@ -1183,9 +1183,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Handle microscope connection and connect milling progress signal."""
         # Before the signal wiring below, which returns early on a disconnect: the FM
         # overview tab has to hear about that case too, to let go of the old microscope.
-        # Through the visibility path rather than straight to the builder, because
-        # whether this system has a fluorescence detector at all is only known now.
-        self._apply_fm_overview_visibility()
+        # It also re-answers whether the tab can be used, which is only knowable now --
+        # whether this system has a fluorescence detector at all.
+        self._refresh_fm_overview_microscope()
         # Same for the rebuilt Overview tab, which holds its microscope for life and
         # has to be handed the new one (or let go of the old) on every connection.
         self._apply_overview_canvas_visibility()
@@ -2238,12 +2238,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def add_fm_overview_tab(self):
         """Reserve the FM Overview tab, beside the beam one.
 
-        The tab is always created and hidden when it has nothing to drive, rather than
-        skipped: the tab bar then keeps its shape whether or not the system has a
-        fluorescence detector, and a microscope arriving or changing later needs only a
-        visibility pass rather than a rebuild of the bar. The widget inside is built and
-        destroyed to match -- see :meth:`_apply_fm_overview_visibility` -- so a hidden
-        tab costs nothing but the container.
+        The tab is created on every system and never hidden, so the tab bar keeps the
+        same shape whether or not there is a fluorescence detector. When it has nothing
+        to drive it is greyed out with a tooltip saying why -- see
+        :meth:`_on_fm_overview_availability`. The widget inside is built and destroyed
+        to match -- see :meth:`_refresh_fm_overview_microscope` -- so a dead tab costs
+        nothing but the container.
 
         Separate from "Overview" deliberately, not as a step toward merging them: the
         two show different stage poses -- milling pose on the beam side, FM pose here --
@@ -2268,7 +2268,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.tab_widget.setTabEnabled(
             self.tab_widget.indexOf(self.fm_overview_tab), False
         )
-        self._apply_fm_overview_visibility()
+        # Emits availability either way, which is what puts the reason on the tab.
+        self._refresh_fm_overview_microscope()
 
     def add_overview_canvas_tab(self):
         """Reserve the rebuilt Overview tab, beside the napari one it will replace.
@@ -2374,40 +2375,55 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.fm_overview_tab.refresh_positions()
 
     def _on_fm_overview_availability(self, available: bool):
-        """Enable the tab when it has something to drive.
+        """Enable the tab when it has something to drive, and say why when it does not.
 
         The one thing about the tab that is not the tab's own business: it has no
         business reaching out to the tab bar it happens to sit in.
+
+        The tab is never hidden. A greyed tab that explains itself is easier to live
+        with than one that appears and vanishes depending on what the microscope turned
+        out to be — but that is only true *because* of the tooltip, so the two are set
+        together here rather than in separate passes.
+
+        Qt does show a tooltip on a disabled tab: the `QTabBar` stays enabled and only
+        the tab within it is disabled, so the hover still lands. Worth stating because
+        disabled *widgets* do swallow tooltips, which makes this look doubtful.
         """
-        self.tab_widget.setTabEnabled(
-            self.tab_widget.indexOf(self.fm_overview_tab), available
+        index = self.tab_widget.indexOf(self.fm_overview_tab)
+        self.tab_widget.setTabEnabled(index, available)
+        self.tab_widget.setTabToolTip(
+            index, "" if available else self._fm_overview_unavailable_reason()
         )
 
-    def _apply_fm_overview_visibility(self):
-        """Show or hide the FM Overview tab to match the instrument, immediately.
+    def _fm_overview_unavailable_reason(self) -> str:
+        """Why the FM Overview tab is greyed out, in the user's terms.
 
-        The widget inside is built and destroyed along with the tab rather than left
-        behind hidden. It subscribes to the microscope's stage signal for its lifetime,
-        so a hidden one would go on doing work on every poll for a tab nobody can reach
-        — and would still be holding a psygnal reference to tear down later.
-
-        Two different absences, deliberately handled differently:
-
-        * **A connected microscope with no fluorescence detector** will never drive this
-          tab, so it is hidden. Leaving it visible means a permanently greyed-out tab
-          with nothing to say why, on every system without an FM.
-        * **No microscope yet** is temporary, so the tab stays visible and disabled,
-          which is what every other tab does while waiting for a connection.
+        Two absences that look identical on the tab bar but are not: one is waiting for
+        something that is about to happen, the other is a fact about this system that
+        will not change. `availability_changed` is a bool and cannot carry the
+        difference, so it is worked out here — the window already holds the microscope.
         """
-        if getattr(self, "fm_overview_tab", None) is None:
-            return
-        index = self.tab_widget.indexOf(self.fm_overview_tab)
         microscope = (
             self.autolamella_ui.microscope if self.autolamella_ui is not None else None
         )
-        has_no_fm = microscope is not None and microscope.fm is None
-        self.tab_widget.setTabVisible(index, not has_no_fm)
-        # Builds when there is an FM, tears down otherwise.
+        if microscope is None:
+            return "Connect a microscope to use the FM Overview"
+        return "No Fluorescence Microscope Available"
+
+    def _refresh_fm_overview_microscope(self):
+        """Build or drop the FM Overview widget to match the instrument.
+
+        The widget is built and destroyed rather than left behind hidden. It subscribes
+        to the microscope's stage signal for its lifetime, so one kept around would go
+        on doing work on every poll for a tab nobody can reach — and would still be
+        holding a psygnal reference to tear down later.
+
+        Whether the tab can be *used* is a separate question, answered by
+        `availability_changed` coming back through
+        :meth:`_on_fm_overview_availability`. This method does not touch the tab bar.
+        """
+        if getattr(self, "fm_overview_tab", None) is None:
+            return
         self.fm_overview_tab.refresh_microscope()
 
     def _on_notification_service(

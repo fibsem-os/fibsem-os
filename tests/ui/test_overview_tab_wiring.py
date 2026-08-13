@@ -146,13 +146,18 @@ def test_the_new_tab_is_rebuilt_wherever_its_twin_is(self_calls):
     """The per-tab builders are self-calls, so the attribute-based check above cannot
     see them -- each tab's builder is excluded there as its own method.
 
-    This is the one that matters most: `_apply_*_visibility` is what hands a tab the
+    This is the one that matters most: the twin's builder is what hands a tab the
     current microscope, and a tab that holds its microscope for life and is not told
     about a reconnection goes on reading geometry from an instrument nobody is driving.
     Both call sites count -- a preferences change and a connection -- and a mutation
     removing only the connection one survived until this existed.
+
+    The twin's builder is `_refresh_fm_overview_microscope` since FIB-609 shipped that
+    tab to everyone with an FM: it no longer answers a preference, only "is there an
+    instrument". The assertion below is a superset check, so the new tab having the
+    extra preference-driven call site of its own is fine -- it still has a flag.
     """
-    twin = self_calls.get("_apply_fm_overview_visibility", set())
+    twin = self_calls.get("_refresh_fm_overview_microscope", set())
     new = self_calls.get("_apply_overview_canvas_visibility", set())
     assert twin, "the twin's builder is no longer called; this test is stale"
     missing = {c for c in twin - new if "fm_overview" not in c and "overview_canvas" not in c}
