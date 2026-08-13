@@ -1240,3 +1240,53 @@ class TestLifecycle:
         with pytest.raises(TypeError):
             FibsemOverviewWidget(microscope, viewer=object())  # type: ignore[call-arg]
         widget.close()
+
+
+class TestTheTileMaskSurvivesTheSettingsWidget:
+    """A mask is carried by the settings widget, though nothing draws one yet.
+
+    `get_settings()` builds a *new* `OverviewAcquisitionSettings` on every call, and it
+    is called on every overlay refresh -- so a mask set anywhere else would be dropped
+    almost immediately unless the widget holds it. The control that sets it is the tile
+    grid on the canvas (FIB-617); this is the plumbing it lands on.
+    """
+
+    @staticmethod
+    def _mask(rows, cols, disabled=()):
+        disabled = set(disabled)
+        return [[(i, j) not in disabled for j in range(cols)] for i in range(rows)]
+
+    def test_no_mask_by_default(self, widget):
+        assert widget._settings().tile_mask is None
+
+    def test_a_mask_reaches_the_settings(self, widget):
+        settings_widget = widget.settings_widget
+        settings_widget.nrows_spinbox.setValue(3)
+        settings_widget.ncols_spinbox.setValue(3)
+        settings_widget.tile_mask = self._mask(3, 3, disabled=[(1, 1)])
+
+        settings = widget._settings()
+        assert settings.tile_mask[1][1] is False
+        assert settings.n_enabled_tiles == 8
+
+    def test_reading_twice_does_not_lose_it(self, widget):
+        """The failure this exists to prevent: every overlay refresh reads the widget."""
+        settings_widget = widget.settings_widget
+        settings_widget.tile_mask = self._mask(3, 3, disabled=[(0, 0)])
+        for _ in range(3):
+            widget._refresh_context_overlays()
+        assert widget._settings().tile_mask is not None
+
+    def test_a_mask_that_no_longer_fits_the_grid_is_dropped(self, widget):
+        """Rows and columns are spin boxes; the mask is positional. `compute_tile_grid`
+        rejects a mismatched one outright, so carrying it on would turn resizing the
+        grid into a failed run rather than a bigger acquisition."""
+        settings_widget = widget.settings_widget
+        settings_widget.nrows_spinbox.setValue(3)
+        settings_widget.ncols_spinbox.setValue(3)
+        settings_widget.tile_mask = self._mask(3, 3, disabled=[(0, 0)])
+        assert widget._settings().tile_mask is not None
+
+        settings_widget.ncols_spinbox.setValue(4)
+        assert widget._settings().tile_mask is None, "a stale mask was carried on"
+        assert widget._settings().n_enabled_tiles == 12

@@ -148,7 +148,7 @@ class TiledAcquisitionRunner:
         current *phase* (moving / acquiring / finished), and reusing it here for a
         terminal *outcome* would collide on "finished" while meaning something else.
         """
-        total_tiles = self.settings.nrows * self.settings.ncols
+        total_tiles = self.settings.n_enabled_tiles
         self.microscope.tiled_acquisition_signal.emit({
             "msg": message,
             "counter": getattr(self, "_n_tiles_acquired", 0),
@@ -187,7 +187,7 @@ class TiledAcquisitionRunner:
         self.microscope.tiled_acquisition_signal.emit({
             "msg": "Computing Tile Positions",
             "counter": 0,
-            "total": self.settings.nrows * self.settings.ncols,
+            "total": self.settings.n_enabled_tiles,
         })
 
     def _compute_grid(self) -> None:
@@ -218,7 +218,12 @@ class TiledAcquisitionRunner:
         self._dx_step = tile_fov_x * (1 - overlap)
         self._dy_step = tile_fov_y * (1 - overlap)
 
-        self._tiles = compute_tile_grid(settings)
+        # The mask reaches the layout, not the traversal: `compute_tile_grid` still
+        # returns the disabled tiles so the grid keeps its shape, and `order_tiles`
+        # drops them *after* ordering -- so a sparse run walks the path the dense one
+        # would have and misses stops along it, rather than re-deriving a pattern over
+        # the holes.
+        self._tiles = compute_tile_grid(settings, mask=settings.tile_mask)
         self._ordered = order_tiles(self._tiles, settings.tile_order)
 
         self._start_state = self.microscope.get_microscope_state()
@@ -263,7 +268,7 @@ class TiledAcquisitionRunner:
         """Move to each tile, autofocus as configured, acquire, and stitch into the canvas."""
         image_settings = self._image_settings
         image_width, image_height = image_settings.resolution
-        total_tiles = self.settings.nrows * self.settings.ncols
+        total_tiles = self.settings.n_enabled_tiles
         self._first_image: Optional[FibsemImage] = None
         self._n_tiles_acquired: int = 0
         prev_row = -1
@@ -342,7 +347,7 @@ class TiledAcquisitionRunner:
             raise ValueError("No tiles were acquired; cannot stitch.")
 
         signal = self.microscope.tiled_acquisition_signal
-        total_tiles = self.settings.nrows * self.settings.ncols
+        total_tiles = self.settings.n_enabled_tiles
         signal.emit({"msg": "Stitching Tiles", "counter": total_tiles, "total": total_tiles})
         # deepcopy so the stitched image gets its OWN metadata snapshot — the edits below
         # (hfw → total FOV, stitched resolution) must not mutate the caller's shared

@@ -282,15 +282,21 @@ from fibsem.cancellation import OperationCancelledError
 from fibsem.imaging.tiled import TiledAcquisitionRunner
 
 
-def _runner_with_recorded_signal(monkeypatch):
-    """A runner whose phases are stubbed, recording what it emits."""
+def _runner_with_recorded_signal(monkeypatch, settings=None):
+    """A runner whose phases are stubbed, recording what it emits.
+
+    Real `OverviewAcquisitionSettings`, not a mock of one: the terminal payload's
+    `total` is now `n_enabled_tiles`, which a `MagicMock(nrows=2, ncols=3)` answers
+    with another mock. The assertion `total == 6` then compares a mock to an int and
+    the test says the payload is wrong when the payload is fine.
+    """
     emitted = []
     microscope = MagicMock()
     microscope.tiled_acquisition_signal.emit = emitted.append
 
     runner = TiledAcquisitionRunner.__new__(TiledAcquisitionRunner)
     runner.microscope = microscope
-    runner.settings = MagicMock(nrows=2, ncols=3)
+    runner.settings = settings if settings is not None else _make_settings(2, 3)
     runner.stop_event = None
     runner._setup = lambda: None
     runner._compute_grid = lambda: None
@@ -353,3 +359,104 @@ def test_the_terminal_payload_satisfies_existing_consumers(monkeypatch):
 
     for key in ("msg", "counter", "total"):
         assert key in emitted[-1], f"consumers index {key!r} without a default"
+
+
+# ---------------------------------------------------------------------------
+# sparse tilesets (FIB-618)
+#
+# The layout half of the mask is covered in `tests/test_sparse_tiles.py`, against
+# the geometry core both tilers share. What is left, and what these cover, is the
+# beam side actually *using* it: the settings carrying a mask, the runner passing
+# it on, and every count that a progress bar reads coming from the enabled tiles
+# rather than from the grid's shape.
+# ---------------------------------------------------------------------------
+
+
+def _mask(nrows, ncols, disabled=()):
+    disabled = set(disabled)
+    return [[(i, j) not in disabled for j in range(ncols)] for i in range(nrows)]
+
+
+def test_no_mask_counts_the_whole_grid():
+    assert _make_settings(3, 4).n_enabled_tiles == 12
+
+
+def test_a_mask_counts_only_what_would_be_acquired():
+    s = _make_settings(3, 3)
+    s.tile_mask = _mask(3, 3, disabled=[(0, 0), (2, 2), (1, 1)])
+    assert s.n_enabled_tiles == 6
+
+
+def test_the_mask_survives_a_round_trip():
+    s = _make_settings(2, 2)
+    s.tile_mask = _mask(2, 2, disabled=[(0, 1)])
+    restored = OverviewAcquisitionSettings.from_dict(s.to_dict())
+    assert restored.tile_mask == s.tile_mask
+
+
+def test_a_numpy_mask_is_stored_as_plain_bools():
+    """`np.bool_` does not survive `yaml.safe_dump`, and a mask drawn on a canvas or
+    built from an array is exactly how one arrives."""
+    np = pytest.importorskip("numpy")
+    s = _make_settings(2, 2)
+    s.tile_mask = np.array([[True, False], [False, True]])
+    stored = s.to_dict()["tile_mask"]
+    assert all(type(v) is bool for row in stored for v in row)
+
+
+def test_settings_with_no_mask_round_trip_to_none():
+    """The default has to stay None rather than becoming an all-True grid: None is
+    what tells `compute_tile_grid` there is nothing to validate against the shape."""
+    restored = OverviewAcquisitionSettings.from_dict(_make_settings(2, 2).to_dict())
+    assert restored.tile_mask is None
+
+
+def _demo_runner(settings, tmp_path):
+    """A runner planned against the simulator, stopping before any acquisition."""
+    from fibsem import utils
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    emitted = []
+    microscope.tiled_acquisition_signal.connect(emitted.append)
+    settings.image_settings.path = str(tmp_path)
+    settings.image_settings.filename = "overview-image"
+    runner = TiledAcquisitionRunner(microscope, settings)
+    runner._setup()
+    runner._compute_grid()
+    return runner, emitted
+
+
+def test_the_runner_plans_only_the_enabled_tiles(tmp_path):
+    """The mask has to reach `compute_tile_grid`. Without it the runner drives the
+    stage to every tile in the rectangle and the mask is decoration."""
+    settings = _make_settings(3, 3)
+    settings.tile_mask = _mask(3, 3, disabled=[(0, 0), (0, 1)])
+    runner, _ = _demo_runner(settings, tmp_path)
+
+    assert len(runner._ordered) == 7
+    assert (0, 0) not in [(t.row, t.col) for t in runner._ordered]
+    # The grid keeps its shape, so the mosaic and the canvas coordinates do not move.
+    assert len(runner._tiles) == 9
+
+
+def test_a_masked_run_does_not_report_a_short_count(tmp_path):
+    """The failure this is really about. Every progress payload's `total` used to be
+    `nrows * ncols`, so a 3x3 with two tiles masked off finished reading "7 / 9" --
+    which is what a cancelled or failed run looks like."""
+    settings = _make_settings(3, 3)
+    settings.tile_mask = _mask(3, 3, disabled=[(0, 0), (0, 1)])
+    runner, emitted = _demo_runner(settings, tmp_path)
+
+    assert emitted, "the runner said nothing while planning"
+    assert emitted[0]["total"] == 7
+
+    runner._n_tiles_acquired = 7
+    runner._emit_terminal("finished", "Acquisition Complete")
+    assert emitted[-1]["counter"] == emitted[-1]["total"] == 7
+
+
+def test_an_unmasked_run_still_reports_the_whole_grid(tmp_path):
+    """The other half: no mask must not quietly change what a dense run reports."""
+    runner, emitted = _demo_runner(_make_settings(2, 3), tmp_path)
+    assert emitted[0]["total"] == 6
+    assert len(runner._ordered) == 6
