@@ -265,13 +265,9 @@ class FibsemOverviewWidget(QWidget):
         # The view the canvas is showing. None only before the stage position and the
         # settings are both known; `_seed_frame` fills it in from where the stage is.
         self._current_view: Optional["OverviewView"] = None
-        # The beam the settings last named, so a change of beam can be told from any
-        # other settings change. See `_follow_the_planned_beam`.
-        self._planned_beam: Optional[BeamType] = None
-        # Whether the displayed view has been decided by something other than where the
-        # stage happens to be -- an image arriving, or the user picking one. Until then
-        # the canvas is a live plan of the next run and follows the stage.
-        self._view_pinned = False
+        # The view the next run would have landed in, last time anything looked. Kept
+        # so a *change* can be told from a refresh -- see `_follow_the_acquisition_view`.
+        self._planned_view: Optional["OverviewView"] = None
         # Where the next run is planned around, if the grid has been dragged off the
         # stage. None means "wherever the stage is", which is also what the runner
         # falls back to -- so the drawn grid and the acquisition agree by default.
@@ -490,9 +486,6 @@ class FibsemOverviewWidget(QWidget):
     def _on_view_selected(self, _index: int) -> None:
         view = self.combo_view.value()
         if isinstance(view, OverviewView):
-            # Chosen, so the canvas stops following the stage -- otherwise re-posing
-            # would silently undo the choice.
-            self._view_pinned = True
             self.show_view(view)
 
     def _refresh_view_selector(self) -> None:
@@ -699,7 +692,7 @@ class FibsemOverviewWidget(QWidget):
 
     def _on_settings_changed(self) -> None:
         """The planned overview changed shape, so redraw what it would cover."""
-        self._follow_the_planned_beam()
+        self._follow_the_acquisition_view()
         if self.tile_grid_overlay.is_dragging:
             # Dragging an edge writes rows and columns to the settings widget, so this
             # runs on every motion event of a resize too -- and the grid is the only
@@ -716,26 +709,30 @@ class FibsemOverviewWidget(QWidget):
         # the canvas rather than from the controls that already refresh it.
         self._apply_enabled_state()
 
-    def _follow_the_planned_beam(self) -> None:
-        """Show the view the next run would land in when the beam changes.
+    def _follow_the_acquisition_view(self) -> None:
+        """Show the view the next run would land in, whenever that changes.
 
-        Choosing a beam is a statement about the *next acquisition*, so the canvas has
-        to show where that run will appear. Without this the planned grid vanishes at
-        exactly the moment you are planning: it refuses to draw on a view the run will
-        not land in, and switching beam is precisely what makes the displayed view stop
-        being that one.
+        A view is `(beam, orientation)`, and both halves are things a user changes
+        deliberately: picking a beam in the settings, or re-posing the stage. Either
+        way what they have said is "the next run happens *there*", and the canvas has
+        to show there -- otherwise the planned grid vanishes at exactly the moment they
+        are planning, since it refuses to draw on a view the run will not land in.
 
-        Deliberately not the same treatment a stage move gets. Moving the stage is not
-        a statement about what to look at, and following it would drag the reader off
-        the overview they are reading -- which is what the view pin exists to prevent.
-        Choosing a beam has no other meaning.
+        This was once beam-only, on the theory that moving the stage is not a statement
+        about what to look at. That distinction does not survive contact: a stage move
+        *within* an orientation does not change the view at all, so the only move this
+        reacts to is a change of orientation -- which is as deliberate as choosing a
+        beam, and never happens by accident.
+
+        On change, not on every refresh, which is what leaves room for the view
+        selector: an explicit choice stands until the next run would land somewhere
+        else.
         """
-        beam = self.beam_type
-        if beam == self._planned_beam:
-            return
-        self._planned_beam = beam
         view = self.acquisition_view
-        if view is not None and view != self._current_view:
+        if view is None or view == self._planned_view:
+            return
+        self._planned_view = view
+        if view != self._current_view:
             self.show_view(view)
 
     # ── the frame ────────────────────────────────────────────────────────
@@ -814,15 +811,11 @@ class FibsemOverviewWidget(QWidget):
         if view is None or self._stage_position is None:
             return
 
-        # Follow the stage only while nothing has decided otherwise. Once an image has
-        # been placed, or the user has picked a view, the displayed view is theirs and
-        # re-posing the stage must not drag them off it -- that is what
-        # `_refresh_view_note` is for.
-        #
-        # A pin rather than "is the canvas empty": `show_view` clears the canvas before
-        # re-placing, and this runs from inside it, so an emptiness test flips the view
-        # back to the stage's half way through switching to another one.
-        if not self._view_pinned and view != self._current_view:
+        # Only the very first time, to give the canvas something to draw in. Steering
+        # after that belongs to `_follow_the_acquisition_view`, which acts on *changes*
+        # -- this runs on every refresh, including from inside `show_view`, so choosing
+        # here would undo a switch half way through making it.
+        if self._current_view is None:
             self._current_view = view
             self._refresh_view_selector()
 
@@ -997,10 +990,6 @@ class FibsemOverviewWidget(QWidget):
         view = self._view_of(image)
         if view is None:
             return None
-        # An image decides the view from here on, so the canvas stops following the
-        # stage. Set before the switch below, because `show_view` refreshes the
-        # overlays and the seeding that runs there would otherwise pull the view back.
-        self._view_pinned = True
         if self._current_view is None:
             self._current_view = view
             self._refresh_view_selector()
@@ -1137,22 +1126,15 @@ class FibsemOverviewWidget(QWidget):
     def remove_overview(self, record_id: str) -> bool:
         """Take one overview off the canvas entirely. False if the id is unknown.
 
-        Removing the last one puts the tab back where it started, so it goes back to
-        following the stage too. Otherwise you would be left looking at an empty canvas
-        pinned to a view nothing is in, which is the state this whole seeding exists to
-        avoid -- and the pin came from an image that is no longer there to justify it.
-        Cleared before the refresh below, so the canvas re-points in the same pass.
-
-        Hidden is not removed: `set_overview_visible` leaves the record, and a view you
-        can bring back with a checkbox is still a view you chose to be in.
+        The canvas stays on the view the removed overview was in rather than jumping
+        elsewhere: the view still describes where the next run would land if the stage
+        is there, and `_follow_the_acquisition_view` moves it when that stops being true.
         """
         record = self._records.pop(record_id, None)
         if record is None:
             return False
         for key in record.keys:
             self.canvas.remove_image(key)
-        if not self._records:
-            self._view_pinned = False
         self._refresh_context_overlays()
         self._refresh_overview_list()
         return True
@@ -1526,6 +1508,9 @@ class FibsemOverviewWidget(QWidget):
         if self._running:
             self._refresh_position_markers()
             return
+        # A re-pose changes which view the next run lands in, and the canvas follows it
+        # the same way it follows a change of beam.
+        self._follow_the_acquisition_view()
         self._refresh_context_overlays()
 
     def _refresh_current_position(self) -> None:

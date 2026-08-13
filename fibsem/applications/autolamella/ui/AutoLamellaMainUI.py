@@ -1281,6 +1281,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         if ddict.get("finished"):
             self.progress_widget.update_progress(ProgressUpdate.done())
+            # Hide the Done state after a moment, the same way spot burn does above.
+            # It used to be cleared by `_on_tile_acquisition_finished`, which is wired
+            # to the napari minimap's own signal -- so a run driven from anywhere else
+            # left "Done" in the status bar for the rest of the session. Doing it from
+            # the progress signal covers every producer of it, and `reset_if_finished`
+            # leaves the widget alone if something else has started reporting since.
+            QTimer.singleShot(2000, self.progress_widget.reset_if_finished)
         elif counter >= total:
             self.progress_widget.update_progress(ProgressUpdate.indeterminate(msg))
         else:

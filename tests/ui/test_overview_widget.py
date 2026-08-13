@@ -960,65 +960,6 @@ class TestTheCanvasDrawsBeforeAnythingIsAcquired:
         assert widget._origins[view].x == pytest.approx(far.x)
         assert widget._origins[view].y == pytest.approx(far.y)
 
-    def test_the_view_follows_the_stage_until_an_image_pins_it(self, widget, microscope):
-        """While the canvas is a plan of the next run it should describe where the
-        stage *is*. Once an image has been placed the displayed view is about data,
-        and re-posing the stage must not drag the user off it."""
-        widget._on_stage_moved(self._at(microscope, "MILLING"))
-        assert widget.current_view.orientation == "MILLING", "the plan did not follow"
-
-        widget._on_stage_moved(self._at(microscope, "SEM"))
-        widget.place_image(_tile(microscope, self._at(microscope, "SEM")), key="a")
-        pinned = widget.current_view
-
-        widget._on_stage_moved(self._at(microscope, "MILLING"))
-        assert widget.current_view == pinned, (
-            "moving the stage switched the canvas away from the acquired view"
-        )
-
-    def test_removing_the_last_overview_goes_back_to_following_the_stage(
-        self, widget, microscope
-    ):
-        """An empty canvas pinned to a view nothing is in is the state this seeding
-        exists to avoid, and the image that pinned it is no longer there to justify
-        it."""
-        widget.set_image(_tile(microscope, self._at(microscope, "SEM")))
-        widget._on_stage_moved(self._at(microscope, "MILLING"))
-        assert widget.current_view.orientation == "SEM", "pinned by the image"
-
-        record_id = widget.overviews[0].id
-        assert widget.remove_overview(record_id) is True
-        assert widget.current_view.orientation == "MILLING", (
-            "the canvas is empty but still pinned to the removed image's view"
-        )
-
-    def test_removing_one_of_several_keeps_the_view(self, widget, microscope):
-        """Only the *last* one releases the pin. Tidying one overview off a canvas that
-        still holds others must not hand the view back to the stage underneath the
-        user -- they are still looking at data."""
-        widget.set_image(_tile(microscope, self._at(microscope, "SEM")))
-        widget.set_image(
-            _tile(microscope, _at(self._at(microscope, "SEM"), dx=200e-6))
-        )
-        assert len(widget.overviews) == 2
-
-        assert widget.remove_overview(widget.overviews[0].id) is True
-        widget._on_stage_moved(self._at(microscope, "MILLING"))
-        assert widget.current_view.orientation == "SEM", (
-            "removing one of two overviews unpinned the view"
-        )
-
-    def test_hiding_an_overview_is_not_removing_it(self, widget, microscope):
-        """A view you can bring back with a checkbox is still a view you chose."""
-        widget.set_image(_tile(microscope, self._at(microscope, "SEM")))
-        record_id = widget.overviews[0].id
-        widget.set_overview_visible(record_id, False)
-
-        widget._on_stage_moved(self._at(microscope, "MILLING"))
-        assert widget.current_view.orientation == "SEM", (
-            "hiding an overview unpinned the view"
-        )
-
     def test_an_image_is_drawn_at_its_own_size_whatever_the_scale_was_seeded_to(
         self, widget, microscope
     ):
@@ -1530,18 +1471,57 @@ class TestTheCanvasFollowsTheBeamYouPlanWith:
         widget.settings_widget.beam_type_combo.set_value(BeamType.ELECTRON)
         assert len(widget.canvas.placed_keys) == 1, "the electron overview did not come back"
 
-    def test_a_stage_move_still_does_not_steal_the_view(self, widget, microscope):
-        """The distinction this rests on: choosing a beam is a statement about the next
-        run, moving the stage is not. Following a stage move would drag the reader off
-        the overview they are reading."""
+    def test_re_posing_the_stage_moves_the_canvas_with_it(self, widget, microscope):
+        """Reported from the tab: moving to the milling orientation left the display and
+        the planned grid describing the pose the stage had *left*.
+
+        This was once deliberate -- a stage move was held not to be a statement about
+        what to look at. The distinction does not survive contact: a move *within* an
+        orientation does not change the view at all, so the only move that reaches here
+        is a change of orientation, which is as deliberate as choosing a beam.
+        """
         widget.set_image(self._image(microscope, BeamType.ELECTRON))
-        showing = widget.current_view
+        assert widget.current_view.orientation == "SEM"
 
         pose = microscope.get_orientation("MILLING")
         widget._on_stage_moved(
             FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t)
         )
+        assert widget.current_view.orientation == "MILLING"
+        assert widget.tile_grid_overlay._tiles, "the planned grid did not come with it"
+
+    def test_a_move_within_an_orientation_leaves_the_view_alone(self, widget, microscope):
+        """The other half, and why following an orientation change is safe: steering
+        around inside a view -- which is what clicking the canvas does -- must not
+        reshuffle what is on screen."""
+        widget.set_image(self._image(microscope, BeamType.ELECTRON))
+        showing = widget.current_view
+        placed = len(widget.canvas.placed_keys)
+
+        here = microscope.get_stage_position()
+        widget._on_stage_moved(
+            FibsemStagePosition(x=here.x + 250e-6, y=here.y, z=here.z, r=here.r, t=here.t)
+        )
         assert widget.current_view == showing
+        assert len(widget.canvas.placed_keys) == placed
+
+    def test_a_chosen_view_stands_until_the_run_would_land_elsewhere(
+        self, widget, microscope
+    ):
+        """Following on *change* rather than on every refresh is what leaves room for
+        the selector: picking a view has to survive the next redraw."""
+        widget.set_image(self._image(microscope, BeamType.ELECTRON))
+        sem = widget.current_view
+        pose = microscope.get_orientation("MILLING")
+        widget._on_stage_moved(
+            FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t)
+        )
+        assert widget.current_view != sem
+
+        widget.show_view(sem)
+        widget._refresh_context_overlays()
+        widget._refresh_context_overlays()
+        assert widget.current_view == sem, "the redraw undid the choice"
 
     def test_the_view_the_run_would_land_in_is_always_selectable(self, widget, microscope):
         """And when a stage move does take the plan elsewhere, there has to be a way to

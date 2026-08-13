@@ -227,3 +227,27 @@ def test_the_napari_overview_tab_is_untouched(window_source):
     back to, and the swap is its own change."""
     assert "self.add_minimap_tab()" in window_source
     assert "FibsemMinimapWidget(" in window_source
+
+
+def test_the_done_state_in_the_status_bar_clears_itself(window_source):
+    """The shared progress widget shows "Done" when a tiled run finishes, and something
+    has to take it away again.
+
+    That used to be `_on_tile_acquisition_finished`, which is connected to the *napari
+    minimap's* own signal -- so a run driven from the rebuilt tab left a green "Done"
+    bar in the status bar for the rest of the session. Scheduling the hide from the
+    progress signal instead covers every producer of it.
+    """
+    import ast
+
+    tree = ast.parse(window_source)
+    handler = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_on_tile_acquisition_progress"
+    )
+    body = ast.dump(handler)
+    assert "reset_if_finished" in body, (
+        "nothing hides the Done state; it stays until another operation replaces it"
+    )
+    assert "singleShot" in body, "the hide has to be delayed, or Done is never seen"
