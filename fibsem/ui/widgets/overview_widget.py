@@ -213,14 +213,15 @@ class OverviewView(NamedTuple):
 
     @property
     def orientation_label(self) -> str:
-        """The orientation, cased as it is said.
+        """The orientation, exactly as the microscope names it.
 
-        `title()` alone turns the two that are acronyms into "Sem" and "Fib", which
-        reads as a mistake and undoes the point of naming both halves clearly.
+        Uppercase throughout rather than title case, because these are the instrument's
+        own names -- SEM, FIB, MILLING -- and two of them are acronyms. Title-casing
+        rendered those as "Sem" and "Fib", which reads as a mistake; casing them by
+        rule instead means a rule to remember, and a new orientation name would have to
+        be added to it. Showing them verbatim needs neither.
         """
-        if self.orientation.upper() in ("SEM", "FIB", "FM"):
-            return self.orientation.upper()
-        return self.orientation.title()
+        return self.orientation.upper()
 
     @property
     def describe(self) -> str:
@@ -1611,6 +1612,17 @@ class FibsemOverviewWidget(QWidget):
         The view rides along because on this tab it is not a given: the canvas can be
         showing one view while the stage sits in another, and a position without the
         direction it was read from is half an answer.
+
+        So does the milling angle, which is what the stage tilt *means* on the beam
+        side -- the angle the ion beam makes with the sample surface, and the number a
+        milling pose is actually chosen for. The fluorescence tab deliberately leaves it
+        out, on the grounds that it is meaningless through a camera and belongs here if
+        anywhere.
+
+        No hardware: `get_current_milling_angle` is arithmetic over the pose it is
+        given, the same as `get_stage_orientation`. It can refuse -- a position with no
+        tilt has no angle -- and is dropped on its own rather than taking the rest of
+        the line with it.
         """
         position = self._stage_position
         if position is None:
@@ -1620,7 +1632,22 @@ class FibsemOverviewWidget(QWidget):
         view = self.acquisition_view
         if view is not None:
             parts.append(view.label)
+        angle = self._milling_angle()
+        if angle is not None:
+            parts.append(f"milling {angle:.1f}°")
         self.canvas.set_info_text("   |   ".join(parts))
+
+    def _milling_angle(self) -> Optional[float]:
+        """The milling angle for the cached pose, in degrees, or None if it has none."""
+        if self._stage_position is None:
+            return None
+        try:
+            return self.microscope.get_current_milling_angle(
+                stage_position=self._stage_position
+            )
+        except Exception as e:
+            logger.debug(f"Could not work out the milling angle: {e}")
+            return None
 
     def _on_cursor_moved(self, x: Optional[float], y: Optional[float]) -> None:
         """Report the stage position under the pointer, or hide once it leaves.

@@ -1567,8 +1567,8 @@ class TestTheViewChips:
         [
             ("SEM", BeamType.ELECTRON, "SEM @ SEM"),
             ("FIB", BeamType.ION, "FIB @ FIB"),
-            ("MILLING", BeamType.ION, "FIB @ Milling"),
-            ("MILLING", BeamType.ELECTRON, "SEM @ Milling"),
+            ("MILLING", BeamType.ION, "FIB @ MILLING"),
+            ("MILLING", BeamType.ELECTRON, "SEM @ MILLING"),
             ("SEM", BeamType.ION, "FIB @ SEM"),
         ],
     )
@@ -1581,12 +1581,16 @@ class TestTheViewChips:
     def test_a_view_can_spell_itself_out(self):
         """The chip is glanceable; the tooltip is where the words go."""
         view = OverviewView(beam_type=BeamType.ION, orientation="MILLING")
-        assert view.describe == "Ion beam, stage at the Milling orientation."
+        assert view.describe == "Ion beam, stage at the MILLING orientation."
 
-    def test_an_acronym_orientation_keeps_its_case(self):
-        """`title()` alone gives "Sem", which reads as a mistake."""
-        view = OverviewView(beam_type=BeamType.ION, orientation="SEM")
-        assert view.label == "FIB @ SEM"
+    def test_orientations_are_shown_as_the_microscope_names_them(self):
+        """Title-casing rendered the two acronyms as "Sem" and "Fib"; casing by rule
+        instead means a rule to remember, and a new orientation to add to it."""
+        assert OverviewView(beam_type=BeamType.ION, orientation="SEM").label == "FIB @ SEM"
+        assert (
+            OverviewView(beam_type=BeamType.ION, orientation="MILLING").label
+            == "FIB @ MILLING"
+        )
 
     def test_the_view_is_named_even_when_there_is_only_one(self, widget):
         """A lone chip says nothing the info bar does not, and it is still worth drawing:
@@ -1643,3 +1647,46 @@ class TestTheViewChips:
         other = widget._view_chip_buttons[widget.current_view]
         assert marked.styleSheet() != other.styleSheet()
         assert "next acquisition" in marked.toolTip()
+
+
+class TestTheMillingAngleIsOnTheBeamTab:
+    """What the stage tilt *means* on the beam side: the angle the ion beam makes with
+    the sample surface, and the number a milling pose is chosen for.
+
+    The fluorescence tab leaves it out deliberately -- meaningless through a camera --
+    and its own comment says it belongs here if anywhere.
+    """
+
+    def test_the_info_bar_carries_it(self, widget, microscope):
+        expected = microscope.get_current_milling_angle(
+            stage_position=widget._stage_position
+        )
+        assert f"milling {expected:.1f}°" in widget.canvas._info_text
+
+    def test_it_follows_the_stage(self, widget, microscope):
+        before = widget.canvas._info_text
+        pose = microscope.get_orientation("MILLING")
+        widget._on_stage_moved(
+            FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t)
+        )
+        assert widget.canvas._info_text != before
+        assert "milling" in widget.canvas._info_text
+
+    def test_a_pose_with_no_tilt_drops_the_angle_not_the_line(self, widget, monkeypatch):
+        """It can refuse, and the position is the half of the line that always works."""
+        monkeypatch.setattr(
+            widget.microscope, "get_current_milling_angle",
+            lambda **kwargs: (_ for _ in ()).throw(ValueError("no tilt")),
+        )
+        widget._refresh_stage_info()
+        assert widget.canvas._info_text, "the whole info bar went with the angle"
+        assert "milling" not in widget.canvas._info_text
+
+    def test_it_costs_no_hardware_read(self, widget, microscope, monkeypatch):
+        """This runs on every overlay refresh. `get_current_milling_angle` is arithmetic
+        over the pose it is handed -- but only if it is handed one."""
+        monkeypatch.setattr(
+            microscope, "get_stage_position",
+            lambda *a, **k: pytest.fail("the info bar polled the stage"),
+        )
+        widget._refresh_stage_info()
