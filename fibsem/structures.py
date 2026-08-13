@@ -899,6 +899,10 @@ class OverviewAcquisitionSettings:
         nrows: Number of tile rows in the grid.
         ncols: Number of tile columns in the grid.
         overlap: Fractional overlap between adjacent tiles (0.0 = no overlap). Not yet supported.
+        tile_mask: Optional per-tile enable mask, `tile_mask[row][col]`. None acquires
+            every tile. Disabled tiles are skipped but keep their place: the mosaic is
+            still the full grid size and acquired tiles land at the same canvas
+            coordinates they would have in a dense overview.
     """
 
     image_settings: ImageSettings = field(default_factory=ImageSettings)
@@ -908,6 +912,19 @@ class OverviewAcquisitionSettings:
     focus_stack_settings: FocusStackSettings = field(default_factory=FocusStackSettings)
     autofocus_settings: AutoFocusSettings = field(default_factory=AutoFocusSettings)
     tile_order: TileOrderStrategy = TileOrderStrategy.TYPEWRITER
+    tile_mask: Optional[List[List[bool]]] = None
+
+    @property
+    def n_enabled_tiles(self) -> int:
+        """How many tiles a run would actually acquire.
+
+        The number every progress readout has to count towards. `nrows * ncols` is the
+        grid's *shape*, which is still what the mosaic is sized from -- but a masked run
+        that reported it would stop at "6 / 9" and read as a failure.
+        """
+        if self.tile_mask is None:
+            return self.nrows * self.ncols
+        return sum(1 for row in self.tile_mask for enabled in row if enabled)
 
     @property
     def total_fov_x(self) -> float:
@@ -937,6 +954,7 @@ class OverviewAcquisitionSettings:
             fss = FocusStackSettings(enabled=d["use_focus_stack"])
         else:
             fss = FocusStackSettings.from_dict(d.get("focus_stack_settings", {}))
+        mask = d.get("tile_mask")
         return OverviewAcquisitionSettings(
             image_settings=ImageSettings.from_dict(d.get("image_settings", {})),
             nrows=d.get("nrows", 3),
@@ -945,6 +963,7 @@ class OverviewAcquisitionSettings:
             focus_stack_settings=fss,
             autofocus_settings=AutoFocusSettings.from_dict(d.get("autofocus_settings", {})),
             tile_order=TileOrderStrategy(d.get("tile_order", TileOrderStrategy.TYPEWRITER.value)),
+            tile_mask=None if mask is None else [[bool(v) for v in row] for row in mask],
         )
 
     def to_dict(self) -> dict:
@@ -956,6 +975,10 @@ class OverviewAcquisitionSettings:
             "focus_stack_settings": self.focus_stack_settings.to_dict(),
             "autofocus_settings": self.autofocus_settings.to_dict(),
             "tile_order": self.tile_order.value,
+            # plain bools: np.bool_ does not survive yaml.safe_dump, and a mask arriving
+            # from a numpy grid is exactly how one gets here.
+            "tile_mask": None if self.tile_mask is None
+            else [[bool(v) for v in row] for row in self.tile_mask],
         }
 
 

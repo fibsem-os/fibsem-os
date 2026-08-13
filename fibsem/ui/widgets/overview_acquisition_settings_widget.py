@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from typing import Optional
+from typing import List, Optional
 
 from fibsem import constants
 from fibsem.config import AVAILABLE_RESOLUTIONS_ZIP, DEFAULT_SQUARE_RESOLUTION
@@ -36,6 +36,8 @@ class OverviewAcquisitionSettingsWidget(QWidget):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._show_advanced = False
+        # No control for this yet -- see the `tile_mask` property.
+        self._tile_mask: Optional[List[List[bool]]] = None
         self._setup_ui()
         self._connect_signals()
         self._update_total_fov_label()
@@ -240,11 +242,50 @@ class OverviewAcquisitionSettingsWidget(QWidget):
     # Public API
     # ------------------------------------------------------------------
 
+    @property
+    def tile_mask(self) -> Optional[List[List[bool]]]:
+        """Which tiles the next run would acquire, or None for all of them.
+
+        Held here rather than drawn, for now: there is no control for it, and the one
+        that will set it is the tile grid on the canvas (FIB-617). It lives here anyway
+        because `get_settings` builds a *new* settings object on every call, so a mask
+        set anywhere else would be silently dropped the next time anything read the
+        widget -- which is on every overlay refresh.
+        """
+        return self._tile_mask
+
+    @tile_mask.setter
+    def tile_mask(self, mask: Optional[List[List[bool]]]) -> None:
+        self._tile_mask = None if mask is None else [[bool(v) for v in row] for row in mask]
+        self._on_changed()
+
+    def set_grid_size(self, rows: int, cols: int) -> None:
+        """Set both grid dimensions as a single change.
+
+        Setting the two spin boxes one after the other emits `settings_changed` twice
+        and passes through a size nobody asked for -- the new row count against the old
+        column count. That is invisible when a spin box is nudged by hand, and constant
+        when an edge is dragged on the canvas, which emits on every motion event.
+        """
+        rows, cols = int(rows), int(cols)
+        if (rows, cols) == (int(self.nrows_spinbox.value()), int(self.ncols_spinbox.value())):
+            return
+        for spinbox in (self.nrows_spinbox, self.ncols_spinbox):
+            spinbox.blockSignals(True)
+        try:
+            self.nrows_spinbox.setValue(rows)
+            self.ncols_spinbox.setValue(cols)
+        finally:
+            for spinbox in (self.nrows_spinbox, self.ncols_spinbox):
+                spinbox.blockSignals(False)
+        self._on_changed()
+
     def get_settings(self) -> OverviewAcquisitionSettings:
         """Read current widget values and return OverviewAcquisitionSettings."""
         image_settings: ImageSettings = self.image_settings_widget.get_settings()
         image_settings.beam_type = self.beam_type_combo.value()
         return OverviewAcquisitionSettings(
+            tile_mask=self._mask_for_grid(),
             image_settings=image_settings,
             nrows=int(self.nrows_spinbox.value()),
             ncols=int(self.ncols_spinbox.value()),
@@ -257,6 +298,27 @@ class OverviewAcquisitionSettingsWidget(QWidget):
             autofocus_settings=AutoFocusSettings(mode=self.autofocus_combo.value()),
             tile_order=self.tile_order_combo.value(),
         )
+
+    def _mask_for_grid(self) -> Optional[List[List[bool]]]:
+        """The mask, or None if it no longer describes the grid.
+
+        Rows and columns are spin boxes and the mask is positional, so the two go out
+        of step the moment either is changed. `compute_tile_grid` rejects a mismatched
+        mask outright -- correctly, since silently tolerating one would acquire the
+        wrong tiles -- which would turn resizing the grid into a failed run.
+
+        Dropped rather than resized: growing it has to invent whether the new tiles are
+        in or out, and shrinking it throws away a choice. Whatever sets the mask knows
+        which it wants and can set it again; this only has to avoid handing on one that
+        is no longer true.
+        """
+        mask = self._tile_mask
+        if mask is None:
+            return None
+        rows, cols = int(self.nrows_spinbox.value()), int(self.ncols_spinbox.value())
+        if len(mask) != rows or any(len(row) != cols for row in mask):
+            return None
+        return [list(row) for row in mask]
 
     def update_from_settings(self, settings: OverviewAcquisitionSettings):
         """Populate all widgets from an OverviewAcquisitionSettings object."""
@@ -281,6 +343,10 @@ class OverviewAcquisitionSettingsWidget(QWidget):
                   self.focus_stack_autofocus, self.autofocus_combo, self.tile_order_combo]:
             w.blockSignals(False)
 
+        self._tile_mask = (
+            None if settings.tile_mask is None
+            else [[bool(v) for v in row] for row in settings.tile_mask]
+        )
         self.image_settings_widget.update_from_settings(settings.image_settings)
         self._update_total_fov_label()
 
