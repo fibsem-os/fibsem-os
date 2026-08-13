@@ -60,6 +60,13 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         self.nrows_spinbox.setValue(3)
         self.ncols_spinbox = ValueSpinBox(minimum=1, maximum=15, step=1, decimals=0)
         self.ncols_spinbox.setValue(3)
+        # Two spinboxes share one grid cell here, so they are the first thing a narrow
+        # column squeezes -- and below about 80px the +/- buttons take the whole
+        # control and the number stops being drawn at all, leaving what looks like a
+        # broken widget rather than a cramped one. Measured: at 63px nothing renders
+        # while `lineEdit().text()` still reports "3", so no test notices.
+        for _spinbox in (self.nrows_spinbox, self.ncols_spinbox):
+            _spinbox.setMinimumWidth(80)
 
         _tiles_row = QWidget()
         _tiles_layout = QHBoxLayout(_tiles_row)

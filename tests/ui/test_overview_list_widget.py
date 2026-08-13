@@ -16,7 +16,7 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.ui.fm.widgets.fm_overview_widget import PlacedOverviewImageRecord
-from fibsem.ui.fm.widgets.overview_list_widget import OverviewListWidget
+from fibsem.ui.widgets.overview_list_widget import OverviewListWidget
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
