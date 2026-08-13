@@ -664,12 +664,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._preferences.features.scripts_enabled
             or self.script_menu_controller.runner.is_running
         )
-        # Toggle the per-task schedule button in the workflow tab live, so a
-        # scheduled-tasks flag change applies without restarting.
-        if hasattr(self, "lamella_workflow_widget"):
-            self.lamella_workflow_widget.workflow.enable_schedule_button(
-                self._preferences.features.scheduled_tasks
-            )
 
     #### USER SCRIPTS (FIB-338)
 

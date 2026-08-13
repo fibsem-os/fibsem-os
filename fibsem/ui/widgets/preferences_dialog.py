@@ -51,12 +51,6 @@ _TIP_COINCIDENCE   = (
 )
 _LBL_SAMPLE_HOLDER = "Enable Sample Holder Widget"
 _TIP_SAMPLE_HOLDER = "Show the sample holder navigation widget in the main interface."
-_LBL_SCHEDULED     = "Enable Scheduled Tasks"
-_TIP_SCHEDULED     = (
-    "Allow tasks to be scheduled to start at a specific date/time. Adds a scheduling "
-    "control to the task editor; the workflow waits until the scheduled time before "
-    "running that task."
-)
 _LBL_BUG_REPORT    = "Enable Bug Reporter"
 _TIP_BUG_REPORT    = (
     "Show the 'Report an Issue...' option in the Help menu, for reporting bugs and "
@@ -153,15 +147,12 @@ class PreferencesDialog(QDialog):
         self._chk_coincidence_milling.setToolTip(_TIP_COINCIDENCE)
         self._chk_sample_holder = QCheckBox()
         self._chk_sample_holder.setToolTip(_TIP_SAMPLE_HOLDER)
-        self._chk_scheduled_tasks = QCheckBox()
-        self._chk_scheduled_tasks.setToolTip(_TIP_SCHEDULED)
         self._chk_bug_report = QCheckBox()
         self._chk_bug_report.setToolTip(_TIP_BUG_REPORT)
         self._chk_scripts = QCheckBox()
         self._chk_scripts.setToolTip(_TIP_SCRIPTS)
         features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
         features_form.addRow(_LBL_SAMPLE_HOLDER, self._chk_sample_holder)
-        features_form.addRow(_LBL_SCHEDULED, self._chk_scheduled_tasks)
         features_form.addRow(_LBL_BUG_REPORT, self._chk_bug_report)
         features_form.addRow(_LBL_SCRIPTS, self._chk_scripts)
         self._stack.addWidget(features_page)
@@ -233,7 +224,6 @@ class PreferencesDialog(QDialog):
         f = prefs.features
         self._chk_coincidence_milling.setChecked(f.coincidence_milling_enabled)
         self._chk_sample_holder.setChecked(f.sample_holder_widget)
-        self._chk_scheduled_tasks.setChecked(f.scheduled_tasks)
         self._chk_bug_report.setChecked(f.bug_report_enabled)
         self._chk_scripts.setChecked(f.scripts_enabled)
 
@@ -304,7 +294,6 @@ class PreferencesDialog(QDialog):
             features=FeatureFlags(
                 coincidence_milling_enabled=self._chk_coincidence_milling.isChecked(),
                 sample_holder_widget=self._chk_sample_holder.isChecked(),
-                scheduled_tasks=self._chk_scheduled_tasks.isChecked(),
                 bug_report_enabled=self._chk_bug_report.isChecked(),
                 scripts_enabled=self._chk_scripts.isChecked(),
             ),

@@ -18,7 +18,6 @@ from PyQt5.QtWidgets import (
 )
 from fibsem.ui.icon import fibsem_icon
 
-import fibsem.config as fcfg
 from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import TitledPanel
@@ -186,8 +185,6 @@ class WorkflowTaskEditorWidget(QWidget):
         self._dt_edit.dateTimeChanged.connect(self._refresh_schedule_hint)
         self._refresh_schedule_hint()
 
-        self._schedule_container.setVisible(fcfg.FEATURE_SCHEDULED_TASKS_ENABLED)
-
         self._props_panel = TitledPanel("Properties", content=props_content, collapsible=False)
         root.addWidget(self._props_panel)
 
@@ -318,9 +315,6 @@ class WorkflowTaskEditorWidget(QWidget):
         self._dt_edit.setDateTime(self._qdatetime_for(task))
         self._dt_edit.setEnabled(task.scheduled_at is not None)
         self._refresh_schedule_hint()
-        # re-read the flag each open so a Preferences toggle takes effect
-        # without restarting (the dialog is persistent and reused).
-        self._schedule_container.setVisible(fcfg.FEATURE_SCHEDULED_TASKS_ENABLED)
 
         self._populate_requirements(task)
 
@@ -364,13 +358,10 @@ class WorkflowTaskEditorWidget(QWidget):
             for row in self._req_rows
             if row.checkbox.isChecked()
         ]
-        # Only touch scheduled_at when the feature is enabled; otherwise leave
-        # any previously-saved schedule untouched (the controls are hidden).
-        if fcfg.FEATURE_SCHEDULED_TASKS_ENABLED:
-            if self._schedule_cb.isChecked():
-                self._task.scheduled_at = (
-                    self._dt_edit.dateTime().toPyDateTime().replace(second=0, microsecond=0)
-                )
-            else:
-                self._task.scheduled_at = None
+        if self._schedule_cb.isChecked():
+            self._task.scheduled_at = (
+                self._dt_edit.dateTime().toPyDateTime().replace(second=0, microsecond=0)
+            )
+        else:
+            self._task.scheduled_at = None
         self.apply_clicked.emit(self._task)
