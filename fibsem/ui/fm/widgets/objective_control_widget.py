@@ -22,6 +22,7 @@ from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
+from superqt import ensure_main_thread
 from superqt.utils import qdebounced
 from fibsem.ui.utils import message_box_ui
 from fibsem.ui.napari.utilities import update_text_overlay
@@ -199,6 +200,21 @@ class ObjectiveControlWidget(QWidget):
         self.doubleSpinBox_objective_limit.valueChanged.connect(self.on_objective_limit_changed)
         self.pushButton_refresh_position.clicked.connect(lambda: self.update_objective_position_labels(None))
 
+        # Moves this widget did not make -- an autofocus sweep, a z-stack, the overview
+        # runner -- left the spinbox showing the position from before them. It only ever
+        # refreshed after its own actions (FIB-576).
+        #
+        # A plain bound method, never a Qt signal's `emit`: psygnal holds bound methods
+        # weakly and matches them at disconnect, and PyQt rebuilds `emit` on every access
+        # so psygnal can neither weakref it nor remove it later. Marshalled by
+        # `@ensure_main_thread` on the slot, which is the contract `FibsemMicroscope`
+        # states for its psygnals -- the sweep that moves the objective runs on a worker.
+        #
+        # This is the widget's only psygnal, and it is why `closeEvent` now exists: the
+        # signal outlives the widget, and an emit into one Qt has torn down on the C++
+        # side is a segfault rather than an exception (FIB-550).
+        self.fm.objective.position_changed.connect(self._on_objective_moved)
+
         # set stylesheets
         self.pushButton_insert_objective.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.pushButton_retract_objective.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
@@ -349,6 +365,38 @@ class ObjectiveControlWidget(QWidget):
             if controller is not None:
                 controller.update_info(self.parent_widget.microscope,
                                        objective_position=objective_position)
+
+    @ensure_main_thread
+    def _on_objective_moved(self, position: float, state: str) -> None:
+        """Something moved the objective, and said where it ended up.
+
+        The position comes from the signal rather than a fresh read, so this costs
+        nothing and cannot disagree with the move that prompted it.
+
+        Routed through `update_objective_position_labels`, which blocks the spinbox's
+        signals around `setValue`. Without that block this closes a loop -- setValue
+        raises `valueChanged`, which is wired to `on_objective_position_changed`, which
+        moves the objective, which emits `position_changed` again. Qt does not warn
+        about that; it simply never returns.
+
+        `state` is accepted and unused: the button states it would drive are decided by
+        guards that read the device deliberately, and a stale "Retracted" there is what
+        moves the stage with the objective still in the chamber (FIB-534).
+        """
+        self.update_objective_position_labels(position)
+
+    def closeEvent(self, event) -> None:
+        """Drop the psygnal before Qt takes the widgets down.
+
+        It belongs to the microscope and outlives this widget, and it holds a bound
+        method of an object whose C++ half `close` has already destroyed -- so the next
+        emit writes into freed memory. A segfault, not an exception (FIB-550).
+        """
+        try:
+            self.fm.objective.position_changed.disconnect(self._on_objective_moved)
+        except (TypeError, RuntimeError, ValueError, KeyError):
+            pass
+        super().closeEvent(event)
 
     @pyqtSlot(float)
     def on_objective_position_changed(self, position: float):
