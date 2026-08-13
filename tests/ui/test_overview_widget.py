@@ -40,6 +40,7 @@ from fibsem.structures import (  # noqa: E402
 from fibsem.ui.widgets.overview_widget import (  # noqa: E402
     GRID_BOUNDARY_RADIUS,
     FibsemOverviewWidget,
+    OverviewView,
 )
 
 _app = QApplication.instance() or QApplication(sys.argv)
@@ -722,16 +723,25 @@ class TestViews:
 
     def test_each_view_keeps_its_own_origin(self, widget):
         """Everything in a view is placed relative to that view's anchor. One shared
-        origin would put the FIB tiles wherever the SEM overview happened to start."""
+        origin would put the FIB tiles wherever the SEM overview happened to start.
+
+        Looked up by view rather than counted: the widget also anchors the view the
+        *stage* is in, before anything is acquired, so the dict holds more than the
+        views images were placed in — and that provisional anchor is a third entry
+        whose pose says nothing about these two.
+        """
         scope = widget.microscope
         widget.set_image(self._image(scope, "SEM", BeamType.ELECTRON))
         widget.set_image(self._image(scope, "FIB", BeamType.ION))
 
-        assert len(widget._origins) == 2
-        origins = list(widget._origins.values())
-        assert origins[0].t != pytest.approx(origins[1].t), (
+        sem = OverviewView(beam_type=BeamType.ELECTRON, orientation="SEM")
+        fib = OverviewView(beam_type=BeamType.ION, orientation="FIB")
+        assert sem in widget._origins and fib in widget._origins
+        assert widget._origins[sem].t != pytest.approx(widget._origins[fib].t), (
             "the two views share an origin pose"
         )
+        # Both were fixed by an image, so neither is still the stage's stand-in.
+        assert not ({sem, fib} & widget._provisional)
 
     def test_the_projection_is_per_view(self, widget):
         """The stale-cache bug: after switching beam, drawing kept using the electron
@@ -881,6 +891,98 @@ class TestViews:
         assert widget.position_overlay._points == pytest.approx(in_sem), (
             "coming back to a view did not restore where its markers sit"
         )
+
+
+class TestTheCanvasDrawsBeforeAnythingIsAcquired:
+    """Opening the tab has to show where you are, not a black rectangle.
+
+    A frame needs a projection, a scale and an origin. The projection comes off the
+    instrument, but the other two used to arrive only with the first image -- so the
+    tab was blank until a tile landed, and then everything appeared at once. That is
+    the wrong way round: a planned footprint, the travel limits and the lamella
+    markers are worth the most *before* you acquire.
+    """
+
+    @staticmethod
+    def _at(scope, orientation):
+        pose = scope.get_orientation(orientation)
+        return FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t)
+
+    def test_a_freshly_opened_tab_has_a_frame(self, widget):
+        assert widget._frame() is not None, "nothing can be drawn in stage coordinates"
+        assert widget.current_view is not None, "no view to draw in"
+        assert widget.canvas.reference_pixel_size, "the canvas has no scale"
+
+    def test_it_draws_the_context_with_nothing_placed(self, widget):
+        """The whole point. Every one of these used to wait for the first tile."""
+        assert not widget.canvas.placed_keys, "this test is about the empty canvas"
+        drawn = {spec.label for spec in widget.context_overlay._specs}
+        assert "Stage Limits" in drawn
+        assert "Grid Boundary" in drawn
+        assert "Overview FoV" in drawn, "the planned run is not shown"
+        assert widget.current_position_overlay._points, "the stage is not marked"
+
+    def test_marked_positions_appear_before_any_image(self, widget, microscope):
+        """The host hands over the experiment's lamellae as soon as one is loaded, and
+        that is usually before anything has been acquired in this session."""
+        mark = self._at(microscope, "SEM")
+        mark.name = "L1"
+        widget.set_positions([mark])
+        assert widget.position_overlay._points, "a marked lamella was not drawn"
+
+    def test_the_scale_comes_from_the_settings(self, widget):
+        """A widget read, not a device one — and it tracks the field of view, so the
+        planned footprint is drawn at the size the next run would actually cover."""
+        settings = widget._settings()
+        expected = settings.image_settings.hfw / settings.image_settings.resolution[0]
+        assert widget.canvas.reference_pixel_size == pytest.approx(expected)
+
+    def test_the_first_image_replaces_the_stand_in_anchor(self, widget, microscope):
+        """The seeded anchor is where the stage happened to be when the tab opened,
+        which can be millimetres from the data. Nothing is placed against it yet, so
+        the first real image takes the anchor over rather than sitting at an offset
+        from a position that means nothing."""
+        view = widget.current_view
+        assert view in widget._provisional, "the anchor was not marked provisional"
+
+        base = microscope.get_stage_position()
+        far = _at(base, dx=4e-3, dy=2e-3)
+        widget.place_image(_tile(microscope, far), key="first")
+
+        assert view not in widget._provisional
+        assert widget._origins[view].x == pytest.approx(far.x)
+        assert widget._origins[view].y == pytest.approx(far.y)
+
+    def test_the_view_follows_the_stage_until_an_image_pins_it(self, widget, microscope):
+        """While the canvas is a plan of the next run it should describe where the
+        stage *is*. Once an image has been placed the displayed view is about data,
+        and re-posing the stage must not drag the user off it."""
+        widget._on_stage_moved(self._at(microscope, "MILLING"))
+        assert widget.current_view.orientation == "MILLING", "the plan did not follow"
+
+        widget._on_stage_moved(self._at(microscope, "SEM"))
+        widget.place_image(_tile(microscope, self._at(microscope, "SEM")), key="a")
+        pinned = widget.current_view
+
+        widget._on_stage_moved(self._at(microscope, "MILLING"))
+        assert widget.current_view == pinned, (
+            "moving the stage switched the canvas away from the acquired view"
+        )
+
+    def test_an_image_is_drawn_at_its_own_size_whatever_the_scale_was_seeded_to(
+        self, widget, microscope
+    ):
+        """The seeded scale is only the canvas unit — how many metres a canvas pixel is
+        worth. An image coarser or finer than the plan is still drawn covering the
+        ground it images, because `add_image` scales each one by its own pixel size."""
+        hfw = 37e-6  # deliberately unlike the settings' field of view
+        base = microscope.get_stage_position()
+        widget.place_image(
+            _tile(microscope, _at(base), shape=(64, 64), hfw=hfw), key="odd"
+        )
+        extent = widget.canvas._placed["odd"].extent
+        drawn = (extent[1] - extent[0]) * widget.canvas.reference_pixel_size
+        assert drawn == pytest.approx(hfw, rel=1e-9)
 
 
 class TestOverlaysAreDrawnInTheView:

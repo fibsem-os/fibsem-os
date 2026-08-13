@@ -249,8 +249,17 @@ class FibsemOverviewWidget(QWidget):
         # the SEM one happened to start.
         self._origins: Dict["OverviewView", FibsemStagePosition] = {}
         self._projections: Dict["OverviewView", BeamStageProjection] = {}
-        # The view the canvas is currently showing. None until something is placed.
+        # Views anchored on the stage rather than on an image, so the tab could draw
+        # before anything was acquired. The first image in one replaces its anchor --
+        # see `_seed_frame` and `_set_origin_from`.
+        self._provisional: Set["OverviewView"] = set()
+        # The view the canvas is showing. None only before the stage position and the
+        # settings are both known; `_seed_frame` fills it in from where the stage is.
         self._current_view: Optional["OverviewView"] = None
+        # Whether the displayed view has been decided by something other than where the
+        # stage happens to be -- an image arriving, or the user picking one. Until then
+        # the canvas is a live plan of the next run and follows the stage.
+        self._view_pinned = False
         self._positions: List[FibsemStagePosition] = []
         self._selected_position: Optional[str] = None
         # Positions a host has flagged, by name. What "flagged" means is the host's
@@ -457,6 +466,9 @@ class FibsemOverviewWidget(QWidget):
     def _on_view_selected(self, _index: int) -> None:
         view = self.combo_view.value()
         if isinstance(view, OverviewView):
+            # Chosen, so the canvas stops following the stage -- otherwise re-posing
+            # would silently undo the choice.
+            self._view_pinned = True
             self.show_view(view)
 
     def _refresh_view_selector(self) -> None:
@@ -679,15 +691,78 @@ class FibsemOverviewWidget(QWidget):
         """Force every projection to be re-read. For a host that changed the instrument."""
         self._projections.clear()
 
+    def _seed_frame(self) -> None:
+        """Give the canvas a frame before anything has been acquired.
+
+        A frame needs three things: a projection, a scale and an origin. The projection
+        is read from the instrument, but the other two used to arrive only with the
+        first image -- so the tab opened blank. No travel limits, no grid boundary, no
+        holder slots, no lamella markers, not even the stage. Everything appeared at
+        once when the first tile landed, which is the moment it stopped being the most
+        useful. The fluorescence overview has never behaved this way.
+
+        Both are free here. The scale is `hfw / width` off the settings widget -- a
+        widget read, not a device one -- and it is only "how many metres a canvas pixel
+        is worth", so the first image being a little coarser or finer than planned does
+        not matter: `add_image` scales each image by its own pixel size against this
+        one. The origin is the stage position already cached for the markers.
+
+        Anchored rather than re-derived on each call. Fixing it means the travel
+        envelope stays put and the stage marker moves inside it, which is the way round
+        that matches what the overlays describe; following the stage would pin the
+        marker to the middle and slide the grid past it.
+
+        Provisional, though, and marked as such: the first real image in the view
+        replaces it, so a canvas that ends up holding data is anchored on the data
+        rather than on wherever the stage happened to be when the tab was opened.
+        """
+        settings = self._settings()
+        if settings is None:
+            return
+
+        if self.canvas.reference_pixel_size is None:
+            try:
+                width = settings.image_settings.resolution[0]
+                pixel_size = settings.image_settings.hfw / width
+            except Exception as e:
+                logger.debug(f"Could not work out a canvas scale: {e}")
+                pixel_size = None
+            if pixel_size:
+                self.canvas.set_reference_pixel_size(pixel_size)
+
+        view = self.acquisition_view
+        if view is None or self._stage_position is None:
+            return
+
+        # Follow the stage only while nothing has decided otherwise. Once an image has
+        # been placed, or the user has picked a view, the displayed view is theirs and
+        # re-posing the stage must not drag them off it -- that is what
+        # `_refresh_view_note` is for.
+        #
+        # A pin rather than "is the canvas empty": `show_view` clears the canvas before
+        # re-placing, and this runs from inside it, so an emptiness test flips the view
+        # back to the stage's half way through switching to another one.
+        if not self._view_pinned and view != self._current_view:
+            self._current_view = view
+            self._refresh_view_selector()
+
+        if view not in self._origins:
+            self._origins[view] = deepcopy(self._stage_position)
+            self._provisional.add(view)
+
     def _frame(
         self, view: Optional["OverviewView"] = None, fresh: bool = False
     ) -> Optional[StageFrame]:
         """Stage positions and canvas coordinates, about a view's own origin.
 
-        None until the view has an origin *and* the canvas has a scale: the canvas takes
-        its scale from the first image placed, so nothing can be drawn in stage
-        coordinates before then. That is why `_refresh_context_overlays` is safe to call
-        at any time and simply does nothing early on.
+        None until the view has an origin *and* the canvas has a scale. Both are seeded
+        for the view the *next run* would produce (see :meth:`_seed_frame`), so this is
+        None in practice only for a view nothing has been acquired in and the stage is
+        not pointing at -- which has no honest origin to invent.
+
+        A pure read: the seeding is done by `_refresh_context_overlays`, so the many
+        callers that only want to draw or resolve a point cannot quietly re-anchor the
+        canvas by asking.
         """
         view = view or self._current_view
         if view is None:
@@ -701,13 +776,21 @@ class FibsemOverviewWidget(QWidget):
         return StageFrame(self.canvas, origin, projection)
 
     def _set_origin_from(self, image: FibsemImage, view: "OverviewView") -> None:
-        """Anchor a view on the first image placed in it, if it is not anchored yet."""
-        if view in self._origins:
+        """Anchor a view on the first image placed in it, if it is not anchored yet.
+
+        A *provisional* anchor -- one `_seed_frame` invented so the tab could draw
+        before anything was acquired -- is replaced rather than kept. Nothing is placed
+        in the view at that point, so re-anchoring moves nothing; it just stops the
+        canvas being centred on wherever the stage happened to be when the tab opened,
+        which can be millimetres from the data.
+        """
+        if view in self._origins and view not in self._provisional:
             return
         position = self._position_of(image)
         if position is None:
             return
         self._origins[view] = deepcopy(position)
+        self._provisional.discard(view)
 
     # ── views ────────────────────────────────────────────────────────────
 
@@ -834,6 +917,10 @@ class FibsemOverviewWidget(QWidget):
         view = self._view_of(image)
         if view is None:
             return None
+        # An image decides the view from here on, so the canvas stops following the
+        # stage. Set before the switch below, because `show_view` refreshes the
+        # overlays and the seeding that runs there would otherwise pull the view back.
+        self._view_pinned = True
         if self._current_view is None:
             self._current_view = view
             self._refresh_view_selector()
@@ -842,9 +929,10 @@ class FibsemOverviewWidget(QWidget):
 
         self._set_origin_from(image, view)
         # The canvas needs a scale before a frame can exist, and the frame is what turns
-        # a stage position into an offset -- so the first image sets the scale and is
-        # placed at the origin by definition. Shared across views: the scale is only how
-        # many metres a canvas pixel is worth, and placement is in metres either way.
+        # a stage position into an offset. Usually seeded from the settings before any
+        # image arrives (`_seed_frame`); this is the fallback for a widget that has been
+        # handed an image without ever drawing. Which pixel size wins does not matter
+        # beyond the units: `add_image` scales each image by its own against this one.
         if self.canvas.reference_pixel_size is None:
             self.canvas.set_reference_pixel_size(pixel_size)
 
@@ -995,7 +1083,12 @@ class FibsemOverviewWidget(QWidget):
 
         Everything here is derived from configuration and the cached stage position, so
         it costs no hardware access and is safe to call on any UI event.
+
+        The one place that anchors the canvas, so `_frame` stays a pure read: this runs
+        on construction, on a stage move, on a settings change and on a view change,
+        which is every moment the answer could have changed.
         """
+        self._seed_frame()
         frame = self._frame()
         if frame is None:
             self.context_overlay.set_shapes([])
