@@ -37,7 +37,10 @@ from fibsem.structures import (  # noqa: E402
     FibsemStagePosition,
     ImageSettings,
 )
-from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget  # noqa: E402
+from fibsem.ui.widgets.overview_widget import (  # noqa: E402
+    GRID_BOUNDARY_RADIUS,
+    FibsemOverviewWidget,
+)
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -878,6 +881,193 @@ class TestViews:
         assert widget.position_overlay._points == pytest.approx(in_sem), (
             "coming back to a view did not restore where its markers sit"
         )
+
+
+class TestOverlaysAreDrawnInTheView:
+    """Anything measured in *stage* space has to be projected before it is drawn.
+
+    A view foreshortens stage y and leaves x alone, by a factor that changes with the
+    beam and the pose: 1.00 looking down the pose a beam is named after, 0.26 for the
+    ion beam at the milling pose. Sized by the canvas scale alone -- which is what
+    `StageFrame.length()` gives -- the travel envelope and the grid boundary come out
+    the same in every view, and are therefore right in at most one.
+
+    The gridbar lattice has the identical bug and is deliberately not fixed here: it
+    still takes one pitch for both axes. Its *centre* is covered below, which was a
+    different fault. See FIB-615.
+
+    Every assertion here is against `frame.to_canvas`, the mapping that puts a *marker*
+    on the canvas. That is the point: an overlay and a marker describing the same piece
+    of stage have to agree, and the bug was that one of them projected and the other
+    did not. A test that recomputed the extent the way `_limit_shapes` does could not
+    have failed.
+
+    A compustage, because that is the only stage the limits are drawn on -- and it is
+    also where all three orientations share a rotation, so nothing here is really about
+    the 180-degree flip.
+    """
+
+    # Ion at the milling pose: the view you mill in, and the worst case at 0.259.
+    FORESHORTENED = ("MILLING", BeamType.ION)
+    # Electron at the SEM pose: the one view that is *not* foreshortened, so it is
+    # what the old, unprojected code happened to be right for.
+    SQUARE = ("SEM", BeamType.ELECTRON)
+
+    @staticmethod
+    def _image(scope, orientation, beam_type):
+        pose = scope.get_orientation(orientation)
+        position = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t)
+        hfw = 128 * 2e-7
+        image = FibsemImage.generate_blank_image(resolution=(128, 128), hfw=hfw)
+        image.data = (np.random.default_rng(0).random((128, 128)) * 255).astype(np.uint8)
+        state = scope.get_microscope_state(beam_type=beam_type)
+        state.stage_position = position
+        image.metadata.image_settings = ImageSettings(hfw=hfw, beam_type=beam_type)
+        image.metadata.microscope_state = state
+        image.metadata.system_info = scope.system.info
+        image.metadata.hardware_geometry = scope.hardware_geometry()
+        return image
+
+    @staticmethod
+    def _spec(widget, kind, label):
+        for spec in widget.context_overlay._specs:
+            if spec.kind == kind and spec.label == label:
+                return spec
+        return None
+
+    def _show(self, widget, view):
+        """Put the canvas in *view* and return its frame."""
+        widget.set_image(self._image(widget.microscope, *view))
+        return widget._frame()
+
+    @staticmethod
+    def _marker_span(widget, frame, dx=0.0, dy=0.0):
+        """How far a stage step of (dx, dy) carries a *marker*, in canvas pixels.
+
+        The independent authority. Everything drawn from a stage position goes through
+        this same call, so an overlay that disagrees with it is drawn in a frame
+        nothing else is using.
+        """
+        origin = frame.origin
+        here = frame.to_canvas(
+            FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=origin.r, t=origin.t)
+        )
+        there = frame.to_canvas(
+            FibsemStagePosition(x=dx, y=dy, z=0.0, r=origin.r, t=origin.t)
+        )
+        return abs(there[0] - here[0]), abs(there[1] - here[1])
+
+    def test_the_limits_box_lands_where_a_marker_at_the_limits_would(
+        self, widget, microscope
+    ):
+        """The strongest statement of the property: put the travel envelope's corner on
+        the canvas as a *marked position*, and the corner of the drawn box has to be
+        under it. Checked in the foreshortened view, where the two used to differ."""
+        assert microscope.stage_is_compustage, "the limits only draw on a compustage"
+        frame = self._show(widget, self.FORESHORTENED)
+        limits = microscope._stage.limits
+
+        box = self._spec(widget, "rect", "Stage Limits")
+        assert box is not None, "the stage limits were not drawn"
+
+        corner = frame.to_canvas(
+            widget._landmark(frame, limits["x"].max, limits["y"].max)
+        )
+        assert abs(corner[0] - box.cx) == pytest.approx(box.width / 2, rel=1e-9)
+        assert abs(corner[1] - box.cy) == pytest.approx(box.height / 2, rel=1e-9)
+
+    def test_the_limits_box_is_shorter_in_a_foreshortened_view(self, widget, microscope):
+        """The bug, pinned. The box was `frame.length(ymax - ymin)` in every view, so
+        it was the same height at the milling pose as at the SEM one -- nearly four
+        times too tall in the view you mill in."""
+        limits = microscope._stage.limits
+        span_y = limits["y"].max - limits["y"].min
+        span_x = limits["x"].max - limits["x"].min
+
+        heights, widths = {}, {}
+        for view in (self.SQUARE, self.FORESHORTENED):
+            frame = self._show(widget, view)
+            box = self._spec(widget, "rect", "Stage Limits")
+            assert box is not None
+            # Against the marker path, per view, so this says "the box matches what a
+            # marker would do" rather than "the box matches the formula that drew it".
+            expected = self._marker_span(widget, frame, dx=span_x, dy=span_y)
+            assert box.width == pytest.approx(expected[0], rel=1e-9)
+            assert box.height == pytest.approx(expected[1], rel=1e-9)
+            heights[view], widths[view] = box.height, box.width
+
+        assert widths[self.SQUARE] == pytest.approx(widths[self.FORESHORTENED]), (
+            "x is not foreshortened, so the box must keep its width"
+        )
+        assert heights[self.FORESHORTENED] < heights[self.SQUARE] / 2, (
+            f"the box is {heights[self.FORESHORTENED]:.1f} px tall at the milling pose "
+            f"and {heights[self.SQUARE]:.1f} px at the SEM pose — it did not foreshorten"
+        )
+
+    def test_the_grid_boundary_is_an_ellipse_where_the_view_is_not_square(self, widget):
+        """A circle on the sample is a circle on screen in two views and an ellipse in
+        every other. Drawn as a circle it claimed the grid was round from a direction
+        it is not."""
+        frame = self._show(widget, self.FORESHORTENED)
+        boundary = self._spec(widget, "ellipse", "Grid Boundary")
+        assert boundary is not None, "the grid boundary was not drawn as an ellipse"
+
+        expected = self._marker_span(
+            widget, frame, dx=GRID_BOUNDARY_RADIUS, dy=GRID_BOUNDARY_RADIUS
+        )
+        assert boundary.width == pytest.approx(2 * expected[0], rel=1e-9)
+        assert boundary.height == pytest.approx(2 * expected[1], rel=1e-9)
+        assert boundary.height < boundary.width / 2, "it is still round"
+
+    def test_the_grid_boundary_stays_round_in_a_square_view(self, widget):
+        """The other half of the same statement, and what stops the fix being "make it
+        an ellipse and hope": looking down the pose the beam is named after, the grid
+        really is round."""
+        self._show(widget, self.SQUARE)
+        boundary = self._spec(widget, "ellipse", "Grid Boundary")
+        assert boundary is not None
+        assert boundary.width == pytest.approx(boundary.height, rel=1e-9)
+
+    def test_the_lattice_is_centred_where_the_grid_centre_marker_is(self):
+        """Grid centre is a *place*, and a place has no rotation of its own.
+
+        Built with `r=0` it looked, to the projection, like a position recorded half a
+        turn from the view — which on a stage that reaches the ion beam by rotating is
+        exactly what a FIB overview is. So the compucentric correction fired on a
+        landmark that was never anywhere, and centred the whole lattice **1.96 mm**
+        away from the origin it names.
+
+        Invisible on a compustage, where every orientation shares one rotation, which
+        is why this needs its own microscope. Asserted against a marker at the same
+        stage position: the two describe the same point and a user sees them together.
+        """
+        import fibsem.config as fibsem_config
+
+        path = os.path.join(
+            os.path.dirname(fibsem_config.__file__),
+            "config",
+            "tfs-aquilos2-configuration.yaml",
+        )
+        scope, _ = utils.setup_session(manufacturer="Demo", config_path=path)
+        assert not scope.stage_is_compustage, "this is the standard-stage case"
+
+        widget = FibsemOverviewWidget(scope)
+        try:
+            widget.set_image(self._image(scope, "FIB", BeamType.ION))
+            widget.checkbox_gridbars.setChecked(True)
+
+            pose = scope.get_orientation("FIB")
+            centre = FibsemStagePosition(
+                name="Grid Centre", x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t
+            )
+            widget.set_positions([centre])
+
+            marker = widget.position_overlay._points[0]
+            assert widget.gridbar_overlay._centre == pytest.approx(marker, abs=1e-6), (
+                "the grid bars are not centred on the grid centre"
+            )
+        finally:
+            widget.close()
 
 
 class TestLifecycle:
