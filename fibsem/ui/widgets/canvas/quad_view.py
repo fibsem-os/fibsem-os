@@ -203,8 +203,9 @@ class QuadViewWidget(QWidget):
             frame.setStyleSheet(_PANEL_QSS.format(bg=_BG, border=self._panel_border(k)))
 
     def set_live(self, key: object, live: bool) -> None:
-        """Mark view *key* (a ``BeamType``) as live-acquiring: green border + a "LIVE" badge on
-        its canvas, independent of which view is selected. The border wins over selection."""
+        """Mark view *key* (a ``BeamType``, or ``"fm"``) as live-acquiring: green border + a
+        "LIVE" badge on its canvas, independent of which view is selected. The border wins
+        over selection."""
         if key not in self._panels:
             return
         if live:
@@ -436,12 +437,23 @@ class MicroscopeViewController(QObject):
         if callable(fn):
             fn()
 
-    def set_live(self, key: BeamType, live: bool) -> None:
-        """Mark a beam view as live-acquiring (green border + LIVE badge). No-op on views
-        that don't support it."""
+    def set_live(self, key: object, live: bool) -> None:
+        """Mark a view as live-acquiring (green border + LIVE badge). No-op on views
+        that don't support it.
+
+        *key* is a view key, not a beam: the quad view keeps the FM under ``"fm"``
+        alongside the two ``BeamType``s and has since it was built. The annotation said
+        ``BeamType``, which is the whole reason the FM panel never showed that it was
+        streaming while the beam panels did -- the plumbing was there and looked closed
+        (FIB-596). Prefer :meth:`set_fm_live` over passing the string."""
         fn = getattr(self._widget, "set_live", None)
         if callable(fn):
             fn(key, live)
+
+    def set_fm_live(self, live: bool) -> None:
+        """Mark the FM view as live-acquiring (FM isn't a ``BeamType``) -- the
+        counterpart to :meth:`set_fm_info`."""
+        self.set_live("fm", live)
 
     @property
     def sem_canvas(self) -> FibsemImageCanvas:

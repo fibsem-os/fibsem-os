@@ -108,7 +108,8 @@ class FibsemImageCanvas(FibsemCanvasBase):
         self._refresh_hint()  # axes was cleared above; restore the remembered hint
         self._refresh_title()  # ditto: restore the remembered title
         self._refresh_info_bar()  # ditto: restore the remembered info bar
-        self._refresh_live_badge()  # ditto: keep the LIVE badge across streamed frames
+        # No LIVE chip here: it is a child widget, not an artist, so `cla()` never took
+        # it down and there is nothing to restore (FIB-596).
         self._refresh_flash()  # ditto: keep a live flash (e.g. WD scroll) visible across frames
         self._refresh_legend()  # ditto: restore the patch legend
 

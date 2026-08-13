@@ -39,7 +39,7 @@ import numpy as np
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from PyQt5.QtCore import QSize, QTimer, Qt, pyqtSignal
-from PyQt5.QtWidgets import QApplication, QPushButton, QSizePolicy
+from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QSizePolicy
 
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import CANVAS_BG as _BG, PRIMARY_ACCENT as _ACCENT
@@ -124,6 +124,12 @@ _OVERLAY_ICON_SIZE = QSize(14, 14)
 _OVERLAY_BTN_SIZE = 22
 _OVERLAY_MARGIN = 4
 _OVERLAY_GAP = 2
+# The "● LIVE" chip shares the toolbar row, so it takes the buttons' height and corner
+# radius; the green is the badge's own, not a button state.
+_LIVE_BADGE_STYLE = (
+    f"QLabel {{ background: {_LIVE_BADGE_BG}; color: {WHITE_ICON_COLOR};"
+    " border-radius: 3px; padding: 0px 6px; font-size: 10px; font-weight: bold; }"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +234,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._title_text: Optional[str] = None  # remembered so it survives set_image
         self._info_artist = None  # bottom-left microscope-state info bar
         self._info_text: Optional[str] = None  # remembered so it survives set_image
-        self._live_artist = None  # top-right "LIVE" badge during live acquisition
+        self._live_badge = None  # top-right "● LIVE" chip during live acquisition
         self._live_on: bool = False  # remembered so it survives set_image
 
         # Transient top-centre flash message (e.g. "WD 4.001 mm" on Shift+scroll); auto-clears
@@ -454,30 +460,35 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             )
 
     def set_live_badge(self, on: bool) -> None:
-        """Show/hide a green "● LIVE" badge in the top-right during live acquisition.
+        """Show/hide a green "● LIVE" chip in the top-right during live acquisition.
 
-        Remembered + re-applied after each image change (like the info bar), so it stays put as
-        live frames stream in."""
+        A child widget laid out beside the toolbar buttons, not an axes artist. In axes
+        coordinates it collided with them whenever the axes reached the widget's top
+        edge, which — the axes being ``aspect="equal"`` inside an edge-to-edge figure —
+        happens for any frame at least as tall in aspect as its pane. A square FM frame
+        in a square pane does it every time; a beam pane dragged taller than 3:2 does it
+        too (FIB-596). Sharing the toolbar's coordinate system and its layout pass makes
+        the overlap impossible rather than tuned around.
+
+        Being a widget, it also survives ``set_image`` on its own — no re-applying after
+        each frame, which the artists around it still need.
+        """
         self._live_on = bool(on)
-        self._refresh_live_badge()
-        self.draw_idle()
+        if self._live_badge is None:
+            if not self._live_on:
+                return  # never shown, nothing to hide
+            self._live_badge = self._make_live_badge()
+        self._live_badge.setVisible(self._live_on)
+        self._reposition_overlay_buttons()
 
-    def _refresh_live_badge(self) -> None:
-        """(Re)create the LIVE badge artist, or remove it."""
-        if self._live_artist is not None:
-            try:
-                self._live_artist.remove()
-            except Exception:
-                pass
-            self._live_artist = None
-        if self._live_on:
-            self._live_artist = self._ax.text(
-                0.988, 0.985, "● LIVE",
-                transform=self._ax.transAxes, ha="right", va="top",
-                fontsize=7, color=WHITE_ICON_COLOR, zorder=12, fontweight="bold",
-                bbox=dict(boxstyle="round,pad=0.3", facecolor=_LIVE_BADGE_BG,
-                          edgecolor="none", alpha=0.9),
-            )
+    def _make_live_badge(self) -> QLabel:
+        """The "● LIVE" chip, sized to sit in the toolbar row."""
+        badge = QLabel("● LIVE", self)
+        badge.setStyleSheet(_LIVE_BADGE_STYLE)
+        badge.setFixedHeight(_OVERLAY_BTN_SIZE)
+        badge.adjustSize()
+        badge.raise_()
+        return badge
 
     def flash_message(self, text: str, duration_ms: int = 1200) -> None:
         """Show a brief top-centre status message that auto-clears after *duration_ms*.
@@ -579,7 +590,10 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._title_text = None
         self._info_artist = None
         self._info_text = None
-        self._live_artist = None
+        # The chip is a child widget, so `cla()` does not take it down the way it took
+        # the artist. Hidden by hand to keep the reset meaning what it always did.
+        if self._live_badge is not None:
+            self._live_badge.hide()
         self._live_on = False
         self._flash_artist = None
         self._flash_text = None
@@ -625,7 +639,12 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         return btn
 
     def _reposition_overlay_buttons(self) -> None:
-        """Place overlay buttons right-to-left in the top-right corner."""
+        """Place overlay buttons right-to-left in the top-right corner.
+
+        The LIVE chip joins the same pass, on the far side of the buttons — they are
+        click targets and stay anchored to the corner, so a stream starting or stopping
+        never moves one out from under the cursor.
+        """
         x = self.width() - _OVERLAY_MARGIN
         for btn in self._overlay_buttons:
             if btn.isHidden():  # contextual buttons (e.g. mode toggle) reserve no slot
@@ -633,6 +652,10 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             x -= btn.width()
             btn.move(x, _OVERLAY_MARGIN)
             x -= _OVERLAY_GAP
+        badge = self._live_badge
+        if badge is not None and not badge.isHidden():
+            x -= badge.width()
+            badge.move(x, _OVERLAY_MARGIN)
 
     def set_toolbar_visible(self, visible: bool) -> None:
         """Show or hide this canvas's top-right toolbar buttons as a group.
