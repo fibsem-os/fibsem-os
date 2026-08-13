@@ -655,8 +655,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_report_issue.setVisible(
             self._preferences.features.bug_report_enabled
         )
-        # Show or hide the FM Overview tab, building or dropping its widget to match
-        self._apply_fm_overview_visibility()
         # Toggle Tools -> Scripts. Hiding the menu hides the whole feature: it is the
         # only route to the manager dialog, and the dialog is the only thing that runs
         # a script. If a script is mid-run, leave it visible -- taking away the only
@@ -2229,15 +2227,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def add_fm_overview_tab(self):
         """Reserve the FM Overview tab, beside the beam one.
 
-        Behind `features.fm_overview_tab` in user preferences, off by default: the
-        rebuilt fluorescence overview UI is still being finished, and it sits beside the
-        existing Overview tab while driving the same instrument.
-
-        The tab is always created and hidden when off, rather than skipped: that makes
-        the preference take effect the moment it is changed instead of at the next
-        launch. The widget inside is still built and destroyed with the flag -- see
-        :meth:`_apply_fm_overview_visibility` -- so a hidden tab costs nothing but the
-        container.
+        The tab is always created and hidden when it has nothing to drive, rather than
+        skipped: the tab bar then keeps its shape whether or not the system has a
+        fluorescence detector, and a microscope arriving or changing later needs only a
+        visibility pass rather than a rebuild of the bar. The widget inside is built and
+        destroyed to match -- see :meth:`_apply_fm_overview_visibility` -- so a hidden
+        tab costs nothing but the container.
 
         Separate from "Overview" deliberately, not as a step toward merging them: the
         two show different stage poses -- milling pose on the beam side, FM pose here --
@@ -2304,12 +2299,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
 
     def _apply_fm_overview_visibility(self):
-        """Show or hide the FM Overview tab to match the preference, immediately.
+        """Show or hide the FM Overview tab to match the instrument, immediately.
 
         The widget inside is built and destroyed along with the tab rather than left
         behind hidden. It subscribes to the microscope's stage signal for its lifetime,
-        so a hidden one would go on doing work on every poll for a feature that has been
-        switched off — and would still be holding a psygnal reference to tear down later.
+        so a hidden one would go on doing work on every poll for a tab nobody can reach
+        — and would still be holding a psygnal reference to tear down later.
 
         Two different absences, deliberately handled differently:
 
@@ -2326,10 +2321,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.microscope if self.autolamella_ui is not None else None
         )
         has_no_fm = microscope is not None and microscope.fm is None
-        self.tab_widget.setTabVisible(
-            index, fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED and not has_no_fm
-        )
-        # Builds when the flag is on and there is an FM, tears down otherwise.
+        self.tab_widget.setTabVisible(index, not has_no_fm)
+        # Builds when there is an FM, tears down otherwise.
         self.fm_overview_tab.refresh_microscope()
 
     def _on_notification_service(

@@ -62,12 +62,6 @@ _TIP_BUG_REPORT    = (
     "Show the 'Report an Issue...' option in the Help menu, for reporting bugs and "
     "optionally submitting experiment data privately to the maintainers."
 )
-_LBL_FM_OVERVIEW   = "Enable FM Overview Tab"
-_TIP_FM_OVERVIEW   = (
-    "Add an FM Overview tab for acquiring fluorescence overviews on the real-space "
-    "canvas, beside the existing Overview tab. Still being finished, and it drives the "
-    "same microscope as the Fluorescence controls."
-)
 _LBL_SCRIPTS       = "Enable User Scripts"
 _TIP_SCRIPTS       = (
     "Show Tools > Scripts, for running your own .py files against the open "
@@ -165,14 +159,11 @@ class PreferencesDialog(QDialog):
         self._chk_bug_report.setToolTip(_TIP_BUG_REPORT)
         self._chk_scripts = QCheckBox()
         self._chk_scripts.setToolTip(_TIP_SCRIPTS)
-        self._chk_fm_overview = QCheckBox()
-        self._chk_fm_overview.setToolTip(_TIP_FM_OVERVIEW)
         features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
         features_form.addRow(_LBL_SAMPLE_HOLDER, self._chk_sample_holder)
         features_form.addRow(_LBL_SCHEDULED, self._chk_scheduled_tasks)
         features_form.addRow(_LBL_BUG_REPORT, self._chk_bug_report)
         features_form.addRow(_LBL_SCRIPTS, self._chk_scripts)
-        features_form.addRow(_LBL_FM_OVERVIEW, self._chk_fm_overview)
         self._stack.addWidget(features_page)
 
         # --- Experiment Defaults ---
@@ -245,7 +236,6 @@ class PreferencesDialog(QDialog):
         self._chk_scheduled_tasks.setChecked(f.scheduled_tasks)
         self._chk_bug_report.setChecked(f.bug_report_enabled)
         self._chk_scripts.setChecked(f.scripts_enabled)
-        self._chk_fm_overview.setChecked(f.fm_overview_tab)
 
         e = prefs.experiment
         self._dir_experiment.setText(e.default_experiment_directory)
@@ -317,7 +307,6 @@ class PreferencesDialog(QDialog):
                 scheduled_tasks=self._chk_scheduled_tasks.isChecked(),
                 bug_report_enabled=self._chk_bug_report.isChecked(),
                 scripts_enabled=self._chk_scripts.isChecked(),
-                fm_overview_tab=self._chk_fm_overview.isChecked(),
             ),
             movement=MovementPreferences(
                 acquire_sem_after_stage_movement=self._chk_acquire_sem.isChecked(),

@@ -4,7 +4,7 @@ A preference has to survive four separate places to work: the `FeatureFlags` fie
 checkbox, `_load_from_preferences`, and `get_preferences`. Miss the last two and the
 control is inert; miss the dialog entirely and the preference exists but nobody can
 reach it. None of that fails loudly — it just quietly does nothing, which is how the FM
-Overview flag shipped without a checkbox.
+Overview flag once shipped without a checkbox.
 
 So these tests drive the dialog's own load/save round trip rather than looking for
 attributes by name: what matters is that a value put in comes back out, not that some
@@ -83,17 +83,6 @@ def test_every_feature_flag_can_be_turned_off_again(qapp, field):
     restored = _round_trip(prefs)
 
     assert getattr(restored.features, field) is False
-
-
-def test_the_fm_overview_tab_can_be_switched_on_from_the_dialog(qapp):
-    """The flag this file was written for. Kept as its own test rather than left to the
-    parameterised pair, so the failure names the feature rather than a field."""
-    prefs = UserPreferences()
-    assert prefs.features.fm_overview_tab is False  # off by default
-
-    prefs.features.fm_overview_tab = True
-
-    assert _round_trip(prefs).features.fm_overview_tab is True
 
 
 def test_the_exemption_list_only_names_flags_that_exist(qapp):
