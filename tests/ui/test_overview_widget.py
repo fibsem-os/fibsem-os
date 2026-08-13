@@ -1533,7 +1533,98 @@ class TestTheCanvasFollowsTheBeamYouPlanWith:
             FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t)
         )
 
-        offered = [widget.combo_view.itemData(i) for i in range(widget.combo_view.count())]
-        assert widget.acquisition_view in offered, (
+        assert widget.acquisition_view in widget._view_chip_buttons, (
             "the view the next run lands in cannot be selected"
         )
+
+
+class TestTheViewChips:
+    """The view selector lives on the canvas, and says which view is which.
+
+    It selects what you are looking at, so it belongs where you are looking rather than
+    in the settings column. And the labels had to change: the orientations are named
+    after the beams, so pairing the two read as a tautology one way ("SEM · Electron")
+    and a contradiction the other ("SEM · Ion").
+    """
+
+    @staticmethod
+    def _image(scope, orientation, beam_type):
+        pose = scope.get_orientation(orientation)
+        position = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t)
+        hfw = 128 * 2e-7
+        image = FibsemImage.generate_blank_image(resolution=(128, 128), hfw=hfw)
+        image.data = (np.random.default_rng(0).random((128, 128)) * 255).astype(np.uint8)
+        state = scope.get_microscope_state(beam_type=beam_type)
+        state.stage_position = position
+        image.metadata.image_settings = ImageSettings(hfw=hfw, beam_type=beam_type)
+        image.metadata.microscope_state = state
+        image.metadata.system_info = scope.system.info
+        image.metadata.hardware_geometry = scope.hardware_geometry()
+        return image
+
+    @pytest.mark.parametrize(
+        "orientation, beam, expected",
+        [
+            ("SEM", BeamType.ELECTRON, "SEM"),
+            ("FIB", BeamType.ION, "FIB"),
+            ("MILLING", BeamType.ION, "FIB · Milling"),
+            ("MILLING", BeamType.ELECTRON, "SEM · Milling"),
+            ("SEM", BeamType.ION, "FIB · SEM pose"),
+        ],
+    )
+    def test_a_view_is_named_beam_first(self, orientation, beam, expected):
+        """Words are spent only on the surprising combinations, which is what makes
+        them legible as the odd ones."""
+        assert OverviewView(beam_type=beam, orientation=orientation).label == expected
+
+    def test_one_view_is_not_a_choice(self, widget):
+        """Chips saying only what the info bar already says are chrome over the data,
+        which is the one place not to say anything twice."""
+        assert widget._view_chip_buttons == {}
+
+    def test_a_chip_appears_for_every_view_worth_switching_to(self, widget, microscope):
+        widget.set_image(self._image(microscope, "SEM", BeamType.ELECTRON))
+        widget.settings_widget.beam_type_combo.set_value(BeamType.ION)
+
+        labels = {b.text() for b in widget._view_chip_buttons.values()}
+        assert {"SEM", "FIB · SEM pose"} <= labels
+        # Placed on the canvas, not merely constructed: they were once sized from a
+        # layout that answered with nothing, so they reported themselves visible and
+        # drew at zero size.
+        assert all(b.width() > 0 for b in widget._view_chip_buttons.values())
+        assert all(
+            b.parent() is widget.canvas for b in widget._view_chip_buttons.values()
+        )
+
+    def test_clicking_a_chip_switches_the_canvas(self, widget, microscope):
+        widget.set_image(self._image(microscope, "SEM", BeamType.ELECTRON))
+        sem = widget.current_view
+        widget.settings_widget.beam_type_combo.set_value(BeamType.ION)
+        assert widget.current_view != sem
+        assert not widget.canvas.placed_keys
+
+        widget._view_chip_buttons[sem].click()
+        assert widget.current_view == sem
+        assert len(widget.canvas.placed_keys) == 1, "the overview did not come back"
+
+    def test_the_chip_for_the_displayed_view_is_the_checked_one(self, widget, microscope):
+        widget.set_image(self._image(microscope, "SEM", BeamType.ELECTRON))
+        widget.settings_widget.beam_type_combo.set_value(BeamType.ION)
+
+        checked = {b.text() for b in widget._view_chip_buttons.values() if b.isChecked()}
+        assert checked == {widget.current_view.label}
+
+    def test_the_view_the_run_would_land_in_is_marked_apart(self, widget, microscope):
+        """Which view is displayed and which the next run lands in come apart on this
+        tab, and the chips have to say which is which -- otherwise the only way to find
+        out is to acquire and see where it went."""
+        widget.set_image(self._image(microscope, "SEM", BeamType.ELECTRON))
+        widget.settings_widget.beam_type_combo.set_value(BeamType.ION)
+        acquisition = widget.acquisition_view
+        widget._view_chip_buttons[widget.views[0]].click()  # look at the SEM one
+
+        assert widget.current_view != acquisition
+        marked = widget._view_chip_buttons[acquisition]
+        other = widget._view_chip_buttons[widget.current_view]
+        assert marked.styleSheet() != other.styleSheet()
+        assert "next acquisition" in marked.toolTip()

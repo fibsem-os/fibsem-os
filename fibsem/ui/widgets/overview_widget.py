@@ -37,6 +37,7 @@ import logging
 import os
 import threading
 from copy import deepcopy
+from functools import partial
 from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
 from PyQt5.QtCore import pyqtSignal, pyqtSlot
@@ -68,6 +69,7 @@ from fibsem.ui import notification_service, stylesheets
 from fibsem.ui import utils as ui_utils
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.tokens import (
+    ACCENT_COLOR,
     CURRENT_POSITION_COLOUR,
     SAVED_POSITION_COLOUR,
     SELECTED_POSITION_COLOUR,
@@ -87,7 +89,6 @@ from fibsem.ui.widgets.custom_widgets import (
     ContextMenuConfig,
     IconToolButton,
     TitledPanel,
-    ValueComboBox,
     ValueSpinBox,
 )
 from fibsem.ui.widgets.overview_acquisition_settings_widget import (
@@ -112,6 +113,30 @@ PREVIEW_KEY = "acquisition-preview"
 # Icon buttons that sit in a `TitledPanel` header. Matches the fluorescence overview,
 # so the two tabs' section headers line up.
 _HEADER_BTN_SIZE = 26
+
+# Inset for chrome drawn over the canvas, matching the fluorescence overview's.
+_CANVAS_CHROME_MARGIN = 8
+# Below the view chips, which own the top-left corner.
+_CURSOR_READOUT_TOP = 38
+# Gap between view chips.
+_VIEW_CHIP_SPACING = 4
+
+# Chips over the image, so dark and translucent rather than the app's button styling --
+# they sit on data and must not read as a toolbar. The active one is the view the next
+# run would land in, in the accent colour the app uses for a selected state.
+_VIEW_CHIP_STYLE = (
+    "QPushButton { color: #d0d0d0; font-size: 10px; padding: 3px 8px; border: none;"
+    " border-radius: 9px; background: rgba(26, 26, 26, 170); }"
+    "QPushButton:hover { background: rgba(60, 60, 60, 200); }"
+    "QPushButton:checked { color: #ffffff; background: rgba(90, 90, 90, 210); }"
+)
+_VIEW_CHIP_STYLE_ACTIVE = (
+    "QPushButton { color: #d0d0d0; font-size: 10px; padding: 3px 8px;"
+    f" border: 1px solid {ACCENT_COLOR}; border-radius: 9px;"
+    " background: rgba(26, 26, 26, 170); }"
+    "QPushButton:hover { background: rgba(60, 60, 60, 200); }"
+    f"QPushButton:checked {{ color: #ffffff; background: {ACCENT_COLOR}; }}"
+)
 
 # The grid boundary a cryo holder's slot describes, as a radius in metres. Carried over
 # from the widget this replaces, where it was written inline as `1000e-6 / pixelsize`.
@@ -163,7 +188,31 @@ class OverviewView(NamedTuple):
 
     @property
     def label(self) -> str:
-        return f"{self.orientation} · {self.beam_type.name.title()}"
+        """A short name, beam first, saying the pose only when it is not the matching one.
+
+        The orientations are named after the beams -- "SEM" is the pose where the sample
+        faces the electron column -- so pairing the two reads as a tautology one way
+        ("SEM . Electron") and a contradiction the other ("SEM . Ion"). Neither is, but
+        nothing on screen said so.
+
+        Beam first because that is what you are looking *through*, and it is how people
+        say it: "the FIB overview". The pose is spent only on the combinations that are
+        actually surprising, which is what makes them legible as the odd ones:
+
+            Electron at the SEM pose      -> SEM
+            Ion at the FIB pose           -> FIB
+            Ion at the milling pose       -> FIB . Milling
+            Electron at the milling pose  -> SEM . Milling
+            Ion at the SEM pose           -> FIB . SEM pose
+        """
+        beam = "SEM" if self.beam_type is BeamType.ELECTRON else "FIB"
+        if self.orientation == beam:
+            return beam
+        pose = self.orientation.title()
+        # "FIB . SEM pose" rather than "FIB . SEM", which would read as two beams.
+        if self.orientation in ("SEM", "FIB"):
+            pose = f"{self.orientation} pose"
+        return f"{beam} · {pose}"
 
 
 class OverviewRecord:
@@ -373,14 +422,38 @@ class FibsemOverviewWidget(QWidget):
         )
         self.canvas.add_overlay(self.selected_position_overlay)
 
+        # Where the pointer is, in stage coordinates. Drawn over the canvas in the one
+        # free corner -- the toolbar owns the top right, the scalebar the bottom right,
+        # the stage info bar the bottom left. A Qt label rather than the canvas's own
+        # text chrome because this updates on every mouse motion, and `set_info_text`
+        # repaints the figure: at motion-event rates that is the difference between a
+        # readout and a stutter, and on this canvas a repaint costs every placed image.
+        self.cursor_readout = QLabel(self.canvas)
+        self.cursor_readout.setAttribute(Qt.WA_TransparentForMouseEvents)
+        # Monospaced so the digits sit still while the cursor moves. A proportional font
+        # makes the whole readout shuffle on every pixel of travel.
+        self.cursor_readout.setStyleSheet(
+            "color: #e8e8e8; font-size: 10px; font-family: monospace;"
+            "background: rgba(26, 26, 26, 160); border-radius: 3px; padding: 2px 5px;"
+        )
+        self.cursor_readout.move(_CANVAS_CHROME_MARGIN, _CURSOR_READOUT_TOP)
+        self.cursor_readout.hide()  # nothing to say until the pointer is over the canvas
+        self.canvas.cursor_moved.connect(self._on_cursor_moved)
+
         self.settings_widget = OverviewAcquisitionSettingsWidget(self)
         self.settings_widget.settings_changed.connect(self._on_settings_changed)
 
-        # Which way of looking at the sample the canvas is showing. Populated from what
-        # has actually been placed -- an empty selector means nothing is on the canvas
-        # yet, which is the honest state rather than a list of hypotheticals.
-        self.combo_view = ValueComboBox()
-        self.combo_view.currentIndexChanged.connect(self._on_view_selected)
+        # Which way of looking at the sample the canvas is showing, over the canvas
+        # rather than in the settings column: it selects what you are looking at, so it
+        # belongs where you are looking. Top left, the corner the toolbar, the scalebar
+        # and the info bar all leave free -- with the cursor readout, which moves down
+        # to make room when there are chips.
+        # Laid out by hand rather than in a container with a layout: a `QHBoxLayout`
+        # inside a widget parented to the canvas reported a zero size hint at the moment
+        # the chips were rebuilt, so the container took zero geometry and the chips drew
+        # nothing while reporting themselves visible. Each chip sizes itself from its own
+        # text, exactly as the cursor readout does above.
+        self._view_chip_buttons: Dict["OverviewView", QPushButton] = {}
         self.label_view_note = QLabel("")
         self.label_view_note.setWordWrap(True)
         self.label_view_note.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
@@ -481,7 +554,6 @@ class FibsemOverviewWidget(QWidget):
         panel = QWidget()
         layout = QFormLayout(panel)
         layout.setContentsMargins(4, 4, 4, 4)
-        layout.addRow("View", self.combo_view)
         layout.addRow(self.label_view_note)
         layout.addRow(self.checkbox_gridbars)
         layout.addRow("Bar spacing", self.spin_gridbar_spacing)
@@ -494,11 +566,6 @@ class FibsemOverviewWidget(QWidget):
     # ── grid bars ────────────────────────────────────────────────────────
 
     # ── the view selector ────────────────────────────────────────────────
-
-    def _on_view_selected(self, _index: int) -> None:
-        view = self.combo_view.value()
-        if isinstance(view, OverviewView):
-            self.show_view(view)
 
     def _refresh_view_selector(self) -> None:
         """List the views worth switching to, and say what is not shown.
@@ -518,15 +585,49 @@ class FibsemOverviewWidget(QWidget):
             if view is not None and view not in views:
                 views.append(view)
 
-        self.combo_view.blockSignals(True)
-        self.combo_view.clear()
+        # Rebuilt rather than updated: this runs on every overlay refresh, and a handful
+        # of buttons is cheaper to make than to diff.
+        for chip in self._view_chip_buttons.values():
+            chip.setParent(None)
+            chip.deleteLater()
+        self._view_chip_buttons = {}
+
+        # One view is not a choice, so chips would only say what the info bar already
+        # says -- over the data, which is the one place not to say anything twice.
+        if len(views) < 2:
+            self._refresh_view_note()
+            return
+
+        acquisition = self.acquisition_view
+        x = _CANVAS_CHROME_MARGIN
         for view in views:
-            self.combo_view.addItem(view.label, view)
-        if self._current_view is not None and self._current_view in views:
-            self.combo_view.setCurrentIndex(views.index(self._current_view))
-        self.combo_view.blockSignals(False)
-        self.combo_view.setEnabled(len(views) > 1)
+            chip = QPushButton(view.label, self.canvas)
+            chip.setCheckable(True)
+            chip.setChecked(view == self._current_view)
+            chip.setCursor(Qt.PointingHandCursor)
+            # The one the next run would land in is marked, not just the one being
+            # shown: that is the difference between "what am I looking at" and "where
+            # will the next overview appear", and on this tab they come apart.
+            chip.setToolTip(
+                "Where the next acquisition would appear"
+                if view == acquisition
+                else "Nothing acquired now would appear here"
+            )
+            chip.setStyleSheet(
+                _VIEW_CHIP_STYLE_ACTIVE if view == acquisition else _VIEW_CHIP_STYLE
+            )
+            chip.clicked.connect(partial(self._on_view_chip_clicked, view))
+            chip.adjustSize()
+            chip.move(x, _CANVAS_CHROME_MARGIN)
+            chip.show()
+            chip.raise_()
+            x += chip.width() + _VIEW_CHIP_SPACING
+            self._view_chip_buttons[view] = chip
+
         self._refresh_view_note()
+
+    def _on_view_chip_clicked(self, view: "OverviewView") -> None:
+        self.show_view(view)
 
     def _refresh_view_note(self) -> None:
         """Say when the canvas is not showing where the stage is pointing.
@@ -1209,6 +1310,7 @@ class FibsemOverviewWidget(QWidget):
         specs.extend(self._slot_shapes(frame))
         self.context_overlay.set_shapes(specs)
         self._refresh_tile_grid()
+        self._refresh_stage_info()
         self._refresh_position_markers()
         self._refresh_gridbars()
         # The selector, not just the note: the list includes the view the next run
@@ -1439,6 +1541,64 @@ class FibsemOverviewWidget(QWidget):
             specs.append(ShapeSpec(kind="crosshair", cx=cx, cy=cy,
                                    color=SLOT_COLOUR, label=slot.position.name or ""))
         return specs
+
+    def _refresh_stage_info(self) -> None:
+        """Say where the stage is, in the canvas's bottom-left info bar.
+
+        The marker shows *where*; this says the numbers, which is what you need to write
+        one down, or to check you are where you meant to be. On the canvas rather than
+        in the settings column because it describes what is being looked at.
+
+        The view rides along because on this tab it is not a given: the canvas can be
+        showing one view while the stage sits in another, and a position without the
+        direction it was read from is half an answer.
+        """
+        position = self._stage_position
+        if position is None:
+            self.canvas.set_info_text(None)
+            return
+        parts = [position.pretty]
+        view = self.acquisition_view
+        if view is not None:
+            parts.append(view.label)
+        self.canvas.set_info_text("   |   ".join(parts))
+
+    def _on_cursor_moved(self, x: Optional[float], y: Optional[float]) -> None:
+        """Report the stage position under the pointer, or hide once it leaves.
+
+        What makes the canvas legible as a map rather than a picture: you can tell how
+        far apart two features are without clicking either.
+
+        Through the kept projection, never a fresh one. This fires on every motion
+        event, and reading the instrument once per pixel of pointer travel to render a
+        text label is what made the fluorescence grid drag stutter on hardware.
+        """
+        if x is None or y is None:
+            self._set_cursor_readout("")
+            return
+        frame = self._frame()
+        if frame is None:
+            self._set_cursor_readout("")
+            return
+        try:
+            self._set_cursor_readout(self._in_microns(frame.to_stage(x, y)))
+        except Exception as e:
+            logger.debug(f"Could not resolve the cursor position: {e}")
+            self._set_cursor_readout("")
+
+    def _set_cursor_readout(self, text: str) -> None:
+        """Show the readout, sized to its text, or hide it when there is none.
+
+        Hidden rather than blanked: it sits on top of the image, and an empty plaque
+        floating over the data is worse than nothing there. `adjustSize` because the
+        label is positioned rather than laid out, so nothing else will size it.
+        """
+        self.cursor_readout.setText(text)
+        if not text:
+            self.cursor_readout.hide()
+            return
+        self.cursor_readout.adjustSize()
+        self.cursor_readout.show()
 
     def _refresh_position_markers(self) -> None:
         """Redraw the current stage position and every marked position."""
@@ -1765,6 +1925,25 @@ class FibsemOverviewWidget(QWidget):
             return position.pretty_string
         except Exception:
             return "the clicked position"
+
+    @staticmethod
+    def _in_microns(position: FibsemStagePosition) -> str:
+        """A stage position as microns, for the cursor readout.
+
+        Microns rather than the millimetres-and-degrees of `pretty_string`: this is read
+        while comparing two points on a sample, and at that scale millimetres are three
+        zeros and a digit. The rotation and tilt are left out for the same reason -- they
+        are the stage's, they do not change as the pointer moves, and they are already in
+        the info bar.
+
+        z is *not* left out. On a tilted stage a sideways move in the image carries a
+        real z, and a readout that hid it would make the focal-plane change invisible.
+        """
+        return (
+            f"x {(position.x or 0.0) * constants.SI_TO_MICRO:9.1f}  "
+            f"y {(position.y or 0.0) * constants.SI_TO_MICRO:9.1f}  "
+            f"z {(position.z or 0.0) * constants.SI_TO_MICRO:9.1f} µm"
+        )
 
     # ── acquisition ──────────────────────────────────────────────────────
 

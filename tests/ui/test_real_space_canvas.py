@@ -485,32 +485,25 @@ def test_the_reference_pixel_size_is_not_changed_under_a_placed_image():
     assert c.reference_pixel_size == PIXEL_SIZE
 
 
-def test_the_crosshair_marks_the_origin_not_the_middle_of_the_content():
-    """The centre of a union of tiles is wherever they happen to average out; the origin
-    is the position the caller built the canvas around."""
+def test_the_canvas_draws_no_crosshair_of_its_own():
+    """It used to mark canvas zero -- the *origin* -- on the argument that it is the
+    position the caller built the canvas around.
+
+    It is, and that means nothing to a user: the origin is the stage position of
+    whichever image was placed first, so the marker sat somewhere arbitrary, moved when
+    the view changed, and was drawn in the one colour on the canvas that reads as a
+    warning. What is worth marking -- grid centre, the holder's slots, where the stage
+    is -- lives in stage space, which this canvas does not know and its callers draw.
+    """
     c = _canvas()
-    c.add_image(_img(), centre=(500e-6, 500e-6), pixel_size=PIXEL_SIZE)  # far off-origin
-    assert c._content_rect().cx == pytest.approx(5000)  # content is nowhere near (0, 0)
-    (marker,) = c._crosshair_artists
-    xs, ys = marker.get_data()
-    assert (xs[0], ys[0]) == (0.0, 0.0)
-
-
-def test_the_crosshair_does_not_scale_with_the_working_area():
-    """Arms scaled to the content made the crosshair 5% of a 2 mm area — 100 um across."""
-    c = _canvas()
-    c.add_image(_img(), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE)
-    small = c._crosshair_artists[0].get_markersize()
-    c.set_world_extent(2000e-6)
-    assert c._crosshair_artists[0].get_markersize() == small  # fixed on screen
-
-
-def test_the_crosshair_can_still_be_hidden():
-    c = _canvas()
-    c.add_image(_img(), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE)
-    assert c._crosshair_artists
-    c.set_crosshair_visible(False)
+    c.add_image(_img(), centre=(500e-6, 500e-6), pixel_size=PIXEL_SIZE)
     assert c._crosshair_artists == []
+
+
+def test_it_does_not_offer_a_control_that_would_do_nothing():
+    """The same argument the contrast button is hidden on, two lines above it."""
+    c = _canvas()
+    assert not c.btn_toggle_crosshair.isVisible()
 
 
 # ── draw order and in-place updates ───────────────────────────────────────
