@@ -28,9 +28,11 @@ from fibsem.ui.widgets.preferences_dialog import PreferencesDialog
 # Flags deliberately not offered in the dialog. Anything here is a decision, not an
 # oversight — which is the point of listing them rather than skipping the check.
 #
-# `viewer_movement_events` has no consumer beyond the config global it sets, so there is
-# nothing for a checkbox to switch on. It predates this test.
-NOT_IN_DIALOG = {"viewer_movement_events"}
+# Empty, and kept that way on purpose: it held `viewer_movement_events`, which had no
+# consumer beyond the config global it set and was deleted with the rest of the dead
+# flag plumbing. The set stays so the next flag added without a checkbox has to be
+# named here rather than quietly slipping through.
+NOT_IN_DIALOG: set = set()
 
 
 @pytest.fixture(scope="module")
