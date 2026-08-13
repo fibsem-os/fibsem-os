@@ -707,6 +707,74 @@ class TestViews:
             f"reads {sem_record.detail!r} while another view is displayed"
         )
 
+    def test_clicking_a_view_the_stage_is_not_in_is_refused(self, widget, monkeypatch):
+        """Resolving a click through another view names a point as *that* view sees it,
+        and reaching it would rotate and tilt the stage to match — a far bigger move
+        than clicking a picture looks like."""
+        scope = widget.microscope
+        widget._stage_position = self._at_orientation(scope, "SEM")
+        widget.set_image(self._image(scope, "SEM", BeamType.ELECTRON))
+        assert widget._stage_position_at(0.0, 0.0) is not None, "blocked in its own view"
+
+        widget._stage_position = self._at_orientation(scope, "FIB")
+        assert widget._stage_position_at(0.0, 0.0) is None, (
+            "a click resolved through a view the stage is not in"
+        )
+
+    def test_the_refusal_says_what_to_do_about_it(self, widget, monkeypatch):
+        """Either way out can be the right one — you may have switched view to look at
+        something, or moved the stage and not switched — so the message names both."""
+        scope = widget.microscope
+        widget._stage_position = self._at_orientation(scope, "SEM")
+        widget.set_image(self._image(scope, "SEM", BeamType.ELECTRON))
+        widget._stage_position = self._at_orientation(scope, "FIB")
+
+        toasts = []
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.notification_service.show_toast",
+            lambda message, *a, **k: toasts.append(message),
+        )
+        assert widget._stage_position_at(0.0, 0.0) is None
+        assert toasts, "the click was blocked silently"
+        message = toasts[-1]
+        assert "SEM" in message and "FIB" in message, message
+        assert "Switch the view" in message and "move the stage" in message, message
+
+    def test_marking_is_refused_from_another_view_too(self, widget, monkeypatch):
+        """A position marked through the wrong view would be recorded at an orientation
+        the instrument is not in."""
+        scope = widget.microscope
+        widget._stage_position = self._at_orientation(scope, "SEM")
+        widget.set_image(self._image(scope, "SEM", BeamType.ELECTRON))
+        widget._stage_position = self._at_orientation(scope, "FIB")
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.notification_service.show_toast",
+            lambda *a, **k: None,
+        )
+        assert widget._position_menu(0.0, 0.0) is None
+
+    def test_steering_never_reorients_the_stage(self, widget):
+        """The click says where on the sample, not which way to look at it.
+
+        Without this the target carries the view *origin's* pose, so a stage sitting at
+        a slightly different tilt within the same orientation gets tilted back to it as
+        a side effect of clicking.
+        """
+        scope = widget.microscope
+        widget.set_image(self._image(scope, "SEM", BeamType.ELECTRON))
+        origin = widget._origins[widget.current_view]
+
+        # Same orientation, but not the exact pose the view was anchored at.
+        drifted = FibsemStagePosition(
+            x=0.0, y=0.0, z=0.0, r=origin.r, t=origin.t + np.deg2rad(0.4)
+        )
+        widget._stage_position = drifted
+
+        target = widget._stage_position_at(50.0, 50.0)
+        assert target is not None
+        assert target.r == pytest.approx(drifted.r), "the click changed the rotation"
+        assert target.t == pytest.approx(drifted.t), "the click changed the tilt"
+
     def test_markers_reproject_when_the_view_changes(self, widget):
         """A stage position is 3-D, so it is drawable in any view -- it just lands
         somewhere else. Switching view has to move the markers with it."""

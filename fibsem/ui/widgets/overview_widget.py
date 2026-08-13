@@ -708,6 +708,23 @@ class FibsemOverviewWidget(QWidget):
         return OverviewView(beam_type=beam_type, orientation=orientation)
 
     @property
+    def stage_orientation(self) -> Optional[str]:
+        """The orientation the stage is in now, from the cached position.
+
+        No hardware: `get_stage_orientation` with a pose supplied is arithmetic over
+        the configured orientations.
+        """
+        if self._stage_position is None:
+            return None
+        try:
+            return self.microscope.get_stage_orientation(
+                stage_position=self._stage_position
+            )
+        except Exception as e:
+            logger.debug(f"Could not tell which orientation the stage is in: {e}")
+            return None
+
+    @property
     def acquisition_view(self) -> Optional["OverviewView"]:
         """The view the *next* run would produce.
 
@@ -716,14 +733,8 @@ class FibsemOverviewWidget(QWidget):
         it costs no hardware access -- `get_stage_orientation` with a pose supplied is
         arithmetic over the configured orientations.
         """
-        if self._stage_position is None:
-            return None
-        try:
-            orientation = self.microscope.get_stage_orientation(
-                stage_position=self._stage_position
-            )
-        except Exception as e:
-            logger.debug(f"Could not tell which view the stage is in: {e}")
+        orientation = self.stage_orientation
+        if orientation is None:
             return None
         return OverviewView(beam_type=self.beam_type, orientation=orientation)
 
@@ -1287,7 +1298,17 @@ class FibsemOverviewWidget(QWidget):
         Reads the projection fresh: this is the one caller whose answer drives the
         instrument, and a stale scan rotation here would send the stage to the point
         rotated 180 degrees from the click.
+
+        **Refuses when the displayed view is not the orientation the stage is in.** A
+        click resolved through another view names a point as *that* view sees it, and
+        reaching it would rotate and tilt the stage to match -- a far bigger move than
+        clicking a picture looks like, and one that silently changes what the beam is
+        pointing at. Marking is refused for the same reason: the position would be
+        recorded at an orientation the instrument is not in.
         """
+        if not self._view_matches_stage():
+            return None
+
         frame = self._frame(fresh=True)
         if frame is None:
             return None
@@ -1297,6 +1318,18 @@ class FibsemOverviewWidget(QWidget):
             logger.debug(f"Could not resolve the clicked position: {e}")
             return None
 
+        # Steering never reorients. The click says *where on the sample*, not which way
+        # to look at it, so the stage's own rotation and tilt are kept and the move is
+        # pure x/y/z. Without this the target carries the view *origin's* pose, and a
+        # stage sitting at a slightly different tilt within the same orientation would
+        # be tilted back to it as a side effect of a click.
+        current = self._stage_position
+        if current is not None:
+            if current.r is not None:
+                target.r = current.r
+            if current.t is not None:
+                target.t = current.t
+
         limits = getattr(self.microscope._stage, "limits", None)
         if limits and not target.is_within_limits(limits, axes=["x", "y"]):
             notification_service.show_toast(
@@ -1304,6 +1337,29 @@ class FibsemOverviewWidget(QWidget):
             )
             return None
         return target
+
+    def _view_matches_stage(self) -> bool:
+        """Whether the canvas is showing the orientation the stage is in, and say if not.
+
+        The message names both ways out, because either can be the right one: you may
+        have switched view to look at something, or moved the stage and not switched.
+        """
+        displayed = self._current_view
+        stage = self.stage_orientation
+        if displayed is None or stage is None:
+            # Nothing placed yet, or the pose cannot be classified. Not a mismatch --
+            # refusing here would block the tab on a system whose orientation is simply
+            # not one of the named ones.
+            return True
+        if displayed.orientation == stage:
+            return True
+        notification_service.show_toast(
+            f"This canvas shows the {displayed.orientation} view, but the stage is at "
+            f"{stage}. Switch the view to {stage}, or move the stage to "
+            f"{displayed.orientation}, to steer from here.",
+            "warning",
+        )
+        return False
 
     @staticmethod
     def _describe(position: FibsemStagePosition) -> str:
