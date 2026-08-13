@@ -593,11 +593,19 @@ def get_recent_experiments(prune_missing: bool = True) -> List[ExperimentSummary
 
 
 def apply_feature_flags(prefs: UserPreferences) -> None:
-    """Update module-level FEATURE_* constants from user preferences."""
-    global FEATURE_COINCIDENCE_MILLING_ENABLED
+    """Update module-level FEATURE_* constants from user preferences.
+
+    Down to one. The others either went away with their features or, in the case of
+    coincidence milling, turned out to have no reader -- that one gates on
+    `prefs.features.coincidence_milling_enabled` directly, which is the simpler
+    thing to do when the caller already holds a preferences object.
+
+    The global survives here because its caller does not: `FibsemMovementWidget`
+    reads it while building a widget, and the alternative is re-reading
+    user-preferences.yaml from disk on every construction.
+    """
     global FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED
     f = prefs.features
-    FEATURE_COINCIDENCE_MILLING_ENABLED = f.coincidence_milling_enabled
     FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = f.sample_holder_widget
 
 
@@ -612,5 +620,4 @@ AUTOLAMELLA_EXPERIMENT_NAME = "AutoLamella"
 os.makedirs(AUTOLAMELLA_LOG_PATH, exist_ok=True)
 
 ####### FEATURE FLAGS
-FEATURE_COINCIDENCE_MILLING_ENABLED = False
 FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = False
