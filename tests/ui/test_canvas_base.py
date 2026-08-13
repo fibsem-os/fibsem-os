@@ -132,6 +132,99 @@ def test_the_toolbar_toggle_still_round_trips(noun):
     assert button.isChecked() is True and button.toolTip() == f"Hide {noun}"
 
 
+class TestTheLiveChipClearsTheToolbar:
+    """The chip used to be an axes artist at ``transAxes`` (0.988, 0.985) while the
+    toolbar buttons are laid out in *widget* pixels. The axes are ``aspect="equal"``
+    inside an edge-to-edge figure, so they reach the widget's top edge for any frame at
+    least as tall in aspect as its pane -- and the chip landed underneath the buttons.
+    A square FM frame in a square pane did it every time (FIB-596).
+
+    It is a child widget in the toolbar's own layout pass now, so the two cannot
+    collide whatever the aspect ratio is.
+    """
+
+    @staticmethod
+    def _live_square_canvas(w=420, h=420, img=(512, 512)):
+        c = FibsemImageCanvas()
+        c.resize(w, h)
+        c.set_array(_img(*img), pixel_size=1e-8)
+        c.set_live_badge(True)
+        return c
+
+    def test_the_chip_does_not_overlap_any_visible_button(self):
+        c = self._live_square_canvas()
+
+        chip = c._live_badge.geometry()
+        clashes = [
+            b for b in c._overlay_buttons
+            if not b.isHidden() and chip.intersects(b.geometry())
+        ]
+
+        assert not clashes, f"{len(clashes)} toolbar button(s) under the LIVE chip"
+
+    @pytest.mark.parametrize(
+        "pane,image",
+        [
+            ((420, 420), (512, 512)),  # square frame, square pane -- the reported case
+            ((420, 300), (512, 512)),  # square frame, wide pane
+            ((300, 420), (512, 768)),  # wide frame in a pane taller than its aspect
+            ((900, 200), (512, 512)),  # extreme letterbox
+        ],
+    )
+    def test_no_aspect_ratio_puts_it_under_the_buttons(self, pane, image):
+        """The old bug was aspect-dependent, which is why it showed on the FM and not
+        the beams. Placement must not depend on the aspect at all now."""
+        c = self._live_square_canvas(pane[0], pane[1], image)
+
+        chip = c._live_badge.geometry()
+        assert not any(
+            chip.intersects(b.geometry())
+            for b in c._overlay_buttons
+            if not b.isHidden()
+        )
+
+    def test_the_buttons_stay_put_when_a_stream_starts(self):
+        """The buttons are click targets. The chip appearing must not slide one out
+        from under the cursor -- which is why the chip goes on their far side."""
+        c = FibsemImageCanvas()
+        c.resize(420, 420)
+        c.set_array(_img(512, 512), pixel_size=1e-8)
+        # Settle the layout at the resized width first: offscreen, `resize` lands
+        # lazily, so an unsettled `before` would record the default width and the test
+        # would blame the chip for the resize.
+        c._reposition_overlay_buttons()
+        before = [b.geometry() for b in c._overlay_buttons]
+
+        c.set_live_badge(True)
+
+        assert [b.geometry() for b in c._overlay_buttons] == before
+
+    def test_a_new_frame_does_not_take_the_chip_down(self):
+        """It is a widget, so `cla()` never removes it and `set_image` has nothing to
+        restore -- unlike the info bar and title, which are re-applied per frame."""
+        c = self._live_square_canvas()
+
+        c.set_array(_img(512, 512), pixel_size=1e-8)  # the next streamed frame
+
+        assert c._live_on
+        assert c._live_badge is not None and not c._live_badge.isHidden()
+
+    def test_it_hides_without_being_destroyed(self):
+        c = self._live_square_canvas()
+
+        c.set_live_badge(False)
+
+        assert not c._live_on
+        assert c._live_badge.isHidden()
+
+    def test_asking_to_hide_one_that_was_never_shown_is_a_no_op(self):
+        c = FibsemImageCanvas()
+
+        c.set_live_badge(False)
+
+        assert c._live_badge is None  # not built just to be hidden
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
