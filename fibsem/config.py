@@ -342,27 +342,20 @@ class DisplayPreferences:
 
 @dataclass
 class FeatureFlags:
-    viewer_movement_events: bool = False
     coincidence_milling_enabled: bool = False
     sample_holder_widget: bool = False
-    scheduled_tasks: bool = False
     bug_report_enabled: bool = False
     # Tools -> Scripts. A user script runs with the application's own access to the
     # microscope and none of its guard rails, so the menu is not offered to anyone
     # who has not asked for it (FIB-338).
     scripts_enabled: bool = False
-    # The FM Overview tab. Off while the rebuilt fluorescence overview UI is still
-    # being finished -- it sits beside the existing Overview tab and drives the same
-    # instrument, so it is offered only to people who have asked for it (FIB-432).
-    fm_overview_tab: bool = False
-    # Editing the workflow queue from the timeline while a run is in progress. The
-    # first thing that lets a user change what a running workflow will do, on a real
-    # sample, mid-session -- so it is offered only to people who ask (FIB-476).
-    edit_running_queue: bool = False
     # The rebuilt FIB/SEM Overview tab, on the real-space canvas. Off while it sits
     # *beside* the napari Overview tab rather than replacing it: the two drive the same
     # instrument, and the existing tab is the one people are relying on until this has
     # had bench time (FIB-413, FIB-405).
+    #
+    # The only staging flag left after FIB-609, and it goes the same way the others did
+    # -- deleted when the tab replaces the napari one, not kept as a preference.
     overview_canvas_tab: bool = False
 
 @dataclass
@@ -608,31 +601,20 @@ def get_recent_experiments(prune_missing: bool = True) -> List[ExperimentSummary
 
 
 def apply_feature_flags(prefs: UserPreferences) -> None:
-    """Update module-level FEATURE_* constants from user preferences."""
-    import fibsem.config as _self
-    global FEATURE_VIEWER_MOVEMENT_EVENTS
-    global FEATURE_COINCIDENCE_MILLING_ENABLED
-    global FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED
-    global FEATURE_SCHEDULED_TASKS_ENABLED
-    global FEATURE_FM_OVERVIEW_TAB_ENABLED
-    global FEATURE_EDIT_RUNNING_QUEUE_ENABLED
-    global FEATURE_OVERVIEW_CANVAS_TAB_ENABLED
-    f = prefs.features
-    FEATURE_VIEWER_MOVEMENT_EVENTS = f.viewer_movement_events
-    FEATURE_COINCIDENCE_MILLING_ENABLED = f.coincidence_milling_enabled
-    FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = f.sample_holder_widget
-    FEATURE_SCHEDULED_TASKS_ENABLED = f.scheduled_tasks
-    FEATURE_FM_OVERVIEW_TAB_ENABLED = f.fm_overview_tab
-    FEATURE_EDIT_RUNNING_QUEUE_ENABLED = f.edit_running_queue
-    FEATURE_OVERVIEW_CANVAS_TAB_ENABLED = f.overview_canvas_tab
+    """Update module-level FEATURE_* constants from user preferences.
 
-    # Also update the autolamella config module which re-exports these
-    try:
-        import fibsem.applications.autolamella.config as al_cfg
-        al_cfg.FEATURE_COINCIDENCE_MILLING_ENABLED = f.coincidence_milling_enabled
-        al_cfg.FEATURE_SCHEDULED_TASKS_ENABLED = f.scheduled_tasks
-    except ImportError:
-        pass
+    Down to one. The others either went away with their features or, in the case of
+    coincidence milling, turned out to have no reader -- that one gates on
+    `prefs.features.coincidence_milling_enabled` directly, which is the simpler
+    thing to do when the caller already holds a preferences object.
+
+    The global survives here because its caller does not: `FibsemMovementWidget`
+    reads it while building a widget, and the alternative is re-reading
+    user-preferences.yaml from disk on every construction.
+    """
+    global FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED
+    f = prefs.features
+    FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = f.sample_holder_widget
 
 
 ### AUTOLAMELLA APPLICATION PATHS
@@ -646,10 +628,4 @@ AUTOLAMELLA_EXPERIMENT_NAME = "AutoLamella"
 os.makedirs(AUTOLAMELLA_LOG_PATH, exist_ok=True)
 
 ####### FEATURE FLAGS
-FEATURE_VIEWER_MOVEMENT_EVENTS = False
-FEATURE_COINCIDENCE_MILLING_ENABLED = False
 FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = False
-FEATURE_SCHEDULED_TASKS_ENABLED = False
-FEATURE_FM_OVERVIEW_TAB_ENABLED = False
-FEATURE_EDIT_RUNNING_QUEUE_ENABLED = False
-FEATURE_OVERVIEW_CANVAS_TAB_ENABLED = False

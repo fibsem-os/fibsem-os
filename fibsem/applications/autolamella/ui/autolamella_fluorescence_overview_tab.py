@@ -25,7 +25,6 @@ from typing import TYPE_CHECKING, Optional
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
-import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.poses import (
     FLUORESCENCE_ORIENTATION,
     build_lamella_poses,
@@ -105,14 +104,10 @@ class AutoLamellaFluorescenceOverviewTab(QWidget):
         """
         microscope = self.microscope
 
-        if (
-            not fibsem_cfg.FEATURE_FM_OVERVIEW_TAB_ENABLED
-            or microscope is None
-            or microscope.fm is None
-        ):
-            # Switched off, or no fluorescence detector. The tab stays in place but dead
-            # rather than being removed, so the tab bar does not change shape between
-            # systems; hiding it is the window's job.
+        if microscope is None or microscope.fm is None:
+            # Not connected yet, or no fluorescence detector. The tab stays in place but
+            # dead rather than being removed, so the tab bar does not change shape
+            # between systems; hiding it is the window's job.
             self._drop_overview()
             self.availability_changed.emit(False)
             return

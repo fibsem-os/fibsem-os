@@ -51,34 +51,16 @@ _TIP_COINCIDENCE   = (
 )
 _LBL_SAMPLE_HOLDER = "Enable Sample Holder Widget"
 _TIP_SAMPLE_HOLDER = "Show the sample holder navigation widget in the main interface."
-_LBL_SCHEDULED     = "Enable Scheduled Tasks"
-_TIP_SCHEDULED     = (
-    "Allow tasks to be scheduled to start at a specific date/time. Adds a scheduling "
-    "control to the task editor; the workflow waits until the scheduled time before "
-    "running that task."
-)
 _LBL_BUG_REPORT    = "Enable Bug Reporter"
 _TIP_BUG_REPORT    = (
     "Show the 'Report an Issue...' option in the Help menu, for reporting bugs and "
     "optionally submitting experiment data privately to the maintainers."
-)
-_LBL_FM_OVERVIEW   = "Enable FM Overview Tab"
-_TIP_FM_OVERVIEW   = (
-    "Add an FM Overview tab for acquiring fluorescence overviews on the real-space "
-    "canvas, beside the existing Overview tab. Still being finished, and it drives the "
-    "same microscope as the Fluorescence controls."
 )
 _LBL_OVERVIEW_CANVAS = "Enable Overview (Canvas) Tab"
 _TIP_OVERVIEW_CANVAS = (
     "Add a rebuilt Overview tab on the real-space canvas, beside the existing one. "
     "Tiles are placed where they were acquired rather than stitched first. Still being "
     "finished, and it drives the same microscope as the Overview tab it will replace."
-)
-_LBL_EDIT_QUEUE    = "Enable Editing the Running Queue"
-_TIP_EDIT_QUEUE    = (
-    "Let the workflow timeline reorder, remove and re-run queued tasks while a run "
-    "is in progress. Only queued work can be changed — the running task and "
-    "everything already done are left alone."
 )
 _LBL_SCRIPTS       = "Enable User Scripts"
 _TIP_SCRIPTS       = (
@@ -171,26 +153,17 @@ class PreferencesDialog(QDialog):
         self._chk_coincidence_milling.setToolTip(_TIP_COINCIDENCE)
         self._chk_sample_holder = QCheckBox()
         self._chk_sample_holder.setToolTip(_TIP_SAMPLE_HOLDER)
-        self._chk_scheduled_tasks = QCheckBox()
-        self._chk_scheduled_tasks.setToolTip(_TIP_SCHEDULED)
         self._chk_bug_report = QCheckBox()
         self._chk_bug_report.setToolTip(_TIP_BUG_REPORT)
         self._chk_scripts = QCheckBox()
         self._chk_scripts.setToolTip(_TIP_SCRIPTS)
-        self._chk_fm_overview = QCheckBox()
-        self._chk_fm_overview.setToolTip(_TIP_FM_OVERVIEW)
         self._chk_overview_canvas = QCheckBox()
         self._chk_overview_canvas.setToolTip(_TIP_OVERVIEW_CANVAS)
-        self._chk_edit_queue = QCheckBox()
-        self._chk_edit_queue.setToolTip(_TIP_EDIT_QUEUE)
         features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
         features_form.addRow(_LBL_SAMPLE_HOLDER, self._chk_sample_holder)
-        features_form.addRow(_LBL_SCHEDULED, self._chk_scheduled_tasks)
         features_form.addRow(_LBL_BUG_REPORT, self._chk_bug_report)
         features_form.addRow(_LBL_SCRIPTS, self._chk_scripts)
-        features_form.addRow(_LBL_FM_OVERVIEW, self._chk_fm_overview)
         features_form.addRow(_LBL_OVERVIEW_CANVAS, self._chk_overview_canvas)
-        features_form.addRow(_LBL_EDIT_QUEUE, self._chk_edit_queue)
         self._stack.addWidget(features_page)
 
         # --- Experiment Defaults ---
@@ -260,12 +233,9 @@ class PreferencesDialog(QDialog):
         f = prefs.features
         self._chk_coincidence_milling.setChecked(f.coincidence_milling_enabled)
         self._chk_sample_holder.setChecked(f.sample_holder_widget)
-        self._chk_scheduled_tasks.setChecked(f.scheduled_tasks)
         self._chk_bug_report.setChecked(f.bug_report_enabled)
         self._chk_scripts.setChecked(f.scripts_enabled)
-        self._chk_fm_overview.setChecked(f.fm_overview_tab)
         self._chk_overview_canvas.setChecked(f.overview_canvas_tab)
-        self._chk_edit_queue.setChecked(f.edit_running_queue)
 
         e = prefs.experiment
         self._dir_experiment.setText(e.default_experiment_directory)
@@ -334,12 +304,9 @@ class PreferencesDialog(QDialog):
             features=FeatureFlags(
                 coincidence_milling_enabled=self._chk_coincidence_milling.isChecked(),
                 sample_holder_widget=self._chk_sample_holder.isChecked(),
-                scheduled_tasks=self._chk_scheduled_tasks.isChecked(),
                 bug_report_enabled=self._chk_bug_report.isChecked(),
                 scripts_enabled=self._chk_scripts.isChecked(),
-                fm_overview_tab=self._chk_fm_overview.isChecked(),
                 overview_canvas_tab=self._chk_overview_canvas.isChecked(),
-                edit_running_queue=self._chk_edit_queue.isChecked(),
             ),
             movement=MovementPreferences(
                 acquire_sem_after_stage_movement=self._chk_acquire_sem.isChecked(),

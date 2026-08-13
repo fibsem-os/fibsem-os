@@ -181,8 +181,16 @@ def test_every_selection_handler_reaches_the_new_tab(methods_calling):
 
 def test_the_new_tab_is_behind_its_own_feature_flag(window_source):
     """Beside the napari tab rather than replacing it, so it has to be possible to not
-    see it at all."""
-    assert "FEATURE_OVERVIEW_CANVAS_TAB_ENABLED" in window_source
+    see it at all.
+
+    Read from the window's own preferences, not from a module-level `FEATURE_*` global.
+    FIB-609 removed five of those; the one it kept exists because its caller is a widget
+    constructor with no preferences to hand, which is not the case here.
+    """
+    assert "self._preferences.features.overview_canvas_tab" in window_source
+    assert "FEATURE_OVERVIEW_CANVAS_TAB_ENABLED" not in window_source, (
+        "the flag went back to a module global; read the preference directly"
+    )
 
 
 def test_the_flag_exists_and_is_off_by_default():
@@ -190,23 +198,23 @@ def test_the_flag_exists_and_is_off_by_default():
     this has had bench time."""
     import fibsem.config as fibsem_cfg
 
-    assert hasattr(fibsem_cfg, "FEATURE_OVERVIEW_CANVAS_TAB_ENABLED")
     assert fibsem_cfg.FeatureFlags().overview_canvas_tab is False
 
 
-def test_the_flag_is_applied_from_user_preferences():
-    """A flag that is never read from preferences cannot be turned on by the person who
-    wants it, which is the only way it gets exercised before the swap."""
+def test_the_flag_survives_a_preferences_round_trip(tmp_path):
+    """A flag that does not persist cannot be turned on by the person who wants it,
+    which is the only way this tab gets exercised before the swap.
+
+    Through `to_dict`/`from_dict` rather than through `apply_feature_flags`, which no
+    longer carries this one — saving and reloading is what the preferences dialog
+    actually does, and it is the step that would silently drop an unknown field.
+    """
     import fibsem.config as fibsem_cfg
 
     prefs = fibsem_cfg.UserPreferences()
     prefs.features.overview_canvas_tab = True
-    try:
-        fibsem_cfg.apply_feature_flags(prefs)
-        assert fibsem_cfg.FEATURE_OVERVIEW_CANVAS_TAB_ENABLED is True
-    finally:
-        prefs.features.overview_canvas_tab = False
-        fibsem_cfg.apply_feature_flags(prefs)
+    reloaded = fibsem_cfg.UserPreferences.from_dict(prefs.to_dict())
+    assert reloaded.features.overview_canvas_tab is True
 
 
 def test_the_napari_overview_tab_is_untouched(window_source):
