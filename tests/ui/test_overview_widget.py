@@ -969,6 +969,49 @@ class TestTheCanvasDrawsBeforeAnythingIsAcquired:
             "moving the stage switched the canvas away from the acquired view"
         )
 
+    def test_removing_the_last_overview_goes_back_to_following_the_stage(
+        self, widget, microscope
+    ):
+        """An empty canvas pinned to a view nothing is in is the state this seeding
+        exists to avoid, and the image that pinned it is no longer there to justify
+        it."""
+        widget.set_image(_tile(microscope, self._at(microscope, "SEM")))
+        widget._on_stage_moved(self._at(microscope, "MILLING"))
+        assert widget.current_view.orientation == "SEM", "pinned by the image"
+
+        record_id = widget.overviews[0].id
+        assert widget.remove_overview(record_id) is True
+        assert widget.current_view.orientation == "MILLING", (
+            "the canvas is empty but still pinned to the removed image's view"
+        )
+
+    def test_removing_one_of_several_keeps_the_view(self, widget, microscope):
+        """Only the *last* one releases the pin. Tidying one overview off a canvas that
+        still holds others must not hand the view back to the stage underneath the
+        user -- they are still looking at data."""
+        widget.set_image(_tile(microscope, self._at(microscope, "SEM")))
+        widget.set_image(
+            _tile(microscope, _at(self._at(microscope, "SEM"), dx=200e-6))
+        )
+        assert len(widget.overviews) == 2
+
+        assert widget.remove_overview(widget.overviews[0].id) is True
+        widget._on_stage_moved(self._at(microscope, "MILLING"))
+        assert widget.current_view.orientation == "SEM", (
+            "removing one of two overviews unpinned the view"
+        )
+
+    def test_hiding_an_overview_is_not_removing_it(self, widget, microscope):
+        """A view you can bring back with a checkbox is still a view you chose."""
+        widget.set_image(_tile(microscope, self._at(microscope, "SEM")))
+        record_id = widget.overviews[0].id
+        widget.set_overview_visible(record_id, False)
+
+        widget._on_stage_moved(self._at(microscope, "MILLING"))
+        assert widget.current_view.orientation == "SEM", (
+            "hiding an overview unpinned the view"
+        )
+
     def test_an_image_is_drawn_at_its_own_size_whatever_the_scale_was_seeded_to(
         self, widget, microscope
     ):

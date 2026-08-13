@@ -1031,12 +1031,24 @@ class FibsemOverviewWidget(QWidget):
         return True
 
     def remove_overview(self, record_id: str) -> bool:
-        """Take one overview off the canvas entirely. False if the id is unknown."""
+        """Take one overview off the canvas entirely. False if the id is unknown.
+
+        Removing the last one puts the tab back where it started, so it goes back to
+        following the stage too. Otherwise you would be left looking at an empty canvas
+        pinned to a view nothing is in, which is the state this whole seeding exists to
+        avoid -- and the pin came from an image that is no longer there to justify it.
+        Cleared before the refresh below, so the canvas re-points in the same pass.
+
+        Hidden is not removed: `set_overview_visible` leaves the record, and a view you
+        can bring back with a checkbox is still a view you chose to be in.
+        """
         record = self._records.pop(record_id, None)
         if record is None:
             return False
         for key in record.keys:
             self.canvas.remove_image(key)
+        if not self._records:
+            self._view_pinned = False
         self._refresh_context_overlays()
         self._refresh_overview_list()
         return True
