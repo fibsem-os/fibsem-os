@@ -92,10 +92,17 @@ class TiledAcquisitionRunner:
         microscope: FibsemMicroscope,
         settings: OverviewAcquisitionSettings,
         stop_event: Optional[threading.Event] = None,
+        centre_position: Optional[FibsemStagePosition] = None,
     ):
         self.microscope = microscope
         self.settings = settings
         self.stop_event = stop_event
+        # Where the grid is centred. None means "wherever the stage is", resolved in
+        # `_compute_grid` rather than here so it is read when the run starts rather
+        # than when the runner is built. The stage still returns to where it started
+        # afterwards: this is the grid's centre, not a new home. Matches
+        # `FMTiledAcquisitionRunner`, which has taken one since FIB-393.
+        self.centre_position = centre_position
         # _setup()        → _image_settings, _prev_path, _prev_label,
         #                   _focus_stack_settings, _af_mode
         # _compute_grid() → _tiles, _ordered, _centre_position, _start_state,
@@ -227,7 +234,14 @@ class TiledAcquisitionRunner:
         self._ordered = order_tiles(self._tiles, settings.tile_order)
 
         self._start_state = self.microscope.get_microscope_state()
-        self._centre_position = self.microscope.get_stage_position()
+        # `_start_state` is where the stage goes home to; `_centre_position` is only
+        # what the grid is measured from. They are the same unless a caller planned the
+        # run around somewhere else -- a grid dragged off the stage on the overview.
+        self._centre_position = (
+            self.centre_position
+            if self.centre_position is not None
+            else self.microscope.get_stage_position()
+        )
 
         # offset from centre to top-left corner of the grid (used only for projection)
         grid_offset_x = (settings.ncols - 1) * self._dx_step / 2
@@ -404,12 +418,15 @@ def tiled_image_acquisition_and_stitch(
     microscope: FibsemMicroscope,
     settings: OverviewAcquisitionSettings,
     stop_event: Optional[threading.Event] = None,
+    centre_position: Optional[FibsemStagePosition] = None,
 ) -> FibsemImage:
     """Acquire a tiled image and stitch it together.
     Args:
         microscope: The microscope connection.
         settings: Overview acquisition settings (image_settings, nrows, ncols, overlap).
         stop_event: Optional threading.Event to cancel acquisition.
+        centre_position: Where to centre the grid. None means wherever the stage is.
+            The stage still returns to where it started afterwards.
     Returns:
         The stitched image."""
     # add datetime to filename for uniqueness
@@ -417,7 +434,9 @@ def tiled_image_acquisition_and_stitch(
     timestamp = datetime.datetime.now().strftime(DATETIME_FILE)
     settings.image_settings.filename = f"{filename}-{timestamp}"
 
-    return TiledAcquisitionRunner(microscope, settings, stop_event).run_and_stitch()
+    return TiledAcquisitionRunner(
+        microscope, settings, stop_event, centre_position=centre_position
+    ).run_and_stitch()
 
 ##### REPROJECTION
 # TODO: move these to fibsem.imaging.reprojection?
