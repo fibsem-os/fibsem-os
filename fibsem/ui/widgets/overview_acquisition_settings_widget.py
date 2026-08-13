@@ -16,6 +16,12 @@ from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueComboBox, ValueSpinBox
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
+# What a tileset is called if nobody says otherwise. `ImageSettings` defaults to
+# "default_image", which is a fine name for one image and a poor one for a run: the
+# tiled runner names the tile sub-folder after it, so every overview of every
+# experiment lands in a directory called `default_image`.
+DEFAULT_OVERVIEW_FILENAME = "overview-image"
+
 
 class OverviewAcquisitionSettingsWidget(QWidget):
     """Widget for editing OverviewAcquisitionSettings.
@@ -147,6 +153,8 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         )
         self.image_settings_widget.hfw_label.setText("Field of View")
         self.image_settings_widget.set_show_advanced_button(False)
+        # Before `_connect_signals`, so seeding the box does not read as a user edit.
+        self.image_settings_widget.filename_edit.setText(DEFAULT_OVERVIEW_FILENAME)
 
         # All standard + square resolutions are supported (non-square aspect handled in acquisition)
         self.image_settings_widget.set_available_resolutions(AVAILABLE_RESOLUTIONS_ZIP, default=DEFAULT_SQUARE_RESOLUTION)

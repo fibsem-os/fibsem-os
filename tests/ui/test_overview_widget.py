@@ -600,6 +600,40 @@ class TestTheRunOwnsItsSettings:
         widget.acquire()
         assert captured["settings"].image_settings.path, "the run had nowhere to write"
 
+    def test_a_run_is_called_overview_image_by_default(self, widget, monkeypatch):
+        """Not `default_image`, which is what `ImageSettings` alone would give.
+
+        The name is not cosmetic: `TiledAcquisitionRunner._setup` makes the tile
+        sub-folder from it, so the default decides where every overview of every
+        experiment is written. Asserted on what the *runner* receives rather than on the
+        text box, because that is the value that names the directory -- a box seeded
+        correctly and then dropped somewhere along the handover would still pass.
+        """
+        captured = {}
+
+        def fake_worker(fn, *args):
+            captured["settings"] = args[0]
+
+            class _W:
+                def start(self_inner):
+                    pass
+
+                def is_alive(self_inner):
+                    return False
+
+            return _W()
+
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker", fake_worker
+        )
+        widget.acquire()
+        assert captured["settings"].image_settings.filename == "overview-image"
+        # And visible, so it can be changed before a run rather than discovered after.
+        assert (
+            widget.settings_widget.image_settings_widget.filename_edit.text()
+            == "overview-image"
+        )
+
 
 class TestViews:
     """Images from different beams or orientations must not share the canvas.
