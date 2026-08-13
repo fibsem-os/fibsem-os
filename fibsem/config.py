@@ -355,10 +355,6 @@ class FeatureFlags:
     # being finished -- it sits beside the existing Overview tab and drives the same
     # instrument, so it is offered only to people who have asked for it (FIB-432).
     fm_overview_tab: bool = False
-    # Editing the workflow queue from the timeline while a run is in progress. The
-    # first thing that lets a user change what a running workflow will do, on a real
-    # sample, mid-session -- so it is offered only to people who ask (FIB-476).
-    edit_running_queue: bool = False
 
 @dataclass
 class MovementPreferences:
@@ -610,14 +606,12 @@ def apply_feature_flags(prefs: UserPreferences) -> None:
     global FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED
     global FEATURE_SCHEDULED_TASKS_ENABLED
     global FEATURE_FM_OVERVIEW_TAB_ENABLED
-    global FEATURE_EDIT_RUNNING_QUEUE_ENABLED
     f = prefs.features
     FEATURE_VIEWER_MOVEMENT_EVENTS = f.viewer_movement_events
     FEATURE_COINCIDENCE_MILLING_ENABLED = f.coincidence_milling_enabled
     FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = f.sample_holder_widget
     FEATURE_SCHEDULED_TASKS_ENABLED = f.scheduled_tasks
     FEATURE_FM_OVERVIEW_TAB_ENABLED = f.fm_overview_tab
-    FEATURE_EDIT_RUNNING_QUEUE_ENABLED = f.edit_running_queue
 
     # Also update the autolamella config module which re-exports these
     try:
@@ -644,4 +638,3 @@ FEATURE_COINCIDENCE_MILLING_ENABLED = False
 FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED = False
 FEATURE_SCHEDULED_TASKS_ENABLED = False
 FEATURE_FM_OVERVIEW_TAB_ENABLED = False
-FEATURE_EDIT_RUNNING_QUEUE_ENABLED = False

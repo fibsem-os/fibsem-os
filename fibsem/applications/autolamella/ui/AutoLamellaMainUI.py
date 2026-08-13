@@ -1062,10 +1062,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if message and self.status_bar is not None:
             self.status_bar.showMessage(message)
         self._set_minimap_workflow_enabled(False)
+        # A live run is exactly when there is a queue to edit, so the actions come
+        # on with it — and go off again in hide_workflow_running.
         if hasattr(self, "workflow_timeline"):
-            self.workflow_timeline.set_actions_enabled(
-                fibsem_cfg.FEATURE_EDIT_RUNNING_QUEUE_ENABLED
-            )
+            self.workflow_timeline.set_actions_enabled(True)
 
     def hide_workflow_running(self):
         """Hide the stop button and show run button."""
