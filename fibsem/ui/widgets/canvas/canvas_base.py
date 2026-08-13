@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import numpy as np
+from matplotlib.backend_bases import MouseEvent
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from PyQt5.QtCore import QSize, QTimer, Qt, pyqtSignal
@@ -1096,6 +1097,43 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             ):
                 self.canvas_clicked.emit(event.xdata, event.ydata, self._press_modifiers)
         self._pan_start = None
+
+    def wheelEvent(self, event):
+        """Rescue the modified wheel event matplotlib declines to deliver (FIB-552).
+
+        `FigureCanvasQT.wheelEvent` reads only the *vertical* delta, and emits nothing at
+        all when it is zero — not a zero-magnitude scroll, nothing. macOS supplies exactly
+        that shape: AppKit turns Shift+wheel into *horizontal* scrolling at the system
+        level, before Qt sees it, so the magnitude arrives in `angleDelta().x()` with
+        `y() == 0`. Every Shift+scroll feature is then silently dead there — the objective
+        step, the working-distance nudge, and the correlation z-slice step, all three of
+        which open with `if "Shift" not in modifiers: return`.
+
+        Windows and Linux apply no such transform, so this branch never runs for them.
+        Trackpads take matplotlib's `pixelDelta` path and are unaffected either way.
+
+        Synthesised into a normal `scroll_event` rather than emitting `canvas_scrolled`
+        directly, which is what the retired `ImagePointCanvas` did: going through
+        `_on_scroll` keeps the in-axes check, the real `xdata`/`ydata`, and
+        modifier-suppresses-zoom, so every consumer is served with no per-widget flag. The
+        old shortcut also fired for Shift+wheel *outside* the image.
+
+        `modifiers=` is deliberately not passed: `_modifiers_from_event` reads the Qt
+        event off `guiEvent`, and the kwarg's private backing only exists in newer
+        matplotlib than the `>=3.7.0` pin. CI cannot catch that — it has no PyQt5, so the
+        Qt backend is never imported.
+        """
+        angle, pixel = event.angleDelta(), event.pixelDelta()
+        if angle.y() == 0 and pixel.y() == 0 and event.modifiers():
+            steps = (angle.x() / 120) or pixel.x()
+            if steps:
+                MouseEvent(
+                    "scroll_event", self, *self.mouseEventCoords(event),
+                    step=steps, guiEvent=event,
+                )._process()
+                event.accept()
+                return
+        super().wheelEvent(event)
 
     def _on_scroll(self, event):
         if event.inaxes is not self._ax or event.xdata is None:
