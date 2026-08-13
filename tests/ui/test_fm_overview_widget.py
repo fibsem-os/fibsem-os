@@ -24,7 +24,7 @@ from fibsem.fm.structures import (
     OverviewParameters,
     ZParameters,
 )
-from fibsem.structures import TileOrderStrategy
+from fibsem.structures import CameraImageTransform, TileOrderStrategy
 from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
     FMOverviewConfirmationDialog,
     format_duration,
@@ -4508,3 +4508,95 @@ def test_loading_parameters_leaves_the_objective_start_combo_able_to_notify(qapp
     combo.setCurrentIndex(1 - combo.currentIndex())
 
     assert seen, "the objective-start combo was left signal-blocked by the setter"
+
+
+class TestTheCameraTransformReachesTheProjection:
+    """Changing the camera transform left the overlays placed by the old one (FIB-521).
+
+    Found on hardware: the marker and the marked positions were wrong after a transform
+    change, and nothing brought them back until something else invalidated the frame.
+
+    The issue blamed the tile field of view, reading the transform as feeding "the
+    camera's effective resolution". It does not, and the first test below pins that so
+    the wrong fix is not attempted later. What the transform actually feeds is
+    `fm_image_geometry()`, which `FMStageProjection` carries, which everything placed
+    from a stage position goes through.
+    """
+
+    def test_a_flip_does_not_change_the_tile_field_of_view(self, qapp):
+        """The issue's premise, disproved rather than assumed.
+
+        `CameraImageTransform` is flips only, and flips preserve the array shape -- the
+        enum's own docstring says so. `camera.resolution` is `_resolution // binning`
+        with no transform term. So the planned grid's size cannot go stale this way, and
+        re-running `_sync_tile_fov` from a transform change would be noise dressed as
+        insurance.
+        """
+        widget = _fresh_widget(qapp)
+        fm = widget.fm
+        try:
+            fm.set_image_transform(CameraImageTransform.NONE)
+            qapp.processEvents()
+            before = (fm.camera.resolution, fm.camera.pixel_size)
+
+            fm.set_image_transform(CameraImageTransform.FLIP_XY)
+            qapp.processEvents()
+
+            assert (fm.camera.resolution, fm.camera.pixel_size) == before, (
+                "a flip changed the camera's resolution or pixel size -- if that is now "
+                "true, the tile field of view really does need re-syncing here"
+            )
+        finally:
+            widget.close()
+
+    def test_the_projection_follows_a_transform_change(self, qapp):
+        """The defect. The kept projection carried the old flip until something else
+        invalidated it, and nothing else did."""
+        widget = _fresh_widget(qapp)
+        fm = widget.fm
+        try:
+            fm.set_image_transform(CameraImageTransform.NONE)
+            qapp.processEvents()
+            widget.invalidate_projection()
+            assert widget._projection().geometry.transform is CameraImageTransform.NONE
+
+            fm.set_image_transform(CameraImageTransform.FLIP_X)
+            qapp.processEvents()
+
+            assert widget._projection().geometry.transform is CameraImageTransform.FLIP_X, (
+                "the projection still carries the old transform, so every overlay "
+                "placed through it is drawn for a flip that no longer applies"
+            )
+        finally:
+            widget.close()
+
+    def test_setting_the_same_transform_again_says_nothing(self, qapp):
+        """The camera widget re-applies the saved transform on load, and a redraw for a
+        value that did not move is noise."""
+        widget = _fresh_widget(qapp)
+        fm = widget.fm
+        seen = []
+        try:
+            fm.set_image_transform(CameraImageTransform.FLIP_Y)
+            qapp.processEvents()
+            fm.transform_changed.connect(seen.append)
+
+            fm.set_image_transform(CameraImageTransform.FLIP_Y)
+            qapp.processEvents()
+
+            assert seen == []
+        finally:
+            fm.transform_changed.disconnect(seen.append)
+            widget.close()
+
+    def test_the_subscription_is_torn_down_with_the_widget(self, qapp):
+        """`closeEvent` claims to drop every psygnal "without exception", and once did
+        not -- `acquiring_changed` was missing from it for weeks (FIB-441). A late
+        delivery into a torn-down widget is a process abort, not an exception (FIB-329).
+        """
+        import inspect
+
+        source = inspect.getsource(FMOverviewWidget.closeEvent)
+        assert "transform_changed" in source, (
+            "the transform subscription is not in closeEvent's teardown list"
+        )

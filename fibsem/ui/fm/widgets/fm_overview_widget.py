@@ -293,6 +293,10 @@ class FMOverviewWidget(QWidget):
         # relay is this widget's own dialect. Still a plain bound method, so psygnal can
         # hold it weakly and match it at disconnect time.
         self.fm.objective.position_changed.connect(self._on_objective_moved)
+        # Same contract as the objective's, and for the same reason: the transform is an
+        # input to every projection this widget draws through, and the projection is kept
+        # rather than re-read, so nothing else would notice it moved (FIB-521).
+        self.fm.transform_changed.connect(self._on_transform_changed)
         self._refresh_current_position()
         self._refresh_objective_info()
         self._refresh_orientation_banner()
@@ -1332,6 +1336,33 @@ class FMOverviewWidget(QWidget):
         a shared connection each of those took the imaging channel (FIB-534).
         """
         self._set_objective_info(position, state)
+
+    @ensure_main_thread
+    def _on_transform_changed(self, transform) -> None:
+        """The camera's image transform changed, so every projection here is stale.
+
+        Not the tile *size*: `CameraImageTransform` is flips only and flips preserve the
+        array shape, so `camera.resolution` and the field of view derived from it are
+        untouched. The issue this closes assumed otherwise; what actually moves is the
+        mapping. `fm_image_geometry()` carries the transform, `FMStageProjection` carries
+        that geometry, and everything placed from a stage position goes through it --
+        the current-position marker, marked positions, the stage and grid limits, the
+        planned grid, and the canvas-to-stage direction a double-click moves on.
+
+        This used to be self-correcting by accident: `_frame` re-read the projection on
+        every use, so the next redraw picked the new transform up. Keeping the projection
+        (FIB-600) removed the accident and left nothing in its place, which is what makes
+        this a subscription rather than a comment.
+
+        The grid is redrawn whatever it is pinned to, unlike on a stage move: that gating
+        exists because a translation leaves a pinned grid where it was, and a transform
+        change moves the mapping itself, so it moves everything.
+        """
+        self.invalidate_projection()
+        self._refresh_current_position()
+        self._refresh_positions()
+        self._refresh_stage_metadata()
+        self._refresh_tile_grid()
 
     def _refresh_objective_info(self) -> None:
         """Re-read the objective for the info bar. Touches hardware -- call sparingly.
@@ -2451,6 +2482,7 @@ class FMOverviewWidget(QWidget):
             # Subscribed since FIB-441 and never in this list, though the comment above
             # has always claimed "without exception".
             (self.fm.acquiring_changed, self._on_fm_acquiring_signal),
+            (self.fm.transform_changed, self._on_transform_changed),
         ):
             try:
                 signal.disconnect(slot)
