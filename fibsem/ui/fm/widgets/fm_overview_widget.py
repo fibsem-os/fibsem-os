@@ -19,7 +19,6 @@ from PyQt5.QtCore import QPoint, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog,
     QHBoxLayout,
-    QLabel,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -81,9 +80,6 @@ from fibsem.ui.widgets.canvas.stage_frame import FMStageProjection, StageFrame
 
 TEXT_MUTED = stylesheets.TEXT_MUTED_COLOR
 PROGRESS_FONT_PX = 10
-# Inset for chrome drawn over the canvas, matching the toolbar buttons' own margin so
-# the cursor readout in the top left lines up with the buttons in the top right.
-CANVAS_CHROME_MARGIN = 4
 
 
 def shrink_progress_text(progress: FibsemProgressWidget) -> FibsemProgressWidget:
@@ -336,6 +332,8 @@ class FMOverviewWidget(QWidget):
         self.tile_grid_panel.visibility_changed.connect(
             self.tile_grid_overlay.set_grid_visible
         )
+        self.tile_grid_panel.visibility_changed.connect(self._refresh_grid_hint)
+        self._refresh_grid_hint(self.tile_grid_overlay.is_grid_visible)
         self.tile_grid_panel.color_changed.connect(self.tile_grid_overlay.set_color)
         self.tile_grid_panel.fill_alpha_changed.connect(
             self.tile_grid_overlay.set_fill_alpha
@@ -430,27 +428,6 @@ class FMOverviewWidget(QWidget):
         # Vertical only: a horizontal bar here means a control is refusing to shrink,
         # and scrolling sideways to reach a spinbox is worse than a cramped one.
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-
-        # Where a double-click would take the stage, read off continuously rather than
-        # on demand: the canvas is a map, and a map you have to click to get a
-        # coordinate out of cannot be used to decide whether to click.
-        #
-        # Drawn over the canvas rather than beside it, in the one free corner -- the
-        # toolbar owns the top right, the scalebar the bottom right, and the stage info
-        # bar the bottom left. A Qt label rather than the canvas's own text chrome
-        # because this updates on every mouse motion, and `set_info_text` costs ~4.9 ms
-        # against a label's 0.08 ms; at motion-event rates that is the difference
-        # between a readout and a stutter.
-        self.cursor_readout = QLabel(self.canvas.canvas)
-        self.cursor_readout.setAttribute(Qt.WA_TransparentForMouseEvents)
-        # Monospaced so the digits sit still while the cursor moves. A proportional
-        # font makes the whole readout shuffle on every pixel of travel.
-        self.cursor_readout.setStyleSheet(
-            "color: #e8e8e8; font-size: 10px; font-family: monospace;"
-            "background: rgba(26, 26, 26, 160); border-radius: 3px; padding: 2px 5px;"
-        )
-        self.cursor_readout.move(CANVAS_CHROME_MARGIN, CANVAS_CHROME_MARGIN)
-        self.cursor_readout.hide()  # nothing to say until the pointer is over the canvas
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(self.canvas)
@@ -1946,18 +1923,24 @@ class FMOverviewWidget(QWidget):
             self._set_cursor_readout("")
 
     def _set_cursor_readout(self, text: str) -> None:
-        """Show the readout over the canvas, sized to its text, or hide it when empty.
+        """Put the readout in the canvas status zone, or give the zone back when empty.
 
-        Hidden rather than blanked: it sits on top of the image, and an empty plaque
-        floating over the data is worse than nothing there. `adjustSize` because the
-        label is positioned rather than laid out, so nothing else will size it.
+        Where a double-click would take the stage, read off continuously rather than on
+        demand: the canvas is a map, and a map you have to click to get a coordinate out
+        of cannot be used to decide whether to click.
+
+        Through the canvas's status zone rather than a label of this widget's own. It
+        used to be hand-placed at the top left, "the one free corner" -- which stopped
+        being free when the status zone took that row, and the two then drew on top of
+        each other. The zone shows one thing at a time, so they cannot collide: the
+        readout outranks the grid hint while the pointer is over the canvas, and a focus
+        flash outranks both.
+
+        Empty means the pointer has left the canvas, and the zone then falls back to the
+        grid hint on its own -- so an empty readout is a release rather than a blank
+        plaque left floating over the data.
         """
-        self.cursor_readout.setText(text)
-        if not text:
-            self.cursor_readout.hide()
-            return
-        self.cursor_readout.adjustSize()
-        self.cursor_readout.show()
+        self.canvas.canvas.set_status_readout(text or None)
 
     @staticmethod
     def _describe(position: FibsemStagePosition) -> str:
@@ -1984,8 +1967,20 @@ class FMOverviewWidget(QWidget):
         # size that was never requested.
         self.settings_widget.set_grid_size(rows, cols)
 
+    def _refresh_grid_hint(self, visible: bool) -> None:
+        """Say what the grid can be done to, while it is on screen.
+
+        The gestures are otherwise only discoverable by accident: the cursor names the
+        edge drag and the paint modifier, but nothing suggests trying either. Tied to
+        the grid's visibility rather than set once, so hiding the grid takes its
+        instructions with it. A focus flash borrows the same zone and gives it back.
+        """
+        self.canvas.canvas.set_hint(
+            "click a tile to skip it  ·  Shift+drag to sweep" if visible else None
+        )
+
     def _on_tile_toggled(self, row: int, col: int, enabled: bool) -> None:
-        """A tile was clicked on the canvas.
+        """A tile was clicked or swept on the canvas.
 
         The mask belongs to the settings widget, so this writes there and lets the
         resulting `changed` redraw the overlay -- rather than updating the overlay

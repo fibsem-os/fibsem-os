@@ -58,9 +58,16 @@ MAX_TILES_PER_AXIS = 100  # matches the row/column spin boxes
 # the other.
 MOVE_DRAG_THRESHOLD_PX = 3
 
+# Held to make an interior drag paint tiles rather than move the grid. Shift because
+# it is the only modifier not already spent inside the axes: Ctrl and Alt reach the
+# toolbar, and the one Shift binding -- Shift+scroll to focus -- is a wheel gesture,
+# which cannot collide with a button-1 drag.
+PAINT_MODIFIER = "Shift"
+
 
 class TileGridOverlay(QObject, CanvasOverlay):
-    """The planned tile grid, with click-to-toggle, edge-to-resize and drag-to-move.
+    """The planned tile grid: click-to-toggle, Shift+drag-to-paint, edge-to-resize,
+    drag-to-move.
 
     Emits rather than mutating: rows, columns, the mask and the position the grid is
     planned around all belong to the settings widget, and two widgets writing the same
@@ -96,6 +103,14 @@ class TileGridOverlay(QObject, CanvasOverlay):
         # coordinates drive the threshold, the data coordinates the displacement.
         self._move_start: Optional[Tuple[float, float, float, float, float, float]] = None
         self._move_active: bool = False
+        # A paint drag: the value being swept in, the tile the press landed on, and the
+        # tiles already given it. `_paint_value` doubles as "this press is a paint" --
+        # it is set only at press, so letting go of Shift part way through does not
+        # abandon the sweep half-done.
+        self._paint_value: Optional[bool] = None
+        self._paint_origin: Optional[Tuple[int, int]] = None
+        self._paint_active: bool = False
+        self._painted: set = set()
         # A toggle waiting to find out whether it was half of a double-click. See
         # `_schedule_toggle` for why it waits rather than firing and being undone.
         self._pending_toggle: Optional[Tuple[int, int, bool]] = None
@@ -122,6 +137,13 @@ class TileGridOverlay(QObject, CanvasOverlay):
         # A toggle still waiting out the double-click interval would otherwise fire into
         # a host that has stopped listening -- or, on a rebuilt tab, into the wrong one.
         self._cancel_pending_toggle()
+        # Same for a gesture caught mid-flight: detaching skips the release that would
+        # have cleared these, so a re-attached overlay would resume painting on the
+        # next motion event, with a value captured against a mask that is long gone.
+        self._paint_value = None
+        self._paint_origin = None
+        self._paint_active = False
+        self._painted.clear()
         if self._canvas is not None:
             for cid in self._cids:
                 self._canvas.mpl_disconnect(cid)
@@ -485,7 +507,29 @@ class TileGridOverlay(QObject, CanvasOverlay):
         self._move_start = (
             event.x, event.y, event.xdata, event.ydata, anchor[0], anchor[1]
         )
+        if self._painting(event):
+            tile = self._tile_at(event.xdata, event.ydata)
+            if tile is not None:
+                # Captured here and never read from the tiles again: the host rewrites
+                # the grid after every emission, so by the second tile `not tile.enabled`
+                # would be answering a question about an already-edited mask, and the
+                # sweep would alternate instead of painting. `TileMaskGrid` keeps a
+                # `_drag_value` for the same reason.
+                self._paint_value = not tile.enabled
+                self._paint_origin = (tile.row, tile.col)
         self._claim(event)
+
+    def _painting(self, event) -> bool:
+        """Whether the paint modifier is held for this event.
+
+        Imported lazily rather than at module scope: every overlay keeps `canvas_base`
+        to a TYPE_CHECKING import, and going through its helper -- rather than reading
+        Qt directly here -- keeps one answer to "which modifiers are down", which
+        matters because the reliable source is the Qt event and not `MouseEvent.key`.
+        """
+        from fibsem.ui.widgets.canvas.canvas_base import _modifiers_from_event
+
+        return PAINT_MODIFIER in _modifiers_from_event(event)
 
     def _claim(self, event) -> None:
         """Tell the canvas this overlay owns the gesture.
@@ -515,22 +559,27 @@ class TileGridOverlay(QObject, CanvasOverlay):
             return Qt.SizeVerCursor
         return None
 
-    def _cursor_at(self, x: float, y: float):
+    def _cursor_at(self, x: float, y: float, painting: bool = False):
         """The cursor for a point over the grid, or None if it is over nothing.
 
-        Edges win over the interior, matching which gesture a press there starts.
+        Edges win over the interior, matching which gesture a press there starts --
+        with the paint modifier held too, since an edge press still resizes.
         """
         cursor = self._cursor_for(*self._edge_sides(x, y))
         if cursor is not None:
             return cursor
-        return Qt.SizeAllCursor if self._within(x, y) else None
+        if not self._within(x, y):
+            return None
+        return Qt.CrossCursor if painting else Qt.SizeAllCursor
 
     def _update_cursor(self, event) -> None:
-        """Show a resize cursor over the grid's edges.
+        """Show a resize cursor over the grid's edges, and a cross while painting.
 
         Without it the drag is undiscoverable -- nothing on screen suggests the
         boundary is draggable, and no one hunts for an affordance they have no reason
-        to believe exists.
+        to believe exists. The cross does the same job for the paint modifier: holding
+        Shift over the grid changes the pointer, which is the only sign the gesture
+        exists for anyone who has not been told.
         """
         if self._canvas is None:
             return
@@ -542,7 +591,9 @@ class TileGridOverlay(QObject, CanvasOverlay):
             and event.inaxes is self._ax
             and event.xdata is not None
         ):
-            cursor = self._cursor_at(event.xdata, event.ydata)
+            cursor = self._cursor_at(
+                event.xdata, event.ydata, painting=self._painting(event)
+            )
 
         if cursor is not None:
             self._canvas.setCursor(cursor)
@@ -554,6 +605,9 @@ class TileGridOverlay(QObject, CanvasOverlay):
             self._cursor_set = False
 
     def _on_drag(self, event) -> None:
+        if self._paint_value is not None:
+            self._drag_paint(event)
+            return
         if self._move_start is not None:
             self._drag_move(event)
             return
@@ -609,19 +663,64 @@ class TileGridOverlay(QObject, CanvasOverlay):
             anchor_x + (event.xdata - x0), anchor_y + (event.ydata - y0)
         )
 
+    def _drag_paint(self, event) -> None:
+        """Give every tile the drag crosses the value the first one was heading for.
+
+        A sweep sets a run of tiles to one value instead of toggling each in turn, so
+        emptying a row is one gesture rather than one click per tile -- and the result
+        does not depend on what each tile happened to be on the way past, which
+        toggling does. On a 5x5 that is the difference between one drag and twenty-five
+        waits on the double-click timer.
+        """
+        press_x, press_y = self._move_start[0], self._move_start[1]
+        if event.inaxes is not self._ax or event.xdata is None or event.ydata is None:
+            return
+        if not self._paint_active:
+            travelled = (event.x - press_x) ** 2 + (event.y - press_y) ** 2
+            if travelled < MOVE_DRAG_THRESHOLD_PX ** 2:
+                return
+            # The move gesture's threshold, deliberately: a modified press that never
+            # travels has to reach `_on_release` still looking like a click, so that
+            # Shift+click stays an ordinary toggle and keeps the double-click deferral
+            # that stops a stage move editing the tile under it (FIB-520).
+            self._paint_active = True
+            if self._paint_origin is not None:
+                self._paint(*self._paint_origin)
+        tile = self._tile_at(event.xdata, event.ydata)
+        if tile is not None:
+            self._paint(tile.row, tile.col)
+
+    def _paint(self, row: int, col: int) -> None:
+        """Emit one tile's new value, at most once per drag.
+
+        Motion events arrive far faster than tiles are crossed and the host rebuilds
+        the whole grid on each emission, so without this a slow sweep over three tiles
+        would ask for hundreds of rebuilds of the same three values.
+        """
+        if (row, col) in self._painted:
+            return
+        self._painted.add((row, col))
+        self.tile_toggled.emit(row, col, self._paint_value)
+
     def _on_release(self, event) -> None:
         # A press inside the grid that never became a drag is a click on a tile. It has
         # to be emitted here because claiming the gesture suppressed the canvas's own
         # click signal -- claiming is what stops the view panning out from under a move.
         pressed_inside = self._move_start is not None
-        was_moving = self._move_active
+        # A paint counts as a drag here as well: the tiles it crossed are already
+        # emitted, so letting the release toggle one more would undo the last of them.
+        was_dragged = self._move_active or self._paint_active
         self._move_start = None
         self._move_active = False
         self._resize_axes = None
+        self._paint_value = None
+        self._paint_origin = None
+        self._paint_active = False
+        self._painted.clear()
 
         if (
             pressed_inside
-            and not was_moving
+            and not was_dragged
             and event.button == 1
             and event.inaxes is self._ax
             and event.xdata is not None

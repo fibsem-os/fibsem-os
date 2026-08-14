@@ -50,7 +50,6 @@ from fibsem.ui.tokens import (
     GRAY_WHITE_COLOR,
     NEUTRAL_400,
     NEUTRAL_450,
-    NEUTRAL_900,
     WHITE_ICON_COLOR,
 )
 
@@ -137,13 +136,26 @@ _LIVE_BADGE_STYLE = (
     " border-radius: 3px; padding: 0px 6px; font-size: 10px; font-weight: bold; }"
 )
 # The status zone mirrors the toolbar on the left of the same row, and carries whichever
-# of the hint or the flash is current. Two looks, because they say different things: the
-# hint is a standing instruction, the flash is a value that just changed and is about to
-# go away, so it keeps the accent outline the artist had.
-_STATUS_HINT_STYLE = (
-    f"QLabel {{ background: #e6e6e6; color: {NEUTRAL_900};"
-    " border-radius: 3px; padding: 0px 6px; font-size: 11px; }"
+# of the flash, the readout or the hint is current -- in that order. Three looks, because
+# they say different things, but all on the same dark plaque the rest of the canvas
+# chrome uses: the hint was a near-white one, which shouted over the data it was drawn
+# on and read as an alert rather than an aside.
+_STATUS_PLAQUE = "background: rgba(26, 26, 26, 190); border-radius: 3px; padding: 0px 6px;"
+# How long a readout holds the zone after the pointer stops. Long enough to have been
+# read at a glance and then some, since it goes away without being asked -- and any
+# motion at all brings it straight back.
+_READOUT_DECAY_MS = 2500
+# A standing instruction, so the dimmest of the three: it is still true after you have
+# read it, and it should not compete with the image once it has been.
+_STATUS_HINT_STYLE = f"QLabel {{ color: {NEUTRAL_450}; font-size: 11px; {_STATUS_PLAQUE} }}"
+# Live numbers under the cursor. Monospaced so the digits sit still while it moves --
+# a proportional font makes the whole readout shuffle on every pixel of travel.
+_STATUS_READOUT_STYLE = (
+    f"QLabel {{ color: #e8e8e8; font-size: 10px; font-family: monospace;"
+    f" {_STATUS_PLAQUE} }}"
 )
+# A value that just changed and is about to go away, so it keeps the accent outline the
+# artist had, and stays opaque so it reads at a glance mid-gesture.
 _STATUS_FLASH_STYLE = (
     f"QLabel {{ background: {_BG}; color: #e8e8e8; border: 1px solid {_ACCENT};"
     " border-radius: 3px; padding: 0px 6px; font-size: 12px; }"
@@ -257,6 +269,11 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         # Transient status message (e.g. "WD 4.001 mm" on Shift+scroll); auto-clears.
         # Shares the top-left status zone with the hint, and outranks it while up.
         self._flash_text: Optional[str] = None
+        # Live numbers tracking the pointer (e.g. the stage position under the cursor).
+        # Also the status zone: hosts used to put this in a hand-placed label of their
+        # own, in "the one free corner" -- which stopped being free the moment the zone
+        # arrived, and the two drew on top of each other.
+        self._readout_text: Optional[str] = None
         # The status zone itself: one chip mirroring the toolbar at the other end of the
         # row. Qt-laid-out, so nothing converts between logical and device pixels.
         self._status_label = None
@@ -264,6 +281,9 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._flash_timer = QTimer(self)
         self._flash_timer.setSingleShot(True)
         self._flash_timer.timeout.connect(self._clear_flash)
+        self._readout_timer = QTimer(self)
+        self._readout_timer.setSingleShot(True)
+        self._readout_timer.timeout.connect(self._clear_readout)
 
         # Optional patch legend (list of (color, label)); re-applied across image changes.
         self._legend_artist = None
@@ -398,6 +418,34 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         will still be true afterwards.
         """
         self._hint_text = text or None
+        self._refresh_status()
+
+    def set_status_readout(self, text: Optional[str]) -> None:
+        """Show live numbers tracking the pointer in the status zone, or clear with None.
+
+        For values that change on every motion event — the stage position under the
+        cursor, a measured distance. Outranks :meth:`set_hint`, which is a standing
+        instruction that will still be true once the pointer has moved on, and is
+        outranked by :meth:`flash_message`.
+
+        Cheap enough for the rate it is called at: ~0.1 ms per update, against the 16 ms
+        a frame has. Hosts that reach for a hand-placed label instead should not — that
+        is what put two things in this corner drawing over each other.
+
+        Decays once the pointer has been still for a while, so a hint waiting underneath
+        is not shut out for as long as the pointer happens to be over the canvas — which
+        is most of the time, and would make a standing instruction unreadable in
+        practice. Only when there *is* a hint underneath: with nothing to reveal,
+        decaying would blank the corner rather than free it.
+        """
+        self._readout_text = text or None
+        self._readout_timer.stop()
+        if self._readout_text and self._hint_text:
+            self._readout_timer.start(_READOUT_DECAY_MS)
+        self._refresh_status()
+
+    def _clear_readout(self) -> None:
+        self._readout_text = None
         self._refresh_status()
 
     def set_title(self, text: Optional[str]) -> None:
@@ -548,19 +596,26 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         on a screen that is not a Retina one (FIB-639). Qt lays out in logical pixels
         natively, so a `QLabel` has no conversion to get wrong.
 
-        The flash outranks the hint: it is a value that just changed and is about to go
-        away, while the hint is a standing instruction still true underneath it.
+        Three occupants, in order of how fleeting they are: the flash is a value that
+        just changed and is about to go away; the readout is live and true only while
+        the pointer is where it is; the hint is a standing instruction still true
+        underneath both. Sharing one label is what makes them unable to collide -- the
+        alternative, a corner each, ran out of corners.
         """
-        text = self._flash_text or self._hint_text
+        text = self._flash_text or self._readout_text or self._hint_text
         if not text:
             if self._status_label is not None:
                 self._status_label.hide()
             return
         if self._status_label is None:
             self._status_label = self._make_status_label()
-        self._status_label.setStyleSheet(
-            _STATUS_FLASH_STYLE if self._flash_text else _STATUS_HINT_STYLE
-        )
+        if self._flash_text:
+            style = _STATUS_FLASH_STYLE
+        elif self._readout_text:
+            style = _STATUS_READOUT_STYLE
+        else:
+            style = _STATUS_HINT_STYLE
+        self._status_label.setStyleSheet(style)
         self._status_full_text = text
         self._status_label.show()
         self._reposition_overlay_buttons()  # sizes and elides it to the room available
@@ -642,7 +697,9 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             self._live_badge.hide()
         self._live_on = False
         self._flash_text = None
+        self._readout_text = None
         self._flash_timer.stop()
+        self._readout_timer.stop()
         if self._status_label is not None:
             self._status_label.hide()
         self._legend_artist = None  # removed by cla(); drop the cached entries too

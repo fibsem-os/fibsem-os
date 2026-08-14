@@ -387,3 +387,146 @@ def test_the_scalebar_is_drawn_at_the_smaller_font():
     assert c._scalebar_artist.font_properties.get_size() == 8.0
 
     c.draw()  # a bad font spec raises here rather than at construction
+
+
+class TestTheStatusZoneShowsOneThingAtATime:
+    """Three occupants, one label, an order of precedence.
+
+    They arrived one at a time, each taking "the one free corner" -- and the corner ran
+    out. The FM overview drew a cursor readout over the top-left at the same moment the
+    zone was drawing a hint there, so the coordinates and the instructions were painted
+    on top of each other. Sharing one label makes that impossible rather than fixed:
+    there is only ever one thing to place.
+    """
+
+    @staticmethod
+    def _canvas():
+        c = FibsemImageCanvas()
+        c.resize(900, 500)
+        c.set_array(_img(512, 512), pixel_size=1e-8)
+        c._reposition_overlay_buttons()
+        return c
+
+    def test_the_readout_outranks_the_hint(self):
+        """The hint is still true a motion event later; the readout is not."""
+        c = self._canvas()
+        c.set_hint("Shift+drag to sweep")
+
+        c.set_status_readout("x 150.0  y 90.0  z 0.0 um")
+
+        assert c._status_label.text() == "x 150.0  y 90.0  z 0.0 um"
+
+    def test_clearing_the_readout_hands_the_zone_back(self):
+        """Not blanked -- the hint underneath it never stopped being true."""
+        c = self._canvas()
+        c.set_hint("Shift+drag to sweep")
+        c.set_status_readout("x 150.0  y 90.0  z 0.0 um")
+
+        c.set_status_readout(None)
+
+        assert c._status_label.text() == "Shift+drag to sweep"
+
+    def test_a_flash_outranks_the_readout(self):
+        c = self._canvas()
+        c.set_status_readout("x 150.0  y 90.0  z 0.0 um")
+
+        c.flash_message("OBJ 6000.0 um  (+1.0 um)")
+
+        assert "OBJ" in c._status_label.text()
+
+    def test_the_flash_gives_the_zone_back_to_the_readout(self):
+        c = self._canvas()
+        c.set_status_readout("x 150.0  y 90.0  z 0.0 um")
+        c.flash_message("OBJ 6000.0 um  (+1.0 um)")
+
+        c._clear_flash()
+
+        assert c._status_label.text() == "x 150.0  y 90.0  z 0.0 um"
+
+    def test_a_readout_with_no_hint_under_it_leaves_nothing_behind(self):
+        c = self._canvas()
+        c.set_status_readout("x 150.0  y 90.0  z 0.0 um")
+
+        c.set_status_readout(None)
+
+        assert c._status_label.isHidden()
+
+    def test_the_three_are_told_apart_by_weight_not_by_a_louder_plaque(self):
+        """The hint used to be near-white, which read as an alert over dark data. All
+        three sit on the same dark plaque now; what separates them is the text."""
+        c = self._canvas()
+
+        c.set_hint("Shift+drag to sweep")
+        hint = c._status_label.styleSheet()
+        c.set_status_readout("x 150.0  y 90.0  z 0.0 um")
+        readout = c._status_label.styleSheet()
+
+        assert "rgba(26, 26, 26" in hint and "rgba(26, 26, 26" in readout
+        assert "#e6e6e6" not in hint, "the near-white plaque is what shouted"
+        assert "monospace" in readout, "digits have to sit still while the cursor moves"
+
+    def test_the_readout_stays_clear_of_the_controls(self):
+        """The zone elides to the room it has, whatever is in it."""
+        c = FibsemImageCanvas()
+        c.resize(320, 400)
+        c.set_array(_img(512, 512), pixel_size=1e-8)
+        c.set_live_badge(True)
+        c.set_status_readout("x -12345.6  y -12345.6  z -1234.5 um")
+        c._reposition_overlay_buttons()
+
+        status, chip = c._status_label, c._live_badge
+        assert status.isHidden() or status.geometry().right() < chip.geometry().left()
+
+    def test_the_readout_decays_back_to_the_hint_once_the_pointer_stops(self):
+        """The pointer is over the canvas most of the time it is being used, so a
+        readout that held the zone for as long as it was there would make a standing
+        instruction unreadable in practice. Fired by hand rather than waited on."""
+        c = self._canvas()
+        c.set_hint("Shift+drag to sweep")
+        c.set_status_readout("x 150.0  y 90.0  z 0.0 um")
+        assert c._readout_timer.isActive()
+
+        c._clear_readout()
+
+        assert c._status_label.text() == "Shift+drag to sweep"
+
+    def test_moving_again_brings_the_readout_straight_back(self):
+        c = self._canvas()
+        c.set_hint("Shift+drag to sweep")
+        c.set_status_readout("x 150.0  y 90.0  z 0.0 um")
+        c._clear_readout()
+
+        c.set_status_readout("x 151.0  y 90.0  z 0.0 um")
+
+        assert c._status_label.text() == "x 151.0  y 90.0  z 0.0 um"
+
+    def test_each_update_restarts_the_decay(self):
+        """It decays after the pointer *stops*, not a fixed time after it arrived."""
+        c = self._canvas()
+        c.set_hint("Shift+drag to sweep")
+        c.set_status_readout("x 150.0  y 90.0  z 0.0 um")
+        first = c._readout_timer.remainingTime()
+
+        c.set_status_readout("x 151.0  y 90.0  z 0.0 um")
+
+        assert c._readout_timer.remainingTime() >= first
+
+    def test_a_readout_with_no_hint_under_it_does_not_decay(self):
+        """There would be nothing to reveal, so decaying would blank the corner rather
+        than free it -- and the numbers are the only thing that corner was saying."""
+        c = self._canvas()
+
+        c.set_status_readout("x 150.0  y 90.0  z 0.0 um")
+
+        assert not c._readout_timer.isActive()
+        assert c._status_label.text() == "x 150.0  y 90.0  z 0.0 um"
+
+    def test_leaving_the_canvas_stops_the_decay_timer(self):
+        """It would otherwise fire into a zone that has already moved on."""
+        c = self._canvas()
+        c.set_hint("Shift+drag to sweep")
+        c.set_status_readout("x 150.0  y 90.0  z 0.0 um")
+
+        c.set_status_readout(None)
+
+        assert not c._readout_timer.isActive()
