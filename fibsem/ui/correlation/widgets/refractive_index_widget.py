@@ -10,6 +10,7 @@ Usage::
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from PyQt5.QtCore import pyqtSignal
@@ -31,16 +32,49 @@ _LUT_MISSING_MSG = (
     "The correction factor can still be edited manually."
 )
 
-# Default values representative of typical cryo-CLEM conditions
+# The configuration Perez et al. use for depth correction throughout: vitrified
+# cytoplasm (n = 1.35) through the Arctis iFLM's NA 0.75 objective, for which the
+# paper reports a scaling factor of 1.5 (doi:10.64898/2026.05.11.724418 — the
+# source of the lookup table below). Only NA and n2 move zeta appreciably; it is
+# near-flat in tilt, depth and wavelength, so those stay at typical values.
 _DEFAULTS = ZetaParams(
     tilt_deg=15.0,
     depth_um=4.0,
-    NA=0.8,
-    n2=1.4,
+    NA=0.75,
+    n2=1.35,
     wavelength_um=0.515,
 )
 
-_DEFAULT_FACTOR = 1.47
+# Only used when the lookup table cannot be read. Must equal the LUT's value at
+# _DEFAULTS — pinned by tests/correlation/test_default_correction_factor.py, so
+# change the two together or that test fails.
+_FALLBACK_FACTOR = 1.502
+
+
+def _default_factor() -> float:
+    """The correction factor for `_DEFAULTS`, from the lookup table.
+
+    Derived rather than declared. A literal constant beside a lookup table is a
+    second source of truth for the same number, and it drifts silently the moment
+    either side moves: the previous constant (1.470) described no configuration
+    the widget could be in, while its own defaults asked the table for 1.595
+    (FIB-593). Deriving means the reset button can only ever hand back the factor
+    the parameters above it describe.
+    """
+    try:
+        return lookup_zeta(
+            tilt_deg=_DEFAULTS.tilt_deg,
+            depth_um=_DEFAULTS.depth_um,
+            NA=_DEFAULTS.NA,
+            n2=_DEFAULTS.n2,
+            wavelength_um=_DEFAULTS.wavelength_um,
+        )
+    except Exception:
+        logging.debug(
+            "Lookup table unusable; falling back to the stored default correction factor",
+            exc_info=True,
+        )
+        return _FALLBACK_FACTOR
 
 # The correlation panels run at 11-12px. Controls and QFormLayout's auto-built
 # string labels default to the app font, which renders larger than the values
@@ -94,7 +128,6 @@ class RefractiveIndexWidget(QWidget):
         try:
             _ensure_lut()
         except Exception as e:
-            import logging
             logging.warning(f"Failed to download refractive index LUT: {e}")
         self._setup_ui()
         self._connect_signals()
@@ -147,14 +180,19 @@ class RefractiveIndexWidget(QWidget):
             minimum=0.1, maximum=10.0, step=0.01, decimals=3,
             tooltip="Correction factor (ζ) applied to the depth below the surface",
         )
-        self._spin_factor.setValue(_DEFAULT_FACTOR)
+        # Resolved once, so the initial value, the tooltip that advertises it and
+        # the button that restores it cannot disagree.
+        self._default_factor = _default_factor()
+        self._spin_factor.setValue(self._default_factor)
         form.addRow(_form_label("Correction Factor (ζ)"), self._spin_factor)
 
         self._btn_reset_factor = IconToolButton(
             "mdi:refresh",
-            tooltip=f"Reset correction factor to default ({_DEFAULT_FACTOR:.3f})",
+            tooltip=f"Reset correction factor to default ({self._default_factor:.3f})",
         )
-        self._btn_reset_factor.clicked.connect(lambda: self._spin_factor.setValue(_DEFAULT_FACTOR))
+        self._btn_reset_factor.clicked.connect(
+            lambda: self._spin_factor.setValue(self._default_factor)
+        )
 
         lut_available = _LUT_PATH.exists()
         self._lut_available = lut_available
