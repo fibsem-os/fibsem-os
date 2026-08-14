@@ -646,6 +646,94 @@ class TestTheRunOwnsItsSettings:
         )
 
 
+    def test_a_run_starts_from_the_overview_defaults(self, widget, monkeypatch):
+        """A 500 um tile with autocontrast, not `ImageSettings`'s generic 150 um.
+
+        The tab referenced the overview defaults nowhere at all, so it opened at
+        whatever `ImageSettingsWidget` happens to default to. Every value below differs
+        from that, which is the point: a tab that looks right and images a ninth of the
+        area asked for is not something the picture shows you.
+
+        Asserted on the runner's copy for the same reason the filename is -- these are
+        the numbers that reach the instrument.
+        """
+        captured = {}
+
+        def fake_worker(fn, *args):
+            captured["settings"] = args[0]
+
+            class _W:
+                def start(self_inner):
+                    pass
+
+                def is_alive(self_inner):
+                    return False
+
+            return _W()
+
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker", fake_worker
+        )
+        widget.acquire()
+        settings = captured["settings"]
+        assert settings.image_settings.hfw == pytest.approx(500e-6)
+        assert settings.image_settings.dwell_time == pytest.approx(1e-6)
+        assert settings.image_settings.autocontrast is True
+        assert tuple(settings.image_settings.resolution) == (1024, 1024)
+        assert (settings.nrows, settings.ncols) == (3, 3)
+
+
+class TestTheDefaultsAreNotShared:
+    """The defaults are a factory, and the one thing a factory must not do is hand back
+    the same object twice.
+
+    What it replaced was a module-level `DEFAULT_OVERVIEW_ACQUISITION_SETTINGS`, and the
+    minimap assigned an experiment path straight into it. That edits the default: open a
+    second experiment and the "default" carries the first one's path. Worse in this
+    widget, where `ImageSettingsWidget.update_from_settings` keeps the object it is
+    handed and `get_settings` mutates and returns that same one -- so a shared default
+    would be rewritten by every keystroke in the tab.
+    """
+
+    def test_each_call_hands_back_its_own_settings(self):
+        from fibsem.ui.widgets.overview_acquisition_settings_widget import (
+            default_overview_acquisition_settings,
+        )
+
+        first = default_overview_acquisition_settings()
+        first.image_settings.path = "/experiments/one"
+        first.image_settings.hfw = 1e-3
+        first.nrows = 7
+
+        second = default_overview_acquisition_settings()
+        assert second.image_settings.path is None
+        assert second.image_settings.hfw == pytest.approx(500e-6)
+        assert second.nrows == 3
+
+    def test_the_widget_does_not_hold_the_defaults(self, qapp):
+        """Seeding a widget must not leave it editing the shared object either.
+
+        Constructing two and typing into one is the cheapest way to catch a factory
+        that returns a cached instance.
+        """
+        from fibsem.ui.widgets.overview_acquisition_settings_widget import (
+            OverviewAcquisitionSettingsWidget,
+        )
+
+        first = OverviewAcquisitionSettingsWidget()
+        second = OverviewAcquisitionSettingsWidget()
+        try:
+            first.image_settings_widget.hfw_spinbox.setValue(42.0)
+            first.set_grid_size(5, 4)
+
+            settings = second.get_settings()
+            assert settings.image_settings.hfw == pytest.approx(500e-6)
+            assert (settings.nrows, settings.ncols) == (3, 3)
+        finally:
+            first.close()
+            second.close()
+
+
 class TestViews:
     """Images from different beams or orientations must not share the canvas.
 

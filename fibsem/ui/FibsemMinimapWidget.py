@@ -51,7 +51,6 @@ from fibsem.structures import (
     BeamType,
     FibsemImage,
     FibsemStagePosition,
-    ImageSettings,
     OverviewAcquisitionSettings,
     Point,
 )
@@ -86,6 +85,7 @@ from fibsem.ui.widgets.custom_widgets import (
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import LamellaNameListWidget
 from fibsem.ui.widgets.overview_acquisition_settings_widget import (
     OverviewAcquisitionSettingsWidget,
+    default_overview_acquisition_settings,
 )
 
 if TYPE_CHECKING:
@@ -93,14 +93,6 @@ if TYPE_CHECKING:
 
 
 COLOURS = CORRELATION_IMAGE_LAYER_PROPERTIES["colours"]
-
-OVERVIEW_IMAGE_PARAMETERS = {
-    "nrows": 3,
-    "ncols": 3,
-    "fov": 500, # um
-    "dwell_time": 1.0, # us
-    "autocontrast": True,
-}
 
 # Crosshair layer configuration constants
 CROSSHAIR_CONFIG = {
@@ -149,20 +141,6 @@ LABEL_INSTRUCTIONS = {
     "image-available": "Instructions: \nRight Click to Add/Move a Lamella Position or Double Click to Move the Stage...",
     "no-image": "Please take or load an overview image..."
 }
-DEFAULT_OVERVIEW_ACQUISITION_SETTINGS = OverviewAcquisitionSettings(
-    image_settings=ImageSettings(
-        hfw=OVERVIEW_IMAGE_PARAMETERS["fov"] * constants.MICRO_TO_SI,
-        dwell_time=OVERVIEW_IMAGE_PARAMETERS["dwell_time"] * constants.MICRO_TO_SI,
-        autocontrast=OVERVIEW_IMAGE_PARAMETERS["autocontrast"],
-        beam_type=BeamType.ELECTRON,
-        save=True,
-        path=None,  # will be set to experiment path when overview acquisition widget is initialized
-        filename="overview-image",
-    ),
-    nrows=OVERVIEW_IMAGE_PARAMETERS["nrows"],
-    ncols=OVERVIEW_IMAGE_PARAMETERS["ncols"],
-)
-
 
 def generate_gridbar_image(shape: Tuple[int, int], pixelsize: float, spacing: float, width: float) -> FibsemImage:
     """Generate an synthetic image of cryo gridbars."""
@@ -487,9 +465,9 @@ class FibsemMinimapWidget(QWidget):
         if self.parent_widget.experiment is None:
             raise ValueError("Experiment in parent widget is None, cannot proceed.")
 
-        path = str(self.parent_widget.experiment.path)
-        DEFAULT_OVERVIEW_ACQUISITION_SETTINGS.image_settings.path = path
-        self.overview_acquisition_widget.update_from_settings(DEFAULT_OVERVIEW_ACQUISITION_SETTINGS)
+        settings = default_overview_acquisition_settings()
+        settings.image_settings.path = str(self.parent_widget.experiment.path)
+        self.overview_acquisition_widget.update_from_settings(settings)
         try:
             self.parent_widget.experiment.positions.events.disconnect(self._on_experiment_position_changed) # type: ignore
         except Exception:
