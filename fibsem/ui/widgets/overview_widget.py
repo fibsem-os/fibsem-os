@@ -40,6 +40,7 @@ from copy import deepcopy
 from functools import partial
 from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
+import numpy as np
 from PyQt5.QtCore import pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
     QCheckBox,
@@ -57,6 +58,7 @@ from PyQt5.QtCore import Qt
 from superqt import ensure_main_thread
 
 from fibsem import constants
+from fibsem.fm.composite import auto_clim
 from fibsem.imaging import tiled
 from fibsem.imaging.reduce import downsample
 from fibsem.microscope import FibsemMicroscope
@@ -154,6 +156,86 @@ DEFAULT_GRIDBAR_WIDTH_UM = 20.0
 PICK_RADIUS_PX = 12
 
 
+# How many pixels the contrast limits are taken from. `auto_clim`'s own cap, and for
+# the same reason: the percentile over a full mosaic is the expensive part, and it is
+# visually identical on a subsample.
+_CLIM_SAMPLES = 250_000
+
+
+def _contrast_limits(values: np.ndarray, acquired: np.ndarray) -> Tuple[float, float]:
+    """Where to put black and white, taken from the acquired pixels only.
+
+    The unacquired zeros are most of a part-finished mosaic and are not drawn, so letting
+    them win the minimum squeezes what *is* there into the top of the range -- which
+    renders a half-done overview visibly bleached.
+
+    Percentiles rather than min/max, and the same 1st/99th `fibsem.fm.composite.auto_clim`
+    picks: the boundary between an acquired tile and the nothing beside it is not
+    perfectly sharp once a display filter has run over it, and a handful of pixels should
+    not decide the whole stretch.
+    """
+    sample = values[acquired]
+    if sample.size == 0:
+        # Nothing acquired. Any limits will do -- every pixel is about to be transparent
+        # -- but they have to be finite, and `auto_clim` indexes into what it is given.
+        return 0.0, 1.0
+    if sample.size > _CLIM_SAMPLES:
+        # `auto_clim` strides a 2-D frame down before taking percentiles, for the same
+        # reason; masking has already flattened this one, so it is done here.
+        sample = sample[:: int(np.ceil(sample.size / _CLIM_SAMPLES))]
+    return auto_clim(sample)
+
+
+def _as_colour_and_coverage(
+    data: np.ndarray, acquired: np.ndarray, clim: Tuple[float, float]
+) -> np.ndarray:
+    """Re-express a grayscale overview as colour plus where it holds anything.
+
+    An overview is rarely complete: a masked run acquires some tiles, a cancelled one
+    stops partway, and either way the rest of the mosaic is the zeros the stitch buffer
+    started as. Placed opaquely those zeros paint black *over* whatever is beneath, so a
+    second overview hides the first with pixels that hold nothing (FIB-630). Made
+    transparent instead, the image underneath shows through.
+
+    Same idea as the fluorescence canvas's `to_rgba` (FIB-519), and deliberately **not**
+    the same alpha. There, alpha is signal strength, which works because an FM composite
+    sits over black -- matplotlib draws `colour x alpha + (1 - alpha) x beneath`, and the
+    second term vanishes. Over another overview it does not: measured on a mid-grey
+    region over a textured one, intensity-as-alpha reads **0.772 against a true 0.500**,
+    a mean error of 0.27. An overview would brighten wherever something happened to be
+    behind it. Beam images are dense grayscale rather than signal over black, so "is
+    there anything here" is the honest question, and it is a step function.
+
+    Both *acquired* and *clim* are measured on the **unfiltered** array by the caller,
+    and only the colour comes from the filtered one. `filtered_data` is a median then a
+    gaussian, which smears the boundary between an acquired tile and the nothing beside
+    it in both directions: signal leaks a couple of pixels past it, so testing the
+    filtered array for "greater than zero" gives a mask a filter radius too generous;
+    and the last rows *inside* the tile are pulled part-way down toward the nothing, far
+    enough to take the low limit with them and bleach the whole mosaic. Measured: 172/255
+    where 128 was right. A display filter does not get a vote on what was acquired, nor
+    on where black is.
+
+    The cost is that a pixel of *exactly* zero inside acquired data reads as a hole.
+    Measured at 0.39% of an autocontrast-stretched frame -- but the caller reduces before
+    this runs, and `downsample`'s box mean averages an isolated zero away with its
+    neighbours: 0.39% -> 0.000% at any reduction factor. Only whole unacquired blocks
+    stay exactly zero, which is the thing being asked about. An image small enough to be
+    placed unreduced keeps that speckle, and it shows only where another overview lies
+    beneath it.
+    """
+    values = np.asarray(data, dtype=np.float32)
+    out = np.zeros((*values.shape[:2], 4), dtype=np.uint8)
+    if not acquired.any():
+        return out  # nothing acquired: wholly transparent, which is the truth
+
+    lo, hi = clim
+    norm = np.clip((values - lo) / (hi - lo), 0.0, 1.0)
+    out[..., :3] = (norm * 255.0).astype(np.uint8)[..., None]
+    out[..., 3] = np.where(acquired, 255, 0)
+    return out
+
+
 class _PlacedTile(NamedTuple):
     """One image a record placed: the pixels, where it was taken, and what it covers.
 
@@ -165,7 +247,7 @@ class _PlacedTile(NamedTuple):
     positions and the wrong size.
     """
 
-    data: object  # np.ndarray, display-reduced
+    data: object  # np.ndarray, display-reduced RGBA -- see `_as_colour_and_coverage`
     position: FibsemStagePosition
     pixel_size: float
     covers: Tuple[float, float]  # (width, height) in metres
@@ -1229,12 +1311,26 @@ class FibsemOverviewWidget(QWidget):
         holds anyway, so keeping it costs no more than the canvas already does -- where
         keeping full-resolution tiles would be hundreds of megabytes for a large
         tileset, to redraw something that is decimated on the way to the screen.
+
+        Split into colour and coverage here rather than at each placement: a view switch
+        re-places every record, and the split is the same answer every time.
         """
         data = image.filtered_data
         pixel_size = self._pixel_size_of(image)
         height, width = data.shape[0], data.shape[1]
+        max_px = self.canvas._display_max_px
+        # What was acquired, and where black is, both come off the *unfiltered* array --
+        # `filtered_data` smears the boundary in both directions and would answer either
+        # question wrong. Reduced the same way as the pixels so the three line up; box
+        # meaning a 0/1 field gives the fraction of each block that holds anything, and a
+        # block counts as acquired when most of it does.
+        raw = downsample(np.asarray(image.data, dtype=np.float32), max_px)
+        acquired = downsample(
+            (np.asarray(image.data) > 0).astype(np.float32), max_px
+        ) > 0.5
+        clim = _contrast_limits(raw, acquired)
         return _PlacedTile(
-            data=downsample(data, self.canvas._display_max_px),
+            data=_as_colour_and_coverage(downsample(data, max_px), acquired, clim),
             position=deepcopy(self._position_of(image)),
             pixel_size=pixel_size,
             # From the shape *before* reduction: this is the ground the image images.

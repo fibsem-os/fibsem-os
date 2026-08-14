@@ -2030,3 +2030,133 @@ class TestTheAcquisitionButtons:
             assert widget.button_acquire.visibleRegion().boundingRect().height() > 0
         finally:
             widget.close()
+
+
+class TestAnOverviewDoesNotPaintOverTheOneBeneathIt:
+    """A mosaic is mostly zeros until it is finished, and those zeros are not black --
+    they are nothing. Placed opaquely they hid whatever was underneath, so a second
+    overview blanked the first wherever it had not reached yet (FIB-630).
+
+    The fluorescence canvas solved the same problem with `to_rgba`, where alpha is
+    signal strength. That is right for signal over black and wrong here: matplotlib
+    draws `colour x alpha + (1 - alpha) x beneath`, so on a dense grayscale image the
+    second term brightens everything that happens to have something behind it. Measured
+    on a mid-grey region over a textured one, it read 0.772 against a true 0.500. So
+    alpha is coverage, which is a step function.
+    """
+
+    @staticmethod
+    def _partial(rows: int = 1, shape: int = 96) -> np.ndarray:
+        """A mosaic with `rows` of three acquired and the rest still zero."""
+        data = np.zeros((shape, shape), dtype=np.uint8)
+        rng = np.random.default_rng(4)
+        filled = (rng.random((rows * shape // 3, shape)) * 110 + 90).astype(np.uint8)
+        data[: rows * shape // 3] = filled
+        return data
+
+    def test_an_unacquired_region_is_transparent_and_the_rest_is_not(self):
+        from fibsem.ui.widgets.overview_widget import (
+            _as_colour_and_coverage, _contrast_limits,
+        )
+
+        data = self._partial()
+        rgba = _as_colour_and_coverage(data, data > 0, _contrast_limits(data.astype(float), data > 0))
+        alpha = rgba[..., 3]
+        assert (alpha[: data.shape[0] // 3] == 255).all(), "acquired tiles went see-through"
+        assert (alpha[data.shape[0] // 3:] == 0).all(), (
+            "unacquired ground is still opaque, so it paints over what is beneath"
+        )
+
+    def test_coverage_is_a_step_not_a_brightness(self):
+        """The distinction that makes this correct over another image. A dark *acquired*
+        pixel has to stay opaque, or the overview beneath shows through it and the
+        result is neither picture."""
+        from fibsem.ui.widgets.overview_widget import (
+            _as_colour_and_coverage, _contrast_limits,
+        )
+
+        data = np.array([[1, 40, 128, 255]], dtype=np.uint8)
+        rgba = _as_colour_and_coverage(data, data > 0, _contrast_limits(data.astype(float), data > 0))
+        assert (rgba[..., 3] == 255).all(), (
+            f"alpha followed intensity: {rgba[..., 3].tolist()}"
+        )
+
+    def test_nothing_acquired_is_wholly_transparent(self):
+        """A run that has not produced a tile yet, and a cancelled one that never did."""
+        from fibsem.ui.widgets.overview_widget import (
+            _as_colour_and_coverage, _contrast_limits,
+        )
+
+        data = np.zeros((16, 16), dtype=np.uint8)
+        assert (_as_colour_and_coverage(data, data > 0, _contrast_limits(data.astype(float), data > 0))[..., 3] == 0).all()
+
+    def test_the_unacquired_zeros_do_not_set_the_contrast(self):
+        """They are most of a part-finished mosaic and they are not drawn, so letting
+        them win the minimum squeezes what *is* there into the top of the range. That
+        renders a half-done overview visibly bleached."""
+        from fibsem.ui.widgets.overview_widget import (
+            _as_colour_and_coverage, _contrast_limits,
+        )
+
+        data = self._partial()
+        acquired = data > 0
+        grey = _as_colour_and_coverage(data, acquired, _contrast_limits(data.astype(float), acquired))[..., 0][acquired]
+        assert grey.mean() == pytest.approx(128, abs=25), (
+            f"the acquired tiles render at a mean of {grey.mean():.0f}/255"
+        )
+        assert grey.min() < 30 and grey.max() > 225, "the stretch did not use the range"
+
+    def test_a_complete_overview_uses_the_whole_range_too(self):
+        """The common case must not change: with nothing to exclude, this is the same
+        stretch the canvas applied before."""
+        from fibsem.ui.widgets.overview_widget import (
+            _as_colour_and_coverage, _contrast_limits,
+        )
+
+        rng = np.random.default_rng(11)
+        data = (rng.random((64, 64)) * 110 + 90).astype(np.uint8)
+        rgba = _as_colour_and_coverage(data, np.ones_like(data, dtype=bool),
+                                       _contrast_limits(data.astype(float), np.ones_like(data, dtype=bool)))
+        assert (rgba[..., 3] == 255).all()
+        assert rgba[..., 0].min() == 0 and rgba[..., 0].max() == 255
+
+    def test_coverage_is_measured_before_the_display_filter(self, widget, microscope):
+        """`filtered_data` is a median then a gaussian, so it leaks signal a couple of
+        pixels *past* the last acquired row. Testing that array for "greater than zero"
+        hands back a mask a filter radius too generous, and admits a fringe of near-zero
+        values into the contrast stretch -- which is the bleached rendering again.
+        """
+        image = _tile(microscope, _at(microscope.get_stage_position()), shape=(96, 96))
+        data = np.zeros((96, 96), dtype=np.uint8)
+        rng = np.random.default_rng(5)
+        data[:32] = (rng.random((32, 96)) * 110 + 90).astype(np.uint8)
+        image.data = data
+
+        tile = widget._stored_tile(image)
+        rgba = np.asarray(tile.data)
+        acquired = rgba[..., 3] > 0
+        # A third of the image, give or take the boundary block -- not a third plus a
+        # filter radius, which is what the filtered array would have given.
+        assert acquired.mean() == pytest.approx(1 / 3, abs=0.02), (
+            f"coverage came out at {acquired.mean():.3f} of the image"
+        )
+        grey = rgba[..., 0][acquired]
+        assert grey.mean() == pytest.approx(128, abs=30), (
+            f"the acquired region renders at {grey.mean():.0f}/255 -- bleached"
+        )
+
+    def test_the_canvas_is_given_the_coverage(self, widget, microscope):
+        """End to end: what reaches the artist is RGBA, not a 2-D array the canvas would
+        colormap opaquely."""
+        image = _tile(microscope, _at(microscope.get_stage_position()), shape=(96, 96))
+        data = np.zeros((96, 96), dtype=np.uint8)
+        data[:32] = 200
+        image.data = data
+        widget.set_image(image)
+
+        artist = widget.canvas._placed[list(widget.canvas._placed)[-1]].artist
+        shown = np.asarray(artist.get_array())
+        assert shown.ndim == 3 and shown.shape[-1] == 4, (
+            f"the canvas was handed {shown.shape}, so it composites opaquely"
+        )
+        assert shown[..., 3].min() == 0, "no part of a half-finished mosaic is transparent"
