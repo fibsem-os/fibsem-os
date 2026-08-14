@@ -433,7 +433,7 @@ def test_info_bar_renders_ordered_fields_per_canvas():
     ctl.set_info(BeamType.ELECTRON, "stage", "STAGE: x")  # SEM gets stage only
     _flush(app)
     assert fib._info_text == "STAGE: x\nMILLING ANGLE: 30.0°"
-    assert fib._info_artist is not None
+    assert fib._info_label is not None and not fib._info_label.isHidden()
     assert ctl.sem_canvas._info_text == "STAGE: x"
     print("ok: info bar renders ordered fields per canvas (milling FIB-only)")
 
@@ -457,7 +457,9 @@ def test_info_bar_survives_image_change():
     ctl.set_image(BeamType.ION, _image())  # a new image clears the axes
     _flush(app)
     assert fib._info_text == "STAGE: x", "info must survive an image change"
-    assert fib._info_artist is not None
+    # A child widget now, so `cla()` never took it down -- there is nothing to restore
+    # and nothing to forget to restore (FIB-650).
+    assert fib._info_label is not None and not fib._info_label.isHidden()
     print("ok: info bar survives an image change (microscope state, not image)")
 
 

@@ -108,7 +108,8 @@ class FibsemImageCanvas(FibsemCanvasBase):
         # No hint or flash here either: both are the status chip, a child widget, so
         # `cla()` never took them down and there is nothing to restore (FIB-639).
         self._refresh_title()  # ditto: restore the remembered title
-        self._refresh_info_bar()  # ditto: restore the remembered info bar
+        # No info bar here either: it became a child widget with the status chip, so
+        # `cla()` leaves it alone and there is nothing to restore (FIB-650).
         # No LIVE chip here: it is a child widget, not an artist, so `cla()` never took
         # it down and there is nothing to restore (FIB-596).
         self._refresh_legend()  # ditto: restore the patch legend
