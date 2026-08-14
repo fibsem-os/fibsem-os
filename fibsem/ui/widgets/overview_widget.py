@@ -103,8 +103,8 @@ from fibsem.ui.widgets.custom_widgets import (
     TitledPanel,
     ValueSpinBox,
 )
-from fibsem.ui.widgets.overview_acquisition_settings_widget import (
-    OverviewAcquisitionSettingsWidget,
+from fibsem.ui.widgets.fibsem_overview_settings_widget import (
+    FibsemOverviewSettingsWidget,
 )
 from fibsem.ui.widgets.overview_confirmation_dialog import OverviewConfirmationDialog
 from fibsem.ui.widgets.overview_list_widget import OverviewListWidget
@@ -580,7 +580,7 @@ class FibsemOverviewWidget(QWidget):
         self.cursor_readout.hide()  # nothing to say until the pointer is over the canvas
         self.canvas.cursor_moved.connect(self._on_cursor_moved)
 
-        self.settings_widget = OverviewAcquisitionSettingsWidget(self)
+        self.settings_widget = FibsemOverviewSettingsWidget(self)
         self.settings_widget.settings_changed.connect(self._on_settings_changed)
 
         # Which way of looking at the sample the canvas is showing, over the canvas
@@ -947,7 +947,7 @@ class FibsemOverviewWidget(QWidget):
         self._save_directory = path
         if path:
             try:
-                self.settings_widget.image_settings_widget.path_edit.setText(str(path))
+                self.settings_widget.set_save_directory(path)
             except Exception as e:
                 logger.debug(f"Could not show the save directory: {e}")
 

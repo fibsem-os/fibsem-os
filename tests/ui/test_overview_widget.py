@@ -465,8 +465,8 @@ class TestThingsOnlyRunningItFound:
 
         scroll = widget.findChild(QScrollArea)
         assert scroll.width() <= 600, "the column did not actually get squeezed"
-        for name in ("nrows_spinbox", "ncols_spinbox"):
-            spinbox = getattr(widget.settings_widget, name)
+        for name in ("spin_rows", "spin_cols"):
+            spinbox = getattr(widget.settings_widget.grid, name)
             assert spinbox.width() >= 80, (
                 f"{name} is {spinbox.width()}px at the narrowest column -- too narrow "
                 "to draw its digit"
@@ -558,7 +558,7 @@ class TestTheRunOwnsItsSettings:
 
         # Now empty the box, as a widget whose host never filled it would be, and do
         # everything a stage move mid-run triggers.
-        widget.settings_widget.image_settings_widget.path_edit.setText("")
+        widget.settings_widget.path_edit.setText("")
         for _ in range(5):
             _ = widget.beam_type
             widget._refresh_position_markers()
@@ -596,9 +596,18 @@ class TestTheRunOwnsItsSettings:
 
         handed_over = captured["settings"]
         assert handed_over is not None
-        assert handed_over.image_settings is not (
-            widget.settings_widget.image_settings_widget._settings
-        ), "the runner was handed the settings widget's own object"
+        # The settings widget no longer *has* an `ImageSettings` to hand out by
+        # accident -- `get_settings` constructs one per call, so the defect this guards
+        # is now impossible by construction rather than avoided by a deep copy. Asserted
+        # as that property, which is the thing that must not regress.
+        first, second = (
+            widget.settings_widget.get_settings(),
+            widget.settings_widget.get_settings(),
+        )
+        assert first.image_settings is not second.image_settings, (
+            "the settings widget hands out one shared ImageSettings again"
+        )
+        assert handed_over.image_settings is not first.image_settings
 
     def test_the_save_directory_fills_the_path_box(self, widget, tmp_path):
         """From the experiment by default, and visible so a user can see and change it.
@@ -606,7 +615,7 @@ class TestTheRunOwnsItsSettings:
         An empty box is also what made `get_settings()` read the path back as None.
         """
         widget.set_save_directory(str(tmp_path))
-        assert widget.settings_widget.image_settings_widget.path_edit.text() == str(
+        assert widget.settings_widget.path_edit.text() == str(
             tmp_path
         )
         assert widget._settings().image_settings.path == str(tmp_path)
@@ -615,7 +624,7 @@ class TestTheRunOwnsItsSettings:
         """No host directory and an empty box still has to produce a usable path --
         finding out at the second tile is the worst possible time."""
         widget.set_save_directory(None)
-        widget.settings_widget.image_settings_widget.path_edit.setText("")
+        widget.settings_widget.path_edit.setText("")
         captured = {}
 
         def fake_worker(fn, *args):
@@ -669,7 +678,7 @@ class TestTheRunOwnsItsSettings:
         assert captured["settings"].image_settings.filename.startswith("overview-image")
         # And visible, so it can be changed before a run rather than discovered after.
         assert (
-            widget.settings_widget.image_settings_widget.filename_edit.text()
+            widget.settings_widget.filename_edit.text()
             == "overview-image"
         )
 
@@ -1324,8 +1333,8 @@ class TestTheTileMaskSurvivesTheSettingsWidget:
 
     def test_a_mask_reaches_the_settings(self, widget):
         settings_widget = widget.settings_widget
-        settings_widget.nrows_spinbox.setValue(3)
-        settings_widget.ncols_spinbox.setValue(3)
+        settings_widget.grid.spin_rows.setValue(3)
+        settings_widget.grid.spin_cols.setValue(3)
         settings_widget.tile_mask = self._mask(3, 3, disabled=[(1, 1)])
 
         settings = widget._settings()
@@ -1340,19 +1349,35 @@ class TestTheTileMaskSurvivesTheSettingsWidget:
             widget._refresh_context_overlays()
         assert widget._settings().tile_mask is not None
 
-    def test_a_mask_that_no_longer_fits_the_grid_is_dropped(self, widget):
-        """Rows and columns are spin boxes; the mask is positional. `compute_tile_grid`
-        rejects a mismatched one outright, so carrying it on would turn resizing the
-        grid into a failed run rather than a bigger acquisition."""
-        settings_widget = widget.settings_widget
-        settings_widget.nrows_spinbox.setValue(3)
-        settings_widget.ncols_spinbox.setValue(3)
-        settings_widget.tile_mask = self._mask(3, 3, disabled=[(0, 0)])
-        assert widget._settings().tile_mask is not None
+    def test_resizing_the_grid_keeps_the_tiles_that_still_exist(self, widget):
+        """Rows and columns are spin boxes and the mask is positional, so the two go out
+        of step the moment either moves -- and `compute_tile_grid` rejects a mismatched
+        mask outright, so it cannot simply be carried on.
 
-        settings_widget.ncols_spinbox.setValue(4)
-        assert widget._settings().tile_mask is None, "a stale mask was carried on"
-        assert widget._settings().n_enabled_tiles == 12
+        **Remapped, not dropped**, which reverses what this tab used to do. The old rule
+        was that growing has to invent whether new tiles are in or out and shrinking
+        throws a choice away, so it dropped any mask whose shape no longer matched. That
+        was defensible when the only way to resize was to nudge a spin box. It is not
+        now that dragging a grid edge on the canvas resizes on *every motion event*:
+        under the old rule, tweaking a 3x3 to a 4x3 silently discards a selection built
+        by hand. Inventing one column of enabled tiles is the smaller surprise, and it
+        is what the fluorescence tab already did -- so the same gesture now means the
+        same thing on both.
+        """
+        settings_widget = widget.settings_widget
+        settings_widget.grid.spin_rows.setValue(3)
+        settings_widget.grid.spin_cols.setValue(3)
+        settings_widget.tile_mask = self._mask(3, 3, disabled=[(0, 0)])
+        assert widget._settings().n_enabled_tiles == 8
+
+        settings_widget.grid.spin_cols.setValue(4)
+        mask = widget._settings().tile_mask
+        assert mask is not None, "the selection was thrown away by a resize"
+        assert len(mask) == 3 and all(len(row) == 4 for row in mask), (
+            f"the mask did not follow the grid: {mask}"
+        )
+        assert mask[0][0] is False, "the tile that was turned off came back on"
+        assert widget._settings().n_enabled_tiles == 11  # 12 - the one still disabled
 
 
 class TestThePlannedTileset:
@@ -1570,7 +1595,7 @@ class TestTheCanvasFollowsTheBeamYouPlanWith:
         widget.set_image(self._image(microscope, BeamType.ELECTRON))
         assert widget.tile_grid_overlay._tiles
 
-        widget.settings_widget.beam_type_combo.set_value(BeamType.ION)
+        widget.settings_widget.combo_beam.set_value(BeamType.ION)
 
         assert widget.current_view.beam_type is BeamType.ION
         assert widget.tile_grid_overlay._tiles, "the planned grid disappeared"
@@ -1580,10 +1605,10 @@ class TestTheCanvasFollowsTheBeamYouPlanWith:
         widget.set_image(self._image(microscope, BeamType.ELECTRON))
         assert len(widget.canvas.placed_keys) == 1
 
-        widget.settings_widget.beam_type_combo.set_value(BeamType.ION)
+        widget.settings_widget.combo_beam.set_value(BeamType.ION)
         assert len(widget.canvas.placed_keys) == 0, "the ion view is empty, as it should be"
 
-        widget.settings_widget.beam_type_combo.set_value(BeamType.ELECTRON)
+        widget.settings_widget.combo_beam.set_value(BeamType.ELECTRON)
         assert len(widget.canvas.placed_keys) == 1, "the electron overview did not come back"
 
     def test_re_posing_the_stage_moves_the_canvas_with_it(self, widget, microscope):
@@ -1718,7 +1743,7 @@ class TestTheViewChips:
 
     def test_a_chip_appears_for_every_view_worth_switching_to(self, widget, microscope):
         widget.set_image(self._image(microscope, "SEM", BeamType.ELECTRON))
-        widget.settings_widget.beam_type_combo.set_value(BeamType.ION)
+        widget.settings_widget.combo_beam.set_value(BeamType.ION)
 
         labels = {b.text() for b in widget._view_chip_buttons.values()}
         assert {"SEM @ SEM", "FIB @ SEM"} <= labels
@@ -1733,7 +1758,7 @@ class TestTheViewChips:
     def test_clicking_a_chip_switches_the_canvas(self, widget, microscope):
         widget.set_image(self._image(microscope, "SEM", BeamType.ELECTRON))
         sem = widget.current_view
-        widget.settings_widget.beam_type_combo.set_value(BeamType.ION)
+        widget.settings_widget.combo_beam.set_value(BeamType.ION)
         assert widget.current_view != sem
         assert not widget.canvas.placed_keys
 
@@ -1743,7 +1768,7 @@ class TestTheViewChips:
 
     def test_the_chip_for_the_displayed_view_is_the_checked_one(self, widget, microscope):
         widget.set_image(self._image(microscope, "SEM", BeamType.ELECTRON))
-        widget.settings_widget.beam_type_combo.set_value(BeamType.ION)
+        widget.settings_widget.combo_beam.set_value(BeamType.ION)
 
         checked = {b.text() for b in widget._view_chip_buttons.values() if b.isChecked()}
         assert checked == {widget.current_view.label}
@@ -1753,7 +1778,7 @@ class TestTheViewChips:
         tab, and the chips have to say which is which -- otherwise the only way to find
         out is to acquire and see where it went."""
         widget.set_image(self._image(microscope, "SEM", BeamType.ELECTRON))
-        widget.settings_widget.beam_type_combo.set_value(BeamType.ION)
+        widget.settings_widget.combo_beam.set_value(BeamType.ION)
         acquisition = widget.acquisition_view
         widget._view_chip_buttons[widget.views[0]].click()  # look at the SEM one
 
@@ -2229,7 +2254,7 @@ class TestTwoRunsCannotLandOnEachOther:
     def test_a_name_someone_typed_is_stamped_too(self, widget, monkeypatch, tmp_path):
         """A memorable name invites reuse, so it is the *more* likely to collide. The
         base is kept as a prefix, so what was typed is still what you look for."""
-        widget.settings_widget.image_settings_widget.filename_edit.setText("grid-2-survey")
+        widget.settings_widget.filename_edit.setText("grid-2-survey")
         name = self._capture(widget, monkeypatch, tmp_path)
         assert name.startswith("grid-2-survey-")
         assert name != "grid-2-survey"
@@ -2239,7 +2264,7 @@ class TestTwoRunsCannotLandOnEachOther:
         acquisition would make the name unusable as a thing you set once."""
         self._capture(widget, monkeypatch, tmp_path)
         assert (
-            widget.settings_widget.image_settings_widget.filename_edit.text()
+            widget.settings_widget.filename_edit.text()
             == "overview-image"
         )
 
@@ -2363,3 +2388,87 @@ class TestContrastActsOnEveryOverview:
         widget.btn_contrast.setChecked(False)
         widget._toggle_contrast()
         assert widget.contrast_control.isHidden()
+
+
+class TestFocusAndFocusStackAreTwoQuestions:
+    """*When to focus while walking the grid* and *whether to take a stack at each tile*
+    are unrelated: either can be wanted without the other. They were built as one panel,
+    which said otherwise.
+
+    The fluorescence tab has had them apart from the start -- a Focus panel and a Z-Stack
+    panel -- so this is the two tabs agreeing as much as it is a correction.
+    """
+
+    def test_they_are_separate_panels(self, widget):
+        settings = widget.settings_widget
+        assert settings.focus_panel is not settings.focus_stack_panel
+        assert settings.focus_panel._title_label.text() == "Focus"
+        assert settings.focus_stack_panel._title_label.text() == "Stack"
+
+    def test_the_mode_is_independent_of_the_stack(self, widget):
+        """The pairing that used to be impossible to express in one panel: focus every
+        tile, but do not stack."""
+        from fibsem.structures import AutoFocusMode
+
+        settings = widget.settings_widget
+        settings.combo_autofocus.set_value(AutoFocusMode.EACH_TILE)
+        settings.check_focus_stack.setChecked(False)
+
+        read = settings.get_settings()
+        assert read.autofocus_settings.mode is AutoFocusMode.EACH_TILE
+        assert read.focus_stack_settings.enabled is False
+
+    def test_the_stack_parameters_grey_out_when_it_is_off(self, widget):
+        """Live controls under an unticked box imply they apply. The fluorescence tab's
+        Z-Stack does the same."""
+        settings = widget.settings_widget
+        settings.check_focus_stack.setChecked(False)
+        assert not settings.spin_focus_steps.isEnabled()
+        settings.check_focus_stack.setChecked(True)
+        assert settings.spin_focus_steps.isEnabled()
+
+
+class TestTheSpiralPromotionIsVisible:
+    """`TiledAcquisitionRunner._compute_grid` rewrites EACH_ROW to EACH_TILE for a
+    spiral, because a spiral has no rows. Correct, and it was silent -- the setting read
+    one thing and the run did another. The fluorescence tab warns about exactly this
+    combination; this one acted on it and said nothing.
+    """
+
+    def _set(self, widget, mode, order):
+        from fibsem.structures import TileOrderStrategy
+
+        widget.settings_widget.combo_autofocus.set_value(mode)
+        widget.settings_widget.grid.combo_tile_order.set_value(order)
+        widget.settings_widget._refresh_derived()
+
+    def test_the_combination_says_what_will_happen(self, widget):
+        from fibsem.structures import AutoFocusMode, TileOrderStrategy
+
+        self._set(widget, AutoFocusMode.EACH_ROW, TileOrderStrategy.SPIRAL)
+        note = widget.settings_widget.label_focus_note
+        assert not note.isHidden()
+        assert "every tile" in note.text()
+
+    def test_it_is_quiet_otherwise(self, widget):
+        """A note that is always there stops being read. Both halves have to hold: the
+        same mode with another order, and the same order with another mode."""
+        from fibsem.structures import AutoFocusMode, TileOrderStrategy
+
+        note = widget.settings_widget.label_focus_note
+        self._set(widget, AutoFocusMode.EACH_ROW, TileOrderStrategy.TYPEWRITER)
+        assert note.isHidden()
+        self._set(widget, AutoFocusMode.EACH_TILE, TileOrderStrategy.SPIRAL)
+        assert note.isHidden()
+
+    def test_it_describes_what_the_runner_actually_does(self, widget):
+        """Pinned against the runner rather than a remembered rule -- if the promotion
+        is ever removed, this note becomes a lie and nothing else would notice."""
+        import inspect
+
+        from fibsem.imaging import tiled
+
+        source = inspect.getsource(tiled.TiledAcquisitionRunner._compute_grid)
+        assert "AutoFocusMode.EACH_ROW" in source and "SPIRAL" in source, (
+            "the runner no longer promotes EACH_ROW for a spiral; the note is stale"
+        )
