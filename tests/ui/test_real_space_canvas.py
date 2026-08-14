@@ -485,32 +485,25 @@ def test_the_reference_pixel_size_is_not_changed_under_a_placed_image():
     assert c.reference_pixel_size == PIXEL_SIZE
 
 
-def test_the_crosshair_marks_the_origin_not_the_middle_of_the_content():
-    """The centre of a union of tiles is wherever they happen to average out; the origin
-    is the position the caller built the canvas around."""
+def test_the_canvas_draws_no_crosshair_of_its_own():
+    """It used to mark canvas zero -- the *origin* -- on the argument that it is the
+    position the caller built the canvas around.
+
+    It is, and that means nothing to a user: the origin is the stage position of
+    whichever image was placed first, so the marker sat somewhere arbitrary, moved when
+    the view changed, and was drawn in the one colour on the canvas that reads as a
+    warning. What is worth marking -- grid centre, the holder's slots, where the stage
+    is -- lives in stage space, which this canvas does not know and its callers draw.
+    """
     c = _canvas()
-    c.add_image(_img(), centre=(500e-6, 500e-6), pixel_size=PIXEL_SIZE)  # far off-origin
-    assert c._content_rect().cx == pytest.approx(5000)  # content is nowhere near (0, 0)
-    (marker,) = c._crosshair_artists
-    xs, ys = marker.get_data()
-    assert (xs[0], ys[0]) == (0.0, 0.0)
-
-
-def test_the_crosshair_does_not_scale_with_the_working_area():
-    """Arms scaled to the content made the crosshair 5% of a 2 mm area — 100 um across."""
-    c = _canvas()
-    c.add_image(_img(), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE)
-    small = c._crosshair_artists[0].get_markersize()
-    c.set_world_extent(2000e-6)
-    assert c._crosshair_artists[0].get_markersize() == small  # fixed on screen
-
-
-def test_the_crosshair_can_still_be_hidden():
-    c = _canvas()
-    c.add_image(_img(), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE)
-    assert c._crosshair_artists
-    c.set_crosshair_visible(False)
+    c.add_image(_img(), centre=(500e-6, 500e-6), pixel_size=PIXEL_SIZE)
     assert c._crosshair_artists == []
+
+
+def test_it_does_not_offer_a_control_that_would_do_nothing():
+    """The same argument the contrast button is hidden on, two lines above it."""
+    c = _canvas()
+    assert not c.btn_toggle_crosshair.isVisible()
 
 
 # ── draw order and in-place updates ───────────────────────────────────────
@@ -695,3 +688,59 @@ def test_zoom_is_unbounded_with_nothing_to_be_relative_to():
     """The bounds are a multiple of the content, so an empty canvas has none."""
     c = _canvas()
     assert c._zoom_allowed(1e9) is True
+
+
+def test_a_framed_image_fills_the_widget_with_square_pixels():
+    """Both at once, which is what `_pad_to_widget_aspect` is for.
+
+    `aspect="equal"` has to give something up when the framed region is a different
+    shape from the widget, and `adjustable="box"` gives up the axes -- black bands down
+    the sides. Framing a widget-shaped region leaves it nothing to give up.
+    """
+    c = _canvas(reference_pixel_size=PIXEL_SIZE)
+    c.resize(900, 500)
+    c.add_image(_img(), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE, key="a")
+    xlim, ylim = c._ax.get_xlim(), c._ax.get_ylim()
+    span_x, span_y = abs(xlim[1] - xlim[0]), abs(ylim[1] - ylim[0])
+    assert span_x / span_y == pytest.approx(900 / 500, rel=0.01)
+
+
+def test_a_resize_re_frames_so_the_axes_keep_filling():
+    """The framing is widget-shaped, so it stops matching the moment the widget changes.
+
+    `_pad_to_widget_aspect` grows the framed region to the widget's proportions so that
+    `aspect="equal"` has nothing to take out of the axes box. Padded to the shape the
+    widget *was*, the difference comes straight back off the box -- which is what an
+    overview framed before its splitter had settled looked like: bands down the sides.
+    """
+    c = _canvas(reference_pixel_size=PIXEL_SIZE)
+    # Shown, and events pumped: a hidden widget takes a resize without the figure
+    # learning its new size, so the re-frame has nothing to work from and this passes
+    # or fails on the wrong thing.
+    c.show()
+    c.resize(900, 500)
+    _app.processEvents()
+    c.set_world_extent(200e-6, 200e-6)
+    assert c._ax.get_position().height > 0.98
+
+    c.resize(500, 900)  # portrait now; the old padding is the wrong way round
+    _app.processEvents()
+    box = c._ax.get_position()
+    assert box.height > 0.98 and box.width > 0.98, (
+        f"the axes box is {box.width:.2f} x {box.height:.2f} of the widget after a resize"
+    )
+
+
+def test_a_canvas_that_has_given_up_auto_fit_is_not_re_framed_by_a_resize():
+    """A caller driving the camera itself must not have it taken back on a resize."""
+    c = _canvas(reference_pixel_size=PIXEL_SIZE)
+    c.show()
+    c.resize(900, 500)
+    _app.processEvents()
+    c.set_world_extent(200e-6, 200e-6)
+    c.auto_fit = False
+    before = (c._ax.get_xlim(), c._ax.get_ylim())
+
+    c.resize(500, 900)
+    _app.processEvents()
+    assert (c._ax.get_xlim(), c._ax.get_ylim()) == before

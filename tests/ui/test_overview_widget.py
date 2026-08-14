@@ -1533,7 +1533,160 @@ class TestTheCanvasFollowsTheBeamYouPlanWith:
             FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t)
         )
 
-        offered = [widget.combo_view.itemData(i) for i in range(widget.combo_view.count())]
-        assert widget.acquisition_view in offered, (
+        assert widget.acquisition_view in widget._view_chip_buttons, (
             "the view the next run lands in cannot be selected"
         )
+
+
+class TestTheViewChips:
+    """The view selector lives on the canvas, and says which view is which.
+
+    It selects what you are looking at, so it belongs where you are looking rather than
+    in the settings column. And the labels had to change: the orientations are named
+    after the beams, so pairing the two read as a tautology one way ("SEM · Electron")
+    and a contradiction the other ("SEM · Ion").
+    """
+
+    @staticmethod
+    def _image(scope, orientation, beam_type):
+        pose = scope.get_orientation(orientation)
+        position = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t)
+        hfw = 128 * 2e-7
+        image = FibsemImage.generate_blank_image(resolution=(128, 128), hfw=hfw)
+        image.data = (np.random.default_rng(0).random((128, 128)) * 255).astype(np.uint8)
+        state = scope.get_microscope_state(beam_type=beam_type)
+        state.stage_position = position
+        image.metadata.image_settings = ImageSettings(hfw=hfw, beam_type=beam_type)
+        image.metadata.microscope_state = state
+        image.metadata.system_info = scope.system.info
+        image.metadata.hardware_geometry = scope.hardware_geometry()
+        return image
+
+    @pytest.mark.parametrize(
+        "orientation, beam, expected",
+        [
+            ("SEM", BeamType.ELECTRON, "SEM @ SEM"),
+            ("FIB", BeamType.ION, "FIB @ FIB"),
+            ("MILLING", BeamType.ION, "FIB @ MILLING"),
+            ("MILLING", BeamType.ELECTRON, "SEM @ MILLING"),
+            ("SEM", BeamType.ION, "FIB @ SEM"),
+        ],
+    )
+    def test_a_view_names_both_facts_in_the_same_shape(self, orientation, beam, expected):
+        """Beam then orientation, always both. Dropping the orientation when it matched
+        the beam read well until you met the ones it kept, and then "FIB · SEM pose" had
+        to be decoded rather than read."""
+        assert OverviewView(beam_type=beam, orientation=orientation).label == expected
+
+    def test_a_view_can_spell_itself_out(self):
+        """The chip is glanceable; the tooltip is where the words go."""
+        view = OverviewView(beam_type=BeamType.ION, orientation="MILLING")
+        assert view.describe == "Ion beam, stage at the MILLING orientation."
+
+    def test_orientations_are_shown_as_the_microscope_names_them(self):
+        """Title-casing rendered the two acronyms as "Sem" and "Fib"; casing by rule
+        instead means a rule to remember, and a new orientation to add to it."""
+        assert OverviewView(beam_type=BeamType.ION, orientation="SEM").label == "FIB @ SEM"
+        assert (
+            OverviewView(beam_type=BeamType.ION, orientation="MILLING").label
+            == "FIB @ MILLING"
+        )
+
+    def test_the_view_is_named_even_when_there_is_only_one(self, widget):
+        """A lone chip says nothing the info bar does not, and it is still worth drawing:
+        a control nobody can see does not exist, and the first time there are two views
+        is the worst moment to discover that switching was possible all along."""
+        chips = widget._view_chip_buttons
+        assert len(chips) == 1
+        assert next(iter(chips)) == widget.current_view
+        assert next(iter(chips.values())).isChecked()
+
+    def test_a_chip_appears_for_every_view_worth_switching_to(self, widget, microscope):
+        widget.set_image(self._image(microscope, "SEM", BeamType.ELECTRON))
+        widget.settings_widget.beam_type_combo.set_value(BeamType.ION)
+
+        labels = {b.text() for b in widget._view_chip_buttons.values()}
+        assert {"SEM @ SEM", "FIB @ SEM"} <= labels
+        # Placed on the canvas, not merely constructed: they were once sized from a
+        # layout that answered with nothing, so they reported themselves visible and
+        # drew at zero size.
+        assert all(b.width() > 0 for b in widget._view_chip_buttons.values())
+        assert all(
+            b.parent() is widget.canvas for b in widget._view_chip_buttons.values()
+        )
+
+    def test_clicking_a_chip_switches_the_canvas(self, widget, microscope):
+        widget.set_image(self._image(microscope, "SEM", BeamType.ELECTRON))
+        sem = widget.current_view
+        widget.settings_widget.beam_type_combo.set_value(BeamType.ION)
+        assert widget.current_view != sem
+        assert not widget.canvas.placed_keys
+
+        widget._view_chip_buttons[sem].click()
+        assert widget.current_view == sem
+        assert len(widget.canvas.placed_keys) == 1, "the overview did not come back"
+
+    def test_the_chip_for_the_displayed_view_is_the_checked_one(self, widget, microscope):
+        widget.set_image(self._image(microscope, "SEM", BeamType.ELECTRON))
+        widget.settings_widget.beam_type_combo.set_value(BeamType.ION)
+
+        checked = {b.text() for b in widget._view_chip_buttons.values() if b.isChecked()}
+        assert checked == {widget.current_view.label}
+
+    def test_the_view_the_run_would_land_in_is_marked_apart(self, widget, microscope):
+        """Which view is displayed and which the next run lands in come apart on this
+        tab, and the chips have to say which is which -- otherwise the only way to find
+        out is to acquire and see where it went."""
+        widget.set_image(self._image(microscope, "SEM", BeamType.ELECTRON))
+        widget.settings_widget.beam_type_combo.set_value(BeamType.ION)
+        acquisition = widget.acquisition_view
+        widget._view_chip_buttons[widget.views[0]].click()  # look at the SEM one
+
+        assert widget.current_view != acquisition
+        marked = widget._view_chip_buttons[acquisition]
+        other = widget._view_chip_buttons[widget.current_view]
+        assert marked.styleSheet() != other.styleSheet()
+        assert "next acquisition" in marked.toolTip()
+
+
+class TestTheMillingAngleIsOnTheBeamTab:
+    """What the stage tilt *means* on the beam side: the angle the ion beam makes with
+    the sample surface, and the number a milling pose is chosen for.
+
+    The fluorescence tab leaves it out deliberately -- meaningless through a camera --
+    and its own comment says it belongs here if anywhere.
+    """
+
+    def test_the_info_bar_carries_it(self, widget, microscope):
+        expected = microscope.get_current_milling_angle(
+            stage_position=widget._stage_position
+        )
+        assert f"milling {expected:.1f}°" in widget.canvas._info_text
+
+    def test_it_follows_the_stage(self, widget, microscope):
+        before = widget.canvas._info_text
+        pose = microscope.get_orientation("MILLING")
+        widget._on_stage_moved(
+            FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t)
+        )
+        assert widget.canvas._info_text != before
+        assert "milling" in widget.canvas._info_text
+
+    def test_a_pose_with_no_tilt_drops_the_angle_not_the_line(self, widget, monkeypatch):
+        """It can refuse, and the position is the half of the line that always works."""
+        monkeypatch.setattr(
+            widget.microscope, "get_current_milling_angle",
+            lambda **kwargs: (_ for _ in ()).throw(ValueError("no tilt")),
+        )
+        widget._refresh_stage_info()
+        assert widget.canvas._info_text, "the whole info bar went with the angle"
+        assert "milling" not in widget.canvas._info_text
+
+    def test_it_costs_no_hardware_read(self, widget, microscope, monkeypatch):
+        """This runs on every overlay refresh. `get_current_milling_angle` is arithmetic
+        over the pose it is handed -- but only if it is handed one."""
+        monkeypatch.setattr(
+            microscope, "get_stage_position",
+            lambda *a, **k: pytest.fail("the info bar polled the stage"),
+        )
+        widget._refresh_stage_info()

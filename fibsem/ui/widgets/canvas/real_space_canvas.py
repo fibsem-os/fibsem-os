@@ -42,10 +42,6 @@ from fibsem.ui.widgets.canvas.canvas_base import (
 _logger = logging.getLogger(__name__)
 
 _DEFAULT_BACKGROUND = GRAY_CANVAS_COLOR  # empty space reads as "nothing acquired here"
-_ORIGIN_MARKER_SIZE = 11  # points; fixed on screen, so zoom-independent
-# Red, matching the grid boundary this marks the centre of. The current stage
-# position is the yellow one -- the pair have to stay distinguishable.
-_ORIGIN_MARKER_COLOUR = "#ff5252"
 
 # Pixels kept per placed image. Every artist is redrawn in full on each pan/zoom, so a
 # redraw costs the *total* stored pixels — 100 tiles kept at 1024 px square take ~2.7 s,
@@ -128,6 +124,9 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         # Contrast/gamma acts on a single frame; there is no meaning yet for "the"
         # image here, so don't offer a control that would silently do nothing.
         self.btn_contrast.hide()
+        # Same argument: nothing on this canvas has a centre of its own to cross-hair,
+        # and what is worth marking lives in stage space, which its callers draw.
+        self.btn_toggle_crosshair.hide()
         self._reposition_overlay_buttons()
 
     # ── properties ────────────────────────────────────────────────────────
@@ -288,6 +287,15 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
 
         Applied by inverting rather than by setting limits: matplotlib's autoscale
         preserves the axis direction, so this survives every later refit.
+
+        `adjustable="box"` is kept deliberately, though it is what leaves black bands
+        when the framing does not match the widget's shape: it gives away the *axes*
+        rather than the view. `"datalim"` fills the widget instead, and costs more than
+        it saves -- matplotlib then adjusts limits a caller has set, so a declared
+        working area drifts and a view asked to hold still does not (three fluorescence
+        tests measured it moving 5000 -> 5831). Callers keep the limits they set here,
+        and it is the caller's job to frame something the widget's shape can hold:
+        `_pad_to_widget_aspect` does exactly that.
         """
         self._ax.set_aspect("equal", adjustable="box")
         if not self._ax.yaxis_inverted():
@@ -510,17 +518,21 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         return (cx - half_w, cx + half_w, cy + half_h, cy - half_h)
 
     def _refresh_crosshair(self):
-        """Mark the origin, at a fixed size on screen.
+        """Nothing. A real-space canvas has no centre worth marking of its own.
 
-        The base draws at the centre of the content, with arms scaled to it. Neither
-        works here: the centre of a union of tiles is wherever they happen to average
-        out, and scaling the arms to a declared working area makes the crosshair
-        enormous — 5% of 2 mm is 100 um across.
+        The base draws at the centre of the content, which here is wherever a union of
+        tiles happens to average out. This canvas drew at canvas zero instead -- the
+        *origin* -- on the argument that it is the position the caller built the canvas
+        around. It is, and that turns out to mean nothing to a user: the origin is the
+        stage position of the first image that happened to be placed, so the marker sat
+        somewhere arbitrary, moved when the view changed, and was drawn in the one
+        colour on the canvas that reads as a warning.
 
-        The origin is the position the caller built the canvas around (the reference
-        stage position), so that is the landmark worth drawing. Drawn as a marker rather
-        than two lines so it keeps its size on screen through zoom, the way a position
-        marker should.
+        What is worth marking is in *stage* space -- grid centre, the holder's slots,
+        where the stage is now -- and the canvas does not know stage space. Its callers
+        do, and they already draw all three through overlays. So this draws nothing and
+        the toolbar button that toggled it is hidden, on the same argument as the
+        contrast control: do not offer one that would silently do nothing.
         """
         for a in self._crosshair_artists:
             try:
@@ -528,14 +540,25 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
             except (ValueError, NotImplementedError):
                 pass
         self._crosshair_artists = []
-        if not self._crosshair_visible or self._reference_pixel_size is None:
-            return
-        (marker,) = self._ax.plot(
-            [0.0], [0.0],
-            marker="+", markersize=_ORIGIN_MARKER_SIZE, markeredgewidth=1.0,
-            color=_ORIGIN_MARKER_COLOUR, alpha=0.8, linestyle="None", zorder=7,
-        )
-        self._crosshair_artists = [marker]
+
+    def resizeEvent(self, event) -> None:
+        """Re-frame on a resize, because the framing is widget-shaped.
+
+        `_pad_to_widget_aspect` grows the framed region to the widget's proportions, so
+        that `aspect="equal"` has nothing left to take out of the axes box. A region
+        padded to the shape the widget *was* stops matching the moment it changes, and
+        the difference comes straight back off the axes as bands down the sides or
+        across the top -- which is what an overview framed before its splitter settled
+        looked like.
+
+        Guarded on `auto_fit` like every other refit, so a canvas whose owner has taken
+        charge of the camera is not re-framed behind its back.
+        """
+        super().resizeEvent(event)
+        if self.auto_fit:
+            self._fitted_extent = None  # the padded extent is stale, whatever it was
+            self._fit_view()
+            self.draw_idle()
 
     def _remove_artist(self, placed: PlacedImage) -> None:
         try:

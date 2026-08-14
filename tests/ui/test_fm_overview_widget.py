@@ -1034,9 +1034,13 @@ def test_stage_metadata_is_dropped_when_the_geometry_is_unknown(qapp, overview_w
 
 
 def test_the_current_position_marker_follows_the_stage(qapp, overview_widget):
-    """Drawn separately from the canvas's red origin marker: the origin explains why
-    everything sits where it does, this yellow one is what you steer by. They coincide
-    until the stage moves, then diverge."""
+    """The marker you steer by, which has to move when the stage does.
+
+    It used to be contrasted here with the canvas's own red origin marker. That marker
+    is gone: it stood at the stage position of whichever image was placed first, which
+    means nothing to anyone looking at it, and what is worth marking lives in stage
+    space -- which this widget draws itself.
+    """
     from fibsem.structures import FibsemStagePosition
 
     widget = overview_widget
@@ -1054,10 +1058,6 @@ def test_the_current_position_marker_follows_the_stage(qapp, overview_widget):
 
     moved = widget.current_position_overlay._points
     assert moved != at_origin, "the marker did not follow the stage"
-
-    # the canvas's own origin marker stays put, which is the point of having both
-    origin_marker = widget.canvas.canvas._crosshair_artists[0].get_data()
-    assert (origin_marker[0][0], origin_marker[1][0]) == (0.0, 0.0)
 
 
 def test_the_marker_lands_where_an_image_acquired_there_is_placed(qapp, overview_widget):
