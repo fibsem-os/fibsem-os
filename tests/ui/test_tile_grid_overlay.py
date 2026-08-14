@@ -772,3 +772,206 @@ class TestADoubleClickIsAStageMoveNotATileEdit:
         assert overlay._pending_toggle is None
         assert not overlay._toggle_timer.isActive()
         assert toggled == []
+
+
+# ── paint by dragging with the modifier held ─────────────────────────────
+
+
+def _shift(event):
+    """Attach a Qt event reporting Shift, the way an embedded canvas delivers one.
+
+    `_modifiers_from_event` reads `guiEvent` rather than matplotlib's `key`, because in
+    an embedded canvas the Qt state is the reliable one -- so a test that set `key`
+    would be exercising a path the app never takes.
+    """
+    from types import SimpleNamespace
+
+    from PyQt5.QtCore import Qt
+
+    event.guiEvent = SimpleNamespace(modifiers=lambda: Qt.ShiftModifier)
+    return event
+
+
+def _tile_centre(overlay, tiles, row, col):
+    tile = next(t for t in tiles if (t.row, t.col) == (row, col))
+    x, y, width, height = overlay._rect_for(tile)
+    return x + width / 2, y + height / 2
+
+
+def _sweep(overlay, points, px_step=50.0):
+    """Shift-press at the first point, drag through the rest, release at the last."""
+    overlay._on_press(_shift(_event(overlay, *points[0])))
+    for step, point in enumerate(points[1:], start=1):
+        overlay._on_drag(_event(overlay, *point, px=px_step * step, py=0.0))
+    last = px_step * max(len(points) - 1, 1)
+    overlay._on_release(_event(overlay, *points[-1], px=last, py=0.0))
+    _flush_toggle(overlay)
+
+
+def test_a_shift_drag_paints_every_tile_it_crosses(qapp):
+    """One gesture instead of one click per tile -- and one wait on the double-click
+    timer instead of one per tile, which is what made clearing a row unusable."""
+    overlay, tiles = build(3, 3)
+    painted = []
+    overlay.tile_toggled.connect(lambda r, c, e: painted.append((r, c, e)))
+
+    _sweep(overlay, [_tile_centre(overlay, tiles, 1, col) for col in range(3)])
+
+    assert painted == [(1, 0, False), (1, 1, False), (1, 2, False)]
+
+
+def test_the_swept_value_is_fixed_at_press_not_re_read_per_tile(qapp):
+    """The host writes every emission into the mask and hands back a rebuilt grid, so a
+    sweep that asked each tile what it currently was would alternate instead of paint.
+    Reproduced by doing exactly what the host does, between motion events.
+
+    The row starts mixed, so a re-reading implementation is forced to disagree: it would
+    turn the middle tile *on* while the sweep is turning the row off.
+    """
+    start = [[True, False, True]]
+    overlay, tiles = build(1, 3, mask=start)
+    painted = []
+
+    def rewrite(row, col, enabled):
+        painted.append((row, col, enabled))
+        mask = [list(row_values) for row_values in start]
+        for r, c, e in painted:
+            mask[r][c] = e
+        overlay.set_grid(
+            compute_tile_grid_from_fov(
+                1, 3, FOV, FOV, WIDTH, HEIGHT, OVERLAP, mask=mask
+            ),
+            (HEIGHT, WIDTH),
+            PIXEL_SIZE,
+        )
+
+    overlay.tile_toggled.connect(rewrite)
+
+    _sweep(overlay, [_tile_centre(overlay, tiles, 0, col) for col in range(3)])
+
+    assert painted == [(0, 0, False), (0, 1, False), (0, 2, False)]
+
+
+def test_a_shift_click_that_never_travels_is_an_ordinary_toggle(qapp):
+    """Below the drag threshold the modifier changes nothing. The press has to reach the
+    release still looking like a click, so it keeps the deferral that stops a
+    double-click editing the tile it moves the stage to (FIB-520)."""
+    overlay, tiles = build(3, 3)
+    painted = []
+    overlay.tile_toggled.connect(lambda r, c, e: painted.append((r, c, e)))
+    point = _tile_centre(overlay, tiles, 1, 1)
+
+    overlay._on_press(_shift(_event(overlay, *point)))
+    overlay._on_drag(_event(overlay, *point, px=MOVE_DRAG_THRESHOLD_PX - 1, py=0.0))
+    overlay._on_release(_event(overlay, *point))
+
+    assert painted == [], "a modified click must still wait out the double-click interval"
+    _flush_toggle(overlay)
+    assert painted == [(1, 1, False)]
+
+
+def test_a_paint_does_not_also_toggle_the_tile_it_ends_on(qapp):
+    """The release would otherwise undo the last tile the sweep just painted."""
+    overlay, tiles = build(3, 3)
+    painted = []
+    overlay.tile_toggled.connect(lambda r, c, e: painted.append((r, c, e)))
+
+    _sweep(overlay, [
+        _tile_centre(overlay, tiles, 1, 0),
+        _tile_centre(overlay, tiles, 1, 1),
+    ])
+
+    assert painted == [(1, 0, False), (1, 1, False)]
+
+
+def test_a_tile_is_painted_once_however_long_the_pointer_lingers(qapp):
+    """Motion events arrive far faster than tiles are crossed, and the host rebuilds the
+    whole grid on each emission."""
+    overlay, tiles = build(3, 3)
+    painted = []
+    overlay.tile_toggled.connect(lambda r, c, e: painted.append((r, c, e)))
+    x, y = _tile_centre(overlay, tiles, 1, 1)
+
+    overlay._on_press(_shift(_event(overlay, x, y)))
+    for step in range(1, 7):
+        overlay._on_drag(_event(overlay, x + step, y, px=50.0, py=0.0))
+    overlay._on_release(_event(overlay, x, y, px=50.0, py=0.0))
+    _flush_toggle(overlay)
+
+    assert painted == [(1, 1, False)]
+
+
+def test_an_unmodified_drag_still_moves_the_grid(qapp):
+    """The modifier is what distinguishes the two: without it, an interior drag has to
+    keep meaning "move", which is the gesture that was there first."""
+    overlay, tiles = build(3, 3)
+    moved, painted = [], []
+    overlay.grid_move_requested.connect(lambda x, y: moved.append((x, y)))
+    overlay.tile_toggled.connect(lambda r, c, e: painted.append((r, c, e)))
+
+    _drag(
+        overlay,
+        _tile_centre(overlay, tiles, 1, 1),
+        _tile_centre(overlay, tiles, 1, 2),
+    )
+
+    assert moved, "an unmodified interior drag must still move the grid"
+    assert painted == []
+
+
+def test_a_modified_edge_press_still_resizes(qapp):
+    """Edges win over the interior for a press, and holding the modifier does not
+    change that -- the cursor says resize, so a press there must resize."""
+    overlay, _ = build(3, 3)
+    left, top, _, height = overlay._bounds()
+
+    overlay._on_press(_shift(_event(overlay, left, top + height / 2)))
+
+    assert overlay.is_resizing
+    assert overlay._paint_value is None
+
+
+def test_the_modifier_turns_the_interior_cursor_into_a_cross(qapp):
+    """The only sign the gesture exists, for anyone who has not been told."""
+    from PyQt5.QtCore import Qt
+
+    overlay, tiles = build(3, 3)
+    point = _tile_centre(overlay, tiles, 1, 1)
+
+    overlay._update_cursor(_event(overlay, *point))
+    assert overlay._canvas.cursor == Qt.SizeAllCursor
+
+    overlay._update_cursor(_shift(_event(overlay, *point)))
+    assert overlay._canvas.cursor == Qt.CrossCursor
+
+
+def test_a_paint_survives_the_grid_being_cleared_underneath_it(qapp):
+    """`_refresh_tile_grid` clears the grid when the camera geometry cannot be read, and
+    that can land between two motion events of a sweep."""
+    overlay, tiles = build(3, 3)
+    painted = []
+    overlay.tile_toggled.connect(lambda r, c, e: painted.append((r, c, e)))
+    first = _tile_centre(overlay, tiles, 1, 0)
+    second = _tile_centre(overlay, tiles, 1, 1)
+
+    overlay._on_press(_shift(_event(overlay, *first)))
+    overlay._on_drag(_event(overlay, *second, px=50.0, py=0.0))
+    overlay.clear()
+    overlay._on_drag(_event(overlay, *second, px=80.0, py=0.0))
+    overlay._on_release(_event(overlay, *second, px=80.0, py=0.0))
+    _flush_toggle(overlay)
+
+    assert painted == [(1, 0, False), (1, 1, False)]
+
+
+def test_detaching_mid_paint_does_not_leave_the_gesture_armed(qapp):
+    """Detaching skips the release that clears this, so a re-attached overlay would
+    resume painting on the next motion event, with a value captured against a mask that
+    no longer exists."""
+    overlay, tiles = build(3, 3)
+    overlay._on_press(_shift(_event(overlay, *_tile_centre(overlay, tiles, 1, 1))))
+
+    overlay.detach()
+
+    assert overlay._paint_value is None
+    assert overlay._painted == set()

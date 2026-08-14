@@ -1341,12 +1341,14 @@ def test_the_cursor_readout_names_the_position_under_it(qapp, interactive_widget
 
     widget._on_cursor_moved(1500.0, -900.0)
 
-    text = widget.cursor_readout.text()
+    text = widget.canvas.canvas._readout_text
     assert f"{under.x * 1e6:.1f}" in text
     assert f"{under.y * 1e6:.1f}" in text
 
     widget._on_cursor_moved(None, None)
-    assert widget.cursor_readout.text() == "", "the readout must not freeze off-canvas"
+    assert widget.canvas.canvas._readout_text is None, (
+        "the readout must not freeze off-canvas"
+    )
 
 
 def test_the_reported_offset_is_measured_in_the_frame_it_is_drawn_in(qapp, interactive_widget):
@@ -2168,27 +2170,51 @@ def test_showing_the_bars_survives_their_own_reset(qapp):
 # ── the canvas says where things are ─────────────────────────────────────
 
 
-def test_the_cursor_readout_is_drawn_over_the_canvas(qapp, interactive_widget):
-    """Not beside it. The only free corner is the top left — the toolbar owns the top
-    right, the scalebar the bottom right, the stage info bar the bottom left."""
+def test_the_cursor_readout_takes_the_status_zone_from_the_grid_hint(qapp, interactive_widget):
+    """Both want the top left, and this widget used to give each its own label there --
+    which drew the coordinates straight over the hint. One zone showing one thing at a
+    time is what makes that impossible rather than merely fixed."""
     widget = interactive_widget
+    canvas = widget.canvas.canvas
+    assert "Shift+drag" in canvas._status_label.text(), "the hint holds the zone at rest"
 
-    assert widget.cursor_readout.parent() is widget.canvas.canvas
+    widget._on_cursor_moved(1500.0, -900.0)
+    qapp.processEvents()
+
+    shown = canvas._status_label.text()
+    assert "Shift+drag" not in shown
+    assert shown == canvas._readout_text
 
 
-def test_the_cursor_readout_hides_when_the_pointer_leaves(qapp, interactive_widget):
-    """It sits on top of the image, so an empty plaque floating over the data is worse
-    than nothing there."""
+def test_the_zone_goes_back_to_the_hint_when_the_pointer_leaves(qapp, interactive_widget):
+    """The readout is only true while the pointer is where it is; the hint is still true
+    afterwards, so leaving the canvas hands the zone back rather than blanking it."""
     widget = interactive_widget
+    canvas = widget.canvas.canvas
 
     widget._on_cursor_moved(100.0, 100.0)
     qapp.processEvents()
-    assert widget.cursor_readout.isVisible()
-    assert widget.cursor_readout.text()
+    assert canvas._readout_text
 
     widget._on_cursor_moved(None, None)
     qapp.processEvents()
-    assert not widget.cursor_readout.isVisible()
+
+    assert canvas._readout_text is None
+    assert "Shift+drag" in canvas._status_label.text()
+
+
+def test_a_flash_outranks_the_cursor_readout(qapp, interactive_widget):
+    """A focus flash is a value that just changed and is about to go away; the readout
+    will still be there a motion event later."""
+    widget = interactive_widget
+    canvas = widget.canvas.canvas
+    widget._on_cursor_moved(1500.0, -900.0)
+    qapp.processEvents()
+
+    canvas.flash_message("OBJ 6000.0 um  (+1.0 um)")
+    qapp.processEvents()
+
+    assert "OBJ" in canvas._status_label.text()
 
 
 def test_the_info_bar_states_the_stage_pose(qapp, interactive_widget):
@@ -4600,3 +4626,21 @@ class TestTheCameraTransformReachesTheProjection:
         assert "transform_changed" in source, (
             "the transform subscription is not in closeEvent's teardown list"
         )
+
+
+def test_the_canvas_says_how_to_edit_the_grid_while_it_is_shown(qapp):
+    """The gestures are otherwise discoverable only by accident: the cursor names the
+    edge drag and the paint modifier, but nothing on screen suggests trying either.
+
+    Tied to the grid's visibility rather than set once, so hiding the grid takes its
+    instructions with it -- a standing instruction for something not on screen is worse
+    than none.
+    """
+    widget = _fresh_widget(qapp)
+
+    hint = widget.canvas.canvas._hint_text
+    assert hint and "Shift+drag" in hint
+
+    widget.tile_grid_panel.visibility_changed.emit(False)
+
+    assert widget.canvas.canvas._hint_text is None
