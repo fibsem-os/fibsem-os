@@ -1,0 +1,695 @@
+<meta charset="utf-8">
+<title>AutoLamella Agent Surfaces</title>
+<style>
+  /* ---------- page frame: three-state theme ---------- */
+  :root {
+    --ground: #eef0f3;
+    --chrome: #ffffff;
+    --ink: #1a1e26;
+    --muted: #5b6472;
+    --accent: #007acc;
+    --hairline: #d8dce3;
+    --frame-shadow: 0 18px 50px rgba(15, 22, 35, 0.14), 0 2px 8px rgba(15, 22, 35, 0.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #12141a;
+      --chrome: #1a1d25;
+      --ink: #e8eaee;
+      --muted: #8b93a0;
+      --accent: #50a6ff;
+      --hairline: #2a2f3a;
+      --frame-shadow: 0 18px 50px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #12141a;
+    --chrome: #1a1d25;
+    --ink: #e8eaee;
+    --muted: #8b93a0;
+    --accent: #50a6ff;
+    --hairline: #2a2f3a;
+    --frame-shadow: 0 18px 50px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 56px 28px 96px; }
+
+  header.page { margin-bottom: 20px; }
+  .eyebrow {
+    font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--muted); font-weight: 600; margin-bottom: 10px;
+  }
+  h1 {
+    font-size: clamp(30px, 5vw, 44px); line-height: 1.08; margin: 0 0 14px;
+    letter-spacing: -0.02em; font-weight: 700; text-wrap: balance;
+  }
+  .lede { max-width: 62ch; color: var(--muted); font-size: 16px; margin: 0 0 26px; }
+  .lede strong { color: var(--ink); font-weight: 600; }
+
+  nav.toc { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 64px; }
+  nav.toc a {
+    font-size: 13px; color: var(--ink); text-decoration: none;
+    border: 1px solid var(--hairline); background: var(--chrome);
+    padding: 6px 14px; border-radius: 999px;
+  }
+  nav.toc a:hover, nav.toc a:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+
+  section.study { margin-bottom: 96px; }
+  section.study .eyebrow em { font-style: normal; color: var(--accent); }
+  section.study h2 {
+    font-size: 26px; letter-spacing: -0.015em; margin: 0 0 8px; font-weight: 700; text-wrap: balance;
+  }
+  section.study .caption { max-width: 68ch; color: var(--muted); font-size: 14.5px; margin: 0 0 24px; }
+  section.study .caption code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
+    background: var(--chrome); border: 1px solid var(--hairline); padding: 1px 5px; border-radius: 4px;
+  }
+
+  .frame { overflow-x: auto; padding-bottom: 6px; }
+
+  /* ---------- shared mockup window chrome ---------- */
+  .window {
+    min-width: 660px; border-radius: 10px; overflow: hidden;
+    box-shadow: var(--frame-shadow);
+    border: 1px solid rgba(0,0,0,0.35);
+    font-size: 13px;
+  }
+  .titlebar {
+    display: flex; align-items: center; gap: 10px; padding: 9px 14px;
+    font-size: 12px; user-select: none;
+  }
+  .lights { display: flex; gap: 7px; }
+  .lights span { width: 11px; height: 11px; border-radius: 50%; display: block; }
+  .lights .r { background: #f45952; } .lights .y { background: #dfb94c; } .lights .g { background: #58b957; }
+  .titlebar .tname { flex: 1; text-align: center; opacity: 0.75; }
+  .titlebar .tpad { width: 47px; }
+
+  /* mockup palette — lifted from fibsem/ui/tokens.py, deliberately single-theme */
+  .mock {
+    --m-surface: #262930; --m-panel: #1e2027; --m-alt: #2b2f38; --m-border: #3d4251;
+    --m-text: #d6d6d6; --m-strong: #f0f1f2; --m-muted: #868e93;
+    --m-accent: #50a6ff; --m-primary: #007acc;
+    --m-ok: #4caf50; --m-warn: #e0a030; --m-err: #d04040;
+    --m-canvas: #0e1013;
+    background: var(--m-surface); color: var(--m-text);
+  }
+  .mock .titlebar { background: var(--m-panel); color: var(--m-strong); border-bottom: 1px solid var(--m-border); }
+
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; padding: 2px 8px; border-radius: 999px;
+    border: 1px solid var(--m-border); background: var(--m-panel); color: var(--m-muted);
+    white-space: nowrap;
+  }
+  .chip.accent { color: var(--m-accent); border-color: rgba(80,166,255,0.4); }
+  .chip.ok  { color: var(--m-ok);  border-color: rgba(76,175,80,0.45); }
+  .chip.warn{ color: var(--m-warn); border-color: rgba(224,160,48,0.5); }
+  .chip.err { color: var(--m-err); border-color: rgba(208,64,64,0.5); }
+  .chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; display: inline-block; }
+
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+  /* ---------- SEM/FIB imagery ---------- */
+  .sem { display: block; background: var(--m-canvas, #0e1013); border-radius: 4px; }
+  .sem-frame { border: 1px solid var(--m-border); border-radius: 5px; overflow: hidden; position: relative; flex-shrink: 0; }
+  .sem-frame .imlabel {
+    position: absolute; left: 6px; bottom: 5px; font-size: 9.5px; letter-spacing: 0.06em;
+    color: rgba(240,241,242,0.75); font-family: ui-monospace, Menlo, monospace;
+    background: rgba(14,16,19,0.55); padding: 1px 5px; border-radius: 3px;
+  }
+  .sem-frame .scalebar {
+    position: absolute; right: 8px; bottom: 8px; height: 2px; width: 34px; background: rgba(240,241,242,0.8);
+  }
+
+  /* ---------- 01 · terminal chat ---------- */
+  .term { background: #101319; padding: 18px 20px 22px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; line-height: 1.65; color: #c9cedb; }
+  .term .titlebar-sub { color: #5b6472; }
+  .term .u { color: #f0f1f2; margin: 14px 0 6px; }
+  .term .u::before { content: "❯ "; color: #50a6ff; font-weight: 700; }
+  .term .tools { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+  .term .tchip {
+    font-size: 11px; padding: 2px 9px; border-radius: 5px;
+    background: #1a1f2a; border: 1px solid #2a3140; color: #7e8798;
+  }
+  .term .tchip b { font-weight: 600; color: #a8b1c2; }
+  .term .tchip.ok b { color: #6fcf82; }
+  .term .tchip.refused { border-color: rgba(224,160,48,0.55); color: #e0a030; }
+  .term .tchip.refused b { color: #e0a030; }
+  .term .a { color: #c9cedb; margin: 6px 0 4px; max-width: 74ch; }
+  .term .a .hl { color: #f0f1f2; font-weight: 600; }
+  .term .a .warn { color: #e0a030; }
+  .term .a .err { color: #e06c6c; }
+  .term .a .okc { color: #6fcf82; }
+  .term table.qt { border-collapse: collapse; margin: 8px 0; font-size: 12px; }
+  .term table.qt td, .term table.qt th { padding: 2px 14px 2px 0; text-align: left; font-weight: 400; color: #9aa3b4; }
+  .term table.qt th { color: #5b6472; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .term table.qt td:first-child { color: #c9cedb; }
+  .term .imgrow { display: flex; gap: 10px; margin: 10px 0 4px; }
+  .term .cursor { display: inline-block; width: 8px; height: 15px; background: #50a6ff; vertical-align: text-bottom; }
+  @media (prefers-reduced-motion: no-preference) {
+    .term .cursor { animation: blink 1.1s steps(1) infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+  }
+
+  /* ---------- 02 · Qt help panel ---------- */
+  .qtwin .body { display: flex; flex-direction: column; min-height: 460px; }
+  .qtchat { padding: 16px 16px 8px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
+  .bubble { max-width: 78%; padding: 9px 13px; border-radius: 9px; font-size: 13px; line-height: 1.55; }
+  .bubble.user { align-self: flex-end; background: var(--m-primary); color: #fff; border-bottom-right-radius: 3px; }
+  .bubble.bot { align-self: flex-start; background: var(--m-panel); border: 1px solid var(--m-border); border-bottom-left-radius: 3px; max-width: 88%; }
+  .bubble.bot p { margin: 0 0 8px; } .bubble.bot p:last-child { margin-bottom: 0; }
+  .bubble.bot .fact {
+    font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; color: var(--m-muted);
+    background: var(--m-alt); border-left: 2px solid var(--m-accent);
+    padding: 6px 9px; border-radius: 0 5px 5px 0; margin: 6px 0;
+  }
+  .bubble.bot .fact b { color: var(--m-err); font-weight: 600; }
+  .cites { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+  .helprow { display: flex; gap: 10px; align-items: flex-start; margin-top: 8px; }
+  .qtactions { display: flex; gap: 8px; margin-top: 10px; }
+  .qtbtn {
+    font-size: 12px; padding: 5px 12px; border-radius: 5px; border: 1px solid var(--m-border);
+    background: var(--m-alt); color: var(--m-text);
+  }
+  .qtbtn.primary { background: var(--m-primary); border-color: var(--m-primary); color: #fff; }
+  .qtbtn.disabled { opacity: 0.55; }
+  .qtinput {
+    display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--m-border); background: var(--m-panel);
+  }
+  .qtinput .field {
+    flex: 1; border: 1px solid var(--m-border); background: var(--m-surface); border-radius: 6px;
+    padding: 8px 12px; color: var(--m-muted); font-size: 13px;
+  }
+  .scopebar {
+    display: flex; align-items: center; gap: 8px; padding: 7px 16px; font-size: 11px;
+    background: var(--m-panel); border-bottom: 1px solid var(--m-border); color: var(--m-muted);
+  }
+
+  /* ---------- 03 · supervision session ---------- */
+  .sup { background: #191c22; padding: 20px 22px 24px; display: flex; flex-direction: column; gap: 14px; }
+  .sup .sysnote {
+    font-size: 12px; color: var(--m-muted); border: 1px dashed var(--m-border);
+    border-radius: 8px; padding: 9px 13px; max-width: 70ch;
+  }
+  .sup .sysnote b { color: var(--m-text); font-weight: 600; }
+  .ckpt {
+    background: var(--m-surface); border: 1px solid var(--m-border); border-radius: 10px;
+    padding: 13px 15px; max-width: 620px;
+  }
+  .ckpt.esc { border-color: rgba(224,160,48,0.6); }
+  .ckpt .head { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-bottom: 10px; }
+  .ckpt .time { margin-left: auto; font-size: 11px; color: var(--m-muted); font-family: ui-monospace, Menlo, monospace; }
+  .ckpt .ims { display: flex; gap: 10px; margin-bottom: 10px; }
+  .ckpt .think { font-size: 12.5px; color: var(--m-text); line-height: 1.55; margin-bottom: 10px; max-width: 66ch; }
+  .ckpt .think .q { color: var(--m-strong); font-weight: 600; }
+  .ckpt .verdict { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .ckpt .verdict .note { font-size: 11px; color: var(--m-muted); }
+  .sup .morning {
+    background: var(--m-panel); border: 1px solid var(--m-border); border-radius: 10px;
+    padding: 13px 15px; font-size: 13px; line-height: 1.6; max-width: 620px;
+  }
+  .sup .morning .hd { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--m-muted); margin-bottom: 6px; }
+  .sup .morning b { color: var(--m-strong); }
+  .statrow { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+
+  /* ---------- 04 · dashboard ---------- */
+  .browser .urlbar {
+    display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+    background: var(--m-panel); border-bottom: 1px solid var(--m-border);
+  }
+  .browser .url {
+    flex: 1; font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; color: var(--m-muted);
+    background: var(--m-surface); border: 1px solid var(--m-border); border-radius: 6px; padding: 5px 11px;
+  }
+  .dash { background: #14161b; padding: 18px 20px 24px; }
+  .dash .dhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+  .dash .dhead h3 { margin: 0; font-size: 16px; color: var(--m-strong); font-weight: 650; letter-spacing: -0.01em; }
+  .dash .dhead .inst { font-size: 12px; color: var(--m-muted); }
+  .dash .dhead .live { margin-left: auto; }
+  .dash .metrics { display: flex; flex-wrap: wrap; gap: 26px; margin: 12px 0 18px; }
+  .dash .metric .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--m-muted); }
+  .dash .metric .v { font-size: 19px; font-weight: 650; color: var(--m-strong); font-variant-numeric: tabular-nums; }
+  .dash .metric .v small { font-size: 12px; color: var(--m-muted); font-weight: 400; }
+  .dash .cols { display: flex; gap: 16px; align-items: flex-start; }
+  .dash .main { flex: 1.9; display: flex; flex-direction: column; gap: 16px; }
+  .dash .side { flex: 1; min-width: 230px; }
+  .panel { background: var(--m-surface); border: 1px solid var(--m-border); border-radius: 9px; padding: 13px 15px; }
+  .panel .ph { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--m-muted); margin-bottom: 10px; }
+  .nowtask { display: flex; gap: 14px; }
+  .nowtask .info { flex: 1; }
+  .nowtask .tname2 { font-size: 14px; font-weight: 600; color: var(--m-strong); }
+  .nowtask .tsub { font-size: 12px; color: var(--m-muted); margin: 2px 0 10px; }
+  .bar { height: 6px; border-radius: 3px; background: var(--m-alt); overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--m-accent); border-radius: 3px; }
+  .bar.warnb i { background: var(--m-warn); }
+  .barmeta { display: flex; justify-content: space-between; font-size: 11px; color: var(--m-muted); margin-top: 5px; font-variant-numeric: tabular-nums; }
+  .lamgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }
+  .lam { background: var(--m-panel); border: 1px solid var(--m-border); border-radius: 8px; padding: 8px; }
+  .lam.active { border-color: rgba(80,166,255,0.55); }
+  .lam .nm { font-size: 11.5px; color: var(--m-strong); margin: 7px 0 3px; font-weight: 600; }
+  .lam .st { font-size: 10px; }
+  .lam .lasttask { font-size: 10px; color: var(--m-muted); margin-top: 3px; }
+  .pill { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; padding: 1px 7px; border-radius: 999px; font-weight: 600; }
+  .pill .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+  .pill.done { color: var(--m-ok); background: rgba(76,175,80,0.12); }
+  .pill.run { color: var(--m-accent); background: rgba(80,166,255,0.12); }
+  .pill.queued { color: var(--m-muted); background: rgba(134,142,147,0.12); }
+  .pill.failed { color: var(--m-err); background: rgba(208,64,64,0.14); }
+  .pill.waiting { color: var(--m-warn); background: rgba(224,160,48,0.14); }
+  @media (prefers-reduced-motion: no-preference) {
+    .pill.run .dot, .chip.live .dot { animation: pulse 1.6s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity: 0.25; } }
+  }
+  .feed { display: flex; flex-direction: column; }
+  .ev { display: flex; gap: 9px; padding: 6px 0; border-bottom: 1px solid var(--m-alt); font-size: 11.5px; }
+  .ev:last-child { border-bottom: none; }
+  .ev .t { font-family: ui-monospace, Menlo, monospace; color: var(--m-muted); font-size: 10.5px; padding-top: 1px; white-space: nowrap; }
+  .ev .m { color: var(--m-text); line-height: 1.45; }
+  .ev .m b { color: var(--m-strong); font-weight: 600; }
+  .ev.okev .m b { color: var(--m-ok); }
+  .ev.warnev .m b { color: var(--m-warn); }
+  .ev.errev .m b { color: var(--m-err); }
+  .dashfoot { display: flex; gap: 8px; align-items: center; margin-top: 16px; font-size: 11px; color: var(--m-muted); }
+
+  footer.page {
+    border-top: 1px solid var(--hairline); padding-top: 20px; margin-top: 20px;
+    font-size: 13px; color: var(--muted); max-width: 70ch;
+  }
+  footer.page code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+</style>
+
+<!-- shared SEM noise filters -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <filter id="semA" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="3" seed="7" stitchTiles="stitch"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.42, 0 0 0 0 0.44, 0 0 0 0 0.47, 0 0 0 0 1"/>
+      <feComponentTransfer><feFuncR type="gamma" exponent="1.6"/><feFuncG type="gamma" exponent="1.6"/><feFuncB type="gamma" exponent="1.6"/></feComponentTransfer>
+    </filter>
+    <filter id="semB" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.55" numOctaves="4" seed="23" stitchTiles="stitch"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.5, 0 0 0 0 0.52, 0 0 0 0 0.55, 0 0 0 0 1"/>
+      <feComponentTransfer><feFuncR type="gamma" exponent="1.9"/><feFuncG type="gamma" exponent="1.9"/><feFuncB type="gamma" exponent="1.9"/></feComponentTransfer>
+    </filter>
+    <filter id="semC" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="1.4" numOctaves="2" seed="41" stitchTiles="stitch"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.36, 0 0 0 0 0.37, 0 0 0 0 0.4, 0 0 0 0 1"/>
+      <feComponentTransfer><feFuncR type="gamma" exponent="1.5"/><feFuncG type="gamma" exponent="1.5"/><feFuncB type="gamma" exponent="1.5"/></feComponentTransfer>
+    </filter>
+    <radialGradient id="vig" cx="50%" cy="50%" r="72%">
+      <stop offset="55%" stop-color="#000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0.55"/>
+    </radialGradient>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <header class="page">
+    <div class="eyebrow">AutoLamella Agent Server · Interface sketches</div>
+    <h1>Four surfaces, one API</h1>
+    <p class="lede">Inspiration, not specification. Every surface below speaks to the <strong>same embedded server</strong> — what changes is who is looking at it and which scopes are armed. Colours are lifted straight from <strong>tokens.py</strong>; task names, statuses, and file names are the app's own.</p>
+    <nav class="toc">
+      <a href="#chat">Control chat</a>
+      <a href="#help">In-app help</a>
+      <a href="#supervision">Overnight supervision</a>
+      <a href="#dashboard">Run monitor</a>
+    </nav>
+  </header>
+
+  <!-- ============ 01 · CONTROL CHAT ============ -->
+  <section class="study" id="chat">
+    <div class="eyebrow">Claude Code · MCP sidecar · <em>read + control scopes</em></div>
+    <h2>A control chat session</h2>
+    <p class="caption">The operator drives the run conversationally from a laptop on the lab LAN. Reads are instant, mutations go through the versioned queue — and the hardware refusal is the design working, not failing: structured errors that the agent can explain instead of a stack trace.</p>
+    <div class="frame">
+      <div class="window mock">
+        <div class="titlebar" style="background:#171a21;color:#8b93a0;border-bottom:1px solid #232836;">
+          <div class="lights"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+          <div class="tname mono">claude — autolamella-mcp @ hydra-support</div>
+          <div class="tpad"></div>
+        </div>
+        <div class="term">
+          <div class="u">hows the run going?</div>
+          <div class="tools">
+            <span class="tchip ok"><b>get_app_status</b> ✓</span>
+            <span class="tchip ok"><b>get_queue</b> ✓</span>
+            <span class="tchip ok"><b>estimate_remaining_time</b> ✓</span>
+          </div>
+          <div class="a"><span class="hl">Rough Milling is running on sunny-mole</span> (lamella 4 of 7), milling stage 2/3. Queue is at item 11 of 18, ETA <span class="hl">2 h 54 m</span> — finishing around 05:36.</div>
+          <div class="a">One thing needs you: <span class="err">merry-vervet failed Undercut Milling</span> at 01:12 (alignment error). Everything else is Completed or queued. Want the failure details?</div>
+
+          <div class="u">push merry-vervet's polishing to the end, and run undercut unsupervised from here</div>
+          <div class="tools">
+            <span class="tchip ok"><b>queue_move</b> ✓ <span style="color:#5b6472">v41→v42</span></span>
+            <span class="tchip ok"><b>set_task_supervision</b>("Undercut Milling", false) ✓</span>
+          </div>
+          <div class="a">Done — Polishing · merry-vervet is now last in the queue (18 of 18), and Undercut Milling runs unsupervised from the next checkpoint. Queue is at v42; the timeline in the app already shows both changes.</div>
+
+          <div class="u">grab a fresh ion image of the grid</div>
+          <div class="tools">
+            <span class="tchip refused"><b>acquire_image</b> ✗ refused_workflow_running</span>
+          </div>
+          <div class="a"><span class="warn">Hardware tools are refused while a workflow is running</span> — that's the arbiter, not a fault. The latest cached ion image is from 23:41 (Rough Milling reference, sunny-mole):</div>
+          <div class="imgrow">
+            <div class="sem-frame">
+              <svg class="sem" width="190" height="132" viewBox="0 0 190 132" role="img" aria-label="cached ion beam image">
+                <rect width="190" height="132" filter="url(#semA)"/>
+                <rect x="30" y="58" width="130" height="18" fill="#c8ccd4" opacity="0.28"/>
+                <rect x="30" y="30" width="130" height="24" fill="#05070a" opacity="0.8"/>
+                <rect x="30" y="80" width="130" height="24" fill="#05070a" opacity="0.8"/>
+                <rect width="190" height="132" fill="url(#vig)"/>
+              </svg>
+              <span class="imlabel">ref_MILL_ROUGH_final_high_res_ib</span>
+              <span class="scalebar"></span>
+            </div>
+          </div>
+          <div class="a">I can queue a fresh grid image for when the run finishes — want that?</div>
+          <div class="u"><span class="cursor"></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 02 · HELP PANEL ============ -->
+  <section class="study" id="help">
+    <div class="eyebrow">Embedded Qt panel · <em>read scope only</em></div>
+    <h2>A help session, inside the app</h2>
+    <p class="caption">A dockable assistant pane in AutoLamella itself. Every claim is grounded — the answer cites the task history row, the log line, and the reference image it actually read, as chips the user can click. It can <em>suggest</em> the fix; doing it is gated behind arming the control scope.</p>
+    <div class="frame">
+      <div class="window mock qtwin">
+        <div class="titlebar">
+          <div class="lights"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+          <div class="tname">AutoLamella — Assistant</div>
+          <div class="tpad"></div>
+        </div>
+        <div class="scopebar">
+          <span class="chip accent"><span class="dot"></span>connected · AutoLamella-2026-08-13-19-42</span>
+          <span class="chip">read</span>
+          <span class="chip" style="opacity:.55">control — not armed</span>
+        </div>
+        <div class="body">
+          <div class="qtchat">
+            <div class="bubble user">why did undercut fail on merry-vervet?</div>
+            <div class="bubble bot">
+              <p>Undercut Milling failed at <b style="color:var(--m-strong)">01:12</b>, on the ML alignment step — the reference match never reached threshold:</p>
+              <div class="fact">task_history · Undercut Milling · <b>Failed</b> · 01:12:44 — "alignment error: correlation 0.31 &lt; 0.70 after 3 retries"</div>
+              <div class="helprow">
+                <div class="sem-frame">
+                  <svg class="sem" width="150" height="104" viewBox="0 0 150 104" role="img" aria-label="alignment reference image, low contrast">
+                    <rect width="150" height="104" filter="url(#semB)"/>
+                    <rect width="150" height="104" fill="#9aa0aa" opacity="0.16"/>
+                    <rect width="150" height="104" fill="url(#vig)"/>
+                  </svg>
+                  <span class="imlabel">ref_MILL_UNDERCUT_align_ml</span>
+                </div>
+                <p style="font-size:12.5px;margin:0;">The reference image is nearly featureless — consistent with surface charging after the rough mill, which the alignment docs call out as the usual cause at this step.</p>
+              </div>
+              <p style="margin-top:8px;">Usually recoverable: re-acquire the reference at a wider field of view, or lower the correlation threshold for this lamella only. I can re-queue Undercut Milling · merry-vervet — but <span style="color:var(--m-warn)">Control isn't armed</span>, so that needs you first.</p>
+              <div class="cites">
+                <span class="chip accent">task_history · 01:12</span>
+                <span class="chip accent">logfile · 01:12:44</span>
+                <span class="chip accent">ref_MILL_UNDERCUT_align_ml</span>
+                <span class="chip accent">docs · Alignment › Troubleshooting</span>
+              </div>
+              <div class="qtactions">
+                <span class="qtbtn primary disabled">Arm Control…</span>
+                <span class="qtbtn">Open docs section</span>
+                <span class="qtbtn">Show log tail</span>
+              </div>
+            </div>
+          </div>
+          <div class="qtinput">
+            <div class="field">Ask about this session…</div>
+            <span class="qtbtn primary">Send</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 03 · SUPERVISION ============ -->
+  <section class="study" id="supervision">
+    <div class="eyebrow">Overnight run · <em>control scope armed</em> · human on Slack</div>
+    <h2>An agent supervision session</h2>
+    <p class="caption">The killer app. Each supervision checkpoint arrives as a prompt card with its context images; the agent inspects, answers through <code>answer_prompt</code>, and escalates when it isn't sure. The human sleeps until the one decision that actually needs them.</p>
+    <div class="frame">
+      <div class="window mock">
+        <div class="titlebar">
+          <div class="lights"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+          <div class="tname">Claude — supervising AutoLamella-2026-08-13-19-42</div>
+          <div class="tpad"></div>
+        </div>
+        <div class="sup">
+          <div class="sysnote"><b>Handoff, 23:05</b> — 7 lamellae, Rough Milling → Undercut Milling → Polishing. Approve checkpoints you're confident about, adjust when the detection is recoverably off, escalate anything doubtful. Never touch hardware tools; ping Slack if you wake me.</div>
+
+          <div class="ckpt">
+            <div class="head">
+              <span class="chip accent">confirm_detection</span>
+              <span class="chip">Undercut Milling</span>
+              <span class="chip">yawning-hare</span>
+              <span class="time">02:41</span>
+            </div>
+            <div class="ims">
+              <div class="sem-frame">
+                <svg class="sem" width="220" height="150" viewBox="0 0 220 150" role="img" aria-label="ion beam image with detected lamella centre">
+                  <rect width="220" height="150" filter="url(#semA)"/>
+                  <rect x="35" y="66" width="150" height="20" fill="#c8ccd4" opacity="0.3"/>
+                  <rect x="35" y="34" width="150" height="28" fill="#05070a" opacity="0.82"/>
+                  <rect x="35" y="90" width="150" height="28" fill="#05070a" opacity="0.82"/>
+                  <rect width="220" height="150" fill="url(#vig)"/>
+                  <g stroke="#ffee58" stroke-width="1.4"><line x1="102" y1="66" x2="102" y2="86"/><line x1="92" y1="76" x2="112" y2="76"/></g>
+                  <text x="107" y="62" font-size="9" fill="#ffee58" font-family="monospace">LamellaCentre</text>
+                  <g stroke="#76ff03" stroke-width="1.2" opacity="0.9"><line x1="110" y1="70" x2="110" y2="82"/><line x1="104" y1="76" x2="116" y2="76"/></g>
+                </svg>
+                <span class="imlabel">ib · 150 µm fov</span>
+                <span class="scalebar"></span>
+              </div>
+              <div class="sem-frame">
+                <svg class="sem" width="220" height="150" viewBox="0 0 220 150" role="img" aria-label="electron beam context image">
+                  <rect width="220" height="150" filter="url(#semB)"/>
+                  <rect x="55" y="60" width="110" height="30" fill="#d0d4da" opacity="0.2"/>
+                  <rect width="220" height="150" fill="url(#vig)"/>
+                </svg>
+                <span class="imlabel">eb · 150 µm fov</span>
+                <span class="scalebar"></span>
+              </div>
+            </div>
+            <div class="think"><span class="q">Detection check:</span> LamellaCentre sits 340 nm left of the trench midline — the milled edges are clean and match the reference. Small, recoverable offset: adjusting rather than escalating.</div>
+            <div class="verdict">
+              <span class="chip ok">answer_prompt ✓ continue</span>
+              <span class="chip">adjust dx +0.34 µm</span>
+              <span class="note">answered in 38 s · audit #112</span>
+            </div>
+          </div>
+
+          <div class="ckpt">
+            <div class="head">
+              <span class="chip accent">confirm_milling</span>
+              <span class="chip">Polishing</span>
+              <span class="chip">sunny-mole</span>
+              <span class="time">03:58</span>
+            </div>
+            <div class="ims">
+              <div class="sem-frame">
+                <svg class="sem" width="220" height="150" viewBox="0 0 220 150" role="img" aria-label="ion beam image with polishing patterns">
+                  <rect width="220" height="150" filter="url(#semC)"/>
+                  <rect x="40" y="68" width="140" height="16" fill="#ccd0d6" opacity="0.32"/>
+                  <rect width="220" height="150" fill="url(#vig)"/>
+                  <rect x="40" y="52" width="140" height="13" fill="none" stroke="#ff9800" stroke-width="1.3"/>
+                  <rect x="40" y="87" width="140" height="13" fill="none" stroke="#ff9800" stroke-width="1.3"/>
+                  <rect x="78" y="30" width="64" height="16" fill="none" stroke="#26c6da" stroke-width="1" stroke-dasharray="4 3"/>
+                </svg>
+                <span class="imlabel">ib · polishing patterns</span>
+                <span class="scalebar"></span>
+              </div>
+            </div>
+            <div class="think"><span class="q">Pattern check:</span> both polishing patterns sit inside the rough cut, final thickness 150 nm as configured, alignment area clear of the fiducial. Approved.</div>
+            <div class="verdict">
+              <span class="chip ok">answer_prompt ✓ continue</span>
+              <span class="note">answered in 22 s · audit #118</span>
+            </div>
+          </div>
+
+          <div class="ckpt esc">
+            <div class="head">
+              <span class="chip accent">confirm_detection</span>
+              <span class="chip">Undercut Milling</span>
+              <span class="chip">limber-krill</span>
+              <span class="time">04:17</span>
+            </div>
+            <div class="ims">
+              <div class="sem-frame">
+                <svg class="sem" width="220" height="150" viewBox="0 0 220 150" role="img" aria-label="charged, low-contrast ion beam image">
+                  <rect width="220" height="150" filter="url(#semB)"/>
+                  <rect width="220" height="150" fill="#e8ecf2" opacity="0.22"/>
+                  <ellipse cx="120" cy="70" rx="70" ry="42" fill="#f2f5f9" opacity="0.25"/>
+                  <rect width="220" height="150" fill="url(#vig)"/>
+                  <g stroke="#ffee58" stroke-width="1.4" opacity="0.85"><line x1="146" y1="58" x2="146" y2="78"/><line x1="136" y1="68" x2="156" y2="68"/></g>
+                </svg>
+                <span class="imlabel">ib · charging?</span>
+                <span class="scalebar"></span>
+              </div>
+            </div>
+            <div class="think"><span class="q">Not confident.</span> Correlation 0.31 against the reference and the surface looks charged — the detection may be off by more than I can verify from here. Escalating rather than guessing; the run pauses safely at this checkpoint.</div>
+            <div class="verdict">
+              <span class="chip warn">escalated to human</span>
+              <span class="chip ok">notify_operator ✓</span>
+              <span class="chip">Slack → #hydra-runs</span>
+              <span class="note">watchdog holding · run paused at checkpoint</span>
+            </div>
+          </div>
+
+          <div class="morning">
+            <div class="hd">Morning summary · 06:30</div>
+            Overnight: <b>14 checkpoints</b> — 11 approved, 2 adjusted, <b style="color:var(--m-warn)">1 escalated</b> (limber-krill, still waiting on you). <b>5 of 7 lamellae polished.</b> No hardware calls, no queue changes after 02:10. Clear the escalation and the rest finishes in about 1 h 40 m.
+            <div class="statrow">
+              <span class="chip ok">11 approved</span>
+              <span class="chip accent">2 adjusted</span>
+              <span class="chip warn">1 escalated</span>
+              <span class="chip">human woken · 0×</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 04 · DASHBOARD ============ -->
+  <section class="study" id="dashboard">
+    <div class="eyebrow">Monitor page · any browser on the LAN · <em>read-only</em></div>
+    <h2>The running dashboard</h2>
+    <p class="caption">The Workflow Monitor served by the same embedded server: glanceable from the tea room or a phone. Mid-task progress comes from the in-process signals a disk reader can never see — and agent decisions appear in the same feed as everything else, because they're audited like everything else.</p>
+    <div class="frame">
+      <div class="window mock browser">
+        <div class="titlebar">
+          <div class="lights"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+          <div class="tname">AutoLamella · Monitor</div>
+          <div class="tpad"></div>
+        </div>
+        <div class="urlbar">
+          <div class="url">http://hydra-support:8010/monitor</div>
+          <span class="chip">read-only</span>
+        </div>
+        <div class="dash">
+          <div class="dhead">
+            <h3>AutoLamella-2026-08-13-19-42</h3>
+            <span class="inst">Hydra-1 · TFS plasma FIB · operator: patrick</span>
+            <span class="chip accent live"><span class="dot"></span>Running</span>
+          </div>
+          <div class="metrics">
+            <div class="metric"><div class="k">Queue</div><div class="v">14<small> / 18 items</small></div></div>
+            <div class="metric"><div class="k">Lamellae</div><div class="v">5<small> / 7 polished</small></div></div>
+            <div class="metric"><div class="k">ETA</div><div class="v">01:52</div></div>
+            <div class="metric"><div class="k">Elapsed</div><div class="v">09:04</div></div>
+            <div class="metric"><div class="k">Agent</div><div class="v" style="font-size:14px;padding-top:4px;"><span class="pill done"><span class="dot"></span>supervising</span></div></div>
+          </div>
+          <div class="cols">
+            <div class="main">
+              <div class="panel">
+                <div class="ph">Now running</div>
+                <div class="nowtask">
+                  <div class="sem-frame">
+                    <svg class="sem" width="150" height="100" viewBox="0 0 150 100" role="img" aria-label="live ion beam view">
+                      <rect width="150" height="100" filter="url(#semC)"/>
+                      <rect x="26" y="44" width="98" height="12" fill="#ccd0d6" opacity="0.3"/>
+                      <rect x="26" y="30" width="98" height="10" fill="none" stroke="#ff9800" stroke-width="1.1"/>
+                      <rect x="26" y="60" width="98" height="10" fill="none" stroke="#ff9800" stroke-width="1.1"/>
+                      <rect width="150" height="100" fill="url(#vig)"/>
+                    </svg>
+                    <span class="imlabel">ib · live</span>
+                  </div>
+                  <div class="info">
+                    <div class="tname2">Polishing — sunny-mole</div>
+                    <div class="tsub">milling stage 2 of 3 · 2.1 nA · supervised (agent)</div>
+                    <div class="bar"><i style="width:64%"></i></div>
+                    <div class="barmeta"><span>64%</span><span>04:10 remaining</span></div>
+                  </div>
+                </div>
+              </div>
+              <div class="panel">
+                <div class="ph">Lamellae</div>
+                <div class="lamgrid">
+                  <div class="lam">
+                    <div class="sem-frame"><svg class="sem" width="100%" height="56" viewBox="0 0 120 56" preserveAspectRatio="xMidYMid slice" role="img" aria-label="thumbnail"><rect width="120" height="56" filter="url(#semA)"/><rect x="22" y="24" width="76" height="8" fill="#ccd0d6" opacity="0.3"/><rect width="120" height="56" fill="url(#vig)"/></svg></div>
+                    <div class="nm">dapper-stoat</div>
+                    <span class="pill done"><span class="dot"></span>Polished</span>
+                    <div class="lasttask">Polishing · 23:48</div>
+                  </div>
+                  <div class="lam">
+                    <div class="sem-frame"><svg class="sem" width="100%" height="56" viewBox="0 0 120 56" preserveAspectRatio="xMidYMid slice" role="img" aria-label="thumbnail"><rect width="120" height="56" filter="url(#semB)"/><rect x="22" y="22" width="76" height="9" fill="#ccd0d6" opacity="0.28"/><rect width="120" height="56" fill="url(#vig)"/></svg></div>
+                    <div class="nm">brave-ibex</div>
+                    <span class="pill done"><span class="dot"></span>Polished</span>
+                    <div class="lasttask">Polishing · 01:36</div>
+                  </div>
+                  <div class="lam active">
+                    <div class="sem-frame"><svg class="sem" width="100%" height="56" viewBox="0 0 120 56" preserveAspectRatio="xMidYMid slice" role="img" aria-label="thumbnail"><rect width="120" height="56" filter="url(#semC)"/><rect x="22" y="23" width="76" height="8" fill="#d2d6dc" opacity="0.34"/><rect width="120" height="56" fill="url(#vig)"/></svg></div>
+                    <div class="nm">sunny-mole</div>
+                    <span class="pill run"><span class="dot"></span>Milling</span>
+                    <div class="lasttask">Polishing · now</div>
+                  </div>
+                  <div class="lam">
+                    <div class="sem-frame"><svg class="sem" width="100%" height="56" viewBox="0 0 120 56" preserveAspectRatio="xMidYMid slice" role="img" aria-label="thumbnail"><rect width="120" height="56" filter="url(#semA)"/><rect x="22" y="25" width="76" height="8" fill="#ccd0d6" opacity="0.26"/><rect width="120" height="56" fill="url(#vig)"/></svg></div>
+                    <div class="nm">yawning-hare</div>
+                    <span class="pill queued"><span class="dot"></span>Queued</span>
+                    <div class="lasttask">Undercut · 02:41</div>
+                  </div>
+                  <div class="lam">
+                    <div class="sem-frame"><svg class="sem" width="100%" height="56" viewBox="0 0 120 56" preserveAspectRatio="xMidYMid slice" role="img" aria-label="thumbnail, bright charged surface"><rect width="120" height="56" filter="url(#semB)"/><rect width="120" height="56" fill="#e8ecf2" opacity="0.2"/><rect width="120" height="56" fill="url(#vig)"/></svg></div>
+                    <div class="nm">limber-krill</div>
+                    <span class="pill waiting"><span class="dot"></span>Waiting</span>
+                    <div class="lasttask">escalated · 04:17</div>
+                  </div>
+                  <div class="lam">
+                    <div class="sem-frame"><svg class="sem" width="100%" height="56" viewBox="0 0 120 56" preserveAspectRatio="xMidYMid slice" role="img" aria-label="thumbnail"><rect width="120" height="56" filter="url(#semC)"/><rect x="22" y="24" width="76" height="7" fill="#ccd0d6" opacity="0.3"/><rect width="120" height="56" fill="url(#vig)"/></svg></div>
+                    <div class="nm">merry-vervet</div>
+                    <span class="pill failed"><span class="dot"></span>Failed</span>
+                    <div class="lasttask">Undercut · 01:12</div>
+                  </div>
+                  <div class="lam">
+                    <div class="sem-frame"><svg class="sem" width="100%" height="56" viewBox="0 0 120 56" preserveAspectRatio="xMidYMid slice" role="img" aria-label="thumbnail"><rect width="120" height="56" filter="url(#semA)"/><rect x="22" y="23" width="76" height="8" fill="#ccd0d6" opacity="0.29"/><rect width="120" height="56" fill="url(#vig)"/></svg></div>
+                    <div class="nm">calm-otter</div>
+                    <span class="pill queued"><span class="dot"></span>Queued</span>
+                    <div class="lasttask">Rough · 22:19</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="side">
+              <div class="panel">
+                <div class="ph">Events</div>
+                <div class="feed">
+                  <div class="ev warnev"><span class="t">04:17</span><span class="m"><b>Escalated</b> — confirm_detection · limber-krill → Slack #hydra-runs</span></div>
+                  <div class="ev okev"><span class="t">03:58</span><span class="m"><b>Approved</b> by agent — confirm_milling · sunny-mole (22 s)</span></div>
+                  <div class="ev"><span class="t">03:41</span><span class="m"><b>task_completed</b> · Undercut Milling · yawning-hare (12 m 04 s)</span></div>
+                  <div class="ev okev"><span class="t">02:41</span><span class="m"><b>Adjusted + approved</b> by agent — detection dx +0.34 µm · yawning-hare</span></div>
+                  <div class="ev"><span class="t">02:10</span><span class="m"><b>queue_move</b> · Polishing · merry-vervet → end (agent, v42)</span></div>
+                  <div class="ev errev"><span class="t">01:12</span><span class="m"><b>task_failed</b> · Undercut Milling · merry-vervet — alignment error</span></div>
+                  <div class="ev"><span class="t">00:47</span><span class="m"><b>task_completed</b> · Rough Milling · brave-ibex (18 m 22 s)</span></div>
+                  <div class="ev"><span class="t">23:05</span><span class="m"><b>workflow_started</b> · 18 items · supervision → agent</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="dashfoot">
+            <span class="chip">served by AutoLamella agent server</span>
+            <span class="chip">read scope</span>
+            <span class="chip mono">v0.6.0</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="page">
+    <p>One narrative runs through all four: <code>merry-vervet</code> fails Undercut Milling at 01:12, the agent re-queues its Polishing (v42), <code>limber-krill</code> gets escalated at 04:17 — each surface shows the same night from a different chair. Chat and supervision are Phase&nbsp;1–2 of the design doc; help is Phase&nbsp;1.5; the monitor is the Phase&nbsp;1 read scope with a page in front of it.</p>
+  </footer>
+</div>
