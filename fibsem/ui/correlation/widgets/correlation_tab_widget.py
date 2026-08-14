@@ -926,6 +926,27 @@ class _CoordinatesTab(QWidget):
                 for i in range(n):
                     cb.addItem(f"CH {i}")
 
+    def channel_selection(self) -> Tuple[str, str]:
+        """The currently selected (fiducial, POI) channel names.
+
+        Empty strings before any FM image has populated the combos.
+        """
+        return self._fm_fid_ch_combo.currentText(), self._fm_poi_ch_combo.currentText()
+
+    def set_channel_selection(
+        self, fiducial: Optional[str], poi: Optional[str]
+    ) -> None:
+        """Select channels by name, ignoring names the current image lacks.
+
+        ``setCurrentText`` no-ops on a non-editable combo when the name is absent,
+        so a channel that does not survive an image change leaves its combo on the
+        first entry rather than clearing it.
+        """
+        if fiducial:
+            self._fm_fid_ch_combo.setCurrentText(fiducial)
+        if poi:
+            self._fm_poi_ch_combo.setCurrentText(poi)
+
 
 # ---------------------------------------------------------------------------
 # Tab 2 — Results
@@ -2023,9 +2044,24 @@ class CorrelationTabWidget(QWidget):
                 spec.list_widget.set_axis_maxima(
                     x_max=w - 1, y_max=h - 1, z_max=n_z - 1
                 )
+        # The rebuild clears the channel combos, so a selection has to be put back
+        # afterwards — but which one depends on whether there was one. On first
+        # load the combos were empty (the config's channel-by-name choice no-ops
+        # earlier, before any channels exist), so the config supplies it here. On
+        # a later image the user's current choice is the one to keep: re-applying
+        # the config would discard it silently, which is what made a plain
+        # z-interpolation reset the fit settings (FIB-636).
+        #
+        # Only the channel combos are rebuilt. The method combos are populated
+        # from _FIT_METHODS at construction and are untouched by an image change,
+        # so nothing here may write to them.
+        previous_fid, previous_poi = self._coords_tab.channel_selection()
         self._coords_tab.rebuild_channel_combos(fm_image)
-        # Channels now exist — re-apply the config's channel-by-name selection.
-        self._apply_fit_config()
+        configured = self._correlation_config.fit
+        self._coords_tab.set_channel_selection(
+            previous_fid or configured.fm_fiducial_channel,
+            previous_poi or configured.fm_poi_channel,
+        )
         self._seed_ri_from_fm_metadata(fm_image)
         self._images_tab.set_fm_image(fm_image)
         # As for the FIB image: a new volume invalidates the result and changes
