@@ -73,23 +73,6 @@ IMAGE_HEADER_STYLE = (
     f"background: {CANVAS_BG}; border-bottom: 1px solid #3a3d42;"
 )
 
-# A small plaque drawn *over* a canvas -- the cursor position readout on both overview
-# tabs. Dark and translucent rather than the app's panel styling, because it sits on
-# data and must not read as chrome; monospace so the digits do not shuffle the label
-# sideways on every pixel of pointer travel.
-#
-# Here because it was written out twice, byte for byte, once per overview tab. Two
-# copies of a style that has to match is the same failure as two copies of a colour.
-#
-# #e8e8e8 keeps its literal rather than becoming NEUTRAL_200 (#e0e0e0): they are
-# different colours, and as with IMAGE_HEADER_STYLE above, a move is not the place to
-# change one.
-CANVAS_READOUT_STYLE = (
-    "color: #e8e8e8; font-size: 10px; font-family: monospace;"
-    "background: rgba(26, 26, 26, 160); border-radius: 3px; padding: 2px 5px;"
-)
-
-
 PROGRESS_BAR_STYLESHEET = f"""
             QProgressBar {{
                 border: 1px solid {BORDER_COLOR};
