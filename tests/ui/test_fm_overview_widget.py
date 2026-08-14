@@ -35,7 +35,7 @@ from fibsem.ui.fm.widgets.fm_overview_widget import (
     FMOverviewWidget,
     shrink_progress_text,
 )
-from fibsem.ui.fm.widgets.tile_mask_widget import TileMaskWidget
+from fibsem.ui.widgets.tile_mask_widget import TileMaskWidget
 from fibsem.ui.widgets.custom_widgets import ValueComboBox
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 

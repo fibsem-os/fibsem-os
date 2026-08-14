@@ -34,7 +34,11 @@ from fibsem.fm.structures import (
 )
 from fibsem.structures import TileOrderStrategy
 from fibsem.ui.fm.widgets.autofocus_widget import AutofocusWidget
-from fibsem.ui.fm.widgets.tile_mask_widget import TileMaskWidget
+from fibsem.ui.widgets.overview_grid_settings_widget import (
+    TILE_ORDER_LABELS,
+    TILE_ORDER_TOOLTIPS,
+)
+from fibsem.ui.widgets.tile_mask_widget import TileMaskWidget
 from fibsem.ui.fm.widgets.z_parameters_widget import ZParametersWidget
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox
@@ -75,20 +79,6 @@ AUTOFOCUS_LABELS = {
     AutoFocusMode.ONCE: "Once, at the start",
     AutoFocusMode.EACH_ROW: "On each new row",
     AutoFocusMode.EACH_TILE: "On every tile",
-}
-
-TILE_ORDER_LABELS = {
-    TileOrderStrategy.TYPEWRITER: "Typewriter",
-    TileOrderStrategy.SERPENTINE: "Serpentine",
-    TileOrderStrategy.SPIRAL: "Spiral",
-}
-
-TILE_ORDER_TOOLTIPS = {
-    TileOrderStrategy.TYPEWRITER: "Every row runs left to right.",
-    TileOrderStrategy.SERPENTINE: "Rows alternate direction, so the stage does not "
-                                  "travel back across the grid between them.",
-    TileOrderStrategy.SPIRAL: "Outward from the centre tile, so the tiles nearest "
-                              "the starting position are acquired first.",
 }
 
 SPINBOX_MIN_WIDTH = 92
