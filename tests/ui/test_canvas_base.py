@@ -232,6 +232,32 @@ class TestTheTopLabelsClearTheToolbarRow:
         top = c.height() - bb.y1
         assert top >= c._live_badge.geometry().y() + c._live_badge.height()
 
+    @pytest.mark.parametrize("device_ratio", [1, 2], ids=["standard", "retina"])
+    def test_the_inset_is_logical_pixels_whatever_the_device_ratio(self, device_ratio):
+        """The bug the first fix shipped with, and the one this suite could not see.
+
+        matplotlib keeps `figure.bbox` in **device** pixels, so on a Retina display it is
+        twice the widget's logical height. The toolbar row the labels must clear is laid
+        out by Qt in *logical* pixels, so dividing a logical inset by a device height
+        halved it and put them back inside the row — on exactly the machines with a
+        Retina screen, which is every Mac and no CI runner.
+
+        Simulated by sizing the figure at `device_ratio` times the widget, which is what
+        the Qt backend does. Offscreen the real ratio is always 1, so the situation
+        cannot be reached any other way.
+        """
+        c = FibsemImageCanvas()
+        dpi = c.figure.dpi
+        c.resize(460, 380)
+        c.figure.set_size_inches(460 * device_ratio / dpi, 380 * device_ratio / dpi)
+
+        inset_logical = (1.0 - c._top_chrome_y()) * c.height()
+
+        assert inset_logical == pytest.approx(30.0), (
+            f"inset came out {inset_logical:.1f} logical px at device ratio "
+            f"{device_ratio}; the toolbar row it must clear is 26"
+        )
+
     def test_shrinking_the_canvas_keeps_it_clear(self):
         """The inset is a pixel count, so its figure fraction has to be recomputed when
         the figure changes size or it drifts back across the toolbar row.

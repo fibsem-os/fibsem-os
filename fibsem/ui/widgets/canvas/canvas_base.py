@@ -438,8 +438,16 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         of canvas width, and the FM pane in a 2x2 grid is narrower than that.
 
         Recomputed on resize (see `resizeEvent`), since the inset is a pixel count.
+
+        Against the *widget's* height, not `figure.bbox.height`. matplotlib keeps the
+        figure bbox in **device** pixels, so on a Retina display it is twice the logical
+        height -- and the toolbar row this has to clear is `_OVERLAY_MARGIN` plus
+        `_OVERLAY_BTN_SIZE`, which Qt lays out in *logical* pixels. Dividing a logical
+        inset by a device height halved it, and the labels landed back inside the row on
+        exactly the machines that have a Retina screen. Both sides of the division are
+        logical now.
         """
-        height = max(float(self.figure.bbox.height), 1.0)
+        height = max(float(self.height()), 1.0)
         return 1.0 - (_TOP_CHROME_INSET + extra_px) / height
 
     def _refresh_title(self) -> None:
