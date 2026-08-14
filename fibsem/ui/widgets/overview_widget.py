@@ -450,6 +450,10 @@ class FibsemOverviewWidget(QWidget):
         # stage. None means "wherever the stage is", which is also what the runner
         # falls back to -- so the drawn grid and the acquisition agree by default.
         self._target: Optional[FibsemStagePosition] = None
+        # What the run under way is centred on, and None between runs. Its own field
+        # rather than a read of `_target`: a run started without one is centred on
+        # wherever the stage was when it began, which the stage stops being one tile in.
+        self._run_centre: Optional[FibsemStagePosition] = None
         self._positions: List[FibsemStagePosition] = []
         self._selected_position: Optional[str] = None
         # Positions a host has flagged, by name. What "flagged" means is the host's
@@ -1138,7 +1142,7 @@ class FibsemOverviewWidget(QWidget):
             return None
         return StageFrame(self.canvas, origin, projection)
 
-    def _set_origin_from(self, image: FibsemImage, view: "OverviewView") -> None:
+    def _set_origin_from(self, image: FibsemImage, view: "OverviewView") -> bool:
         """Anchor a view on the first image placed in it, if it is not anchored yet.
 
         A *provisional* anchor -- one `_seed_frame` invented so the tab could draw
@@ -1146,14 +1150,18 @@ class FibsemOverviewWidget(QWidget):
         in the view at that point, so re-anchoring moves nothing; it just stops the
         canvas being centred on wherever the stage happened to be when the tab opened,
         which can be millimetres from the data.
+
+        Returns whether it re-anchored, because that moves every overlay drawn in the
+        view: the origin is what a stage position is measured *from*.
         """
         if view in self._origins and view not in self._provisional:
-            return
+            return False
         position = self._position_of(image)
         if position is None:
-            return
+            return False
         self._origins[view] = deepcopy(position)
         self._provisional.discard(view)
+        return True
 
     # ── views ────────────────────────────────────────────────────────────
 
@@ -1288,18 +1296,28 @@ class FibsemOverviewWidget(QWidget):
         elif view != self._current_view:
             self.show_view(view)
 
-        self._set_origin_from(image, view)
+        reframed = self._set_origin_from(image, view)
         # The canvas needs a scale before a frame can exist, and the frame is what turns
         # a stage position into an offset. Usually seeded from the settings before any
         # image arrives (`_seed_frame`); this is the fallback for a widget that has been
         # handed an image without ever drawing. Which pixel size wins does not matter
         # beyond the units: `add_image` scales each image by its own against this one.
         if self.canvas.reference_pixel_size is None:
-            self.canvas.set_reference_pixel_size(pixel_size)
+            reframed |= self.canvas.set_reference_pixel_size(pixel_size)
 
-        return self._place_on_canvas(
+        placed = self._place_on_canvas(
             self._stored_tile(image), view, key=key, zorder=zorder
         )
+        # Only when the *frame* moved, which is the origin or the scale and nothing else.
+        # An image is drawn in the frame; it does not decide it, so a placement that
+        # leaves both alone changes nothing any overlay is derived from -- and every
+        # placement after the first is one of those, including every frame of a run's
+        # live preview. Refreshing on each of them re-anchored the planned tileset at
+        # wherever the stage had reached, so the plan walked the grid alongside the
+        # acquisition (FIB-647).
+        if reframed:
+            self._refresh_context_overlays()
+        return placed
 
     # ── contrast and gamma ────────────────────────────────────────────────
 
@@ -1343,7 +1361,12 @@ class FibsemOverviewWidget(QWidget):
         self, tile: "_PlacedTile", view: "OverviewView",
         key: Optional[str] = None, zorder: Optional[float] = None,
     ) -> Optional[str]:
-        """Draw a stored tile in *view*. Shared by first placement and re-placement."""
+        """Draw a stored tile in *view*. Shared by first placement and re-placement.
+
+        Draws, and nothing else. The overlays are the caller's business: `place_image`
+        refreshes them when the placement moved the frame, and `show_view` once at the
+        end rather than once per re-placed image.
+        """
         frame = self._frame(view)
         if frame is None:
             return None
@@ -1361,7 +1384,6 @@ class FibsemOverviewWidget(QWidget):
             # placed image without walking the records -- which would miss the
             # acquisition preview, the one thing on the canvas that has no record.
             self._tiles[placed] = tile
-        self._refresh_context_overlays()
         return placed
 
     def set_image(self, image: FibsemImage) -> Optional[str]:
@@ -1565,7 +1587,15 @@ class FibsemOverviewWidget(QWidget):
         A target if the grid has been dragged somewhere, otherwise wherever the stage
         is -- which is what the runner falls back to, so the drawn grid and the
         acquisition agree without either being told about the other.
+
+        A run in progress owns the answer, because during one "wherever the stage is"
+        stops being the same question: the stage is at whichever tile it has reached,
+        so the plan would describe the tile being acquired rather than the run doing
+        the acquiring. The centre the run was started with is the one thing that is
+        true for the whole of it (FIB-647).
         """
+        if self._run_centre is not None:
+            return self._run_centre
         return self._target or self._stage_position
 
     def _declare_working_area(self, frame: StageFrame) -> None:
@@ -1982,8 +2012,15 @@ class FibsemOverviewWidget(QWidget):
         # Not during a run: the stage visits every tile, and re-drawing the planned
         # footprint at each one would drag it across the canvas as the acquisition
         # walked the grid.
+        #
+        # The two things that describe *where the stage is* still keep up, because they
+        # are not the plan: the marker, and the readout under it. The readout is here
+        # rather than left out because placing an image used to refresh it as a side
+        # effect, so it tracked a run tile by tile -- and it should go on doing that now
+        # that placing an image refreshes nothing.
         if self._running:
             self._refresh_position_markers()
+            self._refresh_stage_info()
             return
         # A re-pose changes which view the next run lands in, and the canvas follows it
         # the same way it follows a change of beam.
@@ -2296,6 +2333,11 @@ class FibsemOverviewWidget(QWidget):
         self._refresh_overview_list()
 
         self._stop_event.clear()
+        # What the canvas draws the plan around until the run is over. The same centre
+        # the runner will use: a target if there is one, and otherwise where the stage
+        # is now -- which is what the runner reads for itself when handed None, and is
+        # the last moment the two agree, since the run moves the stage immediately.
+        self._run_centre = deepcopy(self._target or self._stage_position)
         self._set_running(True)
         # Copied with the settings: the target can be dragged again while the run is
         # under way, and the run has to keep the grid it was started with.
@@ -2375,6 +2417,16 @@ class FibsemOverviewWidget(QWidget):
         self._running = running
         self._apply_enabled_state()
         if running:
+            # The framing you pressed Acquire with is the framing you keep. A run is the
+            # worst moment to re-frame: the preview lands under one key and the stitch
+            # replaces it under another, so the canvas held still for the whole
+            # acquisition and then lurched twice at the end, when there was finally
+            # something worth looking at (FIB-648).
+            #
+            # Not restored afterwards. There is content on the canvas now, and the
+            # framing belongs to whoever last set it; "reset view" is how you ask for
+            # it back.
+            self.canvas.auto_fit = False
             self._tiles_acquired = 0
             # Cleared rather than set to "Starting…": the progress bar carries the
             # message for the whole run, and a label saying "Starting…" underneath one
@@ -2408,6 +2460,9 @@ class FibsemOverviewWidget(QWidget):
                 self._place_finished_mosaic(self._mosaic)
             else:
                 self._drop_unfinished_run()
+        # Handed back before the redraw below, so the plan goes back to describing the
+        # *next* run rather than the one that has just ended.
+        self._run_centre = None
         # The stage went home at the end of the run, so the planned footprint moved.
         self._refresh_context_overlays()
 

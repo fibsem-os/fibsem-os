@@ -960,6 +960,39 @@ def test_declaring_a_working_area_without_a_refit_does_not_move_the_view(qapp, o
     assert (tuple(ax.get_xlim()), tuple(ax.get_ylim())) != zoomed
 
 
+def test_a_run_hands_the_camera_over(qapp):
+    """The framing you pressed Acquire with is the framing you keep (FIB-648).
+
+    This tab meets the problem less often than the beam one -- one composite under one
+    key while the run goes, rather than a preview whose extent grows -- but it ends the
+    same way: `_finish` places the stitch and removes the preview, two extent changes at
+    the moment there is finally something worth looking at. The rule is the canvas's,
+    so it is the same rule on both tabs.
+
+    Its own widget: it leaves an image on the canvas and the camera handed over, which
+    is exactly the state the module fixture shares.
+    """
+    widget = _fresh_widget(qapp)
+    canvas = widget.canvas.canvas
+    ax = canvas._ax
+    ax.set_xlim(-100, 100)
+    ax.set_ylim(100, -100)
+    framing = (tuple(ax.get_xlim()), tuple(ax.get_ylim()))
+
+    widget._set_running(True)
+    qapp.processEvents()
+    assert canvas.auto_fit is False
+
+    # Somewhere well outside the framing, which is what an end-of-run swap can be.
+    canvas.add_image(np.zeros((64, 64), dtype=np.uint8), centre=(2e-3, 2e-3),
+                     pixel_size=1e-6, key="stitch")
+    qapp.processEvents()
+
+    assert (tuple(ax.get_xlim()), tuple(ax.get_ylim())) == framing
+    widget._set_running(False)
+    widget.close()
+
+
 def test_the_grid_keeps_its_scale_under_a_decimated_preview(qapp, overview_widget):
     """The live preview is coarser than a tile. The grid is drawn in canvas coordinates,
     whose scale is fixed by the canvas reference — so the preview's stride must not
