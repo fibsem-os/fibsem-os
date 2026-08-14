@@ -1087,11 +1087,13 @@ class _RITab(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._poi: List[CorrelationPointOfInterest] = []
-        self._surface_coordinate: Optional[Coordinate] = None
-        self._surface_y: Optional[float] = None
-        self._fm_surface_coordinate: Optional[Coordinate] = None
-        self._input_poi: List[Coordinate] = []
-        self._input_pre_factor: Optional[float] = None
+        # The input snapshot this tab describes, held whole. Everything it needs
+        # from the inputs is a property below rather than a field copied here,
+        # so there is no set of parallel values to keep in step (FIB-645).
+        # Safe to hold: the parent's `data` property builds a fresh
+        # CorrelationInputData per access, so this is never a live object
+        # someone else mutates.
+        self._input_data: Optional[CorrelationInputData] = None
         self._fm_pixel_size_z: Optional[float] = None
         self._result: Optional[CorrelationResult] = None
         # Last factor mirrored into the spinbox; mirroring only on change keeps
@@ -1197,6 +1199,37 @@ class _RITab(QWidget):
         # first data change — and the tab is reachable before that now.
         self._refresh_apply_enabled()
 
+    # ------------------------------------------------------------------
+    # Views of the input snapshot. Read-only by construction: set_result
+    # replaces _input_data wholesale, so none of these can drift from it.
+    # ------------------------------------------------------------------
+
+    @property
+    def _surface_coordinate(self) -> Optional[Coordinate]:
+        """The FIB surface point (post mode), or None."""
+        return self._input_data.surface_coordinate if self._input_data else None
+
+    @property
+    def _surface_y(self) -> Optional[float]:
+        """Depth datum for post mode: the FIB surface y, in image px."""
+        surface = self._surface_coordinate
+        return surface.point.y if surface else None
+
+    @property
+    def _fm_surface_coordinate(self) -> Optional[Coordinate]:
+        """The FM surface point (pre mode), or None."""
+        return self._input_data.fm_surface_coordinate if self._input_data else None
+
+    @property
+    def _input_poi(self) -> List[Coordinate]:
+        """The POIs as picked, in FM space — what pre mode corrects."""
+        return self._input_data.poi_coordinates if self._input_data else []
+
+    @property
+    def _input_pre_factor(self) -> Optional[float]:
+        """The armed pre-correction factor: what a run would actually use."""
+        return self._input_data.ri_pre_correction_factor if self._input_data else None
+
     @property
     def mode(self) -> Optional[str]:
         """'pre' when an FM surface exists, 'post' for a FIB surface, else None."""
@@ -1214,16 +1247,7 @@ class _RITab(QWidget):
     ) -> None:
         self._result = result
         self._poi = result.poi if result else []
-        surface = input_data.surface_coordinate if input_data else None
-        self._surface_coordinate = surface
-        self._surface_y = surface.point.y if surface else None
-        self._fm_surface_coordinate = (
-            input_data.fm_surface_coordinate if input_data else None
-        )
-        self._input_poi = list(input_data.poi_coordinates) if input_data else []
-        self._input_pre_factor = (
-            input_data.ri_pre_correction_factor if input_data else None
-        )
+        self._input_data = input_data
         self._fm_pixel_size_z = fm_pixel_size_z
 
         mode = self.mode
