@@ -2257,3 +2257,109 @@ class TestTwoRunsCannotLandOnEachOther:
         was noticed."""
         name = self._capture(widget, monkeypatch, tmp_path)
         assert [r.label for r in widget._records.values()] == [name]
+
+
+class TestContrastActsOnEveryOverview:
+    """The beam tab had no contrast control at all: what you saw was whatever the auto
+    stretch decided. The canvas has one (`btn_contrast`), but it stays hidden on a
+    real-space canvas because the machinery behind it adjusts `imgs[0]` -- meaningful
+    when a canvas holds one image, arbitrary when it holds an overview per key.
+
+    So the widget owns it, the way the fluorescence tab owns its layers popover, and it
+    acts canvas-wide: a mosaic should render uniformly, and per-image contrast would
+    emphasise the seams rather than hide them (FIB-415).
+    """
+
+    def _place(self, widget, microscope, key=None, rows=None):
+        image = _tile(microscope, _at(microscope.get_stage_position()), shape=(96, 96))
+        data = np.zeros((96, 96), dtype=np.uint8)
+        rng = np.random.default_rng(8)
+        filled = rows if rows is not None else 96
+        data[:filled] = (rng.random((filled, 96)) * 110 + 90).astype(np.uint8)
+        image.data = data
+        return widget.place_image(image, key=key)
+
+    @staticmethod
+    def _drawn(widget, key):
+        return np.asarray(widget.canvas._placed[key].artist.get_array())
+
+    def _narrow(self, widget):
+        """A window well inside the data, so the stretch has something to do."""
+        control = widget.contrast_control
+        control._min, control._max, control._gamma = 0.3, 0.7, 1.0
+        control.changed.emit()
+
+    def test_narrowing_the_window_increases_contrast(self, widget, microscope):
+        key = self._place(widget, microscope)
+        before = self._drawn(widget, key)[..., 0].astype(float).std()
+        self._narrow(widget)
+        after = self._drawn(widget, key)[..., 0].astype(float).std()
+        assert after > before * 1.2, f"contrast did nothing: {before:.1f} -> {after:.1f}"
+
+    def test_contrast_cannot_change_what_was_acquired(self, widget, microscope):
+        """The invariant. Alpha is coverage, not brightness: run the same curve over it
+        and a region fades out as the maximum comes down, or unacquired ground appears
+        as it goes up. Either is the display inventing data."""
+        key = self._place(widget, microscope, rows=32)
+        before = self._drawn(widget, key)[..., 3].copy()
+        self._narrow(widget)
+        after = self._drawn(widget, key)[..., 3]
+        assert np.array_equal(before, after), "contrast moved the coverage mask"
+
+    def test_adjusting_twice_adjusts_the_original_twice(self, widget, microscope):
+        """Not the adjusted one. If the contrasted array were written back over the
+        stored tile, every slider move would compound on the last and the picture would
+        run away to black or white."""
+        key = self._place(widget, microscope)
+        self._narrow(widget)
+        once = self._drawn(widget, key).copy()
+        widget.contrast_control.changed.emit()
+        assert np.array_equal(once, self._drawn(widget, key))
+
+    def test_reset_puts_it_back_exactly(self, widget, microscope):
+        key = self._place(widget, microscope)
+        original = self._drawn(widget, key).copy()
+        self._narrow(widget)
+        assert not np.array_equal(original, self._drawn(widget, key))
+        widget.contrast_control.reset()
+        assert np.array_equal(original, self._drawn(widget, key))
+
+    def test_it_reaches_the_acquisition_preview_too(self, widget, microscope):
+        """The preview is the one thing on the canvas with no record behind it, so a
+        contrast pass that walked the records would leave a run in progress rendering
+        differently from everything around it."""
+        from fibsem.ui.widgets.overview_widget import PREVIEW_KEY
+
+        self._place(widget, microscope)
+        self._place(widget, microscope, key=PREVIEW_KEY)
+        before = self._drawn(widget, PREVIEW_KEY)[..., 0].astype(float).std()
+        self._narrow(widget)
+        after = self._drawn(widget, PREVIEW_KEY)[..., 0].astype(float).std()
+        assert after > before * 1.2, "the preview kept the old contrast"
+
+    def test_adjusting_does_not_reorder_the_canvas(self, widget, microscope):
+        """`update_image`, not a re-add: re-adding under the same key destroys and
+        recreates the artist, which moves it to the top of the draw order -- so turning
+        a slider would silently bring one overview out from under another."""
+        key = self._place(widget, microscope)
+        artist = widget.canvas._placed[key].artist
+        self._narrow(widget)
+        assert widget.canvas._placed[key].artist is artist
+
+    def test_the_canvas_own_contrast_button_stays_hidden(self, widget):
+        """Two contrast buttons, one of which adjusts an arbitrary image, is worse than
+        one. The fluorescence tab hides it for the same reason."""
+        assert widget.canvas.btn_contrast.isHidden()
+        assert not widget.btn_contrast.isHidden()
+
+    def test_the_button_opens_the_popover(self, widget):
+        """`isHidden`, not `isVisible`: the fixture widget is never shown, so every
+        descendant is invisible whatever it was told to do, and the assertion would
+        pass without the popover ever having been opened."""
+        assert widget.contrast_control.isHidden()
+        widget.btn_contrast.setChecked(True)
+        widget._toggle_contrast()
+        assert not widget.contrast_control.isHidden()
+        widget.btn_contrast.setChecked(False)
+        widget._toggle_contrast()
+        assert widget.contrast_control.isHidden()

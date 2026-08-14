@@ -85,6 +85,7 @@ from fibsem.ui.tokens import (
     SLOT_COLOUR,
     STAGE_LIMITS_COLOUR,
 )
+from fibsem.ui.widgets.canvas.contrast_gamma_control import ContrastGammaControl
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
     GRID_BOUNDARY_RADIUS_M,
     MinimapShapesOverlay,
@@ -422,6 +423,10 @@ class FibsemOverviewWidget(QWidget):
         self._worker: Optional[FunctionWorker] = None
         self._records: Dict[str, OverviewRecord] = {}
         self._record_count = 0
+        # Canvas key -> the *base* tile behind it, the auto-stretched one. Contrast is
+        # applied on the way to the canvas and never written back here, so moving a
+        # slider twice adjusts the original twice rather than compounding.
+        self._tiles: Dict[str, "_PlacedTile"] = {}
         # Stage position the canvas frame is built around. Fixed once and kept:
         # re-deriving it from whatever arrived last would shift the whole scene each
         # time a tile landed. Taken from the first image placed.
@@ -490,6 +495,23 @@ class FibsemOverviewWidget(QWidget):
         self.canvas.canvas_clicked.connect(self._on_canvas_clicked)
         self.canvas.canvas_double_clicked.connect(self._on_canvas_double_clicked)
         self.canvas.canvas_right_clicked.connect(self._on_canvas_right_clicked)
+
+        # Contrast and gamma, owned here rather than by the canvas. The canvas has its
+        # own `btn_contrast`, and it stays hidden on a real-space canvas because the
+        # machinery behind it acts on `imgs[0]` -- meaningful when a canvas holds one
+        # image, arbitrary when it holds an overview per key. The fluorescence tab hides
+        # it for the sibling reason and drives its own layers popover; this is that,
+        # with one grayscale layer instead of several channels.
+        #
+        # Canvas-wide, not per image: an overview is a mosaic, and per-image contrast
+        # would emphasise the seams rather than hide them. Selecting one image to adjust
+        # is the later half of FIB-415, and needs a selection the canvas has not got.
+        self.btn_contrast = self.canvas.add_toolbar_button(
+            "mdi:contrast-circle", "Contrast and gamma",
+            self._toggle_contrast, checkable=True,
+        )
+        self.contrast_control = ContrastGammaControl(self.canvas)
+        self.contrast_control.changed.connect(self._reapply_contrast)
 
         # The grid's bars, where they should be. Off by default: it is a reference you
         # turn on to check the overview against, not something to read the sample
@@ -1206,6 +1228,8 @@ class FibsemOverviewWidget(QWidget):
             return False
         self._current_view = view
         self.canvas.clear_images()
+        # Re-placement mints new keys, so the old ones describe nothing.
+        self._tiles.clear()
         for record in self._records.values():
             record.keys = []
             if record.view != view:
@@ -1277,6 +1301,44 @@ class FibsemOverviewWidget(QWidget):
             self._stored_tile(image), view, key=key, zorder=zorder
         )
 
+    # ── contrast and gamma ────────────────────────────────────────────────
+
+    def _toggle_contrast(self) -> None:
+        """Show or hide the floating contrast popover, anchored under its button."""
+        self.contrast_control.set_open(self.btn_contrast.isChecked(), self.btn_contrast)
+
+    def _for_display(self, tile: "_PlacedTile") -> np.ndarray:
+        """A placed tile with the user's contrast applied, or the tile itself.
+
+        The stored array is colour plus coverage, where the colour channels hold the
+        auto-stretched grayscale (`_as_colour_and_coverage`). So the picture to adjust is
+        already there, in any one of them, normalised to 0..1 -- which is exactly what
+        `ContrastGammaControl.apply` takes.
+
+        **Alpha is not touched.** Contrast says how bright what was acquired should look;
+        it must not decide what *was* acquired. Passing the alpha through the same curve
+        would make a region fade out as the maximum came down, and unacquired ground
+        appear as it went up.
+        """
+        base = tile.data
+        if self.contrast_control.is_default():
+            return base
+        norm = base[..., 0].astype(np.float32) / 255.0
+        adjusted = np.clip(self.contrast_control.apply(norm), 0.0, 1.0)
+        shown = base.copy()
+        shown[..., :3] = (adjusted * 255.0).astype(np.uint8)[..., None]
+        return shown
+
+    def _reapply_contrast(self) -> None:
+        """Redraw every placed image through the current contrast.
+
+        `update_image` rather than re-placing: re-adding under the same key destroys and
+        recreates the artist, which moves it to the top of the draw order -- so adjusting
+        contrast would silently reorder overlapping overviews.
+        """
+        for key, tile in self._tiles.items():
+            self.canvas.update_image(key, self._for_display(tile))
+
     def _place_on_canvas(
         self, tile: "_PlacedTile", view: "OverviewView",
         key: Optional[str] = None, zorder: Optional[float] = None,
@@ -1291,9 +1353,14 @@ class FibsemOverviewWidget(QWidget):
             logger.debug(f"Could not place an image: {e}")
             return None
         placed = self.canvas.add_image(
-            tile.data, centre=centre, pixel_size=tile.pixel_size,
+            self._for_display(tile), centre=centre, pixel_size=tile.pixel_size,
             key=key, zorder=zorder, covers=tile.covers,
         )
+        if placed is not None:
+            # Keyed by what the canvas is holding, so a contrast change can reach every
+            # placed image without walking the records -- which would miss the
+            # acquisition preview, the one thing on the canvas that has no record.
+            self._tiles[placed] = tile
         self._refresh_context_overlays()
         return placed
 
@@ -1377,6 +1444,7 @@ class FibsemOverviewWidget(QWidget):
 
     def _clear_preview(self) -> None:
         self.canvas.remove_image(PREVIEW_KEY)
+        self._tiles.pop(PREVIEW_KEY, None)
 
     def _place_finished_mosaic(self, mosaic: FibsemImage) -> None:
         """Swap the preview for the stitched overview the run actually produced."""
@@ -1417,6 +1485,7 @@ class FibsemOverviewWidget(QWidget):
             return False
         for key in record.keys:
             self.canvas.remove_image(key)
+            self._tiles.pop(key, None)
         self._refresh_context_overlays()
         self._refresh_overview_list()
         return True
