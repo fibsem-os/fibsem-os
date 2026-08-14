@@ -4,16 +4,16 @@ House style: a meta line, count chips, a detail block, a duration broken down by
 it goes, and a primary action in the footer. Each fact appears once — the window title
 is the heading, the Channels row is the channel count, and the skipped chip is what
 "sparse" would have said.
+
+The style itself now lives in `fibsem.ui.widgets.preflight`, lifted out when the third
+dialog in this shape appeared — as the second one's docstring said to do.
 """
 
 from typing import List, Optional
 
-from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QDialog,
-    QFrame,
     QHBoxLayout,
-    QLabel,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -31,40 +31,13 @@ from fibsem.fm.structures import (
 from fibsem.fm.timing import estimate_tileset_acquisition_time
 from fibsem.structures import TileOrderStrategy
 from fibsem.ui import stylesheets
-
-BACKGROUND = stylesheets.SURFACE_COLOR
-PANEL = stylesheets.PANEL_COLOR
-BORDER = stylesheets.BORDER_COLOR
-TEXT = stylesheets.TEXT_COLOR
-TEXT_STRONG = stylesheets.TEXT_STRONG_COLOR
-TEXT_MUTED = stylesheets.TEXT_MUTED_COLOR
-
-def format_duration(seconds: float) -> str:
-    """`2m 14s`, `1h 03m`, `45s` — whichever reads best at that magnitude."""
-    seconds = int(round(seconds))
-    if seconds < 60:
-        return f"{seconds}s"
-    if seconds < 3600:
-        return f"{seconds // 60}m {seconds % 60:02d}s"
-    return f"{seconds // 3600}h {(seconds % 3600) // 60:02d}m"
-
-
-def _chip(text: str) -> QWidget:
-    """Plain pill label. No status dot: these are counts, not states, and a colour
-    that does not encode anything reads as though it does."""
-    chip = QFrame()
-    chip.setStyleSheet(
-        f"QFrame {{ background: {PANEL}; border: 1px solid {BORDER};"
-        f" border-radius: 10px; }}"
-    )
-    layout = QHBoxLayout(chip)
-    layout.setContentsMargins(10, 3, 10, 3)
-    layout.setSpacing(0)
-
-    label = QLabel(text)
-    label.setStyleSheet(f"color: {TEXT}; font-size: 11px; border: none;")
-    layout.addWidget(label)
-    return chip
+from fibsem.ui.widgets.preflight import (
+    BACKGROUND,
+    chip,
+    detail_block,
+    format_duration,
+    meta_label,
+)
 
 
 class FMOverviewConfirmationDialog(QDialog):
@@ -217,40 +190,18 @@ class FMOverviewConfirmationDialog(QDialog):
         # No in-dialog heading: the window title already says "Start Overview
         # Acquisition", and repeating it 8px below costs a line and says nothing. The
         # meta line leads instead, so it carries normal text weight rather than muted.
-        meta = QLabel(self._meta_line())
-        meta.setStyleSheet(f"color: {TEXT_STRONG}; font-size: 12px;")
-        meta.setWordWrap(True)
+        meta = meta_label(self._meta_line())
 
         # Tile counts only. The channel count was a third chip, but the Channels row
         # below lists them by name -- the chip added a number, not information.
         chips = QHBoxLayout()
         chips.setSpacing(6)
-        chips.addWidget(_chip(f"{acquired} to acquire"))
+        chips.addWidget(chip(f"{acquired} to acquire"))
         if acquired != total:
-            chips.addWidget(_chip(f"{total - acquired} skipped"))
+            chips.addWidget(chip(f"{total - acquired} skipped"))
         chips.addStretch()
 
-        detail = QFrame()
-        detail.setStyleSheet(
-            f"QFrame {{ background: {PANEL}; border: 1px solid {BORDER};"
-            f" border-radius: 4px; }}"
-        )
-        detail_layout = QVBoxLayout(detail)
-        detail_layout.setContentsMargins(12, 10, 12, 10)
-        detail_layout.setSpacing(6)
-        for label_text, value_text in self._rows():
-            row = QHBoxLayout()
-            row.setSpacing(12)
-            label = QLabel(label_text)
-            label.setStyleSheet(
-                f"color: {TEXT_MUTED}; font-size: 11px; border: none;")
-            label.setFixedWidth(96)
-            value = QLabel(value_text)
-            value.setStyleSheet(f"color: {TEXT}; font-size: 11px; border: none;")
-            value.setWordWrap(True)
-            row.addWidget(label, alignment=Qt.AlignTop)
-            row.addWidget(value, stretch=1)
-            detail_layout.addLayout(row)
+        detail = detail_block(self._rows())
 
         self.button_start = QPushButton("Start Acquisition")
         self.button_start.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
