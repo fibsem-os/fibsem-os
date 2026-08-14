@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import numpy as np
+from matplotlib.backend_bases import MouseEvent
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from PyQt5.QtCore import QSize, QTimer, Qt, pyqtSignal
@@ -124,6 +125,10 @@ _OVERLAY_ICON_SIZE = QSize(14, 14)
 _OVERLAY_BTN_SIZE = 22
 _OVERLAY_MARGIN = 4
 _OVERLAY_GAP = 2
+# How far below the widget's top edge the canvas's top labels (hint, title, flash) start:
+# clear of the toolbar row, which is `_OVERLAY_MARGIN` above buttons `_OVERLAY_BTN_SIZE`
+# tall, plus a gap. In *pixels*, because what they have to miss is measured in pixels.
+_TOP_CHROME_INSET = _OVERLAY_MARGIN + _OVERLAY_BTN_SIZE + 4
 # The "● LIVE" chip shares the toolbar row, so it takes the buttons' height and corner
 # radius; the green is the badge's own, not a button state.
 _LIVE_BADGE_STYLE = (
@@ -390,8 +395,8 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             self._hint_artist = None
         if self._hint_text:
             self._hint_artist = self._ax.text(
-                0.012, 0.985, self._hint_text,
-                transform=self._ax.transAxes, ha="left", va="top",
+                0.012, self._top_chrome_y(), self._hint_text,
+                transform=self.figure.transFigure, ha="left", va="top",
                 fontsize=8, color=NEUTRAL_900, zorder=11,
                 bbox=dict(boxstyle="round,pad=0.3", facecolor="#e6e6e6",
                           edgecolor="none", alpha=0.85),
@@ -416,6 +421,35 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._refresh_title()
         self.draw_idle()
 
+    def _top_chrome_y(self, extra_px: float = 0.0) -> float:
+        """Figure-fraction y for the canvas's top labels, clear of the toolbar row.
+
+        One rule for all three -- hint, title, flash -- so they share a row rather than
+        each picking a height. The hint used to be anchored in `transAxes` at the axes'
+        own top, which put it *above* the flash on a frame that filled its pane and
+        *below* it on a letterboxed one: the two labels swapped vertical order with the
+        image's aspect ratio, and a long hint ran under the toolbar buttons.
+
+        In figure coordinates, not axes: the toolbar buttons and the LIVE chip are laid
+        out in widget pixels, and the figure is edge-to-edge (`subplots_adjust(top=1)`)
+        so a figure fraction *is* a widget fraction. Anchoring here in `transAxes` is what
+        put this chrome on the same horizontal band as the chip, separated only by however
+        much room a centred string happened to leave -- which collided below about 560 px
+        of canvas width, and the FM pane in a 2x2 grid is narrower than that.
+
+        Recomputed on resize (see `resizeEvent`), since the inset is a pixel count.
+
+        Against the *widget's* height, not `figure.bbox.height`. matplotlib keeps the
+        figure bbox in **device** pixels, so on a Retina display it is twice the logical
+        height -- and the toolbar row this has to clear is `_OVERLAY_MARGIN` plus
+        `_OVERLAY_BTN_SIZE`, which Qt lays out in *logical* pixels. Dividing a logical
+        inset by a device height halved it, and the labels landed back inside the row on
+        exactly the machines that have a Retina screen. Both sides of the division are
+        logical now.
+        """
+        height = max(float(self.height()), 1.0)
+        return 1.0 - (_TOP_CHROME_INSET + extra_px) / height
+
     def _refresh_title(self) -> None:
         """(Re)create the title artist from the cached text, or remove it."""
         if self._title_artist is not None:
@@ -426,8 +460,8 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             self._title_artist = None
         if self._title_text:
             self._title_artist = self._ax.text(
-                0.5, 0.985, self._title_text,
-                transform=self._ax.transAxes, ha="center", va="top",
+                0.5, self._top_chrome_y(), self._title_text,
+                transform=self.figure.transFigure, ha="center", va="top",
                 fontsize=10, color=WHITE_ICON_COLOR, zorder=11,
                 bbox=dict(boxstyle="round,pad=0.3", facecolor=_BG,
                           edgecolor="none", alpha=0.55),
@@ -513,8 +547,8 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             self._flash_artist = None
         if self._flash_text:
             self._flash_artist = self._ax.text(
-                0.5, 0.975, self._flash_text,
-                transform=self._ax.transAxes, ha="center", va="top",
+                0.5, self._top_chrome_y(4.0), self._flash_text,
+                transform=self.figure.transFigure, ha="center", va="top",
                 fontsize=9, color="#e8e8e8", zorder=12,
                 bbox=dict(boxstyle="round,pad=0.35", facecolor=_BG,
                           edgecolor=_ACCENT, linewidth=1.0, alpha=0.85),
@@ -685,6 +719,14 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._reposition_overlay_buttons()
+        # The top-centre chrome is inset by a pixel count, so its figure fraction has to
+        # be recomputed when the figure changes size or it drifts across the toolbar row.
+        if self._hint_text:
+            self._refresh_hint()
+        if self._title_text:
+            self._refresh_title()
+        if self._flash_text:
+            self._refresh_flash()
         contrast = getattr(self, "_contrast", None)
         if contrast is not None and contrast.isVisible():
             contrast.reposition()
@@ -1096,6 +1138,43 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             ):
                 self.canvas_clicked.emit(event.xdata, event.ydata, self._press_modifiers)
         self._pan_start = None
+
+    def wheelEvent(self, event):
+        """Rescue the modified wheel event matplotlib declines to deliver (FIB-552).
+
+        `FigureCanvasQT.wheelEvent` reads only the *vertical* delta, and emits nothing at
+        all when it is zero — not a zero-magnitude scroll, nothing. macOS supplies exactly
+        that shape: AppKit turns Shift+wheel into *horizontal* scrolling at the system
+        level, before Qt sees it, so the magnitude arrives in `angleDelta().x()` with
+        `y() == 0`. Every Shift+scroll feature is then silently dead there — the objective
+        step, the working-distance nudge, and the correlation z-slice step, all three of
+        which open with `if "Shift" not in modifiers: return`.
+
+        Windows and Linux apply no such transform, so this branch never runs for them.
+        Trackpads take matplotlib's `pixelDelta` path and are unaffected either way.
+
+        Synthesised into a normal `scroll_event` rather than emitting `canvas_scrolled`
+        directly, which is what the retired `ImagePointCanvas` did: going through
+        `_on_scroll` keeps the in-axes check, the real `xdata`/`ydata`, and
+        modifier-suppresses-zoom, so every consumer is served with no per-widget flag. The
+        old shortcut also fired for Shift+wheel *outside* the image.
+
+        `modifiers=` is deliberately not passed: `_modifiers_from_event` reads the Qt
+        event off `guiEvent`, and the kwarg's private backing only exists in newer
+        matplotlib than the `>=3.7.0` pin. CI cannot catch that — it has no PyQt5, so the
+        Qt backend is never imported.
+        """
+        angle, pixel = event.angleDelta(), event.pixelDelta()
+        if angle.y() == 0 and pixel.y() == 0 and event.modifiers():
+            steps = (angle.x() / 120) or pixel.x()
+            if steps:
+                MouseEvent(
+                    "scroll_event", self, *self.mouseEventCoords(event),
+                    step=steps, guiEvent=event,
+                )._process()
+                event.accept()
+                return
+        super().wheelEvent(event)
 
     def _on_scroll(self, event):
         if event.inaxes is not self._ax or event.xdata is None:
