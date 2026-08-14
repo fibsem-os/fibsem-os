@@ -1529,6 +1529,149 @@ class TestThePlannedTileset:
         assert widget.target is None
 
 
+class TestThePlanHoldsStillWhileTheRunWalksTheGrid:
+    """A run visits every tile, and the plan it is running must not follow it there.
+
+    `_on_stage_moved` has always guarded against this, and the guard has always been
+    bypassed: it skips the *overlay* refresh but still updates the cached position, and
+    the planned tileset is anchored at `_target or _stage_position`. Every preview frame
+    placed an image, and placing one refreshed every context overlay on the way out --
+    so the plan was re-anchored once per tile and walked the grid alongside the
+    acquisition (FIB-647).
+
+    Fixed at the level the issue asked for rather than by special-casing `_running`:
+    an image is *drawn in* the frame, it does not decide it, so a placement refreshes
+    the overlays only when it moved the frame -- the view's origin or the canvas scale.
+    """
+
+    def _run_a_tile(self, widget, microscope, position):
+        """One tile of a run: the stage arrives, then a preview lands."""
+        widget._on_stage_moved(position)
+        widget._apply_progress({
+            "msg": "Tile Collected", "counter": 1, "total": 3,
+            "preview": _tile(microscope, position),
+        })
+
+    def test_the_planned_grid_does_not_follow_the_stage(self, widget, microscope):
+        from fibsem.ui.widgets.overview_widget import OverviewRecord
+
+        base = microscope.get_stage_position()
+        widget._records["run"] = OverviewRecord("run", "run", [])
+        widget._active_record = "run"
+        widget._set_running(True)
+        anchored_at = widget.tile_grid_overlay._anchor()
+        assert anchored_at is not None, "the plan is not drawn, so this proves nothing"
+
+        for step in (1, 2, 3):
+            self._run_a_tile(widget, microscope, _at(base, dx=step * 250e-6))
+
+        assert widget.tile_grid_overlay._anchor() == pytest.approx(anchored_at), (
+            "the planned tileset moved with the stage during the run"
+        )
+
+    def test_the_plan_follows_the_stage_again_once_the_run_is_over(
+        self, widget, microscope
+    ):
+        """The counterpart. Held still *for the run*, not disconnected: where the next
+        run would land is still wherever the stage ends up."""
+        base = microscope.get_stage_position()
+        anchored_at = widget.tile_grid_overlay._anchor()
+
+        widget._on_stage_moved(_at(base, dx=400e-6))
+
+        assert widget.tile_grid_overlay._anchor() != pytest.approx(anchored_at)
+
+    def test_the_readout_still_tracks_the_stage_during_a_run(self, widget, microscope):
+        """Not everything on the canvas is the plan. Where the stage *is* -- the marker
+        and the numbers under it -- has to keep up, and it used to only because placing
+        a preview refreshed it as a side effect."""
+        base = microscope.get_stage_position()
+        widget._set_running(True)
+        before = widget.canvas._info_text
+
+        widget._on_stage_moved(_at(base, dx=750e-6, dy=-300e-6))
+
+        assert widget.canvas._info_text != before, (
+            "the stage readout froze for the length of the run"
+        )
+
+    def test_a_preview_frame_does_not_redraw_the_context_overlays(
+        self, widget, microscope
+    ):
+        """The mechanism, stated on its own: a redraw per tile is a redraw of the stage
+        limits, the holder slots, the gridbars and the view selector too, none of which
+        an arriving image changes."""
+        base = microscope.get_stage_position()
+        widget.place_image(_tile(microscope, _at(base)))  # anchors the view
+        calls = []
+        widget._refresh_context_overlays = lambda: calls.append(1)
+
+        widget.place_image(_tile(microscope, _at(base, dx=100e-6)), key="preview")
+        widget.place_image(_tile(microscope, _at(base, dx=200e-6)), key="preview")
+
+        assert calls == [], f"{len(calls)} overlay refresh(es) for images already framed"
+
+    def test_the_plan_is_pinned_to_what_the_run_is_acquiring(
+        self, widget, microscope, monkeypatch, tmp_path
+    ):
+        """Not redrawn is not enough; redrawn *right* is the requirement.
+
+        The first preview re-anchors the view -- it replaces the provisional origin
+        `_seed_frame` invented with where the image really came from -- and that is a
+        genuine reason to redraw every overlay. Drawn from the cached stage position,
+        the plan then landed on whichever tile the stage had reached by then: measured
+        against a real 3x3 run of 80 um tiles, one tile off, and it stayed there for the
+        rest of the acquisition. So a run pins the centre it was started with.
+        """
+        def fake_worker(fn, *args):
+            class _W:
+                def start(self_inner):
+                    pass
+
+                def is_alive(self_inner):
+                    return False
+
+            return _W()
+
+        base = microscope.get_stage_position()
+        widget.set_save_directory(str(tmp_path))
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker", fake_worker
+        )
+        anchored_at = widget.tile_grid_overlay._anchor()
+
+        widget.acquire()
+        # The stage sets off, and the first preview arrives from a tile away -- which is
+        # the redraw, because it is what un-provisions the origin.
+        widget._on_stage_moved(_at(base, dx=300e-6, dy=300e-6))
+        widget._apply_progress({
+            "msg": "Tile Collected", "counter": 1, "total": 9,
+            "preview": _tile(microscope, _at(base)),
+        })
+
+        assert widget.tile_grid_overlay._anchor() == pytest.approx(anchored_at), (
+            "the plan was redrawn around the tile being acquired, not around the run"
+        )
+
+    def test_the_pin_is_let_go_of_when_the_run_ends(self, widget, microscope, tmp_path):
+        """Or the plan describes the run that has finished rather than the next one."""
+        widget._run_centre = _at(microscope.get_stage_position(), dx=500e-6)
+        widget._on_finished({"cancelled": True})
+        assert widget._run_centre is None
+
+    def test_the_first_image_in_a_view_still_redraws_them(self, widget, microscope):
+        """Because that one *does* move the frame: it replaces the provisional anchor
+        `_seed_frame` invented with the position the image was really acquired at, which
+        moves every overlay drawn in the view."""
+        base = microscope.get_stage_position()
+        calls = []
+        widget._refresh_context_overlays = lambda: calls.append(1)
+
+        widget.place_image(_tile(microscope, _at(base, dx=50e-6)))
+
+        assert calls, "the re-anchored view was left with overlays in the old frame"
+
+
 class TestARunNeedsTiles:
     """Masking every tile off is a state the runner cannot do anything with.
 
