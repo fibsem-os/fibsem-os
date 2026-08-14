@@ -742,6 +742,19 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._ax.set_xlim(xmin - mx, xmax + mx)
         self._ax.set_ylim(ybot + my, ytop - my)  # y-axis stays inverted (origin upper)
 
+    def _view_moved_by_user(self) -> None:
+        """The view was just panned or zoomed by hand.
+
+        A hook rather than behaviour: nothing here re-frames itself, so the base has
+        nothing to stop doing. A canvas that *does* -- see
+        :attr:`FibsemRealSpaceCanvas.auto_fit`, which refits as content arrives --
+        overrides this to hand the camera over, because from here the framing is
+        something the user chose rather than something the canvas guessed.
+
+        Called only where the limits actually changed, so a scroll the zoom limiter
+        refused is not mistaken for one.
+        """
+
     def set_view_margin(self, frac: float) -> None:
         """Empty space kept around the image when fitting the view, as a fraction of the
         image size per side (0 = tight, 0.5 = 2x the image extent). Also keeps overlays
@@ -1056,6 +1069,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         dx, dy = x1 - x0, y1 - y0
         self._ax.set_xlim(xlim0[0] - dx, xlim0[1] - dx)
         self._ax.set_ylim(ylim0[0] - dy, ylim0[1] - dy)
+        self._view_moved_by_user()
         self._schedule_redraw()
 
     def _on_release(self, event):
@@ -1092,6 +1106,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             return
         self._ax.set_xlim(cx + (xlim[0] - cx) * factor, cx + (xlim[1] - cx) * factor)
         self._ax.set_ylim(cy + (ylim[0] - cy) * factor, cy + (ylim[1] - cy) * factor)
+        self._view_moved_by_user()
         self._schedule_redraw()
 
     def _zoom_allowed(self, span: float) -> bool:

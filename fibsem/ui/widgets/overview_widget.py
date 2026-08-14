@@ -2417,6 +2417,16 @@ class FibsemOverviewWidget(QWidget):
         self._running = running
         self._apply_enabled_state()
         if running:
+            # The framing you pressed Acquire with is the framing you keep. A run is the
+            # worst moment to re-frame: the preview lands under one key and the stitch
+            # replaces it under another, so the canvas held still for the whole
+            # acquisition and then lurched twice at the end, when there was finally
+            # something worth looking at (FIB-648).
+            #
+            # Not restored afterwards. There is content on the canvas now, and the
+            # framing belongs to whoever last set it; "reset view" is how you ask for
+            # it back.
+            self.canvas.auto_fit = False
             self._tiles_acquired = 0
             # Cleared rather than set to "Starting…": the progress bar carries the
             # message for the whole run, and a label saying "Starting…" underneath one

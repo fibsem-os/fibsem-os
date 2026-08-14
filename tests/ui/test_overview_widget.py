@@ -1672,6 +1672,69 @@ class TestThePlanHoldsStillWhileTheRunWalksTheGrid:
         assert calls, "the re-anchored view was left with overlays in the old frame"
 
 
+class TestARunDoesNotReFrameTheCanvas:
+    """The framing you pressed Acquire with is the framing you keep (FIB-648).
+
+    `auto_fit` refits whenever the placed extent changes, and a run changes it at the
+    two moments you are most likely to be looking: the first overview appears, and the
+    end swaps the preview for the stitch -- a removal and a placement, so two refits
+    back to back. In between it mostly does not fire, because the preview keeps one key
+    and one extent, which is what made it read as the canvas being stable and then
+    lurching.
+    """
+
+    def _run(self, widget, microscope, tiles=3):
+        from fibsem.ui.widgets.overview_widget import OverviewRecord
+
+        base = microscope.get_stage_position()
+        widget._records["run"] = OverviewRecord("run", "run", [])
+        widget._active_record = "run"
+        widget._set_running(True)
+        for counter in range(1, tiles + 1):
+            widget._apply_progress({
+                "msg": "Tile Collected", "counter": counter, "total": tiles,
+                "preview": _tile(microscope, _at(base)),
+            })
+        widget._mosaic = _tile(microscope, _at(base), shape=(128, 128))
+        widget._on_finished({})
+
+    def test_the_framing_survives_the_whole_run(self, widget, microscope):
+        ax = widget.canvas._ax
+        framing = (tuple(ax.get_xlim()), tuple(ax.get_ylim()))
+
+        self._run(widget, microscope)
+
+        assert (tuple(ax.get_xlim()), tuple(ax.get_ylim())) == framing
+
+    def test_the_run_actually_put_something_there(self, widget, microscope):
+        """Or the test above passes on a canvas where nothing happened."""
+        self._run(widget, microscope)
+        assert widget.canvas.placed_keys, "the run placed nothing to re-frame for"
+
+    def test_a_run_hands_the_camera_over_for_good(self, widget, microscope):
+        """Not restored at the end. There is content on the canvas now, and the framing
+        belongs to whoever last set it -- "reset view" is how you ask for it back."""
+        self._run(widget, microscope)
+        assert widget.canvas.auto_fit is False
+
+        widget.canvas.reset_view()
+        assert widget.canvas.auto_fit is True
+
+    def test_the_canvas_still_frames_itself_before_a_run(self, widget, microscope):
+        """The one time auto-fit is wanted: opening the tab, where the framing is this
+        canvas's guess rather than anyone's choice. Handing the camera over on the first
+        run must not be brought forward to construction."""
+        assert widget.canvas.auto_fit is True
+        ax = widget.canvas._ax
+        framing = (tuple(ax.get_xlim()), tuple(ax.get_ylim()))
+
+        widget.settings_widget.set_grid_size(7, 7)
+
+        assert (tuple(ax.get_xlim()), tuple(ax.get_ylim())) != framing, (
+            "a bigger plan did not re-frame a canvas nobody has framed by hand"
+        )
+
+
 class TestARunNeedsTiles:
     """Masking every tile off is a state the runner cannot do anything with.
 
