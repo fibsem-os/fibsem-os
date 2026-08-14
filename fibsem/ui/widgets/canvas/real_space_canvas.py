@@ -111,7 +111,12 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         self._world_extent_m: Optional[Tuple[float, float, float, float]] = None
         self._auto_key = 0
         # Refit as content grows, so tiles arriving during an acquisition stay in view.
-        # Callers that would rather keep the user's zoom can turn this off.
+        #
+        # True until the framing becomes someone's choice rather than this canvas's
+        # guess. A pan or a zoom is the user making it theirs (`_view_moved_by_user`);
+        # an owner driving the camera itself sets this False directly. Either way the
+        # only thing that takes it back is "reset view" -- the button whose whole
+        # meaning is "frame it for me again".
         self.auto_fit: bool = True
         self._fitted_extent: Optional[Tuple[float, float, float, float]] = None
 
@@ -376,6 +381,31 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         """The declared working area as (width, height, cx, cy) in metres, or None."""
         return self._world_extent_m
 
+    # ── who owns the camera ───────────────────────────────────────────────
+
+    def _view_moved_by_user(self) -> None:
+        """A pan or a zoom hands the framing over. See :attr:`auto_fit`.
+
+        Zoom in on a feature and the next thing placed used to throw the view away and
+        refit to everything -- at the two moments you are most likely to be looking
+        closely, since a run ends by removing the preview and placing the stitch under
+        another key, which is two extent changes back to back (FIB-648).
+        """
+        self.auto_fit = False
+
+    def reset_view(self) -> None:
+        """Frame the content, and take the camera back.
+
+        The one way `auto_fit` comes back on, deliberately: it is the button that means
+        "frame it for me", so re-arming is what it was already being pressed for, and
+        nothing else can quietly undo a framing someone chose.
+        """
+        self.auto_fit = True
+        super().reset_view()
+        # Adopt what was just fitted, so the next content change is measured against
+        # this framing rather than against whatever was fitted before the user's zoom.
+        self._fitted_extent = self._fit_extent()
+
     def metres_to_canvas(self, x: float, y: float) -> Tuple[float, float]:
         """Convert a position in metres to canvas coordinates.
 
@@ -551,14 +581,41 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         across the top -- which is what an overview framed before its splitter settled
         looked like.
 
-        Guarded on `auto_fit` like every other refit, so a canvas whose owner has taken
-        charge of the camera is not re-framed behind its back.
+        A canvas whose camera belongs to someone else is not re-framed behind their
+        back, but it is not left letterboxed either: the viewport changed size, so the
+        view is grown or shrunk to match and the magnification is what survives.
         """
         super().resizeEvent(event)
         if self.auto_fit:
             self._fitted_extent = None  # the padded extent is stale, whatever it was
             self._fit_view()
-            self.draw_idle()
+        else:
+            self._keep_scale_through_resize(event.oldSize(), event.size())
+        self.draw_idle()
+
+    def _keep_scale_through_resize(self, old, new) -> None:
+        """Resize the *viewport*, not the magnification.
+
+        A window that gets taller shows more; it does not zoom. Scaling the limits by
+        the same factors as the widget keeps metres-per-pixel exactly where the user
+        left it, and keeps the framed region the widget's shape -- so `aspect="equal"`
+        still has nothing to take out of the axes box and the canvas goes on filling
+        the window. Refitting would do the second thing at the cost of the first, which
+        is the framing being taken back; doing nothing does the first at the cost of
+        the second, which is black bands down the sides.
+        """
+        if old is None or old.width() <= 0 or old.height() <= 0:
+            return  # the first resize has no "before" to keep the scale against
+        kx, ky = new.width() / old.width(), new.height() / old.height()
+        if kx <= 0 or ky <= 0:
+            return
+        (x0, x1), (y0, y1) = self._ax.get_xlim(), self._ax.get_ylim()
+        cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+        # Halved spans, signed: the y axis is inverted here, and the sign is what keeps
+        # it that way.
+        half_w, half_h = (x1 - x0) / 2.0 * kx, (y1 - y0) / 2.0 * ky
+        self._ax.set_xlim(cx - half_w, cx + half_w)
+        self._ax.set_ylim(cy - half_h, cy + half_h)
 
     def _remove_artist(self, placed: PlacedImage) -> None:
         try:

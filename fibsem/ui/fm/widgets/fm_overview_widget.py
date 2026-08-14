@@ -2220,6 +2220,12 @@ class FMOverviewWidget(QWidget):
             self.progress_tiles.reset()
             self.progress_tile_detail.reset()
             self.status.setText("Starting…")
+            # The framing you pressed Acquire with is the framing you keep. This tab
+            # meets it once rather than twice -- one composite under one key while the
+            # run goes -- but the end is the same swap: the stitch is placed and the
+            # preview removed, two extent changes at the moment there is finally
+            # something worth looking at (FIB-648). Taken back by "reset view".
+            self.canvas.canvas.auto_fit = False
 
         # After the resets above, not before: `FibsemProgressWidget.reset()` hides
         # itself, so showing the bars first and resetting them second leaves them

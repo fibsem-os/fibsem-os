@@ -335,6 +335,81 @@ def test_auto_fit_can_be_turned_off_to_keep_the_users_zoom():
     assert c._ax.get_xlim() == (0, 10)  # the new tile did not re-frame the view
 
 
+# ── who owns the camera ───────────────────────────────────────────────────
+#
+# Auto-fit is right until the framing becomes a choice. Zoom into a feature and the
+# next thing placed used to throw the view away and refit to everything -- worst at
+# the end of a run, which removes the preview and places the stitch under another key,
+# so the canvas held still for the whole acquisition and then lurched twice (FIB-648).
+
+
+def _pan(canvas, dx_px=40, dy_px=0):
+    """A left-drag across the canvas, as matplotlib delivers one."""
+    from types import SimpleNamespace
+
+    def _event(x, y):
+        return SimpleNamespace(
+            inaxes=canvas._ax, xdata=0.0, ydata=0.0, x=x, y=y,
+            button=1, dblclick=False, guiEvent=None,
+        )
+
+    canvas._on_press(_event(100, 100))
+    canvas._on_motion(_event(100 + dx_px, 100 + dy_px))
+    canvas._on_release(_event(100 + dx_px, 100 + dy_px))
+
+
+def test_panning_hands_the_camera_over():
+    c = _canvas()
+    c.add_image(_img(), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE)
+    _pan(c)
+    assert c.auto_fit is False
+
+    framing = (c._ax.get_xlim(), c._ax.get_ylim())
+    c.add_image(_img(), centre=(500e-6, 0.0), pixel_size=PIXEL_SIZE)
+    assert (c._ax.get_xlim(), c._ax.get_ylim()) == framing
+
+
+def test_zooming_hands_the_camera_over():
+    c = _canvas()
+    c.add_image(_img(), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE)
+    _scroll(c, 1)
+    assert c.auto_fit is False
+
+    framing = (c._ax.get_xlim(), c._ax.get_ylim())
+    c.add_image(_img(), centre=(500e-6, 0.0), pixel_size=PIXEL_SIZE)
+    assert (c._ax.get_xlim(), c._ax.get_ylim()) == framing
+
+
+def test_a_zoom_the_limiter_refused_does_not_count():
+    """Nothing moved, so nobody framed anything. Scrolling into the stop is easy to do
+    by accident on a trackpad, and it must not quietly cost the canvas its auto-fit."""
+    c = _canvas()
+    c.add_image(_img(), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE)
+    _scroll(c, 1, 100)  # far past the zoom-in bound
+    span_at_the_stop = _span(c)
+
+    c.auto_fit = True  # as if it had never been given away
+    _scroll(c, 1)
+
+    assert _span(c) == pytest.approx(span_at_the_stop)
+    assert c.auto_fit is True
+
+
+def test_the_fit_button_takes_the_camera_back():
+    """The one thing that re-arms it, because "frame it for me" is what it means."""
+    c = _canvas()
+    c.add_image(_img(), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE)
+    _pan(c)
+    assert c.auto_fit is False
+
+    c.reset_view()
+    assert c.auto_fit is True
+
+    framing = (c._ax.get_xlim(), c._ax.get_ylim())
+    c.add_image(_img(), centre=(500e-6, 0.0), pixel_size=PIXEL_SIZE)
+    assert (c._ax.get_xlim(), c._ax.get_ylim()) != framing
+
+
 # ── the declared working area ─────────────────────────────────────────────
 
 
@@ -731,16 +806,49 @@ def test_a_resize_re_frames_so_the_axes_keep_filling():
     )
 
 
-def test_a_canvas_that_has_given_up_auto_fit_is_not_re_framed_by_a_resize():
-    """A caller driving the camera itself must not have it taken back on a resize."""
+def test_a_canvas_that_has_given_up_auto_fit_keeps_its_magnification():
+    """A caller driving the camera itself must not have it taken back on a resize.
+
+    Not *nothing*, though, which is what this used to assert: a view left exactly as it
+    was stops matching the window's shape, and `aspect="equal"` takes the difference
+    straight out of the axes box -- the bands FIB-620 was about. So the viewport is
+    resized and the magnification is what survives, which is what any camera does when
+    its window changes: a taller window shows more, it does not zoom.
+    """
     c = _canvas(reference_pixel_size=PIXEL_SIZE)
     c.show()
     c.resize(900, 500)
     _app.processEvents()
     c.set_world_extent(200e-6, 200e-6)
     c.auto_fit = False
-    before = (c._ax.get_xlim(), c._ax.get_ylim())
+    (x0, x1), (y0, y1) = c._ax.get_xlim(), c._ax.get_ylim()
+    centre = ((x0 + x1) / 2, (y0 + y1) / 2)
+    per_pixel = (x1 - x0) / 900
 
     c.resize(500, 900)
     _app.processEvents()
-    assert (c._ax.get_xlim(), c._ax.get_ylim()) == before
+
+    (nx0, nx1), (ny0, ny1) = c._ax.get_xlim(), c._ax.get_ylim()
+    assert ((nx0 + nx1) / 2, (ny0 + ny1) / 2) == pytest.approx(centre), "the view moved"
+    assert (nx1 - nx0) / 500 == pytest.approx(per_pixel), "the resize zoomed"
+    box = c._ax.get_position()
+    assert box.width > 0.98 and box.height > 0.98, (
+        f"the axes box is {box.width:.2f} x {box.height:.2f} of the widget -- banded"
+    )
+
+
+def test_a_resize_does_not_undo_a_users_zoom():
+    """The half that matters on screen: the feature you zoomed in on is still the size
+    you zoomed it to, and still in the middle."""
+    c = _canvas(reference_pixel_size=PIXEL_SIZE)
+    c.show()
+    c.resize(900, 500)
+    _app.processEvents()
+    c.add_image(_img(), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE)
+    _scroll(c, 1, 4)
+    zoomed = _span(c)
+
+    c.resize(900, 700)  # only the height changed
+    _app.processEvents()
+
+    assert _span(c) == pytest.approx(zoomed), "the zoom was thrown away by a resize"
