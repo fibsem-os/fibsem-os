@@ -139,27 +139,21 @@ def test_the_toolbar_toggle_still_round_trips(noun):
     assert button.isChecked() is True and button.toolTip() == f"Hide {noun}"
 
 
-class TestTheTopLabelsClearTheToolbarRow:
-    """The hint, title and flash sit along the canvas's top edge; the toolbar buttons and
-    the LIVE chip sit top-right. Anchoring the labels in `transAxes` and the controls in
-    widget pixels left them on one horizontal band, separated only by however much room a
-    centred string happened to leave — which ran out below about 560 px of canvas width,
-    and the FM pane in a 2x2 grid is narrower than that.
+class TestTheTopStripHasTwoZones:
+    """One row, two zones growing from opposite ends: controls right, status left.
 
-    All three labels follow one rule now. The hint especially needed it: anchored at the
-    axes' own top it sat *above* the flash on a frame that filled its pane and *below* it
-    on a letterboxed one, so the two swapped order with the image's aspect ratio.
-
-    Same fault as the chip-under-the-toolbar one below, one slot along.
+    The strip had five tenants and no rule, and produced three collisions in two days --
+    the LIVE chip under the buttons, the flash on the chip, and the flash on the chip
+    again on a Retina display. Each was fixed by arithmetic keeping one coordinate system
+    clear of another. This removes the arithmetic: both zones are Qt-laid-out, in logical
+    pixels, by the same pass, so they cannot reach each other however long the text or
+    however narrow the pane (FIB-639).
     """
 
     @staticmethod
     def _canvas(w=460, h=380):
         c = FibsemImageCanvas()
         dpi = c.figure.dpi
-        # Both, and in this order: the figure drives the artists, the widget drives the
-        # chip. Offscreen, `resize` alone leaves the figure at its default and the two
-        # are then measured in different worlds.
         c.figure.set_size_inches(w / dpi, h / dpi)
         c.resize(w, h)
         c.set_array(_img(512, 512), pixel_size=1e-8)
@@ -167,84 +161,106 @@ class TestTheTopLabelsClearTheToolbarRow:
         c._reposition_overlay_buttons()
         return c
 
-    @staticmethod
-    def _rows_overlap(canvas, artist):
-        chip = canvas._live_badge.geometry()
-        bb = artist.get_window_extent(canvas.get_renderer())
-        h = canvas.height()
-        top, bottom = h - bb.y1, h - bb.y0  # matplotlib y is bottom-up
-        return bottom > chip.y() and top < chip.y() + chip.height()
-
-    @pytest.mark.parametrize("width", [360, 420, 480, 520, 560, 900])
-    def test_the_flash_never_shares_a_row_with_the_live_chip(self, width):
+    @pytest.mark.parametrize("width", [300, 360, 420, 480, 560, 900])
+    def test_the_zones_never_reach_each_other(self, width):
         c = self._canvas(w=width)
         c.flash_message("OBJ 6000.0 um  (+1.0 um)")
-        c.draw()
 
-        assert not self._rows_overlap(c, c._flash_artist)
+        status, chip = c._status_label, c._live_badge
+        if status.isHidden():
+            return  # no room at all is a valid answer; the controls win
+        assert status.geometry().right() < chip.geometry().left()
 
-    @pytest.mark.parametrize("width", [360, 480, 900])
-    def test_the_title_never_shares_a_row_with_it_either(self, width):
-        """Same slot, same fault — a long z-slice caption would have collided too."""
+    @pytest.mark.parametrize("width", [300, 460, 900])
+    def test_a_very_long_hint_is_elided_rather_than_overrunning(self, width):
         c = self._canvas(w=width)
-        c.set_title("z 42 / 120")
-        c.draw()
+        c.set_hint("Shift+scroll to focus the objective, " * 10)
 
-        assert not self._rows_overlap(c, c._title_artist)
+        status = c._status_label
+        if status.isHidden():
+            return
+        assert status.geometry().right() < c._live_badge.geometry().left()
+        assert status.text() != c._status_full_text  # actually truncated
+        assert status.text().endswith("…")
 
-    @pytest.mark.parametrize("width", [360, 480, 900])
-    def test_the_hint_never_shares_a_row_with_it_either(self, width):
-        """Top-left, but a long enough hint reaches the buttons — and it was the one
-        anchored at the axes' top, so on a filling frame it sat level with them."""
-        c = self._canvas(w=width)
-        c.set_hint("Shift+scroll to focus the objective, double-click to move the stage")
-        c.draw()
-
-        assert not self._rows_overlap(c, c._hint_artist)
-
-    @pytest.mark.parametrize(
-        "image", [(512, 512), (512, 768), (768, 512)], ids=["square", "wide", "tall"]
-    )
-    def test_the_three_labels_share_a_row_whatever_the_aspect(self, image):
-        """The hint used to swap places with the flash depending on the image's aspect,
-        because one was anchored to the axes and the other to the figure."""
-        c = self._canvas(w=460, h=380)
-        c.set_array(_img(*image), pixel_size=1e-8)
-        c.set_hint("Shift+scroll to focus")
-        c.set_title("z 42 / 120")
-        c.flash_message("OBJ 6000.0 um  (+1.0 um)")
-        c.draw()
-
-        r = c.get_renderer()
-        tops = [
-            c.height() - a.get_window_extent(r).y1
-            for a in (c._hint_artist, c._title_artist, c._flash_artist)
-        ]
-        assert max(tops) - min(tops) < 10, f"labels scattered across {tops}"
-
-    def test_it_sits_below_the_toolbar_rather_than_above_it(self):
-        """Below, so it never covers a button. Above would clear the chip too."""
+    def test_the_flash_outranks_the_hint_and_gives_it_back(self):
+        """One zone, two sources. The flash is a value that just changed; the hint is a
+        standing instruction still true underneath it."""
         c = self._canvas()
+        c.set_hint("Shift+scroll to focus")
+        assert c._status_label.text() == "Shift+scroll to focus"
+
         c.flash_message("OBJ 6000.0 um")
+        assert c._status_label.text() == "OBJ 6000.0 um"
+
+        c._clear_flash()
+        assert c._status_label.text() == "Shift+scroll to focus"
+
+    def test_the_two_sources_look_different(self):
+        """A standing instruction and a value that is about to vanish should not be the
+        same chip."""
+        c = self._canvas()
+        c.set_hint("Shift+scroll to focus")
+        hint_style = c._status_label.styleSheet()
+        c.flash_message("OBJ 6000.0 um")
+
+        assert c._status_label.styleSheet() != hint_style
+
+    def test_clearing_the_hint_hides_the_zone(self):
+        c = self._canvas()
+        c.set_hint("Shift+scroll to focus")
+        c.set_hint(None)
+
+        assert c._status_label.isHidden()
+
+    def test_a_new_frame_does_not_drop_the_hint(self):
+        """It is a widget, so `cla()` never removes it and `set_image` has nothing to
+        re-apply -- the same trade the LIVE chip already made."""
+        c = self._canvas()
+        c.set_hint("Shift+scroll to focus")
+
+        c.set_array(_img(512, 512), pixel_size=1e-8)  # the next streamed frame
+
+        assert not c._status_label.isHidden()
+        assert c._status_label.text() == "Shift+scroll to focus"
+
+    def test_clearing_the_canvas_hides_it(self):
+        c = self._canvas()
+        c.set_hint("Shift+scroll to focus")
+
+        c.clear()
+
+        assert c._status_label.isHidden()
+
+    def test_no_room_at_all_yields_to_the_controls(self):
+        """A pane narrower than its own toolbar. Better to drop the status text than to
+        draw it under the buttons."""
+        c = self._canvas(w=120)
+        c.set_hint("Shift+scroll to focus")
+
+        assert c._status_label.isHidden()
+
+    @pytest.mark.parametrize("width", [360, 480, 900])
+    def test_the_title_still_clears_the_row(self, width):
+        """The caption stays centred and stays an artist -- it labels the image, not the
+        session -- so it keeps the inset the status zone no longer needs."""
+        c = self._canvas(w=width)
+        c.set_title("z 42 / 120")
         c.draw()
 
-        bb = c._flash_artist.get_window_extent(c.get_renderer())
-        top = c.height() - bb.y1
-        assert top >= c._live_badge.geometry().y() + c._live_badge.height()
+        chip = c._live_badge.geometry()
+        bb = c._title_artist.get_window_extent(c.get_renderer())
+        top, bottom = c.height() - bb.y1, c.height() - bb.y0
+        assert not (bottom > chip.y() and top < chip.y() + chip.height())
 
     @pytest.mark.parametrize("device_ratio", [1, 2], ids=["standard", "retina"])
-    def test_the_inset_is_logical_pixels_whatever_the_device_ratio(self, device_ratio):
-        """The bug the first fix shipped with, and the one this suite could not see.
-
-        matplotlib keeps `figure.bbox` in **device** pixels, so on a Retina display it is
-        twice the widget's logical height. The toolbar row the labels must clear is laid
-        out by Qt in *logical* pixels, so dividing a logical inset by a device height
-        halved it and put them back inside the row — on exactly the machines with a
-        Retina screen, which is every Mac and no CI runner.
-
-        Simulated by sizing the figure at `device_ratio` times the widget, which is what
-        the Qt backend does. Offscreen the real ratio is always 1, so the situation
-        cannot be reached any other way.
+    def test_the_title_inset_is_logical_pixels_whatever_the_device_ratio(
+        self, device_ratio
+    ):
+        """The title is the last thing positioned by hand, so it keeps the bug the
+        status zone no longer can have: `figure.bbox` is in device pixels, the toolbar
+        row is laid out in logical ones, and dividing one by the other halves the inset
+        on a Retina screen -- every Mac and no CI runner.
         """
         c = FibsemImageCanvas()
         dpi = c.figure.dpi
@@ -253,30 +269,7 @@ class TestTheTopLabelsClearTheToolbarRow:
 
         inset_logical = (1.0 - c._top_chrome_y()) * c.height()
 
-        assert inset_logical == pytest.approx(30.0), (
-            f"inset came out {inset_logical:.1f} logical px at device ratio "
-            f"{device_ratio}; the toolbar row it must clear is 26"
-        )
-
-    def test_shrinking_the_canvas_keeps_it_clear(self):
-        """The inset is a pixel count, so its figure fraction has to be recomputed when
-        the figure changes size or it drifts back across the toolbar row.
-
-        Shrinking, specifically. A stale fraction on a *taller* figure resolves to a
-        larger pixel inset and stays clear by luck — so growing proves nothing, and a
-        test that grew was the one this replaced.
-        """
-        c = self._canvas(w=460, h=900)
-        c.flash_message("OBJ 6000.0 um  (+1.0 um)")
-        c.draw()
-
-        dpi = c.figure.dpi
-        c.figure.set_size_inches(460 / dpi, 300 / dpi)
-        c.resize(460, 300)
-        c.resizeEvent(_resize_event(460, 300))
-        c.draw()
-
-        assert not self._rows_overlap(c, c._flash_artist)
+        assert inset_logical == pytest.approx(30.0)
 
 
 class TestTheLiveChipClearsTheToolbar:

@@ -40,6 +40,7 @@ from matplotlib.backend_bases import MouseEvent
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from PyQt5.QtCore import QSize, QTimer, Qt, pyqtSignal
+from PyQt5.QtGui import QFontMetrics
 from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QSizePolicy
 
 from fibsem.ui.icon import fibsem_icon
@@ -134,6 +135,18 @@ _TOP_CHROME_INSET = _OVERLAY_MARGIN + _OVERLAY_BTN_SIZE + 4
 _LIVE_BADGE_STYLE = (
     f"QLabel {{ background: {_LIVE_BADGE_BG}; color: {WHITE_ICON_COLOR};"
     " border-radius: 3px; padding: 0px 6px; font-size: 10px; font-weight: bold; }"
+)
+# The status zone mirrors the toolbar on the left of the same row, and carries whichever
+# of the hint or the flash is current. Two looks, because they say different things: the
+# hint is a standing instruction, the flash is a value that just changed and is about to
+# go away, so it keeps the accent outline the artist had.
+_STATUS_HINT_STYLE = (
+    f"QLabel {{ background: #e6e6e6; color: {NEUTRAL_900};"
+    " border-radius: 3px; padding: 0px 6px; font-size: 11px; }"
+)
+_STATUS_FLASH_STYLE = (
+    f"QLabel {{ background: {_BG}; color: #e8e8e8; border: 1px solid {_ACCENT};"
+    " border-radius: 3px; padding: 0px 6px; font-size: 12px; }"
 )
 
 
@@ -233,8 +246,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._scalebar_visible: bool = True
         self._crosshair_visible: bool = True
         self._crosshair_artists: list = []
-        self._hint_artist = None  # transient top-left instruction hint
-        self._hint_text: Optional[str] = None  # remembered so it survives set_image
+        self._hint_text: Optional[str] = None  # remembered; the status zone shows it
         self._title_artist = None  # top-centre image caption (e.g. FM z-slice)
         self._title_text: Optional[str] = None  # remembered so it survives set_image
         self._info_artist = None  # bottom-left microscope-state info bar
@@ -242,9 +254,13 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._live_badge = None  # top-right "● LIVE" chip during live acquisition
         self._live_on: bool = False  # remembered so it survives set_image
 
-        # Transient top-centre flash message (e.g. "WD 4.001 mm" on Shift+scroll); auto-clears
-        self._flash_artist = None
+        # Transient status message (e.g. "WD 4.001 mm" on Shift+scroll); auto-clears.
+        # Shares the top-left status zone with the hint, and outranks it while up.
         self._flash_text: Optional[str] = None
+        # The status zone itself: one chip mirroring the toolbar at the other end of the
+        # row. Qt-laid-out, so nothing converts between logical and device pixels.
+        self._status_label = None
+        self._status_full_text: str = ""  # untruncated; the layout pass elides a copy
         self._flash_timer = QTimer(self)
         self._flash_timer.setSingleShot(True)
         self._flash_timer.timeout.connect(self._clear_flash)
@@ -375,32 +391,14 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self.draw_idle()
 
     def set_hint(self, text: Optional[str]) -> None:
-        """Show a small instruction hint in the top-left corner, or hide with None.
+        """Show a small instruction hint in the top-left status zone, or hide with None.
 
-        Drawn in axes-fraction coords so it stays fixed through zoom/pan.  The text
-        is remembered and re-applied after each image change (``set_image`` clears
-        the axes), so the hint is not silently dropped by a new acquisition.
+        Shares that zone with :meth:`flash_message`, which outranks it while it is up —
+        the flash is a value that just changed, the hint is a standing instruction that
+        will still be true afterwards.
         """
         self._hint_text = text or None
-        self._refresh_hint()
-        self.draw_idle()
-
-    def _refresh_hint(self) -> None:
-        """(Re)create the hint artist from the cached text, or remove it."""
-        if self._hint_artist is not None:
-            try:
-                self._hint_artist.remove()
-            except Exception:
-                pass
-            self._hint_artist = None
-        if self._hint_text:
-            self._hint_artist = self._ax.text(
-                0.012, self._top_chrome_y(), self._hint_text,
-                transform=self.figure.transFigure, ha="left", va="top",
-                fontsize=8, color=NEUTRAL_900, zorder=11,
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="#e6e6e6",
-                          edgecolor="none", alpha=0.85),
-            )
+        self._refresh_status()
 
     def set_title(self, text: Optional[str]) -> None:
         """Show a caption centred at the top of the image, or hide with None/''.
@@ -525,39 +523,54 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         return badge
 
     def flash_message(self, text: str, duration_ms: int = 1200) -> None:
-        """Show a brief top-centre status message that auto-clears after *duration_ms*.
+        """Show a brief status message that auto-clears after *duration_ms*.
 
         Repeated calls refresh the text and restart the timer, so it stays visible during a
         burst (e.g. Shift+scroll working-distance nudges) and fades shortly after the last
-        event. Independent of :meth:`set_hint` / :meth:`set_info_text` — transient, not
-        remembered across image changes."""
+        event. Takes the top-left status zone from :meth:`set_hint` while it is up, and
+        gives it back on clearing. Not remembered across image changes."""
         self._flash_text = text or None
-        self._refresh_flash()
-        self.draw_idle()
+        self._refresh_status()
         if self._flash_text:
             self._flash_timer.start(duration_ms)
 
-    def _refresh_flash(self) -> None:
-        """(Re)create the flash artist from the cached text, or remove it."""
-        if self._flash_artist is not None:
-            try:
-                self._flash_artist.remove()
-            except Exception:
-                pass
-            self._flash_artist = None
-        if self._flash_text:
-            self._flash_artist = self._ax.text(
-                0.5, self._top_chrome_y(4.0), self._flash_text,
-                transform=self.figure.transFigure, ha="center", va="top",
-                fontsize=9, color="#e8e8e8", zorder=12,
-                bbox=dict(boxstyle="round,pad=0.35", facecolor=_BG,
-                          edgecolor=_ACCENT, linewidth=1.0, alpha=0.85),
-            )
-
     def _clear_flash(self) -> None:
         self._flash_text = None
-        self._refresh_flash()
-        self.draw_idle()
+        self._refresh_status()
+
+    def _refresh_status(self) -> None:
+        """Put the current flash-or-hint into the top-left status zone.
+
+        A child widget in the toolbar's own layout pass, not an axes artist. The two used
+        to be matplotlib text positioned by arithmetic against Qt-laid-out controls, and
+        that arithmetic went wrong twice: once by ignoring the toolbar row entirely, and
+        once by dividing a logical inset by a device-pixel height, which is only correct
+        on a screen that is not a Retina one (FIB-639). Qt lays out in logical pixels
+        natively, so a `QLabel` has no conversion to get wrong.
+
+        The flash outranks the hint: it is a value that just changed and is about to go
+        away, while the hint is a standing instruction still true underneath it.
+        """
+        text = self._flash_text or self._hint_text
+        if not text:
+            if self._status_label is not None:
+                self._status_label.hide()
+            return
+        if self._status_label is None:
+            self._status_label = self._make_status_label()
+        self._status_label.setStyleSheet(
+            _STATUS_FLASH_STYLE if self._flash_text else _STATUS_HINT_STYLE
+        )
+        self._status_full_text = text
+        self._status_label.show()
+        self._reposition_overlay_buttons()  # sizes and elides it to the room available
+
+    def _make_status_label(self) -> QLabel:
+        """The status chip, sized to sit in the toolbar row."""
+        label = QLabel("", self)
+        label.setFixedHeight(_OVERLAY_BTN_SIZE)
+        label.raise_()
+        return label
 
     def set_legend(self, entries, loc: str = "upper right") -> None:
         """Show a small patch legend, or clear it with None / an empty list.
@@ -618,8 +631,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._ax.cla()
         self._scalebar_artist = None
         self._crosshair_artists = []
-        self._hint_artist = None  # removed by cla(); drop the cached text too
-        self._hint_text = None
+        self._hint_text = None  # the status chip is a widget; hidden below, not by cla()
         self._title_artist = None
         self._title_text = None
         self._info_artist = None
@@ -629,9 +641,10 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         if self._live_badge is not None:
             self._live_badge.hide()
         self._live_on = False
-        self._flash_artist = None
         self._flash_text = None
         self._flash_timer.stop()
+        if self._status_label is not None:
+            self._status_label.hide()
         self._legend_artist = None  # removed by cla(); drop the cached entries too
         self._legend_entries = None
         self._plot_empty()
@@ -690,6 +703,36 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         if badge is not None and not badge.isHidden():
             x -= badge.width()
             badge.move(x, _OVERLAY_MARGIN)
+        self._place_status_label(right_edge=x)
+
+    def _place_status_label(self, right_edge: int) -> None:
+        """Put the status chip at the left of the same row, elided to fit.
+
+        The two zones grow from opposite ends of a row one line tall, so they cannot
+        collide however long the text or however narrow the pane — which is what the
+        arithmetic that preceded this was trying, and failing, to guarantee. Elided
+        rather than clipped, so a long hint says it is truncated instead of running out
+        of room silently.
+        """
+        label = self._status_label
+        if label is None or label.isHidden():
+            return
+        available = right_edge - _OVERLAY_GAP - _OVERLAY_MARGIN
+        if available <= 0:
+            label.hide()  # no room at all; the controls win
+            return
+        metrics = QFontMetrics(label.font())
+        # `sizeHint` carries the stylesheet padding, which the metrics do not.
+        label.setText(self._status_full_text)
+        padding = max(label.sizeHint().width() - metrics.width(self._status_full_text), 0)
+        label.setText(
+            metrics.elidedText(
+                self._status_full_text, Qt.ElideRight, max(available - padding, 0)
+            )
+        )
+        label.adjustSize()
+        label.resize(min(label.width(), available), _OVERLAY_BTN_SIZE)
+        label.move(_OVERLAY_MARGIN, _OVERLAY_MARGIN)
 
     def set_toolbar_visible(self, visible: bool) -> None:
         """Show or hide this canvas's top-right toolbar buttons as a group.
@@ -721,12 +764,8 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._reposition_overlay_buttons()
         # The top-centre chrome is inset by a pixel count, so its figure fraction has to
         # be recomputed when the figure changes size or it drifts across the toolbar row.
-        if self._hint_text:
-            self._refresh_hint()
         if self._title_text:
-            self._refresh_title()
-        if self._flash_text:
-            self._refresh_flash()
+            self._refresh_title()  # still an artist: the caption belongs over the image
         contrast = getattr(self, "_contrast", None)
         if contrast is not None and contrast.isVisible():
             contrast.reposition()
