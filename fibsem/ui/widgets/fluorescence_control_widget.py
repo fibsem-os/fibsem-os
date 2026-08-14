@@ -385,6 +385,18 @@ class FMControlWidget(QWidget):
                 except (TypeError, RuntimeError):
                     pass
             self._fm_canvas = None
+
+        # Clear the FM panel's live chrome. The canvas outlives this widget, and the
+        # host tears down without stopping the acquisition first
+        # (`AutoLamellaUI.setup_experiment`), so the green border and badge would
+        # otherwise stay on a panel with nothing left to drive them.
+        controller = self._view_controller()
+        if controller is not None:
+            try:
+                controller.set_fm_live(False)
+            except RuntimeError:
+                pass  # the view went first
+
         self.objectiveControlWidget.cleanup()
 
         if self.parent_widget is not None and hasattr(
@@ -980,6 +992,15 @@ class FMControlWidget(QWidget):
 
         # Parameters for the *next* run, so they follow the same rule.
         self.zParametersWidget.setEnabled(may_start)
+
+        # The FM panel's own green border + "LIVE" badge, the chrome the beam panels have
+        # had all along. Driven from `is_streaming` rather than inferred from a button or
+        # this widget's own worker: the stream is the microscope's state, and another tab
+        # can start or stop one (FIB-513). Costs nothing when there is no quad view --
+        # the standalone hosts have no controller (FIB-596).
+        controller = self._view_controller()
+        if controller is not None:
+            controller.set_fm_live(streaming)
 
         # Hardware the user drives by hand. Live during a stream -- focusing and tuning
         # exposure while watching is the point of them -- and not while a tileset,

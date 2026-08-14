@@ -24,7 +24,7 @@ from fibsem.fm.structures import (
     OverviewParameters,
     ZParameters,
 )
-from fibsem.structures import TileOrderStrategy
+from fibsem.structures import CameraImageTransform, TileOrderStrategy
 from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
     FMOverviewConfirmationDialog,
     format_duration,
@@ -1378,12 +1378,14 @@ def test_the_cursor_readout_names_the_position_under_it(qapp, interactive_widget
 
     widget._on_cursor_moved(1500.0, -900.0)
 
-    text = widget.cursor_readout.text()
+    text = widget.canvas.canvas._readout_text
     assert f"{under.x * 1e6:.1f}" in text
     assert f"{under.y * 1e6:.1f}" in text
 
     widget._on_cursor_moved(None, None)
-    assert widget.cursor_readout.text() == "", "the readout must not freeze off-canvas"
+    assert widget.canvas.canvas._readout_text is None, (
+        "the readout must not freeze off-canvas"
+    )
 
 
 def test_the_reported_offset_is_measured_in_the_frame_it_is_drawn_in(qapp, interactive_widget):
@@ -2205,27 +2207,51 @@ def test_showing_the_bars_survives_their_own_reset(qapp):
 # ── the canvas says where things are ─────────────────────────────────────
 
 
-def test_the_cursor_readout_is_drawn_over_the_canvas(qapp, interactive_widget):
-    """Not beside it. The only free corner is the top left — the toolbar owns the top
-    right, the scalebar the bottom right, the stage info bar the bottom left."""
+def test_the_cursor_readout_takes_the_status_zone_from_the_grid_hint(qapp, interactive_widget):
+    """Both want the top left, and this widget used to give each its own label there --
+    which drew the coordinates straight over the hint. One zone showing one thing at a
+    time is what makes that impossible rather than merely fixed."""
     widget = interactive_widget
+    canvas = widget.canvas.canvas
+    assert "Shift+drag" in canvas._status_label.text(), "the hint holds the zone at rest"
 
-    assert widget.cursor_readout.parent() is widget.canvas.canvas
+    widget._on_cursor_moved(1500.0, -900.0)
+    qapp.processEvents()
+
+    shown = canvas._status_label.text()
+    assert "Shift+drag" not in shown
+    assert shown == canvas._readout_text
 
 
-def test_the_cursor_readout_hides_when_the_pointer_leaves(qapp, interactive_widget):
-    """It sits on top of the image, so an empty plaque floating over the data is worse
-    than nothing there."""
+def test_the_zone_goes_back_to_the_hint_when_the_pointer_leaves(qapp, interactive_widget):
+    """The readout is only true while the pointer is where it is; the hint is still true
+    afterwards, so leaving the canvas hands the zone back rather than blanking it."""
     widget = interactive_widget
+    canvas = widget.canvas.canvas
 
     widget._on_cursor_moved(100.0, 100.0)
     qapp.processEvents()
-    assert widget.cursor_readout.isVisible()
-    assert widget.cursor_readout.text()
+    assert canvas._readout_text
 
     widget._on_cursor_moved(None, None)
     qapp.processEvents()
-    assert not widget.cursor_readout.isVisible()
+
+    assert canvas._readout_text is None
+    assert "Shift+drag" in canvas._status_label.text()
+
+
+def test_a_flash_outranks_the_cursor_readout(qapp, interactive_widget):
+    """A focus flash is a value that just changed and is about to go away; the readout
+    will still be there a motion event later."""
+    widget = interactive_widget
+    canvas = widget.canvas.canvas
+    widget._on_cursor_moved(1500.0, -900.0)
+    qapp.processEvents()
+
+    canvas.flash_message("OBJ 6000.0 um  (+1.0 um)")
+    qapp.processEvents()
+
+    assert "OBJ" in canvas._status_label.text()
 
 
 def test_the_info_bar_states_the_stage_pose(qapp, interactive_widget):
@@ -4545,3 +4571,113 @@ def test_loading_parameters_leaves_the_objective_start_combo_able_to_notify(qapp
     combo.setCurrentIndex(1 - combo.currentIndex())
 
     assert seen, "the objective-start combo was left signal-blocked by the setter"
+
+
+class TestTheCameraTransformReachesTheProjection:
+    """Changing the camera transform left the overlays placed by the old one (FIB-521).
+
+    Found on hardware: the marker and the marked positions were wrong after a transform
+    change, and nothing brought them back until something else invalidated the frame.
+
+    The issue blamed the tile field of view, reading the transform as feeding "the
+    camera's effective resolution". It does not, and the first test below pins that so
+    the wrong fix is not attempted later. What the transform actually feeds is
+    `fm_image_geometry()`, which `FMStageProjection` carries, which everything placed
+    from a stage position goes through.
+    """
+
+    def test_a_flip_does_not_change_the_tile_field_of_view(self, qapp):
+        """The issue's premise, disproved rather than assumed.
+
+        `CameraImageTransform` is flips only, and flips preserve the array shape -- the
+        enum's own docstring says so. `camera.resolution` is `_resolution // binning`
+        with no transform term. So the planned grid's size cannot go stale this way, and
+        re-running `_sync_tile_fov` from a transform change would be noise dressed as
+        insurance.
+        """
+        widget = _fresh_widget(qapp)
+        fm = widget.fm
+        try:
+            fm.set_image_transform(CameraImageTransform.NONE)
+            qapp.processEvents()
+            before = (fm.camera.resolution, fm.camera.pixel_size)
+
+            fm.set_image_transform(CameraImageTransform.FLIP_XY)
+            qapp.processEvents()
+
+            assert (fm.camera.resolution, fm.camera.pixel_size) == before, (
+                "a flip changed the camera's resolution or pixel size -- if that is now "
+                "true, the tile field of view really does need re-syncing here"
+            )
+        finally:
+            widget.close()
+
+    def test_the_projection_follows_a_transform_change(self, qapp):
+        """The defect. The kept projection carried the old flip until something else
+        invalidated it, and nothing else did."""
+        widget = _fresh_widget(qapp)
+        fm = widget.fm
+        try:
+            fm.set_image_transform(CameraImageTransform.NONE)
+            qapp.processEvents()
+            widget.invalidate_projection()
+            assert widget._projection().geometry.transform is CameraImageTransform.NONE
+
+            fm.set_image_transform(CameraImageTransform.FLIP_X)
+            qapp.processEvents()
+
+            assert widget._projection().geometry.transform is CameraImageTransform.FLIP_X, (
+                "the projection still carries the old transform, so every overlay "
+                "placed through it is drawn for a flip that no longer applies"
+            )
+        finally:
+            widget.close()
+
+    def test_setting_the_same_transform_again_says_nothing(self, qapp):
+        """The camera widget re-applies the saved transform on load, and a redraw for a
+        value that did not move is noise."""
+        widget = _fresh_widget(qapp)
+        fm = widget.fm
+        seen = []
+        try:
+            fm.set_image_transform(CameraImageTransform.FLIP_Y)
+            qapp.processEvents()
+            fm.transform_changed.connect(seen.append)
+
+            fm.set_image_transform(CameraImageTransform.FLIP_Y)
+            qapp.processEvents()
+
+            assert seen == []
+        finally:
+            fm.transform_changed.disconnect(seen.append)
+            widget.close()
+
+    def test_the_subscription_is_torn_down_with_the_widget(self, qapp):
+        """`closeEvent` claims to drop every psygnal "without exception", and once did
+        not -- `acquiring_changed` was missing from it for weeks (FIB-441). A late
+        delivery into a torn-down widget is a process abort, not an exception (FIB-329).
+        """
+        import inspect
+
+        source = inspect.getsource(FMOverviewWidget.closeEvent)
+        assert "transform_changed" in source, (
+            "the transform subscription is not in closeEvent's teardown list"
+        )
+
+
+def test_the_canvas_says_how_to_edit_the_grid_while_it_is_shown(qapp):
+    """The gestures are otherwise discoverable only by accident: the cursor names the
+    edge drag and the paint modifier, but nothing on screen suggests trying either.
+
+    Tied to the grid's visibility rather than set once, so hiding the grid takes its
+    instructions with it -- a standing instruction for something not on screen is worse
+    than none.
+    """
+    widget = _fresh_widget(qapp)
+
+    hint = widget.canvas.canvas._hint_text
+    assert hint and "Shift+drag" in hint
+
+    widget.tile_grid_panel.visibility_changed.emit(False)
+
+    assert widget.canvas.canvas._hint_text is None

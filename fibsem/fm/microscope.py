@@ -35,6 +35,13 @@ SIM_OBJECTIVE_RETRACT_POSITION = -10e-3  # z-axis
 SIM_OBJECTIVE_POSITION_LIMITS = (-12e-3, 10e-3)  # z-axis limits for the objective lens
 SIM_OBJECTIVE_USER_POSITION_LIMIT = 8.6e-3  # user-defined limits for the objective lens
 SIM_OBJECTIVE_FOCUS_POSITION = 8.0e-3
+# Insertion and retraction traverse the objective's whole range -- 16 mm here -- where a
+# focus nudge moves it by microns, so they are seconds of travel on a real system rather
+# than the fraction of one `move_absolute` simulates. Modelled because the difference is
+# what makes a second command *during* one reachable by hand (FIB-628); a delegating
+# `insert` that returned as fast as a nudge made that window too small to click into.
+# `sim_sleep`, so `FIBSEM_SIM_NO_DELAY=1` keeps it out of the test suite.
+SIM_OBJECTIVE_TRAVEL_SECONDS = 2.0
 
 SIM_CAMERA_EXPOSURE_TIME = 0.1  # seconds
 SIM_CAMERA_EXPOSURE_LIMITS = (1e-6, 60.0)  # seconds
@@ -268,6 +275,7 @@ class ObjectiveLens(ABC):
         Moves the objective lens to the predefined insertion position,
         typically at or near the sample focal plane.
         """
+        sim_sleep(SIM_OBJECTIVE_TRAVEL_SECONDS)  # the traverse, on top of the move
         self.move_absolute(self._insert_position)
         logging.info(
             f"Objective lens inserted to position: {self._insert_position:.3f} mm"
@@ -279,6 +287,7 @@ class ObjectiveLens(ABC):
         Moves the objective lens to the predefined retraction position
         to prevent damage during stage movements or sample changes.
         """
+        sim_sleep(SIM_OBJECTIVE_TRAVEL_SECONDS)
         self.move_absolute(self._retract_position)
         logging.info(
             f"Objective lens retracted to position: {self._retract_position:.3f} mm"
@@ -671,6 +680,11 @@ class FluorescenceMicroscope(ABC):
     # start it can grey its controls out. Emitted from whichever thread set the flag --
     # connect with `@ensure_main_thread` if the slot touches widgets.
     acquiring_changed = Signal(bool)
+    # Raised when the user's image transform changes. It is part of
+    # `fm_image_geometry()`, so it is an input to every projection between stage space
+    # and a canvas -- a display that keeps one has to be told, and had no way to know
+    # (FIB-521). Same threading contract as the signals above.
+    transform_changed = Signal(object)  # CameraImageTransform
 
     def __init__(self, parent: Optional["FibsemMicroscope"] = None):
         """Initialize the fluorescence microscope with default components.
@@ -997,10 +1011,18 @@ class FluorescenceMicroscope(ABC):
             raise ValueError(
                 f"Invalid transform '{transform}'. Must be a CameraImageTransform enum value or None"
             )
+        previous = self._transform
         self._transform = (
             transform if transform is not None else CameraImageTransform.NONE
         )
         logging.info(f"Image transform set to: {transform}")
+        # Announced, because this is not only a display preference: `fm_image_geometry()`
+        # carries it, so it is an input to every projection between stage space and a
+        # canvas. A view holding a projection has no other way to learn it moved
+        # (FIB-521). Only on a real change -- the camera widget re-applies the saved
+        # transform on load, and a redraw for a value that did not move is noise.
+        if self._transform is not previous:
+            self.transform_changed.emit(self._transform)
 
     @property
     def camera_tilt(self) -> float:

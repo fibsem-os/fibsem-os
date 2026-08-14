@@ -203,8 +203,9 @@ class QuadViewWidget(QWidget):
             frame.setStyleSheet(_PANEL_QSS.format(bg=_BG, border=self._panel_border(k)))
 
     def set_live(self, key: object, live: bool) -> None:
-        """Mark view *key* (a ``BeamType``) as live-acquiring: green border + a "LIVE" badge on
-        its canvas, independent of which view is selected. The border wins over selection."""
+        """Mark view *key* (a ``BeamType``, or ``"fm"``) as live-acquiring: green border + a
+        "LIVE" badge on its canvas, independent of which view is selected. The border wins
+        over selection."""
         if key not in self._panels:
             return
         if live:
@@ -399,6 +400,13 @@ class MicroscopeViewController(QObject):
         self._dirty: Set[FibsemImageCanvas] = set()
         self._render_scheduled = False
         self._render_requested.connect(self._do_render, Qt.QueuedConnection)
+        # Last objective position anyone told us about, in metres. Remembered so
+        # `update_info` can label the FM canvas without asking the device -- see there.
+        self._objective_position: Optional[float] = None
+        # Whether the one starting read has been attempted. Separate from the position
+        # itself so a read that *fails* is not retried on every stage update, which is
+        # the poll this replaced.
+        self._objective_seeded = False
 
     @property
     def widget(self) -> QWidget:
@@ -429,12 +437,23 @@ class MicroscopeViewController(QObject):
         if callable(fn):
             fn()
 
-    def set_live(self, key: BeamType, live: bool) -> None:
-        """Mark a beam view as live-acquiring (green border + LIVE badge). No-op on views
-        that don't support it."""
+    def set_live(self, key: object, live: bool) -> None:
+        """Mark a view as live-acquiring (green border + LIVE badge). No-op on views
+        that don't support it.
+
+        *key* is a view key, not a beam: the quad view keeps the FM under ``"fm"``
+        alongside the two ``BeamType``s and has since it was built. The annotation said
+        ``BeamType``, which is the whole reason the FM panel never showed that it was
+        streaming while the beam panels did -- the plumbing was there and looked closed
+        (FIB-596). Prefer :meth:`set_fm_live` over passing the string."""
         fn = getattr(self._widget, "set_live", None)
         if callable(fn):
             fn(key, live)
+
+    def set_fm_live(self, live: bool) -> None:
+        """Mark the FM view as live-acquiring (FM isn't a ``BeamType``) -- the
+        counterpart to :meth:`set_fm_info`."""
+        self.set_live("fm", live)
 
     @property
     def sem_canvas(self) -> FibsemImageCanvas:
@@ -677,12 +696,34 @@ class MicroscopeViewController(QObject):
             self.set_fm_info("stage", stage_txt)  # universal context (before objective)
             self.set_info(BeamType.ION, "milling", f"MILLING ANGLE: {milling_angle:.1f}°")
             if microscope.fm is not None:
-                if objective_position is None:
-                    objective_position = microscope.fm.objective.position
-                self.set_fm_info(
-                    "objective",
-                    f"OBJECTIVE: {objective_position * constants.METRE_TO_MICRON:.1f} µm",
-                )
+                # Remembered rather than read. This runs on every stage-position update
+                # (`FibsemMovementWidget._update_position_readout`, which passes no
+                # objective position), and on a TFS system reading the objective takes
+                # the shared imaging channel -- so a stage move was pointing the
+                # microscope at the FM and back to label a canvas. That is FIB-517's
+                # failure mode in a text field (FIB-576).
+                #
+                # Whoever moves the objective says so: `ObjectiveControlWidget` passes it
+                # here after every move, and follows `position_changed` for the ones it
+                # did not make. The label simply keeps its last value in between, which
+                # is what it did anyway -- the device read only ever returned the same
+                # number more expensively.
+                if objective_position is not None:
+                    self._objective_position = objective_position
+                elif self._objective_position is None and not self._objective_seeded:
+                    # One starting read, because nothing pushes a position at
+                    # construction: `ObjectiveControlWidget` reads one for its spinbox
+                    # and keeps it to itself. Without this the field is simply absent
+                    # until the first move, where it used to appear on the first stage
+                    # update -- a working readout removed in the name of not polling.
+                    # Once per controller is not a poll.
+                    self._objective_seeded = True
+                    self._objective_position = microscope.fm.objective.position
+                if self._objective_position is not None:
+                    self.set_fm_info(
+                        "objective",
+                        f"OBJECTIVE: {self._objective_position * constants.METRE_TO_MICRON:.1f} µm",
+                    )
         except Exception:
             _logger.warning("MicroscopeViewController.update_info failed", exc_info=True)
 

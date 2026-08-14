@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import argparse
 import logging
 import sys
 import time
-from typing import Optional
+from typing import List, Optional
 
 try:
     sys.modules.pop("PySide6.QtCore")
@@ -2487,10 +2488,33 @@ def _start_update_check() -> None:
     _check().start()
 
 
-def run_ui():
+def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+    """Parse the command-line flags accepted by the AutoLamella UI."""
+    parser = argparse.ArgumentParser(
+        prog="fibsem-autolamella-ui",
+        description="Launch the AutoLamella user interface.",
+    )
+    parser.add_argument(
+        "--quickstart",
+        action="store_true",
+        help="Connect to the microscope with the default configuration as soon as the "
+             "window is up, instead of waiting for the Connection tab.",
+    )
+    parser.add_argument(
+        "--quickload",
+        action="store_true",
+        help="Connect as --quickstart does, then reopen the most recent experiment. "
+             "Implies --quickstart -- the experiment tabs are built at connection time.",
+    )
+    return parser.parse_args(argv)
+
+
+def run_ui(argv: Optional[List[str]] = None):
     """Run the AutoLamella embedded example."""
     import faulthandler
     import signal
+
+    args = _parse_args(argv)
 
     from fibsem.tools.bug_report import init_sentry
 
@@ -2517,6 +2541,15 @@ def run_ui():
     window = AutoLamellaSingleWindowUI()
     window.show()
     _start_update_check()
+    if args.quickstart or args.quickload:
+        # Once the event loop is running, not inline here: connecting blocks for
+        # seconds against real hardware, and doing it before exec_() would hold up
+        # the first paint — an empty window frame for the whole wait. A zero timer
+        # fires as soon as the window system's queue, that first paint included,
+        # has drained.
+        QTimer.singleShot(
+            0, lambda: window.autolamella_ui.quickstart(load_experiment=args.quickload)
+        )
     sys.exit(app.exec_())
 
 

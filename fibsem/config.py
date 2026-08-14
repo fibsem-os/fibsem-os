@@ -600,6 +600,34 @@ def get_recent_experiments(prune_missing: bool = True) -> List[ExperimentSummary
     return infos
 
 
+def get_last_experiment_file() -> Optional[str]:
+    """Path to the ``experiment.yaml`` of the last experiment opened, or None.
+
+    ``last_experiment_path`` is the experiment *directory* -- that is how both the
+    create and the load dialog record it -- so callers do not have to know where
+    the file sits inside it.
+
+    Falls back to the newest recent entry still on disk, because the two lists go
+    stale differently: recents are pruned when their file disappears and this one
+    never is, so the last experiment opened is routinely a scratch experiment that
+    has since been deleted. The next-newest one is the useful answer there, not
+    nothing.
+    """
+    prefs = load_user_preferences()
+
+    last_path = str(prefs.experiment.last_experiment_path or "")
+    if last_path:
+        candidate = os.path.join(last_path, "experiment.yaml")
+        if os.path.exists(candidate):
+            return candidate
+
+    for path in prefs.experiment.recent_experiments:
+        if os.path.exists(str(path)):
+            return str(path)
+
+    return None
+
+
 def apply_feature_flags(prefs: UserPreferences) -> None:
     """Update module-level FEATURE_* constants from user preferences.
 

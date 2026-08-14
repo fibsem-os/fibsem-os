@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 import numpy as np
-from fibsem.ui.qt.threading import thread_worker
+from fibsem.ui.qt.threading import FunctionWorker, thread_worker
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.ui import notification_service
@@ -22,6 +22,7 @@ from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
+from superqt import ensure_main_thread
 from superqt.utils import qdebounced
 from fibsem.ui.utils import message_box_ui
 from fibsem.ui.napari.utilities import update_text_overlay
@@ -199,6 +200,21 @@ class ObjectiveControlWidget(QWidget):
         self.doubleSpinBox_objective_limit.valueChanged.connect(self.on_objective_limit_changed)
         self.pushButton_refresh_position.clicked.connect(lambda: self.update_objective_position_labels(None))
 
+        # Moves this widget did not make -- an autofocus sweep, a z-stack, the overview
+        # runner -- left the spinbox showing the position from before them. It only ever
+        # refreshed after its own actions (FIB-576).
+        #
+        # A plain bound method, never a Qt signal's `emit`: psygnal holds bound methods
+        # weakly and matches them at disconnect, and PyQt rebuilds `emit` on every access
+        # so psygnal can neither weakref it nor remove it later. Marshalled by
+        # `@ensure_main_thread` on the slot, which is the contract `FibsemMicroscope`
+        # states for its psygnals -- the sweep that moves the objective runs on a worker.
+        #
+        # This is the widget's only psygnal, and it is why `closeEvent` now exists: the
+        # signal outlives the widget, and an emit into one Qt has torn down on the C++
+        # side is a segfault rather than an exception (FIB-550).
+        self.fm.objective.position_changed.connect(self._on_objective_moved)
+
         # set stylesheets
         self.pushButton_insert_objective.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.pushButton_retract_objective.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
@@ -208,8 +224,21 @@ class ObjectiveControlWidget(QWidget):
         # set initial ranges based on user-defined limit
         self.on_objective_limit_changed(self.doubleSpinBox_objective_limit.value())
 
-        # Debounce state for mouse wheel objective movement
+        # Debounce state for mouse wheel objective movement.
+        #
+        # `_wheel_target_um` is where the user has scrolled to; `_wheel_worker` is the
+        # move currently on its way there, or None. One field, not a separate "busy"
+        # flag: it is set when a move starts and cleared only in the completion slots,
+        # which run on the GUI thread -- so `is not None` means "in flight, or landed
+        # and not yet accounted for", with no window between the two. `is_alive()`
+        # would open exactly that window.
         self._wheel_target_um: float = 0.0
+        self._wheel_worker: Optional[FunctionWorker] = None
+        # The threaded insert / retract, tracked for the same reason: it drives the
+        # objective, so everything else must be able to see that it is doing so
+        # (FIB-628). Cleared in the completion slots, which run on the GUI thread.
+        self._action_worker: Optional[FunctionWorker] = None
+        self._wheel_moving_to_um: Optional[float] = None
         self._execute_wheel_move = qdebounced(self._execute_wheel_move_impl, timeout=150)
 
         # `hasattr` is not enough once hosts go viewer-less — the attribute is still
@@ -223,13 +252,92 @@ class ObjectiveControlWidget(QWidget):
         self.pushButton_insert_objective.setEnabled(enabled)
         self.pushButton_retract_objective.setEnabled(enabled)
 
+    def _flash_focus_target(self, new_pos_um: float, step_um: float) -> None:
+        """Flash where the objective is going, on the canvas being scrolled (FIB-635).
+
+        The beam canvases have done this for the working distance since the quad view
+        shipped -- `flash_message(f"WD {v:.3f} mm")` -- and the FM, the one you focus by
+        while watching the stream, showed nothing.
+
+        Not a duplicate of the `OBJECTIVE` field in the info bar, which reports where the
+        objective *is*: persistent, device-truthful, and deliberately behind during a
+        burst, because `_wheel_is_driving` suppresses the intermediates rather than let
+        the number snap backwards past your own scrolling (FIB-625). This is the
+        *command* -- where the next move is headed -- so a target is the right thing to
+        show, and transient is the right lifetime.
+
+        The step is included because it is the one piece of state that silently changes
+        what the gesture means: leave it at 50 um and your first notch jumps 50. Signed,
+        so it doubles as a direction indicator. It does not change across a burst, which
+        is why it costs nothing to read twice.
+        """
+        canvas = self.sender()
+        if canvas is None or not hasattr(canvas, "flash_message"):
+            return
+        canvas.flash_message(f"OBJ {new_pos_um:.1f} um  ({step_um:+.1f} um)")
+
+    def _objective_busy_reason(self) -> Optional[str]:
+        """What is driving the objective right now, phrased for a warning, or None.
+
+        One question — *is anything driving the objective* — with three sources, because
+        three different parties can be:
+
+        * **Another acquisition.** A tileset, z-stack or autofocus sweep steps the
+          objective itself, and a second hand on it corrupts the run. The microscope
+          answers this and only the microscope can: asking whether *this widget* was
+          busy is what let another tab's tileset through (FIB-513). A live stream is
+          deliberately not busy — focusing while watching is what this panel is for.
+        * **A focus adjustment.** The wheel move runs on a worker now (FIB-625), so
+          everything here stays clickable while it is on its way.
+        * **An insert or retract.** Also threaded, and always was — so a scroll during a
+          retraction has always gone through (FIB-628). This is the collision-relevant
+          one: `insert_objective` moves the *stage* before inserting.
+
+        A guard on the action, not on the button. The buttons are not this widget's to
+        drive — `FMControlWidget._update_acquisition_button_states` owns them and
+        re-derives them from `may_start` — so disabling them here and re-enabling on
+        completion overwrote its answer, and scrolling during a live stream left Insert
+        and Retract clickable when the stream forbids them. That is the shape FIB-513
+        closed one layer up (FIB-515).
+
+        What it cannot see is another `ObjectiveControlWidget` — the coincidence viewer
+        holds a second one, with its own workers. Closing that means the objective
+        marking itself busy rather than the widget doing it, which is the FIB-441 shape
+        and a driver-level change; recorded on FIB-628 rather than assumed here.
+        """
+        if not self.fm.is_interactive:
+            return self.fm.acquiring_reason or "another acquisition"
+        if self._wheel_worker is not None:
+            return "a focus adjustment"
+        if self._action_worker is not None:
+            return "an objective insert or retract"
+        return None
+
+    def _refuse_if_objective_busy(self, what: str) -> bool:
+        """Whether *what* must stand down, saying so in the log and on screen.
+
+        Visible rather than silent: the control that triggered it stays enabled — that
+        is the point of guarding the action instead of the button — so a refusal with no
+        feedback reads as a dead button.
+        """
+        reason = self._objective_busy_reason()
+        if reason is None:
+            return False
+        logging.info(f"{what} refused: {reason} is driving the objective")
+        notification_service.show_toast(
+            f"The objective is busy with {reason}.", "warning"
+        )
+        return True
+
     def _on_objective_action_finished(self, *_) -> None:
         """Re-enable controls and refresh labels after a threaded objective move."""
+        self._action_worker = None
         self._set_objective_actions_enabled(True)
         self.update_objective_position_labels()
 
     def _on_objective_action_error(self, exc: Exception) -> None:
         """Report a failed objective operation without crashing the app."""
+        self._action_worker = None
         logging.error(f"Objective operation failed: {exc}", exc_info=exc)
         self._set_objective_actions_enabled(True)
         self.update_objective_position_labels()
@@ -242,6 +350,8 @@ class ObjectiveControlWidget(QWidget):
 
     def insert_objective(self):
         """Insert the objective. The hardware move runs on a worker thread."""
+        if self._refuse_if_objective_busy("Objective insertion"):
+            return
         if self.fm.objective.state == "Inserted":
             message_box_ui(
                 title="Objective Already Inserted",
@@ -275,7 +385,7 @@ class ObjectiveControlWidget(QWidget):
             target_stage_pos = stage_pos
 
         self._set_objective_actions_enabled(False)
-        worker = self._insert_objective_worker(target_stage_pos)
+        self._action_worker = worker = self._insert_objective_worker(target_stage_pos)
         worker.returned.connect(self._on_objective_action_finished)
         worker.errored.connect(self._on_objective_action_error)
         worker.start()
@@ -295,6 +405,8 @@ class ObjectiveControlWidget(QWidget):
 
     def retract_objective(self):
         """Retract the objective. The hardware move runs on a worker thread."""
+        if self._refuse_if_objective_busy("Objective retraction"):
+            return
         if self.fm.objective.state == "Retracted":
             message_box_ui(
                 title="Objective Already Retracted",
@@ -315,7 +427,7 @@ class ObjectiveControlWidget(QWidget):
             return
 
         self._set_objective_actions_enabled(False)
-        worker = self._retract_objective_worker()
+        self._action_worker = worker = self._retract_objective_worker()
         worker.returned.connect(self._on_objective_action_finished)
         worker.errored.connect(self._on_objective_action_error)
         worker.start()
@@ -350,9 +462,55 @@ class ObjectiveControlWidget(QWidget):
                 controller.update_info(self.parent_widget.microscope,
                                        objective_position=objective_position)
 
+    @ensure_main_thread
+    def _on_objective_moved(self, position: float, state: str) -> None:
+        """Something moved the objective, and said where it ended up.
+
+        The position comes from the signal rather than a fresh read, so this costs
+        nothing and cannot disagree with the move that prompted it.
+
+        Routed through `update_objective_position_labels`, which blocks the spinbox's
+        signals around `setValue`. Without that block this closes a loop -- setValue
+        raises `valueChanged`, which is wired to `on_objective_position_changed`, which
+        moves the objective, which emits `position_changed` again. Qt does not warn
+        about that; it simply never returns.
+
+        `state` is accepted and unused: the button states it would drive are decided by
+        guards that read the device deliberately, and a stale "Retracted" there is what
+        moves the stage with the objective still in the chamber (FIB-534).
+
+        Stands aside while the wheel is driving: every emit then comes from the wheel's
+        own move and reports a position the user has already scrolled past. Not decided
+        by which slot Qt happens to deliver first -- both consult the same predicate.
+        """
+        if self._wheel_is_driving():
+            return
+        self.update_objective_position_labels(position)
+
+    def closeEvent(self, event) -> None:
+        """Drop the psygnal before Qt takes the widgets down.
+
+        It belongs to the microscope and outlives this widget, and it holds a bound
+        method of an object whose C++ half `close` has already destroyed -- so the next
+        emit writes into freed memory. A segfault, not an exception (FIB-550).
+        """
+        try:
+            self.fm.objective.position_changed.disconnect(self._on_objective_moved)
+        except (TypeError, RuntimeError, ValueError, KeyError):
+            pass
+        super().closeEvent(event)
+
     @pyqtSlot(float)
     def on_objective_position_changed(self, position: float):
         """Handle changes to the objective position."""
+        # The last unguarded way in, and the awkward one: refusing a `valueChanged` means
+        # putting the spinbox back, and that would raise `valueChanged` again and re-enter
+        # here. `update_objective_position_labels` blocks the spinbox's signals around
+        # `setValue`, which is what makes the put-back safe -- the same reason the
+        # large-move cancel below already routes through it (FIB-515).
+        if self._refuse_if_objective_busy("Objective move"):
+            self.update_objective_position_labels()
+            return
 
         is_large_change = abs(self.fm.objective.position - (position * MICRON_TO_METRE)) > 1e-3  # 1 mm threshold
 
@@ -406,6 +564,8 @@ class ObjectiveControlWidget(QWidget):
 
     def move_to_focus_position(self):
         """Move the objective to the stored focus position."""
+        if self._refuse_if_objective_busy("Move to focus position"):
+            return
         if self.fm.objective.focus_position is None:
             logging.warning("No focus position has been set")
             return
@@ -444,6 +604,12 @@ class ObjectiveControlWidget(QWidget):
 
     def set_focus_position(self):
         """Set the focus position to the current objective position."""
+        # Records rather than moves, so it looked exempt -- but the number it records is
+        # a fresh device read, and mid-move that is wherever the objective happens to be
+        # passing. Saving a focus of "halfway there" is the failure. FIB-515 left this
+        # one to be decided rather than assumed; this is the reason to guard it.
+        if self._refuse_if_objective_busy("Set focus position"):
+            return
         current_position_um = self.fm.objective.position * METRE_TO_MICRON
 
         ret = message_box_ui(
@@ -499,13 +665,18 @@ class ObjectiveControlWidget(QWidget):
             event.handled = False  # Let napari handle zooming if Shift is not pressed
             return
 
-        # Prevent objective movement while something is driving the objective itself.
+        # Prevent objective movement while something is driving the objective itself:
+        # another acquisition, or this widget's own threaded insert / retract (FIB-628).
         # Asked of the microscope, not the parent widget: `is_acquisition_active` is only
         # the parent's own work, so another tab's tileset let this through (FIB-513).
         # Still allowed during a live stream -- shift-scrolling to focus while watching
         # is what this handler is for.
-        if not self.fm.is_interactive:
-            logging.info("Objective movement disabled during acquisition")
+        #
+        # Logged, not toasted: this fires per notch, and a burst would be a burst of
+        # toasts. The deliberate single actions each say so on screen instead.
+        reason = self._objective_busy_reason()
+        if reason is not None:
+            logging.info(f"Objective movement disabled: {reason}")
             event.handled = True
             return
 
@@ -540,7 +711,15 @@ class ObjectiveControlWidget(QWidget):
         if "Shift" not in modifiers:
             return  # plain scroll -> canvas zoom
 
-        if self.parent_widget is None or self.parent_widget.is_acquisition_active:
+        if self.parent_widget is None:
+            return
+        # The microscope's answer, not the parent's: `is_acquisition_active` is only that
+        # widget's own work, so another tab's tileset went straight through here
+        # (FIB-513), and neither of them notices this widget's threaded insert or retract
+        # (FIB-628). Logged rather than toasted -- see `_on_mouse_wheel`.
+        reason = self._objective_busy_reason()
+        if reason is not None:
+            logging.info(f"Objective movement disabled: {reason}")
             return
 
         step_um = float(
@@ -556,25 +735,132 @@ class ObjectiveControlWidget(QWidget):
         self.doubleSpinBox_objective_position.blockSignals(True)
         self.doubleSpinBox_objective_position.setValue(new_pos_um)
         self.doubleSpinBox_objective_position.blockSignals(False)
+        self._flash_focus_target(new_pos_um, step_um)
 
         self._wheel_target_um = new_pos_um
         self._execute_wheel_move()
 
     def _execute_wheel_move_impl(self):
-        """Execute the actual hardware move after scrolling settles."""
+        """Scrolling has settled: send the objective after it, on a worker thread.
+
+        `qdebounced` fires on a QTimer in the GUI thread, so running the move here --
+        as this did -- blocked every repaint for its duration, and the live FM canvas
+        stopped updating while you focused. Frames kept arriving throughout: the stream
+        has its own thread, they simply could not be drawn (FIB-625).
+
+        A move already on its way is not joined by a second one. It re-reads the target
+        when it lands, so a nudge arriving mid-move *replaces* where the objective is
+        going instead of queueing another trip -- which is the same coalescing the
+        150 ms debounce does for the burst, extended over the move itself.
+        """
+        if self._wheel_worker is not None:
+            return  # in flight; `_on_wheel_move_finished` picks up the newer target
+        self._start_wheel_move()
+
+    def _start_wheel_move(self) -> None:
+        """Send one move to the current target, unless something else has the objective.
+
+        The last moment before the command goes out, and the only one that is safe to
+        check at: the scroll handlers guard when the notch arrives, but the debounce
+        puts 150 ms between that and the move, and the chase below can dispatch later
+        still. An insert, a retract or a tileset starting inside either window would
+        otherwise find a move already on its way to it.
+
+        Both callers come through here, so this is the single place that dispatches.
+        """
+        reason = self._objective_busy_reason()
+        if reason is not None:
+            logging.info(f"Wheel move abandoned: {reason} is driving the objective")
+            self._wheel_moving_to_um = None  # give the readout back to the device
+            self.update_objective_position_labels()
+            return
         position_um = self._wheel_target_um
-        position_m = position_um * MICRON_TO_METRE
         logging.info(f"Executing debounced wheel move to: {position_um:.1f} µm")
-        try:
-            self.fm.objective.move_absolute(position_m)
-            self.update_objective_position_labels(objective_position=position_m)
-        except Exception as e:
-            logging.error(f"Objective wheel move failed: {e}", exc_info=e)
-            notification_service.show_toast(f"Objective move failed: {e}", "warning")
-            self.update_objective_position_labels()  # re-sync to actual position
+        self._wheel_moving_to_um = position_um
+        worker = self._wheel_move_worker(position_um * MICRON_TO_METRE)
+        worker.returned.connect(self._on_wheel_move_finished)
+        worker.errored.connect(self._on_wheel_move_error)
+        self._wheel_worker = worker
+        worker.start()
+
+    @thread_worker
+    def _wheel_move_worker(self, position_m: float) -> float:
+        """Worker: move the objective, and report back where it was sent."""
+        self.fm.objective.move_absolute(position_m)
+        return position_m
+
+    def _wheel_is_driving(self) -> bool:
+        """Whether the readout belongs to the wheel rather than to the device.
+
+        True from the moment a wheel move starts until the objective has caught up with
+        the last notch. In between, where the objective *is* runs behind where the user
+        has scrolled to, and writing it to the spinbox snaps the number backwards past
+        their own scrolling for the length of the next move -- several hundred ms of
+        showing the wrong position, on the readout they are focusing by. The scroll
+        handler already writes each notch, so there is nothing to restore: the wheel's
+        target is the truthful answer to "where is this going".
+
+        Invisible before the move came off the GUI thread, because nothing repainted
+        between the notch and the move landing.
+        """
+        if self._wheel_worker is not None:
+            return True
+        return (
+            self._wheel_moving_to_um is not None
+            and self._wheel_target_um != self._wheel_moving_to_um
+        )
+
+    def _on_wheel_move_finished(self, position_m: float) -> None:
+        """The move landed. Chase the target if it has moved on, else settle."""
+        self._wheel_worker = None
+        if self._wheel_target_um != self._wheel_moving_to_um:
+            self._start_wheel_move()  # stale before it could be shown; do not write it
+            return
+        self._wheel_moving_to_um = None  # the burst is over; the device owns the readout
+        # Kept even though `position_changed` now drives the same labels (FIB-576):
+        # that signal is skipped when the read behind it fails, by design, and this is
+        # the path that always reports. Two label updates cost ~0.4 ms together.
+        self.update_objective_position_labels(objective_position=position_m)
+
+    def _detach_wheel_worker(self) -> None:
+        """Cut a move in flight loose from this widget.
+
+        Not joined. The objective finishes moving either way, and waiting for it is the
+        blocking this change exists to remove — teardown would be the one place still
+        doing it. What must not survive is the callback: these slots touch widgets, and
+        an emit into one Qt has already destroyed on the C++ side is a segfault rather
+        than an exception (FIB-550). Cutting the connections leaves the worker to finish
+        into nothing, which is what we want.
+        """
+        worker = self._wheel_worker
+        self._wheel_worker = None
+        # Cleared with it, or `_wheel_is_driving` stays true with nothing left to drive
+        # and the readout never follows the device again.
+        self._wheel_moving_to_um = None
+        if worker is None:
+            return
+        for signal, slot in (
+            (worker.returned, self._on_wheel_move_finished),
+            (worker.errored, self._on_wheel_move_error),
+        ):
+            try:
+                signal.disconnect(slot)
+            except (TypeError, RuntimeError):
+                pass
+
+    def _on_wheel_move_error(self, exc: Exception) -> None:
+        """The move failed. Report it and re-sync to wherever the objective actually is."""
+        self._wheel_worker = None
+        # Abandon the chase too: the target is unreachable, and the honest thing to show
+        # is where the objective actually stopped, not where the wheel was pointing.
+        self._wheel_moving_to_um = None
+        logging.error(f"Objective wheel move failed: {exc}", exc_info=exc)
+        notification_service.show_toast(f"Objective move failed: {exc}", "warning")
+        self.update_objective_position_labels()  # re-sync to actual position
 
     def cleanup(self):
-        """Drop the napari mouse-wheel callback and any pending debounced move.
+        """Drop the napari mouse-wheel callback, any pending debounced move, and any
+        move already on its way.
 
         Call on widget teardown: the callback binds this widget onto a viewer that
         outlives it, so without this a scroll after a microscope reconnect drives a dead
@@ -583,6 +869,7 @@ class ObjectiveControlWidget(QWidget):
             self._execute_wheel_move.cancel()
         except Exception:
             pass
+        self._detach_wheel_worker()
         if (self.parent_widget is not None
                 and getattr(self.parent_widget, "viewer", None) is not None):
             try:
