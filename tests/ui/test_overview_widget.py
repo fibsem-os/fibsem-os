@@ -1885,12 +1885,19 @@ class TestTheCanvasFollowsTheBeamYouPlanWith:
 
 
 class TestTheViewChips:
-    """The view selector lives on the canvas, and says which view is which.
+    """The view selector rides with the canvas, and says which view is which.
 
     It selects what you are looking at, so it belongs where you are looking rather than
     in the settings column. And the labels had to change: the orientations are named
     after the beams, so pairing the two read as a tautology one way ("SEM · Electron")
     and a contradiction the other ("SEM · Ion").
+
+    On a strip *above* the canvas rather than painted on it (FIB-649). The set is beams
+    x orientations and grows through a session, so it never fitted a corner: eight chips
+    measure 709 px, which is wider than the canvas at any window worth having, and they
+    ran off the right edge and under the toolbar buttons. A growing set inside a fixed
+    region has no offset that rescues it -- which is also how they came to be drawn
+    inside the canvas status zone's rectangle (FIB-651).
     """
 
     @staticmethod
@@ -1953,13 +1960,13 @@ class TestTheViewChips:
 
         labels = {b.text() for b in widget._view_chip_buttons.values()}
         assert {"SEM @ SEM", "FIB @ SEM"} <= labels
-        # Placed on the canvas, not merely constructed: they were once sized from a
-        # layout that answered with nothing, so they reported themselves visible and
-        # drew at zero size.
+        # Laid out, not merely constructed: they have twice been sized from a layout
+        # that answered with nothing -- once hand-placed in a container that reported a
+        # zero size hint, and once inserted into a live layout that had not activated
+        # yet -- and both times they reported themselves visible and drew at zero size.
         assert all(b.width() > 0 for b in widget._view_chip_buttons.values())
-        assert all(
-            b.parent() is widget.canvas for b in widget._view_chip_buttons.values()
-        )
+        assert all(b.height() > 0 for b in widget._view_chip_buttons.values())
+        assert widget.view_strip.height() > 0, "the strip collapsed onto its margins"
 
     def test_clicking_a_chip_switches_the_canvas(self, widget, microscope):
         widget.set_image(self._image(microscope, "SEM", BeamType.ELECTRON))
@@ -1993,6 +2000,101 @@ class TestTheViewChips:
         other = widget._view_chip_buttons[widget.current_view]
         assert marked.styleSheet() != other.styleSheet()
         assert "next acquisition" in marked.toolTip()
+
+    def test_the_chips_are_above_the_canvas_not_on_it(self, widget, microscope):
+        """The whole of FIB-649 in one assertion: nothing the selector does can occlude
+        data or collide with the canvas's own chrome if it is not on the canvas."""
+        widget.set_image(self._image(microscope, "SEM", BeamType.ELECTRON))
+        widget.show()
+        _app.processEvents()
+
+        assert widget.view_strip.isVisible()
+        for chip in widget._view_chip_buttons.values():
+            assert not widget.canvas.isAncestorOf(chip), (
+                f"{chip.text()!r} is drawn on the canvas"
+            )
+        strip = widget.view_strip.geometry()
+        assert strip.bottom() <= widget.canvas.geometry().top(), (
+            "the strip overlaps the canvas rather than sitting above it"
+        )
+        widget.hide()
+
+    def test_eight_views_do_not_set_a_floor_on_the_window(self, widget, monkeypatch):
+        """The capacity problem, stated as the thing that would go wrong.
+
+        A row of controls in a plain layout sets the *window's* minimum width. Eight
+        chips measure 709 px, so a tab used in every view would refuse to be resized
+        narrower than that -- a floor that appears mid-session as views accumulate, on
+        a tab whose own minimum is the settings column.
+        """
+        views = [
+            OverviewView(beam_type=beam, orientation=orientation)
+            for orientation in ("SEM", "MILLING", "FM", "LANDING")
+            for beam in (BeamType.ELECTRON, BeamType.ION)
+        ]
+        before = widget.minimumSizeHint().width()
+        monkeypatch.setattr(
+            type(widget), "views", property(lambda self: views)  # read-only
+        )
+        widget._refresh_view_selector()
+        _app.processEvents()
+
+        assert len(widget._view_chip_buttons) == 8
+        assert widget.minimumSizeHint().width() == before, (
+            "the chips became the narrowest the window can be"
+        )
+
+    def test_the_strip_goes_away_when_there_is_nothing_to_choose(
+        self, widget, monkeypatch
+    ):
+        """An empty bar above the canvas is chrome that has not earned its place."""
+        monkeypatch.setattr(type(widget), "views", property(lambda self: []))
+        monkeypatch.setattr(
+            type(widget), "acquisition_view", property(lambda self: None)
+        )
+        widget._current_view = None
+        widget._refresh_view_selector()
+
+        assert not widget._view_chip_buttons
+        assert widget.view_strip.isHidden()
+
+
+class TestTheCursorReadoutUsesTheCanvasStatusZone:
+    """The pointer readout goes through the canvas, not a label of this tab's own.
+
+    It used to be hand-placed under the view chips, in "the one free corner" -- which
+    stopped being free when the canvas grew a status zone there (FIB-639). Measured
+    before the fix: the status label at (4, 4, 104x22) and a chip at (8, 8, 73x20), the
+    chip drawn inside it. Nothing showed it, because nothing on this tab ever set a
+    hint, a readout or a flash -- so the collision was waiting for the first one that
+    did (FIB-651).
+    """
+
+    def test_the_readout_goes_to_the_canvas(self, widget):
+        widget._set_cursor_readout("x 1.0  y 2.0  z 3.0 um")
+        assert widget.canvas._readout_text == "x 1.0  y 2.0  z 3.0 um"
+
+    def test_an_empty_readout_releases_the_zone(self, widget):
+        """Rather than leaving a blank plaque over the data. The zone then falls back to
+        whatever is underneath on its own."""
+        widget._set_cursor_readout("x 1.0  y 2.0  z 3.0 um")
+        widget._set_cursor_readout("")
+        assert widget.canvas._readout_text is None
+
+    def test_the_tab_keeps_no_label_of_its_own(self, widget):
+        """The mechanism, not just the outcome: a second label parented to the canvas is
+        what put two things in this corner, and it is what would do so again."""
+        assert not hasattr(widget, "cursor_readout")
+
+    def test_the_readout_does_not_repaint_the_figure(self, widget, monkeypatch):
+        """Why this is not `set_info_text`. It fires on every motion event, and a figure
+        repaint on this canvas costs every placed image."""
+        draws = []
+        monkeypatch.setattr(widget.canvas, "draw_idle", lambda: draws.append(1))
+
+        widget._set_cursor_readout("x 1.0  y 2.0  z 3.0 um")
+
+        assert draws == [], f"{len(draws)} figure repaint(s) for one readout update"
 
 
 class TestTheMillingAngleIsOnTheBeamTab:

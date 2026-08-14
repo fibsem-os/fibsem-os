@@ -46,10 +46,12 @@ from PyQt5.QtWidgets import (
     QCheckBox,
     QDialog,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -75,10 +77,15 @@ from fibsem.ui import utils as ui_utils
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
+    BORDER_COLOR,
     CURRENT_POSITION_COLOUR,
     GRAY_WHITE_COLOR,
     GRID_BOUNDARY_COLOUR,
     NEUTRAL_300,
+    NEUTRAL_750,
+    NEUTRAL_800,
+    NEUTRAL_900,
+    PANEL_COLOR,
     SAVED_POSITION_COLOUR,
     SELECTED_POSITION_COLOUR,
     SEMANTIC_WARNING_COLOR,
@@ -120,29 +127,45 @@ PREVIEW_KEY = "acquisition-preview"
 # so the two tabs' section headers line up.
 _HEADER_BTN_SIZE = 26
 
-# Inset for chrome drawn over the canvas, matching the fluorescence overview's.
+# Inset from the canvas's left edge for chrome drawn over it. Only x: the y comes from
+# the canvas, which owns its top row -- see `chrome_below_toolbar_y`.
 _CANVAS_CHROME_MARGIN = 8
-# Below the view chips, which own the top-left corner.
-_CURSOR_READOUT_TOP = 38
 # Gap between view chips.
 _VIEW_CHIP_SPACING = 4
 
-# Chips over the image, so dark and translucent rather than the app's button styling --
-# they sit on data and must not read as a toolbar. The active one is the view the next
-# run would land in, in the accent colour the app uses for a selected state.
+# Chips as they have always looked -- dark and rounded rather than the app's button
+# styling, because they read as a set of states rather than a toolbar. The active one is
+# the view the next run would land in, in the accent colour the app uses for a selected
+# state.
+#
+# Opaque now, where these were `rgba(..., 170)`. The translucency was doing real work
+# while they sat on the image; on a solid strip it means nothing, and a transparency
+# that means nothing is the kind of thing a later redesign preserves for no reason. The
+# values are the palette's own steps rather than the blend arithmetic -- within a couple
+# of levels of it, and picked rather than mixed (`feedback_ui_widget_style`).
 _VIEW_CHIP_STYLE = (
     f"QPushButton {{ color: {NEUTRAL_300}; font-size: 10px; padding: 3px 8px;"
-    " border: none; border-radius: 9px; background: rgba(26, 26, 26, 170); }"
-    "QPushButton:hover { background: rgba(60, 60, 60, 200); }"
+    f" border: none; border-radius: 9px; background: {NEUTRAL_900}; }}"
+    f"QPushButton:hover {{ background: {NEUTRAL_800}; }}"
     f"QPushButton:checked {{ color: {GRAY_WHITE_COLOR};"
-    " background: rgba(90, 90, 90, 210); }"
+    f" background: {NEUTRAL_750}; }}"
 )
 _VIEW_CHIP_STYLE_ACTIVE = (
     f"QPushButton {{ color: {NEUTRAL_300}; font-size: 10px; padding: 3px 8px;"
     f" border: 1px solid {ACCENT_COLOR}; border-radius: 9px;"
-    " background: rgba(26, 26, 26, 170); }"
-    "QPushButton:hover { background: rgba(60, 60, 60, 200); }"
+    f" background: {NEUTRAL_900}; }}"
+    f"QPushButton:hover {{ background: {NEUTRAL_800}; }}"
     f"QPushButton:checked {{ color: {GRAY_WHITE_COLOR}; background: {ACCENT_COLOR}; }}"
+)
+
+# The strip the chips live on. Distinct from the canvas rather than seamless: seamless is
+# only seamless while the canvas is empty and dark, and the moment an overview is on
+# screen the canvas is bright, so the boundary arrives anyway -- better as a decision
+# than as an accident. Scoped by object name, or the background would be inherited by
+# every chip on it.
+_VIEW_STRIP_STYLE = (
+    f"#viewStrip {{ background: {PANEL_COLOR};"
+    f" border-bottom: 1px solid {BORDER_COLOR}; }}"
 )
 
 # Cryo grid bar defaults, in microns -- the values the tab this replaces carried in
@@ -567,37 +590,56 @@ class FibsemOverviewWidget(QWidget):
         )
         self.canvas.add_overlay(self.selected_position_overlay)
 
-        # Where the pointer is, in stage coordinates. Drawn over the canvas in the one
-        # free corner -- the toolbar owns the top right, the scalebar the bottom right,
-        # the stage info bar the bottom left. A Qt label rather than the canvas's own
-        # text chrome because this updates on every mouse motion, and `set_info_text`
-        # repaints the figure: at motion-event rates that is the difference between a
-        # readout and a stutter, and on this canvas a repaint costs every placed image.
-        self.cursor_readout = QLabel(self.canvas)
-        self.cursor_readout.setAttribute(Qt.WA_TransparentForMouseEvents)
-        # Monospaced so the digits sit still while the cursor moves. A proportional font
-        # makes the whole readout shuffle on every pixel of travel.
-        self.cursor_readout.setStyleSheet(
-            stylesheets.CANVAS_READOUT_STYLE
-        )
-        self.cursor_readout.move(_CANVAS_CHROME_MARGIN, _CURSOR_READOUT_TOP)
-        self.cursor_readout.hide()  # nothing to say until the pointer is over the canvas
         self.canvas.cursor_moved.connect(self._on_cursor_moved)
 
         self.settings_widget = FibsemOverviewSettingsWidget(self)
         self.settings_widget.settings_changed.connect(self._on_settings_changed)
 
-        # Which way of looking at the sample the canvas is showing, over the canvas
-        # rather than in the settings column: it selects what you are looking at, so it
-        # belongs where you are looking. Top left, the corner the toolbar, the scalebar
-        # and the info bar all leave free -- with the cursor readout, which moves down
-        # to make room when there are chips.
-        # Laid out by hand rather than in a container with a layout: a `QHBoxLayout`
-        # inside a widget parented to the canvas reported a zero size hint at the moment
-        # the chips were rebuilt, so the container took zero geometry and the chips drew
-        # nothing while reporting themselves visible. Each chip sizes itself from its own
-        # text, exactly as the cursor readout does above.
+        # Which way of looking at the sample the canvas is showing. Attached to the
+        # canvas rather than filed in the settings column, because it selects what you
+        # are looking at -- but on a strip *above* the canvas rather than painted on it
+        # (FIB-649).
+        #
+        # The set is beams x orientations and grows through a session as views are
+        # acquired in. Measured with this stylesheet: eight chips end at x=707, and the
+        # splitter lets the canvas be narrower than that at any window size, so on the
+        # canvas they run off the edge and under the toolbar buttons. There is no offset
+        # that rescues a growing set inside a fixed region -- which is also how they came
+        # to sit inside the status zone's rectangle (FIB-651). Above the canvas they grow
+        # into space nothing else wants, and occlude no data.
         self._view_chip_buttons: Dict["OverviewView", QPushButton] = {}
+        chips = QWidget()
+        self._view_strip_layout = QHBoxLayout(chips)
+        self._view_strip_layout.setContentsMargins(
+            _CANVAS_CHROME_MARGIN, 4, _CANVAS_CHROME_MARGIN, 4
+        )
+        self._view_strip_layout.setSpacing(_VIEW_CHIP_SPACING)
+        # Packs the chips left. Added once and kept: the rebuild inserts before it.
+        self._view_strip_layout.addStretch(1)
+
+        # In a scroll area, because a row of controls in a plain layout sets the
+        # *window's* minimum width: eight chips measure 709 px, so a tab that had been
+        # used in every view would refuse to be made narrower than that -- a floor that
+        # appears mid-session as views accumulate. A scroll area has a small minimum of
+        # its own, so the window goes on shrinking (measured: 354 px, the settings
+        # column, with or without chips).
+        #
+        # No scrollbar, in either direction. One would halve a row this short, and the
+        # case it serves is a canvas pane narrower than ~710 px, which is a window
+        # narrower than any usable one. The wheel still scrolls the row there, so the
+        # far chips are reachable rather than lost.
+        self.view_strip = QScrollArea()
+        self.view_strip.setObjectName("viewStrip")
+        self.view_strip.setStyleSheet(_VIEW_STRIP_STYLE)
+        self.view_strip.setWidget(chips)
+        self.view_strip.setWidgetResizable(True)
+        self.view_strip.setFrameShape(QFrame.NoFrame)
+        self.view_strip.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.view_strip.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.view_strip.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        # Nothing to choose between until a view exists, and an empty bar over the canvas
+        # is chrome that has not earned its place.
+        self.view_strip.hide()
         self.label_view_note = QLabel("")
         self.label_view_note.setWordWrap(True)
         self.label_view_note.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
@@ -693,10 +735,20 @@ class FibsemOverviewWidget(QWidget):
         column_layout.addWidget(scroll, stretch=1)
         column_layout.addWidget(self._acquisition_panel())
 
+        # The view strip rides with the canvas rather than spanning the window, so it
+        # keeps saying "this selects what *the canvas* is showing" -- and stays the
+        # canvas's width when the splitter is dragged.
+        canvas_pane = QWidget()
+        pane_layout = QVBoxLayout(canvas_pane)
+        pane_layout.setContentsMargins(0, 0, 0, 0)
+        pane_layout.setSpacing(0)
+        pane_layout.addWidget(self.view_strip)
+        pane_layout.addWidget(self.canvas, stretch=1)
+
         # A splitter rather than a fixed column, so a user can give the canvas the whole
         # window on a small screen. The canvas takes the extra room as the window grows.
         splitter = QSplitter(Qt.Horizontal)
-        splitter.addWidget(self.canvas)
+        splitter.addWidget(canvas_pane)
         splitter.addWidget(column)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 0)
@@ -762,21 +814,20 @@ class FibsemOverviewWidget(QWidget):
         # Rebuilt rather than updated: this runs on every overlay refresh, and a handful
         # of buttons is cheaper to make than to diff.
         for chip in self._view_chip_buttons.values():
+            self._view_strip_layout.removeWidget(chip)
             chip.setParent(None)
             chip.deleteLater()
         self._view_chip_buttons = {}
 
         # Shown even when there is only one, which was not the first answer: a lone chip
-        # says nothing the info bar does not, and chrome over the data has to earn its
-        # place. But a control nobody can see does not exist, and the first time there
-        # *are* two views is the worst moment to discover that a way of switching
-        # between them has been there all along. One chip also states plainly which view
-        # the tab opened in, at the top of the canvas rather than in the corner among
-        # the coordinates.
+        # says nothing the info bar does not, and chrome has to earn its place. But a
+        # control nobody can see does not exist, and the first time there *are* two views
+        # is the worst moment to discover that a way of switching between them has been
+        # there all along. One chip also states plainly which view the tab opened in,
+        # above the canvas rather than in the corner among the coordinates.
         acquisition = self.acquisition_view
-        x = _CANVAS_CHROME_MARGIN
         for view in views:
-            chip = QPushButton(view.label, self.canvas)
+            chip = QPushButton(view.label)
             chip.setCheckable(True)
             chip.setChecked(view == self._current_view)
             chip.setCursor(Qt.PointingHandCursor)
@@ -795,13 +846,25 @@ class FibsemOverviewWidget(QWidget):
                 _VIEW_CHIP_STYLE_ACTIVE if view == acquisition else _VIEW_CHIP_STYLE
             )
             chip.clicked.connect(partial(self._on_view_chip_clicked, view))
-            chip.adjustSize()
-            chip.move(x, _CANVAS_CHROME_MARGIN)
+            # Before the trailing stretch, so they pack left in the order above.
+            self._view_strip_layout.insertWidget(len(self._view_chip_buttons), chip)
+            # Shown here rather than left to the layout: a widget inserted into a live
+            # layout is shown when that layout next activates, which is after this
+            # returns -- so the row measured below would size itself to a row of
+            # zero-height chips, and the strip would come out 8 px of margin.
             chip.show()
-            chip.raise_()
-            x += chip.width() + _VIEW_CHIP_SPACING
             self._view_chip_buttons[view] = chip
 
+        # Sized to the chips it is holding, here rather than at construction: a scroll
+        # area's own height hint is sized for a page of content (93 px), and asking the
+        # row before any chip is in it measures the margins (8 px) and squashes them
+        # flat. The active chip carries a border, so the row is a pixel or two taller
+        # depending on which views exist -- which is why this is re-read per rebuild.
+        row = self.view_strip.widget()
+        row.adjustSize()
+        self.view_strip.setFixedHeight(row.sizeHint().height())
+
+        self.view_strip.setVisible(bool(self._view_chip_buttons))
         self._refresh_view_note()
 
     def _on_view_chip_clicked(self, view: "OverviewView") -> None:
@@ -1922,18 +1985,25 @@ class FibsemOverviewWidget(QWidget):
             self._set_cursor_readout("")
 
     def _set_cursor_readout(self, text: str) -> None:
-        """Show the readout, sized to its text, or hide it when there is none.
+        """Put the readout in the canvas's status zone, or give the zone back when empty.
 
-        Hidden rather than blanked: it sits on top of the image, and an empty plaque
-        floating over the data is worse than nothing there. `adjustSize` because the
-        label is positioned rather than laid out, so nothing else will size it.
+        Through the canvas rather than a label of this widget's own. This used to be
+        hand-placed below the view chips, in "the one free corner" -- which stopped being
+        free when the status zone took that row, and the chips were already inside the
+        status label's rectangle without anything showing it, because nothing on this tab
+        ever set a hint or a flash (FIB-651).
+
+        The zone shows one thing at a time in a fixed order, so its occupants cannot
+        collide: a flash outranks this, and this outranks a standing hint. Empty means
+        the pointer has left the canvas, and the zone falls back on its own -- so an
+        empty readout releases the corner rather than leaving a blank plaque over the
+        data.
+
+        Still not `set_info_text`: that repaints the figure, which on this canvas costs
+        every placed image, and this fires on every motion event. The status zone is a
+        `QLabel` in the toolbar's layout pass, which is what makes it cheap enough.
         """
-        self.cursor_readout.setText(text)
-        if not text:
-            self.cursor_readout.hide()
-            return
-        self.cursor_readout.adjustSize()
-        self.cursor_readout.show()
+        self.canvas.set_status_readout(text or None)
 
     def _refresh_position_markers(self) -> None:
         """Redraw the current stage position and every marked position."""
