@@ -28,7 +28,8 @@ import pytest
 # module-level imports below turn a skip into a collection error.
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication  # noqa: E402
+from PyQt5.QtCore import QPoint  # noqa: E402
+from PyQt5.QtWidgets import QApplication, QDialog  # noqa: E402
 
 from fibsem import utils  # noqa: E402
 from fibsem.structures import (  # noqa: E402
@@ -37,6 +38,7 @@ from fibsem.structures import (  # noqa: E402
     FibsemStagePosition,
     ImageSettings,
 )
+from fibsem.ui.widgets import overview_confirmation_dialog  # noqa: E402
 from fibsem.ui.widgets.overview_widget import (  # noqa: E402
     GRID_BOUNDARY_RADIUS,
     FibsemOverviewWidget,
@@ -44,6 +46,27 @@ from fibsem.ui.widgets.overview_widget import (  # noqa: E402
 )
 
 _app = QApplication.instance() or QApplication(sys.argv)
+
+
+@pytest.fixture(autouse=True)
+def confirmations(monkeypatch):
+    """Every `acquire()` opens a modal dialog, which would hang the run.
+
+    Auto-accepted so the tests below can go on testing what they were written for -- and
+    *recorded*, because a fixture that silently says yes would equally hide the dialog
+    never being shown, which is the one thing a confirmation has to do. Tests that care
+    assert against the list this yields.
+    """
+    shown = []
+
+    def _exec(dialog):
+        shown.append(dialog)
+        return QDialog.Accepted
+
+    monkeypatch.setattr(
+        overview_confirmation_dialog.OverviewConfirmationDialog, "exec_", _exec
+    )
+    return shown
 
 
 @pytest.fixture(scope="module")
@@ -619,6 +642,9 @@ class TestTheRunOwnsItsSettings:
         experiment is written. Asserted on what the *runner* receives rather than on the
         text box, because that is the value that names the directory -- a box seeded
         correctly and then dropped somewhere along the handover would still pass.
+
+        A prefix, not the whole name: the run appends the time it started, so that two
+        of them cannot land in one directory. See `TestTwoRunsCannotLandOnEachOther`.
         """
         captured = {}
 
@@ -638,12 +664,99 @@ class TestTheRunOwnsItsSettings:
             "fibsem.ui.widgets.overview_widget.FunctionWorker", fake_worker
         )
         widget.acquire()
-        assert captured["settings"].image_settings.filename == "overview-image"
+        assert captured["settings"].image_settings.filename.startswith("overview-image")
         # And visible, so it can be changed before a run rather than discovered after.
         assert (
             widget.settings_widget.image_settings_widget.filename_edit.text()
             == "overview-image"
         )
+
+    def test_a_run_starts_from_the_overview_defaults(self, widget, monkeypatch):
+        """A 500 um tile with autocontrast, not `ImageSettings`'s generic 150 um.
+
+        The tab referenced the overview defaults nowhere at all, so it opened at
+        whatever `ImageSettingsWidget` happens to default to. Every value below differs
+        from that, which is the point: a tab that looks right and images a ninth of the
+        area asked for is not something the picture shows you.
+
+        Asserted on the runner's copy for the same reason the filename is -- these are
+        the numbers that reach the instrument.
+        """
+        captured = {}
+
+        def fake_worker(fn, *args):
+            captured["settings"] = args[0]
+
+            class _W:
+                def start(self_inner):
+                    pass
+
+                def is_alive(self_inner):
+                    return False
+
+            return _W()
+
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker", fake_worker
+        )
+        widget.acquire()
+        settings = captured["settings"]
+        assert settings.image_settings.hfw == pytest.approx(500e-6)
+        assert settings.image_settings.dwell_time == pytest.approx(1e-6)
+        assert settings.image_settings.autocontrast is True
+        assert tuple(settings.image_settings.resolution) == (1024, 1024)
+        assert (settings.nrows, settings.ncols) == (3, 3)
+
+
+class TestTheDefaultsAreNotShared:
+    """The defaults are a factory, and the one thing a factory must not do is hand back
+    the same object twice.
+
+    What it replaced was a module-level `DEFAULT_OVERVIEW_ACQUISITION_SETTINGS`, and the
+    minimap assigned an experiment path straight into it. That edits the default: open a
+    second experiment and the "default" carries the first one's path. Worse in this
+    widget, where `ImageSettingsWidget.update_from_settings` keeps the object it is
+    handed and `get_settings` mutates and returns that same one -- so a shared default
+    would be rewritten by every keystroke in the tab.
+    """
+
+    def test_each_call_hands_back_its_own_settings(self):
+        from fibsem.ui.widgets.overview_acquisition_settings_widget import (
+            default_overview_acquisition_settings,
+        )
+
+        first = default_overview_acquisition_settings()
+        first.image_settings.path = "/experiments/one"
+        first.image_settings.hfw = 1e-3
+        first.nrows = 7
+
+        second = default_overview_acquisition_settings()
+        assert second.image_settings.path is None
+        assert second.image_settings.hfw == pytest.approx(500e-6)
+        assert second.nrows == 3
+
+    def test_the_widget_does_not_hold_the_defaults(self, qapp):
+        """Seeding a widget must not leave it editing the shared object either.
+
+        Constructing two and typing into one is the cheapest way to catch a factory
+        that returns a cached instance.
+        """
+        from fibsem.ui.widgets.overview_acquisition_settings_widget import (
+            OverviewAcquisitionSettingsWidget,
+        )
+
+        first = OverviewAcquisitionSettingsWidget()
+        second = OverviewAcquisitionSettingsWidget()
+        try:
+            first.image_settings_widget.hfw_spinbox.setValue(42.0)
+            first.set_grid_size(5, 4)
+
+            settings = second.get_settings()
+            assert settings.image_settings.hfw == pytest.approx(500e-6)
+            assert (settings.nrows, settings.ncols) == (3, 3)
+        finally:
+            first.close()
+            second.close()
 
 
 class TestViews:
@@ -1690,3 +1803,455 @@ class TestTheMillingAngleIsOnTheBeamTab:
             lambda *a, **k: pytest.fail("the info bar polled the stage"),
         )
         widget._refresh_stage_info()
+
+
+class TestARunIsConfirmedFirst:
+    """Pressing Acquire drives the stage. Two things it will do are set on the canvas
+    rather than in the controls, so neither is visible from the settings column at the
+    moment it is pressed: where the grid was dragged to, and which tiles are masked off.
+    Both survive a tab switch, and both are silent.
+
+    The dialog is where they announce themselves. These check that it is asked, that a
+    refusal is honoured, and that what it is handed is what the run gets -- a dialog
+    describing a different set of settings than the one that runs is worse than none.
+    """
+
+    def _fake_worker(self, captured):
+        def factory(fn, *args):
+            captured["args"] = args
+
+            class _W:
+                def start(self_inner):
+                    pass
+
+                def is_alive(self_inner):
+                    return False
+
+            return _W()
+
+        return factory
+
+    def test_a_run_asks_before_it_starts(
+        self, widget, monkeypatch, tmp_path, confirmations
+    ):
+        captured = {}
+        widget.set_save_directory(str(tmp_path))
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker",
+            self._fake_worker(captured),
+        )
+        widget.acquire()
+        assert len(confirmations) == 1, "the run started without asking"
+        assert "args" in captured, "the run was refused after the dialog was accepted"
+
+    def test_declining_leaves_everything_as_it_was(
+        self, widget, monkeypatch, tmp_path
+    ):
+        """Not merely "no worker": a refused run must leave no record behind either, or
+        the overview list grows a row for something that never happened."""
+        captured = {}
+        widget.set_save_directory(str(tmp_path))
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker",
+            self._fake_worker(captured),
+        )
+        monkeypatch.setattr(
+            overview_confirmation_dialog.OverviewConfirmationDialog,
+            "exec_",
+            lambda self: QDialog.Rejected,
+        )
+        before = len(widget._records)
+
+        widget.acquire()
+
+        assert "args" not in captured, "a declined run started anyway"
+        assert len(widget._records) == before, "a declined run left a record behind"
+        assert not widget.is_acquiring
+
+    def test_the_dialog_is_shown_the_settings_the_run_gets(
+        self, widget, monkeypatch, tmp_path, confirmations
+    ):
+        """Including the destination, which `acquire` fills in *after* reading the
+        widget -- a dialog built before that step would show a run with nowhere to go."""
+        captured = {}
+        widget.set_save_directory(str(tmp_path))
+        widget.settings_widget.set_grid_size(2, 4)
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker",
+            self._fake_worker(captured),
+        )
+        widget.acquire()
+
+        shown = confirmations[0].settings
+        assert shown is captured["args"][0], (
+            "the dialog described a different settings object than the one that ran"
+        )
+        assert shown.image_settings.path, "the dialog was built before the path was set"
+        assert (shown.nrows, shown.ncols) == (2, 4)
+
+    def test_an_undragged_run_says_it_is_on_the_stage(
+        self, widget, monkeypatch, tmp_path, confirmations
+    ):
+        captured = {}
+        widget.set_save_directory(str(tmp_path))
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker",
+            self._fake_worker(captured),
+        )
+        widget.acquire()
+        assert confirmations[0].offset is None
+        assert confirmations[0]._centre_text() == "the stage position"
+
+    def test_the_dialog_reports_a_dragged_grid(
+        self, widget, monkeypatch, tmp_path, confirmations
+    ):
+        """The reason this dialog exists. A grid dragged half a millimetre away looks
+        identical in the settings column."""
+        captured = {}
+        widget.set_save_directory(str(tmp_path))
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker",
+            self._fake_worker(captured),
+        )
+        widget._on_grid_moved(150.0, 60.0)
+        widget.acquire()
+
+        dragged = confirmations[0]
+        assert dragged.offset is not None, "a dragged grid was reported as on the stage"
+        expected = (
+            widget.target.x - widget._stage_position.x,
+            widget.target.y - widget._stage_position.y,
+        )
+        assert dragged.offset == pytest.approx(expected)
+        assert "from the stage position" in dragged._centre_text()
+        assert dragged._centre_text() != "the stage position"
+
+    def test_opening_the_dialog_costs_no_hardware_read(
+        self, widget, monkeypatch, tmp_path, confirmations
+    ):
+        """It reports the view and the offset, both of which have a cached answer. A
+        dialog that polled the stage would do it on the click that starts a run, which
+        is the worst moment to add a set-then-read on the shared channel."""
+        captured = {}
+        widget.set_save_directory(str(tmp_path))
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker",
+            self._fake_worker(captured),
+        )
+        monkeypatch.setattr(
+            widget.microscope, "get_stage_position",
+            lambda *a, **k: pytest.fail("the confirmation dialog polled the stage"),
+        )
+        widget.acquire()
+        assert confirmations[0].view_description
+
+
+class TestTheAcquisitionButtons:
+    """`Cancel | Acquire Overview`, the fluorescence tab's arrangement."""
+
+    @staticmethod
+    def _pretend_a_run_is_going(widget):
+        """`_set_running(True)` alone is not enough: `cancel()` is gated on
+        `is_acquiring`, which asks the worker, not the flag."""
+
+        class _LiveWorker:
+            def is_alive(self):
+                return True
+
+        widget._worker = _LiveWorker()
+        widget._set_running(True)
+
+    def test_stop_sits_beside_go_and_stays_there(self, widget):
+        """Enabled and disabled rather than shown and hidden: a button that appears when
+        a run starts moves everything below it at the moment the user is least able to
+        absorb a moving layout."""
+        assert widget.button_acquire.text() == "Acquire Overview"
+        assert not widget.button_cancel.isHidden()
+        assert not widget.button_cancel.isEnabled()
+
+        widget._set_running(True)
+        assert widget.button_cancel.isEnabled()
+        assert not widget.button_acquire.isEnabled()
+        assert not widget.button_cancel.isHidden()
+
+    def test_cancel_goes_dead_once_it_has_been_asked(self, widget):
+        """A run stops at the next tile boundary, so the button is still there for a
+        while after it is pressed. Left live, a second press reads as the first one not
+        having worked."""
+        self._pretend_a_run_is_going(widget)
+        widget.cancel()
+        assert not widget.button_cancel.isEnabled()
+
+    def test_a_host_lock_cannot_take_away_the_stop(self, widget):
+        """`set_interactive(False)` is a host claiming the instrument. It must not
+        remove the only way to stop a run that is already under way."""
+        widget._set_running(True)
+        widget.set_interactive(False)
+        assert not widget.button_acquire.isEnabled()
+        assert widget.button_cancel.isEnabled()
+
+    def test_the_actions_are_not_in_the_scrolling_part(self, widget):
+        """Structural, because the failure is invisible until the window is short.
+
+        Inside the scroll area, a host adding its own section -- the lamella list, which
+        is what the AutoLamella tab does -- pushes Acquire, Cancel and the progress bar
+        below the fold. A run then reports its progress somewhere nobody is looking, and
+        stopping it means scrolling first.
+        """
+        from PyQt5.QtWidgets import QScrollArea
+
+        scroll = widget.findChild(QScrollArea)
+        assert scroll is not None, "the settings column is no longer scrolled"
+        scrolled = scroll.widget()
+        for name in ("button_acquire", "button_cancel", "progress", "label_status"):
+            child = getattr(widget, name)
+            assert not scrolled.isAncestorOf(child), f"{name} scrolls away with the column"
+
+    def test_they_stay_on_screen_in_a_window_too_short_for_the_column(
+        self, microscope, qapp
+    ):
+        """The case that motivated it: a host section on top, and a window shorter than
+        the controls need. Shown for real -- geometry on an unshown widget is whatever
+        the last layout pass left, which is how this passes for the wrong reason."""
+        from PyQt5.QtWidgets import QListWidget
+
+        widget = FibsemOverviewWidget(microscope)
+        try:
+            lamellae = QListWidget()
+            for i in range(6):
+                lamellae.addItem(f"Lamella-{i + 1:02d}")
+            widget.add_settings_section("Lamellae", lamellae)
+            widget.resize(1250, 620)
+            widget.show()
+            qapp.processEvents()
+
+            top_left = widget.button_acquire.mapTo(widget, QPoint(0, 0))
+            bottom = top_left.y() + widget.button_acquire.height()
+            assert bottom <= widget.height(), (
+                f"Acquire runs to {bottom}px in a {widget.height()}px widget"
+            )
+            assert widget.button_acquire.visibleRegion().boundingRect().height() > 0
+        finally:
+            widget.close()
+
+
+class TestAnOverviewDoesNotPaintOverTheOneBeneathIt:
+    """A mosaic is mostly zeros until it is finished, and those zeros are not black --
+    they are nothing. Placed opaquely they hid whatever was underneath, so a second
+    overview blanked the first wherever it had not reached yet (FIB-630).
+
+    The fluorescence canvas solved the same problem with `to_rgba`, where alpha is
+    signal strength. That is right for signal over black and wrong here: matplotlib
+    draws `colour x alpha + (1 - alpha) x beneath`, so on a dense grayscale image the
+    second term brightens everything that happens to have something behind it. Measured
+    on a mid-grey region over a textured one, it read 0.772 against a true 0.500. So
+    alpha is coverage, which is a step function.
+    """
+
+    @staticmethod
+    def _partial(rows: int = 1, shape: int = 96) -> np.ndarray:
+        """A mosaic with `rows` of three acquired and the rest still zero."""
+        data = np.zeros((shape, shape), dtype=np.uint8)
+        rng = np.random.default_rng(4)
+        filled = (rng.random((rows * shape // 3, shape)) * 110 + 90).astype(np.uint8)
+        data[: rows * shape // 3] = filled
+        return data
+
+    def test_an_unacquired_region_is_transparent_and_the_rest_is_not(self):
+        from fibsem.ui.widgets.overview_widget import (
+            _as_colour_and_coverage, _contrast_limits,
+        )
+
+        data = self._partial()
+        rgba = _as_colour_and_coverage(data, data > 0, _contrast_limits(data.astype(float), data > 0))
+        alpha = rgba[..., 3]
+        assert (alpha[: data.shape[0] // 3] == 255).all(), "acquired tiles went see-through"
+        assert (alpha[data.shape[0] // 3:] == 0).all(), (
+            "unacquired ground is still opaque, so it paints over what is beneath"
+        )
+
+    def test_coverage_is_a_step_not_a_brightness(self):
+        """The distinction that makes this correct over another image. A dark *acquired*
+        pixel has to stay opaque, or the overview beneath shows through it and the
+        result is neither picture."""
+        from fibsem.ui.widgets.overview_widget import (
+            _as_colour_and_coverage, _contrast_limits,
+        )
+
+        data = np.array([[1, 40, 128, 255]], dtype=np.uint8)
+        rgba = _as_colour_and_coverage(data, data > 0, _contrast_limits(data.astype(float), data > 0))
+        assert (rgba[..., 3] == 255).all(), (
+            f"alpha followed intensity: {rgba[..., 3].tolist()}"
+        )
+
+    def test_nothing_acquired_is_wholly_transparent(self):
+        """A run that has not produced a tile yet, and a cancelled one that never did."""
+        from fibsem.ui.widgets.overview_widget import (
+            _as_colour_and_coverage, _contrast_limits,
+        )
+
+        data = np.zeros((16, 16), dtype=np.uint8)
+        assert (_as_colour_and_coverage(data, data > 0, _contrast_limits(data.astype(float), data > 0))[..., 3] == 0).all()
+
+    def test_the_unacquired_zeros_do_not_set_the_contrast(self):
+        """They are most of a part-finished mosaic and they are not drawn, so letting
+        them win the minimum squeezes what *is* there into the top of the range. That
+        renders a half-done overview visibly bleached."""
+        from fibsem.ui.widgets.overview_widget import (
+            _as_colour_and_coverage, _contrast_limits,
+        )
+
+        data = self._partial()
+        acquired = data > 0
+        grey = _as_colour_and_coverage(data, acquired, _contrast_limits(data.astype(float), acquired))[..., 0][acquired]
+        assert grey.mean() == pytest.approx(128, abs=25), (
+            f"the acquired tiles render at a mean of {grey.mean():.0f}/255"
+        )
+        assert grey.min() < 30 and grey.max() > 225, "the stretch did not use the range"
+
+    def test_a_complete_overview_uses_the_whole_range_too(self):
+        """The common case must not change: with nothing to exclude, this is the same
+        stretch the canvas applied before."""
+        from fibsem.ui.widgets.overview_widget import (
+            _as_colour_and_coverage, _contrast_limits,
+        )
+
+        rng = np.random.default_rng(11)
+        data = (rng.random((64, 64)) * 110 + 90).astype(np.uint8)
+        rgba = _as_colour_and_coverage(data, np.ones_like(data, dtype=bool),
+                                       _contrast_limits(data.astype(float), np.ones_like(data, dtype=bool)))
+        assert (rgba[..., 3] == 255).all()
+        assert rgba[..., 0].min() == 0 and rgba[..., 0].max() == 255
+
+    def test_coverage_is_measured_before_the_display_filter(self, widget, microscope):
+        """`filtered_data` is a median then a gaussian, so it leaks signal a couple of
+        pixels *past* the last acquired row. Testing that array for "greater than zero"
+        hands back a mask a filter radius too generous, and admits a fringe of near-zero
+        values into the contrast stretch -- which is the bleached rendering again.
+        """
+        image = _tile(microscope, _at(microscope.get_stage_position()), shape=(96, 96))
+        data = np.zeros((96, 96), dtype=np.uint8)
+        rng = np.random.default_rng(5)
+        data[:32] = (rng.random((32, 96)) * 110 + 90).astype(np.uint8)
+        image.data = data
+
+        tile = widget._stored_tile(image)
+        rgba = np.asarray(tile.data)
+        acquired = rgba[..., 3] > 0
+        # A third of the image, give or take the boundary block -- not a third plus a
+        # filter radius, which is what the filtered array would have given.
+        assert acquired.mean() == pytest.approx(1 / 3, abs=0.02), (
+            f"coverage came out at {acquired.mean():.3f} of the image"
+        )
+        grey = rgba[..., 0][acquired]
+        assert grey.mean() == pytest.approx(128, abs=30), (
+            f"the acquired region renders at {grey.mean():.0f}/255 -- bleached"
+        )
+
+    def test_the_canvas_is_given_the_coverage(self, widget, microscope):
+        """End to end: what reaches the artist is RGBA, not a 2-D array the canvas would
+        colormap opaquely."""
+        image = _tile(microscope, _at(microscope.get_stage_position()), shape=(96, 96))
+        data = np.zeros((96, 96), dtype=np.uint8)
+        data[:32] = 200
+        image.data = data
+        widget.set_image(image)
+
+        artist = widget.canvas._placed[list(widget.canvas._placed)[-1]].artist
+        shown = np.asarray(artist.get_array())
+        assert shown.ndim == 3 and shown.shape[-1] == 4, (
+            f"the canvas was handed {shown.shape}, so it composites opaquely"
+        )
+        assert shown[..., 3].min() == 0, "no part of a half-finished mosaic is transparent"
+
+
+class TestTwoRunsCannotLandOnEachOther:
+    """The filename is not a label, it is a location. `TiledAcquisitionRunner._setup`
+    makes the tile sub-folder from it and writes the stitch inside that, both keyed on
+    the name alone -- so two runs called the same thing overwrite each other's tiles
+    *and* mosaics. The canvas, holding both in memory, still shows two; reloading the
+    experiment finds one.
+
+    Seen for real: a simulator session ended with three of four rows in the Overviews
+    list called `overview-image`, all sharing one directory.
+    """
+
+    def _capture(self, widget, monkeypatch, tmp_path):
+        captured = {}
+
+        def fake_worker(fn, *args):
+            captured["settings"] = args[0]
+
+            class _W:
+                def start(self_inner):
+                    pass
+
+                def is_alive(self_inner):
+                    return False
+
+            return _W()
+
+        widget.set_save_directory(str(tmp_path))
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker", fake_worker
+        )
+        widget.acquire()
+        return captured["settings"].image_settings.filename
+
+    def test_a_run_is_stamped_with_the_time_it_started(
+        self, widget, monkeypatch, tmp_path
+    ):
+        import re
+
+        name = self._capture(widget, monkeypatch, tmp_path)
+        assert re.fullmatch(r"overview-image-\d{2}-\d{2}-\d{2}", name), name
+
+    def test_two_runs_do_not_share_a_directory(self, widget, monkeypatch, tmp_path):
+        """The stamp is only worth having if it actually differs. Frozen rather than
+        raced: two real runs are minutes apart, and a test that acquires twice in the
+        same second would pass for the wrong reason either way."""
+        from fibsem.ui.widgets import overview_widget as module
+
+        times = iter(["14-23-05", "14-31-40"])
+        monkeypatch.setattr(
+            module, "current_timestamp_v3", lambda timeonly=True: next(times)
+        )
+        first = self._capture(widget, monkeypatch, tmp_path)
+        widget._set_running(False)
+        second = self._capture(widget, monkeypatch, tmp_path)
+
+        assert first != second
+        assert first == "overview-image-14-23-05"
+        assert second == "overview-image-14-31-40"
+
+    def test_a_name_someone_typed_is_stamped_too(self, widget, monkeypatch, tmp_path):
+        """A memorable name invites reuse, so it is the *more* likely to collide. The
+        base is kept as a prefix, so what was typed is still what you look for."""
+        widget.settings_widget.image_settings_widget.filename_edit.setText("grid-2-survey")
+        name = self._capture(widget, monkeypatch, tmp_path)
+        assert name.startswith("grid-2-survey-")
+        assert name != "grid-2-survey"
+
+    def test_the_box_still_shows_the_base_name(self, widget, monkeypatch, tmp_path):
+        """Stamped at the run, not in the control: a box that rewrote itself on every
+        acquisition would make the name unusable as a thing you set once."""
+        self._capture(widget, monkeypatch, tmp_path)
+        assert (
+            widget.settings_widget.image_settings_widget.filename_edit.text()
+            == "overview-image"
+        )
+
+    def test_the_dialog_reports_where_it_will_actually_land(
+        self, widget, monkeypatch, tmp_path, confirmations
+    ):
+        """The one place the stamped name is shown before the run. Without this the
+        stamp is invisible until the files appear."""
+        name = self._capture(widget, monkeypatch, tmp_path)
+        saving_to = dict(confirmations[0]._rows())["Saving to"]
+        assert saving_to.endswith(name), f"{saving_to} does not name {name}"
+
+    def test_the_record_carries_the_stamped_name(self, widget, monkeypatch, tmp_path):
+        """So the Overviews list can tell two runs apart, which is where the collision
+        was noticed."""
+        name = self._capture(widget, monkeypatch, tmp_path)
+        assert [r.label for r in widget._records.values()] == [name]

@@ -16,11 +16,47 @@ from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueComboBox, ValueSpinBox
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
-# What a tileset is called if nobody says otherwise. `ImageSettings` defaults to
-# "default_image", which is a fine name for one image and a poor one for a run: the
-# tiled runner names the tile sub-folder after it, so every overview of every
-# experiment lands in a directory called `default_image`.
+# What an overview run looks like before anyone touches it.
+#
+# House defaults rather than physics: a 500 um tile and a 1 us dwell are what the napari
+# minimap has always opened with. They lived in that module, which is scheduled for
+# deletion, and nothing on the rebuilt path referenced them -- so the tab opened at
+# `ImageSettings`'s generic values instead: a 150 um tile, autocontrast off, and a run
+# called "default_image".
+#
+# The name is the one that bites. `TiledAcquisitionRunner._setup` makes the tile
+# sub-folder from it, so it decides where every overview of every experiment is written.
+OVERVIEW_TILE_HFW = 500e-6  # m
+OVERVIEW_TILE_DWELL_TIME = 1e-6  # s
 DEFAULT_OVERVIEW_FILENAME = "overview-image"
+
+
+def default_overview_acquisition_settings() -> OverviewAcquisitionSettings:
+    """A fresh set of overview settings, seeded with the house defaults.
+
+    A function, not the module-level constant it replaces. The minimap held one of those
+    and assigned an experiment path straight into it
+    (`DEFAULT_OVERVIEW_ACQUISITION_SETTINGS.image_settings.path = path`), which edits the
+    default for everything built afterwards. `ImageSettingsWidget` compounds it:
+    `update_from_settings` keeps the object it is handed and `get_settings` mutates and
+    returns that same one, so a shared default would be rewritten by every keystroke in
+    the tab.
+
+    The grid size is not named here -- `OverviewAcquisitionSettings` already defaults to
+    3 x 3, and stating it twice is how the two drift apart.
+    """
+    return OverviewAcquisitionSettings(
+        image_settings=ImageSettings(
+            resolution=tuple(int(px) for px in DEFAULT_SQUARE_RESOLUTION.split("x")),
+            hfw=OVERVIEW_TILE_HFW,
+            dwell_time=OVERVIEW_TILE_DWELL_TIME,
+            autocontrast=True,
+            beam_type=BeamType.ELECTRON,
+            save=True,
+            path=None,  # whoever owns the experiment fills this in
+            filename=DEFAULT_OVERVIEW_FILENAME,
+        ),
+    )
 
 
 class OverviewAcquisitionSettingsWidget(QWidget):
@@ -39,6 +75,8 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         # No control for this yet -- see the `tile_mask` property.
         self._tile_mask: Optional[List[List[bool]]] = None
         self._setup_ui()
+        # Before `_connect_signals`, so seeding the boxes does not read as a user edit.
+        self.update_from_settings(default_overview_acquisition_settings())
         self._connect_signals()
         self._update_total_fov_label()
         self._update_advanced_visibility()
@@ -64,10 +102,9 @@ class OverviewAcquisitionSettingsWidget(QWidget):
 
         # Rows / cols
         grid_layout.addWidget(QLabel("Tiles (rows x cols)"), 1, 0)
+        # Values come from the seed in `__init__`, not from here.
         self.nrows_spinbox = ValueSpinBox(minimum=1, maximum=15, step=1, decimals=0)
-        self.nrows_spinbox.setValue(3)
         self.ncols_spinbox = ValueSpinBox(minimum=1, maximum=15, step=1, decimals=0)
-        self.ncols_spinbox.setValue(3)
         # Two spinboxes share one grid cell here, so they are the first thing a narrow
         # column squeezes -- and below about 80px the +/- buttons take the whole
         # control and the number stops being drawn at all, leaving what looks like a
@@ -155,8 +192,6 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         )
         self.image_settings_widget.hfw_label.setText("Field of View")
         self.image_settings_widget.set_show_advanced_button(False)
-        # Before `_connect_signals`, so seeding the box does not read as a user edit.
-        self.image_settings_widget.filename_edit.setText(DEFAULT_OVERVIEW_FILENAME)
 
         # All standard + square resolutions are supported (non-square aspect handled in acquisition)
         self.image_settings_widget.set_available_resolutions(AVAILABLE_RESOLUTIONS_ZIP, default=DEFAULT_SQUARE_RESOLUTION)

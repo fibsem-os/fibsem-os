@@ -321,6 +321,56 @@ def test_overview_acquisition_tile_order_legacy_default():
     assert s.tile_order is TileOrderStrategy.TYPEWRITER
 
 
+def test_scan_time_is_dwell_over_every_pixel():
+    """The whole of it: dwell time, times width, times height."""
+    settings = ImageSettings(resolution=(1024, 1024), dwell_time=1e-6)
+    assert settings.scan_time == pytest.approx(1.048576)
+
+
+def test_scan_time_counts_the_passes_each_pixel_gets():
+    """Line and frame integration both re-scan, so both multiply.
+
+    `scan_interlacing` changes the order lines are visited in, not how many are
+    visited -- a scan time that grew with it would be wrong by that factor.
+    """
+    base = ImageSettings(resolution=(512, 512), dwell_time=2e-6)
+    assert base.scan_time == pytest.approx(0.524288)
+
+    lines = ImageSettings(resolution=(512, 512), dwell_time=2e-6, line_integration=4)
+    assert lines.scan_time == pytest.approx(base.scan_time * 4)
+
+    frames = ImageSettings(resolution=(512, 512), dwell_time=2e-6, frame_integration=3)
+    assert frames.scan_time == pytest.approx(base.scan_time * 3)
+
+    both = ImageSettings(
+        resolution=(512, 512), dwell_time=2e-6, line_integration=4, frame_integration=3
+    )
+    assert both.scan_time == pytest.approx(base.scan_time * 12)
+
+    interlaced = ImageSettings(resolution=(512, 512), dwell_time=2e-6, scan_interlacing=8)
+    assert interlaced.scan_time == pytest.approx(base.scan_time)
+
+
+def test_overview_scan_time_counts_the_tiles_it_will_acquire():
+    """The enabled ones, not the grid's shape.
+
+    A masked run scans only what is selected; quoting the full grid would overstate a
+    typical sparse selection roughly threefold -- and this number is shown to someone
+    deciding whether to start it.
+    """
+    image = ImageSettings(resolution=(1024, 1024), dwell_time=1e-6)
+    dense = OverviewAcquisitionSettings(image_settings=image, nrows=3, ncols=3)
+    assert dense.scan_time == pytest.approx(image.scan_time * 9)
+
+    sparse = OverviewAcquisitionSettings(
+        image_settings=image,
+        nrows=3,
+        ncols=3,
+        tile_mask=[[True, False, False], [False, True, False], [False, False, True]],
+    )
+    assert sparse.scan_time == pytest.approx(image.scan_time * 3)
+
+
 if THERMO_API_AVAILABLE:
 
     from fibsem.structures import CompustagePosition, CoordinateSystem, StagePosition

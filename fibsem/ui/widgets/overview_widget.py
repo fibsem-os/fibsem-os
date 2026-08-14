@@ -40,10 +40,13 @@ from copy import deepcopy
 from functools import partial
 from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
+import numpy as np
 from PyQt5.QtCore import pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
     QCheckBox,
+    QDialog,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QPushButton,
     QScrollArea,
@@ -55,6 +58,7 @@ from PyQt5.QtCore import Qt
 from superqt import ensure_main_thread
 
 from fibsem import constants
+from fibsem.fm.composite import auto_clim
 from fibsem.imaging import tiled
 from fibsem.imaging.reduce import downsample
 from fibsem.microscope import FibsemMicroscope
@@ -65,6 +69,7 @@ from fibsem.structures import (
     FibsemStagePosition,
     OverviewAcquisitionSettings,
 )
+from fibsem.utils import current_timestamp_v3
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui import utils as ui_utils
 from fibsem.ui.qt.threading import FunctionWorker
@@ -94,6 +99,7 @@ from fibsem.ui.widgets.custom_widgets import (
 from fibsem.ui.widgets.overview_acquisition_settings_widget import (
     OverviewAcquisitionSettingsWidget,
 )
+from fibsem.ui.widgets.overview_confirmation_dialog import OverviewConfirmationDialog
 from fibsem.ui.widgets.overview_list_widget import OverviewListWidget
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 
@@ -151,6 +157,107 @@ DEFAULT_GRIDBAR_WIDTH_UM = 20.0
 PICK_RADIUS_PX = 12
 
 
+# How many pixels the contrast limits are taken from. `auto_clim`'s own cap, and for
+# the same reason: the percentile over a full mosaic is the expensive part, and it is
+# visually identical on a subsample.
+_CLIM_SAMPLES = 250_000
+
+
+def _stamped(name: str) -> str:
+    """`overview-image` -> `overview-image-14-23-05`, the time the run was started.
+
+    The name is not a label, it is a location: `TiledAcquisitionRunner._setup` makes the
+    tile sub-folder from it and the stitch is written inside that, both keyed on the name
+    alone. Two runs called the same thing therefore land on each other -- the second
+    overwrites the first's tiles *and* its mosaic, and only the canvas, holding both in
+    memory, still shows two. Reloading the experiment finds one.
+
+    Time rather than date and time: the experiment directory is already dated, so inside
+    it the time of day is the whole of what distinguishes one run from another.
+
+    Applied to whatever the box says, not only to the default. A name someone typed is
+    no less prone to being reused -- more so, since a memorable name invites it -- and a
+    run that quietly replaced an earlier one is worse than a name with six digits on the
+    end. The box keeps showing the base, and the confirmation dialog reports the stamped
+    destination, which is what that row is for.
+    """
+    return f"{name}-{current_timestamp_v3(timeonly=True)}"
+
+
+def _contrast_limits(values: np.ndarray, acquired: np.ndarray) -> Tuple[float, float]:
+    """Where to put black and white, taken from the acquired pixels only.
+
+    The unacquired zeros are most of a part-finished mosaic and are not drawn, so letting
+    them win the minimum squeezes what *is* there into the top of the range -- which
+    renders a half-done overview visibly bleached.
+
+    Percentiles rather than min/max, and the same 1st/99th `fibsem.fm.composite.auto_clim`
+    picks: the boundary between an acquired tile and the nothing beside it is not
+    perfectly sharp once a display filter has run over it, and a handful of pixels should
+    not decide the whole stretch.
+    """
+    sample = values[acquired]
+    if sample.size == 0:
+        # Nothing acquired. Any limits will do -- every pixel is about to be transparent
+        # -- but they have to be finite, and `auto_clim` indexes into what it is given.
+        return 0.0, 1.0
+    if sample.size > _CLIM_SAMPLES:
+        # `auto_clim` strides a 2-D frame down before taking percentiles, for the same
+        # reason; masking has already flattened this one, so it is done here.
+        sample = sample[:: int(np.ceil(sample.size / _CLIM_SAMPLES))]
+    return auto_clim(sample)
+
+
+def _as_colour_and_coverage(
+    data: np.ndarray, acquired: np.ndarray, clim: Tuple[float, float]
+) -> np.ndarray:
+    """Re-express a grayscale overview as colour plus where it holds anything.
+
+    An overview is rarely complete: a masked run acquires some tiles, a cancelled one
+    stops partway, and either way the rest of the mosaic is the zeros the stitch buffer
+    started as. Placed opaquely those zeros paint black *over* whatever is beneath, so a
+    second overview hides the first with pixels that hold nothing (FIB-630). Made
+    transparent instead, the image underneath shows through.
+
+    Same idea as the fluorescence canvas's `to_rgba` (FIB-519), and deliberately **not**
+    the same alpha. There, alpha is signal strength, which works because an FM composite
+    sits over black -- matplotlib draws `colour x alpha + (1 - alpha) x beneath`, and the
+    second term vanishes. Over another overview it does not: measured on a mid-grey
+    region over a textured one, intensity-as-alpha reads **0.772 against a true 0.500**,
+    a mean error of 0.27. An overview would brighten wherever something happened to be
+    behind it. Beam images are dense grayscale rather than signal over black, so "is
+    there anything here" is the honest question, and it is a step function.
+
+    Both *acquired* and *clim* are measured on the **unfiltered** array by the caller,
+    and only the colour comes from the filtered one. `filtered_data` is a median then a
+    gaussian, which smears the boundary between an acquired tile and the nothing beside
+    it in both directions: signal leaks a couple of pixels past it, so testing the
+    filtered array for "greater than zero" gives a mask a filter radius too generous;
+    and the last rows *inside* the tile are pulled part-way down toward the nothing, far
+    enough to take the low limit with them and bleach the whole mosaic. Measured: 172/255
+    where 128 was right. A display filter does not get a vote on what was acquired, nor
+    on where black is.
+
+    The cost is that a pixel of *exactly* zero inside acquired data reads as a hole.
+    Measured at 0.39% of an autocontrast-stretched frame -- but the caller reduces before
+    this runs, and `downsample`'s box mean averages an isolated zero away with its
+    neighbours: 0.39% -> 0.000% at any reduction factor. Only whole unacquired blocks
+    stay exactly zero, which is the thing being asked about. An image small enough to be
+    placed unreduced keeps that speckle, and it shows only where another overview lies
+    beneath it.
+    """
+    values = np.asarray(data, dtype=np.float32)
+    out = np.zeros((*values.shape[:2], 4), dtype=np.uint8)
+    if not acquired.any():
+        return out  # nothing acquired: wholly transparent, which is the truth
+
+    lo, hi = clim
+    norm = np.clip((values - lo) / (hi - lo), 0.0, 1.0)
+    out[..., :3] = (norm * 255.0).astype(np.uint8)[..., None]
+    out[..., 3] = np.where(acquired, 255, 0)
+    return out
+
+
 class _PlacedTile(NamedTuple):
     """One image a record placed: the pixels, where it was taken, and what it covers.
 
@@ -162,7 +269,7 @@ class _PlacedTile(NamedTuple):
     positions and the wrong size.
     """
 
-    data: object  # np.ndarray, display-reduced
+    data: object  # np.ndarray, display-reduced RGBA -- see `_as_colour_and_coverage`
     position: FibsemStagePosition
     pixel_size: float
     covers: Tuple[float, float]  # (width, height) in metres
@@ -486,13 +593,21 @@ class FibsemOverviewWidget(QWidget):
         for _spin in (self.spin_gridbar_spacing, self.spin_gridbar_width):
             _spin.valueChanged.connect(self._refresh_gridbars)
 
-        self.button_acquire = QPushButton("Run Tile Collection")
+        # "Acquire Overview" says what the button produces; "Run Tile Collection" said
+        # how it is produced, which is the part the settings above already describe.
+        self.button_acquire = QPushButton("Acquire Overview")
         self.button_acquire.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+        self.button_acquire.setMinimumHeight(30)
         self.button_acquire.clicked.connect(self.acquire)
-        self.button_cancel = QPushButton("Cancel Acquisition")
-        self.button_cancel.setStyleSheet(stylesheets.DANGER_BUTTON_STYLESHEET)
+        # Beside Acquire and always present, disabled rather than hidden -- the FM tab's
+        # arrangement. Stop belongs next to go, where it is looked for, and a button
+        # that appears only once a run has started moves everything under it at the
+        # moment the user is least able to absorb a moving layout.
+        self.button_cancel = QPushButton("Cancel")
+        self.button_cancel.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.button_cancel.setMinimumHeight(30)
         self.button_cancel.clicked.connect(self.cancel)
-        self.button_cancel.setVisible(False)
+        self.button_cancel.setEnabled(False)
 
         self.label_status = QLabel("")
         self.label_status.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
@@ -530,7 +645,6 @@ class FibsemOverviewWidget(QWidget):
         controls_layout.addWidget(overviews_panel)
         controls_layout.addWidget(self.settings_widget)
         controls_layout.addWidget(self._section("Display", self._display_panel()))
-        controls_layout.addWidget(self._section("Overview", self._acquisition_panel()))
         controls_layout.addStretch()
 
         scroll = QScrollArea()
@@ -543,11 +657,25 @@ class FibsemOverviewWidget(QWidget):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setWidget(controls)
 
+        # The actions sit *below* the scroll area, not inside it, so Acquire, Cancel and
+        # the progress of a running acquisition are on screen whatever the column is
+        # scrolled to. Inside, a host adding its own section (the lamella list) pushes
+        # them past the bottom on any window short enough, and a run then reports its
+        # progress somewhere nobody is looking. Not in a titled panel either: a
+        # collapsible header over two buttons is a control that can fold Acquire and
+        # Cancel out of sight.
+        column = QWidget()
+        column_layout = QVBoxLayout(column)
+        column_layout.setContentsMargins(0, 0, 0, 0)
+        column_layout.setSpacing(0)
+        column_layout.addWidget(scroll, stretch=1)
+        column_layout.addWidget(self._acquisition_panel())
+
         # A splitter rather than a fixed column, so a user can give the canvas the whole
         # window on a small screen. The canvas takes the extra room as the window grows.
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(self.canvas)
-        splitter.addWidget(scroll)
+        splitter.addWidget(column)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 0)
 
@@ -558,9 +686,18 @@ class FibsemOverviewWidget(QWidget):
     def _acquisition_panel(self) -> QWidget:
         panel = QWidget()
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.addWidget(self.button_acquire)
-        layout.addWidget(self.button_cancel)
+        # Left and right match the scrolled column's own 8px, so the buttons line up
+        # with the panels above them rather than sitting 4px further out.
+        layout.setContentsMargins(8, 4, 8, 8)
+
+        buttons = QWidget()
+        buttons_layout = QHBoxLayout(buttons)
+        buttons_layout.setContentsMargins(0, 0, 0, 0)
+        buttons_layout.setSpacing(6)
+        buttons_layout.addWidget(self.button_cancel)
+        buttons_layout.addWidget(self.button_acquire, stretch=1)
+
+        layout.addWidget(buttons)
         layout.addWidget(self.progress)
         layout.addWidget(self.label_status)
         return panel
@@ -812,9 +949,12 @@ class FibsemOverviewWidget(QWidget):
             "" if has_tiles else "No tiles are selected. Click a tile to include it."
         )
         self.button_acquire.setText(
-            "Running Tile Collection…" if running else "Run Tile Collection"
+            "Acquiring Overview…" if running else "Acquire Overview"
         )
-        self.button_cancel.setVisible(running)
+        # Not gated on `_interactive`: a host locking the tab must not take away the
+        # only way to stop a run that is already under way. Off once cancellation has
+        # been asked for, so a second press cannot read as "it did not work".
+        self.button_cancel.setEnabled(running and not self._stop_event.is_set())
         self.settings_widget.setEnabled(self._interactive and not running)
 
     def _planned_tile_count(self) -> int:
@@ -1193,12 +1333,26 @@ class FibsemOverviewWidget(QWidget):
         holds anyway, so keeping it costs no more than the canvas already does -- where
         keeping full-resolution tiles would be hundreds of megabytes for a large
         tileset, to redraw something that is decimated on the way to the screen.
+
+        Split into colour and coverage here rather than at each placement: a view switch
+        re-places every record, and the split is the same answer every time.
         """
         data = image.filtered_data
         pixel_size = self._pixel_size_of(image)
         height, width = data.shape[0], data.shape[1]
+        max_px = self.canvas._display_max_px
+        # What was acquired, and where black is, both come off the *unfiltered* array --
+        # `filtered_data` smears the boundary in both directions and would answer either
+        # question wrong. Reduced the same way as the pixels so the three line up; box
+        # meaning a 0/1 field gives the fraction of each block that holds anything, and a
+        # block counts as acquired when most of it does.
+        raw = downsample(np.asarray(image.data, dtype=np.float32), max_px)
+        acquired = downsample(
+            (np.asarray(image.data) > 0).astype(np.float32), max_px
+        ) > 0.5
+        clim = _contrast_limits(raw, acquired)
         return _PlacedTile(
-            data=downsample(data, self.canvas._display_max_px),
+            data=_as_colour_and_coverage(downsample(data, max_px), acquired, clim),
             position=deepcopy(self._position_of(image)),
             pixel_size=pixel_size,
             # From the shape *before* reduction: this is the ground the image images.
@@ -2059,6 +2213,13 @@ class FibsemOverviewWidget(QWidget):
             # somewhere, and failing at the second tile with `os.path.join(None, ...)`
             # is the worst way to find out.
             settings.image_settings.path = self._save_directory or os.getcwd()
+        settings.image_settings.filename = _stamped(settings.image_settings.filename)
+
+        # Resolved before the dialog, so what it shows is what the run gets -- including
+        # the destination and the stamped name filled in just above.
+        if not self._confirm(settings):
+            logger.info("Overview acquisition cancelled before starting")
+            return
 
         # A new record before the first tile arrives, so every tile has somewhere to go
         # and the run is on the canvas from the moment it starts.
@@ -2077,6 +2238,36 @@ class FibsemOverviewWidget(QWidget):
             self._acquire_worker, settings, deepcopy(self._target)
         )
         self._worker.start()
+
+    def _confirm(self, settings: OverviewAcquisitionSettings) -> bool:
+        """Show what is about to happen, and let it be called off.
+
+        Two things a run carries are set on the canvas rather than in the controls, so
+        neither is visible from the settings column at the moment Acquire is pressed:
+        where the grid was dragged to (FIB-617) and which tiles are masked off
+        (FIB-618). Both survive a tab switch. This is where they announce themselves.
+        """
+        view = self.acquisition_view
+        dialog = OverviewConfirmationDialog(
+            settings=settings,
+            view_description=view.describe if view is not None else None,
+            offset=self._target_offset(),
+            parent=self,
+        )
+        return dialog.exec_() == QDialog.Accepted
+
+    def _target_offset(self) -> Optional[Tuple[float, float]]:
+        """How far the grid's centre sits from the stage, in metres, or None for on it.
+
+        From the cached stage position, like everything else here -- opening a dialog
+        must not reach for the instrument.
+        """
+        if self._target is None or self._stage_position is None:
+            return None
+        return (
+            self._target.x - self._stage_position.x,
+            self._target.y - self._stage_position.y,
+        )
 
     def _acquire_worker(
         self,
@@ -2110,6 +2301,10 @@ class FibsemOverviewWidget(QWidget):
         logger.info("Cancelling overview acquisition")
         self._stop_event.set()
         self.label_status.setText("Cancelling…")
+        # A run stops at the next tile boundary, so the button stays there for a while
+        # after it is pressed. Disabled once asked, or a second press reads as the first
+        # one not having worked.
+        self._apply_enabled_state()
 
     def _set_running(self, running: bool) -> None:
         self._running = running

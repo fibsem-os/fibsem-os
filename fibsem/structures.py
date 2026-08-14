@@ -741,6 +741,23 @@ class ImageSettings:
             isinstance(self.reduced_area, FibsemRectangle) or self.reduced_area is None
         ), f"reduced area must be a fibsemRectangle object, currently is {type(self.reduced_area)}"
 
+    @property
+    def scan_time(self) -> float:
+        """Seconds of beam-on time for one frame at these settings.
+
+        Dwell time per pixel, over every pixel, times the passes each one gets. Line and
+        frame integration both re-scan: `line_integration` sweeps each line N times,
+        `frame_integration` acquires and averages N frames. `scan_interlacing` changes
+        the order lines are visited in, not how many are visited, so it does not appear.
+
+        Scan time, not run time: it excludes flyback, autocontrast, saving, and -- for a
+        tileset -- the stage, which dominates. `OverviewAcquisitionSettings.scan_time`
+        says more about why that last one is left out rather than guessed at.
+        """
+        width, height = self.resolution
+        passes = (self.line_integration or 1) * (self.frame_integration or 1)
+        return self.dwell_time * width * height * passes
+
     @staticmethod
     def from_dict(settings: dict) -> "ImageSettings":
         if "reduced_area" in settings and settings["reduced_area"] is not None:
@@ -925,6 +942,26 @@ class OverviewAcquisitionSettings:
         if self.tile_mask is None:
             return self.nrows * self.ncols
         return sum(1 for row in self.tile_mask for enabled in row if enabled)
+
+    @property
+    def scan_time(self) -> float:
+        """Seconds of beam-on time for the whole overview.
+
+        Counts the tiles a run would actually acquire, not the grid's shape: a masked
+        overview scans only what is enabled, and reporting the full grid would overstate
+        a typical sparse selection roughly threefold.
+
+        Deliberately **scan time only**, and not an estimate of how long a run will take.
+        The two differ by a lot: a 3 x 3 tileset of 1024 x 1024 pixels at 1 us scans for
+        about 9 seconds and takes minutes, because the stage has to move and settle
+        eight times in between. That missing term is not something to guess at --
+        `fibsem/fm/timing.py` assumes 5 seconds per stage move, which nobody has
+        measured, and a total built on it would be mostly that assumption quoted as
+        though it were arithmetic. This is arithmetic, so it is reported under its own
+        name, and answers what the number is consulted for: whether the dwell time and
+        resolution just chosen make a run of seconds or of hours.
+        """
+        return self.image_settings.scan_time * self.n_enabled_tiles
 
     @property
     def total_fov_x(self) -> float:
