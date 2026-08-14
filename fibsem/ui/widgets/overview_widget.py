@@ -1999,9 +1999,12 @@ class FibsemOverviewWidget(QWidget):
         empty readout releases the corner rather than leaving a blank plaque over the
         data.
 
-        Still not `set_info_text`: that repaints the figure, which on this canvas costs
-        every placed image, and this fires on every motion event. The status zone is a
-        `QLabel` in the toolbar's layout pass, which is what makes it cheap enough.
+        Not `set_info_text`, and no longer for the reason it used to be: that was an axes
+        artist whose update repainted every placed image, and FIB-650 made it a `QLabel`
+        too, so both are now cheap. What separates them is what they say. The info bar is
+        where the *stage* is, standing until the instrument moves; this is what is under
+        the *pointer*, true only while it is there. They are read against each other, and
+        a canvas that put them in one place would have neither.
         """
         self.canvas.set_status_readout(text or None)
 

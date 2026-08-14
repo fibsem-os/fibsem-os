@@ -140,25 +140,37 @@ _LIVE_BADGE_STYLE = (
 # they say different things, but all on the same dark plaque the rest of the canvas
 # chrome uses: the hint was a near-white one, which shouted over the data it was drawn
 # on and read as an alert rather than an aside.
-_STATUS_PLAQUE = "background: rgba(26, 26, 26, 190); border-radius: 3px; padding: 0px 6px;"
+_STATUS_PLAQUE = "background: rgba(26, 26, 26, 190); border-radius: 3px;"
 # How long a readout holds the zone after the pointer stops. Long enough to have been
 # read at a glance and then some, since it goes away without being asked -- and any
 # motion at all brings it straight back.
 _READOUT_DECAY_MS = 2500
 # A standing instruction, so the dimmest of the three: it is still true after you have
 # read it, and it should not compete with the image once it has been.
-_STATUS_HINT_STYLE = f"QLabel {{ color: {NEUTRAL_450}; font-size: 11px; {_STATUS_PLAQUE} }}"
+_STATUS_HINT_STYLE = (
+    f"QLabel {{ color: {NEUTRAL_450}; font-size: 11px; padding: 0px 6px;"
+    f" {_STATUS_PLAQUE} }}"
+)
 # Live numbers under the cursor. Monospaced so the digits sit still while it moves --
 # a proportional font makes the whole readout shuffle on every pixel of travel.
 _STATUS_READOUT_STYLE = (
     f"QLabel {{ color: #e8e8e8; font-size: 10px; font-family: monospace;"
-    f" {_STATUS_PLAQUE} }}"
+    f" padding: 0px 6px; {_STATUS_PLAQUE} }}"
 )
 # A value that just changed and is about to go away, so it keeps the accent outline the
 # artist had, and stays opaque so it reads at a glance mid-gesture.
 _STATUS_FLASH_STYLE = (
     f"QLabel {{ background: {_BG}; color: #e8e8e8; border: 1px solid {_ACCENT};"
     " border-radius: 3px; padding: 0px 6px; font-size: 12px; }"
+)
+# The bottom-left info bar: microscope state, standing until the instrument moves. The
+# same dark plaque as the status zone, since it is read against the readout up there --
+# the pose under the cursor above, the pose the stage is actually at below.
+# Padded vertically, unlike the status chips: those are a fixed row height, this one
+# sizes to however many lines it is given.
+_INFO_BAR_STYLE = (
+    f"QLabel {{ color: #e8e8e8; font-size: 9px; padding: 3px 6px;"
+    f" {_STATUS_PLAQUE} }}"
 )
 
 
@@ -175,6 +187,18 @@ _QT_MODIFIER_MAP = (
     (Qt.ControlModifier, "Control"),
     (Qt.MetaModifier, "Meta"),
 )
+
+
+def _pass_clicks_through(widget) -> None:
+    """Make a chrome label invisible to the mouse.
+
+    Qt routes a click to the topmost child under the cursor, and a `QLabel` accepts the
+    press rather than passing it on -- so a label parented to the canvas puts a dead
+    patch over the image the size of its own text. That is what the chrome it replaced
+    was avoiding, drawn as an artist. Anything here that is read rather than operated
+    gets this; the toolbar buttons deliberately do not.
+    """
+    widget.setAttribute(Qt.WA_TransparentForMouseEvents, True)
 
 
 def _modifiers_from_event(event) -> Tuple[str, ...]:
@@ -261,7 +285,10 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._hint_text: Optional[str] = None  # remembered; the status zone shows it
         self._title_artist = None  # top-centre image caption (e.g. FM z-slice)
         self._title_text: Optional[str] = None  # remembered so it survives set_image
-        self._info_artist = None  # bottom-left microscope-state info bar
+        # Bottom-left microscope-state info bar. A child widget, not an artist:
+        # see `set_info_text` for why, and note that `ax.cla()` therefore leaves
+        # it alone -- nothing restores it across an image change.
+        self._info_label = None
         self._info_text: Optional[str] = None  # remembered so it survives set_image
         self._live_badge = None  # top-right "● LIVE" chip during live acquisition
         self._live_on: bool = False  # remembered so it survives set_image
@@ -516,28 +543,64 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
     def set_info_text(self, text: Optional[str]) -> None:
         """Show a small, muted info bar in the bottom-left, or hide with None/''.
 
-        Remembered + re-applied after each image change (like the hint). Driven by
-        the controller from the canvas-state model — microscope state, not image."""
+        Driven by the controller from the canvas-state model — microscope state, not
+        image. A `QLabel` rather than an axes artist, for the reason the top strip is
+        one: it updates on every stage read and every objective move, and an artist
+        update ends in `draw_idle`, which repaints every image the canvas holds. That
+        was ~1.7 ms per placed image and unbounded — 61.7 ms at 36 — against a flat
+        0.07 ms here (FIB-650). Being a child widget also means `ax.cla()` cannot take
+        it down, so nothing has to remember and restore it across an image change.
+        """
         self._info_text = text or None
         self._refresh_info_bar()
-        self.draw_idle()
 
     def _refresh_info_bar(self) -> None:
-        """(Re)create the info artist from the cached text, or remove it."""
-        if self._info_artist is not None:
-            try:
-                self._info_artist.remove()
-            except Exception:
-                pass
-            self._info_artist = None
-        if self._info_text:
-            self._info_artist = self._ax.text(
-                0.012, 0.015, self._info_text,
-                transform=self._ax.transAxes, ha="left", va="bottom",
-                fontsize=6.5, color="#e8e8e8", zorder=11,
-                bbox=dict(boxstyle="round,pad=0.25", facecolor=_BG,
-                          edgecolor="none", alpha=0.55),
+        """Put the cached text in the info label, or hide it."""
+        if not self._info_text:
+            if self._info_label is not None:
+                self._info_label.hide()
+            return
+        if self._info_label is None:
+            self._info_label = self._make_info_label()
+        self._info_label.show()
+        self._place_info_label()
+
+    def _make_info_label(self) -> QLabel:
+        """The bottom-left info bar."""
+        label = QLabel("", self)
+        label.setStyleSheet(_INFO_BAR_STYLE)
+        _pass_clicks_through(label)
+        label.raise_()
+        return label
+
+    def _place_info_label(self) -> None:
+        """Sit the info bar in the bottom-left corner, elided to the canvas width.
+
+        Elided per line, because the text is several lines as often as one, and
+        `QFontMetrics.elidedText` works on a single line. The clamp is the canvas
+        width rather than the scalebar's left edge: the scalebar is an axes artist, so
+        asking where it starts means a renderer call and arithmetic between two
+        coordinate systems, which is the thing this whole class of chrome moved to Qt
+        to stop doing. A long enough string can still reach it, exactly as before.
+        """
+        label = self._info_label
+        if label is None or label.isHidden():
+            return
+        available = max(self.width() - 2 * _OVERLAY_MARGIN, 0)
+        metrics = QFontMetrics(label.font())
+        label.setText(self._info_text)
+        padding = max(label.sizeHint().width() - metrics.width(self._info_text), 0)
+        room = max(available - padding, 0)
+        label.setText(
+            "\n".join(
+                metrics.elidedText(line, Qt.ElideRight, room)
+                for line in self._info_text.split("\n")
             )
+        )
+        label.adjustSize()
+        label.move(
+            _OVERLAY_MARGIN, max(self.height() - label.height() - _OVERLAY_MARGIN, 0)
+        )
 
     def set_live_badge(self, on: bool) -> None:
         """Show/hide a green "● LIVE" chip in the top-right during live acquisition.
@@ -567,6 +630,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         badge.setStyleSheet(_LIVE_BADGE_STYLE)
         badge.setFixedHeight(_OVERLAY_BTN_SIZE)
         badge.adjustSize()
+        _pass_clicks_through(badge)
         badge.raise_()
         return badge
 
@@ -624,6 +688,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         """The status chip, sized to sit in the toolbar row."""
         label = QLabel("", self)
         label.setFixedHeight(_OVERLAY_BTN_SIZE)
+        _pass_clicks_through(label)
         label.raise_()
         return label
 
@@ -689,8 +754,9 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._hint_text = None  # the status chip is a widget; hidden below, not by cla()
         self._title_artist = None
         self._title_text = None
-        self._info_artist = None
         self._info_text = None
+        if self._info_label is not None:
+            self._info_label.hide()
         # The chip is a child widget, so `cla()` does not take it down the way it took
         # the artist. Hidden by hand to keep the reset meaning what it always did.
         if self._live_badge is not None:
@@ -761,6 +827,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             x -= badge.width()
             badge.move(x, _OVERLAY_MARGIN)
         self._place_status_label(right_edge=x)
+        self._place_info_label()  # bottom left, in the same logical-pixel pass
 
     def _place_status_label(self, right_edge: int) -> None:
         """Put the status chip at the left of the same row, elided to fit.

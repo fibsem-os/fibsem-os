@@ -2336,13 +2336,19 @@ def test_a_move_updates_the_info_bar_without_reading_the_device(qapp, interactiv
     )
 
 
-def test_the_objective_signal_is_dropped_on_close(qapp, interactive_widget):
+def test_the_objective_signal_is_dropped_on_close(qapp):
     """psygnal outlives the widget and holds a bound method of a torn-down Qt object.
 
     Closing the tab and then moving the objective from anywhere else was the segfault
     `closeEvent` already guards for the stage; this is the same for the objective.
+
+    Builds its own widget rather than taking the module-scoped one. A test that proves
+    teardown works has to destroy what it touches, so it cannot share: closing the
+    fixture left every later test in this file driving a widget subscribed to nothing,
+    and none of them failed, because none of them happened to need a live signal
+    (FIB-623).
     """
-    widget = interactive_widget
+    widget = _fresh_widget(qapp)
     objective = widget.fm.objective
     before = len(objective.position_changed)
     assert before, "the widget never subscribed -- the test proves nothing"
@@ -4681,3 +4687,24 @@ def test_the_canvas_says_how_to_edit_the_grid_while_it_is_shown(qapp):
     widget.tile_grid_panel.visibility_changed.emit(False)
 
     assert widget.canvas.canvas._hint_text is None
+
+
+def test_zz_the_shared_fixture_is_still_wired_at_the_end_of_the_file(qapp, overview_widget):
+    """A canary, deliberately last: it only catches what happens *before* it.
+
+    The module-scoped widget is shared by ~100 tests, and psygnal holds bound methods
+    weakly, so anything that closes or drops it disconnects the lot in silence. Nothing
+    failed when that happened -- the tests carried on driving handlers directly, proving
+    less than they read as proving. If this fails, look for a test that closed, deleted
+    or replaced the shared widget rather than building its own with `_fresh_widget`
+    (FIB-623).
+    """
+    fm = overview_widget.fm
+    counts = {
+        "transform_changed": len(fm.transform_changed),
+        "acquiring_changed": len(fm.acquiring_changed),
+        "acquisition_progress_signal": len(fm.acquisition_progress_signal),
+        "objective.position_changed": len(fm.objective.position_changed),
+    }
+
+    assert all(counts.values()), f"the shared fixture went deaf mid-file: {counts}"

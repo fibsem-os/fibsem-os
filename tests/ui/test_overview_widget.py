@@ -2087,8 +2087,11 @@ class TestTheCursorReadoutUsesTheCanvasStatusZone:
         assert not hasattr(widget, "cursor_readout")
 
     def test_the_readout_does_not_repaint_the_figure(self, widget, monkeypatch):
-        """Why this is not `set_info_text`. It fires on every motion event, and a figure
-        repaint on this canvas costs every placed image."""
+        """It fires on every motion event, and a figure repaint on this canvas costs
+        every placed image -- measured at ~1.7 ms each and unbounded, 61.7 ms at 36
+        (FIB-650). Still worth pinning now that the chrome around it is all widgets:
+        what this catches is the readout being moved back onto an axes artist, which is
+        what both of the labels it replaced started life as."""
         draws = []
         monkeypatch.setattr(widget.canvas, "draw_idle", lambda: draws.append(1))
 
