@@ -43,7 +43,9 @@ from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 from PyQt5.QtCore import pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
     QCheckBox,
+    QDialog,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QPushButton,
     QScrollArea,
@@ -94,6 +96,7 @@ from fibsem.ui.widgets.custom_widgets import (
 from fibsem.ui.widgets.overview_acquisition_settings_widget import (
     OverviewAcquisitionSettingsWidget,
 )
+from fibsem.ui.widgets.overview_confirmation_dialog import OverviewConfirmationDialog
 from fibsem.ui.widgets.overview_list_widget import OverviewListWidget
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 
@@ -486,13 +489,21 @@ class FibsemOverviewWidget(QWidget):
         for _spin in (self.spin_gridbar_spacing, self.spin_gridbar_width):
             _spin.valueChanged.connect(self._refresh_gridbars)
 
-        self.button_acquire = QPushButton("Run Tile Collection")
+        # "Acquire Overview" says what the button produces; "Run Tile Collection" said
+        # how it is produced, which is the part the settings above already describe.
+        self.button_acquire = QPushButton("Acquire Overview")
         self.button_acquire.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+        self.button_acquire.setMinimumHeight(30)
         self.button_acquire.clicked.connect(self.acquire)
-        self.button_cancel = QPushButton("Cancel Acquisition")
-        self.button_cancel.setStyleSheet(stylesheets.DANGER_BUTTON_STYLESHEET)
+        # Beside Acquire and always present, disabled rather than hidden -- the FM tab's
+        # arrangement. Stop belongs next to go, where it is looked for, and a button
+        # that appears only once a run has started moves everything under it at the
+        # moment the user is least able to absorb a moving layout.
+        self.button_cancel = QPushButton("Cancel")
+        self.button_cancel.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.button_cancel.setMinimumHeight(30)
         self.button_cancel.clicked.connect(self.cancel)
-        self.button_cancel.setVisible(False)
+        self.button_cancel.setEnabled(False)
 
         self.label_status = QLabel("")
         self.label_status.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
@@ -530,7 +541,6 @@ class FibsemOverviewWidget(QWidget):
         controls_layout.addWidget(overviews_panel)
         controls_layout.addWidget(self.settings_widget)
         controls_layout.addWidget(self._section("Display", self._display_panel()))
-        controls_layout.addWidget(self._section("Overview", self._acquisition_panel()))
         controls_layout.addStretch()
 
         scroll = QScrollArea()
@@ -543,11 +553,25 @@ class FibsemOverviewWidget(QWidget):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setWidget(controls)
 
+        # The actions sit *below* the scroll area, not inside it, so Acquire, Cancel and
+        # the progress of a running acquisition are on screen whatever the column is
+        # scrolled to. Inside, a host adding its own section (the lamella list) pushes
+        # them past the bottom on any window short enough, and a run then reports its
+        # progress somewhere nobody is looking. Not in a titled panel either: a
+        # collapsible header over two buttons is a control that can fold Acquire and
+        # Cancel out of sight.
+        column = QWidget()
+        column_layout = QVBoxLayout(column)
+        column_layout.setContentsMargins(0, 0, 0, 0)
+        column_layout.setSpacing(0)
+        column_layout.addWidget(scroll, stretch=1)
+        column_layout.addWidget(self._acquisition_panel())
+
         # A splitter rather than a fixed column, so a user can give the canvas the whole
         # window on a small screen. The canvas takes the extra room as the window grows.
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(self.canvas)
-        splitter.addWidget(scroll)
+        splitter.addWidget(column)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 0)
 
@@ -558,9 +582,18 @@ class FibsemOverviewWidget(QWidget):
     def _acquisition_panel(self) -> QWidget:
         panel = QWidget()
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.addWidget(self.button_acquire)
-        layout.addWidget(self.button_cancel)
+        # Left and right match the scrolled column's own 8px, so the buttons line up
+        # with the panels above them rather than sitting 4px further out.
+        layout.setContentsMargins(8, 4, 8, 8)
+
+        buttons = QWidget()
+        buttons_layout = QHBoxLayout(buttons)
+        buttons_layout.setContentsMargins(0, 0, 0, 0)
+        buttons_layout.setSpacing(6)
+        buttons_layout.addWidget(self.button_cancel)
+        buttons_layout.addWidget(self.button_acquire, stretch=1)
+
+        layout.addWidget(buttons)
         layout.addWidget(self.progress)
         layout.addWidget(self.label_status)
         return panel
@@ -812,9 +845,12 @@ class FibsemOverviewWidget(QWidget):
             "" if has_tiles else "No tiles are selected. Click a tile to include it."
         )
         self.button_acquire.setText(
-            "Running Tile Collection…" if running else "Run Tile Collection"
+            "Acquiring Overview…" if running else "Acquire Overview"
         )
-        self.button_cancel.setVisible(running)
+        # Not gated on `_interactive`: a host locking the tab must not take away the
+        # only way to stop a run that is already under way. Off once cancellation has
+        # been asked for, so a second press cannot read as "it did not work".
+        self.button_cancel.setEnabled(running and not self._stop_event.is_set())
         self.settings_widget.setEnabled(self._interactive and not running)
 
     def _planned_tile_count(self) -> int:
@@ -2060,6 +2096,12 @@ class FibsemOverviewWidget(QWidget):
             # is the worst way to find out.
             settings.image_settings.path = self._save_directory or os.getcwd()
 
+        # Resolved before the dialog, so what it shows is what the run gets -- including
+        # the destination filled in just above.
+        if not self._confirm(settings):
+            logger.info("Overview acquisition cancelled before starting")
+            return
+
         # A new record before the first tile arrives, so every tile has somewhere to go
         # and the run is on the canvas from the moment it starts.
         self._record_count += 1
@@ -2077,6 +2119,36 @@ class FibsemOverviewWidget(QWidget):
             self._acquire_worker, settings, deepcopy(self._target)
         )
         self._worker.start()
+
+    def _confirm(self, settings: OverviewAcquisitionSettings) -> bool:
+        """Show what is about to happen, and let it be called off.
+
+        Two things a run carries are set on the canvas rather than in the controls, so
+        neither is visible from the settings column at the moment Acquire is pressed:
+        where the grid was dragged to (FIB-617) and which tiles are masked off
+        (FIB-618). Both survive a tab switch. This is where they announce themselves.
+        """
+        view = self.acquisition_view
+        dialog = OverviewConfirmationDialog(
+            settings=settings,
+            view_description=view.describe if view is not None else None,
+            offset=self._target_offset(),
+            parent=self,
+        )
+        return dialog.exec_() == QDialog.Accepted
+
+    def _target_offset(self) -> Optional[Tuple[float, float]]:
+        """How far the grid's centre sits from the stage, in metres, or None for on it.
+
+        From the cached stage position, like everything else here -- opening a dialog
+        must not reach for the instrument.
+        """
+        if self._target is None or self._stage_position is None:
+            return None
+        return (
+            self._target.x - self._stage_position.x,
+            self._target.y - self._stage_position.y,
+        )
 
     def _acquire_worker(
         self,
@@ -2110,6 +2182,10 @@ class FibsemOverviewWidget(QWidget):
         logger.info("Cancelling overview acquisition")
         self._stop_event.set()
         self.label_status.setText("Cancelling…")
+        # A run stops at the next tile boundary, so the button stays there for a while
+        # after it is pressed. Disabled once asked, or a second press reads as the first
+        # one not having worked.
+        self._apply_enabled_state()
 
     def _set_running(self, running: bool) -> None:
         self._running = running

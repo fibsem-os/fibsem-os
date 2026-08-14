@@ -28,7 +28,8 @@ import pytest
 # module-level imports below turn a skip into a collection error.
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication  # noqa: E402
+from PyQt5.QtCore import QPoint  # noqa: E402
+from PyQt5.QtWidgets import QApplication, QDialog  # noqa: E402
 
 from fibsem import utils  # noqa: E402
 from fibsem.structures import (  # noqa: E402
@@ -37,6 +38,7 @@ from fibsem.structures import (  # noqa: E402
     FibsemStagePosition,
     ImageSettings,
 )
+from fibsem.ui.widgets import overview_confirmation_dialog  # noqa: E402
 from fibsem.ui.widgets.overview_widget import (  # noqa: E402
     GRID_BOUNDARY_RADIUS,
     FibsemOverviewWidget,
@@ -44,6 +46,27 @@ from fibsem.ui.widgets.overview_widget import (  # noqa: E402
 )
 
 _app = QApplication.instance() or QApplication(sys.argv)
+
+
+@pytest.fixture(autouse=True)
+def confirmations(monkeypatch):
+    """Every `acquire()` opens a modal dialog, which would hang the run.
+
+    Auto-accepted so the tests below can go on testing what they were written for -- and
+    *recorded*, because a fixture that silently says yes would equally hide the dialog
+    never being shown, which is the one thing a confirmation has to do. Tests that care
+    assert against the list this yields.
+    """
+    shown = []
+
+    def _exec(dialog):
+        shown.append(dialog)
+        return QDialog.Accepted
+
+    monkeypatch.setattr(
+        overview_confirmation_dialog.OverviewConfirmationDialog, "exec_", _exec
+    )
+    return shown
 
 
 @pytest.fixture(scope="module")
@@ -644,7 +667,6 @@ class TestTheRunOwnsItsSettings:
             widget.settings_widget.image_settings_widget.filename_edit.text()
             == "overview-image"
         )
-
 
     def test_a_run_starts_from_the_overview_defaults(self, widget, monkeypatch):
         """A 500 um tile with autocontrast, not `ImageSettings`'s generic 150 um.
@@ -1778,3 +1800,233 @@ class TestTheMillingAngleIsOnTheBeamTab:
             lambda *a, **k: pytest.fail("the info bar polled the stage"),
         )
         widget._refresh_stage_info()
+
+
+class TestARunIsConfirmedFirst:
+    """Pressing Acquire drives the stage. Two things it will do are set on the canvas
+    rather than in the controls, so neither is visible from the settings column at the
+    moment it is pressed: where the grid was dragged to, and which tiles are masked off.
+    Both survive a tab switch, and both are silent.
+
+    The dialog is where they announce themselves. These check that it is asked, that a
+    refusal is honoured, and that what it is handed is what the run gets -- a dialog
+    describing a different set of settings than the one that runs is worse than none.
+    """
+
+    def _fake_worker(self, captured):
+        def factory(fn, *args):
+            captured["args"] = args
+
+            class _W:
+                def start(self_inner):
+                    pass
+
+                def is_alive(self_inner):
+                    return False
+
+            return _W()
+
+        return factory
+
+    def test_a_run_asks_before_it_starts(
+        self, widget, monkeypatch, tmp_path, confirmations
+    ):
+        captured = {}
+        widget.set_save_directory(str(tmp_path))
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker",
+            self._fake_worker(captured),
+        )
+        widget.acquire()
+        assert len(confirmations) == 1, "the run started without asking"
+        assert "args" in captured, "the run was refused after the dialog was accepted"
+
+    def test_declining_leaves_everything_as_it_was(
+        self, widget, monkeypatch, tmp_path
+    ):
+        """Not merely "no worker": a refused run must leave no record behind either, or
+        the overview list grows a row for something that never happened."""
+        captured = {}
+        widget.set_save_directory(str(tmp_path))
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker",
+            self._fake_worker(captured),
+        )
+        monkeypatch.setattr(
+            overview_confirmation_dialog.OverviewConfirmationDialog,
+            "exec_",
+            lambda self: QDialog.Rejected,
+        )
+        before = len(widget._records)
+
+        widget.acquire()
+
+        assert "args" not in captured, "a declined run started anyway"
+        assert len(widget._records) == before, "a declined run left a record behind"
+        assert not widget.is_acquiring
+
+    def test_the_dialog_is_shown_the_settings_the_run_gets(
+        self, widget, monkeypatch, tmp_path, confirmations
+    ):
+        """Including the destination, which `acquire` fills in *after* reading the
+        widget -- a dialog built before that step would show a run with nowhere to go."""
+        captured = {}
+        widget.set_save_directory(str(tmp_path))
+        widget.settings_widget.set_grid_size(2, 4)
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker",
+            self._fake_worker(captured),
+        )
+        widget.acquire()
+
+        shown = confirmations[0].settings
+        assert shown is captured["args"][0], (
+            "the dialog described a different settings object than the one that ran"
+        )
+        assert shown.image_settings.path, "the dialog was built before the path was set"
+        assert (shown.nrows, shown.ncols) == (2, 4)
+
+    def test_an_undragged_run_says_it_is_on_the_stage(
+        self, widget, monkeypatch, tmp_path, confirmations
+    ):
+        captured = {}
+        widget.set_save_directory(str(tmp_path))
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker",
+            self._fake_worker(captured),
+        )
+        widget.acquire()
+        assert confirmations[0].offset is None
+        assert confirmations[0]._centre_text() == "the stage position"
+
+    def test_the_dialog_reports_a_dragged_grid(
+        self, widget, monkeypatch, tmp_path, confirmations
+    ):
+        """The reason this dialog exists. A grid dragged half a millimetre away looks
+        identical in the settings column."""
+        captured = {}
+        widget.set_save_directory(str(tmp_path))
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker",
+            self._fake_worker(captured),
+        )
+        widget._on_grid_moved(150.0, 60.0)
+        widget.acquire()
+
+        dragged = confirmations[0]
+        assert dragged.offset is not None, "a dragged grid was reported as on the stage"
+        expected = (
+            widget.target.x - widget._stage_position.x,
+            widget.target.y - widget._stage_position.y,
+        )
+        assert dragged.offset == pytest.approx(expected)
+        assert "from the stage position" in dragged._centre_text()
+        assert dragged._centre_text() != "the stage position"
+
+    def test_opening_the_dialog_costs_no_hardware_read(
+        self, widget, monkeypatch, tmp_path, confirmations
+    ):
+        """It reports the view and the offset, both of which have a cached answer. A
+        dialog that polled the stage would do it on the click that starts a run, which
+        is the worst moment to add a set-then-read on the shared channel."""
+        captured = {}
+        widget.set_save_directory(str(tmp_path))
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker",
+            self._fake_worker(captured),
+        )
+        monkeypatch.setattr(
+            widget.microscope, "get_stage_position",
+            lambda *a, **k: pytest.fail("the confirmation dialog polled the stage"),
+        )
+        widget.acquire()
+        assert confirmations[0].view_description
+
+
+class TestTheAcquisitionButtons:
+    """`Cancel | Acquire Overview`, the fluorescence tab's arrangement."""
+
+    @staticmethod
+    def _pretend_a_run_is_going(widget):
+        """`_set_running(True)` alone is not enough: `cancel()` is gated on
+        `is_acquiring`, which asks the worker, not the flag."""
+
+        class _LiveWorker:
+            def is_alive(self):
+                return True
+
+        widget._worker = _LiveWorker()
+        widget._set_running(True)
+
+    def test_stop_sits_beside_go_and_stays_there(self, widget):
+        """Enabled and disabled rather than shown and hidden: a button that appears when
+        a run starts moves everything below it at the moment the user is least able to
+        absorb a moving layout."""
+        assert widget.button_acquire.text() == "Acquire Overview"
+        assert not widget.button_cancel.isHidden()
+        assert not widget.button_cancel.isEnabled()
+
+        widget._set_running(True)
+        assert widget.button_cancel.isEnabled()
+        assert not widget.button_acquire.isEnabled()
+        assert not widget.button_cancel.isHidden()
+
+    def test_cancel_goes_dead_once_it_has_been_asked(self, widget):
+        """A run stops at the next tile boundary, so the button is still there for a
+        while after it is pressed. Left live, a second press reads as the first one not
+        having worked."""
+        self._pretend_a_run_is_going(widget)
+        widget.cancel()
+        assert not widget.button_cancel.isEnabled()
+
+    def test_a_host_lock_cannot_take_away_the_stop(self, widget):
+        """`set_interactive(False)` is a host claiming the instrument. It must not
+        remove the only way to stop a run that is already under way."""
+        widget._set_running(True)
+        widget.set_interactive(False)
+        assert not widget.button_acquire.isEnabled()
+        assert widget.button_cancel.isEnabled()
+
+    def test_the_actions_are_not_in_the_scrolling_part(self, widget):
+        """Structural, because the failure is invisible until the window is short.
+
+        Inside the scroll area, a host adding its own section -- the lamella list, which
+        is what the AutoLamella tab does -- pushes Acquire, Cancel and the progress bar
+        below the fold. A run then reports its progress somewhere nobody is looking, and
+        stopping it means scrolling first.
+        """
+        from PyQt5.QtWidgets import QScrollArea
+
+        scroll = widget.findChild(QScrollArea)
+        assert scroll is not None, "the settings column is no longer scrolled"
+        scrolled = scroll.widget()
+        for name in ("button_acquire", "button_cancel", "progress", "label_status"):
+            child = getattr(widget, name)
+            assert not scrolled.isAncestorOf(child), f"{name} scrolls away with the column"
+
+    def test_they_stay_on_screen_in_a_window_too_short_for_the_column(
+        self, microscope, qapp
+    ):
+        """The case that motivated it: a host section on top, and a window shorter than
+        the controls need. Shown for real -- geometry on an unshown widget is whatever
+        the last layout pass left, which is how this passes for the wrong reason."""
+        from PyQt5.QtWidgets import QListWidget
+
+        widget = FibsemOverviewWidget(microscope)
+        try:
+            lamellae = QListWidget()
+            for i in range(6):
+                lamellae.addItem(f"Lamella-{i + 1:02d}")
+            widget.add_settings_section("Lamellae", lamellae)
+            widget.resize(1250, 620)
+            widget.show()
+            qapp.processEvents()
+
+            top_left = widget.button_acquire.mapTo(widget, QPoint(0, 0))
+            bottom = top_left.y() + widget.button_acquire.height()
+            assert bottom <= widget.height(), (
+                f"Acquire runs to {bottom}px in a {widget.height()}px widget"
+            )
+            assert widget.button_acquire.visibleRegion().boundingRect().height() > 0
+        finally:
+            widget.close()
