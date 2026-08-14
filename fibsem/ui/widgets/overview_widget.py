@@ -76,11 +76,17 @@ from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
     CURRENT_POSITION_COLOUR,
+    GRAY_WHITE_COLOR,
+    GRID_BOUNDARY_COLOUR,
+    NEUTRAL_300,
     SAVED_POSITION_COLOUR,
     SELECTED_POSITION_COLOUR,
     SEMANTIC_WARNING_COLOR,
+    SLOT_COLOUR,
+    STAGE_LIMITS_COLOUR,
 )
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
+    GRID_BOUNDARY_RADIUS_M,
     MinimapShapesOverlay,
     ShapeSpec,
 )
@@ -105,13 +111,6 @@ from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpda
 
 logger = logging.getLogger(__name__)
 
-# Structural context rather than anything a user marked, so muted -- the same argument
-# the FM overview makes for its holder slots, and the same colour, so the two tabs draw
-# the sample holder identically.
-SLOT_COLOUR = "#90a4ae"
-LIMITS_COLOUR = "#ffca28"
-GRID_BOUNDARY_COLOUR = "#ff5252"
-
 # The canvas key the in-progress mosaic is drawn under. Its own, so a run that dies
 # leaves no half-filled overview behind pretending to be a finished one.
 PREVIEW_KEY = "acquisition-preview"
@@ -131,22 +130,20 @@ _VIEW_CHIP_SPACING = 4
 # they sit on data and must not read as a toolbar. The active one is the view the next
 # run would land in, in the accent colour the app uses for a selected state.
 _VIEW_CHIP_STYLE = (
-    "QPushButton { color: #d0d0d0; font-size: 10px; padding: 3px 8px; border: none;"
-    " border-radius: 9px; background: rgba(26, 26, 26, 170); }"
+    f"QPushButton {{ color: {NEUTRAL_300}; font-size: 10px; padding: 3px 8px;"
+    " border: none; border-radius: 9px; background: rgba(26, 26, 26, 170); }"
     "QPushButton:hover { background: rgba(60, 60, 60, 200); }"
-    "QPushButton:checked { color: #ffffff; background: rgba(90, 90, 90, 210); }"
+    f"QPushButton:checked {{ color: {GRAY_WHITE_COLOR};"
+    " background: rgba(90, 90, 90, 210); }"
 )
 _VIEW_CHIP_STYLE_ACTIVE = (
-    "QPushButton { color: #d0d0d0; font-size: 10px; padding: 3px 8px;"
+    f"QPushButton {{ color: {NEUTRAL_300}; font-size: 10px; padding: 3px 8px;"
     f" border: 1px solid {ACCENT_COLOR}; border-radius: 9px;"
     " background: rgba(26, 26, 26, 170); }"
     "QPushButton:hover { background: rgba(60, 60, 60, 200); }"
-    f"QPushButton:checked {{ color: #ffffff; background: {ACCENT_COLOR}; }}"
+    f"QPushButton:checked {{ color: {GRAY_WHITE_COLOR}; background: {ACCENT_COLOR}; }}"
 )
 
-# The grid boundary a cryo holder's slot describes, as a radius in metres. Carried over
-# from the widget this replaces, where it was written inline as `1000e-6 / pixelsize`.
-GRID_BOUNDARY_RADIUS = 1000e-6
 # Cryo grid bar defaults, in microns -- the values the tab this replaces carried in
 # `GRIDBAR_IMAGE_LAYER_PROPERTIES`, which went with the napari layer they configured.
 DEFAULT_GRIDBAR_SPACING_UM = 100.0
@@ -555,8 +552,7 @@ class FibsemOverviewWidget(QWidget):
         # Monospaced so the digits sit still while the cursor moves. A proportional font
         # makes the whole readout shuffle on every pixel of travel.
         self.cursor_readout.setStyleSheet(
-            "color: #e8e8e8; font-size: 10px; font-family: monospace;"
-            "background: rgba(26, 26, 26, 160); border-radius: 3px; padding: 2px 5px;"
+            stylesheets.CANVAS_READOUT_STYLE
         )
         self.cursor_readout.move(_CANVAS_CHROME_MARGIN, _CURSOR_READOUT_TOP)
         self.cursor_readout.hide()  # nothing to say until the pointer is over the canvas
@@ -1522,7 +1518,7 @@ class FibsemOverviewWidget(QWidget):
         the view; a real change refits, which is wanted -- the area only changes when
         the plan does.
         """
-        span = 2 * GRID_BOUNDARY_RADIUS if self._draws_grid_boundary() else None
+        span = 2 * GRID_BOUNDARY_RADIUS_M if self._draws_grid_boundary() else None
         settings = self._settings()
         if settings is not None:
             planned = max(settings.total_fov_x, settings.total_fov_y)
@@ -1728,13 +1724,13 @@ class FibsemOverviewWidget(QWidget):
             box_cx, box_cy = (max(xs) + min(xs)) / 2, (max(ys) + min(ys)) / 2
             # A circle on the sample, so an ellipse on screen everywhere but the two
             # views where the beam looks down the pose it is named after.
-            span_x, span_y = self._canvas_span(frame, GRID_BOUNDARY_RADIUS)
+            span_x, span_y = self._canvas_span(frame, GRID_BOUNDARY_RADIUS_M)
         except Exception as e:
             logger.debug(f"Could not draw the stage limits: {e}")
             return []
         return [
             ShapeSpec(kind="rect", cx=box_cx, cy=box_cy, width=width, height=height,
-                      color=LIMITS_COLOUR, label="Stage Limits"),
+                      color=STAGE_LIMITS_COLOUR, label="Stage Limits"),
             ShapeSpec(kind="ellipse", cx=cx, cy=cy,
                       width=2 * span_x, height=2 * span_y,
                       color=GRID_BOUNDARY_COLOUR, label="Grid Boundary"),

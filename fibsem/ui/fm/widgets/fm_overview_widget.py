@@ -55,13 +55,17 @@ from fibsem.ui.fm.widgets.tile_grid_options_panel import TileGridOptionsPanel
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
+    GRID_BOUNDARY_RADIUS_M,
     MinimapShapesOverlay,
     ShapeSpec,
 )
 from fibsem.ui.tokens import (
     CURRENT_POSITION_COLOUR,
+    GRID_BOUNDARY_COLOUR,
     SAVED_POSITION_COLOUR,
     SELECTED_POSITION_COLOUR,
+    SLOT_COLOUR,
+    STAGE_LIMITS_COLOUR,
 )
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointsOverlay
 from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import TileGridOverlay
@@ -107,18 +111,11 @@ def shrink_progress_text(progress: FibsemProgressWidget) -> FibsemProgressWidget
 # position-derived key, so the preview can be dropped when the real stitch lands.
 PREVIEW_KEY = "fm-preview"
 
-# Radius of the specimen grid, for the boundary circle. Matches the minimap's.
-GRID_RADIUS_M = 1000e-6
-
 # The three position markers (`CURRENT_`/`SAVED_`/`SELECTED_POSITION_COLOUR`) are
 # imported from `tokens` rather than defined here: all three are crosshairs, so colour
 # is the only thing telling them apart, and the FIB/SEM overview draws the same three
 # things. A user reads both tabs, and the markers meaning different things on each is
 # worse than any one choice of colour.
-#
-# Muted, because the holder slots are structural context like the limits rather
-# than something anyone marked -- and they would otherwise read as saved positions.
-SLOT_COLOUR = "#90a4ae"
 
 # Wide enough for millimetre-scale coordinates without the row re-laying out as the
 # cursor moves -- a readout that shoves the buttons sideways is worse than none.
@@ -442,8 +439,7 @@ class FMOverviewWidget(QWidget):
         # Monospaced so the digits sit still while the cursor moves. A proportional
         # font makes the whole readout shuffle on every pixel of travel.
         self.cursor_readout.setStyleSheet(
-            "color: #e8e8e8; font-size: 10px; font-family: monospace;"
-            "background: rgba(26, 26, 26, 160); border-radius: 3px; padding: 2px 5px;"
+            stylesheets.CANVAS_READOUT_STYLE
         )
         self.cursor_readout.move(CANVAS_CHROME_MARGIN, CANVAS_CHROME_MARGIN)
         self.cursor_readout.hide()  # nothing to say until the pointer is over the canvas
@@ -1231,14 +1227,14 @@ class FMOverviewWidget(QWidget):
             # limits rather than projected corner-by-corner: the projection is flips
             # and a tilt, which keep an axis-aligned box axis-aligned.
             specs.append(ShapeSpec(
-                kind="rect", cx=centre[0], cy=centre[1], color="yellow",
+                kind="rect", cx=centre[0], cy=centre[1], color=STAGE_LIMITS_COLOUR,
                 width=frame.length(limits["x"].max - limits["x"].min),
                 height=frame.length(limits["y"].max - limits["y"].min),
                 label="Stage limits",
             ))
             specs.append(ShapeSpec(
-                kind="circle", cx=centre[0], cy=centre[1], color="red",
-                radius=frame.length(GRID_RADIUS_M), label="Grid boundary",
+                kind="circle", cx=centre[0], cy=centre[1], color=GRID_BOUNDARY_COLOUR,
+                radius=frame.length(GRID_BOUNDARY_RADIUS_M), label="Grid boundary",
             ))
 
         holder = getattr(self.microscope._stage, "holder", None)

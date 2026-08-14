@@ -997,8 +997,12 @@ def test_the_stage_and_grid_limits_are_drawn_in_the_canvas_frame(qapp, overview_
     assert stage.width == pytest.approx((limits["x"].max - limits["x"].min) / reference)
     assert stage.height == pytest.approx((limits["y"].max - limits["y"].min) / reference)
 
-    from fibsem.ui.fm.widgets.fm_overview_widget import GRID_RADIUS_M
-    assert by_label["Grid boundary"].radius == pytest.approx(GRID_RADIUS_M / reference)
+    from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
+        GRID_BOUNDARY_RADIUS_M,
+    )
+    assert by_label["Grid boundary"].radius == pytest.approx(
+        GRID_BOUNDARY_RADIUS_M / reference
+    )
 
     assert widget.stage_overlay._artists, "specs were built but nothing was drawn"
 

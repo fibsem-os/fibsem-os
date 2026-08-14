@@ -39,8 +39,10 @@ from fibsem.structures import (  # noqa: E402
     ImageSettings,
 )
 from fibsem.ui.widgets import overview_confirmation_dialog  # noqa: E402
+from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (  # noqa: E402
+    GRID_BOUNDARY_RADIUS_M,
+)
 from fibsem.ui.widgets.overview_widget import (  # noqa: E402
-    GRID_BOUNDARY_RADIUS,
     FibsemOverviewWidget,
     OverviewView,
 )
@@ -1219,7 +1221,7 @@ class TestOverlaysAreDrawnInTheView:
         assert boundary is not None, "the grid boundary was not drawn as an ellipse"
 
         expected = self._marker_span(
-            widget, frame, dx=GRID_BOUNDARY_RADIUS, dy=GRID_BOUNDARY_RADIUS
+            widget, frame, dx=GRID_BOUNDARY_RADIUS_M, dy=GRID_BOUNDARY_RADIUS_M
         )
         assert boundary.width == pytest.approx(2 * expected[0], rel=1e-9)
         assert boundary.height == pytest.approx(2 * expected[1], rel=1e-9)
