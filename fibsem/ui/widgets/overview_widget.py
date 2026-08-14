@@ -69,6 +69,7 @@ from fibsem.structures import (
     FibsemStagePosition,
     OverviewAcquisitionSettings,
 )
+from fibsem.utils import current_timestamp_v3
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui import utils as ui_utils
 from fibsem.ui.qt.threading import FunctionWorker
@@ -160,6 +161,27 @@ PICK_RADIUS_PX = 12
 # the same reason: the percentile over a full mosaic is the expensive part, and it is
 # visually identical on a subsample.
 _CLIM_SAMPLES = 250_000
+
+
+def _stamped(name: str) -> str:
+    """`overview-image` -> `overview-image-14-23-05`, the time the run was started.
+
+    The name is not a label, it is a location: `TiledAcquisitionRunner._setup` makes the
+    tile sub-folder from it and the stitch is written inside that, both keyed on the name
+    alone. Two runs called the same thing therefore land on each other -- the second
+    overwrites the first's tiles *and* its mosaic, and only the canvas, holding both in
+    memory, still shows two. Reloading the experiment finds one.
+
+    Time rather than date and time: the experiment directory is already dated, so inside
+    it the time of day is the whole of what distinguishes one run from another.
+
+    Applied to whatever the box says, not only to the default. A name someone typed is
+    no less prone to being reused -- more so, since a memorable name invites it -- and a
+    run that quietly replaced an earlier one is worse than a name with six digits on the
+    end. The box keeps showing the base, and the confirmation dialog reports the stamped
+    destination, which is what that row is for.
+    """
+    return f"{name}-{current_timestamp_v3(timeonly=True)}"
 
 
 def _contrast_limits(values: np.ndarray, acquired: np.ndarray) -> Tuple[float, float]:
@@ -2191,9 +2213,10 @@ class FibsemOverviewWidget(QWidget):
             # somewhere, and failing at the second tile with `os.path.join(None, ...)`
             # is the worst way to find out.
             settings.image_settings.path = self._save_directory or os.getcwd()
+        settings.image_settings.filename = _stamped(settings.image_settings.filename)
 
         # Resolved before the dialog, so what it shows is what the run gets -- including
-        # the destination filled in just above.
+        # the destination and the stamped name filled in just above.
         if not self._confirm(settings):
             logger.info("Overview acquisition cancelled before starting")
             return

@@ -642,6 +642,9 @@ class TestTheRunOwnsItsSettings:
         experiment is written. Asserted on what the *runner* receives rather than on the
         text box, because that is the value that names the directory -- a box seeded
         correctly and then dropped somewhere along the handover would still pass.
+
+        A prefix, not the whole name: the run appends the time it started, so that two
+        of them cannot land in one directory. See `TestTwoRunsCannotLandOnEachOther`.
         """
         captured = {}
 
@@ -661,7 +664,7 @@ class TestTheRunOwnsItsSettings:
             "fibsem.ui.widgets.overview_widget.FunctionWorker", fake_worker
         )
         widget.acquire()
-        assert captured["settings"].image_settings.filename == "overview-image"
+        assert captured["settings"].image_settings.filename.startswith("overview-image")
         # And visible, so it can be changed before a run rather than discovered after.
         assert (
             widget.settings_widget.image_settings_widget.filename_edit.text()
@@ -2160,3 +2163,95 @@ class TestAnOverviewDoesNotPaintOverTheOneBeneathIt:
             f"the canvas was handed {shown.shape}, so it composites opaquely"
         )
         assert shown[..., 3].min() == 0, "no part of a half-finished mosaic is transparent"
+
+
+class TestTwoRunsCannotLandOnEachOther:
+    """The filename is not a label, it is a location. `TiledAcquisitionRunner._setup`
+    makes the tile sub-folder from it and writes the stitch inside that, both keyed on
+    the name alone -- so two runs called the same thing overwrite each other's tiles
+    *and* mosaics. The canvas, holding both in memory, still shows two; reloading the
+    experiment finds one.
+
+    Seen for real: a simulator session ended with three of four rows in the Overviews
+    list called `overview-image`, all sharing one directory.
+    """
+
+    def _capture(self, widget, monkeypatch, tmp_path):
+        captured = {}
+
+        def fake_worker(fn, *args):
+            captured["settings"] = args[0]
+
+            class _W:
+                def start(self_inner):
+                    pass
+
+                def is_alive(self_inner):
+                    return False
+
+            return _W()
+
+        widget.set_save_directory(str(tmp_path))
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker", fake_worker
+        )
+        widget.acquire()
+        return captured["settings"].image_settings.filename
+
+    def test_a_run_is_stamped_with_the_time_it_started(
+        self, widget, monkeypatch, tmp_path
+    ):
+        import re
+
+        name = self._capture(widget, monkeypatch, tmp_path)
+        assert re.fullmatch(r"overview-image-\d{2}-\d{2}-\d{2}", name), name
+
+    def test_two_runs_do_not_share_a_directory(self, widget, monkeypatch, tmp_path):
+        """The stamp is only worth having if it actually differs. Frozen rather than
+        raced: two real runs are minutes apart, and a test that acquires twice in the
+        same second would pass for the wrong reason either way."""
+        from fibsem.ui.widgets import overview_widget as module
+
+        times = iter(["14-23-05", "14-31-40"])
+        monkeypatch.setattr(
+            module, "current_timestamp_v3", lambda timeonly=True: next(times)
+        )
+        first = self._capture(widget, monkeypatch, tmp_path)
+        widget._set_running(False)
+        second = self._capture(widget, monkeypatch, tmp_path)
+
+        assert first != second
+        assert first == "overview-image-14-23-05"
+        assert second == "overview-image-14-31-40"
+
+    def test_a_name_someone_typed_is_stamped_too(self, widget, monkeypatch, tmp_path):
+        """A memorable name invites reuse, so it is the *more* likely to collide. The
+        base is kept as a prefix, so what was typed is still what you look for."""
+        widget.settings_widget.image_settings_widget.filename_edit.setText("grid-2-survey")
+        name = self._capture(widget, monkeypatch, tmp_path)
+        assert name.startswith("grid-2-survey-")
+        assert name != "grid-2-survey"
+
+    def test_the_box_still_shows_the_base_name(self, widget, monkeypatch, tmp_path):
+        """Stamped at the run, not in the control: a box that rewrote itself on every
+        acquisition would make the name unusable as a thing you set once."""
+        self._capture(widget, monkeypatch, tmp_path)
+        assert (
+            widget.settings_widget.image_settings_widget.filename_edit.text()
+            == "overview-image"
+        )
+
+    def test_the_dialog_reports_where_it_will_actually_land(
+        self, widget, monkeypatch, tmp_path, confirmations
+    ):
+        """The one place the stamped name is shown before the run. Without this the
+        stamp is invisible until the files appear."""
+        name = self._capture(widget, monkeypatch, tmp_path)
+        saving_to = dict(confirmations[0]._rows())["Saving to"]
+        assert saving_to.endswith(name), f"{saving_to} does not name {name}"
+
+    def test_the_record_carries_the_stamped_name(self, widget, monkeypatch, tmp_path):
+        """So the Overviews list can tell two runs apart, which is where the collision
+        was noticed."""
+        name = self._capture(widget, monkeypatch, tmp_path)
+        assert [r.label for r in widget._records.values()] == [name]
