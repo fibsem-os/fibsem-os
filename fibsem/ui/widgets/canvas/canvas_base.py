@@ -125,6 +125,10 @@ _OVERLAY_ICON_SIZE = QSize(14, 14)
 _OVERLAY_BTN_SIZE = 22
 _OVERLAY_MARGIN = 4
 _OVERLAY_GAP = 2
+# How far below the widget's top edge the canvas's top labels (hint, title, flash) start:
+# clear of the toolbar row, which is `_OVERLAY_MARGIN` above buttons `_OVERLAY_BTN_SIZE`
+# tall, plus a gap. In *pixels*, because what they have to miss is measured in pixels.
+_TOP_CHROME_INSET = _OVERLAY_MARGIN + _OVERLAY_BTN_SIZE + 4
 # The "● LIVE" chip shares the toolbar row, so it takes the buttons' height and corner
 # radius; the green is the badge's own, not a button state.
 _LIVE_BADGE_STYLE = (
@@ -391,8 +395,8 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             self._hint_artist = None
         if self._hint_text:
             self._hint_artist = self._ax.text(
-                0.012, 0.985, self._hint_text,
-                transform=self._ax.transAxes, ha="left", va="top",
+                0.012, self._top_chrome_y(), self._hint_text,
+                transform=self.figure.transFigure, ha="left", va="top",
                 fontsize=8, color=NEUTRAL_900, zorder=11,
                 bbox=dict(boxstyle="round,pad=0.3", facecolor="#e6e6e6",
                           edgecolor="none", alpha=0.85),
@@ -417,6 +421,27 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._refresh_title()
         self.draw_idle()
 
+    def _top_chrome_y(self, extra_px: float = 0.0) -> float:
+        """Figure-fraction y for the canvas's top labels, clear of the toolbar row.
+
+        One rule for all three -- hint, title, flash -- so they share a row rather than
+        each picking a height. The hint used to be anchored in `transAxes` at the axes'
+        own top, which put it *above* the flash on a frame that filled its pane and
+        *below* it on a letterboxed one: the two labels swapped vertical order with the
+        image's aspect ratio, and a long hint ran under the toolbar buttons.
+
+        In figure coordinates, not axes: the toolbar buttons and the LIVE chip are laid
+        out in widget pixels, and the figure is edge-to-edge (`subplots_adjust(top=1)`)
+        so a figure fraction *is* a widget fraction. Anchoring here in `transAxes` is what
+        put this chrome on the same horizontal band as the chip, separated only by however
+        much room a centred string happened to leave -- which collided below about 560 px
+        of canvas width, and the FM pane in a 2x2 grid is narrower than that.
+
+        Recomputed on resize (see `resizeEvent`), since the inset is a pixel count.
+        """
+        height = max(float(self.figure.bbox.height), 1.0)
+        return 1.0 - (_TOP_CHROME_INSET + extra_px) / height
+
     def _refresh_title(self) -> None:
         """(Re)create the title artist from the cached text, or remove it."""
         if self._title_artist is not None:
@@ -427,8 +452,8 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             self._title_artist = None
         if self._title_text:
             self._title_artist = self._ax.text(
-                0.5, 0.985, self._title_text,
-                transform=self._ax.transAxes, ha="center", va="top",
+                0.5, self._top_chrome_y(), self._title_text,
+                transform=self.figure.transFigure, ha="center", va="top",
                 fontsize=10, color=WHITE_ICON_COLOR, zorder=11,
                 bbox=dict(boxstyle="round,pad=0.3", facecolor=_BG,
                           edgecolor="none", alpha=0.55),
@@ -514,8 +539,8 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             self._flash_artist = None
         if self._flash_text:
             self._flash_artist = self._ax.text(
-                0.5, 0.975, self._flash_text,
-                transform=self._ax.transAxes, ha="center", va="top",
+                0.5, self._top_chrome_y(4.0), self._flash_text,
+                transform=self.figure.transFigure, ha="center", va="top",
                 fontsize=9, color="#e8e8e8", zorder=12,
                 bbox=dict(boxstyle="round,pad=0.35", facecolor=_BG,
                           edgecolor=_ACCENT, linewidth=1.0, alpha=0.85),
@@ -686,6 +711,14 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._reposition_overlay_buttons()
+        # The top-centre chrome is inset by a pixel count, so its figure fraction has to
+        # be recomputed when the figure changes size or it drifts across the toolbar row.
+        if self._hint_text:
+            self._refresh_hint()
+        if self._title_text:
+            self._refresh_title()
+        if self._flash_text:
+            self._refresh_flash()
         contrast = getattr(self, "_contrast", None)
         if contrast is not None and contrast.isVisible():
             contrast.reposition()

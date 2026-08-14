@@ -19,6 +19,8 @@ import pytest
 
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
+from PyQt5.QtCore import QSize
+from PyQt5.QtGui import QResizeEvent
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.ui.widgets.canvas.canvas_base import FibsemCanvasBase
@@ -29,6 +31,11 @@ _app = QApplication.instance() or QApplication(sys.argv)
 
 def _img(h, w):
     return np.zeros((h, w), dtype=np.uint8)
+
+
+def _resize_event(w, h):
+    """Offscreen, `resize()` does not deliver one on its own."""
+    return QResizeEvent(QSize(w, h), QSize(w, h))
 
 
 def test_image_canvas_is_a_base_canvas():
@@ -130,6 +137,120 @@ def test_the_toolbar_toggle_still_round_trips(noun):
     assert button.isChecked() is False and button.toolTip() == f"Show {noun}"
     toggle()
     assert button.isChecked() is True and button.toolTip() == f"Hide {noun}"
+
+
+class TestTheTopLabelsClearTheToolbarRow:
+    """The hint, title and flash sit along the canvas's top edge; the toolbar buttons and
+    the LIVE chip sit top-right. Anchoring the labels in `transAxes` and the controls in
+    widget pixels left them on one horizontal band, separated only by however much room a
+    centred string happened to leave — which ran out below about 560 px of canvas width,
+    and the FM pane in a 2x2 grid is narrower than that.
+
+    All three labels follow one rule now. The hint especially needed it: anchored at the
+    axes' own top it sat *above* the flash on a frame that filled its pane and *below* it
+    on a letterboxed one, so the two swapped order with the image's aspect ratio.
+
+    Same fault as the chip-under-the-toolbar one below, one slot along.
+    """
+
+    @staticmethod
+    def _canvas(w=460, h=380):
+        c = FibsemImageCanvas()
+        dpi = c.figure.dpi
+        # Both, and in this order: the figure drives the artists, the widget drives the
+        # chip. Offscreen, `resize` alone leaves the figure at its default and the two
+        # are then measured in different worlds.
+        c.figure.set_size_inches(w / dpi, h / dpi)
+        c.resize(w, h)
+        c.set_array(_img(512, 512), pixel_size=1e-8)
+        c.set_live_badge(True)
+        c._reposition_overlay_buttons()
+        return c
+
+    @staticmethod
+    def _rows_overlap(canvas, artist):
+        chip = canvas._live_badge.geometry()
+        bb = artist.get_window_extent(canvas.get_renderer())
+        h = canvas.height()
+        top, bottom = h - bb.y1, h - bb.y0  # matplotlib y is bottom-up
+        return bottom > chip.y() and top < chip.y() + chip.height()
+
+    @pytest.mark.parametrize("width", [360, 420, 480, 520, 560, 900])
+    def test_the_flash_never_shares_a_row_with_the_live_chip(self, width):
+        c = self._canvas(w=width)
+        c.flash_message("OBJ 6000.0 um  (+1.0 um)")
+        c.draw()
+
+        assert not self._rows_overlap(c, c._flash_artist)
+
+    @pytest.mark.parametrize("width", [360, 480, 900])
+    def test_the_title_never_shares_a_row_with_it_either(self, width):
+        """Same slot, same fault — a long z-slice caption would have collided too."""
+        c = self._canvas(w=width)
+        c.set_title("z 42 / 120")
+        c.draw()
+
+        assert not self._rows_overlap(c, c._title_artist)
+
+    @pytest.mark.parametrize("width", [360, 480, 900])
+    def test_the_hint_never_shares_a_row_with_it_either(self, width):
+        """Top-left, but a long enough hint reaches the buttons — and it was the one
+        anchored at the axes' top, so on a filling frame it sat level with them."""
+        c = self._canvas(w=width)
+        c.set_hint("Shift+scroll to focus the objective, double-click to move the stage")
+        c.draw()
+
+        assert not self._rows_overlap(c, c._hint_artist)
+
+    @pytest.mark.parametrize(
+        "image", [(512, 512), (512, 768), (768, 512)], ids=["square", "wide", "tall"]
+    )
+    def test_the_three_labels_share_a_row_whatever_the_aspect(self, image):
+        """The hint used to swap places with the flash depending on the image's aspect,
+        because one was anchored to the axes and the other to the figure."""
+        c = self._canvas(w=460, h=380)
+        c.set_array(_img(*image), pixel_size=1e-8)
+        c.set_hint("Shift+scroll to focus")
+        c.set_title("z 42 / 120")
+        c.flash_message("OBJ 6000.0 um  (+1.0 um)")
+        c.draw()
+
+        r = c.get_renderer()
+        tops = [
+            c.height() - a.get_window_extent(r).y1
+            for a in (c._hint_artist, c._title_artist, c._flash_artist)
+        ]
+        assert max(tops) - min(tops) < 10, f"labels scattered across {tops}"
+
+    def test_it_sits_below_the_toolbar_rather_than_above_it(self):
+        """Below, so it never covers a button. Above would clear the chip too."""
+        c = self._canvas()
+        c.flash_message("OBJ 6000.0 um")
+        c.draw()
+
+        bb = c._flash_artist.get_window_extent(c.get_renderer())
+        top = c.height() - bb.y1
+        assert top >= c._live_badge.geometry().y() + c._live_badge.height()
+
+    def test_shrinking_the_canvas_keeps_it_clear(self):
+        """The inset is a pixel count, so its figure fraction has to be recomputed when
+        the figure changes size or it drifts back across the toolbar row.
+
+        Shrinking, specifically. A stale fraction on a *taller* figure resolves to a
+        larger pixel inset and stays clear by luck — so growing proves nothing, and a
+        test that grew was the one this replaced.
+        """
+        c = self._canvas(w=460, h=900)
+        c.flash_message("OBJ 6000.0 um  (+1.0 um)")
+        c.draw()
+
+        dpi = c.figure.dpi
+        c.figure.set_size_inches(460 / dpi, 300 / dpi)
+        c.resize(460, 300)
+        c.resizeEvent(_resize_event(460, 300))
+        c.draw()
+
+        assert not self._rows_overlap(c, c._flash_artist)
 
 
 class TestTheLiveChipClearsTheToolbar:
