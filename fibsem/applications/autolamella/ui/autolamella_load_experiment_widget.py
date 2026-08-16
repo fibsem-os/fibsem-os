@@ -41,6 +41,14 @@ ERROR_PROTOCOL_NOT_FOUND_MSG = (
     "Please ensure the experiment has an associated protocol file."
 )
 
+ERROR_PROTOCOL_LOAD_FAILED_TITLE = "Protocol Could Not Be Loaded"
+ERROR_PROTOCOL_LOAD_FAILED_MSG = (
+    "The protocol file in the experiment directory could not be loaded:\n\n{protocol_path}\n\n"
+    "Error: {error}\n\n"
+    "The experiment has been loaded without a task protocol. "
+    "Please load a protocol before continuing."
+)
+
 ERROR_INVALID_EXPERIMENT_TITLE = "Invalid Experiment"
 ERROR_INVALID_EXPERIMENT_MSG = (
     "The selected experiment is not valid. It may be corrupted, incorrectly formatted, or missing required fields.\n\n"
@@ -414,21 +422,39 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
                 logging.info(f"Experiment loaded successfully from {experiment_path}")
                 logging.info(f"Protocol loaded successfully from {protocol_path}")
             else:
-                # Protocol missing; keep experiment loaded so user can reattach one
+                # Protocol missing or unreadable; keep the experiment loaded so the
+                # user can reattach one. Experiment.load only logs the reason, so
+                # a present-but-unloadable protocol is re-read here to report it.
+                load_error = self._protocol_load_error(protocol_path)
                 if warn_on_missing_protocol:
-                    QtWidgets.QMessageBox.warning(
-                        self,
-                        ERROR_PROTOCOL_NOT_FOUND_TITLE,
-                        ERROR_PROTOCOL_NOT_FOUND_MSG.format(experiment_dir=experiment_dir)
-                        + "\n\nThe experiment has been loaded without a task protocol. "
-                          "Please load a protocol before continuing."
-                    )
+                    if load_error is not None:
+                        QtWidgets.QMessageBox.warning(
+                            self,
+                            ERROR_PROTOCOL_LOAD_FAILED_TITLE,
+                            ERROR_PROTOCOL_LOAD_FAILED_MSG.format(
+                                protocol_path=protocol_path, error=load_error
+                            ),
+                        )
+                    else:
+                        QtWidgets.QMessageBox.warning(
+                            self,
+                            ERROR_PROTOCOL_NOT_FOUND_TITLE,
+                            ERROR_PROTOCOL_NOT_FOUND_MSG.format(experiment_dir=experiment_dir)
+                            + "\n\nThe experiment has been loaded without a task protocol. "
+                              "Please load a protocol before continuing."
+                        )
                 self.protocol_path = None
                 self.btn_ok.setEnabled(False)
                 self._set_protocol_buttons_visible(True)
-                logging.warning(
-                    f"Experiment loaded from {experiment_path} but no protocol.yaml was found."
-                )
+                if load_error is not None:
+                    logging.warning(
+                        f"Experiment loaded from {experiment_path} but {protocol_path} "
+                        f"could not be loaded: {load_error}"
+                    )
+                else:
+                    logging.warning(
+                        f"Experiment loaded from {experiment_path} but no protocol.yaml was found."
+                    )
 
             # Update the display regardless of protocol presence
             self._update_experiment_display()
@@ -447,6 +473,21 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
             )
             self._clear_display()
             return False
+
+    @staticmethod
+    def _protocol_load_error(protocol_path: str) -> Optional[str]:
+        """Why the experiment's protocol.yaml failed to load, or None if absent.
+
+        Returns None when the file simply is not there -- that is a different
+        message to the user than a protocol that exists but cannot be read.
+        """
+        if not os.path.exists(protocol_path):
+            return None
+        try:
+            AutoLamellaTaskProtocol.load(protocol_path)
+        except Exception as e:
+            return str(e)
+        return "unknown error"
 
     def _update_experiment_display(self):
         """Update the experiment information display."""

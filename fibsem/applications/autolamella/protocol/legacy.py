@@ -338,6 +338,16 @@ class AutoLamellaProtocol(FibsemProtocol):
         with open(path, "r") as f:
             ddict = yaml.safe_load(f)
 
+        return AutoLamellaProtocol.parse(ddict)
+
+    @staticmethod
+    def parse(ddict: dict) -> 'AutoLamellaProtocol':
+        """Build a protocol from an already-read legacy protocol dictionary.
+
+        Runs the same validation/upgrade pass as load(), so callers that
+        already hold the raw dictionary (e.g. the task-protocol loader
+        detecting a legacy file) get identical results.
+        """
         tmp_ddict = deepcopy(ddict)
         try:
             from fibsem.applications.autolamella.protocol.validation import (
@@ -347,5 +357,44 @@ class AutoLamellaProtocol(FibsemProtocol):
         except Exception as e:
             logging.debug(f"Error converting protocol: {e}")
             ddict = tmp_ddict
-        
+
         return AutoLamellaProtocol.from_dict(ddict)
+
+
+# methods with an equivalent task-based workflow. the liftout methods were never
+# ported, so their protocols cannot be converted.
+SUPPORTED_TASK_CONVERSION_METHODS = (
+    AutoLamellaMethod.ON_GRID,
+    AutoLamellaMethod.TRENCH,
+    AutoLamellaMethod.WAFFLE,
+)
+
+
+def is_legacy_protocol(ddict: Dict[str, Any]) -> bool:
+    """Is this dictionary a pre-task-based (legacy) AutoLamella protocol?
+
+    Task protocols are written with "tasks" and "workflow" keys; legacy
+    protocols instead carry the milling workflows under a top-level "milling"
+    key and their settings under "options". Both formats are saved to
+    protocol.yaml, so the format has to be sniffed when loading. (FIB-663)
+    """
+    if not isinstance(ddict, dict):
+        return False
+    if "tasks" in ddict or "workflow" in ddict:
+        return False
+    return "milling" in ddict
+
+
+def get_legacy_protocol_method(ddict: Dict[str, Any]) -> Optional[AutoLamellaMethod]:
+    """Best-effort read of the method from a legacy protocol dictionary.
+
+    Returns None if the method is missing or unrecognised, leaving it to the
+    caller to decide what to do (rather than failing the whole load here).
+    """
+    name = ddict.get("method") or ddict.get("options", {}).get("method")
+    if not name:
+        name = DEFAULT_AUTOLAMELLA_METHOD
+    try:
+        return get_autolamella_method(name)
+    except ValueError:
+        return None
