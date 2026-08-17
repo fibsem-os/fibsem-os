@@ -132,6 +132,31 @@ def test_load_from_old_protocol_accepts_a_task_protocol():
     assert len(protocol.task_config) > 0
 
 
+def test_load_from_old_protocol_rejects_a_file_that_is_neither_format(tmp_path: Path):
+    """A corrupt file must still raise, not load as an empty protocol.
+
+    The task-protocol shortcut above is keyed on the file actually looking like
+    a task protocol; without that, anything unrecognised falls through to
+    from_dict and quietly yields a protocol with no tasks at all.
+    """
+    path = tmp_path / "protocol.yaml"
+    path.write_text(yaml.safe_dump({"not": "a protocol"}))
+
+    with pytest.raises(Exception):
+        AutoLamellaTaskProtocol.load_from_old_protocol(path)
+
+
+def test_unknown_legacy_method_names_the_valid_methods(tmp_path: Path):
+    """An unrecognised name is a different error to a known-but-unported one."""
+    path = tmp_path / "protocol.yaml"
+    path.write_text(yaml.safe_dump({"method": "not-a-method", "milling": {}, "options": {}}))
+
+    with pytest.raises(ValueError, match="Unknown method"):
+        AutoLamellaTaskProtocol.load_from_old_protocol(path)
+    with pytest.raises(ValueError, match="Unknown method"):
+        AutoLamellaTaskProtocol.load(str(path))
+
+
 def test_converted_legacy_protocol_round_trips(tmp_path: Path):
     """A converted protocol saves in the new format and reloads unchanged."""
     protocol = AutoLamellaTaskProtocol.load(LEGACY_PROTOCOL_DIR / "protocol-on-grid.yaml")

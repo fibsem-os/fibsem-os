@@ -507,13 +507,13 @@ class AutoLamellaTaskProtocol:
         """Load a legacy protocol file and convert it to an AutoLamellaTaskProtocol.
 
         A task protocol given to this loader is read as-is, so the user picking
-        the wrong one of the two protocol buttons is not an error.
+        the wrong one of the two protocol buttons is not an error. Anything that
+        is neither format still goes to the legacy converter, so a corrupt file
+        raises rather than loading as an empty protocol.
         """
-        from fibsem.applications.autolamella.protocol.legacy import is_legacy_protocol
-
         with open(path, 'r') as file:
             data = yaml.safe_load(file)
-        if not is_legacy_protocol(data):
+        if isinstance(data, dict) and ("tasks" in data or "workflow" in data):
             return cls.from_dict(data)
         return cls.from_legacy_dict(data)
 
@@ -540,13 +540,11 @@ class AutoLamellaTaskProtocol:
         )
 
         # check the method before parsing: an unsupported one (liftout) fails
-        # deep inside the milling parser with an unhelpful error otherwise.
+        # deep inside the milling parser with an unhelpful error otherwise. An
+        # unrecognised name is left to the parser, which names the valid ones.
         method = get_legacy_protocol_method(data)
-        if method not in SUPPORTED_TASK_CONVERSION_METHODS:
-            name = method.name if method is not None else (
-                data.get("method") or data.get("options", {}).get("method", "unknown")
-            )
-            raise ValueError(f"Protocol method {name} not supported for conversion to task protocol")
+        if method is not None and method not in SUPPORTED_TASK_CONVERSION_METHODS:
+            raise ValueError(f"Protocol method {method.name} not supported for conversion to task protocol")
 
         protocol = AutoLamellaProtocol.parse(data)
 
