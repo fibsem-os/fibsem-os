@@ -1287,6 +1287,128 @@ class TestOverlaysAreDrawnInTheView:
             widget.close()
 
 
+class TestTheHolderIsDrawnOnEveryStage:
+    """The travel envelope and the grid boundaries are separate questions.
+
+    One guard used to answer both: `_limit_shapes` returned nothing at all unless the
+    stage was a compustage, so a standard stage lost the *travel box* along with the
+    grid circle -- and travel limits have nothing to do with grids.
+
+    And the boundary was one circle at the stage origin, which is a compustage's
+    holder: a single grid, at zero. The shipped `default-sample-holder.yaml` is a
+    2-slot 35-degree shuttle with grids at x = -5 mm and +5 mm, where a circle at the
+    origin marks a place no grid is. A grid is 1 mm in radius whatever holds it, so
+    what the boundary needs is where the grids are, and the holder already says.
+    """
+
+    @staticmethod
+    def _slot(name, x, y=0.0):
+        from fibsem.microscopes._stage import GridSlot
+
+        return GridSlot(
+            name=name, index=0,
+            position=FibsemStagePosition(name=name, x=x, y=y, z=0.0),
+        )
+
+    def _two_slots(self, widget, monkeypatch):
+        """A multi-grid shuttle, in place of the simulator's single centred slot.
+
+        Set on the instance: `slots` is a dataclass field, so patching the class puts
+        a `property` object where a dict belongs.
+        """
+        holder = widget.microscope._stage.holder
+        slots = {"Slot-01": self._slot("Slot-01", -5.0e-3),
+                 "Slot-02": self._slot("Slot-02", 5.0e-3)}
+        monkeypatch.setattr(holder, "slots", slots)
+        widget._refresh_context_overlays()
+        return slots
+
+    @staticmethod
+    def _specs(widget, kind, label=None):
+        return [s for s in widget.context_overlay._specs
+                if s.kind == kind and (label is None or s.label == label)]
+
+    def test_the_travel_box_draws_on_a_stage_that_is_not_a_compustage(
+        self, widget, microscope, monkeypatch
+    ):
+        """The half that was collateral damage. Travel limits are a property of the
+        stage, and every stage that declares them has them."""
+        monkeypatch.setattr(
+            type(microscope), "stage_is_compustage", property(lambda self: False)
+        )
+        widget._refresh_context_overlays()
+
+        assert self._specs(widget, "rect", "Stage Limits"), (
+            "a standard stage was left with no travel envelope drawn"
+        )
+
+    def test_a_slot_with_no_rotation_still_draws(self, widget, monkeypatch):
+        """The defect the boundary work walked into. `default-sample-holder.yaml` gives
+        each slot three numbers -- x, y, z -- so `SampleHolder.load` leaves `r` and `t`
+        as None, and `frame.to_canvas` raises `TypeError` on them. `_slot_shapes` caught
+        that and moved on, so the shipped two-slot shuttle drew **no slot markers at
+        all**, silently. Only the simulator's holder escaped it, because `_ensure_slots`
+        invents its slot with r=0.
+        """
+        slots = self._two_slots(widget, monkeypatch)
+        assert all(s.position.r is None for s in slots.values()), (
+            "this no longer reproduces the shipped holder"
+        )
+        assert len(self._specs(widget, "crosshair")) >= 2, "the slot markers vanished"
+
+    def test_a_boundary_is_drawn_around_every_slot(self, widget, monkeypatch):
+        slots = self._two_slots(widget, monkeypatch)
+        boundaries = self._specs(widget, "ellipse", "Grid Boundary")
+        assert len(boundaries) == len(slots) == 2
+
+    def test_each_boundary_is_centred_on_its_own_slot(self, widget, monkeypatch):
+        """Not on the stage origin, which is where the single circle used to go -- and
+        with a shuttle that is 10 mm across, a full grid's width from either of them."""
+        self._two_slots(widget, monkeypatch)
+        boundaries = self._specs(widget, "ellipse", "Grid Boundary")
+        crosshairs = [s for s in self._specs(widget, "crosshair")
+                      if s.label.startswith("Slot-")]
+
+        centres = sorted((round(s.cx, 6), round(s.cy, 6)) for s in boundaries)
+        markers = sorted((round(s.cx, 6), round(s.cy, 6)) for s in crosshairs)
+        assert centres == markers, "a boundary is not concentric with its slot marker"
+        assert len({c[0] for c in centres}) == 2, "both circles landed in one place"
+
+    def test_a_slot_carries_the_orientation_it_was_defined_in(self, widget, monkeypatch):
+        """The holder file is written in the SEM orientation, so that is the pose a
+        slot has to carry. Without it the position is a bare x/y and `to_canvas` has
+        nothing to compare against -- which is both why the shipped holder crashed and
+        why it could never be re-expressed for a re-posed stage.
+
+        Carrying the pose is what lets `BeamStageProjection` decide: on a compustage
+        every orientation shares one rotation and this is the identity, and on a
+        standard stage a view half a turn away gets the compucentric flip, exactly as a
+        marked position does.
+        """
+        self._two_slots(widget, monkeypatch)
+        sem = widget.microscope.get_orientation("SEM")
+
+        place = widget._slot_landmark(
+            list(widget.microscope._stage.holder.slots.values())[0]
+        )
+
+        assert place.r == pytest.approx(sem.r)
+        assert place.t == pytest.approx(sem.t)
+        assert place.x == pytest.approx(-5.0e-3), "the slot's own position was lost"
+
+    def test_a_single_centred_slot_still_draws_the_one_circle(self, widget):
+        """The compustage case, unchanged: one slot at the origin, one circle on it.
+        The simulator's own holder, so this is the behaviour that shipped."""
+        boundaries = self._specs(widget, "ellipse", "Grid Boundary")
+        crosshairs = [s for s in self._specs(widget, "crosshair")
+                      if s.label.startswith("Slot-")]
+
+        assert len(boundaries) == 1
+        assert (boundaries[0].cx, boundaries[0].cy) == pytest.approx(
+            (crosshairs[0].cx, crosshairs[0].cy)
+        )
+
+
 class TestLifecycle:
     def test_closing_releases_every_microscope_subscription(self, microscope):
         """psygnal subscriptions outlive the widget -- they belong to the microscope --
