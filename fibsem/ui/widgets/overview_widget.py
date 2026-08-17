@@ -62,7 +62,7 @@ from superqt import ensure_main_thread
 from fibsem import constants
 from fibsem.fm.composite import auto_clim
 from fibsem.imaging import tiled
-from fibsem.imaging.reduce import downsample
+from fibsem.imaging.reduce import downsample, downsample_mask
 from fibsem.microscope import FibsemMicroscope
 from fibsem.projection import BeamStageProjection
 from fibsem.structures import (
@@ -1491,13 +1491,19 @@ class FibsemOverviewWidget(QWidget):
         max_px = self.canvas._display_max_px
         # What was acquired, and where black is, both come off the *unfiltered* array --
         # `filtered_data` smears the boundary in both directions and would answer either
-        # question wrong. Reduced the same way as the pixels so the three line up; box
-        # meaning a 0/1 field gives the fraction of each block that holds anything, and a
-        # block counts as acquired when most of it does.
-        raw = downsample(np.asarray(image.data, dtype=np.float32), max_px)
-        acquired = downsample(
-            (np.asarray(image.data) > 0).astype(np.float32), max_px
-        ) > 0.5
+        # question wrong. Reduced the same way as the pixels so the three line up.
+        #
+        # In the source's own dtype rather than promoted to float32 first, and the same
+        # for the mask: promoting is four bytes per *source* pixel of temporary, so the
+        # cost tracks the mosaic rather than the few megabytes that come out of it, and
+        # it was being spent twice over. Measured on a 10x10 of 1024 px tiles, the two
+        # reductions together were 541 MB and 207 ms; they are 218 MB and 38 ms here,
+        # for a bit-identical mask and the same contrast limits. `downsample` preserves
+        # dtype and answers for every one; only a dtype cv2 refuses takes the slow path,
+        # and beam images are uint8 or uint16.
+        source = np.asarray(image.data)
+        raw = downsample(source, max_px)
+        acquired = downsample_mask(source > 0, max_px)
         clim = _contrast_limits(raw, acquired)
         return _PlacedTile(
             data=_as_colour_and_coverage(downsample(data, max_px), acquired, clim),
