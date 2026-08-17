@@ -1846,24 +1846,30 @@ class FibsemOverviewWidget(QWidget):
         )
 
     def _canvas_span(self, frame: StageFrame, length: float) -> Tuple[float, float]:
-        """A stage-space step of *length* metres, in canvas pixels, per axis.
+        """A length *along the sample surface*, in canvas pixels, per axis.
 
-        Not `frame.length()` twice. That divides by the canvas scale and stops, which
-        is right for x and wrong for y: the view foreshortens stage y by a factor that
-        changes with the beam and the pose -- 1.00 looking down the pose a beam is
-        named after, 0.26 for the ion beam at the milling pose. A lattice or a boundary
-        sized by the scale alone is the same size in every view, and therefore right in
-        at most one of them.
+        Not `frame.length()` twice. That divides by the canvas scale and stops, which is
+        right for x and wrong for y: the view foreshortens the surface by a factor that
+        changes with the beam and the pose -- 1.00 looking down the surface normal, 0.26
+        for the ion beam at the milling pose. A boundary sized by the scale alone is the
+        same size in every view, and therefore right in at most one of them.
 
-        Measured through the frame rather than derived from the geometry, so it cannot
+        **A surface length, not a stage-axis one.** Stepping stage y with no z, which is
+        what this did, is a move *through* a tilted surface rather than along it, and
+        inflates every span by `1 / cos(pre_tilt)` -- exactly 1.000 at the pre-tilt of 0
+        that every Arctis and every test has, and 1.221 on a 35 degree shuttle, where a
+        grid boundary came out 22% tall in the two views it must be a circle in
+        (FIB-657). Stage x needs no such care: the tilt is about x, so stage x lies in
+        the surface and a step along it is a step along the surface.
+
+        Measured through the frame, not derived from the geometry again, so it cannot
         disagree with where the frame puts a marker. Absolute, because a view can flip
         an axis and a span has no sign.
         """
-        anchor = self._landmark(frame, 0.0, 0.0)
-        ox, oy = frame.to_canvas(anchor)
+        ox, _ = frame.to_canvas(self._landmark(frame, 0.0, 0.0))
         along_x, _ = frame.to_canvas(self._landmark(frame, length, 0.0))
-        _, along_y = frame.to_canvas(self._landmark(frame, 0.0, length))
-        return abs(along_x - ox), abs(along_y - oy)
+        span_x = abs(along_x - ox)
+        return span_x, span_x * frame.surface_foreshortening()
 
     def _limit_shapes(self, frame: StageFrame) -> List[ShapeSpec]:
         """The stage's travel envelope, wherever limits are configured.

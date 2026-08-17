@@ -25,6 +25,7 @@ import os
 import numpy as np
 import pytest
 
+from fibsem import config as cfg
 from fibsem import utils
 from fibsem.imaging.tiling.reprojection import (
     reproject_stage_positions_onto_image2,
@@ -37,7 +38,7 @@ from fibsem.structures import (
     FibsemStagePosition,
     ImageSettings,
 )
-from fibsem.projection import BeamStageProjection
+from fibsem.projection import BeamStageProjection, surface_foreshortening
 
 SHAPE = (1024, 1536)  # (height, width) -- deliberately non-square, so an axis swap shows
 PIXEL_SIZE = 2e-7
@@ -471,3 +472,92 @@ class TestRefusesRatherThanGuesses:
         )
         image.metadata.microscope_state.electron_beam = None
         assert BeamStageProjection.from_image(image) is None
+
+
+class TestSurfaceForeshortening:
+    """A length *along the sample surface*, seen from a view, is `cos(theta)` of itself.
+
+    The quantity an overlay lying on the sample needs -- a grid's boundary circle -- as
+    opposed to one defined in the image, like the tile lattice, which needs nothing.
+
+    Pinned as the six exact cosines a **35 degree shuttle** produces, against the
+    shipped Aquilos2 configuration rather than a hand-set pre-tilt, so the numbers stay
+    tied to a geometry that exists. The bug this replaced was invisible at a pre-tilt of
+    **0** -- which is every Arctis, the default simulator config, and therefore every
+    test written before this one. Stepping stage y with no z is a move *through* the
+    tilted surface rather than along it, and inflated every span by `1 / cos(pre_tilt)`:
+    exactly 1.000 at 0 degrees, 1.221 at 35. It reached an instrument before anything
+    caught it (FIB-657).
+
+    The two views where the beam looks straight down the surface normal are what make
+    it obvious: a grid there must render as a circle, and did not.
+    """
+
+    @pytest.fixture(scope="class")
+    def aquilos(self):
+        """A 35 degree pre-tilted shuttle with a 52 degree ion column."""
+        scope, _ = utils.setup_session(
+            manufacturer="Demo",
+            config_path=os.path.join(
+                cfg.CONFIG_PATH, "tfs-aquilos2-configuration.yaml"
+            ),
+        )
+        return scope
+
+    # (orientation, beam, angle between the beam and the sample-surface normal)
+    VIEWS = [
+        pytest.param("SEM", BeamType.ELECTRON, 0, id="SEM-electron-normal"),
+        pytest.param("SEM", BeamType.ION, 52, id="SEM-ion"),
+        pytest.param("FIB", BeamType.ELECTRON, 52, id="FIB-electron"),
+        pytest.param("FIB", BeamType.ION, 0, id="FIB-ion-normal"),
+        pytest.param("MILLING", BeamType.ELECTRON, 23, id="MILLING-electron"),
+        pytest.param("MILLING", BeamType.ION, 75, id="MILLING-ion"),
+    ]
+
+    @staticmethod
+    def _projection(scope, beam_type):
+        return BeamStageProjection(
+            geometry=scope.hardware_geometry(),
+            beam_type=beam_type,
+            scan_rotation=0.0,
+            is_tescan=False,
+        )
+
+    @pytest.mark.parametrize("orientation, beam_type, theta_deg", VIEWS)
+    def test_it_is_the_cosine_of_the_beam_to_normal_angle(
+        self, aquilos, orientation, beam_type, theta_deg
+    ):
+        pose = aquilos.get_orientation(orientation)
+        base = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t)
+
+        assert surface_foreshortening(
+            self._projection(aquilos, beam_type), base
+        ) == pytest.approx(np.cos(np.deg2rad(theta_deg)), abs=1e-3)
+
+    @pytest.mark.parametrize(
+        "orientation, beam_type",
+        [("SEM", BeamType.ELECTRON), ("FIB", BeamType.ION)],
+    )
+    def test_the_normal_views_are_exactly_one(self, aquilos, orientation, beam_type):
+        """The statement the bug broke: where the beam looks down the surface normal
+        there is no foreshortening at all, so a disc on the sample is a circle. Both of
+        these read 1.221 before -- `1 / cos(35)`."""
+        pose = aquilos.get_orientation(orientation)
+        base = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t)
+
+        assert surface_foreshortening(
+            self._projection(aquilos, beam_type), base
+        ) == pytest.approx(1.0, abs=1e-6)
+
+    def test_a_flat_shuttle_hides_the_whole_question(self, microscope):
+        """Why this went unnoticed. At a pre-tilt of 0 the stage plane *is* the sample
+        plane, so a stage-axis span and a surface span agree and the factor this
+        corrects is 1. Every simulator config and every earlier test is this case."""
+        base = _pose(
+            microscope, compustage=False, pretilt_deg=0, rotation_deg=0, tilt_deg=0
+        )
+        projection = BeamStageProjection(
+            geometry=_geometry(microscope, compustage=False),
+            beam_type=BeamType.ELECTRON, scan_rotation=0.0, is_tescan=False,
+        )
+        assert surface_foreshortening(projection, base) == pytest.approx(1.0, abs=1e-6)
