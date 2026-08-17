@@ -44,6 +44,9 @@ from fibsem.ui.widgets import overview_confirmation_dialog  # noqa: E402
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (  # noqa: E402
     GRID_BOUNDARY_RADIUS_M,
 )
+from fibsem.ui.widgets.canvas.real_space_canvas import (  # noqa: E402
+    _DEFAULT_DISPLAY_PX,
+)
 from fibsem.ui.widgets.overview_widget import (  # noqa: E402
     FibsemOverviewWidget,
     OverviewView,
@@ -193,10 +196,11 @@ class TestTheInversion:
 
     def test_a_reduced_tile_is_still_placed_at_full_size(self, widget, microscope):
         """The same property where the reduction actually bites — an image larger than
-        the canvas's display cap, which is every real tile."""
+        the store cap, which a stitched mosaic always is."""
         base = microscope.get_stage_position()
-        cap = widget.canvas._display_max_px
-        big = cap * 2
+        cap = 1024
+        widget._store_max_px = cap
+        big = cap + cap // 2  # over the cap, so it reduces; not so far over it is slow
         hfw = big * 1e-7
         widget.place_image(_tile(microscope, _at(base), shape=(big, big), hfw=hfw),
                            key="big")
@@ -240,6 +244,76 @@ class TestTheInversion:
 
         assert widget.place_image(image) is None  # must not raise
         assert len(widget.canvas.placed_keys) == 1, "the bad image was placed anyway"
+
+
+class TestTheTwoCaps:
+    """How much an overview is *held* at and how much of it is *drawn* are two questions.
+
+    Held too coarse and nothing can recover the detail, because it was thrown away
+    before the canvas ever saw it -- which is why "don't downscale the actual image" has
+    no answer while one number does both jobs. Drawn too fine and every frame pays for
+    it at every zoom, since matplotlib resamples the whole array however little of it is
+    on screen.
+
+    They hold the same value today, so the tests below have to force them apart to say
+    anything. That is the point: the seam exists and is exercised before anything
+    depends on it (FIB-658).
+    """
+
+    def test_the_canvas_does_not_take_the_shared_default(self, widget):
+        """Sized for a canvas holding many images; this one holds a mosaic. Not
+        tidiable away either -- the default is shared with the fluorescence canvas,
+        which reduces once per channel per layer change and blends the results, so
+        raising it there is multiplied through every one of them."""
+        assert widget.canvas.display_max_px > _DEFAULT_DISPLAY_PX
+
+    def test_a_stored_overview_out_resolves_the_canvas_it_is_drawn_on(
+        self, widget, microscope
+    ):
+        """Measured against the widget, not a constant: it is the screen the stored
+        pixels are stretched over that decides whether the cap is too low. Below it the
+        reduction stops decimating and starts *magnifying* -- a 5x5 of 1024 px tiles at
+        512 was drawn across a ~1100 px canvas as a 2x2 block per stored pixel, which is
+        what "way too pixelated" was.
+        """
+        base = microscope.get_stage_position()
+        big = widget._store_max_px + widget._store_max_px // 2
+        widget.place_image(
+            _tile(microscope, _at(base), shape=(big, big), hfw=500e-6), key="mosaic"
+        )
+
+        stored = np.asarray(widget._tiles["mosaic"].data)
+        assert max(stored.shape[:2]) >= widget.canvas.width(), (
+            f"{max(stored.shape[:2])} stored px drawn across a "
+            f"{widget.canvas.width()} px canvas, so each one is magnified"
+        )
+
+    def test_what_is_held_follows_the_store_cap_and_not_the_canvas(
+        self, widget, microscope
+    ):
+        """Forced apart, because equal numbers cannot show which one is being read.
+
+        This is the assertion that fails if the two are collapsed back into one, and the
+        one that has to hold before the widget can keep more than it draws.
+        """
+        drawn_cap = widget.canvas.display_max_px
+        source = drawn_cap + drawn_cap // 4  # over the draw cap, under the store cap
+        widget._store_max_px = source * 2
+        base = microscope.get_stage_position()
+        widget.place_image(
+            _tile(microscope, _at(base), shape=(source, source), hfw=500e-6), key="held"
+        )
+
+        held = np.asarray(widget._tiles["held"].data)
+        drawn = np.asarray(widget.canvas._placed["held"].artist.get_array())
+
+        assert max(held.shape[:2]) == source, "the record was reduced to the draw cap"
+        assert max(drawn.shape[:2]) <= widget.canvas.display_max_px, (
+            "the canvas drew more than its own cap"
+        )
+        assert max(drawn.shape[:2]) < max(held.shape[:2]), (
+            "the canvas drew everything held, so the caps are not actually separate"
+        )
 
 
 class TestOneDerivationForBothDirections:

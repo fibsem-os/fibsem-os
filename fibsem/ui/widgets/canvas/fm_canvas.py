@@ -805,7 +805,7 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         Runs on every layer change, once per held image per channel, so it is the one
         place where that per-call cost is multiplied. Watch it if either count grows.
         """
-        return downsample(np.asarray(plane), self.canvas._display_max_px)
+        return downsample(np.asarray(plane), self.canvas.display_max_px)
 
     def _composite_inputs(self) -> Tuple[List[FMLayer], Optional[Tuple[int, int]]]:
         """Blend at display resolution, not acquisition resolution.

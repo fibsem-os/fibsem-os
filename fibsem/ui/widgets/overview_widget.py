@@ -518,7 +518,34 @@ class FibsemOverviewWidget(QWidget):
     # ── layout ───────────────────────────────────────────────────────────
 
     def _init_ui(self) -> None:
-        self.canvas = FibsemRealSpaceCanvas()
+        # Two caps, deliberately, and the same number today. They answer different
+        # questions and will diverge:
+        #
+        #   `_store_max_px`  -- the finest this widget ever *holds* an overview at, so
+        #                       the ceiling on any detail a zoom could ever recover. A
+        #                       memory bound.
+        #   `display_max_px` -- the most the canvas ever *hands matplotlib*, which is
+        #                       paid on every frame at every zoom. A redraw bound.
+        #
+        # Holding no more than is drawn is what makes "don't downscale the actual image"
+        # impossible right now: the detail is gone before the canvas sees it, so zooming
+        # cannot bring back what was never kept. Splitting the two is the groundwork for
+        # keeping more than is drawn and choosing, per view, which part of it to draw.
+        #
+        # 2048 is chosen for the drawing half. At 512 a 5x5 of 1024 px tiles was reduced
+        # tenfold and then magnified back onto a ~1100 px wide canvas, so every stored
+        # pixel was drawn as a 2x2 block; 2048 is the first power of two past the canvas's
+        # own width, which is what stops the magnification. A cap, not a target --
+        # `downsample` reduces by an integer factor, so that 5x5 lands at 1707 px.
+        #
+        # Measured on one RGBA artist: a redraw costs ~29 ms plus ~11 ms per megapixel,
+        # so this takes a pan from 29 ms to 74 ms, a contrast step from 17 ms to 69 ms,
+        # and holds 17 MB per overview. Raising it further is worse than it looks --
+        # matplotlib resamples the whole array however little of it is on screen (1% of a
+        # 5120 px artist still costs 321 ms against 335 ms for all of it) -- which is
+        # exactly why the drawn size is the thing to bound and the held size is not.
+        self._store_max_px = 2048
+        self.canvas = FibsemRealSpaceCanvas(display_max_px=2048)
         self.canvas.canvas_clicked.connect(self._on_canvas_clicked)
         self.canvas.canvas_double_clicked.connect(self._on_canvas_double_clicked)
         self.canvas.canvas_right_clicked.connect(self._on_canvas_right_clicked)
@@ -1477,10 +1504,12 @@ class FibsemOverviewWidget(QWidget):
     def _stored_tile(self, image: FibsemImage) -> "_PlacedTile":
         """What a record keeps so it can be re-placed after a view switch.
 
-        The *display-reduced* array, not the original: it is exactly what the canvas
-        holds anyway, so keeping it costs no more than the canvas already does -- where
-        keeping full-resolution tiles would be hundreds of megabytes for a large
-        tileset, to redraw something that is decimated on the way to the screen.
+        Reduced to this widget's *store* cap rather than the canvas's draw cap. The two
+        are the same number today, so this is still exactly the array the canvas draws
+        and keeping it costs no more than the canvas already does -- but they are not
+        the same question, and which one belongs here is the whole of it: this is the
+        finest the record will ever hold, so it is the ceiling on anything a zoom could
+        recover. See `_init_ui`.
 
         Split into colour and coverage here rather than at each placement: a view switch
         re-places every record, and the split is the same answer every time.
@@ -1488,7 +1517,7 @@ class FibsemOverviewWidget(QWidget):
         data = image.filtered_data
         pixel_size = self._pixel_size_of(image)
         height, width = data.shape[0], data.shape[1]
-        max_px = self.canvas._display_max_px
+        max_px = self._store_max_px
         # What was acquired, and where black is, both come off the *unfiltered* array --
         # `filtered_data` smears the boundary in both directions and would answer either
         # question wrong. Reduced the same way as the pixels so the three line up.

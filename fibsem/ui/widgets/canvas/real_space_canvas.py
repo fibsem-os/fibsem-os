@@ -43,13 +43,19 @@ _logger = logging.getLogger(__name__)
 
 _DEFAULT_BACKGROUND = GRAY_CANVAS_COLOR  # empty space reads as "nothing acquired here"
 
-# Pixels kept per placed image. Every artist is redrawn in full on each pan/zoom, so a
-# redraw costs the *total* stored pixels — 100 tiles kept at 1024 px square take ~2.7 s,
-# against ~0.75 s at 512. And 512 is already more than the display can use for the case
-# this canvas exists for: tiles in a 3x3 occupy ~330 screen px each, in a 10x10 ~100 px.
-# The reduction box-averages, so the cap costs resolution and nothing else — a feature
-# smaller than a stored pixel is dimmed into its neighbours rather than dropped. What it
-# still cannot do is give the detail back on zoom; that is FIB-414, the pyramid.
+# Pixels handed to matplotlib per placed image — a *drawing* cost, and only that. Every
+# artist is redrawn in full on each pan/zoom, so a redraw costs the total drawn pixels:
+# measured on one RGBA artist, ~29 ms plus ~11 ms per megapixel, which is 100 tiles at
+# 1024 px square taking ~2.7 s against ~0.75 s at 512. And 512 is already more than the
+# display can use for the case this canvas exists for: tiles in a 3x3 occupy ~330 screen
+# px each, in a 10x10 ~100 px.
+#
+# Distinct from how much a *caller* keeps. A caller that holds more than this can hand
+# over a different part of it, or a different resolution of it, as the view moves — and
+# that is the only way the detail comes back on zoom, since matplotlib resamples the
+# whole array however little of it is on screen (1% of a 5120 px artist costs 321 ms
+# against 335 ms for all of it). Reducing here is the floor under callers that do not:
+# the reduction box-averages, so it costs resolution and nothing else.
 _DEFAULT_DISPLAY_PX = 512
 
 
@@ -105,6 +111,8 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         # Raise this for a canvas holding only a handful of images, where per-image
         # detail matters more than redraw cost. See _DEFAULT_DISPLAY_PX.
         self._display_max_px = int(display_max_px)
+        if self._display_max_px <= 0:
+            raise ValueError(f"display_max_px must be positive, got {display_max_px!r}")
         self._placed: Dict[str, PlacedImage] = {}
         self._reference_pixel_size: Optional[float] = reference_pixel_size
         # Optional (width, height, cx, cy) in metres — see set_world_extent.
@@ -140,6 +148,17 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
     def reference_pixel_size(self) -> Optional[float]:
         """Metres per canvas pixel, or None until the first image sets it."""
         return self._reference_pixel_size
+
+    @property
+    def display_max_px(self) -> int:
+        """The most pixels this canvas will draw of any one image. See the constant.
+
+        Public because callers legitimately need it: one that reduces before handing an
+        image over — to blend at display resolution, or to keep what it placed — wants
+        to reduce to the same figure rather than guess at it. Read-only, because the
+        extents of everything already placed were computed against the current one.
+        """
+        return self._display_max_px
 
     @property
     def placed_keys(self) -> List[str]:
