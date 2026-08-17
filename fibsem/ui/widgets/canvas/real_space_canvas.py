@@ -26,10 +26,11 @@ a single image has axes in that image's own pixels.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Callable, Dict, List, NamedTuple, Optional, Tuple
 
 import numpy as np
+from PyQt5.QtCore import QTimer
 
 from fibsem.imaging.reduce import downsample
 from fibsem.ui.stylesheets import GRAY_CANVAS_COLOR
@@ -43,14 +44,38 @@ _logger = logging.getLogger(__name__)
 
 _DEFAULT_BACKGROUND = GRAY_CANVAS_COLOR  # empty space reads as "nothing acquired here"
 
-# Pixels kept per placed image. Every artist is redrawn in full on each pan/zoom, so a
-# redraw costs the *total* stored pixels — 100 tiles kept at 1024 px square take ~2.7 s,
-# against ~0.75 s at 512. And 512 is already more than the display can use for the case
-# this canvas exists for: tiles in a 3x3 occupy ~330 screen px each, in a 10x10 ~100 px.
-# The reduction box-averages, so the cap costs resolution and nothing else — a feature
-# smaller than a stored pixel is dimmed into its neighbours rather than dropped. What it
-# still cannot do is give the detail back on zoom; that is FIB-414, the pyramid.
+# Pixels handed to matplotlib per placed image — a *drawing* cost, and only that. Every
+# artist is redrawn in full on each pan/zoom, so a redraw costs the total drawn pixels:
+# measured on one RGBA artist, ~29 ms plus ~11 ms per megapixel, which is 100 tiles at
+# 1024 px square taking ~2.7 s against ~0.75 s at 512. And 512 is already more than the
+# display can use for the case this canvas exists for: tiles in a 3x3 occupy ~330 screen
+# px each, in a 10x10 ~100 px.
+#
+# Distinct from how much a *caller* keeps. A caller that holds more than this can hand
+# over a different part of it, or a different resolution of it, as the view moves — and
+# that is the only way the detail comes back on zoom, since matplotlib resamples the
+# whole array however little of it is on screen (1% of a 5120 px artist costs 321 ms
+# against 335 ms for all of it). Reducing here is the floor under callers that do not:
+# the reduction box-averages, so it costs resolution and nothing else.
 _DEFAULT_DISPLAY_PX = 512
+
+# How far past the viewport a detail patch reaches, as a fraction of the viewport on each
+# side. A pan inside the margin is already drawn, so it costs nothing; one past it waits
+# for the next refresh. Small on purpose -- the margin is paid for in resolution, since a
+# patch covering 1.5x the viewport spends its budget over 1.5x the ground, and refetching
+# is cheap enough (single-digit ms) that buying fewer fetches with blur is a bad trade.
+_DETAIL_MARGIN = 0.25
+
+# Coalescing interval for detail refreshes, in ms. Longer than the 32 ms redraw on
+# purpose: a pan emits a limit change per mouse move, and re-deriving on each would do
+# the work tens of times over for one gesture. What the delay costs is that the instant
+# after a large jump is drawn from the previous patch, stretched, until this fires.
+_DETAIL_INTERVAL = 120
+
+# How far below the screen's own resolution a patch may fall before it is refetched. Not
+# 1.0, because an exact comparison refetches on any zoom whatsoever -- including the
+# sub-pixel drift a resize produces -- and a tenth of a screen pixel is not visible.
+_DETAIL_TOLERANCE = 0.9
 
 
 def _require_displayable(data: np.ndarray) -> None:
@@ -76,13 +101,71 @@ def _require_displayable(data: np.ndarray) -> None:
     )
 
 
+class ImageRegion(NamedTuple):
+    """A sub-rectangle of one placed image, as fractions of its own footprint.
+
+    ``(0, 1, 0, 1)`` is the whole image, and ``top < bottom`` because this canvas's y
+    runs down.
+
+    Fractions rather than metres or array indices, so a source can be asked for part of
+    itself without knowing what the canvas draws in, what scale it is at, or how large
+    the source's own array is. That is what lets one protocol serve an array held in
+    memory and a mosaic still on disk.
+    """
+
+    left: float
+    right: float
+    top: float
+    bottom: float
+
+    @property
+    def width(self) -> float:
+        return self.right - self.left
+
+    @property
+    def height(self) -> float:
+        return self.bottom - self.top
+
+    def contains(self, other: "ImageRegion") -> bool:
+        """Whether *other* falls wholly inside this one."""
+        return (
+            self.left <= other.left
+            and self.right >= other.right
+            and self.top <= other.top
+            and self.bottom >= other.bottom
+        )
+
+
+WHOLE_IMAGE = ImageRegion(0.0, 1.0, 0.0, 1.0)
+
+# Asked for part of an image and a pixel budget; answers with the pixels and the part it
+# actually gave. The two regions differ because a source snaps outward to whole pixels of
+# whatever it holds — returning the region rather than assuming it is what was asked for
+# is what keeps a patch drawn exactly over the ground it came from, instead of a fraction
+# of a pixel off. Returning None declines, leaving whatever is already drawn alone.
+DetailSource = Callable[
+    [ImageRegion, int], Optional[Tuple[np.ndarray, ImageRegion]]
+]
+
+
 @dataclass
 class PlacedImage:
     """One image on the canvas, with the extent it was drawn at (canvas pixels)."""
 
     key: str
     artist: object
+    # The image's *whole* footprint, which is what the canvas fits and frames against —
+    # never the part of it currently in the artist. Keeping the two separate is what
+    # lets a detail patch change under the view without the view chasing it.
     extent: Tuple[float, float, float, float]  # (xmin, xmax, ymax, ymin)
+    detail: Optional[DetailSource] = None
+    drawn: ImageRegion = field(default=WHOLE_IMAGE)
+    # The pixel budget the patch in the artist was fetched at -- what was *asked* for,
+    # not what came back. A source routinely returns less: `downsample` reduces by whole
+    # factors, so a 616 px slice asked for at 256 comes back at 206. Comparing the next
+    # request against what arrived rather than against what was requested makes every
+    # patch look deficient, and re-asking returns the identical array, forever.
+    asked_px: int = 0
 
 
 class FibsemRealSpaceCanvas(FibsemCanvasBase):
@@ -105,6 +188,8 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         # Raise this for a canvas holding only a handful of images, where per-image
         # detail matters more than redraw cost. See _DEFAULT_DISPLAY_PX.
         self._display_max_px = int(display_max_px)
+        if self._display_max_px <= 0:
+            raise ValueError(f"display_max_px must be positive, got {display_max_px!r}")
         self._placed: Dict[str, PlacedImage] = {}
         self._reference_pixel_size: Optional[float] = reference_pixel_size
         # Optional (width, height, cx, cy) in metres — see set_world_extent.
@@ -119,6 +204,17 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         # meaning is "frame it for me again".
         self.auto_fit: bool = True
         self._fitted_extent: Optional[Tuple[float, float, float, float]] = None
+
+        # Detail refresh: coalesced, because the thing that provokes it is a gesture.
+        self._detail_timer = QTimer(self)
+        self._detail_timer.setSingleShot(True)
+        self._detail_timer.setInterval(_DETAIL_INTERVAL)
+        self._detail_timer.timeout.connect(self.refresh_detail)
+        # Off the limits themselves rather than off the pan and zoom handlers: a refit, a
+        # resize, and an owner driving the camera all change what is on screen without
+        # going near either handler, and every one of them wants a fresh patch.
+        self._ax.callbacks.connect("xlim_changed", self._on_limits_changed)
+        self._ax.callbacks.connect("ylim_changed", self._on_limits_changed)
 
         if reference_pixel_size:
             self._pixel_size = reference_pixel_size  # drives the scalebar
@@ -142,6 +238,17 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         return self._reference_pixel_size
 
     @property
+    def display_max_px(self) -> int:
+        """The most pixels this canvas will draw of any one image. See the constant.
+
+        Public because callers legitimately need it: one that reduces before handing an
+        image over — to blend at display resolution, or to keep what it placed — wants
+        to reduce to the same figure rather than guess at it. Read-only, because the
+        extents of everything already placed were computed against the current one.
+        """
+        return self._display_max_px
+
+    @property
     def placed_keys(self) -> List[str]:
         """Keys of the images currently placed, in insertion order."""
         return list(self._placed)
@@ -157,6 +264,7 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         cmap: str = "gray",
         zorder: Optional[float] = None,
         covers: Optional[Tuple[float, float]] = None,
+        detail: Optional[DetailSource] = None,
     ) -> str:
         """Place *data* centred on *centre* (metres), at *pixel_size* metres/px.
 
@@ -175,6 +283,12 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         at display resolution — so it is placed at the size it represents rather than
         the size it is stored at. *pixel_size* then describes the source, and still
         decides how this image sorts against others by detail.
+
+        *detail* offers a caller that holds more than *data* shows. Given one, the canvas
+        asks it for the part of the image on screen at the resolution the screen can use,
+        and asks again as the view moves; *data* is then the whole-image fallback that is
+        drawn until the first patch arrives and whenever the source declines. Without
+        one, *data* is all there is and is drawn as-is, which is every caller today.
         """
         data = np.asarray(data)
         _require_displayable(data)
@@ -206,9 +320,16 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
             cmap=cmap if shown.ndim == 2 else None,
             **kw,
         )
-        self._placed[key] = PlacedImage(key=key, artist=artist, extent=extent)
+        self._placed[key] = PlacedImage(
+            key=key, artist=artist, extent=extent, detail=detail,
+            drawn=WHOLE_IMAGE, asked_px=int(max(shown.shape[:2])),
+        )
 
+        # Framing first: what the screen can show of an image depends on where the camera
+        # is, and adding this one may well have moved it.
         self._after_content_change()
+        if detail is not None:
+            self.refresh_detail()
         return key
 
     def update_image(self, key: str, data: np.ndarray) -> bool:
@@ -221,13 +342,27 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
 
         Returns False if *key* was not placed. The shape may change; the image keeps its
         extent, so different-shaped data is stretched over the same ground.
+
+        *data* is the whole image, so this puts the artist back to the whole footprint
+        even if a detail patch had it cropped to part of one — otherwise the new pixels
+        would be stretched over the old patch's ground. A fresh patch is then asked for,
+        since the source has presumably changed underneath too.
         """
         placed = self._placed.get(key)
         if placed is None:
             return False
         data = np.asarray(data)
         _require_displayable(data)
-        placed.artist.set_data(downsample(data, self._display_max_px))
+        shown = downsample(data, self._display_max_px)
+        placed.artist.set_data(shown)
+        if placed.drawn != WHOLE_IMAGE:
+            placed.artist.set_extent(placed.extent)
+        placed.drawn, placed.asked_px = WHOLE_IMAGE, int(max(shown.shape[:2]))
+        if placed.detail is not None:
+            # Scheduled, not immediate: this is the per-frame call during a live
+            # acquisition, and fetching synchronously on each frame is the cost the
+            # detail pass exists to avoid.
+            self._detail_timer.start()
         self.draw_idle()
         return True
 
@@ -305,6 +440,18 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         self._ax.set_aspect("equal", adjustable="box")
         if not self._ax.yaxis_inverted():
             self._ax.invert_yaxis()
+        # Autoscale off, because `AxesImage.set_extent` moves the camera while it is on:
+        # it ends in `set_xlim`/`set_ylim` onto the artist's own extent. That matters
+        # here and nowhere else, because the detail pass re-extents an artist on every
+        # view change -- so with autoscale on, looking at one image would frame it, and
+        # frame it again, and never settle.
+        #
+        # A no-op in every path that already existed: `set_xlim` clears the flag itself,
+        # so the first `_fit_view` turned autoscale off anyway and nothing has been
+        # relying on it since. This closes the one window where it is still on -- a fresh
+        # or just-cleared axes, which is also where `cla()` puts it back, hence setting it
+        # here rather than once in the constructor.
+        self._ax.set_autoscale_on(False)
 
     def set_reference_pixel_size(self, pixel_size: float) -> bool:
         """Fix the canvas scale before anything is placed.
@@ -405,6 +552,185 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         # Adopt what was just fitted, so the next content change is measured against
         # this framing rather than against whatever was fitted before the user's zoom.
         self._fitted_extent = self._fit_extent()
+
+    # ── detail: drawing what the view can use, not what the caller holds ──
+
+    def _on_limits_changed(self, _axes=None) -> None:
+        """The view moved; whatever is drawn may no longer be the right part of it."""
+        if self._placed and any(p.detail is not None for p in self._placed.values()):
+            self._detail_timer.start()
+
+    def refresh_detail(self, force: bool = False) -> None:
+        """Ask every source for the part of itself now worth drawing.
+
+        Called by the canvas itself whenever the view moves. Public for *force*, which
+        is the other way a patch goes stale: the source's own content changed under it —
+        a contrast curve, a re-blend, a new frame — which the view knows nothing about,
+        so none of the usual tests would notice.
+
+        Deliberately *not* a content change: an image's footprint is unchanged by which
+        part of it is in the artist, so nothing here refits, and `PlacedImage.extent`
+        stays the whole image throughout. That is what keeps this from chasing its own
+        tail -- a refit would move the limits, which would schedule another refresh.
+        """
+        changed = False
+        for placed in list(self._placed.values()):
+            if placed.detail is None:
+                continue
+            if not placed.artist.get_visible():
+                # Hiding an image is how a caller takes it out of the redraw cost
+                # (`set_image_visible`); fetching patches for it would put it back.
+                continue
+            # Two regions, and the difference between them is the whole of the margin.
+            # What has to be *covered* is the viewport itself; what gets *fetched* reaches
+            # past it. Testing coverage against the reaching one would compare a margin
+            # with a margin, so every pan of any size would fail it and the margin would
+            # buy exactly nothing.
+            wanted = self._visible_region(placed)
+            if wanted is None:
+                continue  # off screen: leave the last patch, it costs nothing to keep
+            fetch = self._visible_region(placed, margin=_DETAIL_MARGIN) or wanted
+            budget = self._detail_budget(placed, fetch)
+            if not force and not self._needs_detail(placed, wanted, fetch, budget):
+                continue
+            try:
+                answer = placed.detail(fetch, budget)
+            except Exception as e:
+                # A source that raises must not take the canvas with it: this runs off a
+                # timer, and PyQt5 aborts the process on an exception out of a slot
+                # (FIB-329). What is already drawn stays drawn.
+                _logger.debug(f"Detail source for {placed.key!r} failed: {e}")
+                continue
+            if answer is None:
+                continue
+            data, got = answer
+            if self._draw_patch(placed, data, got, budget):
+                changed = True
+        if changed:
+            self.draw_idle()
+
+    def _visible_region(
+        self, placed: PlacedImage, margin: float = 0.0
+    ) -> Optional[ImageRegion]:
+        """Which part of *placed* the viewport covers, reaching *margin* past it, or None.
+
+        None means none of it: no patch is worth fetching for an image that is not on
+        screen, and the one it already has is the right thing to keep in case it comes
+        back.
+        """
+        xmin, xmax, ymax, ymin = placed.extent
+        width, height = xmax - xmin, ymax - ymin
+        if width <= 0 or height <= 0:
+            return None
+        (vx0, vx1), (vy0, vy1) = self._ax.get_xlim(), self._ax.get_ylim()
+        # y runs down, so the axes' limits arrive bottom-first.
+        vy0, vy1 = min(vy0, vy1), max(vy0, vy1)
+        vx0, vx1 = min(vx0, vx1), max(vx0, vx1)
+        mx, my = margin * (vx1 - vx0), margin * (vy1 - vy0)
+        left = max(xmin, vx0 - mx)
+        right = min(xmax, vx1 + mx)
+        top = max(ymin, vy0 - my)
+        bottom = min(ymax, vy1 + my)
+        if right <= left or bottom <= top:
+            return None
+        return ImageRegion(
+            (left - xmin) / width, (right - xmin) / width,
+            (top - ymin) / height, (bottom - ymin) / height,
+        )
+
+    def _detail_budget(self, placed: PlacedImage, region: ImageRegion) -> int:
+        """The most pixels worth fetching for *region*: what the screen can show of it.
+
+        Bounded by the display cap, so this can only ever ask for less than drawing the
+        whole image would. That is the property that makes cost track the *window* rather
+        than the data -- an image occupying a corner of the canvas is budgeted for a
+        corner's worth, however large the thing behind it is.
+        """
+        xmin, xmax, _, _ = placed.extent
+        span = self._ax.get_xlim()
+        canvas_span = abs(span[1] - span[0])
+        if canvas_span <= 0:
+            return self._display_max_px
+        # Device pixels the region occupies across the axes, at the current scale.
+        across = (xmax - xmin) * region.width / canvas_span * max(1, self._axes_width_px())
+        return int(max(1, min(self._display_max_px, np.ceil(across))))
+
+    def _axes_width_px(self) -> int:
+        """The axes' width in device pixels — what "as much as the screen can use" is."""
+        try:
+            return int(self._ax.get_window_extent().width)
+        except Exception:  # pragma: no cover - before the first draw
+            return self.width()
+
+    def _needs_detail(
+        self,
+        placed: PlacedImage,
+        wanted: ImageRegion,
+        fetch: ImageRegion,
+        budget: int,
+    ) -> bool:
+        """Whether fetching *fetch* would beat the patch already in the artist.
+
+        Two ways it would. The view moved somewhere the patch does not cover — *wanted*,
+        the bare viewport, so the margin is what absorbs an ordinary pan. Or the patch is
+        coarser than what a fetch would now deliver, which is what zooming in produces.
+
+        Asked as "would this be sharper", not as "is this as sharp as the screen wants",
+        and the difference matters at the display cap. Past a certain zoom the budget
+        clamps, so a patch reaching past the viewport can never resolve the visible part
+        at the screen's full resolution — the margin's ground is spending some of the
+        cap. Against the absolute standard that is permanently unsatisfied, and every
+        view change refetches an identical array forever. Against what a fetch would
+        actually give, a clamped budget compares equal and nothing happens.
+
+        Nothing asks whether the patch is *finer* than needed: zooming out grows *wanted*
+        past what is drawn, so that case is already the first one.
+        """
+        if not placed.drawn.contains(wanted):
+            return True
+        if placed.drawn.width <= 0 or fetch.width <= 0:
+            return True
+        # Pixels per unit of image, which is comparable across differently-sized regions.
+        have = placed.asked_px / placed.drawn.width
+        would = budget / fetch.width
+        return would > have / _DETAIL_TOLERANCE
+
+    def _draw_patch(
+        self, placed: PlacedImage, data: np.ndarray, region: ImageRegion, budget: int
+    ) -> bool:
+        """Put *data* in the artist over the ground *region* names. False if unusable.
+
+        The extent comes from the region the source says it *gave*, not the one it was
+        asked for: a source snaps outward to whole pixels of what it holds, and drawing
+        the requested rectangle instead would place the patch a fraction of a pixel off
+        its own ground — which on a canvas whose whole point is that images line up
+        would show as a seam every time the view moved.
+        """
+        data = np.asarray(data)
+        try:
+            _require_displayable(data)
+        except ValueError as e:
+            _logger.debug(f"Detail source for {placed.key!r} returned {e}")
+            return False
+        if not (0.0 <= region.left < region.right <= 1.0):
+            _logger.debug(f"Detail source for {placed.key!r} gave x outside itself")
+            return False
+        if not (0.0 <= region.top < region.bottom <= 1.0):
+            _logger.debug(f"Detail source for {placed.key!r} gave y outside itself")
+            return False
+
+        xmin, xmax, ymax, ymin = placed.extent
+        width, height = xmax - xmin, ymax - ymin
+        placed.artist.set_data(downsample(data, self._display_max_px))
+        placed.artist.set_extent((
+            xmin + region.left * width,
+            xmin + region.right * width,
+            ymin + region.bottom * height,  # matplotlib takes (left, right, bottom, top)
+            ymin + region.top * height,
+        ))
+        placed.drawn = region
+        placed.asked_px = budget
+        return True
 
     def metres_to_canvas(self, x: float, y: float) -> Tuple[float, float]:
         """Convert a position in metres to canvas coordinates.
@@ -591,6 +917,10 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
             self._fit_view()
         else:
             self._keep_scale_through_resize(event.oldSize(), event.size())
+        # Kicked directly as well as through the limits: how many pixels the screen can
+        # use is the widget's size, and a resize can leave the limits untouched (the
+        # first one, which has no "before" to keep the scale against) while changing it.
+        self._on_limits_changed()
         self.draw_idle()
 
     def _keep_scale_through_resize(self, old, new) -> None:

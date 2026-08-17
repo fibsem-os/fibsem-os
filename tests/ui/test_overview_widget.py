@@ -44,6 +44,9 @@ from fibsem.ui.widgets import overview_confirmation_dialog  # noqa: E402
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (  # noqa: E402
     GRID_BOUNDARY_RADIUS_M,
 )
+from fibsem.ui.widgets.canvas.real_space_canvas import (  # noqa: E402
+    _DEFAULT_DISPLAY_PX,
+)
 from fibsem.ui.widgets.overview_widget import (  # noqa: E402
     FibsemOverviewWidget,
     OverviewView,
@@ -104,6 +107,32 @@ def _at(base: FibsemStagePosition, dx: float = 0.0, dy: float = 0.0, name=None):
     p = FibsemStagePosition(x=base.x + dx, y=base.y + dy, z=base.z, r=base.r, t=base.t)
     p.name = name
     return p
+
+
+def _hold_at(widget, px, dtype=np.uint8):
+    """Set the store budget so an overview is held at most *px* a side.
+
+    Tests state the size they mean rather than inheriting the production budget, which
+    is 8000 px a side — big enough that a test image sized from it would spend seconds
+    in `filtered_data`'s median filter.
+    """
+    widget._store_budget_bytes = px * px * (np.dtype(dtype).itemsize + 1)
+
+
+def _settle(widget):
+    """Run the canvas's coalesced detail refresh now rather than waiting out its timer."""
+    widget.canvas._detail_timer.stop()
+    widget.canvas.refresh_detail()
+    _app.processEvents()
+
+
+def _zoom(widget, fraction, centre=(0.0, 0.0)):
+    """Frame *fraction* of the placed image's width, and let the refresh settle."""
+    placed = widget.canvas._placed[widget.canvas.placed_keys[0]]
+    half = (placed.extent[1] - placed.extent[0]) / 2 * fraction
+    widget.canvas._ax.set_xlim(centre[0] - half, centre[0] + half)
+    widget.canvas._ax.set_ylim(centre[1] + half, centre[1] - half)
+    _settle(widget)
 
 
 class TestTheInversion:
@@ -193,10 +222,11 @@ class TestTheInversion:
 
     def test_a_reduced_tile_is_still_placed_at_full_size(self, widget, microscope):
         """The same property where the reduction actually bites — an image larger than
-        the canvas's display cap, which is every real tile."""
+        the store cap, which a stitched mosaic always is."""
         base = microscope.get_stage_position()
-        cap = widget.canvas._display_max_px
-        big = cap * 2
+        cap = 1024
+        _hold_at(widget, cap)
+        big = cap + cap // 2  # over the cap, so it reduces; not so far over it is slow
         hfw = big * 1e-7
         widget.place_image(_tile(microscope, _at(base), shape=(big, big), hfw=hfw),
                            key="big")
@@ -240,6 +270,99 @@ class TestTheInversion:
 
         assert widget.place_image(image) is None  # must not raise
         assert len(widget.canvas.placed_keys) == 1, "the bad image was placed anyway"
+
+
+class TestTheTwoCaps:
+    """How much an overview is *held* at and how much of it is *drawn* are two questions.
+
+    Held too coarse and nothing can recover the detail, because it was thrown away
+    before the canvas ever saw it -- which is why "don't downscale the actual image" has
+    no answer while one number does both jobs. Drawn too fine and every frame pays for
+    it at every zoom, since matplotlib resamples the whole array however little of it is
+    on screen.
+
+    They are also measured in different units, which is the part most likely to be
+    "tidied" back together: what is held is bounded in **bytes**, because bytes are what
+    it costs, and what is drawn is bounded in **pixels**, because a frame's cost is the
+    pixels matplotlib resamples (FIB-658).
+    """
+
+    def test_the_store_bound_is_bytes_and_scales_with_the_detector(self, widget):
+        """Bytes, not pixels, because bytes are what is being spent. A pixel cap prices
+        the same setting at 52 MB for a mosaic of 1024 px tiles and 118 MB for one of
+        3072 px tiles, and costs half as much again on a uint16 detector without saying
+        so."""
+        wide = widget._store_cap(np.uint8)
+        deep = widget._store_cap(np.uint16)
+
+        assert wide * wide * 2 <= widget._store_budget_bytes
+        assert deep * deep * 3 <= widget._store_budget_bytes
+        assert deep < wide, "a 16-bit detector was given the same pixel count as an 8-bit"
+
+    def test_the_budget_holds_the_complained_about_mosaic_whole(self, widget, microscope):
+        """The case behind FIB-658: a 5x5 of 1024 px tiles is 5120 px, and the point of
+        the budget is that it is held at its acquired resolution rather than reduced."""
+        assert widget._store_cap(np.uint8) >= 5 * 1024, (
+            f"a 5x5 of 1024 px tiles would be reduced at a "
+            f"{widget._store_cap(np.uint8)} px cap"
+        )
+
+    def test_the_canvas_does_not_take_the_shared_default(self, widget):
+        """Sized for a canvas holding many images; this one holds a mosaic. Not
+        tidiable away either -- the default is shared with the fluorescence canvas,
+        which reduces once per channel per layer change and blends the results, so
+        raising it there is multiplied through every one of them."""
+        assert widget.canvas.display_max_px > _DEFAULT_DISPLAY_PX
+
+    def test_a_stored_overview_out_resolves_the_canvas_it_is_drawn_on(
+        self, widget, microscope
+    ):
+        """Measured against the widget, not a constant: it is the screen the stored
+        pixels are stretched over that decides whether the cap is too low. Below it the
+        reduction stops decimating and starts *magnifying* -- a 5x5 of 1024 px tiles at
+        512 was drawn across a ~1100 px canvas as a 2x2 block per stored pixel, which is
+        what "way too pixelated" was.
+        """
+        base = microscope.get_stage_position()
+        cap = 1024
+        _hold_at(widget, cap)
+        big = cap + cap // 2  # any mosaic over the cap; it reduces to the cap
+        record_id = widget.set_image(
+            _tile(microscope, _at(base), shape=(big, big), hfw=500e-6)
+        )
+
+        stored = np.asarray(widget._records[record_id].images[0].grey)
+        assert max(stored.shape[:2]) >= widget.canvas.width(), (
+            f"{max(stored.shape[:2])} stored px drawn across a "
+            f"{widget.canvas.width()} px canvas, so each one is magnified"
+        )
+
+    def test_what_is_held_follows_the_store_cap_and_not_the_canvas(
+        self, widget, microscope
+    ):
+        """Forced apart, because equal numbers cannot show which one is being read.
+
+        This is the assertion that fails if the two are collapsed back into one, and it
+        is the one phase 2 needs to hold before it can keep more than it draws.
+        """
+        drawn_cap = widget.canvas.display_max_px
+        source = drawn_cap + drawn_cap // 4  # over the draw cap, under the store cap
+        _hold_at(widget, source * 2)
+        base = microscope.get_stage_position()
+        record_id = widget.set_image(
+            _tile(microscope, _at(base), shape=(source, source), hfw=500e-6)
+        )
+
+        held = np.asarray(widget._records[record_id].images[0].grey)
+        drawn = np.asarray(widget.canvas._placed[record_id].artist.get_array())
+
+        assert max(held.shape[:2]) == source, "the record was reduced to the draw cap"
+        assert max(drawn.shape[:2]) <= widget.canvas.display_max_px, (
+            "the canvas drew more than its own cap"
+        )
+        assert max(drawn.shape[:2]) < max(held.shape[:2]), (
+            "the canvas drew everything held, so the caps are not actually separate"
+        )
 
 
 class TestOneDerivationForBothDirections:
@@ -2691,14 +2814,14 @@ class TestAnOverviewDoesNotPaintOverTheOneBeneathIt:
         image.data = data
 
         tile = widget._stored_tile(image)
-        rgba = np.asarray(tile.data)
-        acquired = rgba[..., 3] > 0
+        acquired = np.asarray(tile.acquired)
         # A third of the image, give or take the boundary block -- not a third plus a
         # filter radius, which is what the filtered array would have given.
         assert acquired.mean() == pytest.approx(1 / 3, abs=0.02), (
             f"coverage came out at {acquired.mean():.3f} of the image"
         )
-        grey = rgba[..., 0][acquired]
+        rgba = widget._for_display(tile)
+        grey = rgba[..., 0][rgba[..., 3] > 0]
         assert grey.mean() == pytest.approx(128, abs=30), (
             f"the acquired region renders at {grey.mean():.0f}/255 -- bleached"
         )
@@ -3000,3 +3123,122 @@ class TestTheSpiralPromotionIsVisible:
         assert "AutoFocusMode.EACH_ROW" in source and "SPIRAL" in source, (
             "the runner no longer promotes EACH_ROW for a spiral; the note is stale"
         )
+
+
+class TestAnOverviewIsDrawnFromWhatIsHeld:
+    """The overview supplies the canvas a *source* rather than a finished picture.
+
+    A record keeps the grayscale, the coverage mask and the contrast limits; colour and
+    the user's curve are applied to whatever part is being drawn, when it is drawn. Two
+    things follow that a finished RGBA cannot give: zooming in shows detail the picture
+    would already have thrown away, and a contrast step costs a screenful rather than a
+    mosaic (FIB-658).
+    """
+
+    def _held(self, widget, microscope, side, store_px=None):
+        """One overview held at *store_px*, framed whole."""
+        if store_px is not None:
+            _hold_at(widget, store_px)
+        base = microscope.get_stage_position()
+        image = _tile(microscope, _at(base), shape=(side, side), hfw=500e-6)
+        rng = np.random.default_rng(3)
+        ramp = np.linspace(10, 245, side)
+        image.data = np.clip(
+            np.add.outer(ramp, ramp) / 2 + rng.normal(0, 8, (side, side)), 1, 255
+        ).astype(np.uint8)
+        record_id = widget.set_image(image)
+        _settle(widget)
+        return record_id
+
+    def test_the_record_keeps_ingredients_not_a_picture(self, widget, microscope):
+        record_id = self._held(widget, microscope, 512)
+
+        tile = widget._records[record_id].images[0]
+        assert np.asarray(tile.grey).ndim == 2, "the record holds a finished picture"
+        assert np.asarray(tile.acquired).dtype == np.bool_
+        assert tile.clim[0] < tile.clim[1]
+
+    def test_zooming_in_recovers_detail_it_could_not_have_held(self, widget, microscope):
+        """The payoff, stated exactly: framed whole you see the *draw* cap's worth, and
+        zoomed in you see everything *held*. Under a store-time reduction the two are
+        necessarily the same number, so a zoom could only magnify.
+
+        Both caps are lowered here so the test image stays small — `filtered_data` runs a
+        median then a gaussian over the whole of it. The canvas's is read-only in
+        production because the extents of everything placed were computed against it;
+        this sets it before anything is placed.
+        """
+        widget.canvas._display_max_px = 256
+        held_px = 1024  # four times the draw cap, so the effect is unambiguous
+        self._held(widget, microscope, held_px, store_px=held_px)
+        placed = widget.canvas._placed[widget.canvas.placed_keys[0]]
+
+        def per_ground():
+            return max(placed.artist.get_array().shape[:2]) / placed.drawn.width
+
+        wide = per_ground()
+        _zoom(widget, 0.1)
+        close = per_ground()
+
+        assert wide == pytest.approx(widget.canvas.display_max_px, rel=0.05), (
+            f"framed whole, {wide:.0f} px per image-width against a "
+            f"{widget.canvas.display_max_px} px draw cap"
+        )
+        assert close == pytest.approx(held_px, rel=0.05), (
+            f"zoomed in, {close:.0f} px per image-width against {held_px} px held — the "
+            "zoom is magnifying rather than revealing"
+        )
+
+    def test_the_stretch_is_the_whole_overview_not_the_part_on_screen(
+        self, widget, microscope
+    ):
+        """`clim` is measured once and kept. Re-measured per patch it would make the
+        picture change brightness as you panned across it — every region would render
+        mid-grey, and a dark corner would look identical to a bright one."""
+        self._held(widget, microscope, 512)
+        placed = widget.canvas._placed[widget.canvas.placed_keys[0]]
+        _, xmax, ymax, _ = placed.extent
+
+        _zoom(widget, 0.15, centre=(-xmax * 0.7, -ymax * 0.7))  # the dark corner
+        dark = float(np.mean(placed.artist.get_array()[..., 0]))
+        _zoom(widget, 0.15, centre=(xmax * 0.7, ymax * 0.7))  # the bright one
+        bright = float(np.mean(placed.artist.get_array()[..., 0]))
+
+        assert bright > dark * 2, (
+            f"dark corner {dark:.0f}/255, bright corner {bright:.0f}/255 — the stretch "
+            "is following the view rather than the overview"
+        )
+
+    def test_contrast_never_writes_back_over_what_is_held(self, widget, microscope):
+        """The stored grayscale is the one copy of the data. Curving it in place would
+        compound every slider move onto the last, and there would be no way back to the
+        acquired values."""
+        record_id = self._held(widget, microscope, 512)
+        before = np.asarray(widget._records[record_id].images[0].grey).copy()
+
+        control = widget.contrast_control
+        control._min, control._max, control._gamma = 0.2, 0.8, 1.4
+        control.changed.emit()
+
+        after = np.asarray(widget._records[record_id].images[0].grey)
+        assert np.array_equal(before, after), "the curve was baked into the record"
+
+    def test_a_contrast_change_redraws_without_reordering_the_overviews(
+        self, widget, microscope
+    ):
+        """Re-placing under the same key destroys and recreates the artist, which moves
+        it to the top of the draw order — so adjusting contrast would silently bring a
+        buried overview out over the one above it."""
+        first = self._held(widget, microscope, 256)
+        second = self._held(widget, microscope, 256)
+        order = list(widget.canvas.placed_keys)
+        artists = [widget.canvas._placed[k].artist for k in order]
+
+        widget.contrast_control._gamma = 1.5
+        widget.contrast_control.changed.emit()
+
+        assert list(widget.canvas.placed_keys) == order
+        assert [widget.canvas._placed[k].artist for k in order] == artists, (
+            "the artists were recreated, so the draw order is whatever add order was"
+        )
+        assert first != second

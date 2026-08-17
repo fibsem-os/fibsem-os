@@ -21,8 +21,13 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 
 from PyQt5.QtWidgets import QApplication
 
+from fibsem.imaging.reduce import downsample
 from fibsem.ui.widgets.canvas.canvas_base import FibsemCanvasBase
-from fibsem.ui.widgets.canvas.real_space_canvas import FibsemRealSpaceCanvas
+from fibsem.ui.widgets.canvas.real_space_canvas import (
+    WHOLE_IMAGE,
+    FibsemRealSpaceCanvas,
+    ImageRegion,
+)
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -852,3 +857,448 @@ def test_a_resize_does_not_undo_a_users_zoom():
     _app.processEvents()
 
     assert _span(c) == pytest.approx(zoomed), "the zoom was thrown away by a resize"
+
+
+# ── detail sources: drawing what the view can use, not what the caller holds ──
+#
+# Unused in production at this point, and exercised only here. What it buys is the thing
+# a fixed cap cannot: the reduction factor stops being set by how large the image is and
+# starts being set by how much of it is on screen, so zooming in recovers detail instead
+# of magnifying stored pixels (FIB-658).
+
+
+class Source:
+    """A caller holding a full-resolution image, answering for parts of it.
+
+    Deliberately the whole job in a few lines — slice, reduce, report what was actually
+    given — because that is the claim the protocol is making: a source needs to know its
+    own array and nothing about the canvas.
+    """
+
+    def __init__(self, side=2048):
+        # A gradient, so which *part* was fetched is readable off the pixel values.
+        ramp = np.linspace(0, 255, side, dtype=np.float64)
+        self.full = np.add.outer(ramp, ramp).astype(np.uint8) // 2
+        self.calls = []
+
+    def __call__(self, region, max_px):
+        self.calls.append((region, max_px))
+        h, w = self.full.shape
+        # Snap outward to whole pixels, and report the region that produces.
+        x0, x1 = int(np.floor(region.left * w)), int(np.ceil(region.right * w))
+        y0, y1 = int(np.floor(region.top * h)), int(np.ceil(region.bottom * h))
+        x1, y1 = max(x1, x0 + 1), max(y1, y0 + 1)
+        patch = downsample(self.full[y0:y1, x0:x1], max_px)
+        return patch, ImageRegion(x0 / w, x1 / w, y0 / h, y1 / h)
+
+
+def _with_source(side=2048, display_max_px=256, widget=(800, 600)):
+    """A canvas holding one full-resolution image through a source, framed on it."""
+    c = _canvas(display_max_px=display_max_px)
+    c.resize(*widget)
+    c.show()
+    _app.processEvents()
+    src = Source(side)
+    # `data` is the whole-image fallback: what a caller would have placed before.
+    c.add_image(
+        downsample(src.full, display_max_px), centre=(0.0, 0.0),
+        pixel_size=PIXEL_SIZE, key="big",
+        covers=(side * PIXEL_SIZE, side * PIXEL_SIZE), detail=src,
+    )
+    _app.processEvents()
+    return c, src
+
+
+
+
+def _zoom_to(canvas, fraction, centre=(0.0, 0.0)):
+    """Frame *fraction* of the image's width, and let the refresh settle."""
+    _, xmax, _, _ = canvas._placed["big"].extent
+    half = xmax * fraction
+    canvas._ax.set_xlim(centre[0] - half, centre[0] + half)
+    canvas._ax.set_ylim(centre[1] + half, centre[1] - half)
+    _flush_detail(canvas)
+
+
+def _flush_detail(canvas):
+    """Run the coalesced refresh now rather than waiting out its timer."""
+    canvas._detail_timer.stop()
+    canvas.refresh_detail()
+    _app.processEvents()
+
+
+def test_an_image_without_a_source_is_untouched():
+    """Every caller in production today. The artist holds what it was given, over the
+    whole footprint, and no timer ever fires for it."""
+    c = _canvas()
+    c.resize(800, 600)
+    c.add_image(_img(), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE, key="plain")
+    placed = c._placed["plain"]
+    before = placed.artist.get_extent()
+
+    c._ax.set_xlim(-10, 10)
+    _flush_detail(c)
+
+    assert placed.detail is None
+    assert placed.artist.get_extent() == before
+    assert placed.artist.get_array().shape[:2] == (H, W)
+
+
+def test_placing_it_framed_whole_asks_the_source_for_nothing():
+    """The fallback array is already the display cap over the whole image, which is
+    exactly what a fetch of the whole image would return. Asking would allocate a second
+    identical array and draw the same picture."""
+    c, src = _with_source()
+
+    assert src.calls == []
+    assert c._placed["big"].drawn == WHOLE_IMAGE
+    c.close()
+
+
+def test_zooming_in_fetches_a_smaller_part_of_the_image():
+    """The whole point: the part fetched follows the view, so the reduction factor stops
+    being set by how big the image is and starts being set by how much is on screen."""
+    c, src = _with_source()
+
+    _zoom_to(c, 0.1)
+
+    close = src.calls[-1][0]
+    # A tenth of the image, plus the margin's quarter of the viewport either side.
+    assert close.width == pytest.approx(0.15, abs=0.01), (
+        f"zooming to a tenth fetched {close.width:.3f} of the image"
+    )
+    c.close()
+
+
+def test_zooming_in_recovers_detail_rather_than_magnifying():
+    """Source pixels per unit of ground has to *rise* as you zoom in. Under a store-time
+    cap it cannot: the pixels are gone before the canvas sees them."""
+    c, src = _with_source()
+
+    def per_ground():
+        placed = c._placed["big"]
+        return max(placed.artist.get_array().shape[:2]) / placed.drawn.width
+
+    wide = per_ground()
+    _zoom_to(c, 0.05)
+    close = per_ground()
+
+    assert close > wide * 5, (
+        f"{close:.0f} source px per image-width zoomed in, against {wide:.0f} out"
+    )
+    c.close()
+
+
+def test_the_drawn_array_stays_bounded_however_far_you_zoom():
+    """The invariant that keeps redraw cost tracking the window rather than the data.
+    Every frame's cost is the drawn pixels, so this is the whole performance claim."""
+    c, src = _with_source()
+    sizes = []
+    for fraction in (1.0, 0.5, 0.2, 0.05, 0.01, 0.002):
+        _zoom_to(c, fraction)
+        sizes.append(max(c._placed["big"].artist.get_array().shape[:2]))
+
+    assert max(sizes) <= c.display_max_px, (
+        f"drew {max(sizes)} px against a {c.display_max_px} px cap: {sizes}"
+    )
+    c.close()
+
+
+def test_a_patch_is_drawn_over_the_ground_it_came_from():
+    """A patch placed at the rectangle *asked* for rather than the one given would sit a
+    fraction of a pixel off its own ground — a seam, on the canvas whose whole purpose is
+    that images line up."""
+    c, src = _with_source()
+    _zoom_to(c, 0.1)
+
+    placed = c._placed["big"]
+    xmin, xmax, ymax, ymin = placed.extent
+    left, right, bottom, top = placed.artist.get_extent()
+    region = placed.drawn
+
+    assert left == pytest.approx(xmin + region.left * (xmax - xmin))
+    assert right == pytest.approx(xmin + region.right * (xmax - xmin))
+    assert top == pytest.approx(ymin + region.top * (ymax - ymin))
+    assert bottom == pytest.approx(ymin + region.bottom * (ymax - ymin))
+    c.close()
+
+
+def test_the_patch_holds_the_part_of_the_picture_it_claims():
+    """Not merely the right shape in the right place — the right pixels. The source is a
+    gradient, so a patch from the bottom-right has to be brighter than one from the
+    top-left, and a patch drawn from the wrong slice would pass every geometric test
+    above while showing the wrong part of the sample."""
+    c, src = _with_source()
+    _, xmax, ymax, _ = c._placed["big"].extent
+
+    _zoom_to(c, 0.1, centre=(-xmax * 0.7, -ymax * 0.7))
+    top_left = float(np.mean(c._placed["big"].artist.get_array()))
+    _zoom_to(c, 0.1, centre=(xmax * 0.7, ymax * 0.7))
+    bottom_right = float(np.mean(c._placed["big"].artist.get_array()))
+
+    assert bottom_right > top_left * 2, (
+        f"top-left mean {top_left:.0f}, bottom-right {bottom_right:.0f} — the patches do "
+        "not come from where they are drawn"
+    )
+    c.close()
+
+
+def test_a_small_pan_costs_no_fetch_at_all():
+    """The margin earning its keep: a patch reaches past the viewport, so an ordinary
+    nudge is already drawn."""
+    c, src = _with_source()
+    _zoom_to(c, 0.2)
+    before = len(src.calls)
+
+    x0, x1 = c._ax.get_xlim()
+    nudge = (x1 - x0) * 0.05  # well inside the 25% margin
+    c._ax.set_xlim(x0 + nudge, x1 + nudge)
+    _flush_detail(c)
+
+    assert len(src.calls) == before, "a pan inside the margin refetched anyway"
+    c.close()
+
+
+def test_a_pan_past_the_margin_fetches_again():
+    """And the other half: the margin is a margin, not a promise."""
+    c, src = _with_source()
+    _zoom_to(c, 0.2)
+    before = len(src.calls)
+
+    x0, x1 = c._ax.get_xlim()
+    jump = (x1 - x0) * 1.5
+    c._ax.set_xlim(x0 + jump, x1 + jump)
+    _flush_detail(c)
+
+    assert len(src.calls) > before, "panning clean off the patch drew stale ground"
+    c.close()
+
+
+def test_an_image_off_screen_is_not_fetched_for():
+    """Nothing to draw, so nothing to pay for — and what it already holds is kept, so
+    coming back does not start from nothing."""
+    c, src = _with_source()
+    _, xmax, _, _ = c._placed["big"].extent
+    held = c._placed["big"].drawn
+    before = len(src.calls)
+
+    c._ax.set_xlim(xmax * 10, xmax * 12)  # miles away
+    _flush_detail(c)
+
+    assert len(src.calls) == before
+    assert c._placed["big"].drawn == held
+    c.close()
+
+
+def test_a_hidden_image_is_not_fetched_for():
+    """Hiding is how a caller takes an overview out of the redraw cost; fetching patches
+    for it would put the cost back for something nobody can see."""
+    c, src = _with_source()
+    c.set_image_visible("big", False)
+    before = len(src.calls)
+
+    _zoom_to(c, 0.1)
+
+    assert len(src.calls) == before
+    c.close()
+
+
+def test_a_source_that_raises_leaves_the_canvas_alone():
+    """This runs off a timer, and PyQt5 aborts the process on an exception out of a slot
+    (FIB-329). One bad source must cost its own image and nothing else."""
+    c, src = _with_source()
+
+    def angry(region, max_px):
+        raise RuntimeError("no")
+
+    c._placed["big"].detail = angry
+    shown = c._placed["big"].artist.get_array().copy()
+
+    _zoom_to(c, 0.1)  # must not raise
+
+    assert np.array_equal(c._placed["big"].artist.get_array(), shown)
+    c.close()
+
+
+def test_a_source_that_declines_leaves_the_canvas_alone():
+    """None is a legitimate answer — a disk-backed source with nothing cached yet."""
+    c, src = _with_source()
+    c._placed["big"].detail = lambda region, max_px: None
+    shown = c._placed["big"].artist.get_array().copy()
+
+    _zoom_to(c, 0.1)
+
+    assert np.array_equal(c._placed["big"].artist.get_array(), shown)
+    c.close()
+
+
+def test_a_source_returning_a_region_outside_itself_is_refused():
+    """A returned region is used as an extent, so a bad one places pixels over ground
+    they did not come from — which looks exactly like a correctly placed image."""
+    c, src = _with_source()
+    c._placed["big"].detail = lambda region, max_px: (
+        np.zeros((16, 16), np.uint8), ImageRegion(0.5, 1.5, 0.0, 1.0)
+    )
+    before = c._placed["big"].artist.get_extent()
+
+    _zoom_to(c, 0.1)
+
+    assert c._placed["big"].artist.get_extent() == before
+    c.close()
+
+
+def test_detail_does_not_move_the_camera():
+    """`AxesImage.set_extent` sets the axes limits to the artist's own extent while
+    autoscale is on, so a canvas re-extenting an artist on every view change would frame
+    it, and frame it again. The pass must be inert on the view."""
+    c, src = _with_source()
+    _zoom_to(c, 0.2)
+    limits = c._ax.get_xlim(), c._ax.get_ylim()
+
+    _flush_detail(c)
+    _flush_detail(c)
+
+    assert (c._ax.get_xlim(), c._ax.get_ylim()) == limits
+    assert not c._ax.get_autoscalex_on() and not c._ax.get_autoscaley_on()
+    c.close()
+
+
+def test_detail_does_not_change_the_footprint_the_canvas_frames():
+    """`PlacedImage.extent` is the whole image throughout, so fitting and the content
+    rect are unmoved by which part happens to be drawn. That separation is what stops
+    the pass provoking a refit and scheduling itself again."""
+    c, src = _with_source()
+    extent, content = c._placed["big"].extent, c._content_extent()
+
+    _zoom_to(c, 0.05)
+
+    assert c._placed["big"].extent == extent
+    assert c._content_extent() == content
+    assert c._placed["big"].artist.get_extent() != extent, "nothing was cropped at all"
+    c.close()
+
+
+def test_a_reset_view_frames_the_whole_image_not_the_patch():
+    """The visible consequence of the footprint being kept: reset has to go back to the
+    whole overview, even while a tenth of it is what is drawn."""
+    c, src = _with_source()
+    _zoom_to(c, 0.05)
+
+    c.reset_view()
+    _flush_detail(c)
+
+    _, xmax, _, _ = c._placed["big"].extent
+    span = abs(c._ax.get_xlim()[1] - c._ax.get_xlim()[0])
+    assert span >= xmax * 2 * 0.9, f"reset framed {span:.0f} of a {xmax * 2:.0f} image"
+    c.close()
+
+
+def test_updating_the_pixels_puts_the_artist_back_over_the_whole_image():
+    """`update_image` hands over the whole picture — a live preview's next frame. Left
+    over a patch's extent it would be stretched across a tenth of the ground."""
+    c, src = _with_source()
+    _zoom_to(c, 0.1)
+    assert c._placed["big"].artist.get_extent() != c._placed["big"].extent
+
+    c.update_image("big", src.full)
+    c._detail_timer.stop()  # before the refresh crops it again
+
+    assert c._placed["big"].drawn.width == 1.0
+    c.close()
+
+
+def test_the_budget_never_exceeds_the_display_cap():
+    """The bound that makes several sources on one canvas add up to a window's worth
+    rather than a mosaic's."""
+    c, src = _with_source()
+    for fraction in (1.0, 0.3, 0.01):
+        _zoom_to(c, fraction)
+
+    assert src.calls, "nothing was ever asked for"
+    assert all(budget <= c.display_max_px for _, budget in src.calls), (
+        f"budgets {[b for _, b in src.calls]} against a {c.display_max_px} px cap"
+    )
+    c.close()
+
+
+def test_a_settled_view_stops_asking():
+    """The failure mode this pass is most prone to, and the one hardest to see: a
+    condition that is permanently true, refetching an identical array on every timer
+    tick forever. It reads as "slow" rather than as "wrong".
+
+    Two separate ways of writing the test had it. Comparing coverage against the
+    margin-expanded region compares a margin with a margin, so any pan at all fails it.
+    Comparing resolution against what the screen ideally wants can never be satisfied
+    once the budget clamps at the display cap, because the margin's ground is spending
+    some of that cap — and comparing against what *arrived* rather than what was *asked*
+    for fails the same way, since `downsample` reduces by whole factors and returns less
+    than the budget.
+    """
+    c, src = _with_source()
+    for fraction in (0.5, 0.2, 0.05):
+        _zoom_to(c, fraction)
+    settled = len(src.calls)
+
+    for _ in range(3):
+        _flush_detail(c)
+
+    assert len(src.calls) == settled, (
+        f"{len(src.calls) - settled} fetches for a view that did not move"
+    )
+    c.close()
+
+
+def _one_source_canvas(side):
+    """One image covering a fixed 100 um, held at *side* px, framed identically."""
+    c = _canvas(display_max_px=1024)
+    c.resize(800, 600)
+    c.show()
+    _app.processEvents()
+    src = Source(side)
+    c.add_image(
+        downsample(src.full, 64), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE,
+        key="one", covers=(100e-6, 100e-6), detail=src,
+    )
+    _flush_detail(c)
+    return c, src
+
+
+def test_the_budget_follows_the_screen_and_not_how_much_is_held():
+    """The claim that makes cost track the window rather than the data: two images over
+    the same ground, framed the same, one holding sixty-four times the pixels of the
+    other, are asked for the same amount."""
+    small_canvas, small = _one_source_canvas(512)
+    large_canvas, large = _one_source_canvas(4096)
+
+    assert small.calls and large.calls, "one of the two was never asked"
+    assert small.calls[-1][1] == large.calls[-1][1], (
+        f"budgets {small.calls[-1][1]} and {large.calls[-1][1]} for the same ground"
+    )
+    small_canvas.close()
+    large_canvas.close()
+
+
+def test_an_image_occupying_part_of_the_canvas_is_budgeted_for_that_part():
+    """What bounds a canvas holding several overviews: each is asked for the pixels it
+    covers, so they share a screen between them rather than taking one each."""
+    c = _canvas(display_max_px=1024)
+    c.resize(800, 600)
+    c.show()
+    _app.processEvents()
+    sources = {}
+    for key, centre in (("left", -60e-6), ("right", 60e-6)):
+        sources[key] = Source(2048)
+        c.add_image(
+            downsample(sources[key].full, 64), centre=(centre, 0.0),
+            pixel_size=PIXEL_SIZE, key=key, covers=(100e-6, 100e-6),
+            detail=sources[key],
+        )
+    _flush_detail(c)
+
+    budgets = {k: s.calls[-1][1] for k, s in sources.items() if s.calls}
+    assert len(budgets) == 2, f"only {list(budgets)} were asked"
+    assert sum(budgets.values()) <= c.display_max_px * 1.5, (
+        f"two half-screen images were budgeted {budgets} against a "
+        f"{c.display_max_px} px cap — each was priced as if it owned the canvas"
+    )
+    c.close()
