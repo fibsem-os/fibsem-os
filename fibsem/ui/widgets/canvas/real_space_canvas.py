@@ -48,13 +48,30 @@ _ORIGIN_MARKER_SIZE = 11  # points; fixed on screen, so zoom-independent
 _ORIGIN_MARKER_COLOUR = "#ff5252"
 
 # Pixels kept per placed image. Every artist is redrawn in full on each pan/zoom, so a
-# redraw costs the *total* stored pixels — 100 tiles kept at 1024 px square take ~2.7 s,
-# against ~0.75 s at 512. And 512 is already more than the display can use for the case
-# this canvas exists for: tiles in a 3x3 occupy ~330 screen px each, in a 10x10 ~100 px.
+# redraw costs the *total* stored pixels across every placed image.
+#
+# Raised 512 -> 2048 as a stopgap for FIB-658: a mosaic is tens of thousands of pixels
+# across and 512 showed ~0.02% of them, which is too coarse to read the sample you just
+# spent a run acquiring. Measured, per redraw, on an 8192 px source:
+#
+#     images on canvas |   512   |  1024   |  2048
+#     one              | 13.9 ms | 30.8 ms |  100 ms
+#     five             | 42.6 ms |  126 ms |  451 ms
+#
+# So this is a deliberate trade, not a free win: one overview stays comfortable, and a
+# canvas someone has placed several runs on does not. It degrades as a session goes on
+# rather than being bad immediately, which is the worse way round -- drop to 1024 if that
+# bites before FIB-414 lands.
+#
+# The old figure here ("100 tiles at 1024 px take ~2.7 s") measured one artist *per
+# tile*; overviews are placed as a single image per run now, so it no longer describes
+# this canvas -- but note the saving from that change is why 512 felt fine, not headroom.
+#
 # The reduction box-averages, so the cap costs resolution and nothing else — a feature
 # smaller than a stored pixel is dimmed into its neighbours rather than dropped. What it
-# still cannot do is give the detail back on zoom; that is FIB-414, the pyramid.
-_DEFAULT_DISPLAY_PX = 512
+# still cannot do is give the detail back on zoom; that is FIB-414, the pyramid, and it
+# is the only one of these that does not pay for detail at every other zoom level.
+_DEFAULT_DISPLAY_PX = 2048
 
 
 def _require_displayable(data: np.ndarray) -> None:
