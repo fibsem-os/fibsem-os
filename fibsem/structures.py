@@ -12,10 +12,10 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import Callable, List, Mapping, Optional, Sequence, Tuple, Union, Set, Any, Dict, Type, TypeVar, Literal, TYPE_CHECKING
 
+import cv2
 import numpy as np
 import tifffile as tff
 from numpy.typing import NDArray
-from scipy.ndimage import median_filter, gaussian_filter
 
 import fibsem
 from fibsem.versioning import get_revision
@@ -2672,7 +2672,23 @@ class FibsemImage:
 
     def _filter_data(self, data, size: int = 3, sigma: float = 1) -> NDArray:
         """Returns a filtered version of the image data using a median filter followed by a gaussian filter. Can be used for display or processing purposes."""
-        return gaussian_filter(median_filter(data, size=size), sigma=sigma)
+        # opencv rather than scipy: the same two filters, ~300x faster at 4096x4096. the
+        # setter runs this on every assignment, including the one inside load(), so a
+        # 385 MB overview took ~30 s to load on scipy and ~0.2 s here. data is 2D uint8 or
+        # uint16 (check_data_format), exactly what medianBlur(ksize=3) accepts.
+        # the kernel size and border mode match scipy, not opencv's defaults, which would be
+        # a 7x7 kernel and reflect-101 -- 16x further from the output this replaces.
+        radius = int(4.0 * sigma + 0.5)  # scipy's gaussian_filter default truncate=4.0
+        ksize = 2 * radius + 1
+        filtered = cv2.GaussianBlur(
+            cv2.medianBlur(data, size),
+            (ksize, ksize),
+            sigma,
+            borderType=cv2.BORDER_REFLECT,
+        )
+        # opencv drops a trailing length-1 axis. (H, W, 1) can reach the setter unsqueezed
+        # -- only __init__ squeezes it -- and filtered_data has always matched data's shape.
+        return filtered.reshape(data.shape)
 
     @classmethod
     def load(cls, tiff_path: str) -> "FibsemImage":
