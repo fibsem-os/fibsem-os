@@ -434,6 +434,11 @@ class AutoLamellaTaskProtocol:
     # Experiment-global correlation config (FIB-298): a user-step config, not an
     # automated task, so a peer field rather than an entry in task_config.
     correlation: CorrelationConfig = field(default_factory=CorrelationConfig)
+    # True when this protocol was built by converting a legacy protocol on load,
+    # so the UI can tell the user their file was upgraded. Deliberately not
+    # serialised and not compared: it describes where this object came from, not
+    # what the protocol is, and saving it writes the task-based format anyway.
+    converted_from_legacy: bool = field(default=False, compare=False, repr=False)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -644,7 +649,8 @@ class AutoLamellaTaskProtocol:
             description=f"auto-converted protocol from {protocol.name} - {protocol.method.name}",
             task_config=task_config,
             workflow_config=workflow_config,
-            options=options
+            options=options,
+            converted_from_legacy=True,
         )
 
         return task_protocol

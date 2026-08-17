@@ -32,6 +32,7 @@ from fibsem.ui.stylesheets import (
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
 )
+from fibsem.ui.tokens import SEMANTIC_WARNING_COLOR
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 
 # Error message constants
@@ -74,6 +75,20 @@ ERROR_INVALID_LEGACY_PROTOCOL_MSG = (
     "The selected legacy protocol file could not be converted. It may be corrupted, incorrectly formatted, or missing required fields.\n\n"
     "Error: {error}\n\n"
     "Please select a valid legacy protocol file (*.yaml)."
+)
+
+LEGACY_PROTOCOL_CONVERTED_TITLE = "Legacy Protocol Converted"
+LEGACY_PROTOCOL_CONVERTED_MSG = (
+    "This protocol is in the legacy format and has been converted to the "
+    "task-based format:\n\n{protocol_path}\n\n"
+    "The file on disk is unchanged until the experiment is saved, which will write "
+    "it in the new format. Please review the converted protocol before running any tasks."
+)
+
+# Shown in the protocol panel while a converted protocol is loaded
+LEGACY_PROTOCOL_CONVERTED_BANNER = (
+    "This protocol was converted from the legacy format. Saving the experiment "
+    "will rewrite protocol.yaml in the task-based format."
 )
 
 # Width of the recent-experiments quick-select column
@@ -281,6 +296,15 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
 
         protocol_layout.addLayout(protocol_form_layout)
 
+        # Legacy-conversion banner: only visible while a converted protocol is loaded
+        self.label_legacy_protocol_banner = QtWidgets.QLabel(LEGACY_PROTOCOL_CONVERTED_BANNER)
+        self.label_legacy_protocol_banner.setStyleSheet(
+            f"color: {SEMANTIC_WARNING_COLOR}; font-size: 10px; background: transparent;"
+        )
+        self.label_legacy_protocol_banner.setWordWrap(True)
+        self.label_legacy_protocol_banner.setVisible(False)
+        protocol_layout.addWidget(self.label_legacy_protocol_banner)
+
         # Protocol tooltip/info label
         protocol_info_label = QtWidgets.QLabel(
             "Note: You will be able to edit the protocol after loading the experiment."
@@ -387,7 +411,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         self._load_experiment_from_path(experiment_path)
 
     def _load_experiment_from_path(
-        self, experiment_path: str, warn_on_missing_protocol: bool = True
+        self, experiment_path: str, show_protocol_notices: bool = True
     ) -> bool:
         """Load and validate an experiment from a path, updating the display.
 
@@ -395,9 +419,10 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
 
         Args:
             experiment_path: Path to the experiment.yaml file to load.
-            warn_on_missing_protocol: If True, pop a modal warning when the
-                experiment has no task protocol. Suppressed for the lightweight
-                single-click preview so browsing the recent list stays quiet.
+            show_protocol_notices: If True, pop a modal for a protocol that is
+                missing, unreadable, or was converted from the legacy format.
+                Suppressed for the lightweight single-click preview so browsing
+                the recent list stays quiet.
 
         Returns:
             True if the experiment was loaded (with or without a protocol),
@@ -421,12 +446,26 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
 
                 logging.info(f"Experiment loaded successfully from {experiment_path}")
                 logging.info(f"Protocol loaded successfully from {protocol_path}")
+
+                # A legacy protocol.yaml is converted silently by Experiment.load,
+                # so the user is told here: what is on disk is not what is loaded
+                # until the experiment is saved. (FIB-663)
+                if self.experiment.task_protocol.converted_from_legacy:
+                    logging.info(
+                        f"Legacy protocol at {protocol_path} was converted to the task-based format."
+                    )
+                    if show_protocol_notices:
+                        QtWidgets.QMessageBox.information(
+                            self,
+                            LEGACY_PROTOCOL_CONVERTED_TITLE,
+                            LEGACY_PROTOCOL_CONVERTED_MSG.format(protocol_path=protocol_path),
+                        )
             else:
                 # Protocol missing or unreadable; keep the experiment loaded so the
                 # user can reattach one. Experiment.load only logs the reason, so
                 # a present-but-unloadable protocol is re-read here to report it.
                 load_error = self._protocol_load_error(protocol_path)
-                if warn_on_missing_protocol:
+                if show_protocol_notices:
                     if load_error is not None:
                         QtWidgets.QMessageBox.warning(
                             self,
@@ -538,12 +577,16 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
             self.lineEdit_protocol_path.setPlaceholderText("No protocol loaded")
             self.lineEdit_protocol_tasks.setText("")
             self.lineEdit_protocol_tasks.setPlaceholderText("0")
+            self.label_legacy_protocol_banner.setVisible(False)
             return
 
         self.lineEdit_protocol_name.setText(self.experiment.task_protocol.name or "")
         self.lineEdit_protocol_description.setText(self.experiment.task_protocol.description or "")
         self.lineEdit_protocol_path.setText(self.protocol_path or "")
         self.lineEdit_protocol_path.setCursorPosition(0)
+        self.label_legacy_protocol_banner.setVisible(
+            self.experiment.task_protocol.converted_from_legacy
+        )
         self.lineEdit_protocol_tasks.setText(str(len(self.experiment.task_protocol.task_config)))
 
     def _clear_display(self):
@@ -711,7 +754,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         path = item.data(QtCore.Qt.UserRole)
         if not path:
             return
-        self._load_experiment_from_path(path, warn_on_missing_protocol=False)
+        self._load_experiment_from_path(path, show_protocol_notices=False)
 
     def _on_recent_experiment_double_clicked(self, item: QtWidgets.QListWidgetItem) -> None:
         """Load the selected recent experiment and accept immediately (double click)."""
@@ -756,6 +799,15 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         self.btn_ok.setEnabled(True)
         self._set_protocol_buttons_visible(False)
         logging.info(f"Protocol loaded manually from {protocol_path}")
+
+        # This button also accepts a legacy file, converting it on the way in --
+        # say so, so a converted protocol is never adopted silently.
+        if protocol.converted_from_legacy:
+            QtWidgets.QMessageBox.information(
+                self,
+                LEGACY_PROTOCOL_CONVERTED_TITLE,
+                LEGACY_PROTOCOL_CONVERTED_MSG.format(protocol_path=protocol_path),
+            )
 
     def _select_legacy_protocol(self):
         """Let the user pick and convert a legacy protocol file."""

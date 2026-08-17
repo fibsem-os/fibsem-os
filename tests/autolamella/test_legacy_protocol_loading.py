@@ -8,6 +8,7 @@ died on the first legacy key it saw -- 'method',
 """
 
 import os
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -140,6 +141,54 @@ def test_converted_legacy_protocol_round_trips(tmp_path: Path):
 
     assert not is_legacy_protocol(yaml.safe_load(path.read_text()))
     assert AutoLamellaTaskProtocol.load(str(path)).to_dict() == protocol.to_dict()
+
+
+# ── conversion is visible to the caller ───────────────────────────────────────
+
+@pytest.mark.parametrize("filename", CONVERTIBLE_LEGACY_PROTOCOLS)
+def test_converted_protocol_is_flagged(filename: str):
+    """The UI needs to know a protocol was upgraded, so it can say so."""
+    assert AutoLamellaTaskProtocol.load(LEGACY_PROTOCOL_DIR / filename).converted_from_legacy
+
+
+@pytest.mark.parametrize("filename", TASK_PROTOCOLS)
+def test_task_protocols_are_not_flagged(filename: str):
+    assert not AutoLamellaTaskProtocol.load(TASK_PROTOCOL_DIR / filename).converted_from_legacy
+
+
+def test_new_protocol_is_not_flagged():
+    assert not AutoLamellaTaskProtocol().converted_from_legacy
+
+
+def test_conversion_flag_is_not_serialised(tmp_path: Path):
+    """The flag describes where the object came from, not what the protocol is."""
+    protocol = AutoLamellaTaskProtocol.load(LEGACY_PROTOCOL_DIR / "protocol-on-grid.yaml")
+    assert "converted_from_legacy" not in protocol.to_dict()
+
+    path = tmp_path / "protocol.yaml"
+    protocol.save(str(path))
+    # saved in the new format, so reloading it is no longer a conversion
+    assert not AutoLamellaTaskProtocol.load(str(path)).converted_from_legacy
+
+
+def test_conversion_flag_does_not_affect_equality():
+    """Otherwise the 'protocol changed' checks in the UI would fire spuriously."""
+    protocol = AutoLamellaTaskProtocol()
+    flagged = deepcopy(protocol)
+    flagged.converted_from_legacy = True
+    assert flagged == protocol
+
+
+def test_experiment_flags_a_converted_protocol(tmp_path: Path):
+    experiment = Experiment(path=str(tmp_path), name="legacy-experiment")
+    os.makedirs(experiment.path, exist_ok=True)
+    experiment.save()
+    (Path(experiment.path) / "protocol.yaml").write_text(
+        (LEGACY_PROTOCOL_DIR / "protocol-waffle.yaml").read_text()
+    )
+
+    loaded = Experiment.load(Path(experiment.path) / "experiment.yaml")
+    assert loaded.task_protocol.converted_from_legacy
 
 
 # ── unknown keys ──────────────────────────────────────────────────────────────
