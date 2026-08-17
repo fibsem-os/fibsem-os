@@ -2481,10 +2481,31 @@ class FibsemOverviewWidget(QWidget):
             settings.image_settings.path = self._save_directory or os.getcwd()
         settings.image_settings.filename = _stamped(settings.image_settings.filename)
 
-        # Resolved before the dialog, so what it shows is what the run gets -- including
-        # the destination and the stamped name filled in just above.
+        # Where this run happens, resolved **once**, before the dialog, and handed to the
+        # runner unchanged. Everything about a run then comes from one value: the plan
+        # drawn on the canvas, the pose the dialog names, and the ground the tiles are
+        # computed from.
+        #
+        # It used to be resolved twice. The widget planned from its cached pose while the
+        # runner was handed `None` unless the grid had been dragged -- and `None` means
+        # "read the stage yourself", which it does when the worker starts, a moment later
+        # and from a different source. Anything that re-posed the stage in between made
+        # the dialog describe one view and the acquisition happen in another, with the
+        # canvas agreeing with the dialog and the files agreeing with neither. Reported
+        # from an instrument: the dialog read SEM @ MILLING and the overview came back
+        # SEM @ SEM.
+        #
+        # The cached pose is not always fresh either -- `stage_position_changed` is
+        # emitted by `get_stage_position`, so a move nobody polls after is a move this
+        # tab never hears about (FIB-669). That is a real defect and this does not fix
+        # it. What it does fix is the *disagreement*: with one value there is no longer a
+        # second reading to differ from, so a stale pose gives a wrong-but-honest run
+        # rather than a run that contradicts what it was authorised to do.
+        self._run_centre = deepcopy(self._target or self._stage_position)
+
         if not self._confirm(settings):
             logger.info("Overview acquisition cancelled before starting")
+            self._run_centre = None  # or the plan stays pinned to a run that never ran
             return
 
         # A new record before the first tile arrives, so every tile has somewhere to go
@@ -2497,16 +2518,13 @@ class FibsemOverviewWidget(QWidget):
         self._refresh_overview_list()
 
         self._stop_event.clear()
-        # What the canvas draws the plan around until the run is over. The same centre
-        # the runner will use: a target if there is one, and otherwise where the stage
-        # is now -- which is what the runner reads for itself when handed None, and is
-        # the last moment the two agree, since the run moves the stage immediately.
-        self._run_centre = deepcopy(self._target or self._stage_position)
         self._set_running(True)
-        # Copied with the settings: the target can be dragged again while the run is
-        # under way, and the run has to keep the grid it was started with.
+        # Copied, because the target can be dragged again while the run is under way and
+        # the run has to keep the grid it was started with. `_run_centre` rather than
+        # `_target`: the same value the canvas draws the plan around and the dialog just
+        # described, so the three cannot come apart.
         self._worker = FunctionWorker(
-            self._acquire_worker, settings, deepcopy(self._target)
+            self._acquire_worker, settings, deepcopy(self._run_centre)
         )
         self._worker.start()
 

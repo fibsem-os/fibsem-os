@@ -31,6 +31,8 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtCore import QPoint  # noqa: E402
 from PyQt5.QtWidgets import QApplication, QDialog  # noqa: E402
 
+from copy import deepcopy  # noqa: E402
+
 from fibsem import utils  # noqa: E402
 from fibsem.structures import (  # noqa: E402
     BeamType,
@@ -1611,12 +1613,25 @@ class TestThePlannedTileset:
         assert centre.x == pytest.approx(widget.target.x)
         assert centre.y == pytest.approx(widget.target.y)
 
-    def test_an_undragged_run_still_says_nothing_about_a_centre(
+    def test_an_undragged_run_is_told_where_it_happens(
         self, widget, monkeypatch, tmp_path
     ):
-        """None means "wherever the stage is", which the runner resolves itself. Sending
-        a position instead would freeze the grid at wherever the widget last saw the
-        stage, which is not the same thing."""
+        """Reversed by an instrument, and the old reasoning is worth keeping because it
+        sounds right: *"None means 'wherever the stage is', which the runner resolves
+        itself. Sending a position instead would freeze the grid at wherever the widget
+        last saw the stage, which is not the same thing."*
+
+        It is not the same thing, and that is the defect rather than the argument for it.
+        "Wherever the stage is" gets resolved when the **worker starts** -- after the
+        settings are read, after the dialog is answered -- while the plan and the dialog
+        come from the pose the widget last saw. Anything that re-poses in between makes
+        the run happen somewhere the user never authorised: reported from an instrument
+        as a dialog reading SEM @ MILLING and an overview coming back SEM @ SEM.
+
+        Freezing at the pose the widget last saw is exactly right, because that is the
+        pose the dialog described. If it is stale the run is wrong, but it is wrong in
+        the way the user was shown -- see FIB-669 for the staleness itself.
+        """
         captured = {}
 
         def fake_worker(fn, *args):
@@ -1636,7 +1651,10 @@ class TestThePlannedTileset:
             "fibsem.ui.widgets.overview_widget.FunctionWorker", fake_worker
         )
         widget.acquire()
-        assert captured["args"][1] is None
+        centre = captured["args"][1]
+        assert centre is not None, "the run was left to re-read the stage for itself"
+        assert centre.t == pytest.approx(widget._stage_position.t)
+        assert centre.r == pytest.approx(widget._stage_position.r)
 
     def test_the_plan_cannot_be_edited_while_a_run_is_going(self, widget):
         """A run in progress is reading this plan."""
@@ -1773,6 +1791,83 @@ class TestThePlanHoldsStillWhileTheRunWalksTheGrid:
 
         assert widget.tile_grid_overlay._anchor() == pytest.approx(anchored_at), (
             "the plan was redrawn around the tile being acquired, not around the run"
+        )
+
+    def test_a_run_without_a_dragged_grid_is_still_given_its_centre(
+        self, widget, microscope, monkeypatch, tmp_path
+    ):
+        """`None` used to mean "runner, read the stage yourself" -- a second reading, a
+        moment later, from a different source than the plan and the dialog."""
+        captured = {}
+
+        def fake_worker(fn, *args):
+            captured["centre"] = args[1]
+
+            class _W:
+                def start(self_inner):
+                    pass
+
+                def is_alive(self_inner):
+                    return False
+
+            return _W()
+
+        widget.set_save_directory(str(tmp_path))
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker", fake_worker
+        )
+        assert widget.target is None, "this test is about the *undragged* case"
+
+        widget.acquire()
+
+        assert captured["centre"] is not None, "the run was left to re-read the stage"
+        assert captured["centre"].t == pytest.approx(widget._stage_position.t)
+
+    def test_a_stage_that_moves_at_the_dialog_does_not_move_the_run(
+        self, widget, microscope, monkeypatch, tmp_path
+    ):
+        """The failure this closes, reported from an instrument: the dialog said
+        SEM @ MILLING and the overview came back SEM @ SEM.
+
+        The pose is resolved *before* the dialog, so anything that re-poses between
+        authorising the run and the worker starting cannot change where it happens. The
+        confirmation stands in for that anything -- it is simply a moment when the
+        widget is not in control.
+        """
+        from fibsem.ui.widgets import overview_confirmation_dialog
+
+        captured = {}
+        confirmed_at = deepcopy(widget._stage_position)
+
+        def fake_worker(fn, *args):
+            captured["centre"] = args[1]
+
+            class _W:
+                def start(self_inner):
+                    pass
+
+                def is_alive(self_inner):
+                    return False
+
+            return _W()
+
+        def moves_the_stage(dialog):
+            widget._stage_position = _at(confirmed_at, dx=900e-6, dy=-400e-6)
+            return QDialog.Accepted
+
+        widget.set_save_directory(str(tmp_path))
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker", fake_worker
+        )
+        monkeypatch.setattr(
+            overview_confirmation_dialog.OverviewConfirmationDialog,
+            "exec_", moves_the_stage,
+        )
+
+        widget.acquire()
+
+        assert captured["centre"].x == pytest.approx(confirmed_at.x), (
+            "the run followed the stage instead of the pose it was authorised for"
         )
 
     def test_the_pin_is_let_go_of_when_the_run_ends(self, widget, microscope, tmp_path):
