@@ -9,6 +9,7 @@ except Exception:
 from datetime import datetime
 from PyQt5.QtCore import QPropertyAnimation, QTimer, Qt, QPoint
 from PyQt5.QtWidgets import (
+    QApplication,
     QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
@@ -450,21 +451,64 @@ class NotificationBell(QWidget):
 
 
 class ToastManager:
-    """Manages toast notifications for a parent widget."""
+    """Manages toast notifications, on whichever of the app's windows the operator is
+    working in.
+
+    A toast belongs to a window: it is that window's child and is stacked in that
+    window's bottom-right corner. Anchoring every toast to the host window instead put
+    notifications about work done elsewhere -- the coincidence viewer, correlation, the
+    FM UI -- in the corner of a window the operator was not looking at, and on Windows
+    a toast owned by the host drags the host's whole z-order group in front of the
+    window that raised it (the reported "the AutoLamella GUI comes to the front when
+    coincidence milling stops").
+    """
 
     def __init__(self, parent: QWidget):
-        self.parent = parent
+        self.parent = parent  # fallback anchor, and the window the bell lives on
         self.toasts: list[ToastNotification] = []
         self.spacing = 10
         self.notification_bell: NotificationBell = None
+        self._last_active: QWidget = None
+        app = QApplication.instance()
+        if app is not None:
+            app.focusChanged.connect(self._on_focus_changed)
 
     def set_notification_bell(self, bell: NotificationBell):
         """Set the notification bell to update."""
         self.notification_bell = bell
 
+    def _on_focus_changed(self, _old: QWidget, now: QWidget) -> None:
+        """Remember the last real window of ours the operator was in.
+
+        Tracked rather than read off ``QApplication.activeWindow()`` at show time,
+        because that is ``None`` whenever the app itself is not focused -- exactly the
+        case this exists for, a run that finishes while the operator is in the
+        microscope software. Only ``Qt.Window`` types qualify, which skips the app's
+        own transient chrome (toasts, popovers, tooltips) and short-lived dialogs: a
+        toast anchored to a dialog would be destroyed with it mid-fade.
+        """
+        if now is None:
+            return
+        window = now.window()
+        if window is not None and window.windowType() == Qt.Window:
+            self._last_active = window
+
+    def _anchor(self) -> QWidget:
+        """The window a new toast belongs to."""
+        window = self._last_active
+        try:
+            # isMinimized: anchoring to a minimized window would place the toast at
+            # that window's restored geometry, i.e. over nothing the operator can see.
+            if window is None or not window.isVisible() or window.isMinimized():
+                return self.parent
+        except RuntimeError:  # window closed; the C++ side is already gone
+            self._last_active = None
+            return self.parent
+        return window
+
     def show_toast(self, message: str, notification_type: str = "info", duration: int = 5000, temporary: bool = False):
         """Show a toast notification."""
-        toast = ToastNotification(self.parent, duration)
+        toast = ToastNotification(self._anchor(), duration)
         self.toasts.append(toast)
 
         # Connect to hidden signal for cleanup (not fade_animation.finished which fires on fade-in too)
@@ -493,18 +537,32 @@ class ToastManager:
             self._reposition_toasts()
 
     def _reposition_toasts(self):
-        """Reposition all visible toasts."""
-        if not self.parent:
-            return
+        """Stack each visible toast up the bottom-right corner of the window it
+        belongs to.
 
-        parent_rect = self.parent.rect()
-        # Convert to global screen coordinates
-        global_pos = self.parent.mapToGlobal(QPoint(0, 0))
-        y_offset = 60  # Leave room for notification bell
+        Grouped by anchor rather than run as one column: toasts raised from different
+        windows are stacked on their own window, so two windows' notifications never
+        share a column (or overlap, when the windows overlap).
+        """
+        alive = []
+        for toast in self.toasts:
+            try:
+                toast.isVisible()
+            except RuntimeError:
+                continue  # destroyed along with the window it was anchored to
+            alive.append(toast)
+        self.toasts = alive
 
+        y_offsets = {}  # anchor -> next free offset up from its bottom edge
         for toast in reversed(self.toasts):
-            if toast.isVisible():
-                x = global_pos.x() + parent_rect.width() - toast.width() - 20
-                y = global_pos.y() + parent_rect.height() - toast.height() - y_offset
-                toast.move(x, y)
-                y_offset += toast.height() + self.spacing
+            anchor = toast.parent()
+            if not toast.isVisible() or anchor is None or not anchor.isVisible():
+                continue
+            y_offset = y_offsets.get(anchor, 60)  # leave room for notification bell
+            anchor_rect = anchor.rect()
+            # Convert to global screen coordinates
+            global_pos = anchor.mapToGlobal(QPoint(0, 0))
+            x = global_pos.x() + anchor_rect.width() - toast.width() - 20
+            y = global_pos.y() + anchor_rect.height() - toast.height() - y_offset
+            toast.move(x, y)
+            y_offsets[anchor] = y_offset + toast.height() + self.spacing

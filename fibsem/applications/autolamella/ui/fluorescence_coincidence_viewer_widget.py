@@ -35,6 +35,7 @@ import numpy as np
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QAction,
+    QApplication,
     QDialog,
     QFileDialog,
     QFrame,
@@ -2131,6 +2132,34 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.label_threshold_chip.setVisible(False)
         self._record_coincidence_result()
         self.milling_finished_signal.emit()
+        self._restack_after_run()
+
+    def _restack_after_run(self) -> None:
+        """Put this window back in front once a run ends, unless the operator has
+        deliberately moved to another of the app's windows.
+
+        Reported from a session: when coincidence milling stops, the main window comes
+        to the front and hides this one. The cause was the end-of-run toast, which used
+        to be a child of the main window wherever it was raised from -- on Windows that
+        drags the main window's z-order group in front of this deliberately parentless
+        one (see open_coincidence_viewer_window and ToastManager). Fixed there; this is
+        the backstop, kept because that diagnosis is inferred from the platform's
+        window rules rather than measured.
+
+        The active-window check is what keeps the backstop from becoming the same
+        complaint in reverse. A window pulled forward as a side effect does not take
+        focus, so the reported case still restacks; but an operator who clicked over to
+        the main window mid-run owns the focus, and their window is left alone.
+        """
+        if not self.isWindow():  # embedded: raising the host would be someone else's call
+            return
+        active = QApplication.activeWindow()
+        if active is not None and active is not self:
+            return
+        # raise_() restacks within the application only: it takes no keyboard focus, so
+        # it cannot pull the app in front of the microscope software, and it leaves a
+        # minimized window minimized.
+        self.raise_()
 
     def _record_coincidence_result(self) -> None:
         """Record the latest coincidence run against the selected lamella.
