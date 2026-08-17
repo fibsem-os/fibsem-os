@@ -1399,15 +1399,30 @@ class FibsemOverviewWidget(QWidget):
         recorded. Refused rather than placed at the origin: an image in the wrong place
         looks exactly like an image in the right place.
         """
+        return self._place_image(image, key=key, zorder=zorder)[0]
+
+    def _place_image(
+        self, image: FibsemImage, key: Optional[str] = None,
+        zorder: Optional[float] = None,
+    ) -> Tuple[Optional[str], Optional["_PlacedTile"]]:
+        """:meth:`place_image`, also handing back the tile it built.
+
+        For the one caller that needs to keep it -- `set_image`, which records what it
+        placed. Reaching that through a return value rather than a `tile=` argument is
+        what keeps the *order* right: the guards below are cheap and reject an image
+        before anything is reduced, where a caller passing a tile in would have had to
+        build it first and throw it away on every refusal. On a 385 MB overview that is
+        the difference between a rejected image costing nothing and costing a full pass.
+        """
         position = self._position_of(image)
         pixel_size = self._pixel_size_of(image)
         if position is None or not pixel_size:
             logger.debug("Cannot place an image with no stage position or pixel size.")
-            return None
+            return None, None
 
         view = self._view_of(image)
         if view is None:
-            return None
+            return None, None
         if self._current_view is None:
             self._current_view = view
             self._refresh_view_selector()
@@ -1423,9 +1438,8 @@ class FibsemOverviewWidget(QWidget):
         if self.canvas.reference_pixel_size is None:
             reframed |= self.canvas.set_reference_pixel_size(pixel_size)
 
-        placed = self._place_on_canvas(
-            self._stored_tile(image), view, key=key, zorder=zorder
-        )
+        tile = self._stored_tile(image)
+        placed = self._place_on_canvas(tile, view, key=key, zorder=zorder)
         # Only when the *frame* moved, which is the origin or the scale and nothing else.
         # An image is drawn in the frame; it does not decide it, so a placement that
         # leaves both alone changes nothing any overlay is derived from -- and every
@@ -1435,7 +1449,7 @@ class FibsemOverviewWidget(QWidget):
         # acquisition (FIB-647).
         if reframed:
             self._refresh_context_overlays()
-        return placed
+        return placed, tile
 
     # ── contrast and gamma ────────────────────────────────────────────────
 
@@ -1538,7 +1552,10 @@ class FibsemOverviewWidget(QWidget):
         self._record_count += 1
         record_id = f"overview-{self._record_count}"
         view = self._view_of(image)
-        key = self.place_image(image, key=record_id)
+        # One tile, placed and recorded. Built twice, the reductions and the contrast
+        # limits were paid twice over -- which on a large mosaic is a second pass over
+        # hundreds of megabytes to produce an array identical to the one already in hand.
+        key, tile = self._place_image(image, key=record_id)
         if key is None:
             notification_service.show_toast(
                 "That image does not record where it was acquired, so it cannot be "
@@ -1548,7 +1565,7 @@ class FibsemOverviewWidget(QWidget):
             return None
         record = OverviewRecord(record_id, os.path.basename(record_id), [key], view=view)
         record.pixel_size = self._pixel_size_of(image)
-        record.images.append(self._stored_tile(image))
+        record.images.append(tile)
         self._records[record_id] = record
         self._refresh_overview_list()
         return record_id

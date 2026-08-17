@@ -3150,6 +3150,38 @@ class TestAnOverviewIsDrawnFromWhatIsHeld:
         _settle(widget)
         return record_id
 
+    def test_recording_an_overview_builds_it_once(self, widget, microscope):
+        """`set_image` places the image and records what it placed, and those were two
+        separate builds of the same tile -- so the reductions and the contrast limits
+        were paid twice over. On a large mosaic that is a second pass over hundreds of
+        megabytes to produce an array identical to the one already in hand.
+
+        Counted rather than inferred: both builds return equal tiles, so nothing about
+        the result says how many there were.
+        """
+        base = microscope.get_stage_position()
+        calls = []
+        original = widget._stored_tile
+        widget._stored_tile = lambda image: (calls.append(image), original(image))[1]
+
+        record_id = widget.set_image(_tile(microscope, _at(base), shape=(128, 128)))
+
+        assert record_id is not None
+        assert len(calls) == 1, f"the tile was built {len(calls)} times"
+
+    def test_an_image_that_cannot_be_placed_is_never_reduced(self, widget, microscope):
+        """The reason the tile comes back from the placement rather than going in as an
+        argument. The guards reject an image before anything is reduced, and a caller
+        passing a tile in would have had to build it first and throw it away -- on a
+        385 MB overview, a full pass spent on an image that was never drawn."""
+        image = _tile(microscope, _at(microscope.get_stage_position()))
+        image.metadata.microscope_state.stage_position = None
+        calls = []
+        widget._stored_tile = lambda i: calls.append(i)
+
+        assert widget.set_image(image) is None
+        assert calls == [], "a refused image was reduced anyway"
+
     def test_the_record_keeps_ingredients_not_a_picture(self, widget, microscope):
         record_id = self._held(widget, microscope, 512)
 
