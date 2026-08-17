@@ -67,6 +67,18 @@ def _coincidence_viewer():
     The FM configuration is not incidental: ``_connect_signals`` returns immediately when
     ``microscope.fm is None``, so on a plain demo session the viewer constructs with none
     of its signals wired and every interaction test would pass without testing anything.
+
+    The milling config path is redirected at a throwaway file so the viewer always starts
+    from its built-in ``DEFAULT_MILLING_TASK_CONFIG``. ``_load_milling_config`` otherwise
+    restores whatever this machine last saved to
+    ``fibsem/config/coincidence-milling-config.yaml`` — a runtime-written, gitignored file
+    inside the package, so a poisoned one is invisible to ``git status`` — which made the
+    drag test below depend on ambient state, and let the widget's debounced autosave
+    overwrite a developer's real saved config from a test run.
+
+    Left redirected for the rest of the process on purpose: that autosave is a 1s
+    ``qdebounced`` timer, so it can fire long after the test that built the widget
+    returned, whenever another test spins the event loop.
     """
     import tempfile
 
@@ -75,6 +87,10 @@ def _coincidence_viewer():
     from fibsem.applications.autolamella.structures import Experiment
     from fibsem.applications.autolamella.ui.fluorescence_coincidence_viewer_widget import (
         FluorescenceCoincidenceViewerWidget,
+    )
+
+    cfg.COINCIDENCE_MILLING_CONFIG_PATH = os.path.join(
+        tempfile.mkdtemp(), "coincidence-milling-config.yaml"
     )
 
     microscope, _ = utils.setup_session(
@@ -358,6 +374,18 @@ def test_the_viewer_builds_and_its_milling_widget_draws_nothing_itself():
     assert milling._pattern_update_pending is False
 
 
+def _drag_fib_rect_to(overlay, cx: float, cy: float, size: float = 60.0) -> dict:
+    """Drive one drag the way the canvas does: move the rect, then emit rect_changed.
+
+    Returns the emitted rect, so callers compare against the geometry the handler
+    actually saw rather than the one they asked for.
+    """
+    overlay.set_rect(x0=cx - size / 2, y0=cy - size / 2, width=size, height=size)
+    info = overlay.get_rect()
+    overlay.rect_changed.emit(info)
+    return info
+
+
 def test_dragging_the_fib_rect_still_repositions_the_pattern():
     """The drag is how an operator positions a coincidence mill, and it is the one path
     that runs *through* the milling widget rather than around it
@@ -366,6 +394,14 @@ def test_dragging_the_fib_rect_still_repositions_the_pattern():
     Note the FM-enabled configuration: ``_connect_signals`` returns at its first line
     when ``microscope.fm is None``, so on a plain demo session the viewer wires up
     *nothing* and a drag test would pass vacuously against any breakage.
+
+    The first drag is what makes the second one meaningful. ``_move_patterns`` positions
+    the pattern absolutely, so the point a given rect produces is fixed — and the viewer
+    restores the last-used milling config, which after any previous run of this test
+    holds exactly the point the drag below produces. The assertion then compared a value
+    to itself and failed however the file was invoked. Establishing the start here (and
+    isolating the config in ``_coincidence_viewer``) keeps the target demonstrably
+    different from the start no matter what the machine has saved.
     """
     widget = _coincidence_viewer()
     milling = widget.milling_viewer_widget
@@ -376,15 +412,23 @@ def test_dragging_the_fib_rect_still_repositions_the_pattern():
 
     stages = milling.config_widget.milling_stages_widget.get_enabled_stages()
     assert stages, "no enabled milling stage to reposition"
-    before = stages[0].pattern.point
 
-    overlay.set_rect(x0=470.0, y0=150.0, width=60.0, height=60.0)
-    overlay.rect_changed.emit(overlay.get_rect())
+    # Both positions keep the 48x77px pattern well inside the 768x512 frame:
+    # _move_patterns rejects the whole move if the pattern would fall outside it.
+    first_rect = _drag_fib_rect_to(overlay, cx=300.0, cy=300.0)
+    before = milling.config_widget.milling_stages_widget.get_enabled_stages()[0].pattern.point
+
+    second_rect = _drag_fib_rect_to(overlay, cx=500.0, cy=180.0)
 
     after = milling.config_widget.milling_stages_widget.get_enabled_stages()[0].pattern.point
     assert (after.x, after.y) != (before.x, before.y), (
         "dragging the FIB rect no longer moves the milling pattern"
     )
+    # ...and it tracked the rect, rather than landing somewhere of its own: the same
+    # displacement in metres, with Y inverted (image Y grows downward, stage Y upward).
+    pixel_size = widget.fib_canvas.canvas.pixel_size
+    assert np.isclose(after.x - before.x, (second_rect["cx"] - first_rect["cx"]) * pixel_size)
+    assert np.isclose(after.y - before.y, -(second_rect["cy"] - first_rect["cy"]) * pixel_size)
 
 
 def _main() -> int:
