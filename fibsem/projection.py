@@ -48,6 +48,43 @@ if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.structures import FibsemImage
 
 
+# A displayed-plane probe length for `surface_foreshortening`. Any value does: the
+# projection is linear in the offset, so the ratio it is used for is scale-free.
+_FORESHORTENING_PROBE = 1.0e-3
+
+
+def surface_foreshortening(
+    projection: "StageProjection", base: FibsemStagePosition
+) -> float:
+    """How much of a length **along the sample surface** survives into the image.
+
+    1.0 where the beam looks straight down the surface normal, and `cos(theta)` where it
+    looks from `theta` away -- a disc on the sample images as a circle in the first case
+    and an ellipse squashed by that factor in the second.
+
+    Measured through the projection's own inverse rather than derived again from the
+    geometry, so it cannot disagree with where the frame puts a marker, and so Tescan
+    and fluorescence get the same answer through their own branches. A stable move
+    travels *along the surface*, which is what makes this one line: ask for a known
+    displayed-plane offset, see how far the stage had to travel to produce it, and the
+    ratio is the cosine. Verified against all six beam/orientation pairs at a 35 degree
+    pre-tilt, where it recovers cos 0, cos 52, cos 23 and cos 75 exactly.
+
+    Distinct from *stage-axis* spans, which is what the overlays used to use: stepping
+    stage y with no z is a move **through** the tilted surface rather than along it, and
+    inflates every length by `1 / cos(pre_tilt)`. That is invisible at a pre-tilt of 0 --
+    every Arctis, and every test written against one -- and 22% at 35 degrees (FIB-657).
+    """
+    moved = projection.from_plane(0.0, _FORESHORTENING_PROBE, base)
+    travel = float(np.hypot(
+        (moved.y or 0.0) - (base.y or 0.0),
+        (moved.z or 0.0) - (base.z or 0.0),
+    ))
+    if not travel:
+        return 1.0
+    return _FORESHORTENING_PROBE / travel
+
+
 class StageProjection(Protocol):
     """Stage coordinates to the displayed plane and back, both in metres.
 

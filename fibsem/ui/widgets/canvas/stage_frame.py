@@ -35,6 +35,7 @@ from fibsem.projection import (  # noqa: F401
     BeamStageProjection,
     FMStageProjection,
     StageProjection,
+    surface_foreshortening,
 )
 from fibsem.structures import FibsemStagePosition
 
@@ -84,3 +85,12 @@ class StageFrame:
         measured length and a placed position cannot end up on different scales.
         """
         return self._canvas.metres_to_canvas(metres, 0.0)[0]
+
+    def surface_foreshortening(self) -> float:
+        """How much of a length along the *sample surface* survives into this view.
+
+        1.0 looking down the surface normal, `cos(theta)` from `theta` away. What a
+        shape lying on the sample needs -- a grid's boundary, say -- as opposed to a
+        shape defined in the image, which needs nothing.
+        """
+        return surface_foreshortening(self.projection, self.origin)

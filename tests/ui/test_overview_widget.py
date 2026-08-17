@@ -31,6 +31,8 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtCore import QPoint  # noqa: E402
 from PyQt5.QtWidgets import QApplication, QDialog  # noqa: E402
 
+from copy import deepcopy  # noqa: E402
+
 from fibsem import utils  # noqa: E402
 from fibsem.structures import (  # noqa: E402
     BeamType,
@@ -1287,6 +1289,128 @@ class TestOverlaysAreDrawnInTheView:
             widget.close()
 
 
+class TestTheHolderIsDrawnOnEveryStage:
+    """The travel envelope and the grid boundaries are separate questions.
+
+    One guard used to answer both: `_limit_shapes` returned nothing at all unless the
+    stage was a compustage, so a standard stage lost the *travel box* along with the
+    grid circle -- and travel limits have nothing to do with grids.
+
+    And the boundary was one circle at the stage origin, which is a compustage's
+    holder: a single grid, at zero. The shipped `default-sample-holder.yaml` is a
+    2-slot 35-degree shuttle with grids at x = -5 mm and +5 mm, where a circle at the
+    origin marks a place no grid is. A grid is 1 mm in radius whatever holds it, so
+    what the boundary needs is where the grids are, and the holder already says.
+    """
+
+    @staticmethod
+    def _slot(name, x, y=0.0):
+        from fibsem.microscopes._stage import GridSlot
+
+        return GridSlot(
+            name=name, index=0,
+            position=FibsemStagePosition(name=name, x=x, y=y, z=0.0),
+        )
+
+    def _two_slots(self, widget, monkeypatch):
+        """A multi-grid shuttle, in place of the simulator's single centred slot.
+
+        Set on the instance: `slots` is a dataclass field, so patching the class puts
+        a `property` object where a dict belongs.
+        """
+        holder = widget.microscope._stage.holder
+        slots = {"Slot-01": self._slot("Slot-01", -5.0e-3),
+                 "Slot-02": self._slot("Slot-02", 5.0e-3)}
+        monkeypatch.setattr(holder, "slots", slots)
+        widget._refresh_context_overlays()
+        return slots
+
+    @staticmethod
+    def _specs(widget, kind, label=None):
+        return [s for s in widget.context_overlay._specs
+                if s.kind == kind and (label is None or s.label == label)]
+
+    def test_the_travel_box_draws_on_a_stage_that_is_not_a_compustage(
+        self, widget, microscope, monkeypatch
+    ):
+        """The half that was collateral damage. Travel limits are a property of the
+        stage, and every stage that declares them has them."""
+        monkeypatch.setattr(
+            type(microscope), "stage_is_compustage", property(lambda self: False)
+        )
+        widget._refresh_context_overlays()
+
+        assert self._specs(widget, "rect", "Stage Limits"), (
+            "a standard stage was left with no travel envelope drawn"
+        )
+
+    def test_a_slot_with_no_rotation_still_draws(self, widget, monkeypatch):
+        """The defect the boundary work walked into. `default-sample-holder.yaml` gives
+        each slot three numbers -- x, y, z -- so `SampleHolder.load` leaves `r` and `t`
+        as None, and `frame.to_canvas` raises `TypeError` on them. `_slot_shapes` caught
+        that and moved on, so the shipped two-slot shuttle drew **no slot markers at
+        all**, silently. Only the simulator's holder escaped it, because `_ensure_slots`
+        invents its slot with r=0.
+        """
+        slots = self._two_slots(widget, monkeypatch)
+        assert all(s.position.r is None for s in slots.values()), (
+            "this no longer reproduces the shipped holder"
+        )
+        assert len(self._specs(widget, "crosshair")) >= 2, "the slot markers vanished"
+
+    def test_a_boundary_is_drawn_around_every_slot(self, widget, monkeypatch):
+        slots = self._two_slots(widget, monkeypatch)
+        boundaries = self._specs(widget, "ellipse", "Grid Boundary")
+        assert len(boundaries) == len(slots) == 2
+
+    def test_each_boundary_is_centred_on_its_own_slot(self, widget, monkeypatch):
+        """Not on the stage origin, which is where the single circle used to go -- and
+        with a shuttle that is 10 mm across, a full grid's width from either of them."""
+        self._two_slots(widget, monkeypatch)
+        boundaries = self._specs(widget, "ellipse", "Grid Boundary")
+        crosshairs = [s for s in self._specs(widget, "crosshair")
+                      if s.label.startswith("Slot-")]
+
+        centres = sorted((round(s.cx, 6), round(s.cy, 6)) for s in boundaries)
+        markers = sorted((round(s.cx, 6), round(s.cy, 6)) for s in crosshairs)
+        assert centres == markers, "a boundary is not concentric with its slot marker"
+        assert len({c[0] for c in centres}) == 2, "both circles landed in one place"
+
+    def test_a_slot_carries_the_orientation_it_was_defined_in(self, widget, monkeypatch):
+        """The holder file is written in the SEM orientation, so that is the pose a
+        slot has to carry. Without it the position is a bare x/y and `to_canvas` has
+        nothing to compare against -- which is both why the shipped holder crashed and
+        why it could never be re-expressed for a re-posed stage.
+
+        Carrying the pose is what lets `BeamStageProjection` decide: on a compustage
+        every orientation shares one rotation and this is the identity, and on a
+        standard stage a view half a turn away gets the compucentric flip, exactly as a
+        marked position does.
+        """
+        self._two_slots(widget, monkeypatch)
+        sem = widget.microscope.get_orientation("SEM")
+
+        place = widget._slot_landmark(
+            list(widget.microscope._stage.holder.slots.values())[0]
+        )
+
+        assert place.r == pytest.approx(sem.r)
+        assert place.t == pytest.approx(sem.t)
+        assert place.x == pytest.approx(-5.0e-3), "the slot's own position was lost"
+
+    def test_a_single_centred_slot_still_draws_the_one_circle(self, widget):
+        """The compustage case, unchanged: one slot at the origin, one circle on it.
+        The simulator's own holder, so this is the behaviour that shipped."""
+        boundaries = self._specs(widget, "ellipse", "Grid Boundary")
+        crosshairs = [s for s in self._specs(widget, "crosshair")
+                      if s.label.startswith("Slot-")]
+
+        assert len(boundaries) == 1
+        assert (boundaries[0].cx, boundaries[0].cy) == pytest.approx(
+            (crosshairs[0].cx, crosshairs[0].cy)
+        )
+
+
 class TestLifecycle:
     def test_closing_releases_every_microscope_subscription(self, microscope):
         """psygnal subscriptions outlive the widget -- they belong to the microscope --
@@ -1489,12 +1613,25 @@ class TestThePlannedTileset:
         assert centre.x == pytest.approx(widget.target.x)
         assert centre.y == pytest.approx(widget.target.y)
 
-    def test_an_undragged_run_still_says_nothing_about_a_centre(
+    def test_an_undragged_run_is_told_where_it_happens(
         self, widget, monkeypatch, tmp_path
     ):
-        """None means "wherever the stage is", which the runner resolves itself. Sending
-        a position instead would freeze the grid at wherever the widget last saw the
-        stage, which is not the same thing."""
+        """Reversed by an instrument, and the old reasoning is worth keeping because it
+        sounds right: *"None means 'wherever the stage is', which the runner resolves
+        itself. Sending a position instead would freeze the grid at wherever the widget
+        last saw the stage, which is not the same thing."*
+
+        It is not the same thing, and that is the defect rather than the argument for it.
+        "Wherever the stage is" gets resolved when the **worker starts** -- after the
+        settings are read, after the dialog is answered -- while the plan and the dialog
+        come from the pose the widget last saw. Anything that re-poses in between makes
+        the run happen somewhere the user never authorised: reported from an instrument
+        as a dialog reading SEM @ MILLING and an overview coming back SEM @ SEM.
+
+        Freezing at the pose the widget last saw is exactly right, because that is the
+        pose the dialog described. If it is stale the run is wrong, but it is wrong in
+        the way the user was shown -- see FIB-669 for the staleness itself.
+        """
         captured = {}
 
         def fake_worker(fn, *args):
@@ -1514,7 +1651,10 @@ class TestThePlannedTileset:
             "fibsem.ui.widgets.overview_widget.FunctionWorker", fake_worker
         )
         widget.acquire()
-        assert captured["args"][1] is None
+        centre = captured["args"][1]
+        assert centre is not None, "the run was left to re-read the stage for itself"
+        assert centre.t == pytest.approx(widget._stage_position.t)
+        assert centre.r == pytest.approx(widget._stage_position.r)
 
     def test_the_plan_cannot_be_edited_while_a_run_is_going(self, widget):
         """A run in progress is reading this plan."""
@@ -1651,6 +1791,83 @@ class TestThePlanHoldsStillWhileTheRunWalksTheGrid:
 
         assert widget.tile_grid_overlay._anchor() == pytest.approx(anchored_at), (
             "the plan was redrawn around the tile being acquired, not around the run"
+        )
+
+    def test_a_run_without_a_dragged_grid_is_still_given_its_centre(
+        self, widget, microscope, monkeypatch, tmp_path
+    ):
+        """`None` used to mean "runner, read the stage yourself" -- a second reading, a
+        moment later, from a different source than the plan and the dialog."""
+        captured = {}
+
+        def fake_worker(fn, *args):
+            captured["centre"] = args[1]
+
+            class _W:
+                def start(self_inner):
+                    pass
+
+                def is_alive(self_inner):
+                    return False
+
+            return _W()
+
+        widget.set_save_directory(str(tmp_path))
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker", fake_worker
+        )
+        assert widget.target is None, "this test is about the *undragged* case"
+
+        widget.acquire()
+
+        assert captured["centre"] is not None, "the run was left to re-read the stage"
+        assert captured["centre"].t == pytest.approx(widget._stage_position.t)
+
+    def test_a_stage_that_moves_at_the_dialog_does_not_move_the_run(
+        self, widget, microscope, monkeypatch, tmp_path
+    ):
+        """The failure this closes, reported from an instrument: the dialog said
+        SEM @ MILLING and the overview came back SEM @ SEM.
+
+        The pose is resolved *before* the dialog, so anything that re-poses between
+        authorising the run and the worker starting cannot change where it happens. The
+        confirmation stands in for that anything -- it is simply a moment when the
+        widget is not in control.
+        """
+        from fibsem.ui.widgets import overview_confirmation_dialog
+
+        captured = {}
+        confirmed_at = deepcopy(widget._stage_position)
+
+        def fake_worker(fn, *args):
+            captured["centre"] = args[1]
+
+            class _W:
+                def start(self_inner):
+                    pass
+
+                def is_alive(self_inner):
+                    return False
+
+            return _W()
+
+        def moves_the_stage(dialog):
+            widget._stage_position = _at(confirmed_at, dx=900e-6, dy=-400e-6)
+            return QDialog.Accepted
+
+        widget.set_save_directory(str(tmp_path))
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker", fake_worker
+        )
+        monkeypatch.setattr(
+            overview_confirmation_dialog.OverviewConfirmationDialog,
+            "exec_", moves_the_stage,
+        )
+
+        widget.acquire()
+
+        assert captured["centre"].x == pytest.approx(confirmed_at.x), (
+            "the run followed the stage instead of the pose it was authorised for"
         )
 
     def test_the_pin_is_let_go_of_when_the_run_ends(self, widget, microscope, tmp_path):

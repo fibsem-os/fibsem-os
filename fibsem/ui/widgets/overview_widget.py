@@ -1630,6 +1630,7 @@ class FibsemOverviewWidget(QWidget):
 
         specs: List[ShapeSpec] = []
         specs.extend(self._limit_shapes(frame))
+        specs.extend(self._boundary_shapes(frame))
         specs.extend(self._slot_shapes(frame))
         self.context_overlay.set_shapes(specs)
         self._declare_working_area(frame)
@@ -1845,32 +1846,43 @@ class FibsemOverviewWidget(QWidget):
         )
 
     def _canvas_span(self, frame: StageFrame, length: float) -> Tuple[float, float]:
-        """A stage-space step of *length* metres, in canvas pixels, per axis.
+        """A length *along the sample surface*, in canvas pixels, per axis.
 
-        Not `frame.length()` twice. That divides by the canvas scale and stops, which
-        is right for x and wrong for y: the view foreshortens stage y by a factor that
-        changes with the beam and the pose -- 1.00 looking down the pose a beam is
-        named after, 0.26 for the ion beam at the milling pose. A lattice or a boundary
-        sized by the scale alone is the same size in every view, and therefore right in
-        at most one of them.
+        Not `frame.length()` twice. That divides by the canvas scale and stops, which is
+        right for x and wrong for y: the view foreshortens the surface by a factor that
+        changes with the beam and the pose -- 1.00 looking down the surface normal, 0.26
+        for the ion beam at the milling pose. A boundary sized by the scale alone is the
+        same size in every view, and therefore right in at most one of them.
 
-        Measured through the frame rather than derived from the geometry, so it cannot
+        **A surface length, not a stage-axis one.** Stepping stage y with no z, which is
+        what this did, is a move *through* a tilted surface rather than along it, and
+        inflates every span by `1 / cos(pre_tilt)` -- exactly 1.000 at the pre-tilt of 0
+        that every Arctis and every test has, and 1.221 on a 35 degree shuttle, where a
+        grid boundary came out 22% tall in the two views it must be a circle in
+        (FIB-657). Stage x needs no such care: the tilt is about x, so stage x lies in
+        the surface and a step along it is a step along the surface.
+
+        Measured through the frame, not derived from the geometry again, so it cannot
         disagree with where the frame puts a marker. Absolute, because a view can flip
         an axis and a span has no sign.
         """
-        anchor = self._landmark(frame, 0.0, 0.0)
-        ox, oy = frame.to_canvas(anchor)
+        ox, _ = frame.to_canvas(self._landmark(frame, 0.0, 0.0))
         along_x, _ = frame.to_canvas(self._landmark(frame, length, 0.0))
-        _, along_y = frame.to_canvas(self._landmark(frame, 0.0, length))
-        return abs(along_x - ox), abs(along_y - oy)
+        span_x = abs(along_x - ox)
+        return span_x, span_x * frame.surface_foreshortening()
 
     def _limit_shapes(self, frame: StageFrame) -> List[ShapeSpec]:
-        """The travel limits, and the grid boundary a cryo holder describes."""
+        """The stage's travel envelope, wherever limits are configured.
+
+        Not gated on the stage type. It used to be: the whole method returned nothing
+        unless `_draws_grid_boundary()` held, so a standard stage lost the travel box
+        along with the grid circle -- and travel limits have nothing to do with grids.
+        One guard was answering two questions.
+        """
         limits = getattr(self.microscope._stage, "limits", None)
-        if not self._draws_grid_boundary():
+        if not limits:
             return []
         try:
-            cx, cy = frame.to_canvas(self._landmark(frame, 0.0, 0.0, "Grid Centre"))
             # Every corner, not a width and a height: the projection can flip either
             # axis, and reading the envelope off the extremes of the projected corners
             # is true whatever it does to them. The box stays axis-aligned -- the
@@ -1884,34 +1896,113 @@ class FibsemOverviewWidget(QWidget):
             ys = [point[1] for point in corners]
             width, height = max(xs) - min(xs), max(ys) - min(ys)
             box_cx, box_cy = (max(xs) + min(xs)) / 2, (max(ys) + min(ys)) / 2
-            # A circle on the sample, so an ellipse on screen everywhere but the two
-            # views where the beam looks down the pose it is named after.
-            span_x, span_y = self._canvas_span(frame, GRID_BOUNDARY_RADIUS_M)
         except Exception as e:
             logger.debug(f"Could not draw the stage limits: {e}")
             return []
         return [
             ShapeSpec(kind="rect", cx=box_cx, cy=box_cy, width=width, height=height,
                       color=STAGE_LIMITS_COLOUR, label="Stage Limits"),
-            ShapeSpec(kind="ellipse", cx=cx, cy=cy,
-                      width=2 * span_x, height=2 * span_y,
-                      color=GRID_BOUNDARY_COLOUR, label="Grid Boundary"),
         ]
 
-    def _slot_shapes(self, frame: StageFrame) -> List[ShapeSpec]:
-        """The sample holder's slots, as crosshairs at their configured positions."""
+    def _holder_slots(self) -> List[object]:
+        """The sample holder's slots, or nothing if the stage does not describe one."""
         try:
-            slots = self.microscope._stage.holder.slots.values()
+            return list(self.microscope._stage.holder.slots.values())
         except Exception:
             return []
-        specs = []
-        for slot in slots:
+
+    def _slot_landmark(self, slot: object) -> Optional[FibsemStagePosition]:
+        """Where a holder slot sits, as a position that can be drawn in any view.
+
+        Slots are stored as x/y/z and **nothing else**: `default-sample-holder.yaml`
+        gives each one three numbers, and `SampleHolder.load` leaves `r` and `t` as
+        None. Handed to `frame.to_canvas` that raises -- and `_slot_shapes` swallowed
+        it, so the shipped two-slot shuttle drew no slot markers at all, silently. The
+        simulator's holder hid it: `_ensure_slots` invents its slot with r=0.
+
+        The missing rotation is the **SEM orientation**, which is the frame the holder
+        file is written in. Stamped here rather than assumed away, because it is what
+        makes a slot re-expressible: a shuttle's grids sit at x = -5 mm and +5 mm, and
+        after a 180-degree rotation the raw coordinate that reaches a given grid is the
+        *other* one. Carrying the pose lets `BeamStageProjection` see the difference
+        and apply the compucentric flip, exactly as it does for a position recorded at
+        one orientation and drawn at another.
+
+        So **not** `_landmark`, which takes the frame's own rotation precisely to stop
+        that flip firing. A travel-envelope corner is a place in the frame being drawn;
+        a slot is a place on the holder, and the holder turns over with the stage.
+
+        No hardware: `get_orientation` is a lookup over the configured orientations.
+        On a compustage every orientation shares one rotation, so this is the identity
+        and the slots draw where they always did.
+        """
+        position = getattr(slot, "position", None)
+        if position is None:
+            return None
+        try:
+            pose = self.microscope.get_orientation("SEM")
+        except Exception as e:
+            logger.debug(f"Could not resolve the holder's reference orientation: {e}")
+            return None
+        return FibsemStagePosition(
+            name=position.name or "", x=position.x, y=position.y,
+            z=position.z or 0.0, r=pose.r, t=pose.t,
+        )
+
+    def _boundary_shapes(self, frame: StageFrame) -> List[ShapeSpec]:
+        """A grid boundary around every slot the holder carries.
+
+        One circle per slot rather than one at the stage origin. A grid is 1 mm in
+        radius whatever holds it, so what the boundary needs is *where the grids are* --
+        and the holder already says, in the same slot positions `_slot_shapes` draws
+        crosshairs at. A compustage carries a single slot at the origin, so it goes on
+        drawing the one circle it always drew; a multi-grid shuttle gets one each,
+        where before it got a single circle at a place no grid is.
+
+        Placed exactly as the crosshair is, through `frame.to_canvas(slot.position)`,
+        so the circle and the marker at its centre cannot disagree: whatever the frame
+        does to that position it does to both. Deliberately *not* re-derived through
+        `_landmark` -- that would make the circle a synthetic place and the crosshair a
+        recorded one, and the two would part company on a stage where the compucentric
+        correction fires.
+
+        A circle on the sample, so an ellipse on screen everywhere but the two views
+        where the beam looks down the pose it is named after.
+        """
+        specs: List[ShapeSpec] = []
+        for slot in self._holder_slots():
+            place = self._slot_landmark(slot)
+            if place is None:
+                continue
             try:
-                cx, cy = frame.to_canvas(slot.position)
-            except Exception:
+                cx, cy = frame.to_canvas(place)
+                span_x, span_y = self._canvas_span(frame, GRID_BOUNDARY_RADIUS_M)
+            except Exception as e:
+                logger.debug(f"Could not draw a grid boundary: {e}")
+                continue
+            specs.append(ShapeSpec(kind="ellipse", cx=cx, cy=cy,
+                                   width=2 * span_x, height=2 * span_y,
+                                   color=GRID_BOUNDARY_COLOUR, label="Grid Boundary"))
+        return specs
+
+    def _slot_shapes(self, frame: StageFrame) -> List[ShapeSpec]:
+        """The sample holder's slots, as crosshairs at their configured positions.
+
+        Through `_slot_landmark` for the same reason the boundary is, and so the two
+        stay concentric by construction rather than by both happening to be right.
+        """
+        specs = []
+        for slot in self._holder_slots():
+            place = self._slot_landmark(slot)
+            if place is None:
+                continue
+            try:
+                cx, cy = frame.to_canvas(place)
+            except Exception as e:
+                logger.debug(f"Could not draw a holder slot: {e}")
                 continue
             specs.append(ShapeSpec(kind="crosshair", cx=cx, cy=cy,
-                                   color=SLOT_COLOUR, label=slot.position.name or ""))
+                                   color=SLOT_COLOUR, label=place.name or ""))
         return specs
 
     def _refresh_stage_info(self) -> None:
@@ -2390,10 +2481,31 @@ class FibsemOverviewWidget(QWidget):
             settings.image_settings.path = self._save_directory or os.getcwd()
         settings.image_settings.filename = _stamped(settings.image_settings.filename)
 
-        # Resolved before the dialog, so what it shows is what the run gets -- including
-        # the destination and the stamped name filled in just above.
+        # Where this run happens, resolved **once**, before the dialog, and handed to the
+        # runner unchanged. Everything about a run then comes from one value: the plan
+        # drawn on the canvas, the pose the dialog names, and the ground the tiles are
+        # computed from.
+        #
+        # It used to be resolved twice. The widget planned from its cached pose while the
+        # runner was handed `None` unless the grid had been dragged -- and `None` means
+        # "read the stage yourself", which it does when the worker starts, a moment later
+        # and from a different source. Anything that re-posed the stage in between made
+        # the dialog describe one view and the acquisition happen in another, with the
+        # canvas agreeing with the dialog and the files agreeing with neither. Reported
+        # from an instrument: the dialog read SEM @ MILLING and the overview came back
+        # SEM @ SEM.
+        #
+        # The cached pose is not always fresh either -- `stage_position_changed` is
+        # emitted by `get_stage_position`, so a move nobody polls after is a move this
+        # tab never hears about (FIB-669). That is a real defect and this does not fix
+        # it. What it does fix is the *disagreement*: with one value there is no longer a
+        # second reading to differ from, so a stale pose gives a wrong-but-honest run
+        # rather than a run that contradicts what it was authorised to do.
+        self._run_centre = deepcopy(self._target or self._stage_position)
+
         if not self._confirm(settings):
             logger.info("Overview acquisition cancelled before starting")
+            self._run_centre = None  # or the plan stays pinned to a run that never ran
             return
 
         # A new record before the first tile arrives, so every tile has somewhere to go
@@ -2406,16 +2518,13 @@ class FibsemOverviewWidget(QWidget):
         self._refresh_overview_list()
 
         self._stop_event.clear()
-        # What the canvas draws the plan around until the run is over. The same centre
-        # the runner will use: a target if there is one, and otherwise where the stage
-        # is now -- which is what the runner reads for itself when handed None, and is
-        # the last moment the two agree, since the run moves the stage immediately.
-        self._run_centre = deepcopy(self._target or self._stage_position)
         self._set_running(True)
-        # Copied with the settings: the target can be dragged again while the run is
-        # under way, and the run has to keep the grid it was started with.
+        # Copied, because the target can be dragged again while the run is under way and
+        # the run has to keep the grid it was started with. `_run_centre` rather than
+        # `_target`: the same value the canvas draws the plan around and the dialog just
+        # described, so the three cannot come apart.
         self._worker = FunctionWorker(
-            self._acquire_worker, settings, deepcopy(self._target)
+            self._acquire_worker, settings, deepcopy(self._run_centre)
         )
         self._worker.start()
 
