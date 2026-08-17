@@ -34,11 +34,12 @@ channel (FIB-544, FIB-600).
 from __future__ import annotations
 
 import logging
+import math
 import os
 import threading
 from copy import deepcopy
 from functools import partial
-from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
+from typing import Callable, Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
 import numpy as np
 from PyQt5.QtCore import pyqtSignal, pyqtSlot
@@ -101,7 +102,11 @@ from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
 from fibsem.ui.widgets.canvas.overlays.gridbar_overlay import GridBarOverlay
 from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import TileGridOverlay
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointsOverlay
-from fibsem.ui.widgets.canvas.real_space_canvas import FibsemRealSpaceCanvas
+from fibsem.ui.widgets.canvas.real_space_canvas import (
+    WHOLE_IMAGE,
+    FibsemRealSpaceCanvas,
+    ImageRegion,
+)
 from fibsem.ui.widgets.canvas.stage_frame import StageFrame
 from fibsem.ui.widgets.custom_widgets import (
     ContextMenu,
@@ -230,7 +235,10 @@ def _contrast_limits(values: np.ndarray, acquired: np.ndarray) -> Tuple[float, f
 
 
 def _as_colour_and_coverage(
-    data: np.ndarray, acquired: np.ndarray, clim: Tuple[float, float]
+    data: np.ndarray,
+    acquired: np.ndarray,
+    clim: Tuple[float, float],
+    curve: Optional[Callable[[np.ndarray], np.ndarray]] = None,
 ) -> np.ndarray:
     """Re-express a grayscale overview as colour plus where it holds anything.
 
@@ -266,6 +274,14 @@ def _as_colour_and_coverage(
     stay exactly zero, which is the thing being asked about. An image small enough to be
     placed unreduced keeps that speckle, and it shows only where another overview lies
     beneath it.
+
+    *curve* is the user's contrast and gamma, applied to the stretched values on the way
+    through. Folded in here rather than run over the result because this is called on the
+    *patch being drawn* -- a screen's worth -- where a separate pass over the finished
+    RGBA would be a second normalise and a second copy of the whole mosaic. **Alpha is
+    never curved.** Contrast says how bright what was acquired should look; it must not
+    decide what *was* acquired, and passing alpha through the same curve would fade a
+    region out as the maximum came down and paint unacquired ground in as it went up.
     """
     values = np.asarray(data, dtype=np.float32)
     out = np.zeros((*values.shape[:2], 4), dtype=np.uint8)
@@ -274,23 +290,38 @@ def _as_colour_and_coverage(
 
     lo, hi = clim
     norm = np.clip((values - lo) / (hi - lo), 0.0, 1.0)
+    if curve is not None:
+        norm = np.clip(curve(norm), 0.0, 1.0)
     out[..., :3] = (norm * 255.0).astype(np.uint8)[..., None]
     out[..., 3] = np.where(acquired, 255, 0)
     return out
 
 
 class _PlacedTile(NamedTuple):
-    """One image a record placed: the pixels, where it was taken, and what it covers.
+    """One image a record placed: what it holds, where it was taken, what it covers.
+
+    The *ingredients* of a picture rather than a picture. Colouring and the user's
+    contrast curve both happen at draw time, on the part being drawn, and that is the
+    whole point of the split: a finished RGBA can only be shown at the resolution it was
+    finished at, so a zoom has nothing to reveal and a contrast change costs a pass over
+    the entire mosaic instead of over a screenful.
+
+    `clim` is measured once over the whole image and then kept. Deliberately not
+    re-measured per patch: limits taken from whatever is currently on screen would make
+    the picture change brightness as you pan across it, which is a worse fault than the
+    one the split is fixing.
 
     `covers` is the ground in metres, measured from the image's *original* shape before
-    reduction. It has to be carried rather than re-derived, because `data` is decimated
-    for display: the canvas sizes an image from `shape x pixel_size` unless told
-    otherwise, so a 1024 px tile stored at 512 px was drawn covering half the ground it
-    actually images -- a mosaic with black gaps between every tile, at the right
-    positions and the wrong size.
+    reduction. It has to be carried rather than re-derived, because `grey` is decimated:
+    the canvas sizes an image from `shape x pixel_size` unless told otherwise, so a
+    1024 px tile stored at 512 px was drawn covering half the ground it actually images
+    -- a mosaic with black gaps between every tile, at the right positions and the wrong
+    size.
     """
 
-    data: object  # np.ndarray, display-reduced RGBA -- see `_as_colour_and_coverage`
+    grey: object  # np.ndarray, the filtered image reduced to the store cap
+    acquired: object  # np.ndarray of bool, same shape -- where anything was acquired
+    clim: Tuple[float, float]
     position: FibsemStagePosition
     pixel_size: float
     covers: Tuple[float, float]  # (width, height) in metres
@@ -449,7 +480,6 @@ class FibsemOverviewWidget(QWidget):
         # Canvas key -> the *base* tile behind it, the auto-stretched one. Contrast is
         # applied on the way to the canvas and never written back here, so moving a
         # slider twice adjusts the original twice rather than compounding.
-        self._tiles: Dict[str, "_PlacedTile"] = {}
         # Stage position the canvas frame is built around. Fixed once and kept:
         # re-deriving it from whatever arrived last would shift the whole scene each
         # time a tile landed. Taken from the first image placed.
@@ -518,33 +548,33 @@ class FibsemOverviewWidget(QWidget):
     # ── layout ───────────────────────────────────────────────────────────
 
     def _init_ui(self) -> None:
-        # Two caps, deliberately, and the same number today. They answer different
-        # questions and will diverge:
+        # Two bounds, answering two different questions:
         #
-        #   `_store_max_px`  -- the finest this widget ever *holds* an overview at, so
-        #                       the ceiling on any detail a zoom could ever recover. A
-        #                       memory bound.
-        #   `display_max_px` -- the most the canvas ever *hands matplotlib*, which is
-        #                       paid on every frame at every zoom. A redraw bound.
+        #   `_store_budget_bytes` -- how much memory one overview may occupy, and so the
+        #                            ceiling on any detail a zoom could ever recover.
+        #   `display_max_px`      -- the most the canvas ever hands matplotlib, paid on
+        #                            every frame at every zoom. A redraw bound.
         #
-        # Holding no more than is drawn is what makes "don't downscale the actual image"
-        # impossible right now: the detail is gone before the canvas sees it, so zooming
-        # cannot bring back what was never kept. Splitting the two is the groundwork for
-        # keeping more than is drawn and choosing, per view, which part of it to draw.
+        # Held no finer than drawn, "don't downscale the actual image" has no answer at
+        # all: the detail would be gone before the canvas saw it. Held finer, the canvas
+        # asks for the part on screen at the resolution the screen can use, and a zoom
+        # reveals rather than magnifies.
         #
-        # 2048 is chosen for the drawing half. At 512 a 5x5 of 1024 px tiles was reduced
-        # tenfold and then magnified back onto a ~1100 px wide canvas, so every stored
-        # pixel was drawn as a 2x2 block; 2048 is the first power of two past the canvas's
-        # own width, which is what stops the magnification. A cap, not a target --
-        # `downsample` reduces by an integer factor, so that 5x5 lands at 1707 px.
+        # The store bound is bytes rather than pixels because bytes are the thing being
+        # spent. A pixel cap prices the same setting at 52 MB for a mosaic of 1024 px
+        # tiles and 118 MB for one of 3072 px tiles, and silently costs 50% more again on
+        # a uint16 detector. It is also a *ceiling*, not an allocation: `downsample`
+        # reduces by whole factors, so an overview that fits is held whole and one that
+        # does not drops to the next factor. At 128 MB every 1024 px-tile mosaic up to
+        # 5x5 is held at full acquired resolution -- which is what the complaint behind
+        # FIB-658 was asking for -- and a 10x10 lands at 5120 px for 52 MB.
         #
-        # Measured on one RGBA artist: a redraw costs ~29 ms plus ~11 ms per megapixel,
-        # so this takes a pan from 29 ms to 74 ms, a contrast step from 17 ms to 69 ms,
-        # and holds 17 MB per overview. Raising it further is worse than it looks --
-        # matplotlib resamples the whole array however little of it is on screen (1% of a
-        # 5120 px artist still costs 321 ms against 335 ms for all of it) -- which is
-        # exactly why the drawn size is the thing to bound and the held size is not.
-        self._store_max_px = 2048
+        # 2048 is the drawing half. At 512 a 5x5 of 1024 px tiles was reduced tenfold and
+        # then magnified back onto a ~1100 px wide canvas, so every stored pixel was
+        # drawn as a 2x2 block. 2048 is the first power of two past the canvas's own
+        # width, which is what stops the magnification; the detail pass keeps well under
+        # it in practice, asking only for what the axes can show.
+        self._store_budget_bytes = 128_000_000
         self.canvas = FibsemRealSpaceCanvas(display_max_px=2048)
         self.canvas.canvas_clicked.connect(self._on_canvas_clicked)
         self.canvas.canvas_double_clicked.connect(self._on_canvas_double_clicked)
@@ -1326,8 +1356,6 @@ class FibsemOverviewWidget(QWidget):
             return False
         self._current_view = view
         self.canvas.clear_images()
-        # Re-placement mints new keys, so the old ones describe nothing.
-        self._tiles.clear()
         for record in self._records.values():
             record.keys = []
             if record.view != view:
@@ -1415,37 +1443,61 @@ class FibsemOverviewWidget(QWidget):
         """Show or hide the floating contrast popover, anchored under its button."""
         self.contrast_control.set_open(self.btn_contrast.isChecked(), self.btn_contrast)
 
-    def _for_display(self, tile: "_PlacedTile") -> np.ndarray:
-        """A placed tile with the user's contrast applied, or the tile itself.
+    def _patch(
+        self, tile: "_PlacedTile", region: ImageRegion, max_px: int
+    ) -> Tuple[np.ndarray, ImageRegion]:
+        """The part of *tile* that *region* names, coloured, at most *max_px* across.
 
-        The stored array is colour plus coverage, where the colour channels hold the
-        auto-stretched grayscale (`_as_colour_and_coverage`). So the picture to adjust is
-        already there, in any one of them, normalised to 0..1 -- which is exactly what
-        `ContrastGammaControl.apply` takes.
+        What the canvas asks for as the view moves, and the whole of what phase 2 bought:
+        the reduction factor is set by how much of the image is on screen rather than by
+        how large the image is, so zooming in reveals detail instead of magnifying stored
+        pixels.
 
-        **Alpha is not touched.** Contrast says how bright what was acquired should look;
-        it must not decide what *was* acquired. Passing the alpha through the same curve
-        would make a region fade out as the maximum came down, and unacquired ground
-        appear as it went up.
+        Snapped outward to whole stored pixels, and the region *actually* covered is
+        returned rather than the one asked for -- the canvas draws the patch at the
+        rectangle this names, and a fractional-pixel disagreement between the two would
+        show as a seam every time the view moved.
+
+        The mask is reduced by its own rule rather than alongside the pixels, because
+        "was anything acquired in this block" is a different question from "how bright is
+        this block" and box-averaging answers only the second.
         """
-        base = tile.data
-        if self.contrast_control.is_default():
-            return base
-        norm = base[..., 0].astype(np.float32) / 255.0
-        adjusted = np.clip(self.contrast_control.apply(norm), 0.0, 1.0)
-        shown = base.copy()
-        shown[..., :3] = (adjusted * 255.0).astype(np.uint8)[..., None]
-        return shown
+        grey, acquired = tile.grey, tile.acquired
+        height, width = grey.shape[0], grey.shape[1]
+        x0 = min(max(0, int(np.floor(region.left * width))), width - 1)
+        y0 = min(max(0, int(np.floor(region.top * height))), height - 1)
+        x1 = min(width, max(int(np.ceil(region.right * width)), x0 + 1))
+        y1 = min(height, max(int(np.ceil(region.bottom * height)), y0 + 1))
+        curve = None if self.contrast_control.is_default() else self.contrast_control.apply
+        drawn = _as_colour_and_coverage(
+            downsample(grey[y0:y1, x0:x1], max_px),
+            downsample_mask(acquired[y0:y1, x0:x1], max_px),
+            tile.clim,
+            curve,
+        )
+        return drawn, ImageRegion(x0 / width, x1 / width, y0 / height, y1 / height)
+
+    def _for_display(self, tile: "_PlacedTile") -> np.ndarray:
+        """The whole of *tile* at display resolution.
+
+        The fallback the canvas draws until the first patch arrives, and whatever it
+        falls back to if the source ever declines.
+        """
+        return self._patch(tile, WHOLE_IMAGE, self.canvas.display_max_px)[0]
 
     def _reapply_contrast(self) -> None:
         """Redraw every placed image through the current contrast.
 
-        `update_image` rather than re-placing: re-adding under the same key destroys and
-        recreates the artist, which moves it to the top of the draw order -- so adjusting
-        contrast would silently reorder overlapping overviews.
+        Through the sources rather than by re-placing: re-adding under the same key
+        destroys and recreates the artist, which moves it to the top of the draw order --
+        so adjusting contrast would silently reorder overlapping overviews.
+
+        Forced, because nothing about the *view* changed and none of the canvas's usual
+        tests would notice. The curve now runs over the patch being drawn rather than
+        over the whole mosaic, which is what takes a contrast step off the size of the
+        overview and onto the size of the window.
         """
-        for key, tile in self._tiles.items():
-            self.canvas.update_image(key, self._for_display(tile))
+        self.canvas.refresh_detail(force=True)
 
     def _place_on_canvas(
         self, tile: "_PlacedTile", view: "OverviewView",
@@ -1465,16 +1517,16 @@ class FibsemOverviewWidget(QWidget):
         except Exception as e:
             logger.debug(f"Could not place an image: {e}")
             return None
-        placed = self.canvas.add_image(
+        return self.canvas.add_image(
             self._for_display(tile), centre=centre, pixel_size=tile.pixel_size,
             key=key, zorder=zorder, covers=tile.covers,
+            # Bound to this tile, and the canvas holds it for as long as the image is
+            # placed -- so a contrast change reaches every placed image without walking
+            # the records, which would miss the acquisition preview, the one thing on
+            # the canvas that has no record. Removing the image drops the source and the
+            # tile with it, which a dictionary kept alongside had to be told to do.
+            detail=lambda region, max_px, tile=tile: self._patch(tile, region, max_px),
         )
-        if placed is not None:
-            # Keyed by what the canvas is holding, so a contrast change can reach every
-            # placed image without walking the records -- which would miss the
-            # acquisition preview, the one thing on the canvas that has no record.
-            self._tiles[placed] = tile
-        return placed
 
     def set_image(self, image: FibsemImage) -> Optional[str]:
         """Place a whole overview as one image, and record it as one.
@@ -1501,6 +1553,21 @@ class FibsemOverviewWidget(QWidget):
         self._refresh_overview_list()
         return record_id
 
+    def _store_cap(self, dtype: np.dtype) -> int:
+        """The largest square an overview of *dtype* may be held at, in pixels a side.
+
+        Derived from the memory budget rather than fixed, because bytes are what is
+        being spent and pixels are a poor proxy for them: the same pixel cap costs 52 MB
+        on a mosaic of 1024 px tiles and 118 MB on one of 3072 px tiles, and half as much
+        again on a uint16 detector as on a uint8 one. Two bytes a pixel here -- the
+        grayscale and the coverage mask beside it, one byte each for the usual uint8.
+
+        Square is the assumption, and it errs the safe way: a long thin mosaic reduces
+        on its longest side, so it comes in *under* budget rather than over.
+        """
+        per_pixel = int(np.dtype(dtype).itemsize) + 1  # + the coverage mask
+        return max(1, math.isqrt(self._store_budget_bytes // per_pixel))
+
     def _stored_tile(self, image: FibsemImage) -> "_PlacedTile":
         """What a record keeps so it can be re-placed after a view switch.
 
@@ -1517,7 +1584,7 @@ class FibsemOverviewWidget(QWidget):
         data = image.filtered_data
         pixel_size = self._pixel_size_of(image)
         height, width = data.shape[0], data.shape[1]
-        max_px = self._store_max_px
+        max_px = self._store_cap(data.dtype)
         # What was acquired, and where black is, both come off the *unfiltered* array --
         # `filtered_data` smears the boundary in both directions and would answer either
         # question wrong. Reduced the same way as the pixels so the three line up.
@@ -1535,7 +1602,9 @@ class FibsemOverviewWidget(QWidget):
         acquired = downsample_mask(source > 0, max_px)
         clim = _contrast_limits(raw, acquired)
         return _PlacedTile(
-            data=_as_colour_and_coverage(downsample(data, max_px), acquired, clim),
+            grey=downsample(data, max_px),
+            acquired=acquired,
+            clim=clim,
             position=deepcopy(self._position_of(image)),
             pixel_size=pixel_size,
             # From the shape *before* reduction: this is the ground the image images.
@@ -1564,7 +1633,6 @@ class FibsemOverviewWidget(QWidget):
 
     def _clear_preview(self) -> None:
         self.canvas.remove_image(PREVIEW_KEY)
-        self._tiles.pop(PREVIEW_KEY, None)
 
     def _place_finished_mosaic(self, mosaic: FibsemImage) -> None:
         """Swap the preview for the stitched overview the run actually produced."""
@@ -1605,7 +1673,6 @@ class FibsemOverviewWidget(QWidget):
             return False
         for key in record.keys:
             self.canvas.remove_image(key)
-            self._tiles.pop(key, None)
         self._refresh_context_overlays()
         self._refresh_overview_list()
         return True
