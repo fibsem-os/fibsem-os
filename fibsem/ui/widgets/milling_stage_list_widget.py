@@ -487,7 +487,7 @@ class MillingStageListWidget(QWidget):
         self._status_timer.setSingleShot(True)
         self._status_timer.timeout.connect(lambda: self._status_label.setVisible(False))
 
-        self._header.select_all_changed.connect(self._on_select_all)
+        self._header.select_all_changed.connect(self.set_all_selected)
         self._header.add_clicked.connect(self._on_add_stage)
         self._header.eye_toggled.connect(self.eye_toggled)
         self._list.reordered.connect(self._on_reordered)
@@ -573,6 +573,30 @@ class MillingStageListWidget(QWidget):
         self._list.clear()
         self._selected_stage = None
         self._update_empty_state()
+
+    def set_all_selected(self, checked: bool) -> None:
+        """Enable or disable every stage, and bring the header checkbox with them.
+
+        The `_sync_select_all()` is not redundant even though the header is the only
+        caller today. Unticking one row leaves the header tristate for good --
+        `_sync_select_all` never turns it back off -- and a user click on a tristate
+        box cycles through PartiallyChecked, which the header reports as
+        `bool(Qt.PartiallyChecked)`, i.e. True. So the third click ticks every row
+        while the header itself stays showing a dash. Syncing after the loop settles
+        it back onto the rows it just changed (FIB-577).
+
+        Public for the same reason as the AutoLamella lists: any caller that clears
+        the selection programmatically needs the header to follow, and reaching for
+        a private slot is how those lists acquired the bug in the first place.
+        """
+        for i in range(self._list.count()):
+            row = self._row(i)
+            row.checkbox.blockSignals(True)
+            row.checkbox.setChecked(checked)
+            row.checkbox.blockSignals(False)
+            row.stage.enabled = checked
+        self._sync_select_all()
+        self.enabled_changed.emit(self.get_enabled_stages())
 
     def set_pattern_column_visible(self, visible: bool) -> None:
         """Show or hide the Pattern column in the header and all rows."""
@@ -691,15 +715,6 @@ class MillingStageListWidget(QWidget):
     def _on_enabled_changed(self, stage: FibsemMillingStage, enabled: bool) -> None:
         stage.enabled = enabled
         self._sync_select_all()
-        self.enabled_changed.emit(self.get_enabled_stages())
-
-    def _on_select_all(self, checked: bool) -> None:
-        for i in range(self._list.count()):
-            row = self._row(i)
-            row.checkbox.blockSignals(True)
-            row.checkbox.setChecked(checked)
-            row.checkbox.blockSignals(False)
-            row.stage.enabled = checked
         self.enabled_changed.emit(self.get_enabled_stages())
 
     def _sync_select_all(self) -> None:
