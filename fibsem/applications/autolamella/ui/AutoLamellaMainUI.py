@@ -1010,6 +1010,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         initial_state = "supervised" if selected_tasks[0].supervise else "automated"
         self._set_border_state(initial_state)
+        # The run writes the experiment from its own thread. Land any edit still
+        # waiting in the editor first, so there is only ever one writer (FIB-683).
+        self.lamella_widget.flush_pending_save()
         ui._start_run_workflow_thread(task_names, lamella_names)
         # Show the Stop button immediately so the run is cancellable even while
         # waiting for a scheduled first task (before any task status arrives).
@@ -2343,6 +2346,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def closeEvent(self, event):
         """Clean up viewers on close."""
+        # The editor holds edits for a moment before writing them (FIB-683); this is
+        # the last chance to get the final one onto disk.
+        if getattr(self, "lamella_widget", None) is not None:
+            try:
+                self.lamella_widget.flush_pending_save()
+            except Exception as e:
+                logging.warning(f"Could not flush a pending experiment save on close: {e}")
         # persist the FM working state (channels / camera transform / objective)
         if self.autolamella_ui is not None and self.autolamella_ui.fm_control_widget is not None:
             try:

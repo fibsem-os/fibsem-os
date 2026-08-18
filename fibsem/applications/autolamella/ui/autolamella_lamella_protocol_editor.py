@@ -8,7 +8,7 @@ import os
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import numpy as np
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QComboBox,
     QDialog,
@@ -67,9 +67,16 @@ from fibsem.ui.tokens import (
 )
 
 if TYPE_CHECKING:
+    from fibsem.applications.autolamella.structures import Experiment
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
     from fibsem.correlation.structures import CorrelationResult
     from fibsem.imaging.spot import SpotBurnSettings
+
+# How long the editor waits for editing to settle before writing the experiment.
+# Long enough to swallow a run of field edits, short enough that the window a crash
+# could take an edit from stays small -- and every place where waiting longer would
+# actually risk one flushes explicitly instead (see `flush_pending_save`).
+_SAVE_DEBOUNCE_MS = 400
 
 # Reducer overlay ids on the FIB (ION) canvas
 POI_OVERLAY_ID = "poi"
@@ -97,6 +104,15 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self._active_task_name: Optional[str] = None
         self._selected_lamella: Optional[Lamella] = None
         self._overlay_wired = False  # subscribed to controller.overlay_edited
+
+        # Coalesces a burst of edits into one write -- see `_save_experiment`. Built
+        # before the microscope check below, because edits are not the only thing that
+        # reaches `flush_pending_save`: the window calls it on close, and an editor
+        # that never saw a microscope must still answer that rather than raise.
+        self._pending_save_experiment: Optional["Experiment"] = None
+        self._save_timer = QTimer(self)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.timeout.connect(self.flush_pending_save)
 
         if self.parent_widget.microscope is None:
             return
@@ -135,6 +151,11 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
     def set_experiment(self):
         """Set the experiment for the protocol editor."""
+        # The parent has already swapped `.experiment` by the time this runs, so this
+        # is the last moment the previous one's pending edit can be written. It is
+        # written to the right file because the pending write carries its own
+        # experiment rather than looking one up -- see `_save_experiment`.
+        self.flush_pending_save()
         self._refresh_experiment_positions()
 
     def set_active_lamella_name(
@@ -409,6 +430,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
     def _on_selected_lamella_changed(self):
         """Callback when the selected lamella changes."""
+        # Whatever is pending belongs to the lamella being left behind.
+        self.flush_pending_save()
         selected_lamella = self._selected_lamella
         if selected_lamella is None:
             return
@@ -624,6 +647,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
     def _on_selected_task_changed(self):
         """Callback when the selected milling stage changes."""
+        self.flush_pending_save()
         selected_stage_name = self.listWidget_selected_task.selected_task
         if not selected_stage_name:
             return
@@ -1157,6 +1181,49 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self._save_experiment()
 
     def _save_experiment(self):
-        """Save the experiment."""
-        if self.parent_widget is not None and self.parent_widget.experiment is not None:
-            self.parent_widget.experiment.save(save_protocol=True)
+        """Persist the edit, coalescing a burst of them into one write.
+
+        `Experiment.save()` serialises the whole experiment -- 0.84 s at 100 lamella,
+        on the GUI thread -- and every committed field in this editor called it. Editing
+        a task means several fields in a row, and each paid the full price (FIB-683).
+
+        Only *when* the write happens moves; what is written does not. The handlers
+        above have already applied the edit to the lamella, so a flush at any later
+        point writes the complete current state -- there is no snapshot to get stale,
+        and no ordering between edits to preserve.
+
+        `save_protocol=True` is gone with it: a lamella's task config lives in
+        `experiment.yaml`, so that flag rewrote `protocol.yaml` on every parameter
+        change without it having changed. The protocol's own editors still save it
+        explicitly.
+        """
+        experiment = (
+            self.parent_widget.experiment if self.parent_widget is not None else None
+        )
+        if experiment is None:
+            return
+        # Held rather than re-read at flush time, so a write scheduled against one
+        # experiment cannot land on whichever one is loaded when the timer fires. That
+        # is not hypothetical: `set_experiment` runs *after* the parent has swapped
+        # `.experiment`, so a flush that looked it up again would save the new
+        # experiment and drop the old one's last edits on the floor.
+        self._pending_save_experiment = experiment
+        self._save_timer.start(_SAVE_DEBOUNCE_MS)
+
+    def hideEvent(self, event) -> None:
+        """Flush when the panel goes away -- a tab switch, or the window closing."""
+        self.flush_pending_save()
+        super().hideEvent(event)
+
+    def flush_pending_save(self) -> None:
+        """Write a coalesced edit now, if one is waiting. Safe to call at any time.
+
+        Called wherever waiting any longer would risk the edit: the editor moving to
+        another lamella or task, the experiment being swapped, a workflow starting, the
+        panel being hidden, and the window closing. Cheap and idempotent when nothing
+        is pending, so callers do not have to know whether there is.
+        """
+        self._save_timer.stop()
+        experiment, self._pending_save_experiment = self._pending_save_experiment, None
+        if experiment is not None:
+            experiment.save()
