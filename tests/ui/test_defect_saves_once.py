@@ -128,7 +128,7 @@ class TestTheWindowStillSaves:
             (AutoLamellaUI, ["self", "lamella_list", "defect_changed"]),
             (AutoLamellaMainUI, ["self", "autolamella_ui", "lamella_list", "defect_changed"]),
         ):
-            tree = ast.parse(Path(module.__file__).read_text())
+            tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
             for node in ast.walk(tree):
                 if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
                     continue

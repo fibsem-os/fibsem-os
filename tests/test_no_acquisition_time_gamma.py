@@ -67,7 +67,7 @@ def test_a_stored_configuration_carrying_the_old_flag_still_loads(value: bool) -
 def test_images_written_before_v7_still_load() -> None:
     """The fixtures are real instrument output and all carry the key."""
     for fixture in FIXTURE_DIR.glob("*.json"):
-        raw = json.loads(fixture.read_text())
+        raw = json.loads(fixture.read_text(encoding="utf-8"))
         assert "autogamma" in raw["image"], f"{fixture.name} should predate v7"
 
         metadata = FibsemImageMetadata.from_dict(raw)
@@ -79,7 +79,7 @@ def test_images_written_before_v7_still_load() -> None:
 def test_no_shipped_configuration_still_declares_it() -> None:
     """Leaving the key in would advertise a setting that does nothing."""
     declaring = [
-        path.name for path in CONFIG_DIR.glob("*.yaml") if "autogamma" in path.read_text()
+        path.name for path in CONFIG_DIR.glob("*.yaml") if "autogamma" in path.read_text(encoding="utf-8")
     ]
 
     assert declaring == []

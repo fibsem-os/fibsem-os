@@ -287,7 +287,7 @@ class TestTheRealDriverMatches:
 
         import fibsem.fm as fm_package
 
-        return (Path(fm_package.__file__).parent / "autoscript.py").read_text()
+        return (Path(fm_package.__file__).parent / "autoscript.py").read_text(encoding="utf-8")
 
     @staticmethod
     def _functions(source: str):

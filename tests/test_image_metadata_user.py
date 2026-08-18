@@ -5,6 +5,7 @@ worse than producing nothing: a reader cannot tell a real user from a placeholde
 """
 
 import getpass
+import sys
 
 import numpy as np
 import pytest
@@ -20,8 +21,19 @@ from fibsem.structures import (
 
 def test_from_environment_records_the_real_username(monkeypatch) -> None:
     """USERNAME is Windows-only, so reading it directly left Linux and macOS with
-    the literal string "username" -- including every Odemis/METEOR site. FIB-447."""
-    monkeypatch.delenv("USERNAME", raising=False)
+    the literal string "username" -- including every Odemis/METEOR site. FIB-447.
+
+    Removing USERNAME is the trap that catches that, and it can only be set where
+    `getpass` has somewhere else to look. On POSIX it falls back to `pwd`, so the
+    name still resolves and any code reading the variable directly is caught. On
+    Windows USERNAME is getpass's *only* source -- there is no `pwd` module -- so
+    removing it makes `getpass.getuser()` itself raise `OSError`, breaking the
+    reference the assertion compares against rather than the code under test.
+    The weaker check still holds there: `from_environment` must agree with
+    `getpass`, whatever `getpass` says.
+    """
+    if sys.platform != "win32":
+        monkeypatch.delenv("USERNAME", raising=False)
 
     user = FibsemUser.from_environment()
 

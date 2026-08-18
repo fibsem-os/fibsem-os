@@ -88,7 +88,7 @@ def test_spot_imports_the_microscope_for_typing_only():
     module has `from __future__ import annotations` -- so it never needs the real
     object at runtime.
     """
-    source = (Path(fibsem.__file__).parent / "imaging" / "spot.py").read_text()
+    source = (Path(fibsem.__file__).parent / "imaging" / "spot.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
 
     module_level = {

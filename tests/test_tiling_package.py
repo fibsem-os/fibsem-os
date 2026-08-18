@@ -40,7 +40,7 @@ FORBIDDEN_PREFIXES = ("fibsem.microscope", "fibsem.ui", "napari")
 
 def _declared_imports(relative_path: str) -> set:
     """Every module named by an import statement anywhere in the file."""
-    source = (FIBSEM_ROOT / relative_path).read_text()
+    source = (FIBSEM_ROOT / relative_path).read_text(encoding="utf-8")
     names = set()
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.ImportFrom) and node.module:
@@ -57,7 +57,7 @@ def _module_level_imports(relative_path: str) -> set:
     optional dependency to the one function that needs it is the pattern being
     protected here, not a violation of it.
     """
-    source = (FIBSEM_ROOT / relative_path).read_text()
+    source = (FIBSEM_ROOT / relative_path).read_text(encoding="utf-8")
     names = set()
     for node in ast.parse(source).body:
         if isinstance(node, ast.ImportFrom) and node.module:

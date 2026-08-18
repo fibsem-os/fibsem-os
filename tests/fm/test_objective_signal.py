@@ -170,7 +170,7 @@ class TestEveryDriverAnnounces:
         """Every `ObjectiveLens` implementation, by qualified name."""
         found = {}
         for module in ("fm/microscope.py", "fm/autoscript.py", "fm/odemis.py"):
-            source = (Path(fibsem.__file__).parent / module).read_text()
+            source = (Path(fibsem.__file__).parent / module).read_text(encoding="utf-8")
             for node in ast.walk(ast.parse(source)):
                 if isinstance(node, ast.ClassDef) and "Objective" in node.name:
                     found[f"{module}:{node.name}"] = node
@@ -232,7 +232,7 @@ class TestTheGuardsStillReadTheDevice:
 
     @staticmethod
     def _method(class_name: str, method_name: str) -> ast.FunctionDef:
-        source = (Path(fibsem.__file__).parent / "microscope.py").read_text()
+        source = (Path(fibsem.__file__).parent / "microscope.py").read_text(encoding="utf-8")
         cls = next(
             node
             for node in ast.walk(ast.parse(source))

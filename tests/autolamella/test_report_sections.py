@@ -37,20 +37,20 @@ _WIDGET = _FIBSEM / "applications" / "autolamella" / "ui" / "autolamella_generat
 
 def _report_sections() -> set:
     """The section names generate_report2 builds its defaults from."""
-    block = _REPORTING.read_text().split("REPORT_SECTIONS = (", 1)[1].split(")", 1)[0]
+    block = _REPORTING.read_text(encoding="utf-8").split("REPORT_SECTIONS = (", 1)[1].split(")", 1)[0]
     return set(re.findall(r'"(\w+)"', block))
 
 
 def _widget_section_keys() -> set:
     """The section keys the report dialog emits."""
-    src = _WIDGET.read_text()
+    src = _WIDGET.read_text(encoding="utf-8")
     block = src.split("def _get_sections_config", 1)[1].split("def ", 1)[0]
     return set(re.findall(r'"(\w+)":\s*self\.checkbox', block))
 
 
 def _workflow_rename_keys() -> set:
     """The columns format_pretty_dataframes renames on the workflow frame."""
-    block = _DATA.read_text().split("# WORKFLOW", 1)[1].split("# TASK HISTORY", 1)[0]
+    block = _DATA.read_text(encoding="utf-8").split("# WORKFLOW", 1)[1].split("# TASK HISTORY", 1)[0]
     return set(re.findall(r'"(\w+)":\s*"', block))
 
 

@@ -231,7 +231,7 @@ def test_adopting_a_state_without_a_result_discards_the_old_one(qapp, tmp_path):
     w._adopt_state(CorrelationState(input_data=_inputs(x=5.0), result=None))
     assert w._result is None
 
-    saved = json.loads((tmp_path / "correlation.json").read_text())
+    saved = json.loads((tmp_path / "correlation.json").read_text(encoding="utf-8"))
     assert saved["result"] is None  # not re-saved against the new coordinates
 
 
