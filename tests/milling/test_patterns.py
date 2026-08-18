@@ -17,6 +17,7 @@ from fibsem.milling.patterning.patterns2 import (
     ArrayPattern,
     CloverPattern,
     FiducialPattern,
+    RulerPattern,
 )
 from fibsem.milling.patterning import (
     MILLING_PATTERNS,
@@ -837,6 +838,86 @@ class TestFiducialPattern:
         assert fiducial.cross_section == CrossSectionPattern.Rectangle
         assert fiducial.point.x == 0.0
         assert fiducial.point.y == 0.0
+
+
+class TestRulerPattern:
+    """A graduated scale milled into the front face and read in fluorescence.
+
+    The geometry that matters is not the notch shape -- it is where the ruler
+    anchors. `point` is the origin, the left end of the first notch, because that
+    is the thing lined up with the surface edge; if it drifted as the tick count or
+    lengths changed, "three notches down" would stop converting into a depth.
+    """
+
+    def test_init(self):
+        ruler = RulerPattern()
+
+        assert ruler.name == "Ruler"
+        assert ruler.major_every == 5
+        assert ruler.shapes is None
+
+    def test_the_first_notch_starts_at_the_origin(self):
+        """The anchor. Tick 0's left end is `point` itself, not its centre."""
+        ruler = RulerPattern(point=Point(5.0, 15.0), tick_length=2.0, major_every=0)
+
+        first = ruler.define()[0]
+
+        assert first.centre_x - first.width / 2 == 5.0
+        assert first.centre_y == 15.0
+
+    def test_notches_run_downwards_at_the_given_pitch(self):
+        """Downwards: the ruler measures depth below the surface, and +y is up."""
+        ruler = RulerPattern(point=Point(0.0, 0.0), n_ticks=4, pitch=3.0)
+
+        ys = [s.centre_y for s in ruler.define()]
+
+        assert ys == [0.0, -3.0, -6.0, -9.0]
+
+    def test_every_notch_is_left_aligned(self):
+        """One-sided: major notches are longer, but they grow to the right."""
+        ruler = RulerPattern(point=Point(7.0, 0.0), n_ticks=6, tick_length=2.0,
+                             major_length=5.0, major_every=3)
+
+        lefts = {s.centre_x - s.width / 2 for s in ruler.define()}
+
+        assert lefts == {7.0}
+
+    def test_major_notches_land_every_nth(self):
+        ruler = RulerPattern(n_ticks=7, tick_length=2.0, major_length=5.0, major_every=3)
+
+        lengths = [s.width for s in ruler.define()]
+
+        assert lengths == [5.0, 2.0, 2.0, 5.0, 2.0, 2.0, 5.0]
+
+    def test_major_every_zero_is_a_uniform_comb(self):
+        """The escape hatch, in case the real ruler turns out not to be graduated."""
+        ruler = RulerPattern(n_ticks=6, tick_length=2.0, major_length=5.0, major_every=0)
+
+        assert {s.width for s in ruler.define()} == {2.0}
+
+    def test_notch_count_and_shape(self):
+        ruler = RulerPattern(n_ticks=12, tick_thickness=0.4, depth=1.5)
+
+        shapes = ruler.define()
+
+        assert len(shapes) == 12
+        for shape in shapes:
+            assert isinstance(shape, FibsemRectangleSettings)
+            assert shape.height == 0.4
+            assert shape.depth == 1.5
+
+    def test_round_trip_through_a_protocol(self):
+        ruler = RulerPattern(point=Point(1.0, 2.0), n_ticks=9, pitch=3.0,
+                             tick_length=2.0, major_length=6.0, major_every=4,
+                             tick_thickness=0.4, depth=1.5)
+
+        restored = RulerPattern.from_dict(ruler.to_dict())
+
+        assert restored.to_dict() == ruler.to_dict()
+        assert restored == ruler
+
+    def test_it_is_registered(self):
+        assert get_pattern("Ruler") is not None
 
 
 class TestGetPattern:
