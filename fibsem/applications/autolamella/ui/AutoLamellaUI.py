@@ -315,7 +315,12 @@ class AutoLamellaUI(QMainWindow):
         self.lamella_list.remove_requested.connect(self._on_lamella_remove_requested)
         self.lamella_list.move_to_requested.connect(self._on_lamella_move_to_requested)
         self.lamella_list.update_requested.connect(self._on_lamella_update_requested)
-        self.lamella_list.defect_changed.connect(self._on_lamella_defect_changed)
+        # `defect_changed` is deliberately not wired here. The window this widget sits
+        # in connects the same signal to its own handler, which saves *and* redraws the
+        # rows, the cards and the name list -- so a second handler here only bought a
+        # second full `experiment.save()` for one toggled icon, which is 0.8 s of frozen
+        # GUI at 100 lamella (FIB-682). Every other host of this list keeps its own
+        # handler, because nothing else is listening for them (FIB-564).
         self.lamella_list.lamella_selected.connect(self.update_lamella_ui)
 
         # system widget
@@ -1317,13 +1322,6 @@ class AutoLamellaUI(QMainWindow):
         """Handle update-position request from the list row's actions menu."""
         self.lamella_list.select(lamella.name)
         self.update_lamella_position_ui()
-
-    def _on_lamella_defect_changed(self, lamella):
-        """Persist defect state change to disk."""
-        if self.experiment is None:
-            return
-        self.experiment.save()
-        self.update_ui()
 
     def _on_lamella_remove_requested(self, lamella):
         """Handle removal of a lamella via the list row's remove button.
