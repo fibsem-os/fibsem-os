@@ -313,7 +313,6 @@ BORDER_STATE_COLOURS = {
     "automated": OK_COLOR,
     "supervised": PRIMARY_COLOR,
     "waiting": ORANGE_COLOR,
-    "finished": OK_COLOR,
     "stopped": SEMANTIC_ERROR_COLOR,
     "agent": "#BF00FF",
 }
