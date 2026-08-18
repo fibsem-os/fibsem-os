@@ -10,7 +10,7 @@ import logging
 from typing import List, Optional, Tuple, Union
 
 from fibsem.fm.structures import ChannelSettings, ZParameters, ZStackOrder
-from fibsem.fm.structures import AutoFocusMode
+from fibsem.fm.structures import AutoFocusMode, AutoFocusSettings
 
 # Timing constants for acquisition operations
 DEFAULT_OVERHEAD_PER_IMAGE = 0.5  # seconds - camera readout, processing overhead
@@ -68,6 +68,55 @@ def calculate_total_images_count(
         num_z_planes = zparams.num_planes
 
     return num_channels * num_z_planes
+
+
+def estimate_autofocus_time(
+    autofocus_settings: "AutoFocusSettings",
+    channel_settings: Union[ChannelSettings, List[ChannelSettings]],
+) -> float:
+    """Estimate an image-based autofocus sweep from the passes it will actually run.
+
+    Each enabled pass sweeps ``search_range`` in ``step_size`` increments, taking one
+    image per step -- ``FocusSweepPass.n_steps`` is exactly that count -- so the sweep
+    is arithmetic rather than a constant. With the default coarse/fine pair (50 um at
+    5 um, then 10 um at 1 um) that is around twenty images, several times the 5 s
+    ``DEFAULT_AUTOFOCUS_TIME`` assumes.
+
+    The channel is resolved the way the acquisition path resolves it: by name when
+    ``channel_name`` is set, otherwise the first channel.
+
+    ``DEFAULT_AUTOFOCUS_TIME`` is still used by the tileset estimators below, which
+    are handed an autofocus *mode* rather than the settings and so cannot count steps.
+
+    Args:
+        autofocus_settings: the sweep to estimate
+        channel_settings: the channels available to focus on
+
+    Returns:
+        float: estimated autofocus time in seconds, 0.0 if no pass is enabled
+    """
+    if autofocus_settings is None or not autofocus_settings.enabled:
+        return 0.0
+    if not isinstance(channel_settings, list):
+        channel_settings = [channel_settings]
+    if not channel_settings:
+        return 0.0
+
+    channel = None
+    if autofocus_settings.channel_name:
+        channel = next(
+            (c for c in channel_settings if c.name == autofocus_settings.channel_name), None
+        )
+    if channel is None:
+        channel = channel_settings[0]
+
+    n_images = sum(p.n_steps for p in autofocus_settings.passes if p.enabled)
+    # one objective move between consecutive steps, as in the z-stack above
+    n_moves = max(n_images - 1, 0)
+    return (
+        n_images * (channel.exposure_time + DEFAULT_OVERHEAD_PER_IMAGE)
+        + n_moves * DEFAULT_Z_MOVE_TIME
+    )
 
 
 def estimate_acquisition_time(

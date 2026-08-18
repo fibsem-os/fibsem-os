@@ -15,8 +15,8 @@ from fibsem.applications.autolamella.workflows.tasks.fiducial import MillFiducia
 from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )
-from fibsem.fm.structures import ChannelSettings
-from fibsem.fm.timing import estimate_acquisition_time
+from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, FocusSweepPass
+from fibsem.fm.timing import estimate_acquisition_time, estimate_autofocus_time
 from fibsem.structures import Point
 
 
@@ -76,13 +76,18 @@ def _channel(exposure: float) -> ChannelSettings:
 
 
 def test_fluorescence_adds_the_channel_acquisition():
+    """Adding channels adds both the acquisition and the autofocus sweep -- with no
+    channel there is nothing to focus on, so the sweep costs nothing."""
     cfg = AcquireFluorescenceImageConfig()
     baseline = cfg.estimated_duration
+    assert estimate_autofocus_time(cfg.autofocus_settings, []) == 0.0
 
     cfg.channel_settings = [_channel(0.5), _channel(0.2)]
 
     assert cfg.estimated_duration == pytest.approx(
-        baseline + estimate_acquisition_time(cfg.channel_settings, cfg.zparams)
+        baseline
+        + estimate_acquisition_time(cfg.channel_settings, cfg.zparams)
+        + estimate_autofocus_time(cfg.autofocus_settings, cfg.channel_settings)
     )
 
 
@@ -90,6 +95,89 @@ def test_fluorescence_scales_with_channel_count():
     one = AcquireFluorescenceImageConfig(channel_settings=[_channel(0.5)])
     two = AcquireFluorescenceImageConfig(channel_settings=[_channel(0.5), _channel(0.5)])
     assert two.estimated_duration > one.estimated_duration
+
+
+def test_fluorescence_counts_the_move_and_the_objective():
+    """_run moves the stage and drives the objective before it acquires anything."""
+    cfg = AcquireFluorescenceImageConfig(channel_settings=[_channel(0.5)])
+    cfg.autofocus_settings = AutoFocusSettings(passes=[FocusSweepPass(enabled=False)])
+    cfg.retract_objective = False
+
+    expected = (
+        2 * timing.reference_image_cost(cfg.reference_imaging)
+        + timing.stage_move_cost(1)
+        + timing.OBJECTIVE_INSERT_S
+        + timing.OBJECTIVE_FOCUS_MOVE_S
+        + estimate_acquisition_time(cfg.channel_settings, cfg.zparams)
+    )
+    assert cfg.estimated_duration == pytest.approx(expected)
+
+
+def test_retracting_the_objective_costs_a_second_move():
+    kept = AcquireFluorescenceImageConfig(retract_objective=False)
+    retracted = AcquireFluorescenceImageConfig(retract_objective=True)
+    assert retracted.estimated_duration - kept.estimated_duration == pytest.approx(
+        timing.OBJECTIVE_RETRACT_S
+    )
+
+
+def test_autofocus_is_counted_only_when_a_pass_is_enabled():
+    channels = [_channel(0.5)]
+    off = AcquireFluorescenceImageConfig(
+        channel_settings=channels,
+        autofocus_settings=AutoFocusSettings(passes=[FocusSweepPass(enabled=False)]),
+    )
+    on = AcquireFluorescenceImageConfig(
+        channel_settings=channels,
+        autofocus_settings=AutoFocusSettings(passes=[FocusSweepPass(enabled=True)]),
+    )
+    assert on.estimated_duration > off.estimated_duration
+
+
+# ── the autofocus sweep is counted, not assumed ──────────────────────────────
+
+def test_autofocus_estimate_scales_with_the_steps_it_will_take():
+    """The sweep is arithmetic: one image per step, and n_steps comes off the pass."""
+    channels = [_channel(0.5)]
+    coarse = AutoFocusSettings(passes=[FocusSweepPass(search_range=50e-6, step_size=5e-6)])
+    fine = AutoFocusSettings(passes=[FocusSweepPass(search_range=50e-6, step_size=1e-6)])
+    assert estimate_autofocus_time(fine, channels) > estimate_autofocus_time(coarse, channels)
+
+
+def test_autofocus_estimate_ignores_disabled_passes():
+    channels = [_channel(0.5)]
+    both = AutoFocusSettings(
+        passes=[FocusSweepPass(enabled=True), FocusSweepPass(enabled=True)]
+    )
+    one = AutoFocusSettings(
+        passes=[FocusSweepPass(enabled=True), FocusSweepPass(enabled=False)]
+    )
+    assert estimate_autofocus_time(one, channels) < estimate_autofocus_time(both, channels)
+
+
+def test_autofocus_estimate_is_zero_when_every_pass_is_off():
+    settings = AutoFocusSettings(passes=[FocusSweepPass(enabled=False)])
+    assert estimate_autofocus_time(settings, [_channel(0.5)]) == 0.0
+
+
+def test_autofocus_estimate_needs_a_channel_to_focus_on():
+    settings = AutoFocusSettings(passes=[FocusSweepPass(enabled=True)])
+    assert estimate_autofocus_time(settings, []) == 0.0
+
+
+def test_autofocus_estimate_uses_the_named_channel():
+    """Resolved the way the acquisition path resolves it, so a slow focus channel is
+    not costed as though it were the fast one listed first."""
+    fast, slow = _channel(0.01), _channel(1.0)
+    slow.name = "slow"
+    settings = AutoFocusSettings(
+        passes=[FocusSweepPass(enabled=True)], channel_name="slow"
+    )
+    named = estimate_autofocus_time(settings, [fast, slow])
+    defaulted = estimate_autofocus_time(
+        AutoFocusSettings(passes=[FocusSweepPass(enabled=True)]), [fast, slow]
+    )
+    assert named > defaulted
 
 
 # ── every task answers ───────────────────────────────────────────────────────

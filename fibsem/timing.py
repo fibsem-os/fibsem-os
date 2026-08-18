@@ -45,10 +45,27 @@ IMAGE_OVERHEAD_S = 2.0
 STAGE_MOVE_ABSOLUTE_S = 8.0
 STAGE_MOVE_RELATIVE_S = 6.5
 
-# Not measured yet, and deliberately not invented here: autofocus, beam/current
-# switching, and the per-task setup either side of the operations above. Tasks that
-# need them should say so rather than have this module guess -- fm/timing.py's
-# DEFAULT_AUTOFOCUS_TIME = 5.0 is an assumption of exactly that kind.
+# Objective insert and retract. Opaque operations -- insert()/retract() are single API
+# calls into the vendor connection, with no distance or speed to reason from -- but they
+# bracket themselves in the log ("Inserting objective..." / "Objective inserted."), so
+# they are timeable after all.
+# Insert:  n=4, 18.32 / 18.32 / 18.35 / 18.38 s -- the same figure from the UI worker
+#          and from inside the fluorescence task, spread under 60 ms.
+# Retract: n=2, 19.53 / 19.57 s.
+# Retraction is consistently the slower of the two, so they are separate constants
+# rather than one shared value.
+OBJECTIVE_INSERT_S = 18.5
+OBJECTIVE_RETRACT_S = 19.6
+
+# Driving the objective to a focus position, after insertion. n=3, 4.06 / 4.17 / 4.17 s.
+# Distance-independent as far as this sample shows, so a flat cost rather than a rate.
+OBJECTIVE_FOCUS_MOVE_S = 4.3
+
+# Still not counted, and deliberately not invented here: beam/current switching, and
+# the per-task setup either side of the operations above. Tasks that need them should
+# say so rather than have this module guess. Autofocus is no longer on this list --
+# fm/timing.estimate_autofocus_time counts the sweep's steps instead of assuming a
+# duration, which is what DEFAULT_AUTOFOCUS_TIME = 5.0 was doing.
 
 
 def image_cost(settings: Optional[ImageSettings], count: int = 1) -> float:

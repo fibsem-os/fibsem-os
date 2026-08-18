@@ -19,7 +19,8 @@ from fibsem.applications.autolamella.workflows.ui import (
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, ZParameters
 from fibsem.fm.calibration import run_coarse_fine_autofocus, AutoFocusResult
-from fibsem.fm.timing import estimate_acquisition_time
+from fibsem.fm.timing import estimate_acquisition_time, estimate_autofocus_time
+from fibsem import timing
 from fibsem.structures import field_meta
 
 
@@ -71,18 +72,25 @@ class AcquireFluorescenceImageConfig(AutoLamellaTaskConfig):
 
     @property
     def estimated_duration(self) -> float:
-        """The base estimate plus the fluorescence acquisition itself.
+        """The base estimate plus everything ``_run`` does, in the order it does it.
 
-        Delegates to the FM timing module, which already models channels, z-planes
-        and their ordering. Without it the inherited estimate saw only the reference
-        images and came out at 0.13x of the measured duration.
+        The acquisition and the autofocus sweep both delegate to the FM timing module,
+        which models channels, z-planes and sweep steps from the settings themselves.
+        The objective costs are measured -- see :mod:`fibsem.timing`.
 
-        The objective insert/retract either side is not counted: it is not measured,
-        and guessing it is how fm/timing.py acquired its unmeasured constants.
+        The optional steps are counted only when they are switched on. Insertion is the
+        exception: whether the objective already happens to be inserted is runtime state
+        the config cannot see, so it is always counted, which errs long.
         """
-        return super().estimated_duration + estimate_acquisition_time(
-            self.channel_settings, self.zparams
-        )
+        total = super().estimated_duration
+        total += timing.stage_move_cost(1)                 # move to the lamella
+        total += timing.OBJECTIVE_INSERT_S
+        total += timing.OBJECTIVE_FOCUS_MOVE_S
+        total += estimate_autofocus_time(self.autofocus_settings, self.channel_settings)
+        total += estimate_acquisition_time(self.channel_settings, self.zparams)
+        if self.retract_objective:
+            total += timing.OBJECTIVE_RETRACT_S
+        return total
 
 
 class AcquireFluorescenceImageTask(AutoLamellaTask):
