@@ -1027,16 +1027,23 @@ def test_the_stage_and_grid_limits_are_drawn_in_the_canvas_frame(qapp, overview_
     reference = widget.canvas.canvas.reference_pixel_size
     limits = widget.microscope._stage.limits
 
-    stage = by_label["Stage limits"]
+    stage = by_label["Stage Limits"]
     assert stage.width == pytest.approx((limits["x"].max - limits["x"].min) / reference)
     assert stage.height == pytest.approx((limits["y"].max - limits["y"].min) / reference)
 
     from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
         GRID_BOUNDARY_RADIUS_M,
     )
-    assert by_label["Grid boundary"].radius == pytest.approx(
-        GRID_BOUNDARY_RADIUS_M / reference
-    )
+    # An ellipse of the full diameter per axis, not a circle of one radius (FIB-698).
+    # A circle on the sample is a circle on screen only where the view looks down the
+    # surface normal, which the fluorescence pose does and the milling pose does not --
+    # so the shape is chosen by the geometry rather than by which tab drew it. Equal
+    # here because this pose is normal to the surface; the beam tab's milling view is
+    # where they part.
+    boundary = by_label["Grid Boundary"]
+    assert boundary.kind == "ellipse"
+    assert boundary.width == pytest.approx(2 * GRID_BOUNDARY_RADIUS_M / reference)
+    assert boundary.height == pytest.approx(boundary.width)
 
     assert widget.stage_overlay._artists, "specs were built but nothing was drawn"
 
@@ -1052,8 +1059,8 @@ def test_stage_metadata_does_not_wait_for_an_image(qapp, overview_widget):
     widget._refresh_stage_metadata()
 
     labels = [spec.label for spec in widget.stage_overlay._specs]
-    assert "Stage limits" in labels
-    assert "Grid boundary" in labels
+    assert "Stage Limits" in labels
+    assert "Grid Boundary" in labels
 
 
 def test_stage_metadata_is_dropped_when_the_geometry_is_unknown(qapp, overview_widget):
