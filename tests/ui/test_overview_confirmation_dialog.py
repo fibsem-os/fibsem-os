@@ -103,9 +103,15 @@ class TestWhereTheRunWillHappen:
 
 class TestWhatWillBeAcquired:
     def test_the_meta_line_carries_the_grid_and_what_it_covers(self, dialog):
+        """1400, not 1500: three 500 um tiles at the default 10% overlap step by 450,
+        so the grid spans 2.8 tiles rather than 3.
+
+        The default was 0% until FIB-696, which is why it read 1500 before. Overlap is
+        what makes a mosaic stitchable, and the two tabs now agree on it."""
         line = dialog(settings=_settings())._meta_line()
         assert "3 × 3 grid" in line
-        assert "1500 × 1500" in line
+        assert "10% overlap" in line
+        assert "1400 × 1400" in line
         assert "typewriter order" in line
 
     def test_a_masked_run_counts_only_what_it_will_acquire(self, dialog):

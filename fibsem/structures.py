@@ -915,7 +915,10 @@ class OverviewAcquisitionSettings:
         image_settings: Per-tile image settings (hfw = tile FOV, beam_type, resolution, etc.)
         nrows: Number of tile rows in the grid.
         ncols: Number of tile columns in the grid.
-        overlap: Fractional overlap between adjacent tiles (0.0 = no overlap). Not yet supported.
+        overlap: Fractional overlap between adjacent tiles (0.0 = no overlap).
+            Honoured by `TiledAcquisitionRunner` and by the shared geometry core,
+            which step by `fov * (1 - overlap)`; the docstring said otherwise long
+            after it stopped being true.
         tile_mask: Optional per-tile enable mask, `tile_mask[row][col]`. None acquires
             every tile. Disabled tiles are skipped but keep their place: the mosaic is
             still the full grid size and acquired tiles land at the same canvas
@@ -925,7 +928,7 @@ class OverviewAcquisitionSettings:
     image_settings: ImageSettings = field(default_factory=ImageSettings)
     nrows: int = 3
     ncols: int = 3
-    overlap: float = 0.0
+    overlap: float = 0.1
     focus_stack_settings: FocusStackSettings = field(default_factory=FocusStackSettings)
     autofocus_settings: AutoFocusSettings = field(default_factory=AutoFocusSettings)
     tile_order: TileOrderStrategy = TileOrderStrategy.TYPEWRITER
@@ -996,7 +999,7 @@ class OverviewAcquisitionSettings:
             image_settings=ImageSettings.from_dict(d.get("image_settings", {})),
             nrows=d.get("nrows", 3),
             ncols=d.get("ncols", 3),
-            overlap=d.get("overlap", 0.0),
+            overlap=d.get("overlap", 0.1),
             focus_stack_settings=fss,
             autofocus_settings=AutoFocusSettings.from_dict(d.get("autofocus_settings", {})),
             tile_order=TileOrderStrategy(d.get("tile_order", TileOrderStrategy.TYPEWRITER.value)),
