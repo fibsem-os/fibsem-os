@@ -19,6 +19,7 @@ from fibsem.milling.patterning.patterns2 import (
     BasePattern,
     FiducialPattern,
 )
+from fibsem.conversions import get_image_pixel_centre
 from fibsem.structures import (
     FibsemBitmapSettings,
     FibsemCircleSettings,
@@ -57,12 +58,6 @@ IGNORE_SHAPES_LAYERS = ["ruler_line", "crosshair", "scalebar", "label", "overlay
 STAGE_POSTIION_SHAPE_LAYERS = ["saved-stage-positions", "current-stage-position", "stage-position"] # for minimap
 IGNORE_SHAPES_LAYERS.extend(STAGE_POSTIION_SHAPE_LAYERS)
 CURRENT_PATTERN_LAYERS: Set[str] = set()
-
-def get_image_pixel_centre(shape: Tuple[int, int]) -> Tuple[int, int]:
-    """Get the centre of the image in pixel coordinates."""
-    icy, icx = shape[0] // 2, shape[1] // 2
-    return icy, icx
-
 
 def create_affine_matrix(
     scale: Tuple[float, float] = (1, 1),

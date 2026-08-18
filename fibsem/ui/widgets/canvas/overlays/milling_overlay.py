@@ -33,12 +33,12 @@ from fibsem.structures import (
     FibsemPolygonSettings,
     FibsemRectangleSettings,
 )
+from fibsem.conversions import get_image_pixel_centre
 from fibsem.ui.napari.patterns import (
     COLOURS,
     convert_pattern_to_napari_line,
     convert_pattern_to_napari_polygon,
     convert_pattern_to_napari_rect,
-    get_image_pixel_centre,
 )
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 
