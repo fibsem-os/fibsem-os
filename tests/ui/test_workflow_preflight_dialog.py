@@ -29,12 +29,18 @@ from PyQt5.QtWidgets import QApplication, QLabel, QToolButton  # noqa: E402
 from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (  # noqa: E402
     WorkflowPreflightDialog,
 )
+from fibsem.ui.stylesheets import NAPARI_STYLE  # noqa: E402
 from fibsem.applications.autolamella.workflows.workflow_estimate import (  # noqa: E402
     TaskEstimate,
     WorkflowEstimate,
 )
 
 _app = QApplication.instance() or QApplication(sys.argv)
+# The app stylesheet, because without it these tests are run under conditions the user
+# never sees. Its bare `QWidget { background-color: ... }` rule reaches every descendant
+# and paints the surface colour behind any label that has not declared itself
+# transparent -- a lighter block around every word, invisible offscreen without it.
+_app.setStyleSheet(NAPARI_STYLE)
 
 NOW = datetime(2026, 8, 18, 14, 0, 0)
 
@@ -306,3 +312,48 @@ def test_the_lamella_button_is_not_a_raised_control(dialog):
     as a button beside the flat chips it sits next to."""
     d = dialog(_estimate())
     assert "background: transparent" in d.findChild(QToolButton).styleSheet()
+
+
+def test_everything_on_a_panel_declares_itself_transparent(dialog):
+    """Regression, and only visible with the app stylesheet loaded: NAPARI_STYLE sets
+    `QWidget { background-color: SURFACE_COLOR }` for every widget, so a label that
+    only sets `color` paints the surface colour onto the darker panel behind it.
+
+    The panels are scoped by object name and therefore no longer shadow that rule for
+    their children, which makes each child's own declaration the only thing standing
+    between the design and a lighter block around every word.
+    """
+    from PyQt5.QtWidgets import QFrame
+
+    tasks = [TaskEstimate("Polishing", 2, 785.0, supervised=True)]
+    d = dialog(_estimate(tasks=tasks))
+
+    def sits_directly_on(panel, label) -> bool:
+        """Whether the panel is the nearest frame behind this label.
+
+        A chip is a QFrame with its own bare-selector rule, which shadows the app
+        stylesheet for the label inside it -- so those are already covered and are not
+        the panel's problem.
+        """
+        widget = label.parentWidget()
+        while widget is not panel and widget is not None:
+            if isinstance(widget, QFrame):
+                return False
+            widget = widget.parentWidget()
+        return widget is panel
+
+    panels = [
+        f for f in d.findChildren(QFrame)
+        if f.objectName() in {"preflightTaskBlock", "preflightMetric"}
+    ]
+    assert panels, "guard: the panels are findable"
+    checked = 0
+    for panel in panels:
+        for label in panel.findChildren(QLabel):
+            if not sits_directly_on(panel, label):
+                continue
+            checked += 1
+            assert "background: transparent" in label.styleSheet(), (
+                f"{label.text()!r} would paint the surface colour onto the panel"
+            )
+    assert checked >= 4, "guard: the metric captions and values were actually reached"

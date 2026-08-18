@@ -58,6 +58,13 @@ _DURATION_WIDTH = 84
 # the list truncates and says how many it did not show instead.
 _NAMES_SHOWN = 12
 
+# Anything sitting on a panel has to say it is transparent. The app applies
+# NAPARI_STYLE, whose bare `QWidget { background-color: ... }` rule reaches every
+# descendant, so a label that only sets `color` paints the *surface* colour onto the
+# darker panel behind it -- a lighter block around every word. Only visible with the
+# app stylesheet loaded, which is why the offscreen renders looked clean.
+_ON_PANEL = "background: transparent; border: none; "
+
 
 def _clock(when: Optional[datetime], reference: Optional[datetime]) -> str:
     """A time the user can act on: `6:15AM` today, `Tomorrow, 6:15AM` overnight.
@@ -107,9 +114,9 @@ def _metric(label_text: str, value_text: str) -> QWidget:
     layout.setSpacing(2)
 
     caption = QLabel(label_text)
-    caption.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px; border: none;")
+    caption.setStyleSheet(_ON_PANEL + f"color: {TEXT_MUTED}; font-size: 11px;")
     value = QLabel(value_text)
-    value.setStyleSheet(f"color: {TEXT_STRONG}; font-size: 19px; border: none;")
+    value.setStyleSheet(_ON_PANEL + f"color: {TEXT_STRONG}; font-size: 19px;")
     layout.addWidget(caption)
     layout.addWidget(value)
     return frame
@@ -118,12 +125,13 @@ def _metric(label_text: str, value_text: str) -> QWidget:
 def _task_row(task: TaskEstimate, reference: Optional[datetime] = None) -> QWidget:
     """`Rough milling  ×2   [chips]   20m 24s`."""
     row = QWidget()
+    row.setStyleSheet(_ON_PANEL)
     layout = QHBoxLayout(row)
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(8)
 
     name = QLabel(f"{task.name}  <span style='color: {TEXT_MUTED};'>×{task.lamella_count}</span>")
-    name.setStyleSheet(f"color: {TEXT}; font-size: 11px; border: none;")
+    name.setStyleSheet(_ON_PANEL + f"color: {TEXT}; font-size: 11px;")
     # Task names are user-supplied and can be long. The name is what gives if a row
     # runs out of room -- the duration column is fixed and the chips are the point --
     # so it carries the full name where a clipped one would lose it silently.
@@ -136,7 +144,7 @@ def _task_row(task: TaskEstimate, reference: Optional[datetime] = None) -> QWidg
         layout.addWidget(chip(f"Scheduled {_clock(task.scheduled_at, reference)}"))
 
     duration = QLabel(format_duration(task.seconds))
-    duration.setStyleSheet(f"color: {TEXT}; font-size: 11px; border: none;")
+    duration.setStyleSheet(_ON_PANEL + f"color: {TEXT}; font-size: 11px;")
     duration.setFixedWidth(_DURATION_WIDTH)
     duration.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
     layout.addWidget(duration)
