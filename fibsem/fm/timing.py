@@ -13,7 +13,17 @@ from fibsem.fm.structures import ChannelSettings, ZParameters, ZStackOrder
 from fibsem.fm.structures import AutoFocusMode, AutoFocusSettings
 
 # Timing constants for acquisition operations
-DEFAULT_OVERHEAD_PER_IMAGE = 0.5  # seconds - camera readout, processing overhead
+# Camera readout, processing and save, per image, on top of the exposure. Measured
+# against AutoLamella-2026-07-29-18-00-DEV-TEST (Thermo): a 42-image z-stack ran at
+# 2.31 s/image net of exposure and z movement, and a 32-image autofocus sweep at
+# 1.57 s/image. The earlier 0.5 s was an assumption, ~4x low, and it is what left the
+# fluorescence duration estimate at a third of the real figure.
+#
+# The two figures differ because the z-stack writes each frame to OME-TIFF and the
+# autofocus sweep does not, so this is really two costs wearing one name. It takes the
+# higher of the two: over-estimating a sweep is the safe direction, and splitting the
+# constant would change every caller's shape for a term neither of them separates yet.
+DEFAULT_OVERHEAD_PER_IMAGE = 2.3  # seconds - camera readout, processing, save
 DEFAULT_Z_MOVE_TIME = 0.1  # seconds - time to move between z-positions
 DEFAULT_STAGE_MOVE_TIME = 5.0  # seconds - time to move stage between tiles
 DEFAULT_AUTOFOCUS_TIME = 5.0  # seconds - time for each autofocus operation

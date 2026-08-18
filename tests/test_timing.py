@@ -100,9 +100,26 @@ def test_no_move_costs_nothing():
 
 # ── alignment_cost ───────────────────────────────────────────────────────────
 
-def test_alignment_costs_one_image_per_step():
+def test_alignment_costs_two_passes_of_steps_plus_one_frames():
+    """A stage configured for 3 steps acquired 4 frames per pass, and ran two passes --
+    once at the imaging current, once after switching to the milling current."""
     alignment = MillingAlignment(enabled=True, steps=3, imaging=_imaging())
-    assert timing.alignment_cost(alignment) == pytest.approx(timing.image_cost(alignment.imaging, 3))
+    per_pass = timing.ALIGNMENT_AUTOCONTRAST_S + 4 * timing.ALIGNMENT_IMAGE_S
+    assert timing.alignment_cost(alignment) == pytest.approx(2 * per_pass)
+
+
+def test_alignment_pass_count_is_adjustable():
+    alignment = MillingAlignment(enabled=True, steps=3, imaging=_imaging())
+    assert timing.alignment_cost(alignment, passes=1) == pytest.approx(
+        timing.alignment_cost(alignment, passes=2) / 2
+    )
+    assert timing.alignment_cost(alignment, passes=0) == 0.0
+
+
+def test_alignment_frames_are_cheaper_than_full_frames():
+    """They are reduced-area: ~0.8 s against ~3.5 s for the frame the alignment's own
+    ImageSettings describes, so costing them through image_cost overstates them."""
+    assert timing.ALIGNMENT_IMAGE_S < timing.image_cost(_imaging(), 1)
 
 
 def test_disabled_alignment_costs_nothing():
@@ -140,8 +157,9 @@ def test_milling_task_cost_includes_alignment_and_acquisition():
 
     expected = (
         stage.estimated_time
-        + timing.image_cost(cfg.alignment.imaging, 2)
+        + timing.alignment_cost(cfg.alignment)
         + timing.image_cost(acq.imaging, 1)
+        + 2 * timing.BEAM_CURRENT_CHANGE_S
     )
     assert timing.milling_task_cost(cfg) == pytest.approx(expected)
 
@@ -154,8 +172,35 @@ def test_milling_task_cost_counts_the_final_refresh_image():
     cfg = FibsemMillingTaskConfig(stages=[_stage()], acquisition=acq)
     cfg.alignment = MillingAlignment(enabled=False)
     assert timing.milling_task_cost(cfg) == pytest.approx(
-        cfg.stages[0].estimated_time + timing.image_cost(acq.imaging, 1)
+        cfg.stages[0].estimated_time
+        + timing.image_cost(acq.imaging, 1)
+        + 2 * timing.BEAM_CURRENT_CHANGE_S
     )
+
+
+def test_milling_task_cost_charges_the_current_change_both_ways():
+    """Into the milling current and back out again -- ~40 s that milling's own
+    estimate never sees."""
+    cfg = FibsemMillingTaskConfig(stages=[_stage()])
+    cfg.alignment = MillingAlignment(enabled=False)
+    cfg.acquisition = MillingTaskAcquisitionSettings(
+        acquire_sem=False, acquire_fib=False, acquire_final_image=False
+    )
+    assert timing.milling_task_cost(cfg) == pytest.approx(
+        cfg.stages[0].estimated_time + 2 * timing.BEAM_CURRENT_CHANGE_S
+    )
+
+
+def test_a_task_that_mills_nothing_pays_no_current_change():
+    """Every stage disabled: the current is never switched, so it is not charged."""
+    stage = _stage()
+    stage.enabled = False
+    cfg = FibsemMillingTaskConfig(stages=[stage])
+    cfg.alignment = MillingAlignment(enabled=False)
+    cfg.acquisition = MillingTaskAcquisitionSettings(
+        acquire_sem=False, acquire_fib=False, acquire_final_image=False
+    )
+    assert timing.milling_task_cost(cfg) == 0.0
 
 
 def test_milling_task_cost_of_nothing_is_zero():

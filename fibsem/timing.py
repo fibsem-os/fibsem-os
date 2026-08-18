@@ -61,11 +61,23 @@ OBJECTIVE_RETRACT_S = 19.6
 # Distance-independent as far as this sample shows, so a flat cost rather than a rate.
 OBJECTIVE_FOCUS_MOVE_S = 4.3
 
-# Still not counted, and deliberately not invented here: beam/current switching, and
-# the per-task setup either side of the operations above. Tasks that need them should
-# say so rather than have this module guess. Autofocus is no longer on this list --
-# fm/timing.estimate_autofocus_time counts the sweep's steps instead of assuming a
-# duration, which is what DEFAULT_AUTOFOCUS_TIME = 5.0 was doing.
+# Changing the ion beam current. n=4: 20.2 s setting the milling current, and 20.2 /
+# 20.1 / 20.1 s restoring the imaging current afterwards. A milling task pays this
+# twice -- once into the milling current, once back out -- so roughly 40 s per task
+# that milling's own estimate never sees.
+BEAM_CURRENT_CHANGE_S = 20.5
+
+# Drift-correction imaging. These are reduced-area frames and are far cheaper than the
+# full-frame acquisitions IMAGE_OVERHEAD_S describes: measured 0.77-0.82 s each, against
+# ~3.5 s for a full frame. n=16 across two milling stages.
+ALIGNMENT_IMAGE_S = 0.85
+# Autocontrast, once per alignment pass. n=3: 0.9 / 1.3 / 1.7 s.
+ALIGNMENT_AUTOCONTRAST_S = 1.7
+
+# Still not counted, and deliberately not invented here: the pattern setup between the
+# milling estimate and the first stroke (0 s on a rectangle, 15 s on a trench in the one
+# run measured -- too variable to pick a number from), and the per-task setup either
+# side of the operations above.
 
 
 def image_cost(settings: Optional[ImageSettings], count: int = 1) -> float:
@@ -100,17 +112,27 @@ def stage_move_cost(count: int = 1, absolute: bool = True) -> float:
     return count * (STAGE_MOVE_ABSOLUTE_S if absolute else STAGE_MOVE_RELATIVE_S)
 
 
-def alignment_cost(alignment: Optional[MillingAlignment]) -> float:
-    """Seconds for one drift-correction pass.
+def alignment_cost(alignment: Optional[MillingAlignment], passes: int = 2) -> float:
+    """Seconds for drift correction, over ``passes`` alignment passes.
 
-    ``steps`` images, and nothing when alignment is switched off. The interval
-    re-alignment (``interval_enabled``) is not counted: how many times it fires
-    depends on how long the milling runs, so the caller has to fold it in against
+    A pass is one autocontrast plus ``steps + 1`` reduced-area frames, matching the
+    log: a stage configured for 3 steps acquired 4 images per pass, and ran two
+    passes -- once at the imaging current, then again after switching to the milling
+    current ("FIB Aligning at Milling Current"). Costing a single pass of ``steps``
+    frames understated it by half.
+
+    The frames are charged at :data:`ALIGNMENT_IMAGE_S` rather than through
+    :func:`image_cost`, because they are reduced-area: measured ~0.8 s against ~3.5 s
+    for the full frame the alignment's own ``ImageSettings`` describes.
+
+    The interval re-alignment (``interval_enabled``) is not counted: how many times it
+    fires depends on how long the milling runs, so the caller has to fold it in against
     its own milling estimate rather than have this guess.
     """
-    if alignment is None or not alignment.enabled:
+    if alignment is None or not alignment.enabled or passes <= 0:
         return 0.0
-    return image_cost(alignment.imaging, alignment.steps)
+    per_pass = ALIGNMENT_AUTOCONTRAST_S + (alignment.steps + 1) * ALIGNMENT_IMAGE_S
+    return passes * per_pass
 
 
 def milling_cost(stages: Optional[Iterable["FibsemMillingStage"]]) -> float:
@@ -141,8 +163,14 @@ def milling_task_cost(config) -> float:
     """
     if config is None:
         return 0.0
-    total = milling_cost(getattr(config, "stages", None))
+    stages = getattr(config, "stages", None)
+    total = milling_cost(stages)
     total += alignment_cost(getattr(config, "alignment", None))
+    # Switching into the milling current and back out again. Charged once for the task
+    # rather than per stage: the log shows one set and one restore bracketing the whole
+    # milling run, not a pair per stage.
+    if stages and any(stage.enabled for stage in stages):
+        total += 2 * BEAM_CURRENT_CHANGE_S
     acquisition = getattr(config, "acquisition", None)
     if acquisition is not None and getattr(acquisition, "enabled", False):
         n_beams = sum([acquisition.acquire_sem, acquisition.acquire_fib])
