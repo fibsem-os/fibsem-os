@@ -1,17 +1,18 @@
-"""The workflow border QSS is generated, not hand-written (FIB-679).
+"""The generated border QSS carries every state, for every frame that draws one.
 
-Two widgets draw this border -- the AutoLamella main window and the coincidence
-viewer -- and the rules used to be spelled out once per widget. That is how the
-``agent`` state came to exist in one copy and not the other, so a coincidence run
-driven by an agent fell through to no rule at all.
-
-These tests are deliberately string-level and import no Qt: ``fibsem.ui.stylesheets``
-pulls in only ``os`` and the palette, so the guard runs anywhere the package does.
+The single-source guard -- that these rules are not hand-written a second time --
+lives in tests/test_border_stylesheet_single_source.py, which imports nothing and so
+still runs on CI. This module needs the real ``fibsem.ui`` package, and importing any
+part of it pulls in Qt through ``fibsem/ui/__init__.py``, so it skips without PyQt5.
 """
-import pathlib
 import re
 
-from fibsem.ui.stylesheets import (
+import pytest
+
+pytest.importorskip("PyQt5")
+pytest.importorskip("napari")
+
+from fibsem.ui.stylesheets import (  # noqa: E402
     BORDER_STATE_COLOURS,
     BORDER_WIDTH_PX,
     border_stylesheet,
@@ -59,23 +60,3 @@ def test_every_border_frame_gets_the_same_states():
         for name in BORDER_FRAME_NAMES
     ]
     assert all(states == per_frame[0] for states in per_frame)
-
-
-def test_border_rules_are_not_hand_written_anywhere_else():
-    """`[borderState="` appears only in a QSS selector, never in widget code.
-
-    Widgets set the property with ``setProperty("borderState", ...)``, which does
-    not match. So a hit outside stylesheets.py means someone has written a second
-    copy of the rules -- exactly what FIB-679 removed.
-    """
-    root = pathlib.Path(__file__).resolve().parents[2] / "fibsem"
-    owner = root / "ui" / "stylesheets.py"
-    offenders = [
-        str(path.relative_to(root.parent))
-        for path in root.rglob("*.py")
-        if path != owner and '[borderState="' in path.read_text(encoding="utf-8")
-    ]
-    assert offenders == [], (
-        "border rules duplicated outside fibsem/ui/stylesheets.py: "
-        + ", ".join(offenders)
-    )
