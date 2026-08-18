@@ -56,6 +56,12 @@ _TIP_BUG_REPORT    = (
     "Show the 'Report an Issue...' option in the Help menu, for reporting bugs and "
     "optionally submitting experiment data privately to the maintainers."
 )
+_LBL_OVERVIEW_CANVAS = "Enable Overview (Canvas) Tab"
+_TIP_OVERVIEW_CANVAS = (
+    "Add a rebuilt Overview tab on the real-space canvas, beside the existing one. "
+    "Tiles are placed where they were acquired rather than stitched first. Still being "
+    "finished, and it drives the same microscope as the Overview tab it will replace."
+)
 _LBL_SCRIPTS       = "Enable User Scripts"
 _TIP_SCRIPTS       = (
     "Show Tools > Scripts, for running your own .py files against the open "
@@ -151,10 +157,13 @@ class PreferencesDialog(QDialog):
         self._chk_bug_report.setToolTip(_TIP_BUG_REPORT)
         self._chk_scripts = QCheckBox()
         self._chk_scripts.setToolTip(_TIP_SCRIPTS)
+        self._chk_overview_canvas = QCheckBox()
+        self._chk_overview_canvas.setToolTip(_TIP_OVERVIEW_CANVAS)
         features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
         features_form.addRow(_LBL_SAMPLE_HOLDER, self._chk_sample_holder)
         features_form.addRow(_LBL_BUG_REPORT, self._chk_bug_report)
         features_form.addRow(_LBL_SCRIPTS, self._chk_scripts)
+        features_form.addRow(_LBL_OVERVIEW_CANVAS, self._chk_overview_canvas)
         self._stack.addWidget(features_page)
 
         # --- Experiment Defaults ---
@@ -226,6 +235,7 @@ class PreferencesDialog(QDialog):
         self._chk_sample_holder.setChecked(f.sample_holder_widget)
         self._chk_bug_report.setChecked(f.bug_report_enabled)
         self._chk_scripts.setChecked(f.scripts_enabled)
+        self._chk_overview_canvas.setChecked(f.overview_canvas_tab)
 
         e = prefs.experiment
         self._dir_experiment.setText(e.default_experiment_directory)
@@ -296,6 +306,7 @@ class PreferencesDialog(QDialog):
                 sample_holder_widget=self._chk_sample_holder.isChecked(),
                 bug_report_enabled=self._chk_bug_report.isChecked(),
                 scripts_enabled=self._chk_scripts.isChecked(),
+                overview_canvas_tab=self._chk_overview_canvas.isChecked(),
             ),
             movement=MovementPreferences(
                 acquire_sem_after_stage_movement=self._chk_acquire_sem.isChecked(),

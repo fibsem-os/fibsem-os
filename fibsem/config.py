@@ -349,6 +349,14 @@ class FeatureFlags:
     # microscope and none of its guard rails, so the menu is not offered to anyone
     # who has not asked for it (FIB-338).
     scripts_enabled: bool = False
+    # The rebuilt FIB/SEM Overview tab, on the real-space canvas. Off while it sits
+    # *beside* the napari Overview tab rather than replacing it: the two drive the same
+    # instrument, and the existing tab is the one people are relying on until this has
+    # had bench time (FIB-413, FIB-405).
+    #
+    # The only staging flag left after FIB-609, and it goes the same way the others did
+    # -- deleted when the tab replaces the napari one, not kept as a preference.
+    overview_canvas_tab: bool = False
 
 @dataclass
 class MovementPreferences:

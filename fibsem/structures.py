@@ -741,6 +741,23 @@ class ImageSettings:
             isinstance(self.reduced_area, FibsemRectangle) or self.reduced_area is None
         ), f"reduced area must be a fibsemRectangle object, currently is {type(self.reduced_area)}"
 
+    @property
+    def scan_time(self) -> float:
+        """Seconds of beam-on time for one frame at these settings.
+
+        Dwell time per pixel, over every pixel, times the passes each one gets. Line and
+        frame integration both re-scan: `line_integration` sweeps each line N times,
+        `frame_integration` acquires and averages N frames. `scan_interlacing` changes
+        the order lines are visited in, not how many are visited, so it does not appear.
+
+        Scan time, not run time: it excludes flyback, autocontrast, saving, and -- for a
+        tileset -- the stage, which dominates. `OverviewAcquisitionSettings.scan_time`
+        says more about why that last one is left out rather than guessed at.
+        """
+        width, height = self.resolution
+        passes = (self.line_integration or 1) * (self.frame_integration or 1)
+        return self.dwell_time * width * height * passes
+
     @staticmethod
     def from_dict(settings: dict) -> "ImageSettings":
         if "reduced_area" in settings and settings["reduced_area"] is not None:
@@ -899,6 +916,10 @@ class OverviewAcquisitionSettings:
         nrows: Number of tile rows in the grid.
         ncols: Number of tile columns in the grid.
         overlap: Fractional overlap between adjacent tiles (0.0 = no overlap). Not yet supported.
+        tile_mask: Optional per-tile enable mask, `tile_mask[row][col]`. None acquires
+            every tile. Disabled tiles are skipped but keep their place: the mosaic is
+            still the full grid size and acquired tiles land at the same canvas
+            coordinates they would have in a dense overview.
     """
 
     image_settings: ImageSettings = field(default_factory=ImageSettings)
@@ -908,6 +929,39 @@ class OverviewAcquisitionSettings:
     focus_stack_settings: FocusStackSettings = field(default_factory=FocusStackSettings)
     autofocus_settings: AutoFocusSettings = field(default_factory=AutoFocusSettings)
     tile_order: TileOrderStrategy = TileOrderStrategy.TYPEWRITER
+    tile_mask: Optional[List[List[bool]]] = None
+
+    @property
+    def n_enabled_tiles(self) -> int:
+        """How many tiles a run would actually acquire.
+
+        The number every progress readout has to count towards. `nrows * ncols` is the
+        grid's *shape*, which is still what the mosaic is sized from -- but a masked run
+        that reported it would stop at "6 / 9" and read as a failure.
+        """
+        if self.tile_mask is None:
+            return self.nrows * self.ncols
+        return sum(1 for row in self.tile_mask for enabled in row if enabled)
+
+    @property
+    def scan_time(self) -> float:
+        """Seconds of beam-on time for the whole overview.
+
+        Counts the tiles a run would actually acquire, not the grid's shape: a masked
+        overview scans only what is enabled, and reporting the full grid would overstate
+        a typical sparse selection roughly threefold.
+
+        Deliberately **scan time only**, and not an estimate of how long a run will take.
+        The two differ by a lot: a 3 x 3 tileset of 1024 x 1024 pixels at 1 us scans for
+        about 9 seconds and takes minutes, because the stage has to move and settle
+        eight times in between. That missing term is not something to guess at --
+        `fibsem/fm/timing.py` assumes 5 seconds per stage move, which nobody has
+        measured, and a total built on it would be mostly that assumption quoted as
+        though it were arithmetic. This is arithmetic, so it is reported under its own
+        name, and answers what the number is consulted for: whether the dwell time and
+        resolution just chosen make a run of seconds or of hours.
+        """
+        return self.image_settings.scan_time * self.n_enabled_tiles
 
     @property
     def total_fov_x(self) -> float:
@@ -937,6 +991,7 @@ class OverviewAcquisitionSettings:
             fss = FocusStackSettings(enabled=d["use_focus_stack"])
         else:
             fss = FocusStackSettings.from_dict(d.get("focus_stack_settings", {}))
+        mask = d.get("tile_mask")
         return OverviewAcquisitionSettings(
             image_settings=ImageSettings.from_dict(d.get("image_settings", {})),
             nrows=d.get("nrows", 3),
@@ -945,6 +1000,7 @@ class OverviewAcquisitionSettings:
             focus_stack_settings=fss,
             autofocus_settings=AutoFocusSettings.from_dict(d.get("autofocus_settings", {})),
             tile_order=TileOrderStrategy(d.get("tile_order", TileOrderStrategy.TYPEWRITER.value)),
+            tile_mask=None if mask is None else [[bool(v) for v in row] for row in mask],
         )
 
     def to_dict(self) -> dict:
@@ -956,6 +1012,10 @@ class OverviewAcquisitionSettings:
             "focus_stack_settings": self.focus_stack_settings.to_dict(),
             "autofocus_settings": self.autofocus_settings.to_dict(),
             "tile_order": self.tile_order.value,
+            # plain bools: np.bool_ does not survive yaml.safe_dump, and a mask arriving
+            # from a numpy grid is exactly how one gets here.
+            "tile_mask": None if self.tile_mask is None
+            else [[bool(v) for v in row] for row in self.tile_mask],
         }
 
 

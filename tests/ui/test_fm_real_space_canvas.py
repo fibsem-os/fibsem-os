@@ -235,7 +235,7 @@ def test_the_composite_is_blended_at_display_resolution():
     w.set_channel("GFP", big, "green")
 
     stored = w.canvas._placed["ov"].artist.get_array()
-    assert max(stored.shape[:2]) <= w.canvas._display_max_px
+    assert max(stored.shape[:2]) <= w.canvas.display_max_px
 
 
 def test_a_reduced_composite_is_still_placed_at_full_size():

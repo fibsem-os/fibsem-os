@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from typing import Optional
+from typing import List, Optional
 
 from fibsem import constants
 from fibsem.config import AVAILABLE_RESOLUTIONS_ZIP, DEFAULT_SQUARE_RESOLUTION
@@ -15,6 +15,48 @@ from fibsem.structures import AutoFocusMode, AutoFocusSettings, BeamType, FocusS
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueComboBox, ValueSpinBox
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
+
+# What an overview run looks like before anyone touches it.
+#
+# House defaults rather than physics: a 500 um tile and a 1 us dwell are what the napari
+# minimap has always opened with. They lived in that module, which is scheduled for
+# deletion, and nothing on the rebuilt path referenced them -- so the tab opened at
+# `ImageSettings`'s generic values instead: a 150 um tile, autocontrast off, and a run
+# called "default_image".
+#
+# The name is the one that bites. `TiledAcquisitionRunner._setup` makes the tile
+# sub-folder from it, so it decides where every overview of every experiment is written.
+OVERVIEW_TILE_HFW = 500e-6  # m
+OVERVIEW_TILE_DWELL_TIME = 1e-6  # s
+DEFAULT_OVERVIEW_FILENAME = "overview-image"
+
+
+def default_overview_acquisition_settings() -> OverviewAcquisitionSettings:
+    """A fresh set of overview settings, seeded with the house defaults.
+
+    A function, not the module-level constant it replaces. The minimap held one of those
+    and assigned an experiment path straight into it
+    (`DEFAULT_OVERVIEW_ACQUISITION_SETTINGS.image_settings.path = path`), which edits the
+    default for everything built afterwards. `ImageSettingsWidget` compounds it:
+    `update_from_settings` keeps the object it is handed and `get_settings` mutates and
+    returns that same one, so a shared default would be rewritten by every keystroke in
+    the tab.
+
+    The grid size is not named here -- `OverviewAcquisitionSettings` already defaults to
+    3 x 3, and stating it twice is how the two drift apart.
+    """
+    return OverviewAcquisitionSettings(
+        image_settings=ImageSettings(
+            resolution=tuple(int(px) for px in DEFAULT_SQUARE_RESOLUTION.split("x")),
+            hfw=OVERVIEW_TILE_HFW,
+            dwell_time=OVERVIEW_TILE_DWELL_TIME,
+            autocontrast=True,
+            beam_type=BeamType.ELECTRON,
+            save=True,
+            path=None,  # whoever owns the experiment fills this in
+            filename=DEFAULT_OVERVIEW_FILENAME,
+        ),
+    )
 
 
 class OverviewAcquisitionSettingsWidget(QWidget):
@@ -30,7 +72,11 @@ class OverviewAcquisitionSettingsWidget(QWidget):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._show_advanced = False
+        # No control for this yet -- see the `tile_mask` property.
+        self._tile_mask: Optional[List[List[bool]]] = None
         self._setup_ui()
+        # Before `_connect_signals`, so seeding the boxes does not read as a user edit.
+        self.update_from_settings(default_overview_acquisition_settings())
         self._connect_signals()
         self._update_total_fov_label()
         self._update_advanced_visibility()
@@ -56,10 +102,9 @@ class OverviewAcquisitionSettingsWidget(QWidget):
 
         # Rows / cols
         grid_layout.addWidget(QLabel("Tiles (rows x cols)"), 1, 0)
+        # Values come from the seed in `__init__`, not from here.
         self.nrows_spinbox = ValueSpinBox(minimum=1, maximum=15, step=1, decimals=0)
-        self.nrows_spinbox.setValue(3)
         self.ncols_spinbox = ValueSpinBox(minimum=1, maximum=15, step=1, decimals=0)
-        self.ncols_spinbox.setValue(3)
         # Two spinboxes share one grid cell here, so they are the first thing a narrow
         # column squeezes -- and below about 80px the +/- buttons take the whole
         # control and the number stops being drawn at all, leaving what looks like a
@@ -232,11 +277,50 @@ class OverviewAcquisitionSettingsWidget(QWidget):
     # Public API
     # ------------------------------------------------------------------
 
+    @property
+    def tile_mask(self) -> Optional[List[List[bool]]]:
+        """Which tiles the next run would acquire, or None for all of them.
+
+        Held here rather than drawn, for now: there is no control for it, and the one
+        that will set it is the tile grid on the canvas (FIB-617). It lives here anyway
+        because `get_settings` builds a *new* settings object on every call, so a mask
+        set anywhere else would be silently dropped the next time anything read the
+        widget -- which is on every overlay refresh.
+        """
+        return self._tile_mask
+
+    @tile_mask.setter
+    def tile_mask(self, mask: Optional[List[List[bool]]]) -> None:
+        self._tile_mask = None if mask is None else [[bool(v) for v in row] for row in mask]
+        self._on_changed()
+
+    def set_grid_size(self, rows: int, cols: int) -> None:
+        """Set both grid dimensions as a single change.
+
+        Setting the two spin boxes one after the other emits `settings_changed` twice
+        and passes through a size nobody asked for -- the new row count against the old
+        column count. That is invisible when a spin box is nudged by hand, and constant
+        when an edge is dragged on the canvas, which emits on every motion event.
+        """
+        rows, cols = int(rows), int(cols)
+        if (rows, cols) == (int(self.nrows_spinbox.value()), int(self.ncols_spinbox.value())):
+            return
+        for spinbox in (self.nrows_spinbox, self.ncols_spinbox):
+            spinbox.blockSignals(True)
+        try:
+            self.nrows_spinbox.setValue(rows)
+            self.ncols_spinbox.setValue(cols)
+        finally:
+            for spinbox in (self.nrows_spinbox, self.ncols_spinbox):
+                spinbox.blockSignals(False)
+        self._on_changed()
+
     def get_settings(self) -> OverviewAcquisitionSettings:
         """Read current widget values and return OverviewAcquisitionSettings."""
         image_settings: ImageSettings = self.image_settings_widget.get_settings()
         image_settings.beam_type = self.beam_type_combo.value()
         return OverviewAcquisitionSettings(
+            tile_mask=self._mask_for_grid(),
             image_settings=image_settings,
             nrows=int(self.nrows_spinbox.value()),
             ncols=int(self.ncols_spinbox.value()),
@@ -249,6 +333,27 @@ class OverviewAcquisitionSettingsWidget(QWidget):
             autofocus_settings=AutoFocusSettings(mode=self.autofocus_combo.value()),
             tile_order=self.tile_order_combo.value(),
         )
+
+    def _mask_for_grid(self) -> Optional[List[List[bool]]]:
+        """The mask, or None if it no longer describes the grid.
+
+        Rows and columns are spin boxes and the mask is positional, so the two go out
+        of step the moment either is changed. `compute_tile_grid` rejects a mismatched
+        mask outright -- correctly, since silently tolerating one would acquire the
+        wrong tiles -- which would turn resizing the grid into a failed run.
+
+        Dropped rather than resized: growing it has to invent whether the new tiles are
+        in or out, and shrinking it throws away a choice. Whatever sets the mask knows
+        which it wants and can set it again; this only has to avoid handing on one that
+        is no longer true.
+        """
+        mask = self._tile_mask
+        if mask is None:
+            return None
+        rows, cols = int(self.nrows_spinbox.value()), int(self.ncols_spinbox.value())
+        if len(mask) != rows or any(len(row) != cols for row in mask):
+            return None
+        return [list(row) for row in mask]
 
     def update_from_settings(self, settings: OverviewAcquisitionSettings):
         """Populate all widgets from an OverviewAcquisitionSettings object."""
@@ -273,6 +378,10 @@ class OverviewAcquisitionSettingsWidget(QWidget):
                   self.focus_stack_autofocus, self.autofocus_combo, self.tile_order_combo]:
             w.blockSignals(False)
 
+        self._tile_mask = (
+            None if settings.tile_mask is None
+            else [[bool(v) for v in row] for row in settings.tile_mask]
+        )
         self.image_settings_widget.update_from_settings(settings.image_settings)
         self._update_total_fov_label()
 

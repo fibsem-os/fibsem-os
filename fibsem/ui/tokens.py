@@ -49,6 +49,16 @@ CURRENT_POSITION_COLOUR = "#ffee58"   # where the stage is now
 SAVED_POSITION_COLOUR = "#26c6da"     # a marked position
 SELECTED_POSITION_COLOUR = "#76ff03"  # the marked position under the selection
 
+# The sample holder, drawn under everything else on the same canvases. Here for the
+# same reason as the markers above, and they had already drifted: the FIB/SEM overview
+# used these values while the fluorescence one asked matplotlib for "yellow" and "red",
+# which are pure #ffff00 and #ff0000 -- the two most saturated colours available, and
+# the only things in the app that shout. Structural context should not out-shout a
+# position someone marked.
+SLOT_COLOUR = "#90a4ae"           # holder slots: context, so muted
+STAGE_LIMITS_COLOUR = "#ffca28"   # how far the stage can travel
+GRID_BOUNDARY_COLOUR = "#ff5252"  # the edge of the specimen grid
+
 # ---------------------------------------------------------------------------
 # Napari-dark surface palette
 #

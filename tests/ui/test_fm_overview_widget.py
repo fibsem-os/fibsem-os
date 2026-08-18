@@ -35,7 +35,7 @@ from fibsem.ui.fm.widgets.fm_overview_widget import (
     FMOverviewWidget,
     shrink_progress_text,
 )
-from fibsem.ui.fm.widgets.tile_mask_widget import TileMaskWidget
+from fibsem.ui.widgets.tile_mask_widget import TileMaskWidget
 from fibsem.ui.widgets.custom_widgets import ValueComboBox
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 
@@ -960,6 +960,39 @@ def test_declaring_a_working_area_without_a_refit_does_not_move_the_view(qapp, o
     assert (tuple(ax.get_xlim()), tuple(ax.get_ylim())) != zoomed
 
 
+def test_a_run_hands_the_camera_over(qapp):
+    """The framing you pressed Acquire with is the framing you keep (FIB-648).
+
+    This tab meets the problem less often than the beam one -- one composite under one
+    key while the run goes, rather than a preview whose extent grows -- but it ends the
+    same way: `_finish` places the stitch and removes the preview, two extent changes at
+    the moment there is finally something worth looking at. The rule is the canvas's,
+    so it is the same rule on both tabs.
+
+    Its own widget: it leaves an image on the canvas and the camera handed over, which
+    is exactly the state the module fixture shares.
+    """
+    widget = _fresh_widget(qapp)
+    canvas = widget.canvas.canvas
+    ax = canvas._ax
+    ax.set_xlim(-100, 100)
+    ax.set_ylim(100, -100)
+    framing = (tuple(ax.get_xlim()), tuple(ax.get_ylim()))
+
+    widget._set_running(True)
+    qapp.processEvents()
+    assert canvas.auto_fit is False
+
+    # Somewhere well outside the framing, which is what an end-of-run swap can be.
+    canvas.add_image(np.zeros((64, 64), dtype=np.uint8), centre=(2e-3, 2e-3),
+                     pixel_size=1e-6, key="stitch")
+    qapp.processEvents()
+
+    assert (tuple(ax.get_xlim()), tuple(ax.get_ylim())) == framing
+    widget._set_running(False)
+    widget.close()
+
+
 def test_the_grid_keeps_its_scale_under_a_decimated_preview(qapp, overview_widget):
     """The live preview is coarser than a tile. The grid is drawn in canvas coordinates,
     whose scale is fixed by the canvas reference — so the preview's stride must not
@@ -997,8 +1030,12 @@ def test_the_stage_and_grid_limits_are_drawn_in_the_canvas_frame(qapp, overview_
     assert stage.width == pytest.approx((limits["x"].max - limits["x"].min) / reference)
     assert stage.height == pytest.approx((limits["y"].max - limits["y"].min) / reference)
 
-    from fibsem.ui.fm.widgets.fm_overview_widget import GRID_RADIUS_M
-    assert by_label["Grid boundary"].radius == pytest.approx(GRID_RADIUS_M / reference)
+    from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
+        GRID_BOUNDARY_RADIUS_M,
+    )
+    assert by_label["Grid boundary"].radius == pytest.approx(
+        GRID_BOUNDARY_RADIUS_M / reference
+    )
 
     assert widget.stage_overlay._artists, "specs were built but nothing was drawn"
 
@@ -1034,9 +1071,13 @@ def test_stage_metadata_is_dropped_when_the_geometry_is_unknown(qapp, overview_w
 
 
 def test_the_current_position_marker_follows_the_stage(qapp, overview_widget):
-    """Drawn separately from the canvas's red origin marker: the origin explains why
-    everything sits where it does, this yellow one is what you steer by. They coincide
-    until the stage moves, then diverge."""
+    """The marker you steer by, which has to move when the stage does.
+
+    It used to be contrasted here with the canvas's own red origin marker. That marker
+    is gone: it stood at the stage position of whichever image was placed first, which
+    means nothing to anyone looking at it, and what is worth marking lives in stage
+    space -- which this widget draws itself.
+    """
     from fibsem.structures import FibsemStagePosition
 
     widget = overview_widget
@@ -1054,10 +1095,6 @@ def test_the_current_position_marker_follows_the_stage(qapp, overview_widget):
 
     moved = widget.current_position_overlay._points
     assert moved != at_origin, "the marker did not follow the stage"
-
-    # the canvas's own origin marker stays put, which is the point of having both
-    origin_marker = widget.canvas.canvas._crosshair_artists[0].get_data()
-    assert (origin_marker[0][0], origin_marker[1][0]) == (0.0, 0.0)
 
 
 def test_the_marker_lands_where_an_image_acquired_there_is_placed(qapp, overview_widget):
@@ -3963,7 +4000,9 @@ def test_the_tile_grid_summary_is_never_clipped(qapp):
     lines was not enough to trigger it, which is why the widget-level test above passes
     either way.
     """
-    from fibsem.ui.fm.widgets.tile_grid_options_panel import TileGridOptionsPanel
+    from fibsem.ui.widgets.canvas.overlays.tile_grid_options_panel import (
+        TileGridOptionsPanel,
+    )
 
     panel = TileGridOptionsPanel()
     panel.set_summary("3 × 3  ·  10% overlap  ·  9/9 tiles\n287 × 287 µm")

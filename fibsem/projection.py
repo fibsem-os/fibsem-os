@@ -48,6 +48,43 @@ if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.structures import FibsemImage
 
 
+# A displayed-plane probe length for `surface_foreshortening`. Any value does: the
+# projection is linear in the offset, so the ratio it is used for is scale-free.
+_FORESHORTENING_PROBE = 1.0e-3
+
+
+def surface_foreshortening(
+    projection: "StageProjection", base: FibsemStagePosition
+) -> float:
+    """How much of a length **along the sample surface** survives into the image.
+
+    1.0 where the beam looks straight down the surface normal, and `cos(theta)` where it
+    looks from `theta` away -- a disc on the sample images as a circle in the first case
+    and an ellipse squashed by that factor in the second.
+
+    Measured through the projection's own inverse rather than derived again from the
+    geometry, so it cannot disagree with where the frame puts a marker, and so Tescan
+    and fluorescence get the same answer through their own branches. A stable move
+    travels *along the surface*, which is what makes this one line: ask for a known
+    displayed-plane offset, see how far the stage had to travel to produce it, and the
+    ratio is the cosine. Verified against all six beam/orientation pairs at a 35 degree
+    pre-tilt, where it recovers cos 0, cos 52, cos 23 and cos 75 exactly.
+
+    Distinct from *stage-axis* spans, which is what the overlays used to use: stepping
+    stage y with no z is a move **through** the tilted surface rather than along it, and
+    inflates every length by `1 / cos(pre_tilt)`. That is invisible at a pre-tilt of 0 --
+    every Arctis, and every test written against one -- and 22% at 35 degrees (FIB-657).
+    """
+    moved = projection.from_plane(0.0, _FORESHORTENING_PROBE, base)
+    travel = float(np.hypot(
+        (moved.y or 0.0) - (base.y or 0.0),
+        (moved.z or 0.0) - (base.z or 0.0),
+    ))
+    if not travel:
+        return 1.0
+    return _FORESHORTENING_PROBE / travel
+
+
 class StageProjection(Protocol):
     """Stage coordinates to the displayed plane and back, both in metres.
 
@@ -266,6 +303,7 @@ class BeamStageProjection:
     def to_plane(
         self, position: FibsemStagePosition, base: FibsemStagePosition
     ) -> Tuple[float, float]:
+        position = self._compucentric_corrected(position, base)
         delta = position - base
         dx = -delta.x if self.is_tescan else delta.x
         expected_y = self._expected_y(delta.y or 0.0, delta.z or 0.0, base)
@@ -311,6 +349,42 @@ class BeamStageProjection:
         return position
 
     # ── internals ─────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _compucentric_corrected(
+        position: FibsemStagePosition, base: FibsemStagePosition
+    ) -> FibsemStagePosition:
+        """Flip a position recorded half a turn away from the view it is drawn on.
+
+        A stage that is not a compustage reaches the ion beam by rotating 180 degrees,
+        so a position recorded at the FIB orientation and drawn on an overview acquired
+        at SEM (or the reverse, or either against MILLING) is expressed in a frame that
+        is turned over relative to the image. Without this it lands on the wrong side of
+        the grid -- **measured at 1.3 to 2.1 mm** across the affected orientation pairs
+        on an Aquilos2.
+
+        Only rotation matters, not tilt. On a *compustage* every orientation shares one
+        rotation, so this never fires and all nine pairs agree without it -- which is
+        why the gap was invisible on the simulator this was developed against.
+
+        Deferred to `tiling.reprojection._transform_position` rather than reimplemented,
+        so the two cannot drift: it is what the tab being replaced uses, and matching it
+        exactly is what makes the swap a swap. Note that it carries hardcoded
+        per-instrument calibration (a specimen offset to 15 decimal places, plus 50 um
+        and 25 um "compucentric rotation error" terms) — a pre-existing wart, tracked
+        separately, and deliberately not something this class quietly re-derives.
+
+        Not applied in :meth:`from_plane`: a click resolves to a position *at the
+        overview's own orientation*, which is what `project_stable_move` returns too.
+        """
+        from fibsem.imaging.tiling.reprojection import _transform_position
+
+        if position.r is None or base.r is None:
+            return position
+        dr = abs(np.rad2deg(base.r - position.r))
+        if not np.isclose(dr, 180, atol=2):
+            return position
+        return _transform_position(deepcopy(position))
 
     def _view_tilt(self) -> float:
         """How far this beam's axis is tilted from the electron column, in radians.

@@ -24,7 +24,12 @@ import cv2
 import numpy as np
 import pytest
 
-from fibsem.imaging.reduce import _CV2_DTYPES, _box_mean_numpy, downsample
+from fibsem.imaging.reduce import (
+    _CV2_DTYPES,
+    _box_mean_numpy,
+    downsample,
+    downsample_mask,
+)
 
 
 def stride(arr: np.ndarray, max_px: int) -> np.ndarray:
@@ -191,6 +196,104 @@ class TestTheTwoImplementationsAgree:
 
         assert by_numpy.shape == by_cv2.shape
         assert np.abs(by_numpy.astype(int) - by_cv2.astype(int)).max() <= 1
+
+
+def float_mask(mask: np.ndarray, max_px: int) -> np.ndarray:
+    """The spelling `downsample_mask` replaced, kept as the reference to measure against.
+
+    Correct, and four bytes of temporary per *source* pixel — which is the cost that
+    grows with the mosaic rather than with what comes out.
+    """
+    return downsample(mask.astype(np.float32), max_px) > 0.5
+
+
+class TestReducingACoverageMask:
+    """A block survives when *more* than half of it is set.
+
+    Reduced alongside the pixels so an overview's colour and its "was anything acquired
+    here" answer keep the same shape. The rule has to resolve a part-covered block one
+    way or the other, and it resolves inward: coverage that spreads outward claims
+    ground as acquired that half of it was not, and on a real-space canvas that ground
+    is drawn opaque over whatever else is beneath it.
+    """
+
+    @pytest.mark.parametrize("covered,expected", [
+        (0, False), (10, False), (49, False),
+        (50, False),  # exactly half — the tie, resolved inward
+        (51, True), (90, True), (100, True),
+    ])
+    def test_a_block_survives_when_most_of_it_is_set(self, covered, expected):
+        block = np.zeros((10, 10), dtype=bool)
+        block.flat[:covered] = True
+        # 10x10 identical blocks, so every output pixel answers the same question.
+        out = downsample_mask(np.tile(block, (10, 10)), 10)
+
+        assert out.shape == (10, 10)
+        assert bool(out.all()) is expected and bool(out.any()) is expected
+
+    def test_it_is_not_the_pixels_thresholded(self):
+        """Box-averaging intensities and testing for "greater than zero" marks a block
+        acquired when *any* of it is — which over a mosaic's unacquired ground is most
+        of it, and is how a part-finished overview comes to paint black over the one
+        beneath it (FIB-630)."""
+        data = np.zeros((100, 100), np.uint8)
+        data[:, ::10] = 255  # one column of every 10x10 block, so each is a tenth set
+
+        generous = downsample(data, 10) > 0
+        honest = downsample_mask(data > 0, 10)
+
+        assert generous.all(), "the reference rule did not do the generous thing"
+        assert not honest.any(), "a tenth-covered block was called acquired"
+
+    @pytest.mark.parametrize("shape,max_px,cut", [
+        ((5120, 5120), 2048, (3000, 3777)),  # the 5x5 mosaic, factor 3
+        ((777, 301), 64, (500, 200)),        # ragged on both axes, factor 13
+        ((1000, 1000), 97, (613, 411)),      # factor 11, ragged
+    ])
+    def test_it_matches_the_float_spelling_on_a_real_mask(self, shape, max_px, cut):
+        """Down to the last block, which is the claim that makes the cheaper spelling a
+        substitution rather than a change.
+
+        A *coverage* mask is what it is asked to answer for, and the edge of one is the
+        straight edge of a tile: a block on it is covered in whole rows, so its fraction
+        moves in steps of 1/factor and never lands near the half where eight bits of
+        quantisation could decide it either way.
+        """
+        mask = np.zeros(shape, dtype=bool)
+        mask[:cut[0], :cut[1]] = True
+
+        assert np.array_equal(downsample_mask(mask, max_px), float_mask(mask, max_px))
+
+    def test_a_sparse_tileset_reduces_the_same_way(self):
+        """The other real shape: a masked run leaves whole tiles unacquired (FIB-618),
+        so coverage is a chequerboard rather than one region."""
+        mask = np.zeros((5120, 5120), dtype=bool)
+        for row in range(5):
+            for col in range(5):
+                if (row + col) % 2 == 0:
+                    mask[row * 1024:(row + 1) * 1024, col * 1024:(col + 1) * 1024] = True
+
+        assert np.array_equal(downsample_mask(mask, 2048), float_mask(mask, 2048))
+
+    def test_uniform_noise_is_where_the_two_part_company(self):
+        """Named so the agreement above is not read as a promise about anything else.
+
+        Half-set noise puts a block's coverage right in the quantisation band, and the
+        two spellings then disagree readily. Harmless for coverage, which is never this
+        — but this is the input that would make a future caller's assumption wrong.
+        """
+        noise = np.random.default_rng(0).random((777, 301)) > 0.5
+
+        differ = (downsample_mask(noise, 64) != float_mask(noise, 64)).sum()
+
+        assert differ > 0, "the quantisation band closed; the docstring overstates it"
+
+    def test_it_refuses_anything_that_is_not_a_mask(self):
+        """`(data > 0)` is the caller's job, and doing it here would hide the one call
+        that forgot: passing raw pixels reduces intensities and thresholds them at 128,
+        which is a picture-dependent answer that looks plausible everywhere."""
+        with pytest.raises(TypeError):
+            downsample_mask(np.zeros((100, 100), np.uint8), 10)
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+import math
 import os
 import threading
 from copy import deepcopy
@@ -17,6 +18,7 @@ from fibsem.conversions import is_inside_image_bounds
 
 # Moved to the `tiling` package (FIB-390); re-exported so existing importers and the
 # public API are unaffected. `fibsem/imaging/__init__.py` star-imports this module.
+from fibsem.imaging.reduce import downsample
 from fibsem.imaging.tiling.geometry import (  # noqa: E402,F401
     TilePosition,
     compute_tile_grid,
@@ -50,11 +52,16 @@ from fibsem.structures import (
     AutoFocusMode,
     BeamType,
     FibsemImage,
+    FibsemImageMetadata,
     FibsemStagePosition,
     OverviewAcquisitionSettings,
     Point,
     TileOrderStrategy,
 )
+
+# Longest side the live preview mosaic is decimated to. The full one can be 157 MB for
+# a 10x10 of 1536x1024 tiles, and it is handed to a display once per tile.
+PREVIEW_MAX_DIMENSION = 2048
 
 
 
@@ -92,10 +99,17 @@ class TiledAcquisitionRunner:
         microscope: FibsemMicroscope,
         settings: OverviewAcquisitionSettings,
         stop_event: Optional[threading.Event] = None,
+        centre_position: Optional[FibsemStagePosition] = None,
     ):
         self.microscope = microscope
         self.settings = settings
         self.stop_event = stop_event
+        # Where the grid is centred. None means "wherever the stage is", resolved in
+        # `_compute_grid` rather than here so it is read when the run starts rather
+        # than when the runner is built. The stage still returns to where it started
+        # afterwards: this is the grid's centre, not a new home. Matches
+        # `FMTiledAcquisitionRunner`, which has taken one since FIB-393.
+        self.centre_position = centre_position
         # _setup()        → _image_settings, _prev_path, _prev_label,
         #                   _focus_stack_settings, _af_mode
         # _compute_grid() → _tiles, _ordered, _centre_position, _start_state,
@@ -112,6 +126,16 @@ class TiledAcquisitionRunner:
         that was cancelled or failed, left consumers with no way to tell "done" from
         "still going" -- the progress bar simply stopped moving.
         """
+        # Before `_setup`, which emits progress and makes a directory. A run with no
+        # tiles is a configuration error, not an acquisition that failed: left to run
+        # it walked zero tiles, emitted a *successful* terminal payload, restored the
+        # stage and only then died in `_stitch` with "No tiles were acquired" -- so a
+        # consumer saw the run finish and then saw it fail.
+        if self.settings.n_enabled_tiles == 0:
+            raise ValueError(
+                "No tiles are selected, so there is nothing to acquire. "
+                "Enable at least one tile in the grid."
+            )
         self._setup()
         self._compute_grid()
         outcome, message = "finished", "Acquisition Complete"
@@ -148,7 +172,7 @@ class TiledAcquisitionRunner:
         current *phase* (moving / acquiring / finished), and reusing it here for a
         terminal *outcome* would collide on "finished" while meaning something else.
         """
-        total_tiles = self.settings.nrows * self.settings.ncols
+        total_tiles = self.settings.n_enabled_tiles
         self.microscope.tiled_acquisition_signal.emit({
             "msg": message,
             "counter": getattr(self, "_n_tiles_acquired", 0),
@@ -187,7 +211,7 @@ class TiledAcquisitionRunner:
         self.microscope.tiled_acquisition_signal.emit({
             "msg": "Computing Tile Positions",
             "counter": 0,
-            "total": self.settings.nrows * self.settings.ncols,
+            "total": self.settings.n_enabled_tiles,
         })
 
     def _compute_grid(self) -> None:
@@ -218,11 +242,23 @@ class TiledAcquisitionRunner:
         self._dx_step = tile_fov_x * (1 - overlap)
         self._dy_step = tile_fov_y * (1 - overlap)
 
-        self._tiles = compute_tile_grid(settings)
+        # The mask reaches the layout, not the traversal: `compute_tile_grid` still
+        # returns the disabled tiles so the grid keeps its shape, and `order_tiles`
+        # drops them *after* ordering -- so a sparse run walks the path the dense one
+        # would have and misses stops along it, rather than re-deriving a pattern over
+        # the holes.
+        self._tiles = compute_tile_grid(settings, mask=settings.tile_mask)
         self._ordered = order_tiles(self._tiles, settings.tile_order)
 
         self._start_state = self.microscope.get_microscope_state()
-        self._centre_position = self.microscope.get_stage_position()
+        # `_start_state` is where the stage goes home to; `_centre_position` is only
+        # what the grid is measured from. They are the same unless a caller planned the
+        # run around somewhere else -- a grid dragged off the stage on the overview.
+        self._centre_position = (
+            self.centre_position
+            if self.centre_position is not None
+            else self.microscope.get_stage_position()
+        )
 
         # offset from centre to top-left corner of the grid (used only for projection)
         grid_offset_x = (settings.ncols - 1) * self._dx_step / 2
@@ -234,6 +270,8 @@ class TiledAcquisitionRunner:
         full_w = eff_w * (settings.ncols - 1) + image_width
         full_h = eff_h * (settings.nrows - 1) + image_height
         self._canvas = np.zeros((full_h, full_w), dtype=np.uint8)
+        self._mosaic_metadata = self._build_mosaic_metadata(full_w, full_h)
+        self._init_preview(full_w, full_h)
 
         logging.info(f"Tiled acquisition centre position: {self._centre_position.pretty}")
 
@@ -259,11 +297,122 @@ class TiledAcquisitionRunner:
             self._af_mode = AutoFocusMode.EACH_TILE
             logging.info("EACH_ROW autofocus upgraded to EACH_TILE for SPIRAL tile order")
 
+    def _build_mosaic_metadata(self, full_w: int, full_h: int) -> FibsemImageMetadata:
+        """The mosaic's metadata, built before the first tile rather than after the last.
+
+        It used to be a deepcopy of whichever image happened to arrive first, patched
+        at stitch time. Building it up front buys three things:
+
+        * **A partial mosaic is a real image.** A cancelled run left a bare array with
+          no position, pixel size or geometry, so nothing could place it or save it.
+        * **The live preview can be placed like anything else**, from its own metadata,
+          rather than by a display being told the geometry out of band.
+        * **The position is the grid's centre**, which is where the mosaic actually is.
+          Stitching took it from `_start_state` -- where the stage *began* -- which was
+          the same thing until a caller could plan the run somewhere else. A run centred
+          500 um away recorded 0, so the saved overview reloaded half a millimetre out.
+
+        The pixel size is the requested one (`hfw / width`); if the column quantises the
+        field of view, `_correct_metadata_from` replaces it when the first tile lands.
+        """
+        state = deepcopy(self._start_state)
+        state.stage_position = deepcopy(self._centre_position)
+
+        image_settings = deepcopy(self._image_settings)
+        image_settings.hfw = float(self.settings.total_fov_x)
+        image_settings.resolution = (full_w, full_h)
+
+        pixel_size = self._image_settings.hfw / self._image_settings.resolution[0]
+        return FibsemImageMetadata(
+            image_settings=image_settings,
+            pixel_size=Point(x=pixel_size, y=pixel_size),
+            microscope_state=state,
+            system_info=deepcopy(self.microscope.system.info),
+            hardware_geometry=deepcopy(self.microscope.hardware_geometry()),
+        )
+
+    def _correct_metadata_from(self, image: FibsemImage) -> None:
+        """Take the pixel size the instrument actually delivered, once one exists.
+
+        The planned `hfw / width` is right on every simulator and can be a fraction out
+        on a column that quantises the field of view. Everything placed from this
+        metadata scales by it, so a fraction out is a fraction of the whole mosaic.
+        """
+        actual = getattr(getattr(image, "metadata", None), "pixel_size", None)
+        if actual is None or not actual.x:
+            return
+        self._mosaic_metadata.pixel_size = deepcopy(actual)
+
+    def _init_preview(self, full_w: int, full_h: int) -> None:
+        """A decimated copy of the mosaic, for a display to show as it fills.
+
+        Decimated because the full one is not something to hand a display on every
+        tile: a 10x10 of 1536x1024 is a 157 MB array, and a real-space canvas would
+        reduce all of it for display each time. Painted per tile from that tile's own
+        thumbnail, so the cost is the tile rather than the mosaic.
+        """
+        self._preview_stride = max(
+            1, int(np.ceil(max(full_w, full_h) / PREVIEW_MAX_DIMENSION))
+        )
+        stride = self._preview_stride
+        self._preview_canvas = np.zeros(
+            (int(np.ceil(full_h / stride)), int(np.ceil(full_w / stride))),
+            dtype=np.uint8,
+        )
+        logging.debug(
+            f"Live preview canvas: {self._preview_canvas.shape} "
+            f"(stride {stride}, full {full_h}x{full_w})"
+        )
+
+    def _paint_preview(self, tile: TilePosition, image: FibsemImage) -> None:
+        """Paint one acquired tile into the live preview.
+
+        Best effort: a preview that cannot be built is not a reason to fail an
+        acquisition that is otherwise fine, so this never raises into the tile loop.
+        """
+        try:
+            stride = self._preview_stride
+            data = image.filtered_data
+            # Averaged, not sampled. `arr[::n, ::n]` deletes what it leaves out rather
+            # than blurring it, so a feature a pixel or two across is present at one
+            # zoom and gone at the next (FIB-589). `downsample` returns `ceil(n/factor)`
+            # per axis -- the same shape striding gave -- so the paste offsets below are
+            # unaffected. `max_px` is how the factor is chosen, so it is expressed as
+            # the size this tile has to come out at.
+            thumb = downsample(data, math.ceil(max(data.shape[:2]) / stride))
+            y0, x0 = tile.canvas_y // stride, tile.canvas_x // stride
+            y1 = min(y0 + thumb.shape[0], self._preview_canvas.shape[0])
+            x1 = min(x0 + thumb.shape[1], self._preview_canvas.shape[1])
+            self._preview_canvas[y0:y1, x0:x1] = thumb[: y1 - y0, : x1 - x0]
+        except Exception as e:
+            logging.debug(f"Could not paint the live preview: {e}")
+
+    def _preview_image(self) -> Optional[FibsemImage]:
+        """The mosaic so far, as a placeable image.
+
+        Coarser pixels over a smaller count cover the same ground, so saying the pixel
+        size is all a real-space display needs to put it in the right place at the right
+        size. A fresh metadata object per emit, because the array is the live one and a
+        consumer that kept the last payload would otherwise see its dimensions change
+        underneath it.
+        """
+        metadata = deepcopy(self._mosaic_metadata)
+        stride = self._preview_stride
+        metadata.pixel_size = Point(
+            x=self._mosaic_metadata.pixel_size.x * stride,
+            y=self._mosaic_metadata.pixel_size.y * stride,
+        )
+        metadata.image_settings = deepcopy(self._mosaic_metadata.image_settings)
+        metadata.image_settings.resolution = (
+            self._preview_canvas.shape[1], self._preview_canvas.shape[0],
+        )
+        return FibsemImage(data=self._preview_canvas.copy(), metadata=metadata)
+
     def _run_tile_loop(self) -> None:
         """Move to each tile, autofocus as configured, acquire, and stitch into the canvas."""
         image_settings = self._image_settings
         image_width, image_height = image_settings.resolution
-        total_tiles = self.settings.nrows * self.settings.ncols
+        total_tiles = self.settings.n_enabled_tiles
         self._first_image: Optional[FibsemImage] = None
         self._n_tiles_acquired: int = 0
         prev_row = -1
@@ -295,6 +444,7 @@ class TiledAcquisitionRunner:
 
             if self._first_image is None:
                 self._first_image = image
+                self._correct_metadata_from(image)
 
             # stitch tile into canvas (overlapping regions are overwritten by later tiles)
             self._canvas[
@@ -302,6 +452,7 @@ class TiledAcquisitionRunner:
                 tile.canvas_x:tile.canvas_x + image_width,
             ] = image.filtered_data
 
+            self._paint_preview(tile, image)
             self._n_tiles_acquired += 1
             self.microscope.tiled_acquisition_signal.emit({
                 "msg": "Tile Collected",
@@ -310,17 +461,16 @@ class TiledAcquisitionRunner:
                 "n_rows": self.settings.nrows,
                 "n_cols": self.settings.ncols,
                 "image": self._canvas,
-                # The tile itself, alongside the growing stitch buffer above. A
-                # real-space display places each tile where it was acquired, and the
-                # buffer cannot say where that is: it holds integer pixel offsets, so
-                # the error against the true stage position accumulates across the grid
-                # (FIB-399). The tile carries its own stage position, pixel size and
-                # geometry, which is everything a placement needs -- and it is the
-                # position the stage actually reached, not the one it was asked for.
+                # The mosaic so far, decimated, and carrying metadata -- so a
+                # real-space display can place it as one image rather than assembling
+                # tiles of its own. One artist per run instead of one per tile, which
+                # is what stops the canvas slowing down as tilesets accumulate
+                # (FIB-627).
                 #
-                # Additive: every existing consumer reads `counter`/`total`/`msg`/
-                # `image`, so nothing has to change to ignore this.
-                "tile": image,
+                # Additive, and `image` above is deliberately untouched: the napari
+                # minimap assigns it straight into a layer, so it has to stay a bare
+                # array until that tab goes.
+                "preview": self._preview_image(),
                 "counter": self._n_tiles_acquired,
                 "total": total_tiles,
             })
@@ -342,19 +492,22 @@ class TiledAcquisitionRunner:
             raise ValueError("No tiles were acquired; cannot stitch.")
 
         signal = self.microscope.tiled_acquisition_signal
-        total_tiles = self.settings.nrows * self.settings.ncols
+        total_tiles = self.settings.n_enabled_tiles
         signal.emit({"msg": "Stitching Tiles", "counter": total_tiles, "total": total_tiles})
-        # deepcopy so the stitched image gets its OWN metadata snapshot — the edits below
-        # (hfw → total FOV, stitched resolution) must not mutate the caller's shared
-        # settings object or the first tile's metadata.
-        image = FibsemImage(data=self._canvas, metadata=deepcopy(self._first_image.metadata))
-        if image.metadata is None:
-            raise ValueError("Image metadata is not set. Cannot update metadata for stitched image.")
-        image.metadata.microscope_state = deepcopy(self._start_state)
-        image.metadata.image_settings = deepcopy(self._image_settings)
-        image.metadata.image_settings.hfw = float(self.settings.total_fov_x)
-        # resolution is (width, height); numpy canvas.shape is (height, width).
-        image.metadata.image_settings.resolution = (self._canvas.shape[1], self._canvas.shape[0])
+        # The metadata `_compute_grid` built, not a patched copy of the first tile's.
+        # deepcopy so the stitched image gets its own snapshot rather than sharing the
+        # runner's, which the preview also hands out.
+        #
+        # The position it carries is the grid's *centre*. This used to be
+        # `_start_state`, where the stage began, which was the same thing until a run
+        # could be planned somewhere else -- a grid dragged 500 um away recorded 0, and
+        # the saved overview reloaded half a millimetre out.
+        image = FibsemImage(data=self._canvas, metadata=deepcopy(self._mosaic_metadata))
+        # The path is a per-run detail of the request, and the mosaic goes in the parent
+        # of the tile folder, so it is taken from the live settings rather than the
+        # snapshot taken before `_setup` rewrote them.
+        image.metadata.image_settings.path = self._image_settings.path
+        image.metadata.image_settings.filename = self._prev_label
 
         filename = os.path.join(image.metadata.image_settings.path, self._prev_label)  # type: ignore
         image.save(filename)
@@ -399,12 +552,15 @@ def tiled_image_acquisition_and_stitch(
     microscope: FibsemMicroscope,
     settings: OverviewAcquisitionSettings,
     stop_event: Optional[threading.Event] = None,
+    centre_position: Optional[FibsemStagePosition] = None,
 ) -> FibsemImage:
     """Acquire a tiled image and stitch it together.
     Args:
         microscope: The microscope connection.
         settings: Overview acquisition settings (image_settings, nrows, ncols, overlap).
         stop_event: Optional threading.Event to cancel acquisition.
+        centre_position: Where to centre the grid. None means wherever the stage is.
+            The stage still returns to where it started afterwards.
     Returns:
         The stitched image."""
     # add datetime to filename for uniqueness
@@ -412,7 +568,9 @@ def tiled_image_acquisition_and_stitch(
     timestamp = datetime.datetime.now().strftime(DATETIME_FILE)
     settings.image_settings.filename = f"{filename}-{timestamp}"
 
-    return TiledAcquisitionRunner(microscope, settings, stop_event).run_and_stitch()
+    return TiledAcquisitionRunner(
+        microscope, settings, stop_event, centre_position=centre_position
+    ).run_and_stitch()
 
 ##### REPROJECTION
 # TODO: move these to fibsem.imaging.reprojection?

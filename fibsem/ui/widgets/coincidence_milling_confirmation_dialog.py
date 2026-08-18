@@ -6,9 +6,8 @@ config dict — developer output in the one place an operator checks depth and c
 before committing.
 
 Same house style as :class:`FMOverviewConfirmationDialog`: a meta line, count chips, a
-detail block, and a primary action in the footer — with the visual constants, chip and
-duration format imported from it so the two cannot drift. If a third of these appears,
-lift the shared parts into their own module.
+detail block, and a primary action in the footer — built from
+`fibsem.ui.widgets.preflight` so the three cannot drift.
 
 Milling is irreversible, so the primary action is never the default button: starting
 takes a deliberate click.
@@ -16,12 +15,9 @@ takes a deliberate click.
 
 from typing import List, Optional, Tuple
 
-from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QDialog,
-    QFrame,
     QHBoxLayout,
-    QLabel,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -31,17 +27,13 @@ from fibsem import constants
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.ui import stylesheets
-from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
-    BORDER,
-    PANEL,
-    TEXT,
-    TEXT_MUTED,
-    TEXT_STRONG,
-    _chip,
+from fibsem.ui.widgets.preflight import (
+    BACKGROUND,
+    chip,
+    detail_block,
     format_duration,
+    meta_label,
 )
-
-BACKGROUND = stylesheets.SURFACE_COLOR
 
 # The dimensions that determine the milled volume, in the order they read. Driven off
 # the pattern's own to_dict() rather than isinstance checks, so a new pattern type
@@ -214,54 +206,33 @@ class CoincidenceMillingConfirmationDialog(QDialog):
         enabled = len(self.task_config.enabled_stages)
         total = len(self.task_config.stages)
 
-        meta = QLabel(self._meta_line())
-        meta.setStyleSheet(f"color: {TEXT_STRONG}; font-size: 12px;")
-        meta.setWordWrap(True)
+        meta = meta_label(self._meta_line())
 
         # Counts first, then the two facts worth reading before anything else: what
         # current is going into the sample, and whether it will stop for you. The FM
-        # dialog uses chips only for counts; these are states, but `_chip` carries no
+        # dialog uses chips only for counts; these are states, but a chip carries no
         # colour, so a state here reads as a fact rather than as a status light.
         chips = QHBoxLayout()
         chips.setSpacing(6)
-        chips.addWidget(_chip(f"{enabled} to mill"))
+        chips.addWidget(chip(f"{enabled} to mill"))
         if enabled != total:
-            chips.addWidget(_chip(f"{total - enabled} disabled"))
+            chips.addWidget(chip(f"{total - enabled} disabled"))
         current_text = self._current_chip_text()
         if current_text:
-            chips.addWidget(_chip(current_text))
+            chips.addWidget(chip(current_text))
         config = self._strategy_config()
         if config is not None:
             # "Automated", not "Unattended" or "Unsupervised": that is what the
             # supervision toggle a few pixels away already says (_update_supervised_button),
             # and what the border state is called. A third word for one mode is worse
             # than an imperfect one.
-            chips.addWidget(_chip("Supervised" if config.supervised else "Automated"))
+            chips.addWidget(chip("Supervised" if config.supervised else "Automated"))
         chips.addStretch()
 
-        detail = QFrame()
-        detail.setStyleSheet(
-            f"QFrame {{ background: {PANEL}; border: 1px solid {BORDER};"
-            f" border-radius: 4px; }}"
-        )
-        detail_layout = QVBoxLayout(detail)
-        detail_layout.setContentsMargins(12, 10, 12, 10)
-        detail_layout.setSpacing(6)
-        for label_text, value_text in self._rows():
-            row = QHBoxLayout()
-            row.setSpacing(12)
-            label = QLabel(label_text)
-            label.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px; border: none;")
-            label.setFixedWidth(104)
-            # Stage names go in this column and are user-supplied, so wrap rather than
-            # clip — a truncated stage name in a pre-flight check is worse than two lines.
-            label.setWordWrap(True)
-            value = QLabel(value_text)
-            value.setStyleSheet(f"color: {TEXT}; font-size: 11px; border: none;")
-            value.setWordWrap(True)
-            row.addWidget(label, alignment=Qt.AlignTop)
-            row.addWidget(value, stretch=1)
-            detail_layout.addLayout(row)
+        # Wider labels than the other two, and wrapping: stage names go in this column
+        # and are user-supplied, so a truncated one in a pre-flight check is worse than
+        # two lines.
+        detail = detail_block(self._rows(), label_width=104, wrap_labels=True)
 
         self.button_start = QPushButton("Start Milling")
         self.button_start.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
