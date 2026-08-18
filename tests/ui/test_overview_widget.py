@@ -1409,7 +1409,7 @@ class TestOverlaysAreDrawnInTheView:
         widget = FibsemOverviewWidget(scope)
         try:
             widget.set_image(self._image(scope, "FIB", BeamType.ION))
-            widget.checkbox_gridbars.setChecked(True)
+            widget.overlay_controls.set_visible("gridbars", True)
 
             pose = scope.get_orientation("FIB")
             centre = FibsemStagePosition(
@@ -3327,3 +3327,74 @@ class TestAViewWithNothingInItSaysSo:
 
         hint = widget.canvas._hint_text
         assert hint and "2 other views" in hint, f"hint was {hint!r}"
+
+
+class TestTheOverlaysCanBeTurnedOff:
+    """Everything drawn *over* the data is optional, from one surface.
+
+    A canvas that always draws the travel envelope, the holder's grids, the slot marks
+    and a gridbar lattice is one you read around rather than read. The controls hold the
+    answer -- `_refresh_context_overlays` asks them rather than being told what changed,
+    so a toggle and a stage move take the same path and cannot disagree (FIB-572).
+    """
+
+    @staticmethod
+    def _context_shapes(widget) -> int:
+        """How many shapes the context overlay was last handed."""
+        seen = {}
+        real = widget.context_overlay.set_shapes
+
+        def spy(specs, *args, **kwargs):
+            seen["n"] = len(specs)
+            return real(specs, *args, **kwargs)
+
+        widget.context_overlay.set_shapes = spy
+        widget._refresh_context_overlays()
+        widget.context_overlay.set_shapes = real
+        return seen.get("n", 0)
+
+    @pytest.mark.parametrize("key", ["limits", "boundaries", "slots"])
+    def test_turning_one_off_stops_it_being_drawn(self, widget, key):
+        before = self._context_shapes(widget)
+
+        widget.overlay_controls.set_visible(key, False)
+        after = self._context_shapes(widget)
+
+        assert after == before - 1, f"{key} off changed {before} shapes to {after}"
+
+        widget.overlay_controls.set_visible(key, True)
+        assert self._context_shapes(widget) == before, "it did not come back"
+
+    def test_hiding_saved_positions_keeps_where_the_stage_is(self, widget, microscope):
+        """The saved marks are annotation; where the stage is now is the one mark that
+        says which part of the sample you are looking at. Hiding it would make the
+        canvas harder to read rather than cleaner."""
+        base = microscope.get_stage_position()
+        widget.set_positions([
+            FibsemStagePosition(name=f"L{i}", x=base.x + i * 20e-6, y=base.y,
+                                z=base.z, r=base.r, t=base.t)
+            for i in range(3)
+        ])
+        assert len(widget.position_overlay._points) == 3
+
+        widget.overlay_controls.set_visible("positions", False)
+
+        assert widget.position_overlay._points == []
+        assert len(widget.current_position_overlay._points) == 1
+
+    def test_the_grid_bar_pitch_controls_match_the_checkbox_from_the_start(self, widget):
+        """They were live from construction over a lattice that was not drawn, because
+        the toggle handler had never run -- so adjusting them appeared to do nothing."""
+        assert widget.overlay_controls.is_visible("gridbars") is False
+        assert not widget.spin_gridbar_spacing.isEnabled()
+        assert not widget.spin_gridbar_width.isEnabled()
+
+        widget.overlay_controls.set_visible("gridbars", True)
+
+        assert widget.spin_gridbar_spacing.isEnabled()
+        assert widget.spin_gridbar_width.isEnabled()
+
+    def test_an_unknown_overlay_is_shown_rather_than_hidden(self, widget):
+        """An overlay whose control was never added is one nobody chose to hide.
+        Defaulting to hidden makes a forgotten entry look like a drawing bug."""
+        assert widget.overlay_controls.is_visible("something-nobody-added") is True

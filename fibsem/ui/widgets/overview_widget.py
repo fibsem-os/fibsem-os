@@ -102,6 +102,7 @@ from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
 from fibsem.ui.widgets.canvas.overlays.gridbar_overlay import GridBarOverlay
 from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import TileGridOverlay
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointsOverlay
+from fibsem.ui.widgets.canvas.overlay_controls import CanvasOverlayControls
 from fibsem.ui.widgets.canvas.real_space_canvas import (
     WHOLE_IMAGE,
     FibsemRealSpaceCanvas,
@@ -126,6 +127,14 @@ logger = logging.getLogger(__name__)
 
 # The canvas key the in-progress mosaic is drawn under. Its own, so a run that dies
 # leaves no half-filled overview behind pretending to be a finished one.
+# Overlay keys for `CanvasOverlayControls`. Named rather than inline so the control and
+# the thing it gates cannot drift apart under a rename.
+_OVERLAY_LIMITS = "limits"
+_OVERLAY_BOUNDARIES = "boundaries"
+_OVERLAY_SLOTS = "slots"
+_OVERLAY_POSITIONS = "positions"
+_OVERLAY_GRIDBARS = "gridbars"
+
 PREVIEW_KEY = "acquisition-preview"
 
 # Icon buttons that sit in a `TitledPanel` header. Matches the fluorescence overview,
@@ -701,8 +710,21 @@ class FibsemOverviewWidget(QWidget):
         self.label_view_note.setWordWrap(True)
         self.label_view_note.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
 
-        self.checkbox_gridbars = QCheckBox("Show grid bars")
-        self.checkbox_gridbars.toggled.connect(self._on_gridbars_toggled)
+        # One surface for everything drawn *over* the data, rather than a checkbox per
+        # overlay appearing wherever its feature happened to land. The gridbar toggle
+        # was the first and only one; it moves in here rather than sitting beside it.
+        #
+        # Ordered as they sit on the canvas, outermost first: where the stage can go,
+        # then the holder's grids, then the marks inside them. Grid bars last because
+        # they are a lattice over everything and the two controls under them are theirs.
+        self.overlay_controls = CanvasOverlayControls([
+            (_OVERLAY_LIMITS, "Stage travel limits", True),
+            (_OVERLAY_BOUNDARIES, "Grid boundaries", True),
+            (_OVERLAY_SLOTS, "Holder slots", True),
+            (_OVERLAY_POSITIONS, "Saved positions", True),
+            (_OVERLAY_GRIDBARS, "Grid bars", False),
+        ])
+        self.overlay_controls.toggled.connect(self._on_overlay_toggled)
         self.spin_gridbar_spacing = ValueSpinBox(
             suffix=" um", minimum=1.0, maximum=10000.0, step=10.0, decimals=1
         )
@@ -713,6 +735,11 @@ class FibsemOverviewWidget(QWidget):
         self.spin_gridbar_width.setValue(DEFAULT_GRIDBAR_WIDTH_UM)
         for _spin in (self.spin_gridbar_spacing, self.spin_gridbar_width):
             _spin.valueChanged.connect(self._refresh_gridbars)
+            # Matched to the checkbox at construction, not only when it is toggled. The
+            # handler had never run by this point, so the pitch controls started live
+            # over a lattice that was not drawn -- inviting an adjustment that appeared
+            # to do nothing.
+            _spin.setEnabled(self.overlay_controls.is_visible(_OVERLAY_GRIDBARS))
 
         # "Acquire Overview" says what the button produces; "Run Tile Collection" said
         # how it is produced, which is the part the settings above already describe.
@@ -838,7 +865,7 @@ class FibsemOverviewWidget(QWidget):
         layout = QFormLayout(panel)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.addRow(self.label_view_note)
-        layout.addRow(self.checkbox_gridbars)
+        layout.addRow(self.overlay_controls)
         layout.addRow("Bar spacing", self.spin_gridbar_spacing)
         layout.addRow("Bar width", self.spin_gridbar_width)
         return panel
@@ -949,13 +976,23 @@ class FibsemOverviewWidget(QWidget):
         )
         self.label_view_note.setVisible(True)
 
-    def _on_gridbars_toggled(self, checked: bool) -> None:
-        # The pitch controls only mean anything while the bars are drawn.
-        self.spin_gridbar_spacing.setEnabled(checked)
-        self.spin_gridbar_width.setEnabled(checked)
-        self.gridbar_overlay.set_visible(checked)
-        if checked:
-            self._refresh_gridbars()
+    def _on_overlay_toggled(self, key: str, checked: bool) -> None:
+        """One overlay turned on or off.
+
+        Everything except the grid bars is rebuilt by `_refresh_context_overlays`, which
+        reads the controls rather than being told what changed -- so a toggle and a stage
+        move take the same path and cannot disagree. The bars are their own overlay with
+        its own artists, so they are set directly.
+        """
+        if key == _OVERLAY_GRIDBARS:
+            # The pitch controls only mean anything while the bars are drawn.
+            self.spin_gridbar_spacing.setEnabled(checked)
+            self.spin_gridbar_width.setEnabled(checked)
+            self.gridbar_overlay.set_visible(checked)
+            if checked:
+                self._refresh_gridbars()
+            return
+        self._refresh_context_overlays()
 
     def _refresh_gridbars(self) -> None:
         """Re-measure the lattice against the canvas scale.
@@ -977,7 +1014,7 @@ class FibsemOverviewWidget(QWidget):
         is a place, and built with its own rotation it read as a position recorded half
         a turn away. See :meth:`_landmark`.
         """
-        if not self.checkbox_gridbars.isChecked():
+        if not self.overlay_controls.is_visible(_OVERLAY_GRIDBARS):
             return
         frame = self._frame()
         if frame is None:
@@ -1765,9 +1802,12 @@ class FibsemOverviewWidget(QWidget):
             return
 
         specs: List[ShapeSpec] = []
-        specs.extend(self._limit_shapes(frame))
-        specs.extend(self._boundary_shapes(frame))
-        specs.extend(self._slot_shapes(frame))
+        if self.overlay_controls.is_visible(_OVERLAY_LIMITS):
+            specs.extend(self._limit_shapes(frame))
+        if self.overlay_controls.is_visible(_OVERLAY_BOUNDARIES):
+            specs.extend(self._boundary_shapes(frame))
+        if self.overlay_controls.is_visible(_OVERLAY_SLOTS):
+            specs.extend(self._slot_shapes(frame))
         self.context_overlay.set_shapes(specs)
         self._declare_working_area(frame)
         self._refresh_tile_grid()
@@ -2236,9 +2276,28 @@ class FibsemOverviewWidget(QWidget):
         self.canvas.set_status_readout(text or None)
 
     def _refresh_position_markers(self) -> None:
-        """Redraw the current stage position and every marked position."""
+        """Redraw the current stage position and every marked position.
+
+        The *saved* positions are what the control hides. Where the stage is now stays
+        drawn either way: it is not an annotation over the data so much as the one mark
+        that says which part of the sample you are looking at, and hiding it makes the
+        canvas harder to read rather than cleaner.
+        """
         frame = self._frame()
         if frame is None:
+            return
+
+        if not self.overlay_controls.is_visible(_OVERLAY_POSITIONS):
+            for overlay in (self.position_overlay, self.flagged_position_overlay,
+                            self.selected_position_overlay):
+                overlay.set_points([])
+            if self._stage_position is not None:
+                try:
+                    self.current_position_overlay.set_points(
+                        [frame.to_canvas(self._stage_position)]
+                    )
+                except Exception as e:
+                    logger.debug(f"Could not mark the current stage position: {e}")
             return
 
         if self._stage_position is not None:
