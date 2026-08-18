@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import os
 from typing import Dict, List, Optional
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -18,7 +16,12 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.icon import (
+    DRAG_HANDLE_HEIGHT,
+    DRAG_HANDLE_WIDTH,
+    drag_handle_pixmap,
+    fibsem_icon,
+)
 
 from fibsem.constants import DATETIME_DISPLAY_AMPM
 from fibsem.applications.autolamella.structures import (
@@ -32,14 +35,6 @@ from fibsem.ui.tokens import (
     NEUTRAL_700,
 )
 
-# The handle asset is shared with the other draggable list widgets and lives under
-# fibsem/ui/icons. This module sits two packages deeper than they do, so it needs
-# two more dirname() steps to reach fibsem: stopping short resolved to
-# fibsem/applications/autolamella/icons, which does not exist.
-_DRAG_HANDLE_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-    "ui", "icons", "drag_handle.svg",
-)
 _NAME_MIN_WIDTH = 180
 _BTN_SIZE = QSize(32, 32)
 _ROW_HEIGHT = 40
@@ -131,19 +126,8 @@ class WorkflowTaskRowWidget(QWidget):
         layout.addWidget(self.btn_remove)
 
         drag_icon = QLabel()
-        drag_icon.setFixedSize(10, 16)
-        # Scaling a pixmap that failed to load makes Qt warn, once per row, and a
-        # row is built for every task in the workflow. Leave the label blank in
-        # that case rather than asking Qt to scale nothing.
-        handle = QPixmap(_DRAG_HANDLE_PATH)
-        if not handle.isNull():
-            drag_icon.setPixmap(
-                handle.scaled(
-                    10, 16,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-            )
+        drag_icon.setFixedSize(DRAG_HANDLE_WIDTH, DRAG_HANDLE_HEIGHT)
+        drag_icon.setPixmap(drag_handle_pixmap())
         drag_icon.setStyleSheet("background: transparent;")
         drag_icon.setCursor(Qt.CursorShape.OpenHandCursor)
         layout.addWidget(drag_icon)

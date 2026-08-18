@@ -8,7 +8,6 @@ in without changes to callers.
 """
 from __future__ import annotations
 
-import os
 from copy import deepcopy
 from typing import List, Optional, Union
 
@@ -35,17 +34,13 @@ from fibsem.fm.config import load_recent_channels, remove_recent_channel
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings
 from fibsem.ui import stylesheets
+from fibsem.ui.icon import DRAG_HANDLE_HEIGHT, DRAG_HANDLE_WIDTH, drag_handle_pixmap
 from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, ValueSpinBox
 from fibsem.ui.tokens import (
     BORDER_COLOR,
     CANVAS_BG,
     NEUTRAL_700,
     ORANGE_COLOR,
-)
-
-_DRAG_HANDLE_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-    "icons", "drag_handle.svg",
 )
 
 _NAME_MIN_WIDTH = 130
@@ -254,15 +249,8 @@ class ChannelRowWidget(QWidget):
         layout.addWidget(self.btn_remove)
 
         drag_icon = QLabel()
-        drag_icon.setFixedSize(10, 16)
-        if os.path.exists(_DRAG_HANDLE_PATH):
-            drag_icon.setPixmap(
-                QPixmap(_DRAG_HANDLE_PATH).scaled(
-                    10, 16,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-            )
+        drag_icon.setFixedSize(DRAG_HANDLE_WIDTH, DRAG_HANDLE_HEIGHT)
+        drag_icon.setPixmap(drag_handle_pixmap())
         drag_icon.setStyleSheet("background: transparent;")
         drag_icon.setCursor(Qt.CursorShape.OpenHandCursor)
         layout.addWidget(drag_icon)

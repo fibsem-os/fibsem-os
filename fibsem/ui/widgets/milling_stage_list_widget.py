@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from copy import deepcopy
 from typing import List, Optional
 
@@ -24,6 +23,7 @@ from fibsem.milling.base import FibsemMillingStage, get_strategy
 from fibsem.milling.patterning import get_pattern, get_pattern_names
 from fibsem.milling.strategy import get_strategy_names
 from fibsem.ui import stylesheets
+from fibsem.ui.icon import DRAG_HANDLE_HEIGHT, DRAG_HANDLE_WIDTH, drag_handle_pixmap
 from fibsem.ui.napari.patterns import COLOURS
 from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, ValueSpinBox
 from fibsem.ui.tokens import (
@@ -32,7 +32,6 @@ from fibsem.ui.tokens import (
     ORANGE_COLOR,
 )
 
-_DRAG_HANDLE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "icons", "drag_handle.svg")
 # Columns are flexible: each is (minimum_width, stretch). The header and every row
 # consume the SAME spec so their column boundaries stay aligned as the panel resizes,
 # while the whole row can shrink well below the old ~660px fixed-width floor.
@@ -42,7 +41,7 @@ _COL_DEPTH = (70, 2)
 _COL_CURRENT = (60, 2)
 _COL_STRATEGY = (70, 2)
 _CHECKBOX_WIDTH = 24
-_DRAG_WIDTH = 10
+_DRAG_WIDTH = DRAG_HANDLE_WIDTH
 _BTN_SIZE = QSize(32, 32)
 _ROW_HEIGHT = 40
 
@@ -195,8 +194,8 @@ class MillingStageRowWidget(QWidget):
         layout.addWidget(self.btn_remove)
 
         drag_icon = QLabel()
-        drag_icon.setFixedSize(_DRAG_WIDTH, 16)
-        drag_icon.setPixmap(QPixmap(_DRAG_HANDLE_PATH).scaled(_DRAG_WIDTH, 16, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        drag_icon.setFixedSize(_DRAG_WIDTH, DRAG_HANDLE_HEIGHT)
+        drag_icon.setPixmap(drag_handle_pixmap(_DRAG_WIDTH, DRAG_HANDLE_HEIGHT))
         drag_icon.setStyleSheet("background: transparent;")
         drag_icon.setCursor(Qt.CursorShape.OpenHandCursor)
         layout.addWidget(drag_icon)
