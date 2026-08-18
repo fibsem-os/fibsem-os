@@ -12,11 +12,22 @@ on:
 jobs:
   build:
 
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        # Linux on every supported version, Windows on the ends of the range.
+        # The microscopes all run Windows, so every platform-specific claim in the
+        # codebase was previously untested on the platform that matters (FIB-704) --
+        # but six versions x two platforms is a lot of wall-clock for a suite that
+        # takes ~7 minutes, and the oldest and newest catch what the middle would.
+        os: [ubuntu-latest]
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
+        include:
+          - os: windows-latest
+            python-version: "3.8"
+          - os: windows-latest
+            python-version: "3.13"
 
     steps:
     - uses: actions/checkout@v4
