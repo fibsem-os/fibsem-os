@@ -36,13 +36,6 @@ FIB_REQUESTED_NAME = "ref_Mill Fiducial_start"
 FM_PATH = "/lam/01-grand-dodo/fm_stack.ome.tiff"
 
 
-@pytest.fixture(autouse=True)
-def _no_lut_download(monkeypatch):
-    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
-
-    monkeypatch.setattr(riw, "_ensure_lut", lambda: None)
-
-
 def _fib_image(filepath=FIB_PATH, requested_name=FIB_REQUESTED_NAME):
     """A FIB image as it arrives from disk: loaded from one name, requesting another."""
     image = FibsemImage.generate_blank_image(resolution=(64, 48), hfw=100e-6)

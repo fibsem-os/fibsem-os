@@ -102,6 +102,15 @@ namespaces = true
 
 [tool.setuptools.package-data]
 "*" = ["*.yaml"]
+# The refractive-index lookup table (FIB-637). Belt-and-braces, not the
+# mechanism: measured, the wheel contains it with or without this line, because
+# include-package-data defaults true here and setuptools_scm's file finder makes
+# every *git-tracked* file eligible. So what actually ships it is the .gitignore
+# negation that lets it be tracked at all. This line states the intent and keeps
+# it shipping if include-package-data is ever turned off.
+# Named precisely: a blanket "*.csv" would also sweep in
+# fibsem/log/data/crosscorrelation/data.csv.
+"fibsem.correlation" = ["data/*.csv.gz"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

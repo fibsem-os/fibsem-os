@@ -233,9 +233,6 @@ def test_enter_does_not_run_the_interpolation(qapp):
 
 
 def _widget(qapp):
-    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
-
-    riw._ensure_lut = lambda: None  # never hit the network for the LUT
     from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         CorrelationTabWidget,
     )

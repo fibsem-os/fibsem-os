@@ -84,8 +84,13 @@ fibsem/correlation/scaling_factor_lookup_table.csv
 fibsem/correlation/slice_scaling_factor_LUT.ipynb
 sashimi/*
 fibsem/applications/sashimi/log/*
-# Refractive-index LUT (downloaded on demand from the data release)
-fibsem/correlation/data/
+# Refractive-index LUT: the gzipped table is tracked and ships in the wheel;
+# anything else here (e.g. a stale raw .csv) stays out.
+# Exclude the directory's *contents*, not the directory: git cannot
+# re-include a file whose parent directory is excluded. Tracking the
+# gzipped lookup table is what puts it in the wheel (FIB-637).
+fibsem/correlation/data/*
+!fibsem/correlation/data/*.csv.gz
 # Belt-and-braces: a path built from an unset (None) save path lands here
 None/
 publications/*

@@ -25,8 +25,6 @@ Usage::
 
 from __future__ import annotations
 
-import logging
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -35,22 +33,11 @@ import numpy as np
 import pandas as pd
 from scipy.interpolate import RegularGridInterpolator
 
-_LUT_FILENAME = "table_refractive_index_lookup.csv"
+# Shipped as package data (FIB-637). Gzipped: the table is a dense numeric grid
+# that deflates ~10:1, so this is 0.91 MB instead of 9.08 MB in every checkout,
+# and pandas reads the compression straight off the extension.
+_LUT_FILENAME = "table_refractive_index_lookup.csv.gz"
 _LUT_PATH = Path(__file__).parent / "data" / _LUT_FILENAME
-_LUT_URL = (
-    "https://github.com/fibsem-os/fibsem-os/releases/download/data-0.1.0/"
-    + _LUT_FILENAME
-)
-
-
-def _ensure_lut() -> None:
-    """Download the LUT CSV from the data release if not present locally."""
-    if _LUT_PATH.exists():
-        return
-    logging.info(f"Lookup table not found — downloading from {_LUT_URL}")
-    _LUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    urllib.request.urlretrieve(_LUT_URL, _LUT_PATH)
-    logging.info(f"Lookup table saved to {_LUT_PATH}")
 
 
 @dataclass
@@ -70,13 +57,11 @@ class SliceScalingFactorLUT:
     Parameters
     ----------
     csv_path:
-        Path to ``scaling_factor_lookup_table.csv``.  Defaults to the file
-        bundled with the package.
+        Path to the lookup table.  Defaults to the gzipped CSV bundled
+        with the package.
     """
 
     def __init__(self, csv_path: Path = _LUT_PATH) -> None:
-        if csv_path == _LUT_PATH:
-            _ensure_lut()
         lut = pd.read_csv(csv_path)
 
         # Sort in the order that defines the tensor axes
@@ -155,6 +140,23 @@ def get_lut() -> SliceScalingFactorLUT:
     if _lut is None:
         _lut = SliceScalingFactorLUT()
     return _lut
+
+
+def lut_load_error() -> Optional[Exception]:
+    """None when the lookup table loads, else the exception that stopped it.
+
+    ``exists()`` is not the question. A file that is present but unreadable — a
+    truncated copy, a mangled install — makes the calculator look completely
+    live while every lookup fails, which is the dead UI of FIB-592. Callers that
+    gate UI on the table must ask whether it *loads*.
+
+    Cheap after the first call: the loaded table is a module-level singleton.
+    """
+    try:
+        get_lut()
+        return None
+    except Exception as exc:  # missing, truncated, not a gzip, wrong columns…
+        return exc
 
 
 def lookup_zeta(
