@@ -32,7 +32,14 @@ from fibsem.ui.tokens import (
     NEUTRAL_700,
 )
 
-_DRAG_HANDLE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "icons", "drag_handle.svg")
+# The handle asset is shared with the other draggable list widgets and lives under
+# fibsem/ui/icons. This module sits two packages deeper than they do, so it needs
+# two more dirname() steps to reach fibsem: stopping short resolved to
+# fibsem/applications/autolamella/icons, which does not exist.
+_DRAG_HANDLE_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+    "ui", "icons", "drag_handle.svg",
+)
 _NAME_MIN_WIDTH = 180
 _BTN_SIZE = QSize(32, 32)
 _ROW_HEIGHT = 40
@@ -125,7 +132,18 @@ class WorkflowTaskRowWidget(QWidget):
 
         drag_icon = QLabel()
         drag_icon.setFixedSize(10, 16)
-        drag_icon.setPixmap(QPixmap(_DRAG_HANDLE_PATH).scaled(10, 16, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        # Scaling a pixmap that failed to load makes Qt warn, once per row, and a
+        # row is built for every task in the workflow. Leave the label blank in
+        # that case rather than asking Qt to scale nothing.
+        handle = QPixmap(_DRAG_HANDLE_PATH)
+        if not handle.isNull():
+            drag_icon.setPixmap(
+                handle.scaled(
+                    10, 16,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
         drag_icon.setStyleSheet("background: transparent;")
         drag_icon.setCursor(Qt.CursorShape.OpenHandCursor)
         layout.addWidget(drag_icon)
