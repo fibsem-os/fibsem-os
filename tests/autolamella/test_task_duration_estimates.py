@@ -262,3 +262,37 @@ def test_autofocus_estimate_uses_the_named_channel():
 def test_every_config_reports_a_positive_duration(config_cls):
     """A task with no override still answers, via the base implementation."""
     assert config_cls().estimated_duration > 0
+
+
+# ── the opening flags are behaviour, not configuration ───────────────────────
+
+@pytest.mark.parametrize(
+    "config_cls",
+    [MillFiducialTaskConfig, SpotBurnFiducialTaskConfig, AcquireFluorescenceImageConfig],
+)
+def test_opening_flags_are_not_serialised(config_cls):
+    """They describe what a task's _run does, which is a property of the code and not
+    something a protocol should carry or a user should edit. Both to_dict() and the
+    form-driving `parameters` are built from dataclasses.fields(), so a property is
+    invisible to them -- turning either flag into a field would silently write it into
+    every protocol and surface it in the task config editor.
+    """
+    from dataclasses import fields as dataclass_fields
+
+    flags = {"opens_with_stage_move", "opens_with_reference_alignment"}
+    cfg = config_cls()
+    serialised = cfg.to_dict()
+
+    assert flags.isdisjoint(serialised)
+    assert flags.isdisjoint(serialised.get("parameters", {}))
+    assert flags.isdisjoint({f.name for f in dataclass_fields(cfg)})
+    assert flags.isdisjoint(cfg.parameters)
+    assert flags.isdisjoint(cfg.field_metadata)
+
+
+def test_opening_flags_survive_a_round_trip():
+    """Restored by the class, not read back from the dict."""
+    cfg = MillFiducialTaskConfig(align_to_reference=False)
+    restored = MillFiducialTaskConfig.from_dict(cfg.to_dict())
+    assert restored.opens_with_stage_move is cfg.opens_with_stage_move
+    assert restored.opens_with_reference_alignment is cfg.opens_with_reference_alignment
