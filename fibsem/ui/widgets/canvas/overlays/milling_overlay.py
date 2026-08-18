@@ -32,8 +32,9 @@ from fibsem.structures import (
     FibsemLineSettings,
     FibsemPolygonSettings,
     FibsemRectangleSettings,
+    Point,
 )
-from fibsem.conversions import get_image_pixel_centre
+from fibsem.conversions import microscope_image_to_image_coordinates
 from fibsem.ui.napari.patterns import (
     COLOURS,
     convert_pattern_to_napari_line,
@@ -228,10 +229,12 @@ class MillingPatternOverlay(CanvasOverlay):
             verts, _ = convert_pattern_to_napari_rect(ps, shape, pixelsize)
             return mpatches.Polygon(verts[:, ::-1], closed=True, **patch_kw)  # (y,x)→(x,y)
         if isinstance(ps, FibsemCircleSettings):
-            icy, icx = get_image_pixel_centre(shape)
-            cx = icx + ps.centre_x / pixelsize
-            cy = icy - ps.centre_y / pixelsize
-            return mpatches.Circle((cx, cy), ps.radius / pixelsize, **patch_kw)
+            centre = microscope_image_to_image_coordinates(
+                Point(x=ps.centre_x, y=ps.centre_y), shape, pixelsize
+            )
+            return mpatches.Circle(
+                (centre.x, centre.y), ps.radius / pixelsize, **patch_kw
+            )
         if isinstance(ps, FibsemLineSettings):
             verts, _ = convert_pattern_to_napari_line(ps, shape, pixelsize)
             (y0, x0), (y1, x1) = verts
@@ -245,9 +248,8 @@ class MillingPatternOverlay(CanvasOverlay):
 
     def _draw_crosshair(self, point, shape, pixelsize: float, colour: str,
                         zorder: float) -> None:
-        icy, icx = get_image_pixel_centre(shape)
-        cx = icx + point.x / pixelsize
-        cy = icy - point.y / pixelsize
+        centre = microscope_image_to_image_coordinates(point, shape, pixelsize)
+        cx, cy = centre.x, centre.y
         h = _CROSSHAIR_HALF_PX
         kw = dict(color=colour, linewidth=1, alpha=0.9, zorder=zorder)
         (l1,) = self._ax.plot([cx - h, cx + h], [cy, cy], **kw)
