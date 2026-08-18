@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum, auto
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from PyQt5.QtCore import QPoint, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QPainter
@@ -23,6 +24,9 @@ from PyQt5.QtWidgets import (
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.widgets.custom_widgets import ElidedLabel
+from fibsem.applications.autolamella.workflows.workflow_estimate import estimate_queue
+from fibsem.ui.widgets.preflight import format_clock, format_duration
 from fibsem.ui.tokens import (
     DISABLED_TEXT_COLOR,
     NEUTRAL_500,
@@ -84,6 +88,12 @@ _LINE_W         = 2
 _LEFT_COL       = 32   # px — fixed width for dot + connector column
 _INNER_ROW_H    = 22   # px — minimum height per inner step row
 
+# The estimate column. Fixed width and right-aligned so the times hold one line down the
+# panel however long the names beside them are — that column is the thing being scanned,
+# and a ragged right edge would break it. The pre-flight dialog reserves 84px for the same
+# column against a wider dialog; 78 is what fits here beside the actions button.
+_TRAILING_W     = 78
+
 
 # ── Status mapping ───────────────────────────────────────────────────────────
 def _queue_status_to_step_status(s) -> "StepStatus":
@@ -117,6 +127,15 @@ class TimelineStep:
     label: str
     status: StepStatus = StepStatus.PENDING
     subtitle: str = ""
+    trailing: str = ""
+    """The estimate column, pre-formatted.
+
+    A display string like `subtitle`, not a number: what belongs here depends on the row
+    state (an estimate, a countdown, an elapsed, an actual) and deciding that in the row
+    would put the policy in the one place that has no idea what a queue is. Written by
+    the caller as the workflow proceeds, and preserved across a sync for the same reason
+    subtitles are.
+    """
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -129,6 +148,28 @@ def _status_color(status: StepStatus) -> str:
         StepStatus.SKIPPED:   _DOT_SKIPPED,
         StepStatus.CANCELLED: _DOT_CANCELLED,
     }.get(status, _DOT_PENDING)
+
+
+def _trailing_style(status: StepStatus) -> str:
+    """Style for the estimate column.
+
+    Two shades only, and the split is "not yet" against everything else: muted while a
+    row is still an estimate, normal once it is a real measured number.
+
+    The running row is deliberately *not* a third colour. Its dot and its bold label
+    already mark it, so a coloured number would be a third marker saying the same thing —
+    and the active orange is a shade off the amber that was rejected for looking like a
+    warning, which is exactly how it would read once the row outruns its estimate and the
+    column starts reporting elapsed. Nothing here changes colour for that (FIB-666).
+
+    `background: transparent` is not decoration: the app applies NAPARI_STYLE, whose bare
+    `QWidget { background-color: ... }` rule reaches every descendant, so a label that
+    sets only `color` paints a block of the surface colour — invisible against a panel of
+    the same colour, and not invisible over the selection tint the row paints underneath.
+    """
+    muted = status in (StepStatus.PENDING, StepStatus.SKIPPED)
+    color = _SUBTITLE_COLOR if muted else _LABEL_COLOR
+    return f"background: transparent; border: none; color: {color}; font-size: 11px;"
 
 
 # ── _DotWidget ────────────────────────────────────────────────────────────────
@@ -245,7 +286,13 @@ class _OuterRow(QWidget):
         right.setSpacing(1)
         right.setContentsMargins(0, 4, 0, 4)
 
-        self._label = QLabel(step.label)
+        # ElidedLabel, not QLabel: the rows sit in a QScrollArea that is
+        # `setWidgetResizable(True)` with the horizontal scroll bar `AlwaysOff`, so the
+        # contents widget can never be narrower than its widest row and anything past
+        # the viewport is unreachable. A plain label reports its full text width as its
+        # minimum, so one long lamella petname pushed the estimate column off *every*
+        # row — measured at 280px, the first row's estimate ended 59px off screen.
+        self._label = ElidedLabel(step.label)
         self._label.setStyleSheet(f"color: {_LABEL_COLOR};")
         if step.status == StepStatus.ACTIVE:
             f = self._label.font()
@@ -253,7 +300,7 @@ class _OuterRow(QWidget):
             self._label.setFont(f)
         right.addWidget(self._label)
 
-        self._subtitle = QLabel(step.subtitle)
+        self._subtitle = ElidedLabel(step.subtitle)
         self._subtitle.setStyleSheet(f"color: {_SUBTITLE_COLOR}; font-size: 11px;")
         self._subtitle.setVisible(bool(step.subtitle))
         right.addWidget(self._subtitle)
@@ -277,11 +324,35 @@ class _OuterRow(QWidget):
 
         root.addLayout(right, 1)
 
+        # The estimate column. Held in a top-aligned holder rather than added straight to
+        # the row so it lines up with the name rather than centring against a row whose
+        # height changes with the subtitle, the error text and the inner steps.
+        trailing_holder = QWidget()
+        trailing_holder.setStyleSheet("background: transparent; border: none;")
+        trailing_box = QVBoxLayout(trailing_holder)
+        trailing_box.setContentsMargins(0, 4, 0, 0)
+        trailing_box.setSpacing(0)
+        self._trailing = QLabel(step.trailing)
+        self._trailing.setFixedWidth(_TRAILING_W)
+        self._trailing.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._trailing_status = step.status
+        self._trailing.setStyleSheet(_trailing_style(step.status))
+        trailing_box.addWidget(self._trailing)
+        trailing_box.addStretch(1)
+        root.addWidget(trailing_holder, 0, Qt.AlignTop)
+
         # Hover-revealed actions button. The timeline is dense enough that a
         # permanent button on every row would be noise, but right-click alone is
         # undiscoverable — so both, and the button only while the pointer is here.
         self._btn_actions = QToolButton()
         self._btn_actions.setFixedSize(_ACTIONS_BTN, _ACTIONS_BTN)
+        # A hidden widget is empty to the layout, so revealing this one on hover used to
+        # shove the estimate column 28px left (the button plus the row's spacing) and
+        # back again on the way out. Keeping its space reserved costs a gutter the
+        # column would otherwise have to itself, and buys a column that holds still.
+        policy = self._btn_actions.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        self._btn_actions.setSizePolicy(policy)
         self._btn_actions.setStyleSheet(_ACTIONS_STYLE)
         self._btn_actions.setIcon(
             fibsem_icon("mdi:dots-horizontal", color=stylesheets.GRAY_ICON_COLOR)
@@ -290,6 +361,14 @@ class _OuterRow(QWidget):
         self._btn_actions.setVisible(False)
         self._btn_actions.clicked.connect(self._on_actions_clicked)
         root.addWidget(self._btn_actions, 0, Qt.AlignTop)
+
+    def set_trailing(self, text: str) -> None:
+        """Write the estimate column alone.
+
+        `refresh` redraws the dot, both labels, the font and the error text; the estimate
+        column is rewritten far more often than any of those, so it gets its own way in.
+        """
+        self._trailing.setText(text)
 
     # ── Queue actions ─────────────────────────────────────────────────────
     def set_actions_enabled(self, enabled: bool) -> None:
@@ -324,11 +403,17 @@ class _OuterRow(QWidget):
     # ── Outer row refresh ─────────────────────────────────────────────────
     def refresh(self, step: TimelineStep) -> None:
         self._dot.set_color(_status_color(step.status))
-        self._label.setText(step.label)
         f = self._label.font()
         f.setBold(step.status == StepStatus.ACTIVE)
         f.setStrikeOut(step.status == StepStatus.SKIPPED)
         self._label.setFont(f)
+        self._label.setText(step.label)
+        self._trailing.setText(step.trailing)
+        # setStyleSheet re-polishes the widget, which is far too expensive to pay on
+        # every row of every sync for a colour that only moves when the status does.
+        if step.status is not self._trailing_status:
+            self._trailing_status = step.status
+            self._trailing.setStyleSheet(_trailing_style(step.status))
         self._subtitle.setText(step.subtitle)
         self._subtitle.setVisible(bool(step.subtitle))
         # The timeline refreshes every row on every update, so an error has to
@@ -597,6 +682,19 @@ class WorkflowProgressWidget(QWidget):
         self._outer_index: int = -1
         self._inner_finished: bool = False
         self._active_start_time: Optional[float] = None
+        # Per-(lamella, task) estimates and per-task schedule, pushed in by the owner.
+        # Keyed by name pair rather than WorkItem.id: an item removed and re-added gets a
+        # new id but is the same work.
+        self._estimates: Dict[Tuple[str, str], float] = {}
+        self._schedule: Dict[str, datetime] = {}
+        # A supervised task's wait is not machine time, so it must not eat the estimate.
+        # Only the countdown pauses; the elapsed on the row keeps running, because the
+        # duration that replaces it on completion counts the wait too.
+        self._waiting_for_user: bool = False
+        self._paused_total: float = 0.0
+        self._paused_since: Optional[float] = None
+        # "A workflow is live" — the same question the actions and the Add button ask.
+        self._actions_enabled: bool = False
         self._setup_ui()
 
         self._elapsed_timer = QTimer(self)
@@ -657,6 +755,17 @@ class WorkflowProgressWidget(QWidget):
 
         root.addLayout(header_row)
 
+        # Remaining time and finish clock. A second line rather than a longer first one:
+        # the count and the Add button already fill that row, and the two figures answer
+        # different questions ("how much is left" / "when do I come back").
+        self._summary = QLabel()
+        self._summary.setStyleSheet(
+            f"background: transparent; border: none; color: {_SUBTITLE_COLOR};"
+            " font-size: 11px; padding: 0px 8px 5px 8px;"
+        )
+        self._summary.setVisible(False)
+        root.addWidget(self._summary)
+
         self._outer = WorkflowTimelineWidget()
         self._outer.row_menu_requested.connect(self._show_row_menu)
         root.addWidget(self._outer, 1)
@@ -669,8 +778,10 @@ class WorkflowProgressWidget(QWidget):
         workflow finishes, and there is no queue left to edit. This is the same
         question the Add button asks, so it shares the gate.
         """
+        self._actions_enabled = enabled
         self._outer.set_actions_enabled(enabled)
         self._btn_add.setVisible(enabled)
+        self._update_summary()
 
     def set_add_enabled(self, enabled: bool, tooltip: str = "") -> None:
         """Whether there is a selection worth adding.
@@ -682,6 +793,51 @@ class WorkflowProgressWidget(QWidget):
         self._btn_add.setEnabled(enabled)
         if tooltip:
             self._btn_add.setToolTip(tooltip)
+
+    def set_estimates(self, seconds_by_key: Dict[Tuple[str, str], float]) -> None:
+        """Per-(lamella, task) durations, in seconds.
+
+        Pushed in rather than computed here: the estimate comes from a lamella's task
+        config, and this widget has no business knowing what an Experiment is. The owner
+        recomputes on workflow start and when the queue is edited — not per status
+        update, since `estimated_duration` walks every milling stage of every task.
+
+        Anything not in the mapping simply has no estimate; the column stays empty for it
+        rather than showing a number that was invented.
+        """
+        self._estimates = dict(seconds_by_key)
+        self._refresh_trailing()
+        self._update_summary()
+
+    def set_schedule(self, schedule: Dict[str, datetime]) -> None:
+        """`scheduled_at` per task name, for the tasks that have one.
+
+        Without it the finish time would be short by the whole hold: a task scheduled for
+        20:00 after work that ends at 15:40 puts four hours of dead time in the middle of
+        the workflow, and `_wait_until_scheduled` really does sit there for them.
+        """
+        self._schedule = dict(schedule)
+        self._update_summary()
+
+    def set_waiting_for_user(self, waiting: bool) -> None:
+        """Whether the running task is paused for a human.
+
+        Freezes the countdown for as long as it lasts, and swaps the header's finish
+        clock for the work remaining: the wait is unbounded, so any clock quoted through
+        it would be a guess dressed as a fact. A scheduled hold needs no such treatment —
+        it is bounded, so the clock stays true through it.
+        """
+        if waiting == self._waiting_for_user:
+            return
+        self._waiting_for_user = waiting
+        now = time.time()
+        if waiting:
+            self._paused_since = now
+        elif self._paused_since is not None:
+            self._paused_total += now - self._paused_since
+            self._paused_since = None
+        self._update_elapsed()
+        self._update_summary()
 
     def set_workflow(self, items: list) -> None:
         """Populate the outer timeline from queue items, starting fresh.
@@ -730,6 +886,10 @@ class WorkflowProgressWidget(QWidget):
             )
             self._inner_finished = False
             self._active_start_time = status.get("timestamp", time.time())
+            # The pause accounting belongs to one task, not to the workflow.
+            self._waiting_for_user = False
+            self._paused_total = 0.0
+            self._paused_since = None
             self._elapsed_timer.start(1000)
             self._show_inner_at(self._outer_index)
             # Auto-scroll to the active row
@@ -742,6 +902,8 @@ class WorkflowProgressWidget(QWidget):
                            AutoLamellaTaskStatus.Cancelled):
             self._elapsed_timer.stop()
             self._active_start_time = None
+            self._waiting_for_user = False
+            self._paused_since = None
             idx = self._outer_index
             if 0 <= idx < len(self._outer._rows):
                 task_name = self._items[idx].task_name
@@ -790,6 +952,8 @@ class WorkflowProgressWidget(QWidget):
             (n for n, i in enumerate(self._items) if i.id == self._active_id), -1
         )
         self._update_header(self._items)
+        self._refresh_trailing()
+        self._update_summary()
 
     def update_step(self, step_name: str) -> None:
         """Mark the previous inner step completed and append a new ACTIVE one."""
@@ -822,7 +986,11 @@ class WorkflowProgressWidget(QWidget):
         self._inner_finished = False
         self._elapsed_timer.stop()
         self._active_start_time = None
+        self._waiting_for_user = False
+        self._paused_total = 0.0
+        self._paused_since = None
         self._header.setText("Workflow")
+        self._summary.setVisible(False)
         self._outer.clear()
 
     def set_active_outer(self, index: int) -> None:
@@ -922,6 +1090,75 @@ class WorkflowProgressWidget(QWidget):
         final = StepStatus.FAILED if failed else StepStatus.COMPLETED
         self._outer._rows[self._outer_index].update_last_inner_step(final)
 
+    def _estimate_for(self, item) -> Optional[float]:
+        """This item's estimate, or None if there is none to offer."""
+        if item is None:
+            return None
+        return self._estimates.get((item.lamella_name, item.task_name))
+
+    def _machine_elapsed(self, elapsed: float) -> float:
+        """`elapsed` less any time the task spent waiting for a human.
+
+        The countdown is against work the machine has to do, and a supervised pause is
+        not that — left in, a long enough pause would spend the whole estimate with every
+        bit of the task's real work still ahead of it.
+        """
+        paused = self._paused_total
+        if self._paused_since is not None:
+            paused += time.time() - self._paused_since
+        return max(0.0, elapsed - paused)
+
+    def _refresh_trailing(self) -> None:
+        """Write the estimate into the column of every row still waiting to run.
+
+        Pending rows only. A running row's column is its countdown and a finished row's
+        is what it actually took; both have superseded the estimate, and rewriting it
+        over them would undo that.
+        """
+        from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+        for i, item in enumerate(self._items):
+            if i >= len(self._outer._steps):
+                break
+            if item.status is not AutoLamellaTaskStatus.NotStarted:
+                continue
+            seconds = self._estimate_for(item)
+            step = self._outer._steps[i]
+            step.trailing = format_duration(seconds) if seconds is not None else ""
+            self._outer._rows[i].set_trailing(step.trailing)
+
+    def _update_summary(self) -> None:
+        """The header's second line: what is left, and when it lands."""
+        if not self._items or not self._actions_enabled:
+            self._summary.setVisible(False)
+            return
+
+        active_elapsed = None
+        if self._active_start_time is not None:
+            active_elapsed = self._machine_elapsed(time.time() - self._active_start_time)
+
+        estimate = estimate_queue(
+            self._items,
+            self._estimate_for,
+            schedule=self._schedule,
+            active_elapsed=active_elapsed,
+        )
+        if estimate.remaining_seconds <= 0:
+            self._summary.setVisible(False)
+            return
+
+        if self._waiting_for_user:
+            # No clock: the wait is unbounded, so one would be a guess dressed as a fact.
+            # The work still to do is knowable either way, and "of work" is what marks
+            # that the number has narrowed to machine time.
+            text = f"{format_duration(estimate.work_seconds)} of work left · waiting for you"
+        else:
+            text = (
+                f"{format_duration(estimate.remaining_seconds)} left · "
+                f"finishes {format_clock(estimate.expected_finish, datetime.now())}"
+            )
+        self._summary.setText(text)
+        self._summary.setVisible(True)
+
     def _update_header(self, queue_items: list) -> None:
         """Update the header label with progress counts."""
         from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
@@ -948,33 +1185,66 @@ class WorkflowProgressWidget(QWidget):
         self._header.setText(text)
 
     def _update_elapsed(self) -> None:
-        """Tick handler — update the active row subtitle with elapsed time."""
+        """Tick handler — the active row's elapsed and countdown, and the summary."""
         if self._active_start_time is None:
             return
         if not (0 <= self._outer_index < len(self._outer._steps)):
             return
-        from fibsem.utils import format_duration
+        step = self._outer._steps[self._outer_index]
+        item = (self._items[self._outer_index]
+                if self._outer_index < len(self._items) else None)
+        task_name = item.task_name if item is not None else ""
+
+        # Wall-clock, including any wait for a human: this is the number the recorded
+        # duration replaces on completion, and that one counts the wait too. Only the
+        # countdown below works in machine time.
         elapsed = time.time() - self._active_start_time
-        task_name = ""
-        if self._outer_index < len(self._items):
-            task_name = self._items[self._outer_index].task_name
-        duration_str = format_duration(elapsed)
-        self._outer._steps[self._outer_index].subtitle = f"{task_name} ({duration_str})"
-        self._outer._rows[self._outer_index].refresh(self._outer._steps[self._outer_index])
+        estimate = self._estimate_for(item)
+
+        if self._waiting_for_user:
+            # The subtitle keeps its elapsed rather than repeating the column: the
+            # header already says "waiting for you", and how long it has been sitting
+            # there is the thing not said anywhere else.
+            step.subtitle = f"{task_name} ({format_duration(elapsed)})"
+            step.trailing = "waiting"
+        elif estimate is None:
+            step.subtitle = f"{task_name} ({format_duration(elapsed)})"
+            step.trailing = ""
+        elif self._machine_elapsed(elapsed) < estimate:
+            step.subtitle = f"{task_name} ({format_duration(elapsed)})"
+            step.trailing = f"{format_duration(estimate - self._machine_elapsed(elapsed))} left"
+        else:
+            # The estimate is spent, so the column stops predicting and reports instead —
+            # elapsed, which is the same kind of number the row will show once it is
+            # done. Nothing goes negative, nothing stalls, and nothing changes colour:
+            # a task running long is variance, not an error.
+            step.subtitle = task_name
+            step.trailing = format_duration(elapsed)
+
+        self._outer._rows[self._outer_index].refresh(step)
+        self._update_summary()
 
     def _set_completion_subtitle(self, outer_idx: int, task_duration: Optional[float], task_name: str = "", completed_at: Optional[float] = None) -> None:
-        from datetime import datetime
-        from fibsem.utils import format_duration
+        """What a finished row says: where it got to, and what it cost.
+
+        The duration goes in the estimate column rather than in brackets after the task
+        name, so a finished row lines up with the pending ones and the whole workflow can
+        be read down one column. It is wall-clock and still counts any supervised wait —
+        `AutoLamellaTaskState.duration` is end minus start, and the experiment record
+        agrees with it.
+        """
         if not (0 <= outer_idx < len(self._outer._steps)):
             return
-        duration_str = ""
         time_str = ""
-        if task_duration is not None:
-            duration_str = f" ({format_duration(task_duration)})"
-
         if completed_at is not None:
-            time_str = f" · {datetime.fromtimestamp(completed_at).strftime(TIME_DISPLAY_AMPM_SHORT)}"
-        self._outer._steps[outer_idx].subtitle = f"{task_name}{duration_str}{time_str}"
+            # `.lstrip("0")`, as `format_clock` does: the header now quotes a finish
+            # time in the same panel, and `06:59PM` beside `7:13PM` reads as two
+            # different clocks rather than one convention.
+            stamp = datetime.fromtimestamp(completed_at).strftime(TIME_DISPLAY_AMPM_SHORT)
+            time_str = f" · {stamp.lstrip('0')}"
+        self._outer._steps[outer_idx].subtitle = f"{task_name}{time_str}"
+        if task_duration is not None:
+            self._outer._steps[outer_idx].trailing = format_duration(task_duration)
 
 
 # ── Demo ──────────────────────────────────────────────────────────────────────

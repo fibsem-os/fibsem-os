@@ -16,6 +16,7 @@ and the seven places it differs are seven constructor arguments a base class wou
 for one caller.
 """
 
+from datetime import datetime
 from typing import Iterable, List, Optional, Tuple
 
 from PyQt5.QtCore import Qt
@@ -29,6 +30,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.constants import DATETIME_DISPLAY_AMPM, TIME_DISPLAY_AMPM_SHORT
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
 from fibsem.utils import format_time_remaining as utils_format_time_remaining
@@ -91,6 +93,37 @@ class PathValue(str):
     a dialog's width and wrapped to three lines; and the part that answers "am I writing
     where I meant to" is the tail, not the mount point (FIB-660).
     """
+
+
+def format_clock(when: Optional[datetime], reference: Optional[datetime]) -> str:
+    """A time the user can act on: `6:15AM` today, `Tomorrow, 6:15AM` overnight.
+
+    The day is not decoration. An overnight workflow is exactly the case a pre-flight
+    estimate exists for, and a bare clock time for one finishing the next morning is
+    wrong by a day in the direction that matters -- `_wait_until_scheduled` dates its
+    countdown for the same reason. But a date stamp reads as a filename where a person
+    would just say "tomorrow", so the two days either side of today get the word instead.
+
+    Anything further out keeps the dated form: "in 3 days" is arithmetic the reader has
+    to do, and a workflow reaching that far is rare enough not to optimise for.
+
+    Lives here rather than in the dialog that first needed it because the in-run timeline
+    quotes the same finish time; two copies of this rule would drift.
+    """
+    if when is None:
+        return "\u2014"
+    # 6:15AM, not 06:15AM -- the leading zero is noise at this size.
+    time_str = when.strftime(TIME_DISPLAY_AMPM_SHORT).lstrip("0")
+    if reference is None:
+        return time_str
+    days = (when.date() - reference.date()).days
+    if days == 0:
+        return time_str
+    if days == 1:
+        return f"Tomorrow, {time_str}"
+    if days == -1:
+        return f"Yesterday, {time_str}"
+    return when.strftime(DATETIME_DISPLAY_AMPM)
 
 
 def chip(text: str) -> QWidget:

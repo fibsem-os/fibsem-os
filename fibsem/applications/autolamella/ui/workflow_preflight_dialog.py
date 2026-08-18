@@ -28,7 +28,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.constants import DATETIME_DISPLAY_AMPM, TIME_DISPLAY_AMPM_SHORT
 from fibsem.applications.autolamella.workflows.workflow_estimate import (
     TaskEstimate,
     WorkflowEstimate,
@@ -42,6 +41,7 @@ from fibsem.ui.widgets.preflight import (
     TEXT_MUTED,
     TEXT_STRONG,
     chip,
+    format_clock as _clock,
     format_duration,
     meta_label,
 )
@@ -64,34 +64,6 @@ _NAMES_SHOWN = 12
 # darker panel behind it -- a lighter block around every word. Only visible with the
 # app stylesheet loaded, which is why the offscreen renders looked clean.
 _ON_PANEL = "background: transparent; border: none; "
-
-
-def _clock(when: Optional[datetime], reference: Optional[datetime]) -> str:
-    """A time the user can act on: `6:15AM` today, `Tomorrow, 6:15AM` overnight.
-
-    The day is not decoration. An overnight workflow is exactly the case this dialog
-    exists for, and a bare clock time for one finishing the next morning is wrong by a
-    day in the direction that matters -- `_wait_until_scheduled` dates its countdown for
-    the same reason. But a date stamp reads as a filename where a person would just say
-    "tomorrow", so the two days either side of today get the word instead.
-
-    Anything further out keeps the dated form: "in 3 days" is arithmetic the reader has
-    to do, and a workflow reaching that far is rare enough not to optimise for.
-    """
-    if when is None:
-        return "—"
-    # 6:15AM, not 06:15AM -- the leading zero is noise at this size.
-    time_str = when.strftime(TIME_DISPLAY_AMPM_SHORT).lstrip("0")
-    if reference is None:
-        return time_str
-    days = (when.date() - reference.date()).days
-    if days == 0:
-        return time_str
-    if days == 1:
-        return f"Tomorrow, {time_str}"
-    if days == -1:
-        return f"Yesterday, {time_str}"
-    return when.strftime(DATETIME_DISPLAY_AMPM)
 
 
 def _metric(label_text: str, value_text: str) -> QWidget:
