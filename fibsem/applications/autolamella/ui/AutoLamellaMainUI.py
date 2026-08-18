@@ -566,6 +566,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_border_waiting.triggered.connect(
             lambda: self._set_border_state("waiting")
         )
+        self.action_border_pending = QAction("Pending (grey)", self)
+        self.action_border_pending.triggered.connect(
+            lambda: self._set_border_state("pending")
+        )
+        self.action_border_stopping = QAction("Stopping (red)", self)
+        self.action_border_stopping.triggered.connect(
+            lambda: self._set_border_state("stopping")
+        )
 
         self.action_border_idle = QAction("Idle (no border)", self)
         self.action_border_idle.triggered.connect(
@@ -592,6 +600,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         border_menu.addAction(self.action_border_automated)  # type: ignore
         border_menu.addAction(self.action_border_supervised)  # type: ignore
         border_menu.addAction(self.action_border_waiting)  # type: ignore
+        border_menu.addAction(self.action_border_pending)  # type: ignore
+        border_menu.addAction(self.action_border_stopping)  # type: ignore
         border_menu.addAction(self.action_border_idle)  # type: ignore
         border_menu.addAction(self.action_border_agent)  # type: ignore
 
@@ -983,7 +993,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
         if reply == QMessageBox.Yes and self.autolamella_ui is not None:
             self.autolamella_ui.stop_task_workflow()
-            self._set_border_state("stopped")
+            self._set_border_state("stopping")
 
     def _on_user_attention_clicked(self):
         """Handle user attention button click - switch to Microscope tab."""
@@ -2084,10 +2094,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         t1 = time.time()
 
         # Update border to reflect current workflow state
-        if self._border_state == "stopped":
-            pass  # Keep red border until workflow finishes
+        if self._border_state == "stopping":
+            pass  # Keep the red border until the workflow finishes unwinding
         elif waiting:
             self._set_border_state("waiting")
+        elif self.autolamella_ui.WORKFLOW_PENDING:
+            self._set_border_state("pending")
         elif self.autolamella_ui.is_workflow_running:
             self._set_border_state("supervised" if supervised else "automated")
         else:
