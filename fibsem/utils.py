@@ -65,15 +65,31 @@ def format_duration(seconds: float) -> str:
         return f"{seconds:.2f}s"
 
 
-def format_time_remaining(seconds: float) -> str:
-    """Format a remaining-time value (seconds) as a compact whole-unit string (e.g. '1h 1m', '4m 12s', '5s')."""
-    total = int(seconds)
+def format_time_remaining(seconds: float, pad: bool = False) -> str:
+    """A duration in whole units: `1h 01m`, `4m 12s`, `5s`.
+
+    Rounded rather than truncated, so a value a hair under a boundary reads as the
+    boundary -- 59.6 s is `1m 00s`, not `59s`. Rounding *before* the branch is what makes
+    that work: 60 is no longer under a minute, so it takes the minutes arm.
+
+    *pad* zero-fills the second unit, which is what a column of durations wants -- a
+    figure that changes width as it counts down drags everything after it sideways. Left
+    off by default because a log line does not care.
+
+    Not `format_duration` above, which carries two decimal places: that is the right
+    shape for a milling estimate quoted to the second and the wrong one for a figure
+    already presented as approximate. Not `task_summary_formatting.format_duration_short`
+    either -- that is a fixed-width `MMm:SSs` for a table column, blank on a missing
+    value, which is a third job again.
+    """
+    total = int(round(seconds))
     hours, rem = divmod(total, 3600)
     minutes, secs = divmod(rem, 60)
+    width = "02d" if pad else "d"
     if hours:
-        return f"{hours}h {minutes}m"
+        return f"{hours}h {minutes:{width}}m"
     if minutes:
-        return f"{minutes}m {secs}s"
+        return f"{minutes}m {secs:{width}}s"
     return f"{secs}s"
 
 SI_PREFIXES = {

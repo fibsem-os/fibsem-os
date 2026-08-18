@@ -2124,6 +2124,11 @@ class FMOverviewWidget(QWidget):
             autofocus_settings=autofocus_settings,
             objective_current=self.settings_widget._objective_current,
             objective_focus=self.settings_widget._objective_focus,
+            # Read the same way `_sync_tile_fov` already does, and only when the dialog
+            # opens rather than on every refresh. Best effort: a disk estimate is not a
+            # reason to refuse to show the dialog.
+            tile_resolution=self._camera_resolution(),
+            save_directory=self._save_directory,
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
@@ -2157,6 +2162,14 @@ class FMOverviewWidget(QWidget):
         )
         self._worker = FunctionWorker(self._acquire_worker)
         self._worker.start()
+
+    def _camera_resolution(self) -> Optional[tuple]:
+        """The camera's pixel dimensions, or None if it cannot be asked right now."""
+        try:
+            return tuple(self.fm.camera.resolution)
+        except Exception as e:
+            logging.debug(f"Could not read the camera resolution: {e}")
+            return None
 
     def _claim_destination(self) -> Optional["OverviewDestination"]:
         """Where this run's files go, or None if nowhere.

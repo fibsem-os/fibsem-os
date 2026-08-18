@@ -19,7 +19,17 @@ from PyQt5.QtWidgets import QWidget
 
 from fibsem import constants
 from fibsem.structures import OverviewAcquisitionSettings
-from fibsem.ui.widgets.preflight import OverviewPreflightDialog, format_duration
+from fibsem.ui.widgets.preflight import (
+    OverviewPreflightDialog,
+    PathValue,
+    format_bytes,
+    format_duration,
+    mosaic_pixels,
+)
+
+# Beam images are 8-bit. Stated rather than read off a tile, because the dialog is shown
+# before anything has been acquired -- there is no image to ask.
+BEAM_BYTES_PER_PIXEL = 1
 
 
 class OverviewConfirmationDialog(OverviewPreflightDialog):
@@ -104,10 +114,24 @@ class OverviewConfirmationDialog(OverviewPreflightDialog):
         ))
         detail.append(("Auto contrast", "on" if image.autocontrast else "off"))
 
+        # What it will cost on disk. Tiles are written one file each and the stitch is
+        # written beside them, all uncompressed -- measured at 1.00x the array plus a
+        # 2 kB header -- so the array sizes are the estimate rather than a floor for it.
+        mosaic_w, mosaic_h = mosaic_pixels(
+            s.nrows, s.ncols, s.overlap, width, height
+        )
+        tile_bytes = width * height * BEAM_BYTES_PER_PIXEL
+        detail.append((
+            "Disk",
+            f"~{format_bytes(s.n_enabled_tiles * tile_bytes + mosaic_w * mosaic_h * BEAM_BYTES_PER_PIXEL)}"
+            f"   ({format_bytes(tile_bytes)} per tile"
+            f" · {mosaic_w} × {mosaic_h} px stitched)",
+        ))
+
         # Where it lands, which is the other thing that survives a tab switch unnoticed:
         # the filename names the tile sub-folder, so two runs under one name interleave.
         if image.path:
-            detail.append(("Saving to", f"{image.path}/{image.filename}"))
+            detail.append(("Saving to", PathValue(f"{image.path}/{image.filename}")))
 
         # "Scan time", not "Estimated time": this is dwell over pixels, and it leaves out
         # the stage entirely. A real run is several times longer -- see

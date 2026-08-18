@@ -30,6 +30,8 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.ui import stylesheets
+from fibsem.ui.widgets.custom_widgets import ElidedLabel
+from fibsem.utils import format_time_remaining as utils_format_time_remaining
 
 BACKGROUND = stylesheets.SURFACE_COLOR
 PANEL = stylesheets.PANEL_COLOR
@@ -42,16 +44,53 @@ TEXT_MUTED = stylesheets.TEXT_MUTED_COLOR
 def format_duration(seconds: float) -> str:
     """`2m 14s`, `1h 03m`, `45s` — whichever reads best at that magnitude.
 
-    Not `fibsem.utils.format_duration`, which carries two decimal places: that is the
-    right shape for a milling estimate quoted to the second, and the wrong one for a
-    figure that is already approximate.
+    The padded form of `fibsem.utils.format_time_remaining`, which was the same three
+    branches with the same thresholds written a second time (FIB-701). Kept as a name
+    here because every dialog in this module asks for the same shape, and `pad=True` at
+    a dozen call sites is a detail none of them should be restating.
     """
-    seconds = int(round(seconds))
-    if seconds < 60:
-        return f"{seconds}s"
-    if seconds < 3600:
-        return f"{seconds // 60}m {seconds % 60:02d}s"
-    return f"{seconds // 3600}h {(seconds % 3600) // 60:02d}m"
+    return utils_format_time_remaining(seconds, pad=True)
+
+
+def format_bytes(count: float) -> str:
+    """`3.4 GB`, `880 MB`, `12 kB`. Decimal units, because a disk is sold in them.
+
+    One decimal place above a gigabyte and none below: the number is an estimate of what
+    a run will write, and quoting it to four figures would claim a precision the tile
+    count does not have.
+    """
+    for unit, step in (("TB", 1e12), ("GB", 1e9), ("MB", 1e6), ("kB", 1e3)):
+        if count >= step:
+            value = count / step
+            return f"{value:.1f} {unit}" if unit in ("TB", "GB") else f"{value:.0f} {unit}"
+    return f"{int(count)} B"
+
+
+def mosaic_pixels(rows: int, cols: int, overlap: float, width: int, height: int):
+    """How big the stitched mosaic comes out, in pixels.
+
+    The same step the runners use -- `fov * (1 - overlap)` per tile, plus one whole tile
+    -- so the estimate cannot disagree with what is allocated. The mask does not enter:
+    skipped tiles keep their place, so the rectangle is the full grid either way.
+    """
+    return (
+        int(round(((cols - 1) * (1 - overlap) + 1) * width)),
+        int(round(((rows - 1) * (1 - overlap) + 1) * height)),
+    )
+
+
+class PathValue(str):
+    """A detail-block value that is a filesystem path, and should be shown as one.
+
+    A `str` subclass rather than a flag on the row, so a caller that only wants the text
+    -- a test, a log line, the row tuple itself -- is unaffected, and `detail_block`
+    needs no second shape of row to carry the distinction.
+
+    What it buys: elided from the *left* with the whole path in the tooltip. A
+    destination is an experiment path plus a stamped run directory, which runs well past
+    a dialog's width and wrapped to three lines; and the part that answers "am I writing
+    where I meant to" is the tail, not the mount point (FIB-660).
+    """
 
 
 def chip(text: str) -> QWidget:
@@ -102,9 +141,12 @@ def detail_block(
         label.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px; border: none;")
         label.setFixedWidth(label_width)
         label.setWordWrap(wrap_labels)
-        value = QLabel(value_text)
+        if isinstance(value_text, PathValue):
+            value = ElidedLabel(str(value_text), mode=Qt.ElideLeft)
+        else:
+            value = QLabel(value_text)
+            value.setWordWrap(True)
         value.setStyleSheet(f"color: {TEXT}; font-size: 11px; border: none;")
-        value.setWordWrap(True)
         row.addWidget(label, alignment=Qt.AlignTop)
         row.addWidget(value, stretch=1)
         layout.addLayout(row)

@@ -235,3 +235,68 @@ def test_the_two_overview_dialogs_are_one_dialog():
         # answered -- an unimplemented one raises only when the dialog is opened.
         for hook in ("_meta_line", "_rows", "_tile_counts"):
             assert hook in vars(cls), f"{cls.__name__} does not supply {hook}"
+
+
+# ── what a run costs, and where it goes ──────────────────────────────────
+
+
+class TestTheRunsCost:
+    def test_the_disk_estimate_counts_the_tiles_and_the_stitch(self, dialog):
+        """Both are written, both uncompressed -- measured at 1.00x the array plus a
+        2 kB header -- so the array sizes are the estimate rather than a floor."""
+        from fibsem.ui.widgets.preflight import mosaic_pixels
+
+        settings = _settings(nrows=3, ncols=3)
+        rows = _rows(dialog(settings=settings))
+
+        width, height = settings.image_settings.resolution
+        mosaic_w, mosaic_h = mosaic_pixels(3, 3, settings.overlap, width, height)
+        expected = 9 * width * height + mosaic_w * mosaic_h
+
+        from fibsem.ui.widgets.preflight import format_bytes
+        assert format_bytes(expected) in rows["Disk"]
+        assert f"{mosaic_w} × {mosaic_h} px stitched" in rows["Disk"]
+
+    def test_a_masked_run_costs_only_the_tiles_it_writes(self, dialog):
+        """The stitch does not shrink -- skipped tiles keep their place -- so only the
+        per-tile half of the estimate follows the mask."""
+        full = _rows(dialog(settings=_settings(nrows=3, ncols=3)))["Disk"]
+        sparse = _rows(dialog(settings=_settings(
+            nrows=3, ncols=3,
+            tile_mask=[[True, False, False], [False, True, False], [False, False, True]],
+        )))["Disk"]
+        assert full != sparse
+
+    def test_the_destination_is_marked_as_a_path(self, dialog):
+        """`PathValue` is what makes `detail_block` elide from the left and put the whole
+        thing in a tooltip: the tail answers "am I writing where I meant to", and the
+        leading directories are the same on every line (FIB-660)."""
+        from fibsem.ui.widgets.preflight import PathValue
+
+        rows = _rows(dialog(settings=_settings(image={"path": "/experiments/demo"})))
+        assert isinstance(rows["Saving to"], PathValue)
+
+
+class TestTheDurationFormatters:
+    """One shape, one implementation (FIB-701)."""
+
+    def test_the_preflight_format_is_the_padded_shared_one(self):
+        from fibsem.utils import format_time_remaining
+        from fibsem.ui.widgets.preflight import format_duration
+
+        for seconds in (0, 5, 45, 59.6, 60, 65, 125, 3599, 3600, 7000, 86_399):
+            assert format_duration(seconds) == format_time_remaining(seconds, pad=True)
+
+    def test_padding_is_what_stops_a_column_jittering(self):
+        from fibsem.utils import format_time_remaining
+
+        assert format_time_remaining(65, pad=True) == "1m 05s"
+        assert format_time_remaining(65) == "1m 5s"
+
+    def test_a_value_just_under_a_boundary_rounds_up_into_it(self):
+        """Rounded before the branch, not after: 60 is no longer under a minute, so it
+        takes the minutes arm rather than reading as `60s`."""
+        from fibsem.utils import format_time_remaining
+
+        assert format_time_remaining(59.6, pad=True) == "1m 00s"
+        assert format_time_remaining(59.4, pad=True) == "59s"
