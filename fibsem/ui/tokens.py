@@ -116,6 +116,12 @@ NEUTRAL_800 = "#3a3a3a"
 NEUTRAL_850 = "#2a2a2a"
 NEUTRAL_900 = "#1a1b1e"
 
+# Role name for the workflow border's "queued, but nothing is executing" state.
+# Points at the neutral the workflow timeline already uses for StepStatus.PENDING
+# (its ``_DOT_PENDING``), so a parked run reads the same on both surfaces instead
+# of inventing a seventh colour for an idea the app already has one for.
+PENDING_COLOR = NEUTRAL_700
+
 # ---------------------------------------------------------------------------
 # Deprecated aliases.
 #

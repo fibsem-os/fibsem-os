@@ -203,6 +203,9 @@ class AutoLamellaUI(QMainWindow):
         self.tabWidget.insertTab(0, self.system_widget, "Connection")
 
         self.WAITING_FOR_USER_INTERACTION: bool = False
+        # A run is active but nothing is executing -- today only during a
+        # scheduled-start wait. Set from the worker thread, read by the border.
+        self.WORKFLOW_PENDING: bool = False
         self.USER_RESPONSE: bool = False
         self.WAITING_FOR_UI_UPDATE: bool = False
         self.SELECTED_POI: Optional[Point] = None
@@ -1813,6 +1816,7 @@ class AutoLamellaUI(QMainWindow):
         self.tabWidget.setCurrentIndex(self.tabWidget.indexOf(self.tab))
 
         self.WAITING_FOR_USER_INTERACTION = False
+        self.WORKFLOW_PENDING = False
 
         # clear milling task config
         if self.milling_task_config_widget is not None:

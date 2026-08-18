@@ -1965,7 +1965,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
     def _toggle_milling(self):
         """Start milling if idle, stop if running."""
         if self.btn_milling.text() == "Stop Milling":
-            self._set_border_state("stopped")
+            self._set_border_state("stopping")
             if self.milling_viewer_widget is not None:
                 self.milling_viewer_widget.milling_widget.stop_milling()
         else:
@@ -2288,15 +2288,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         layout.setSpacing(0)
         layout.addWidget(canvas)
         return frame
-
-    _BORDER_STATES = [
-        "idle",
-        "automated",
-        "supervised",
-        "waiting",
-        "finished",
-        "stopped",
-    ]
 
     def set_border_enabled(self, enabled: bool) -> None:
         """Enable or disable the workflow border state animation.

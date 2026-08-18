@@ -28,6 +28,7 @@ from fibsem.ui.tokens import (  # noqa: F401  (re-exported for existing callers)
     OK_COLOR,
     ORANGE_COLOR,
     PANEL_COLOR,
+    PENDING_COLOR,
     PRIMARY_ACCENT,
     PRIMARY_COLOR,
     PRIMARY_COLOR_HOVER,
@@ -310,10 +311,11 @@ QToolTip {{
 # TODO: no token -- #BF00FF
 BORDER_STATE_COLOURS = {
     "idle": SURFACE_COLOR,
+    "pending": PENDING_COLOR,
     "automated": OK_COLOR,
     "supervised": PRIMARY_COLOR,
     "waiting": ORANGE_COLOR,
-    "stopped": SEMANTIC_ERROR_COLOR,
+    "stopping": SEMANTIC_ERROR_COLOR,
     "agent": "#BF00FF",
 }
 

@@ -445,19 +445,37 @@ class TaskManager:
             scheduled_at = scheduled_at.astimezone().replace(tzinfo=None)
         target_str = scheduled_at.strftime(DATETIME_DISPLAY_AMPM)
         next_update = 0.0  # force an immediate first message
-        while not self.should_abort:
-            remaining = (scheduled_at - datetime.now()).total_seconds()
-            if remaining <= 0:
-                break
+        self._set_workflow_pending(True)
+        try:
+            while not self.should_abort:
+                remaining = (scheduled_at - datetime.now()).total_seconds()
+                if remaining <= 0:
+                    break
 
-            now = time.monotonic()
-            if now >= next_update:
-                msg = (f"Waiting until {target_str} to start {task_name} on "
-                       f"{lamella.name} ({format_time_remaining(remaining)} remaining).")
-                update_status_ui(self.parent_ui, "", status_bar=msg)
-                next_update = now + 15.0
+                now = time.monotonic()
+                if now >= next_update:
+                    msg = (f"Waiting until {target_str} to start {task_name} on "
+                           f"{lamella.name} ({format_time_remaining(remaining)} remaining).")
+                    update_status_ui(self.parent_ui, "", status_bar=msg)
+                    next_update = now + 15.0
 
-            time.sleep(min(1.0, remaining))
+                time.sleep(min(1.0, remaining))
+        finally:
+            # The time arriving, a stop, and an exception all have to clear this.
+            # A stranded flag would leave the border reading "nothing is running"
+            # for the rest of the run.
+            self._set_workflow_pending(False)
+
+    def _set_workflow_pending(self, pending: bool) -> None:
+        """Tell the UI a run is active but nothing is executing.
+
+        Read by the workflow border, which would otherwise show the running
+        colour throughout a scheduled wait that can last hours. Set on the worker
+        thread and read on the GUI thread, the same way WAITING_FOR_USER_INTERACTION
+        already is.
+        """
+        if self.parent_ui is not None:
+            self.parent_ui.WORKFLOW_PENDING = pending
 
     def _should_skip(self, lamella: 'Lamella', task_name: str) -> Optional[str]:
         """Return skip reason string, or None if task should run.
