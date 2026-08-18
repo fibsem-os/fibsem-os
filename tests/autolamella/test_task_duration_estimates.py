@@ -56,6 +56,37 @@ def test_opening_reference_acquisition_is_half_the_closing_one():
     )
 
 
+def test_every_task_is_charged_its_opening_move_by_default():
+    """Nearly every _run starts by moving onto its pose, so the base charges it and the
+    exceptions opt out -- rather than each task having to remember to opt in."""
+    from fibsem.applications.autolamella.workflows.tasks.mill_coincident import (
+        MillCoincidentTaskConfig,
+    )
+    assert MillFiducialTaskConfig().opens_with_stage_move is True
+    assert MillCoincidentTaskConfig().opens_with_stage_move is False
+
+
+def test_a_task_that_does_not_move_is_not_charged_for_it():
+    from fibsem.applications.autolamella.workflows.tasks.mill_coincident import (
+        MillCoincidentTaskConfig,
+    )
+    cfg = MillCoincidentTaskConfig()
+    cfg.milling = {}
+    assert cfg.estimated_duration == pytest.approx(
+        _base_reference(cfg) + timing.REFERENCE_ALIGNMENT_S
+    )
+
+
+def test_reference_alignment_is_opt_in():
+    """A task that claims it when it does not adds 5 s of fiction to every estimate."""
+    from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskConfig
+    from fibsem.applications.autolamella.workflows.tasks.undercut import (
+        MillUndercutTaskConfig,
+    )
+    assert MillRoughTaskConfig().opens_with_reference_alignment is True
+    assert MillUndercutTaskConfig().opens_with_reference_alignment is False
+
+
 def test_fiducial_counts_the_move_and_the_reference_alignment():
     aligned = MillFiducialTaskConfig(align_to_reference=True)
     unaligned = MillFiducialTaskConfig(align_to_reference=False)

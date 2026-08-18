@@ -213,6 +213,26 @@ class AutoLamellaTaskConfig(ABC):
         return milling_time + imaging_time
 
     @property
+    def opens_with_stage_move(self) -> bool:
+        """Whether ``_run`` begins by moving the stage onto the task's pose.
+
+        True for nearly every task, and the exceptions say so. Charged even when the
+        stage is already in place -- a task following another on the same lamella pays
+        0.02 s for the move rather than 7.6 s -- because which case applies is runtime
+        state the config cannot see, and over-charging errs long.
+        """
+        return True
+
+    @property
+    def opens_with_reference_alignment(self) -> bool:
+        """Whether ``_run`` aligns against the stored reference before its own work.
+
+        Off by default: only some tasks do it, and a task that claims it when it does
+        not adds 5 s of fiction to every estimate that includes it.
+        """
+        return False
+
+    @property
     def estimated_duration(self) -> float:
         """Conservative forward estimate of this task's wall-clock, in seconds.
 
@@ -232,6 +252,11 @@ class AutoLamellaTaskConfig(ABC):
         # _acquire_set_of_reference_images over all of them.
         total = timing.reference_image_cost(self.reference_imaging, fovs=1)
         total += timing.reference_image_cost(self.reference_imaging)
+        # what _run does before its own work
+        if self.opens_with_stage_move:
+            total += timing.stage_move_cost(1)
+        if self.opens_with_reference_alignment:
+            total += timing.REFERENCE_ALIGNMENT_S
         for milling_task in self.milling.values():
             total += timing.milling_task_cost(milling_task)
         return total

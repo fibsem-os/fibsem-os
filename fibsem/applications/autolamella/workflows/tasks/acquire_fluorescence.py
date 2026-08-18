@@ -83,7 +83,6 @@ class AcquireFluorescenceImageConfig(AutoLamellaTaskConfig):
         the config cannot see, so it is always counted, which errs long.
         """
         total = super().estimated_duration
-        total += timing.stage_move_cost(1)                 # move to the lamella
         total += timing.OBJECTIVE_INSERT_S
         total += timing.OBJECTIVE_FOCUS_MOVE_S
         total += estimate_autofocus_time(self.autofocus_settings, self.channel_settings)

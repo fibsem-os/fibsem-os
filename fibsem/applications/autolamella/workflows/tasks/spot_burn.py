@@ -62,6 +62,10 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
         return tuple(p for p in super().parameters if p != "coordinates")
 
     @property
+    def opens_with_reference_alignment(self) -> bool:
+        return True
+
+    @property
     def estimated_duration(self) -> float:
         """The base estimate plus everything ``_run`` does, in the order it does it.
 
@@ -74,8 +78,6 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
         Each point costs its exposure plus a blank/park/unblank cycle.
         """
         total = super().estimated_duration
-        total += timing.stage_move_cost(1)            # _move_to_milling_pose
-        total += timing.REFERENCE_ALIGNMENT_S         # _align_reference_image
         total += 2 * timing.BEAM_CURRENT_CHANGE_S     # into the burn current and back
         total += len(self.coordinates) * (
             self.exposure_time + timing.SPOT_BURN_POINT_OVERHEAD_S

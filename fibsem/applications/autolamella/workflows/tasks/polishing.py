@@ -27,6 +27,12 @@ class MillPolishingTaskConfig(AutoLamellaTaskConfig):
             tooltip="Link the milling pattern positions to the point of interest. Pattern positions will update when the POI is updated."),
     )
     task_type: ClassVar[str] = "MILL_POLISHING"
+
+    @property
+    def opens_with_reference_alignment(self) -> bool:
+        """_run aligns against the stored reference before milling."""
+        return True
+
     display_name: ClassVar[str] = "Polishing"
 
     def __post_init__(self):
