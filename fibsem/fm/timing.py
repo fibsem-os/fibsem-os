@@ -110,7 +110,11 @@ def estimate_autofocus_time(
     if channel is None:
         channel = channel_settings[0]
 
-    n_images = sum(p.n_steps for p in autofocus_settings.passes if p.enabled)
+    # n_steps + 1, matching the sweep itself: run_autofocus builds its working
+    # distances with np.linspace(..., n_steps + 1), so a pass covering n steps takes
+    # n + 1 images. The measured run logged "21 positions" for a 20-step pass and
+    # "11 positions" for a 10-step one.
+    n_images = sum(p.n_steps + 1 for p in autofocus_settings.passes if p.enabled)
     # one objective move between consecutive steps, as in the z-stack above
     n_moves = max(n_images - 1, 0)
     return (
