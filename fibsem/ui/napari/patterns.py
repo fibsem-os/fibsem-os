@@ -19,7 +19,10 @@ from fibsem.milling.patterning.patterns2 import (
     BasePattern,
     FiducialPattern,
 )
-from fibsem.conversions import get_image_pixel_centre
+from fibsem.conversions import (
+    get_image_pixel_centre,
+    microscope_image_to_image_coordinates,
+)
 from fibsem.structures import (
     FibsemBitmapSettings,
     FibsemCircleSettings,
@@ -271,16 +274,20 @@ def convert_pattern_to_napari_polygon(pattern_settings: FibsemPolygonSettings,
     if not isinstance(pattern_settings, FibsemPolygonSettings):
         raise ValueError(f"Pattern is not a Polygon: {pattern_settings}")
 
-    # image centre
-    icy, icx = get_image_pixel_centre(shape)
+    # Vertices are (x, y) in microscope metres, the same frame as every other
+    # pattern's centre_x / centre_y. This previously added the image centre to
+    # both axes, which drew the polygon mirrored about it: microscope +y is up
+    # and image rows go down, so y has to be subtracted, not added (FIB-692).
+    points = [
+        microscope_image_to_image_coordinates(
+            Point(x=float(vx), y=float(vy)), shape, pixelsize
+        )
+        for vx, vy in pattern_settings.vertices
+    ]
 
-    vertices = np.array(pattern_settings.vertices)
-    # convert vertices to pixels
-    vertices = vertices / pixelsize
-    # reverse the order of coordinates for napari
-    vertices = vertices[:, ::-1]
-    # add the image centre
-    vertices += np.array([icy, icx])
+    # napari wants (row, column) — i.e. (y, x) — so the swap happens after the
+    # conversion, not before it
+    vertices = np.array([[p.y, p.x] for p in points], dtype=float).reshape(-1, 2)
 
     return vertices, {"translate": translation}
 
