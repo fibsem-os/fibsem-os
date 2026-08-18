@@ -198,6 +198,27 @@ def test_the_new_tab_is_behind_its_own_feature_flag(window_source):
     )
 
 
+def test_the_flag_reaches_the_widget_and_not_just_the_tab_bar(window_source):
+    """Off has to mean "not built", not "built and hidden".
+
+    The widget subscribes to the microscope for its lifetime, so one left behind goes on
+    working for a tab nobody can open. `set_enabled` is what carries the flag past the
+    tab bar; the behaviour it buys is tested in `test_overview_tab_host.py`.
+    """
+    import re
+
+    body = re.search(
+        r"def _apply_overview_canvas_visibility\(.*?\n(?=    def )",
+        window_source,
+        re.S,
+    )
+    assert body, "_apply_overview_canvas_visibility is gone; this test is stale"
+    body = body.group(0)
+    assert "set_enabled(enabled)" in body, (
+        "the flag only reaches setTabVisible; the widget is still built when it is off"
+    )
+
+
 def test_the_flag_exists_and_is_off_by_default():
     """Off by default: the napari Overview tab is the one people are relying on until
     this has had bench time."""

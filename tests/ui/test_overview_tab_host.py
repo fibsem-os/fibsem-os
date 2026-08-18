@@ -297,3 +297,59 @@ class TestLifecycle:
             f"a subscription survived the drop: {before} -> {after}"
         )
         assert not tab.is_available
+
+
+class TestTheFlagOff:
+    """What "off by default" has to mean.
+
+    Hiding the tab is only half of it. The widget subscribes to the microscope for its
+    lifetime, so one built and then hidden goes on redrawing overlays on every stage
+    move and counting tiles through every acquisition, for a tab nobody can open --
+    and goes on holding psygnal references that have to be torn down later. The
+    fluorescence tab's builder documents exactly this as the reason it builds and
+    destroys rather than leaving one behind; this is the beam side keeping the promise.
+    """
+
+    def test_a_disabled_tab_builds_nothing(self, microscope, tmp_path):
+        """The flag is answered before construction, not after: a microscope is present
+        and connected here, and the tab still has to decline to build."""
+        experiment = Experiment(path=tmp_path, name="overview-flag-off")
+        os.makedirs(str(experiment.path), exist_ok=True)
+        signals = (microscope.tiled_acquisition_signal, microscope.stage_position_changed)
+        before = [len(s) for s in signals]
+
+        tab = AutoLamellaOverviewTab(_StubWindow(microscope, experiment))
+        tab.set_enabled(False)
+        tab.refresh_microscope()
+
+        assert tab.overview is None, "built the widget with the flag off"
+        assert not tab.is_available
+        assert [len(s) for s in signals] == before, (
+            "subscribed to the microscope with the flag off"
+        )
+
+    def test_turning_it_off_drops_what_was_built(self, tab, microscope):
+        signals = (microscope.tiled_acquisition_signal, microscope.stage_position_changed)
+        before = [len(s) for s in signals]
+        tab.set_enabled(False)
+        assert tab.overview is None
+        assert not tab.is_available
+        assert all(a < b for a, b in zip([len(s) for s in signals], before)), (
+            "a subscription survived the flag being turned off"
+        )
+
+    def test_turning_it_back_on_rebuilds(self, tab):
+        """The flag can be flipped in preferences while the window is up, so off is not
+        a one-way door -- and the rebuild has to be the tab's own doing, because the
+        window only ever tells it the new answer."""
+        tab.set_enabled(False)
+        tab.set_enabled(True)
+        assert tab.is_available, "the tab did not come back"
+
+    def test_repeating_the_same_answer_does_not_rebuild(self, tab):
+        """`_apply_overview_canvas_visibility` runs on every preferences change and
+        every connection. A widget rebuilt each time would throw away the canvas view,
+        the loaded overviews and the settings column on any unrelated setting."""
+        first = tab.overview
+        tab.set_enabled(True)
+        assert tab.overview is first, "rebuilt on an unchanged flag"

@@ -81,6 +81,11 @@ class AutoLamellaOverviewTab(QWidget):
         # Set while this tab is the one driving a selection, so the highlight it gets
         # back does not re-enter the list and fight whatever the user just clicked.
         self._syncing_selection = False
+        # Whether the host wants a live widget here at all -- the feature flag, as far
+        # as this object is concerned. True by default so that building this tab and
+        # calling `refresh_microscope` is enough on its own, which is how it is used
+        # standalone and in tests; the window sets it from the flag on the way in.
+        self._enabled = True
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -110,6 +115,22 @@ class AutoLamellaOverviewTab(QWidget):
     def experiment(self):
         return self.autolamella_ui.experiment if self.autolamella_ui is not None else None
 
+    def set_enabled(self, enabled: bool) -> None:
+        """Whether to hold a live widget at all.
+
+        The feature flag, arriving from the window. Separate from hiding the tab because
+        hiding it is not enough: the widget subscribes to the microscope for its
+        lifetime, so one left behind goes on doing work on every stage move and every
+        tile of every acquisition, for a tab nobody can open -- and goes on holding
+        psygnal references to tear down later. Same reasoning, and the same build-or-drop
+        answer, as `_refresh_fm_overview_microscope` gives for its capability check.
+        """
+        enabled = bool(enabled)
+        if enabled == self._enabled:
+            return
+        self._enabled = enabled
+        self.refresh_microscope()
+
     def refresh_microscope(self) -> None:
         """Build, rebuild or drop the overview widget to match the instrument.
 
@@ -118,7 +139,7 @@ class AutoLamellaOverviewTab(QWidget):
         to the previous one.
         """
         microscope = self.microscope
-        if microscope is None:
+        if microscope is None or not self._enabled:
             self._drop_overview()
             self.availability_changed.emit(False)
             return

@@ -2323,10 +2323,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """
         if getattr(self, "overview_canvas_tab", None) is None:
             return
+        enabled = self._preferences.features.overview_canvas_tab
         self.tab_widget.setTabVisible(
-            self.tab_widget.indexOf(self.overview_canvas_tab),
-            self._preferences.features.overview_canvas_tab,
+            self.tab_widget.indexOf(self.overview_canvas_tab), enabled
         )
+        # Both, and in this order: hiding the tab is what the flag looks like, dropping
+        # the widget is what it has to mean. The refresh is unconditional because it is
+        # also the reconnection path -- `refresh_microscope` answers the flag itself.
+        self.overview_canvas_tab.set_enabled(enabled)
         self.overview_canvas_tab.refresh_microscope()
 
     def _on_overview_canvas_availability(self, available: bool) -> None:
