@@ -83,10 +83,6 @@ from fibsem.ui.tokens import (
     BORDER_COLOR,
     DISABLED_BG_COLOR,
     DISABLED_TEXT_COLOR,
-    OK_COLOR,
-    ORANGE_COLOR,
-    PRIMARY_COLOR,
-    SEMANTIC_ERROR_COLOR,
     SURFACE_COLOR,
     TEXT_COLOR,
 )
@@ -103,15 +99,6 @@ _HEADER_BG = CANVAS_BG
 
 # name used for the coincidence entry in the lamella review panel / task history
 COINCIDENCE_REVIEW_TASK_NAME = "Coincidence Milling"
-
-COINCIDENCE_BORDER_STYLESHEET = f"""
-    QFrame#coincidence_border_frame[borderState="idle"]       {{ border: 4px solid {SURFACE_COLOR}; }}
-    QFrame#coincidence_border_frame[borderState="automated"]  {{ border: 4px solid {OK_COLOR}; }}
-    QFrame#coincidence_border_frame[borderState="supervised"] {{ border: 4px solid {PRIMARY_COLOR}; }}
-    QFrame#coincidence_border_frame[borderState="waiting"]    {{ border: 4px solid {ORANGE_COLOR}; }}
-    QFrame#coincidence_border_frame[borderState="finished"]   {{ border: 4px solid {OK_COLOR}; }}
-    QFrame#coincidence_border_frame[borderState="stopped"]    {{ border: 4px solid {SEMANTIC_ERROR_COLOR}; }}
-"""
 
 
 def _fmt_timestamp(ts: float) -> str:
@@ -685,7 +672,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
         outer.addWidget(self._build_bottom_bar())
 
-        self.setStyleSheet(stylesheets.NAPARI_STYLE + COINCIDENCE_BORDER_STYLESHEET)
+        self.setStyleSheet(
+            stylesheets.NAPARI_STYLE
+            + stylesheets.border_stylesheet("coincidence_border_frame")
+        )
 
         # Apply initial selected-view border (FM selected by default)
         self._set_selected_view(self.selected_view)

@@ -301,16 +301,43 @@ QToolTip {{
 }}
 """
 
+# The workflow border is drawn by two widgets -- the AutoLamella main window
+# (``workflow_border_frame``) and the coincidence viewer (``coincidence_border_frame``)
+# -- and the rules used to be spelled out once per widget. That is how ``agent``
+# came to exist in one copy and not the other. One mapping and one builder, so
+# adding a state or changing a colour is a single edit rather than two.
+#
 # TODO: no token -- #BF00FF
-WORKFLOW_BORDER_STYLESHEET = f"""
-    QFrame#workflow_border_frame[borderState="idle"]       {{ border: 4px solid {SURFACE_COLOR}; }}
-    QFrame#workflow_border_frame[borderState="automated"]  {{ border: 4px solid {OK_COLOR}; }}
-    QFrame#workflow_border_frame[borderState="supervised"] {{ border: 4px solid {PRIMARY_COLOR}; }}
-    QFrame#workflow_border_frame[borderState="waiting"]    {{ border: 4px solid {ORANGE_COLOR}; }}
-    QFrame#workflow_border_frame[borderState="finished"]  {{ border: 4px solid {OK_COLOR}; }}
-    QFrame#workflow_border_frame[borderState="stopped"]   {{ border: 4px solid {SEMANTIC_ERROR_COLOR}; }}
-    QFrame#workflow_border_frame[borderState="agent"]     {{ border: 4px solid #BF00FF; }}
-"""
+BORDER_STATE_COLOURS = {
+    "idle": SURFACE_COLOR,
+    "automated": OK_COLOR,
+    "supervised": PRIMARY_COLOR,
+    "waiting": ORANGE_COLOR,
+    "finished": OK_COLOR,
+    "stopped": SEMANTIC_ERROR_COLOR,
+    "agent": "#BF00FF",
+}
+
+BORDER_WIDTH_PX = 4
+
+
+def border_stylesheet(object_name: str) -> str:
+    """QSS border rules for the frame whose ``objectName`` is *object_name*.
+
+    Applied to the frame's parent rather than the frame itself, so that
+    ``setProperty("borderState", ...)`` plus unpolish/polish re-evaluates them.
+    """
+    selectors = {
+        state: f'QFrame#{object_name}[borderState="{state}"]'
+        for state in BORDER_STATE_COLOURS
+    }
+    width = max(len(sel) for sel in selectors.values())
+    rules = "\n".join(
+        f"    {selectors[state]:<{width}} {{ border: {BORDER_WIDTH_PX}px solid {colour}; }}"
+        for state, colour in BORDER_STATE_COLOURS.items()
+    )
+    return f"\n{rules}\n"
+
 
 # TODO: no token -- #6a6a6a, #8a8a8a
 TOOLBUTTON_ICON_STYLESHEET = f"""
