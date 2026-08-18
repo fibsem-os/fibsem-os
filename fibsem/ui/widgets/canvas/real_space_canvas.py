@@ -45,19 +45,35 @@ _logger = logging.getLogger(__name__)
 _DEFAULT_BACKGROUND = GRAY_CANVAS_COLOR  # empty space reads as "nothing acquired here"
 
 # Pixels handed to matplotlib per placed image — a *drawing* cost, and only that. Every
-# artist is redrawn in full on each pan/zoom, so a redraw costs the total drawn pixels:
-# measured on one RGBA artist, ~29 ms plus ~11 ms per megapixel, which is 100 tiles at
-# 1024 px square taking ~2.7 s against ~0.75 s at 512. And 512 is already more than the
-# display can use for the case this canvas exists for: tiles in a 3x3 occupy ~330 screen
-# px each, in a 10x10 ~100 px.
+# artist is redrawn in full on each pan/zoom, so a redraw costs the total drawn pixels
+# across every placed image. Measured per redraw on an 8192 px source:
 #
-# Distinct from how much a *caller* keeps. A caller that holds more than this can hand
-# over a different part of it, or a different resolution of it, as the view moves — and
-# that is the only way the detail comes back on zoom, since matplotlib resamples the
-# whole array however little of it is on screen (1% of a 5120 px artist costs 321 ms
-# against 335 ms for all of it). Reducing here is the floor under callers that do not:
-# the reduction box-averages, so it costs resolution and nothing else.
-_DEFAULT_DISPLAY_PX = 512
+#     images on canvas |   512   |  1024   |  2048
+#     one              | 13.9 ms | 30.8 ms |  100 ms
+#     five             | 42.6 ms |  126 ms |  451 ms
+#
+# Raised 512 -> 2048 for FIB-658: a mosaic is tens of thousands of pixels across, and 512
+# showed ~0.02% of them -- too coarse to read the sample you just spent a run acquiring.
+#
+# Distinct from how much a *caller* keeps, and that distinction decides what this figure
+# costs. A caller holding more than this can hand over a different part of it, or a
+# different resolution of it, as the view moves (`DetailSource`); for such a caller this
+# is a ceiling rarely approached, since what it is asked for is bounded by the pixels the
+# image occupies on screen. The FIB/SEM overview works that way, so the table above is not
+# what it pays. The FM canvas does not yet -- it reduces a whole composite to this figure
+# and hands it over -- so the five-image column is FM's, and is what FIB-414 removes by
+# giving it a source of its own. Drop back to 1024 if it bites before then.
+#
+# The old figure here ("100 tiles at 1024 px take ~2.7 s") measured one artist *per tile*;
+# overviews are placed as a single image per run now, so it no longer describes this
+# canvas -- but note the saving from that change is why 512 felt fine, not headroom.
+#
+# Reducing here is the floor under callers with no source: the reduction box-averages, so
+# it costs resolution and nothing else -- a feature smaller than a stored pixel is dimmed
+# into its neighbours rather than dropped. What it cannot do is give the detail back on
+# zoom, since matplotlib resamples the whole array however little of it is on screen (1%
+# of a 5120 px artist costs 321 ms against 335 ms for all of it). Only a source can.
+_DEFAULT_DISPLAY_PX = 2048
 
 # How far past the viewport a detail patch reaches, as a fraction of the viewport on each
 # side. A pan inside the margin is already drawn, so it costs nothing; one past it waits

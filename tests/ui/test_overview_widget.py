@@ -307,12 +307,25 @@ class TestTheTwoCaps:
             f"{widget._store_cap(np.uint8)} px cap"
         )
 
-    def test_the_canvas_does_not_take_the_shared_default(self, widget):
-        """Sized for a canvas holding many images; this one holds a mosaic. Not
-        tidiable away either -- the default is shared with the fluorescence canvas,
-        which reduces once per channel per layer change and blends the results, so
-        raising it there is multiplied through every one of them."""
-        assert widget.canvas.display_max_px > _DEFAULT_DISPLAY_PX
+    def test_the_draw_cap_covers_the_canvas_it_draws_on(self, widget):
+        """Below the canvas's own width a full-frame draw magnifies rather than
+        decimates, whatever is held -- so this is the floor, and it is measured against
+        the widget rather than against a constant.
+
+        It was written as "greater than the shared default", on the argument that the
+        overview should raise its own rather than the default the fluorescence canvas
+        also takes. That argument was overtaken: FIB-658 was fixed twice in parallel, and
+        the other fix (#423) raised the shared default to 2048 deliberately, for FM's
+        own much larger images. So the overview passing its own is now a statement of
+        intent rather than a difference, and the property below is what it is for.
+        """
+        assert widget.canvas.display_max_px >= widget.canvas.width(), (
+            f"a {widget.canvas.display_max_px} px cap on a "
+            f"{widget.canvas.width()} px canvas magnifies a full-frame draw"
+        )
+        assert widget.canvas.display_max_px >= _DEFAULT_DISPLAY_PX, (
+            "the overview draws less than a canvas with no detail source at all"
+        )
 
     def test_a_stored_overview_out_resolves_the_canvas_it_is_drawn_on(
         self, widget, microscope

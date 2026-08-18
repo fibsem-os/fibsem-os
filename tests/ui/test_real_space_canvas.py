@@ -628,13 +628,21 @@ def test_update_image_reports_an_unknown_key():
     assert _canvas().update_image("nope", _img()) is False
 
 
-def test_the_default_display_cap_favours_redraw_speed():
-    """A redraw costs the total stored pixels, so the default is tuned for the case this
-    canvas exists for — many images at once, where 512 px already exceeds what each gets
-    on screen. At 1024 px a 100-tile redraw took 2.7 s; at 512 px it takes ~0.7 s."""
+def test_the_default_display_cap_trades_redraw_speed_for_a_readable_mosaic():
+    """A redraw costs the total stored pixels across every placed image, so the default
+    is a trade rather than a free choice.
+
+    Raised to 2048 for FIB-658: a mosaic is tens of thousands of pixels across, and 512
+    showed ~0.02% of them. Measured per redraw on an 8192 px source — one image 13.9 ms
+    at 512, 100 ms at 2048; five images 42.6 ms at 512, 451 ms at 2048. One overview
+    stays comfortable and a canvas carrying several runs does not, which is the cost
+    being accepted here until FIB-414 gives detail back on zoom instead.
+    """
     c = _canvas()
-    c.add_image(_img(1024, 1024), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE)
-    assert max(c._ax.get_images()[0].get_array().shape) <= 512
+    c.add_image(_img(4096, 4096), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE)
+    stored = max(c._ax.get_images()[0].get_array().shape)
+    assert stored <= 2048
+    assert stored > 512, "the point of the raise is that a large image keeps more"
 
 
 def test_the_display_cap_bounds_what_each_image_stores():
