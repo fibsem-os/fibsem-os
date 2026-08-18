@@ -44,6 +44,7 @@ from fibsem.structures import (
     SessionInfo,
     get_fields_with_metadata,
 )
+from fibsem import timing
 from fibsem.utils import configure_logging as _configure_logging
 from fibsem.utils import format_duration
 
@@ -210,6 +211,55 @@ class AutoLamellaTaskConfig(ABC):
         milling_time = sum(t.estimated_time for t in self.milling.values())
         imaging_time = self.reference_imaging.estimated_time
         return milling_time + imaging_time
+
+    @property
+    def opens_with_stage_move(self) -> bool:
+        """Whether ``_run`` begins by moving the stage onto the task's pose.
+
+        True for nearly every task, and the exceptions say so. Charged even when the
+        stage is already in place -- a task following another on the same lamella pays
+        0.02 s for the move rather than 7.6 s -- because which case applies is runtime
+        state the config cannot see, and over-charging errs long.
+        """
+        return True
+
+    @property
+    def opens_with_reference_alignment(self) -> bool:
+        """Whether ``_run`` aligns against the stored reference before its own work.
+
+        Off by default: only some tasks do it, and a task that claims it when it does
+        not adds 5 s of fiction to every estimate that includes it.
+        """
+        return False
+
+    @property
+    def estimated_duration(self) -> float:
+        """Conservative forward estimate of this task's wall-clock, in seconds.
+
+        Unlike :attr:`estimated_time`, which counts only the scan arithmetic and the
+        milling, this adds the measured per-operation costs the task actually pays --
+        see :mod:`fibsem.timing`. On the run it was calibrated against, that moved
+        Setup Lamella Position from 0.22x of its real duration to 0.99x.
+
+        A task whose cost is dominated by something this base cannot see -- spot burn
+        exposures, fluorescence channels -- overrides this and adds its own term. The
+        estimate lives on the config rather than on the task because the callers that
+        need it (the pre-run dialog, the queue) hold configs and have no microscope to
+        construct a task with.
+        """
+        # Reference images at both ends, but not the same number: a task opens with
+        # _acquire_reference_image at one field of view and closes with
+        # _acquire_set_of_reference_images over all of them.
+        total = timing.reference_image_cost(self.reference_imaging, fovs=1)
+        total += timing.reference_image_cost(self.reference_imaging)
+        # what _run does before its own work
+        if self.opens_with_stage_move:
+            total += timing.stage_move_cost(1)
+        if self.opens_with_reference_alignment:
+            total += timing.REFERENCE_ALIGNMENT_S
+        for milling_task in self.milling.values():
+            total += timing.milling_task_cost(milling_task)
+        return total
     
     @property
     def imaging(self) -> ImageSettings:

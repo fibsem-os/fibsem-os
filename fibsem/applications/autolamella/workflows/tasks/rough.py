@@ -45,6 +45,12 @@ class MillRoughTaskConfig(AutoLamellaTaskConfig):
             tooltip="Whether to reacquire the alignment reference after milling"),
     )
     task_type: ClassVar[str] = "MILL_ROUGH"
+
+    @property
+    def opens_with_reference_alignment(self) -> bool:
+        """_run aligns against the stored reference before milling."""
+        return True
+
     display_name: ClassVar[str] = "Rough Milling"
 
     def __post_init__(self):

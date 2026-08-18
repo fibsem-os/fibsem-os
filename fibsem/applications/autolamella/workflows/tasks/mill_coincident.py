@@ -87,6 +87,16 @@ class MillCoincidentTaskConfig(AutoLamellaTaskConfig):
         metadata=field_meta(tooltip="The fluorescence channel to use for coincident milling"),
     )
     task_type: ClassVar[str] = "MILL_COINCIDENT"
+
+    @property
+    def opens_with_stage_move(self) -> bool:
+        """_run does not move: it mills where the coincidence step left the stage."""
+        return False
+
+    @property
+    def opens_with_reference_alignment(self) -> bool:
+        return True
+
     display_name: ClassVar[str] = "Coincident Milling"
 
     def __post_init__(self):
