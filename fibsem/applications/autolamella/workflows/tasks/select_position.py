@@ -7,7 +7,7 @@ import logging
 
 import numpy as np
 
-from fibsem import constants
+from fibsem import constants, timing
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.ui import ask_user, select_poi_ui
@@ -36,6 +36,7 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
             label="Use Autofocus",
             tooltip="Whether to autofocus before moving to the milling position"),
     )
+
     select_poi: bool = field(
         default=True,
         metadata=field_meta(
@@ -44,6 +45,20 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
     )
     task_type: ClassVar[str] = "SELECT_MILLING_POSITION"
     display_name: ClassVar[str] = "Select Milling Position"
+
+    @property
+    def estimated_duration(self) -> float:
+        """The base plus the move onto the milling pose.
+
+        Charged unconditionally: a task that finds the stage already in place pays
+        almost nothing for the move, but which case applies is runtime state, so this
+        errs long.
+
+        The autofocus sweeps behind ``use_autofocus`` are not counted -- unlike the
+        fluorescence sweep, the beam sweep's cost per step has not been measured, and
+        the run this was calibrated against had them off.
+        """
+        return super().estimated_duration + timing.stage_move_cost(1)
 
 
 class SelectMillingPositionTask(AutoLamellaTask):

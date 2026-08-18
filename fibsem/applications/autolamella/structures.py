@@ -227,8 +227,11 @@ class AutoLamellaTaskConfig(ABC):
         need it (the pre-run dialog, the queue) hold configs and have no microscope to
         construct a task with.
         """
-        # reference images are acquired at both ends of a task
-        total = 2 * timing.reference_image_cost(self.reference_imaging)
+        # Reference images at both ends, but not the same number: a task opens with
+        # _acquire_reference_image at one field of view and closes with
+        # _acquire_set_of_reference_images over all of them.
+        total = timing.reference_image_cost(self.reference_imaging, fovs=1)
+        total += timing.reference_image_cost(self.reference_imaging)
         for milling_task in self.milling.values():
             total += timing.milling_task_cost(milling_task)
         return total

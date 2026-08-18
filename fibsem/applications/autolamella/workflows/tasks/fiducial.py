@@ -6,6 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import ClassVar, Optional, Type
 
+from fibsem import timing
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MILL_POLISHING_KEY,
@@ -48,6 +49,27 @@ class MillFiducialTaskConfig(AutoLamellaTaskConfig):
     def __post_init__(self):
         if self.milling == {}:
             self.milling = deepcopy({FIDUCIAL_KEY: DEFAULT_MILLING_CONFIG[FIDUCIAL_KEY]})
+
+    @property
+    def estimated_duration(self) -> float:
+        """The base and the milling, plus what ``_run`` does before either.
+
+        The task opens by restoring the milling pose and aligning against the stored
+        reference, and neither is visible to the base estimate -- 12 s of a 110 s task,
+        which is most of what left it at 0.85x.
+
+        The move is charged unconditionally even though a task following another on the
+        same lamella will find the stage already in place (measured at 0.02 s when it
+        is). Which case applies is runtime state, so this errs long.
+
+        The same two steps open every milling task; the others have not been measured
+        yet and so do not claim them.
+        """
+        total = super().estimated_duration
+        total += timing.stage_move_cost(1)        # _move_to_milling_pose
+        if self.align_to_reference:
+            total += timing.REFERENCE_ALIGNMENT_S  # _align_reference_image
+        return total
 
 
 class MillFiducialTask(AutoLamellaTask):

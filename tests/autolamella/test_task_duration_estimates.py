@@ -20,6 +20,15 @@ from fibsem.fm.timing import estimate_acquisition_time, estimate_autofocus_time
 from fibsem.structures import Point
 
 
+def _base_reference(cfg) -> float:
+    """What the base charges for reference imaging: one field of view at the start,
+    the full set at the end."""
+    return (
+        timing.reference_image_cost(cfg.reference_imaging, fovs=1)
+        + timing.reference_image_cost(cfg.reference_imaging)
+    )
+
+
 # ── the base estimate ────────────────────────────────────────────────────────
 
 def test_base_estimate_exceeds_the_scan_only_figure():
@@ -30,10 +39,28 @@ def test_base_estimate_exceeds_the_scan_only_figure():
 
 
 def test_base_estimate_counts_reference_imaging_at_both_ends():
+    """Not symmetrically: a task opens at one field of view and closes over all of them."""
     cfg = MillFiducialTaskConfig()
     cfg.milling = {}
+    cfg.align_to_reference = False
     assert cfg.estimated_duration == pytest.approx(
-        2 * timing.reference_image_cost(cfg.reference_imaging)
+        _base_reference(cfg) + timing.stage_move_cost(1)
+    )
+
+
+def test_opening_reference_acquisition_is_half_the_closing_one():
+    """Two frames at the start against four at the end, measured on both milling tasks."""
+    cfg = MillFiducialTaskConfig()
+    assert timing.reference_image_cost(cfg.reference_imaging, fovs=1) == pytest.approx(
+        timing.reference_image_cost(cfg.reference_imaging) / 2
+    )
+
+
+def test_fiducial_counts_the_move_and_the_reference_alignment():
+    aligned = MillFiducialTaskConfig(align_to_reference=True)
+    unaligned = MillFiducialTaskConfig(align_to_reference=False)
+    assert aligned.estimated_duration - unaligned.estimated_duration == pytest.approx(
+        timing.REFERENCE_ALIGNMENT_S
     )
 
 
@@ -55,7 +82,7 @@ def test_spot_burn_counts_the_move_alignment_and_current_change():
     """The burn alone left the estimate at 0.71x of machine time; the rest is here."""
     cfg = SpotBurnFiducialTaskConfig(exposure_time=10)
     expected = (
-        2 * timing.reference_image_cost(cfg.reference_imaging)
+        _base_reference(cfg)
         + timing.stage_move_cost(1)
         + timing.REFERENCE_ALIGNMENT_S
         + 2 * timing.BEAM_CURRENT_CHANGE_S
@@ -119,7 +146,7 @@ def test_fluorescence_counts_the_move_and_the_objective():
     cfg.retract_objective = False
 
     expected = (
-        2 * timing.reference_image_cost(cfg.reference_imaging)
+        _base_reference(cfg)
         + timing.stage_move_cost(1)
         + timing.OBJECTIVE_INSERT_S
         + timing.OBJECTIVE_FOCUS_MOVE_S

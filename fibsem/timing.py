@@ -101,16 +101,24 @@ def image_cost(settings: Optional[ImageSettings], count: int = 1) -> float:
     return count * (settings.estimated_time + IMAGE_OVERHEAD_S)
 
 
-def reference_image_cost(params: Optional[ReferenceImageParameters]) -> float:
+def reference_image_cost(
+    params: Optional[ReferenceImageParameters], fovs: Optional[int] = None
+) -> float:
     """Seconds to acquire one set of reference images.
 
     One image per selected field of view per selected beam, which is what
     ``ReferenceImageParameters.estimated_time`` counts -- this adds the
     per-acquisition overhead that property omits.
+
+    ``fovs`` overrides the field-of-view count. Tasks are not symmetric about their
+    reference imaging: they open with ``_acquire_reference_image`` at a single field
+    of view and close with ``_acquire_set_of_reference_images`` over all of them, so
+    the opening acquisition is half the closing one. Measured on both milling tasks:
+    two frames at the start, four at the end.
     """
     if params is None:
         return 0.0
-    n_fovs = sum([params.acquire_image1, params.acquire_image2])
+    n_fovs = sum([params.acquire_image1, params.acquire_image2]) if fovs is None else fovs
     n_beams = sum([params.acquire_sem, params.acquire_fib])
     return image_cost(params.imaging, n_fovs * n_beams)
 
