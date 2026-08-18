@@ -142,8 +142,29 @@ def test_load_from_old_protocol_rejects_a_file_that_is_neither_format(tmp_path: 
     path = tmp_path / "protocol.yaml"
     path.write_text(yaml.safe_dump({"not": "a protocol"}))
 
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError, match="does not look like an AutoLamella protocol"):
         AutoLamellaTaskProtocol.load_from_old_protocol(path)
+
+
+def test_microscope_configuration_is_rejected_by_name():
+    """Config files have a top-level 'milling' key too -- the commonest mispick.
+
+    They used to load as a protocol with zero tasks, silently.
+    """
+    with pytest.raises(ValueError, match="does not look like an AutoLamella protocol"):
+        AutoLamellaTaskProtocol.load(
+            str(Path(__file__).parents[2] / "fibsem/config/microscope-configuration.yaml")
+        )
+
+
+@pytest.mark.parametrize("body", ["", "   \n", "null\n"])
+def test_empty_protocol_file_is_reported_as_empty(tmp_path: Path, body: str):
+    """A truncated file parses to None; that used to be an AttributeError."""
+    path = tmp_path / "protocol.yaml"
+    path.write_text(body)
+
+    with pytest.raises(ValueError, match="empty or is not a valid protocol file"):
+        AutoLamellaTaskProtocol.load(str(path))
 
 
 def test_unknown_legacy_method_names_the_valid_methods(tmp_path: Path):

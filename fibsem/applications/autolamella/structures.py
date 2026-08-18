@@ -458,6 +458,14 @@ class AutoLamellaTaskProtocol:
         from fibsem.applications.autolamella.protocol.legacy import is_legacy_protocol
         from fibsem.applications.autolamella.workflows.tasks import load_task_config
 
+        # An empty or truncated protocol.yaml parses to None, which used to fail
+        # with an opaque AttributeError several frames down.
+        if not isinstance(data, dict):
+            raise ValueError(
+                "This file is empty or is not a valid protocol file. "
+                "Check that you selected an AutoLamella protocol file."
+            )
+
         # protocol.yaml is written in both the legacy and the task-based format,
         # so a file saved by an older version has to be converted on the way in
         # rather than rejected as invalid. (FIB-663)
@@ -538,6 +546,19 @@ class AutoLamellaTaskProtocol:
             MillFiducialTaskConfig,
             SelectMillingPositionTaskConfig,
         )
+
+        # A file with neither format's required keys is not an AutoLamella
+        # protocol at all -- usually the wrong file picked in the dialog, e.g. a
+        # microscope configuration, which also has a top-level "milling" key.
+        # Say so, rather than failing on whichever key the parser reaches first.
+        missing = [k for k in ("milling", "options") if not isinstance(data, dict) or k not in data]
+        if missing:
+            raise ValueError(
+                "This file does not look like an AutoLamella protocol: a legacy "
+                f"protocol needs top-level {' and '.join(repr(k) for k in missing)}, "
+                "and a task protocol needs 'tasks'. Check that you selected an "
+                "AutoLamella protocol file."
+            )
 
         # check the method before parsing: an unsupported one (liftout) fails
         # deep inside the milling parser with an unhelpful error otherwise. An
