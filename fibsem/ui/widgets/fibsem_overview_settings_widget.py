@@ -272,7 +272,10 @@ class FibsemOverviewSettingsWidget(QWidget):
             f"{format_duration(per_tile)} per tile"
         )
         name = self.filename_edit.text().strip()
-        self.label_stamped.setText(f"saved as {name}-14-23-05" if name else "—")
+        # The shape of the name, not a name. The stamp is the time the run *starts*, so
+        # there is no true value to show while it is still being set up -- and a real
+        # time here would be read as one, then be wrong by however long the setup took.
+        self.label_stamped.setText(f"saved as {name}-HH-MM-SS" if name else "—")
         self._refresh_focus_note(settings)
 
     def _refresh_focus_note(self, settings: OverviewAcquisitionSettings) -> None:
