@@ -72,6 +72,39 @@ def test_milling_task_config_estimated_time_multiple_stages():
     assert cfg.estimated_time == pytest.approx(stage1.estimated_time + stage2.estimated_time)
 
 
+def test_milling_task_config_estimated_time_ignores_disabled_stages():
+    """A disabled stage is not milled, so it must not be quoted either.
+
+    estimated_time summed self.stages while run() uses enabled_stages, so
+    switching a stage off left the quoted time unchanged.
+    """
+    stage1 = FibsemMillingStage(
+        milling=FibsemMillingSettings(milling_current=2e-9),
+        pattern=RectanglePattern(width=10e-6, height=5e-6, depth=1e-6),
+    )
+    stage2 = FibsemMillingStage(
+        milling=FibsemMillingSettings(milling_current=7.6e-9),
+        pattern=RectanglePattern(width=20e-6, height=10e-6, depth=2e-6),
+        enabled=False,
+    )
+    cfg = FibsemMillingTaskConfig(stages=[stage1, stage2])
+    assert cfg.estimated_time == pytest.approx(stage1.estimated_time)
+    # and strictly less than the same task with the stage switched back on
+    stage2.enabled = True
+    assert cfg.estimated_time > stage1.estimated_time
+
+
+def test_milling_task_config_estimated_time_all_stages_disabled():
+    """Only the acquisition remains: nothing is milled."""
+    stage = FibsemMillingStage(
+        milling=FibsemMillingSettings(milling_current=2e-9),
+        pattern=RectanglePattern(width=10e-6, height=5e-6, depth=1e-6),
+        enabled=False,
+    )
+    cfg = FibsemMillingTaskConfig(stages=[stage])
+    assert cfg.estimated_time == pytest.approx(cfg.acquisition.estimated_time)
+
+
 # ── the post-task image refresh is opt-out ───────────────────────────────────
 #
 # A milling task ends by acquiring one FIB image to refresh the view, when the task

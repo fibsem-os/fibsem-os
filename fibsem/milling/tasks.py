@@ -136,8 +136,13 @@ class FibsemMillingTaskConfig:
 
     @property
     def estimated_time(self) -> float:
-        """Estimate the total milling time for a list of milling stages"""
-        milling_time = sum(stage.estimated_time for stage in self.stages)
+        """Estimate the total milling time for a list of milling stages.
+
+        Over the enabled stages only, matching what run() will actually mill.
+        Summing every stage counted work that was switched off: a real task with
+        two of its three stages disabled estimated 845 s against ~102 s milled.
+        """
+        milling_time = sum(stage.estimated_time for stage in self.enabled_stages)
         return milling_time + self.acquisition.estimated_time
 
     def compatible_stages(self, reference_idx: int = 0) -> List[Tuple[int, FibsemMillingStage]]:
