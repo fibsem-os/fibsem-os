@@ -14,7 +14,11 @@ import matplotlib.patches as patches
 from fibsem import utils
 from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
 from fibsem.fm.calibration import run_autofocus, run_coarse_fine_autofocus
-from fibsem.imaging.reduce import downsample
+from fibsem.imaging.reduce import (
+    PREVIEW_MAX_DIMENSION,
+    PreviewMosaic,
+    downsample,
+)
 from fibsem.imaging.tiling.geometry import (
     TilePosition,
     compute_tile_grid_from_fov,
@@ -399,14 +403,6 @@ def run_tileset_autofocus(
         return False
 
 
-PREVIEW_MAX_DIMENSION = 2048
-"""Long-edge size of the live mosaic preview, in pixels.
-
-A full-resolution fluorescence mosaic is multi-channel 16-bit -- a 5x5 of 1024px tiles
-is ~88 MB -- and the whole canvas is pushed through a Qt signal on every tile. The
-preview is decimated to this so watching a run stays cheap; the final stitch is
-untouched and full resolution.
-"""
 
 
 def _to_channel_planes(data: np.ndarray, n_channels: int) -> np.ndarray:
@@ -903,19 +899,10 @@ class FMTiledAcquisitionRunner:
         full_w = max(t.canvas_x for t in self._grid) + self._image_width
         full_h = max(t.canvas_y for t in self._grid) + self._image_height
 
-        self._preview_stride = max(
-            1, int(np.ceil(max(full_w, full_h) / PREVIEW_MAX_DIMENSION))
+        self._preview = PreviewMosaic(
+            full_w, full_h, dtype=np.uint16, channels=len(self.channel_settings)
         )
-        self._preview_canvas = np.zeros(
-            (len(self.channel_settings),
-             int(np.ceil(full_h / self._preview_stride)),
-             int(np.ceil(full_w / self._preview_stride))),
-            dtype=np.uint16,
-        )
-        logging.debug(
-            f"Live preview canvas: {self._preview_canvas.shape} "
-            f"(stride {self._preview_stride}, full {full_h}x{full_w})"
-        )
+        logging.debug(f"{self._preview.describe()} (full {full_h}x{full_w})")
 
     def _paint_preview(self, tile: TilePosition, image: FluorescenceImage) -> None:
         """Paint one acquired tile into the live preview mosaic.
@@ -924,37 +911,13 @@ class FMTiledAcquisitionRunner:
         acquisition that is otherwise fine, so this never raises into the tile loop.
         """
         try:
-            stride = self._preview_stride
             data = _to_channel_planes(image.data, len(self.channel_settings))
-            if data.shape[0] != self._preview_canvas.shape[0]:
-                data = data[: self._preview_canvas.shape[0]]
-
-            # Averaged, not sampled. `data[:, ::stride, ::stride]` was free and wrong:
-            # it does not blur what it leaves out, it deletes it, and at a typical
-            # stride of 8 that is 63 pixels in 64. A punctum a couple of pixels across
-            # is then present or absent depending on where it happens to land, with
-            # nothing on screen saying the picture is incomplete -- and the small bright
-            # thing is what someone is looking for. This is FIB-589's reduction, which
-            # the canvas path already uses, reaching the preview path (FIB-629).
-            #
-            # Per plane, not on the stack: `downsample` reads shape as (y, x[, c]), so
-            # a (channels, y, x) array would be reduced across *channels* and y. A
-            # 5-channel stack would also fall to the numpy branch, which is right
-            # answer, wrong axes, and 200x slower.
-            #
-            # `max_px` expressed as the size the thumbnail must come out at, so the
-            # factor it derives is the stride and the shape is unchanged: both give
-            # ceil(n / stride).
-            thumb = np.stack([
-                downsample(plane, math.ceil(max(plane.shape[:2]) / stride))
-                for plane in data
-            ])
-            y0 = tile.canvas_y // stride
-            x0 = tile.canvas_x // stride
-            h = min(thumb.shape[1], self._preview_canvas.shape[1] - y0)
-            w = min(thumb.shape[2], self._preview_canvas.shape[2] - x0)
-            if h > 0 and w > 0:
-                self._preview_canvas[:, y0:y0 + h, x0:x0 + w] = thumb[:, :h, :w]
+            # Truncated here rather than in the shared mosaic: it is a guard against a
+            # mismatch that should not arise, and the mosaic asking for one would be a
+            # defensive rule carried for a single caller.
+            if data.shape[0] != self._preview.canvas.shape[0]:
+                data = data[: self._preview.canvas.shape[0]]
+            self._preview.paint(data, tile.canvas_x, tile.canvas_y)
         except Exception as e:  # pragma: no cover - preview is never load-bearing
             logging.debug(f"Could not paint tile ({tile.row}, {tile.col}) into preview: {e}")
 
@@ -1119,8 +1082,8 @@ class FMTiledAcquisitionRunner:
             "row": tile.row, "col": tile.col,
             "total_rows": self._rows, "total_cols": self._cols,
             "current": self._n_acquired, "total": len(self._ordered),
-            "image": self._preview_canvas.copy(),
-            "preview_stride": self._preview_stride,
+            "image": self._preview.canvas.copy(),
+            "preview_stride": self._preview.stride,
         })
 
     def _emit_tile_progress(self, row: int, col: int) -> None:

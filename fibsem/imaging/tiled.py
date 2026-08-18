@@ -18,7 +18,7 @@ from fibsem.conversions import is_inside_image_bounds
 
 # Moved to the `tiling` package (FIB-390); re-exported so existing importers and the
 # public API are unaffected. `fibsem/imaging/__init__.py` star-imports this module.
-from fibsem.imaging.reduce import downsample
+from fibsem.imaging.reduce import PreviewMosaic, downsample
 from fibsem.imaging.tiling.geometry import (  # noqa: E402,F401
     TilePosition,
     compute_tile_grid,
@@ -59,9 +59,6 @@ from fibsem.structures import (
     TileOrderStrategy,
 )
 
-# Longest side the live preview mosaic is decimated to. The full one can be 157 MB for
-# a 10x10 of 1536x1024 tiles, and it is handed to a display once per tile.
-PREVIEW_MAX_DIMENSION = 2048
 
 
 
@@ -351,18 +348,8 @@ class TiledAcquisitionRunner:
         reduce all of it for display each time. Painted per tile from that tile's own
         thumbnail, so the cost is the tile rather than the mosaic.
         """
-        self._preview_stride = max(
-            1, int(np.ceil(max(full_w, full_h) / PREVIEW_MAX_DIMENSION))
-        )
-        stride = self._preview_stride
-        self._preview_canvas = np.zeros(
-            (int(np.ceil(full_h / stride)), int(np.ceil(full_w / stride))),
-            dtype=np.uint8,
-        )
-        logging.debug(
-            f"Live preview canvas: {self._preview_canvas.shape} "
-            f"(stride {stride}, full {full_h}x{full_w})"
-        )
+        self._preview = PreviewMosaic(full_w, full_h, dtype=np.uint8)
+        logging.debug(f"{self._preview.describe()} (full {full_h}x{full_w})")
 
     def _paint_preview(self, tile: TilePosition, image: FibsemImage) -> None:
         """Paint one acquired tile into the live preview.
@@ -371,19 +358,7 @@ class TiledAcquisitionRunner:
         acquisition that is otherwise fine, so this never raises into the tile loop.
         """
         try:
-            stride = self._preview_stride
-            data = image.filtered_data
-            # Averaged, not sampled. `arr[::n, ::n]` deletes what it leaves out rather
-            # than blurring it, so a feature a pixel or two across is present at one
-            # zoom and gone at the next (FIB-589). `downsample` returns `ceil(n/factor)`
-            # per axis -- the same shape striding gave -- so the paste offsets below are
-            # unaffected. `max_px` is how the factor is chosen, so it is expressed as
-            # the size this tile has to come out at.
-            thumb = downsample(data, math.ceil(max(data.shape[:2]) / stride))
-            y0, x0 = tile.canvas_y // stride, tile.canvas_x // stride
-            y1 = min(y0 + thumb.shape[0], self._preview_canvas.shape[0])
-            x1 = min(x0 + thumb.shape[1], self._preview_canvas.shape[1])
-            self._preview_canvas[y0:y1, x0:x1] = thumb[: y1 - y0, : x1 - x0]
+            self._preview.paint(image.filtered_data, tile.canvas_x, tile.canvas_y)
         except Exception as e:
             logging.debug(f"Could not paint the live preview: {e}")
 
@@ -397,16 +372,16 @@ class TiledAcquisitionRunner:
         underneath it.
         """
         metadata = deepcopy(self._mosaic_metadata)
-        stride = self._preview_stride
+        stride = self._preview.stride
         metadata.pixel_size = Point(
             x=self._mosaic_metadata.pixel_size.x * stride,
             y=self._mosaic_metadata.pixel_size.y * stride,
         )
         metadata.image_settings = deepcopy(self._mosaic_metadata.image_settings)
         metadata.image_settings.resolution = (
-            self._preview_canvas.shape[1], self._preview_canvas.shape[0],
+            self._preview.canvas.shape[1], self._preview.canvas.shape[0],
         )
-        return FibsemImage(data=self._preview_canvas.copy(), metadata=metadata)
+        return FibsemImage(data=self._preview.canvas.copy(), metadata=metadata)
 
     def _run_tile_loop(self) -> None:
         """Move to each tile, autofocus as configured, acquire, and stitch into the canvas."""

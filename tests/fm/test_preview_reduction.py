@@ -129,12 +129,17 @@ class TestThePreviewPaintsWhatItIsGiven:
     def _runner_with_preview(n_channels, stride, canvas_shape):
         from fibsem.fm.acquisition import FMTiledAcquisitionRunner
 
+        from fibsem.imaging.reduce import PreviewMosaic
+
         runner = FMTiledAcquisitionRunner.__new__(FMTiledAcquisitionRunner)
         runner.channel_settings = [object()] * n_channels
-        runner._preview_stride = stride
-        runner._preview_canvas = np.zeros(
-            (n_channels, *canvas_shape), dtype=np.uint16
-        )
+        # The canvas and stride are stated directly rather than derived from a mosaic
+        # size, because these tests pin the *paste* -- the geometry that produced the
+        # stride is `PreviewMosaic`'s own business and is tested in
+        # `tests/test_image_reduction.py`.
+        runner._preview = PreviewMosaic.__new__(PreviewMosaic)
+        runner._preview.stride = stride
+        runner._preview.canvas = np.zeros((n_channels, *canvas_shape), dtype=np.uint16)
         return runner
 
     @staticmethod
@@ -154,7 +159,7 @@ class TestThePreviewPaintsWhatItIsGiven:
         image.data = data
         runner._paint_preview(self._tile(0, 0), image)
 
-        assert runner._preview_canvas.max() > 0
+        assert runner._preview.canvas.max() > 0
 
     def test_it_lands_where_the_tile_says(self):
         from fibsem.fm.structures import FluorescenceImage
@@ -166,7 +171,7 @@ class TestThePreviewPaintsWhatItIsGiven:
         image.data = data
         runner._paint_preview(self._tile(canvas_x=64, canvas_y=64), image)
 
-        painted = runner._preview_canvas[0]
+        painted = runner._preview.canvas[0]
         assert painted[8:16, 8:16].min() > 0  # the tile, at 64 // 8
         assert painted[0:8, 0:8].max() == 0  # and nowhere else
 
@@ -185,7 +190,7 @@ class TestThePreviewPaintsWhatItIsGiven:
         image.data = data
         runner._paint_preview(self._tile(0, 0), image)
 
-        painted = runner._preview_canvas
+        painted = runner._preview.canvas
         assert painted.shape == (3, 8, 8)
         assert [int(painted[c].max()) for c in range(3)] == [100, 200, 300]
 
@@ -202,7 +207,7 @@ class TestThePreviewPaintsWhatItIsGiven:
         image.data = data
         runner._paint_preview(self._tile(0, 0), image)
 
-        assert 0 < runner._preview_canvas.max() < 4000
+        assert 0 < runner._preview.canvas.max() < 4000
 
     @pytest.mark.parametrize("stride", [1, 2, 4, 7, 8])
     def test_the_painted_extent_matches_the_old_striding(self, stride):
@@ -218,7 +223,7 @@ class TestThePreviewPaintsWhatItIsGiven:
         runner._paint_preview(self._tile(0, 0), image)
 
         expected_h, expected_w = _strided(data[0], stride).shape
-        painted = runner._preview_canvas[0]
+        painted = runner._preview.canvas[0]
         assert painted[:expected_h, :expected_w].min() > 0
         assert painted[expected_h:, :].max() == 0
         assert painted[:, expected_w:].max() == 0
