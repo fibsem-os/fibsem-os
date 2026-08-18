@@ -36,6 +36,7 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
             label="Use Autofocus",
             tooltip="Whether to autofocus before moving to the milling position"),
     )
+
     select_poi: bool = field(
         default=True,
         metadata=field_meta(
@@ -44,6 +45,7 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
     )
     task_type: ClassVar[str] = "SELECT_MILLING_POSITION"
     display_name: ClassVar[str] = "Select Milling Position"
+
 
 
 class SelectMillingPositionTask(AutoLamellaTask):

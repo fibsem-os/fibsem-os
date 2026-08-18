@@ -19,6 +19,7 @@ raising (FIB-329).
 """
 
 import os
+import sys
 import threading
 
 import numpy as np
@@ -41,11 +42,27 @@ def image(value: int = 128) -> FibsemImage:
 
 
 class TestTheWriteIsAtomic:
+    @pytest.mark.xfail(
+        sys.platform == "win32",
+        reason=(
+            "FIB-705: os.replace refuses to rename over a destination another handle "
+            "has open, so on Windows this raises PermissionError [WinError 5] rather "
+            "than replacing the file. Not xfail(strict) deliberately -- fixing the "
+            "write should make this XPASS and say so, rather than fail for passing."
+        ),
+    )
     def test_the_final_file_never_exists_partly_written(self, lamella):
         """The property that fixes it: readers only ever see a complete file.
 
         Checked by watching the destination while a save runs — every version of it that
         exists at all must open cleanly.
+
+        **Windows does not have this property today (FIB-705).** POSIX `rename(2)`
+        replaces a destination whoever has it open; Windows refuses unless every open
+        handle asked for `FILE_SHARE_DELETE`, which `open()` does not. The reader thread
+        below is exactly the lamella card, so the rename is refused and the card keeps
+        showing the previous thumbnail -- the symptom FIB-602 was filed for, still live
+        on the platform every microscope runs.
         """
         from PIL import Image
 

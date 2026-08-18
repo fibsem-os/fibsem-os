@@ -229,7 +229,7 @@ class TestNothingBypassesIt:
     def test_no_editor_handler_saves_directly(self):
         """Ten handlers route through `_save_experiment`; one going around it keeps
         the full cost, and the only symptom is that the editor still feels slow."""
-        source = Path(editor_module.__file__).read_text()
+        source = Path(editor_module.__file__).read_text(encoding="utf-8")
         offenders = []
         for node in ast.walk(ast.parse(source)):
             if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
@@ -254,7 +254,7 @@ class TestNothingBypassesIt:
         """
         passes_the_flag = [
             node.lineno
-            for node in ast.walk(ast.parse(Path(editor_module.__file__).read_text()))
+            for node in ast.walk(ast.parse(Path(editor_module.__file__).read_text(encoding="utf-8")))
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
             and node.func.attr == "save"

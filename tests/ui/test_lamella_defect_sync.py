@@ -143,7 +143,7 @@ def test_every_host_of_the_list_can_persist_a_defect(module, widget, handler):
     import importlib
     from pathlib import Path
 
-    src = Path(importlib.import_module(module).__file__).read_text()
+    src = Path(importlib.import_module(module).__file__).read_text(encoding="utf-8")
     assert f"defect_changed.connect(self.{handler})" in src, (
         f"{widget} embeds the lamella list but never wires defect_changed -- "
         f"a defect set there is not persisted (FIB-564)"
@@ -220,7 +220,7 @@ def test_no_widget_holds_a_live_task_state_subscription(module, widget):
     import importlib
     from pathlib import Path
 
-    src = Path(importlib.import_module(module).__file__).read_text()
+    src = Path(importlib.import_module(module).__file__).read_text(encoding="utf-8")
     live = [c for c in _connect_chains(src) if "task_state" in c]
 
     assert live == [], (
@@ -255,7 +255,7 @@ def test_every_refresh_stays_marshalled(module, widget):
     import importlib
     from pathlib import Path
 
-    src = Path(importlib.import_module(module).__file__).read_text()
+    src = Path(importlib.import_module(module).__file__).read_text(encoding="utf-8")
 
     assert "from superqt import ensure_main_thread" in src, f"{widget} lost the import"
     assert "    @ensure_main_thread\n    def refresh(self)" in src, (

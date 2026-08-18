@@ -10,10 +10,20 @@ import logging
 from typing import List, Optional, Tuple, Union
 
 from fibsem.fm.structures import ChannelSettings, ZParameters, ZStackOrder
-from fibsem.fm.structures import AutoFocusMode
+from fibsem.fm.structures import AutoFocusMode, AutoFocusSettings
 
 # Timing constants for acquisition operations
-DEFAULT_OVERHEAD_PER_IMAGE = 0.5  # seconds - camera readout, processing overhead
+# Camera readout, processing and save, per image, on top of the exposure. Measured
+# against AutoLamella-2026-07-29-18-00-DEV-TEST (Thermo): a 42-image z-stack ran at
+# 2.31 s/image net of exposure and z movement, and a 32-image autofocus sweep at
+# 1.57 s/image. The earlier 0.5 s was an assumption, ~4x low, and it is what left the
+# fluorescence duration estimate at a third of the real figure.
+#
+# The two figures differ because the z-stack writes each frame to OME-TIFF and the
+# autofocus sweep does not, so this is really two costs wearing one name. It takes the
+# higher of the two: over-estimating a sweep is the safe direction, and splitting the
+# constant would change every caller's shape for a term neither of them separates yet.
+DEFAULT_OVERHEAD_PER_IMAGE = 2.3  # seconds - camera readout, processing, save
 DEFAULT_Z_MOVE_TIME = 0.1  # seconds - time to move between z-positions
 DEFAULT_STAGE_MOVE_TIME = 5.0  # seconds - time to move stage between tiles
 DEFAULT_AUTOFOCUS_TIME = 5.0  # seconds - time for each autofocus operation
@@ -68,6 +78,59 @@ def calculate_total_images_count(
         num_z_planes = zparams.num_planes
 
     return num_channels * num_z_planes
+
+
+def estimate_autofocus_time(
+    autofocus_settings: "AutoFocusSettings",
+    channel_settings: Union[ChannelSettings, List[ChannelSettings]],
+) -> float:
+    """Estimate an image-based autofocus sweep from the passes it will actually run.
+
+    Each enabled pass sweeps ``search_range`` in ``step_size`` increments, taking one
+    image per step -- ``FocusSweepPass.n_steps`` is exactly that count -- so the sweep
+    is arithmetic rather than a constant. With the default coarse/fine pair (50 um at
+    5 um, then 10 um at 1 um) that is around twenty images, several times the 5 s
+    ``DEFAULT_AUTOFOCUS_TIME`` assumes.
+
+    The channel is resolved the way the acquisition path resolves it: by name when
+    ``channel_name`` is set, otherwise the first channel.
+
+    ``DEFAULT_AUTOFOCUS_TIME`` is still used by the tileset estimators below, which
+    are handed an autofocus *mode* rather than the settings and so cannot count steps.
+
+    Args:
+        autofocus_settings: the sweep to estimate
+        channel_settings: the channels available to focus on
+
+    Returns:
+        float: estimated autofocus time in seconds, 0.0 if no pass is enabled
+    """
+    if autofocus_settings is None or not autofocus_settings.enabled:
+        return 0.0
+    if not isinstance(channel_settings, list):
+        channel_settings = [channel_settings]
+    if not channel_settings:
+        return 0.0
+
+    channel = None
+    if autofocus_settings.channel_name:
+        channel = next(
+            (c for c in channel_settings if c.name == autofocus_settings.channel_name), None
+        )
+    if channel is None:
+        channel = channel_settings[0]
+
+    # n_steps + 1, matching the sweep itself: run_autofocus builds its working
+    # distances with np.linspace(..., n_steps + 1), so a pass covering n steps takes
+    # n + 1 images. The measured run logged "21 positions" for a 20-step pass and
+    # "11 positions" for a 10-step one.
+    n_images = sum(p.n_steps + 1 for p in autofocus_settings.passes if p.enabled)
+    # one objective move between consecutive steps, as in the z-stack above
+    n_moves = max(n_images - 1, 0)
+    return (
+        n_images * (channel.exposure_time + DEFAULT_OVERHEAD_PER_IMAGE)
+        + n_moves * DEFAULT_Z_MOVE_TIME
+    )
 
 
 def estimate_acquisition_time(

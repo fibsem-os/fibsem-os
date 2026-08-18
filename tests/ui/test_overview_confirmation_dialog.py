@@ -191,13 +191,47 @@ class TestTheTimeItQuotes:
 def test_the_three_preflight_dialogs_share_one_style():
     """The coincidence dialog copied nothing from the FM one and imported instead,
     leaving a note to lift the shared parts out if a third appeared. This is the third,
-    and the note was followed rather than the import chain extended."""
+    and the note was followed rather than the import chain extended.
+
+    All three still agree on the duration format. The furniture -- chips, the detail
+    block -- is asserted through the base class for the two overview dialogs, which is
+    a stronger statement than importing the same helper: they cannot lay it out
+    differently, because neither of them lays it out at all.
+    """
     from fibsem.ui.fm.widgets import fm_overview_confirmation_dialog as fm
     from fibsem.ui.widgets import coincidence_milling_confirmation_dialog as milling
     from fibsem.ui.widgets import overview_confirmation_dialog as beam
     from fibsem.ui.widgets import preflight
 
     for module in (fm, milling, beam):
-        assert module.chip is preflight.chip
-        assert module.detail_block is preflight.detail_block
         assert module.format_duration is preflight.format_duration
+
+    assert milling.chip is preflight.chip
+    assert milling.detail_block is preflight.detail_block
+
+
+def test_the_two_overview_dialogs_are_one_dialog():
+    """Both confirm an overview and present it identically, so neither owns a layout.
+
+    Asserted on `_init_ui` rather than on the class hierarchy alone: a subclass that
+    reintroduces its own layout would still pass an `issubclass` check while being
+    exactly the duplication this removed.
+    """
+    from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
+        FMOverviewConfirmationDialog,
+    )
+    from fibsem.ui.widgets.overview_confirmation_dialog import (
+        OverviewConfirmationDialog,
+    )
+    from fibsem.ui.widgets.preflight import OverviewPreflightDialog
+
+    for cls in (OverviewConfirmationDialog, FMOverviewConfirmationDialog):
+        assert issubclass(cls, OverviewPreflightDialog)
+        assert "_init_ui" not in vars(cls), (
+            f"{cls.__name__} lays itself out again; the base is what stops the two "
+            "dialogs drifting apart"
+        )
+        # The three hooks are the whole of what a subclass is for, so each must be
+        # answered -- an unimplemented one raises only when the dialog is opened.
+        for hook in ("_meta_line", "_rows", "_tile_counts"):
+            assert hook in vars(cls), f"{cls.__name__} does not supply {hook}"

@@ -469,7 +469,7 @@ def test_new_script_refuses_to_overwrite(qapp, tmp_path, monkeypatch):
 
     dialog.new_script()
 
-    assert "original" in (tmp_path / "taken.py").read_text()
+    assert "original" in (tmp_path / "taken.py").read_text(encoding="utf-8")
     assert notes and notes[-1][0] == "warning"
 
 

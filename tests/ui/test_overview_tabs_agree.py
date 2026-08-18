@@ -42,7 +42,7 @@ HEX_LITERAL = re.compile(r'"#[0-9a-fA-F]{6}"')
 
 @pytest.fixture(scope="module")
 def sources():
-    return {"beam": BEAM.read_text(), "fm": FM.read_text()}
+    return {"beam": BEAM.read_text(encoding="utf-8"), "fm": FM.read_text(encoding="utf-8")}
 
 
 def _assigned_names(source: str) -> set:
@@ -60,7 +60,7 @@ def _assigned_names(source: str) -> set:
 def test_the_palette_holds_the_shared_colours():
     """Beside the position markers, which were moved there for the same reason and whose
     comment says so."""
-    tokens = TOKENS.read_text()
+    tokens = TOKENS.read_text(encoding="utf-8")
     for name in SHARED_COLOURS:
         assert re.search(rf"^{name}\s*=", tokens, re.M), f"{name} is not in the palette"
 
@@ -94,10 +94,10 @@ def test_no_tab_carries_a_hex_colour_literal(tab, sources):
 def test_the_grid_radius_is_defined_once():
     """It was `GRID_RADIUS_M` on one tab and `GRID_BOUNDARY_RADIUS` on the other: the
     same 1000 µm, in two files, under two names, with nothing to keep them equal."""
-    overlays = OVERLAYS.read_text()
+    overlays = OVERLAYS.read_text(encoding="utf-8")
     assert re.search(r"^GRID_BOUNDARY_RADIUS_M\s*=", overlays, re.M)
 
-    for tab, source in (("beam", BEAM.read_text()), ("fm", FM.read_text())):
+    for tab, source in (("beam", BEAM.read_text(encoding="utf-8")), ("fm", FM.read_text(encoding="utf-8"))):
         assigned = _assigned_names(source)
         strays = {n for n in assigned if "GRID_RADIUS" in n or "BOUNDARY_RADIUS" in n}
         assert not strays, f"{tab} defines its own grid radius: {strays}"
