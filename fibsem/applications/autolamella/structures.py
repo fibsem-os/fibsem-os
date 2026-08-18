@@ -16,6 +16,7 @@ import yaml
 from psygnal import evented
 from psygnal.containers import EventedDict, EventedList
 
+from fibsem import _yaml
 from fibsem.applications.autolamella import config as cfg
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.correlation.config import CorrelationConfig
@@ -504,17 +505,17 @@ class AutoLamellaTaskProtocol:
     @classmethod
     def load(cls, filename: str) -> 'AutoLamellaTaskProtocol':
         with open(filename, 'r') as file:
-            data = yaml.safe_load(file)
+            data = _yaml.safe_load(file)
         return cls.from_dict(data)
 
     def save(self, filename: str) -> None:
         """Save the task protocol to a YAML file."""
         with open(filename, 'w') as file:
-            yaml.safe_dump(self.to_dict(), 
-                           file,
-                           indent=4, 
-                           default_flow_style=False, 
-                           sort_keys=False)
+            _yaml.safe_dump(self.to_dict(),
+                            file,
+                            indent=4,
+                            default_flow_style=False,
+                            sort_keys=False)
 
     def get_supervision(self, task_name: str) -> bool:
         """Check if a task requires supervision."""
@@ -1241,7 +1242,7 @@ class Experiment:
         """Save the sample data to yaml file"""
 
         with open(os.path.join(self.path, "experiment.yaml"), "w") as f:
-            yaml.safe_dump(self.to_dict(), f, indent=4)
+            _yaml.safe_dump(self.to_dict(), f, indent=4)
         if save_protocol:
             self.save_protocol()
 
@@ -1265,7 +1266,7 @@ class Experiment:
         if not os.path.exists(path):
             raise FileNotFoundError(f"No file with name {path} found.")
         with open(path, "r") as f:
-            ddict = yaml.safe_load(f)
+            ddict = _yaml.safe_load(f)
 
         # create experiment from dict
         experiment = Experiment.from_dict(ddict)
