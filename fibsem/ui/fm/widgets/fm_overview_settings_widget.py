@@ -13,12 +13,10 @@ from typing import List, Optional
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
-    QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
     QSizePolicy,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -35,12 +33,9 @@ from fibsem.fm.structures import (
 from fibsem.structures import TileOrderStrategy
 from fibsem.ui.fm.widgets.autofocus_widget import AutofocusWidget
 from fibsem.ui.widgets.overview_grid_settings_widget import (
-    TILE_ORDER_LABELS,
-    TILE_ORDER_TOOLTIPS,
+    OverviewGridSettingsWidget,
 )
-from fibsem.ui.widgets.tile_mask_widget import TileMaskWidget
 from fibsem.ui.fm.widgets.z_parameters_widget import ZParametersWidget
-from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox
 from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
@@ -111,42 +106,22 @@ class FMOverviewSettingsWidget(QWidget):
         self.autofocus_widget = AutofocusWidget(list(channel_settings or []))
         self.autofocus_widget.set_pass_editing_enabled(True)
         self._init_ui()
-        if parameters is not None:
-            self.parameters = parameters
+        # Always seeded, from the dataclass when the caller supplies nothing. The grid
+        # controls used to carry their own defaults -- `spin_overlap.setValue(0.1)` --
+        # which is `OverviewParameters.overlap` written a second time, and the shared
+        # panel cannot carry it because the beam side defaults to 0.0 for the same
+        # setting. So the dataclass is the one place it is stated.
+        self.parameters = parameters if parameters is not None else OverviewParameters()
         self._refresh_derived()
 
     # ── construction ─────────────────────────────────────────────────────
 
     def _init_ui(self) -> None:
-        self.spin_rows = QSpinBox()
-        self.spin_rows.setRange(1, 100)
-        self.spin_rows.setValue(3)
-
-        self.spin_cols = QSpinBox()
-        self.spin_cols.setRange(1, 100)
-        self.spin_cols.setValue(3)
-
-        self.spin_overlap = QDoubleSpinBox()
-        self.spin_overlap.setRange(0.0, 0.9)
-        self.spin_overlap.setSingleStep(0.05)
-        self.spin_overlap.setDecimals(2)
-        self.spin_overlap.setValue(0.1)
-
-        self.combo_tile_order = ValueComboBox(
-            items=list(TileOrderStrategy),
-            format_fn=lambda s: TILE_ORDER_LABELS.get(s, s.value.title()),
-        )
-        # What each strategy does belongs in a tooltip, not in the label -- the label
-        # is read on every glance and the explanation once.
-        for index in range(self.combo_tile_order.count()):
-            strategy = self.combo_tile_order.itemData(index)
-            self.combo_tile_order.setItemData(
-                index, TILE_ORDER_TOOLTIPS.get(strategy, ""), Qt.ToolTipRole
-            )
-        self.combo_tile_order.setToolTip(
-            "\n".join(f"{TILE_ORDER_LABELS[s]} — {TILE_ORDER_TOOLTIPS[s]}"
-                      for s in TileOrderStrategy)
-        )
+        # Rows, columns, overlap, tile order and the mask, from the module written to
+        # end their being written twice. What stays here is everything that decides
+        # what a *tile* is -- channels, exposure, z, focus -- which is the half that is
+        # genuinely modality-specific.
+        self.grid = OverviewGridSettingsWidget()
 
         # No label: this sits in the Z-Stack panel header, which already names it.
         self.check_zstack = QCheckBox()
@@ -168,42 +143,11 @@ class FMOverviewSettingsWidget(QWidget):
             )
 
         # The app's spinboxes carry -/+ buttons, which eat most of a narrow field and
-        # leave the value clipped ("0" for an overlap of 0.10). Give them a floor.
-        for widget in (self.spin_rows, self.spin_cols, self.spin_overlap,
-                       self.combo_tile_order, self.combo_autofocus_mode,
-                       self.combo_objective_start):
+        # leave the value clipped. Give them a floor. The grid panel applies the same
+        # rule to its own fields, for the same reason.
+        for widget in (self.combo_autofocus_mode, self.combo_objective_start):
             widget.setMinimumWidth(SPINBOX_MIN_WIDTH)
             widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        for widget in (self.spin_rows, self.spin_cols, self.spin_overlap):
-            install_wheel_blocker(widget)
-
-        # Rows and columns read as one setting and are always adjusted together, so
-        # they share a line -- which is also what gives each of them room.
-        size_row = QHBoxLayout()
-        size_row.setSpacing(6)
-        size_row.addWidget(self.spin_rows)
-        times = QLabel("×")
-        times.setStyleSheet(MUTED)
-        size_row.addWidget(times)
-        size_row.addWidget(self.spin_cols)
-
-        grid_form = QFormLayout()
-        grid_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
-        grid_form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        grid_form.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
-        self.label_total_fov = QLabel("—")
-        self.label_total_fov.setStyleSheet(MUTED)
-
-        grid_form.addRow("Rows × Columns", size_row)
-        grid_form.addRow("Overlap", self.spin_overlap)
-        grid_form.addRow("Tile order", self.combo_tile_order)
-        grid_form.addRow("Total FOV", self.label_total_fov)
-        grid_content = QWidget()
-        grid_content.setLayout(grid_form)
-        self.grid_panel = TitledPanel("Grid", content=grid_content)
-
-        self.tile_mask = TileMaskWidget(rows=3, cols=3)
-        self.mask_panel = TitledPanel("Tiles to acquire", content=self.tile_mask)
 
         # "When to focus" is the overview's own setting; everything below it -- method,
         # channel, and the sweep passes -- belongs to the sweep and is delegated.
@@ -243,12 +187,13 @@ class FMOverviewSettingsWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.focus_panel)
         layout.addWidget(self.zstack_panel)
-        layout.addWidget(self.grid_panel)
-        # No stretch on any panel: a stretched panel keeps claiming vertical space when
-        # it is collapsed, so folding it leaves a tall empty box with the title floating
-        # in the middle of it. The trailing stretch below takes the slack instead -- kept
-        # here rather than left to the host, so the panels stay put in any container.
-        layout.addWidget(self.mask_panel)
+        # One panel, not two: the mask is a grid property, and the shared widget holds
+        # it inside the Grid panel with the count in the header. No stretch on any of
+        # them -- a stretched panel keeps claiming vertical space when it is collapsed,
+        # so folding it leaves a tall empty box with the title floating in the middle.
+        # The trailing stretch below takes the slack instead, kept here rather than left
+        # to the host so the panels stay put in any container.
+        layout.addWidget(self.grid)
         layout.addWidget(self.label_summary)
         layout.addStretch()
 
@@ -257,15 +202,13 @@ class FMOverviewSettingsWidget(QWidget):
         self.focus_panel.collapse()
         self.zstack_panel.collapse()
 
-        self.spin_rows.valueChanged.connect(self._on_grid_size_changed)
-        self.spin_cols.valueChanged.connect(self._on_grid_size_changed)
-        self.spin_overlap.valueChanged.connect(self._on_any_change)
-        self.combo_tile_order.currentIndexChanged.connect(self._on_tile_order_changed)
+        # One signal for all five: the shared panel resizes the mask with the grid and
+        # reports every change through `changed`.
+        self.grid.changed.connect(self._on_grid_changed)
         self.check_zstack.stateChanged.connect(self._on_zstack_toggled)
         self.combo_autofocus_mode.currentIndexChanged.connect(self._on_autofocus_changed)
         self.combo_objective_start.currentIndexChanged.connect(self._on_any_change)
         self.autofocus_widget.settings_changed.connect(self._on_any_change)
-        self.tile_mask.changed.connect(self._on_any_change)
 
         self._on_autofocus_changed()
         self._on_zstack_toggled()
@@ -279,34 +222,25 @@ class FMOverviewSettingsWidget(QWidget):
     def set_grid_size(self, rows: int, cols: int) -> None:
         """Set both grid dimensions as a single change.
 
-        Setting the two spin boxes one after the other emits `changed` twice and
-        passes through a size nobody asked for -- the new row count against the old
-        column count. That is invisible when a spin box is nudged by hand, but an edge
-        drag on the canvas does it on every motion event.
-
-        Follows the `parameters` setter: block, apply, resize the mask explicitly
-        because its handler is blocked with it, then notify once.
+        Delegated. Setting the two spin boxes one after the other emits twice and passes
+        through a size nobody asked for -- the new row count against the old column
+        count -- which is invisible when a box is nudged by hand and constant when an
+        edge is dragged on the canvas, where it fires on every motion event. The shared
+        panel is where that is handled now.
         """
-        if (rows, cols) == (self.spin_rows.value(), self.spin_cols.value()):
-            return
+        self.grid.set_grid_size(rows, cols)
 
-        for widget in (self.spin_rows, self.spin_cols, self.tile_mask):
-            widget.blockSignals(True)
-        try:
-            self.spin_rows.setValue(rows)
-            self.spin_cols.setValue(cols)
-            self.tile_mask.set_grid_size(rows, cols)
-        finally:
-            for widget in (self.spin_rows, self.spin_cols, self.tile_mask):
-                widget.blockSignals(False)
+    @property
+    def tile_mask(self) -> Optional[List[List[bool]]]:
+        """Which tiles the next run would acquire, or None for all of them."""
+        return self.grid.mask
 
-        self._on_any_change()
+    def set_mask(self, mask: Optional[List[List[bool]]]) -> None:
+        self.grid.set_mask(mask)
 
-    def _on_grid_size_changed(self) -> None:
-        self.tile_mask.set_grid_size(self.spin_rows.value(), self.spin_cols.value())
-        self._on_any_change()
-
-    def _on_tile_order_changed(self) -> None:
+    def _on_grid_changed(self) -> None:
+        """Anything in the grid panel moved -- including the tile order, which is half
+        of the spiral/per-row conflict."""
         self._warn_if_spiral_conflicts()
         self._on_any_change()
 
@@ -342,7 +276,7 @@ class FMOverviewSettingsWidget(QWidget):
         Surfaced here rather than left as a log line, so the setting the user chose and
         the setting that will run are not quietly different things.
         """
-        spiral = self.combo_tile_order.value() is TileOrderStrategy.SPIRAL
+        spiral = self.grid.tile_order is TileOrderStrategy.SPIRAL
         each_row = self.combo_autofocus_mode.value() is AutoFocusMode.EACH_ROW
         self._spiral_conflict = spiral and each_row
 
@@ -355,6 +289,10 @@ class FMOverviewSettingsWidget(QWidget):
     def set_tile_fov(self, fov_x: float, fov_y: float) -> None:
         """Tell the widget one tile's field of view, so it can report total area."""
         self._tile_fov = (fov_x, fov_y)
+        # Kept here as well as handed on, because `total_fov` answers None until a tile
+        # size is known and the shared panel answers (0, 0) -- a distinction its own
+        # label does not need and this widget's callers do.
+        self.grid.set_tile_fov(fov_x, fov_y)
         self._refresh_derived()
 
     def total_fov(self) -> Optional[tuple]:
@@ -366,21 +304,9 @@ class FMOverviewSettingsWidget(QWidget):
         """
         if self._tile_fov is None:
             return None
-        fov_x, fov_y = self._tile_fov
-        overlap = self.spin_overlap.value()
-        return (
-            ((self.spin_cols.value() - 1) * (1 - overlap) + 1) * fov_x,
-            ((self.spin_rows.value() - 1) * (1 - overlap) + 1) * fov_y,
-        )
+        return self.grid.total_fov
 
     def _refresh_derived(self) -> None:
-        total = self.total_fov()
-        self.label_total_fov.setText(
-            "—" if total is None
-            else f"{total[0] * constants.SI_TO_MICRO:.0f} × "
-                 f"{total[1] * constants.SI_TO_MICRO:.0f} µm"
-        )
-
         # Warnings only -- the tile count is already on the mask panel, and saying it
         # twice just makes the second one look like a different number.
         parts = []
@@ -447,38 +373,32 @@ class FMOverviewSettingsWidget(QWidget):
     @property
     def parameters(self) -> OverviewParameters:
         return OverviewParameters(
-            rows=self.spin_rows.value(),
-            cols=self.spin_cols.value(),
-            overlap=self.spin_overlap.value(),
+            rows=self.grid.rows,
+            cols=self.grid.cols,
+            overlap=self.grid.overlap,
             use_zstack=self.check_zstack.isChecked(),
             autofocus_mode=self.combo_autofocus_mode.value(),
-            tile_order=self.combo_tile_order.value(),
-            tile_mask=self.tile_mask.mask,
+            tile_order=self.grid.tile_order,
+            tile_mask=self.grid.mask,
             objective_start=self.combo_objective_start.value(),
         )
 
     @parameters.setter
     def parameters(self, value: OverviewParameters) -> None:
-        for widget in (self.spin_rows, self.spin_cols, self.spin_overlap,
-                       self.combo_tile_order, self.check_zstack,
-                       self.combo_autofocus_mode, self.combo_objective_start,
-                       self.tile_mask):
+        widgets = (self.check_zstack, self.combo_autofocus_mode,
+                   self.combo_objective_start)
+        for widget in widgets:
             widget.blockSignals(True)
         try:
-            self.spin_rows.setValue(value.rows)
-            self.spin_cols.setValue(value.cols)
-            self.spin_overlap.setValue(value.overlap)
-            self.combo_tile_order.set_value(value.tile_order)
+            # The grid panel does its own blocking, so it is loaded outside this one --
+            # `blockSignals` on the panel would not reach the boxes inside it anyway.
+            self.grid.apply(value.rows, value.cols, value.overlap,
+                            value.tile_order, value.tile_mask)
             self.check_zstack.setChecked(value.use_zstack)
             self.combo_autofocus_mode.set_value(value.autofocus_mode)
             self.combo_objective_start.set_value(value.objective_start)
-            self.tile_mask.set_grid_size(value.rows, value.cols)
-            self.tile_mask.mask = value.tile_mask
         finally:
-            for widget in (self.spin_rows, self.spin_cols, self.spin_overlap,
-                           self.combo_tile_order, self.check_zstack,
-                           self.combo_autofocus_mode, self.combo_objective_start,
-                           self.tile_mask):
+            for widget in widgets:
                 widget.blockSignals(False)
         # Both, because the setter blocked the signals that normally trigger them --
         # otherwise loading a z-stacked configuration leaves the z-parameters greyed
