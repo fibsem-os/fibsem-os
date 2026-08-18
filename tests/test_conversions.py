@@ -19,6 +19,7 @@ import numpy as np
 import pytest
 
 from fibsem.conversions import (
+    get_image_pixel_centre,
     image_to_microscope_image_coordinates,
     image_to_microscope_image_coordinates2,
     image_to_microscope_image_coordinates_px,
@@ -185,15 +186,94 @@ def test_a_non_2d_shape_is_rejected():
         image_to_microscope_image_coordinates2(Point(0.0, 0.0), (512, 512, 3), PIXEL_SIZE)
 
 
-def test_the_inverse_round_trips():
-    """`microscope_image_to_image_coordinates` floors the centre unconditionally,
-    so it is the forward conversion's default that it inverts."""
+# ---------------------------------------------------------------------------
+# the shared centre (FIB-644)
+# ---------------------------------------------------------------------------
+
+
+def test_the_centre_is_y_then_x():
+    """Order matters and is easy to get backwards: (cy, cx), matching image
+    shape rather than the (x, y) of Point. Checked on a rectangle, since a
+    square cannot tell the two apart."""
+    assert get_image_pixel_centre(EVEN) == (256, 512)
+
+
+def test_the_centre_floors_by_default_and_can_be_exact():
+    assert get_image_pixel_centre(ODD) == (255, 511)
+    assert get_image_pixel_centre(ODD, subpixel_precision=True) == (255.5, 511.5)
+
+
+def test_the_floored_centre_stays_a_plain_int():
+    """It is handed to callers that index, format and serialise it, and the
+    numpy scalar an ndarray would give back is not JSON-serialisable."""
+    import json
+
+    cy, cx = get_image_pixel_centre(ODD)
+    assert (type(cy), type(cx)) == (int, int)
+    assert json.dumps([cy, cx]) == "[255, 511]"
+
+    cy, cx = get_image_pixel_centre(ODD, subpixel_precision=True)
+    assert (type(cy), type(cx)) == (float, float)
+
+
+def test_a_non_2d_shape_has_no_centre():
+    """An RGB image reaching a 2-D conversion is a bug, not something to
+    silently take the first two axes of."""
+    with pytest.raises(ValueError):
+        get_image_pixel_centre((8, 8, 3))
+
+
+# ---------------------------------------------------------------------------
+# round trip
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("shape", [EVEN, ODD])
+@pytest.mark.parametrize("subpixel", [False, True])
+def test_the_inverse_round_trips(shape, subpixel):
+    """The defect FIB-644 tier 1 fixes.
+
+    The inverse used to floor the centre unconditionally, so pairing it with a
+    forward conversion at subpixel precision lost half a pixel on an odd image
+    dimension — and correlation calls the forward one that way. Now both ends
+    can express the same centre, so the trip is exact either way.
+    """
     original = Point(700.0, 100.0)
-    metres = image_to_microscope_image_coordinates2(original, EVEN, PIXEL_SIZE)
-    back = microscope_image_to_image_coordinates(metres, EVEN, PIXEL_SIZE)
+    metres = image_to_microscope_image_coordinates2(
+        original, shape, PIXEL_SIZE, subpixel_precision=subpixel
+    )
+    back = microscope_image_to_image_coordinates(
+        metres, shape, PIXEL_SIZE, subpixel_precision=subpixel
+    )
 
     assert back.x == pytest.approx(original.x)
     assert back.y == pytest.approx(original.y)
+
+
+def test_mismatched_centres_are_what_used_to_lose_half_a_pixel():
+    """Pinning the failure itself, so the fix cannot be quietly undone: forward
+    exact, inverse floored, on an odd shape."""
+    original = Point(700.0, 100.0)
+    metres = image_to_microscope_image_coordinates2(
+        original, ODD, PIXEL_SIZE, subpixel_precision=True
+    )
+    back = microscope_image_to_image_coordinates(
+        metres, ODD, PIXEL_SIZE, subpixel_precision=False
+    )
+
+    assert abs(back.x - original.x) == pytest.approx(0.5)
+    assert abs(back.y - original.y) == pytest.approx(0.5)
+
+
+def test_the_inverse_default_is_unchanged():
+    """Called as before — no keyword — it must behave exactly as it always has."""
+    p = Point(1.885e-06, 1.555e-06)
+    explicit = microscope_image_to_image_coordinates(
+        p, ODD, PIXEL_SIZE, subpixel_precision=False
+    )
+    implicit = microscope_image_to_image_coordinates(p, ODD, PIXEL_SIZE)
+
+    assert (implicit.x, implicit.y) == (explicit.x, explicit.y)
 
 
 def test_is_importable_without_napari():
