@@ -272,3 +272,45 @@ def test_the_done_state_in_the_status_bar_clears_itself(window_source):
         "nothing hides the Done state; it stays until another operation replaces it"
     )
     assert "singleShot" in body, "the hide has to be delayed, or Done is never seen"
+
+
+def test_the_two_host_tabs_share_one_base():
+    """Both drive an experiment the same way, so neither owns that plumbing.
+
+    Only the methods whose code was byte-identical moved (FIB-697), so this asserts the
+    ones that did and deliberately does *not* assert the ones that did not:
+    `refresh_positions` and the request handlers differ because of which pose they read,
+    and pretending otherwise is how the two tabs would come to mark different things.
+    """
+    from fibsem.applications.autolamella.ui.autolamella_fluorescence_overview_tab import (
+        AutoLamellaFluorescenceOverviewTab,
+    )
+    from fibsem.applications.autolamella.ui.autolamella_overview_tab import (
+        AutoLamellaOverviewTab,
+    )
+    from fibsem.applications.autolamella.ui.overview_tab_base import (
+        AutoLamellaOverviewTabBase,
+    )
+
+    shared = ("is_available", "microscope", "experiment", "refresh_experiment",
+              "set_selected", "set_interactive", "_on_list_selection",
+              "_on_marker_clicked")
+
+    for cls in (AutoLamellaOverviewTab, AutoLamellaFluorescenceOverviewTab):
+        assert issubclass(cls, AutoLamellaOverviewTabBase)
+        for name in shared:
+            assert name not in vars(cls), (
+                f"{cls.__name__} defines {name} again; the base is what stops the two "
+                "tabs drifting apart"
+            )
+        # The pose is the difference between the tabs, so each must still answer it.
+        assert "refresh_positions" in vars(cls), (
+            f"{cls.__name__} inherits refresh_positions, which would mark nothing"
+        )
+
+    # Both signals are declared once, on the base. A subclass redeclaring one shadows
+    # it, and the window connects to whichever it happens to see first.
+    for name in ("availability_changed", "lamella_selected"):
+        assert name in vars(AutoLamellaOverviewTabBase)
+        for cls in (AutoLamellaOverviewTab, AutoLamellaFluorescenceOverviewTab):
+            assert name not in vars(cls), f"{cls.__name__} redeclares {name}"

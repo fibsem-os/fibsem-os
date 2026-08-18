@@ -22,7 +22,6 @@ import logging
 from copy import deepcopy
 from typing import TYPE_CHECKING, Optional
 
-from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
 from fibsem.applications.autolamella.poses import (
@@ -32,13 +31,16 @@ from fibsem.applications.autolamella.poses import (
 from fibsem.ui import notification_service
 from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
 from fibsem.ui.utils import message_box_ui
+from fibsem.applications.autolamella.ui.overview_tab_base import (
+    AutoLamellaOverviewTabBase,
+)
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import LamellaNameListWidget
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.applications.autolamella.structures import Lamella
 
 
-class AutoLamellaFluorescenceOverviewTab(QWidget):
+class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
     """Drives `FMOverviewWidget` on behalf of an experiment.
 
     Built empty and filled in on connection: `FMOverviewWidget` requires a microscope
@@ -46,15 +48,6 @@ class AutoLamellaFluorescenceOverviewTab(QWidget):
     since every scale on its canvas comes from the camera -- and at the point the tab is
     reserved there may be no microscope at all.
     """
-
-    # Whether there is a live widget to drive. The window listens so it can enable or
-    # disable the tab; this object deliberately does not touch the tab bar, which is the
-    # one thing about the tab that is not its business.
-    availability_changed = pyqtSignal(bool)
-    # A lamella was picked in this tab's own list. The window forwards it to the other
-    # lists; nothing here selects them directly, which is what keeps the sync in one
-    # place instead of four.
-    lamella_selected = pyqtSignal(object)
 
     def __init__(self, autolamella_ui, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -80,19 +73,6 @@ class AutoLamellaFluorescenceOverviewTab(QWidget):
         self.lamella_list.remove_requested.connect(self._on_remove_requested)
 
     # ── what the window asks ─────────────────────────────────────────────
-
-    @property
-    def is_available(self) -> bool:
-        """Whether there is a widget to drive, i.e. whether the tab does anything."""
-        return self.overview is not None
-
-    @property
-    def microscope(self):
-        return self.autolamella_ui.microscope if self.autolamella_ui is not None else None
-
-    @property
-    def experiment(self):
-        return self.autolamella_ui.experiment if self.autolamella_ui is not None else None
 
     def refresh_microscope(self) -> None:
         """Build, rebuild or drop the fluorescence widget to match the instrument.
@@ -166,40 +146,6 @@ class AutoLamellaFluorescenceOverviewTab(QWidget):
         self.overview = None
         self._microscope = None
 
-    def refresh_experiment(self) -> None:
-        """Tell the fluorescence widget where to save, and what to mark.
-
-        Told rather than handed the experiment: the widget knows nothing about
-        experiments, and keeping it that way is what lets it open standalone against a
-        simulator and be constructed in a test from a microscope alone.
-        """
-        if self.overview is None:
-            return
-        experiment = self.experiment
-        self.overview.set_save_directory(
-            str(experiment.path) if experiment is not None else None
-        )
-        self.refresh_positions()
-
-    def set_selected(self, lamella) -> None:
-        """Highlight the selected lamella.
-
-        Called from each of the window's selection handlers *before* their
-        `_syncing_selection` guard, and deliberately: that guard exists to stop three
-        lists selecting each other in circles, and this is not a fourth list. It emits
-        nothing and only repaints, so it wants to run whichever list the selection came
-        from -- which is exactly what the guard suppresses.
-        """
-        if self.overview is None:
-            return
-        self.overview.set_selected_position(
-            lamella.name if lamella is not None else None
-        )
-        # Not while this tab is the one that raised the selection: the list already shows
-        # what the user clicked, and re-selecting it would fight them mid-click.
-        if not self._syncing_selection and lamella is not None:
-            self.lamella_list.select(lamella.name)
-
     def refresh_positions(self) -> None:
         """Mark the experiment's lamellae on the fluorescence canvas.
 
@@ -247,56 +193,7 @@ class AutoLamellaFluorescenceOverviewTab(QWidget):
                 f"shown on the FM overview: {', '.join(unplaceable)}"
             )
 
-    def set_interactive(self, enabled: bool) -> None:
-        """Allow or forbid starting work, for a host that has taken the instrument."""
-        if self.overview is None:
-            return
-        self.overview.set_interactive(enabled)
-
     # ── the list ─────────────────────────────────────────────────────────
-
-    def _on_list_selection(self, lamella) -> None:
-        """A row was clicked: highlight it on the canvas, and tell the window.
-
-        The flag is what stops the round trip. The window answers by syncing every list
-        it knows about, this tab included, and re-selecting the row under a click that
-        is still happening moves the selection out from under the user.
-
-        Checked as well as set: `_on_marker_clicked` selects the row itself, and the row
-        answering by coming back through here announced the same lamella twice.
-        """
-        if self._syncing_selection:
-            return
-        self._syncing_selection = True
-        try:
-            if self.overview is not None:
-                self.overview.set_selected_position(
-                    lamella.name if lamella is not None else None
-                )
-            self.lamella_selected.emit(lamella)
-        finally:
-            self._syncing_selection = False
-
-    def _on_marker_clicked(self, name: str) -> None:
-        """A crosshair on the canvas was clicked: select that lamella everywhere.
-
-        The canvas has already highlighted it -- it knows the name it drew. What it
-        cannot do is turn a name into a lamella, so the list and the window are told from
-        here, through the same path a row click takes.
-        """
-        experiment = self.experiment
-        if experiment is None:
-            return
-        lamella = next((p for p in experiment.positions if p.name == name), None)
-        if lamella is None:
-            logging.debug(f"Clicked {name!r}, which is not in the experiment.")
-            return
-        self._syncing_selection = True
-        try:
-            self.lamella_list.select(name)
-            self.lamella_selected.emit(lamella)
-        finally:
-            self._syncing_selection = False
 
     def _on_move_to_requested(self, lamella) -> None:
         """Drive the stage to a lamella's *fluorescence* pose.
