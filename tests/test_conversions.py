@@ -7,11 +7,25 @@ import it lazily inside four separate function bodies to avoid the cycle.
 
 These pin the behaviour as it was, including the off-by-one below, so the move is
 provably inert.
+
+The image → microscope conversions had no coverage at all until FIB-362 factored
+their shared centring into `image_to_microscope_image_coordinates_px`. They are
+read by movement, milling, detection, the minimap and tiled acquisition, so the
+tests below pin the behaviour the refactor had to preserve rather than the
+refactor itself.
 """
 
+import numpy as np
 import pytest
 
-from fibsem.conversions import is_inside_image_bounds
+from fibsem.conversions import (
+    image_to_microscope_image_coordinates,
+    image_to_microscope_image_coordinates2,
+    image_to_microscope_image_coordinates_px,
+    is_inside_image_bounds,
+    microscope_image_to_image_coordinates,
+)
+from fibsem.structures import Point
 
 SHAPE = (100, 200)  # (y, x)
 
@@ -60,6 +74,126 @@ def test_shape_is_y_x_not_x_y():
     """coords and shape are both (y, x); a transposed shape changes the answer."""
     assert is_inside_image_bounds((50, 150), (100, 200)) is True
     assert is_inside_image_bounds((50, 150), (200, 100)) is False
+
+
+# ---------------------------------------------------------------------------
+# image px → microscope image coordinates
+# ---------------------------------------------------------------------------
+
+EVEN = (512, 1024)  # (height, width)
+ODD = (511, 1023)   # the only case where the centre rounding is visible
+PIXEL_SIZE = 1e-8
+
+
+def test_the_centre_is_the_origin():
+    assert image_to_microscope_image_coordinates_px(
+        Point(512.0, 256.0), EVEN, subpixel_precision=True
+    ) == Point(0.0, 0.0)
+
+
+def test_y_is_mirrored_and_x_is_not():
+    """The asymmetry this function exists to state once: microscope +y is *up*,
+    image +y is down, and x agrees between the two."""
+    down_right = image_to_microscope_image_coordinates_px(
+        Point(612.0, 356.0), EVEN, subpixel_precision=True
+    )
+    assert (down_right.x, down_right.y) == (100.0, -100.0)
+
+    up_left = image_to_microscope_image_coordinates_px(
+        Point(412.0, 156.0), EVEN, subpixel_precision=True
+    )
+    assert (up_left.x, up_left.y) == (-100.0, 100.0)
+
+
+def test_shape_is_height_width():
+    """A transposed shape looks fine on a square image, so check a rectangle."""
+    corner = image_to_microscope_image_coordinates_px(
+        Point(0.0, 0.0), EVEN, subpixel_precision=True
+    )
+    assert (corner.x, corner.y) == (-512.0, 256.0)
+
+
+def test_subpixel_precision_only_matters_on_an_odd_dimension():
+    """Flooring the centre is the long-standing default. It is exact on an even
+    dimension and half a pixel off on an odd one — which is why the correlation
+    module opts out and everything else does not."""
+    for shape, expected_floored in ((EVEN, (188.0, 156.0)), (ODD, (189.0, 155.0))):
+        floored = image_to_microscope_image_coordinates_px(
+            Point(700.0, 100.0), shape, subpixel_precision=False
+        )
+        assert (floored.x, floored.y) == expected_floored
+
+    exact = image_to_microscope_image_coordinates_px(
+        Point(700.0, 100.0), ODD, subpixel_precision=True
+    )
+    assert (exact.x, exact.y) == (188.5, 155.5)
+
+
+@pytest.mark.parametrize("subpixel", [False, True])
+@pytest.mark.parametrize("shape", [EVEN, ODD])
+def test_the_array_and_shape_forms_agree(shape, subpixel):
+    """Two functions, one taking the image and one its shape. Nothing forced
+    them to stay in step before they shared a centring."""
+    coord = Point(700.0, 100.0)
+    from_image = image_to_microscope_image_coordinates(
+        coord, np.zeros(shape, dtype=np.uint8), PIXEL_SIZE, subpixel_precision=subpixel
+    )
+    from_shape = image_to_microscope_image_coordinates2(
+        coord, shape, PIXEL_SIZE, subpixel_precision=subpixel
+    )
+    assert from_image.x == pytest.approx(from_shape.x)
+    assert from_image.y == pytest.approx(from_shape.y)
+
+
+@pytest.mark.parametrize("subpixel", [False, True])
+def test_both_forms_pass_the_flag_through(subpixel):
+    """The wrappers must not decide the rounding for their callers — this is
+    what a hardcoded `True` or `False` inside either of them would break."""
+    coord = Point(700.0, 100.0)
+    expected = image_to_microscope_image_coordinates_px(
+        coord, ODD, subpixel_precision=subpixel
+    )
+    for actual in (
+        image_to_microscope_image_coordinates(
+            coord, np.zeros(ODD, dtype=np.uint8), PIXEL_SIZE, subpixel_precision=subpixel
+        ),
+        image_to_microscope_image_coordinates2(
+            coord, ODD, PIXEL_SIZE, subpixel_precision=subpixel
+        ),
+    ):
+        assert actual.x == pytest.approx(expected.x * PIXEL_SIZE)
+        assert actual.y == pytest.approx(expected.y * PIXEL_SIZE)
+
+
+def test_the_default_is_the_floored_centre():
+    """Called without the flag, both keep doing what movement and milling have
+    always done. Changing this default would move the stage."""
+    coord = Point(700.0, 100.0)
+    floored = image_to_microscope_image_coordinates_px(
+        coord, ODD, subpixel_precision=False
+    )
+    assert image_to_microscope_image_coordinates2(
+        coord, ODD, PIXEL_SIZE
+    ).x == pytest.approx(floored.x * PIXEL_SIZE)
+    assert image_to_microscope_image_coordinates(
+        coord, np.zeros(ODD, dtype=np.uint8), PIXEL_SIZE
+    ).y == pytest.approx(floored.y * PIXEL_SIZE)
+
+
+def test_a_non_2d_shape_is_rejected():
+    with pytest.raises(ValueError, match="two integers"):
+        image_to_microscope_image_coordinates2(Point(0.0, 0.0), (512, 512, 3), PIXEL_SIZE)
+
+
+def test_the_inverse_round_trips():
+    """`microscope_image_to_image_coordinates` floors the centre unconditionally,
+    so it is the forward conversion's default that it inverts."""
+    original = Point(700.0, 100.0)
+    metres = image_to_microscope_image_coordinates2(original, EVEN, PIXEL_SIZE)
+    back = microscope_image_to_image_coordinates(metres, EVEN, PIXEL_SIZE)
+
+    assert back.x == pytest.approx(original.x)
+    assert back.y == pytest.approx(original.y)
 
 
 def test_is_importable_without_napari():

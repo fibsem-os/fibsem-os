@@ -18,6 +18,7 @@ from fibsem.correlation.structures import (
     PointXYZ,
     apply_z_surface_correction,
 )
+from fibsem.conversions import image_to_microscope_image_coordinates_px
 from fibsem.structures import Point
 
 DEFAULT_OPTIMIZATION_PARAMETERS = {
@@ -245,19 +246,15 @@ def run_correlation(
 def convert_poi_to_microscope_coordinates(
     poi_coordinates: np.ndarray, fib_image_shape: tuple, pixel_size_um: float
 ) -> list:
-    # image centre
-    cx = float(fib_image_shape[1] * 0.5)
-    cy = float(fib_image_shape[0] * 0.5)
-
     poi_image_coordinates: list = []
 
     for i in range(poi_coordinates.shape[1]):
         px = poi_coordinates[:, i]  # (x, y, z) in pixel coordinates
         px = [float(px[0]), float(px[1])]
-        px_x, px_y = (
-            px[0] - cx,
-            cy - px[1],
-        )  # point in microscope image coordinates (px)
+        pt_px = image_to_microscope_image_coordinates_px(
+            Point(px[0], px[1]), fib_image_shape, subpixel_precision=True
+        )
+        px_x, px_y = pt_px.x, pt_px.y
         pt_um = (
             px_x * pixel_size_um,
             px_y * pixel_size_um,
@@ -268,32 +265,6 @@ def convert_poi_to_microscope_coordinates(
              "px_um": [pt_um[0], pt_um[1]],                 # micrometers
              "px_m": [pt_um[0] * 1e-6, pt_um[1] * 1e-6]}    # meters
         )
-
-    return poi_image_coordinates
-
-def _convert_poi_to_microscope_image_coordinate(
-    poi_coordinates: Tuple[float, float], 
-    fib_image_shape: Tuple[int, int], 
-    pixel_size_um: float
-) -> Dict[str, List[float]]:
-    """Convert a single point of interest to microscope image coordinates. 
-    Point of Interest (POI) is in 2D image coordinates (x, y) in image pixels.
-    Microscope Image Coordinates are centred at the image centre (0, 0) and in micrometers.
-    Args:
-        poi_coordinates (Tuple[float, float]): Point of Interest (POI) in 2D image coordinates (x, y) in image pixels.
-        fib_image_shape (Tuple[int, int]): Shape of the FIBSEM image (height, width).
-        pixel_size_um (float): Pixel size in micrometers.
-    Returns:
-        Dict[str, List[float]]: Dictionary containing the POI in different coordinate systems."""
-    
-    # image centre
-    cx = float(fib_image_shape[1] * 0.5)
-    cy = float(fib_image_shape[0] * 0.5)
-
-    px = [float(poi_coordinates[0]), float(poi_coordinates[1])] # (x, y) in pixel coordinates
-    px_x, px_y = (px[0] - cx, cy - px[1])  # point in microscope image coordinates (px)
-    pt_um = (px_x * pixel_size_um,px_y * pixel_size_um)  # point in microscope image coordinates (um)
-    poi_image_coordinates = {"image_px": px, "px": [px_x, px_y], "px_um": [pt_um[0], pt_um[1]]}
 
     return poi_image_coordinates
 
@@ -382,10 +353,16 @@ def _reproject_poi_via_transform(
     """
     R = np.asarray(transformation["rotation_quaternion"], dtype=float)
     if R.shape != (3, 3):
-        logging.warning(
-            f"Cannot reproject POI: unexpected rotation shape {R.shape}"
+        # Unreachable from the only call site — extract_transformation_data
+        # always writes Rigid3D.q — but kept, and kept loud. A (3,) R broadcasts
+        # cleanly through the matmul below and yields plausible garbage instead
+        # of raising, and a broken transform here is the same broken transform
+        # that produced the result's own POI, so there is nothing worth
+        # salvaging. This used to log a warning and return [], which dropped the
+        # ghost marker and left the run looking fine.
+        raise ValueError(
+            f"Cannot reproject POI: expected a 3x3 rotation matrix, got {R.shape}"
         )
-        return []
     s = float(transformation["scale"])
     d = np.asarray(
         transformation["translation_around_rotation_center_zero"], dtype=float
@@ -397,8 +374,11 @@ def _reproject_poi_via_transform(
         x, y = float(projected[0, i]), float(projected[1, i])
         poi = CorrelationPointOfInterest(image_px=Point(x, y))
         if fib_shape is not None and pixel_size is not None:
-            cx, cy = fib_shape[1] / 2.0, fib_shape[0] / 2.0
-            poi.px = Point(x - cx, cy - y)
+            # pixel_size is in metres here (CorrelationInputData), not the µm
+            # that convert_poi_to_microscope_coordinates takes.
+            poi.px = image_to_microscope_image_coordinates_px(
+                Point(x, y), fib_shape, subpixel_precision=True
+            )
             poi.px_m = Point(poi.px.x * pixel_size, poi.px.y * pixel_size)
         pois.append(poi)
     return pois

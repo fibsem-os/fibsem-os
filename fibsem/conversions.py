@@ -5,6 +5,41 @@ import numpy as np
 from fibsem.structures import FibsemImage, Point
 
 
+def image_to_microscope_image_coordinates_px(
+    coord: Point, image_shape: Tuple[int, int], subpixel_precision: bool
+) -> Point:
+    """
+    Convert an image pixel coordinate to a microscope image coordinate, in pixels.
+
+    The microscope image coordinate system is centered on the image with positive Y-axis pointing upwards,
+    so y is mirrored about the centre where x is only shifted. This is the single source of that convention:
+    the two metres-returning functions below are this plus a pixel-size multiply, and the correlation module
+    reprojects points through it (FIB-362).
+
+    ``subpixel_precision`` has no default on purpose. Flooring the centre only differs from the true centre
+    on an odd image dimension, and then by half a pixel -- small enough to go unnoticed and large enough to
+    matter, so each caller says which it wants.
+
+    Args:
+        coord (Point): A Point object representing the pixel coordinates in the original image.
+        image_shape (Tuple[int, int]): The shape of the image (height, width).
+        subpixel_precision (bool): Floors the centre to a whole pixel if False.
+
+    Returns:
+        Point: A Point object representing the corresponding microscope image coordinates, in pixels.
+    """
+    # convert from image pixel coord (0, 0) top left to microscope image (0, 0) mid
+    centre_px = np.asarray(image_shape) / 2
+    if not subpixel_precision:
+        centre_px = np.asarray(image_shape) // 2
+    cy, cx = centre_px
+
+    # distance from centre?
+    return Point(
+        x=float(coord.x - cx),   # neg = left
+        y=float(cy - coord.y),   # neg = down
+    )
+
 def image_to_microscope_image_coordinates(
     coord: Point, image: np.ndarray, pixelsize: float, subpixel_precision: bool = False
 ) -> Point:
@@ -22,22 +57,11 @@ def image_to_microscope_image_coordinates(
     Returns:
         Point: A Point object representing the corresponding microscope image coordinates in meters.
     """
-    # convert from image pixel coord (0, 0) top left to microscope image (0, 0) mid
+    point_px = image_to_microscope_image_coordinates_px(
+        coord, image.shape, subpixel_precision
+    )
 
-    # shape
-    centre_px = np.asarray(image.shape) / 2
-    if not subpixel_precision:
-        centre_px = np.asarray(image.shape) // 2
-    cy, cx = centre_px
-
-    # distance from centre?
-    dy = float(-(coord.y - cy))  # neg = down
-    dx = float(coord.x - cx)  # neg = left
-
-    point_m = convert_point_from_pixel_to_metres(Point(dx, dy), pixelsize)
-    # point_m = Point(dx, dy)._to_metres(pixel_size=pixelsize)
-
-    return point_m
+    return convert_point_from_pixel_to_metres(point_px, pixelsize)
 
 def image_to_microscope_image_coordinates2(
     coord: Point, image_shape: Tuple[int, int], pixelsize: float, subpixel_precision: bool = False
@@ -56,24 +80,14 @@ def image_to_microscope_image_coordinates2(
     Returns:
         Point: A Point object representing the corresponding microscope image coordinates in meters.
     """
-    # convert from image pixel coord (0, 0) top left to microscope image (0, 0) mid
-
     if len(image_shape) != 2:
         raise ValueError("image_shape must be a tuple of two integers (height, width)")
 
-    # shape
-    centre_px = np.asarray(image_shape) / 2
-    if not subpixel_precision:
-        centre_px = np.asarray(image_shape) // 2
-    cy, cx = centre_px
+    point_px = image_to_microscope_image_coordinates_px(
+        coord, image_shape, subpixel_precision
+    )
 
-    # distance from centre?
-    dy = float(-(coord.y - cy))  # neg = down
-    dx = float(coord.x - cx)  # neg = left
-
-    point_m = Point(dx, dy)._to_metres(pixel_size=pixelsize)
-
-    return point_m
+    return point_px._to_metres(pixel_size=pixelsize)
 
 def microscope_image_to_image_coordinates(point: Point, image_shape: Tuple[int, int], pixel_size: float) -> Point:
     """
