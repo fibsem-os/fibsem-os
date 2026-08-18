@@ -85,7 +85,7 @@ class OverviewGridSettingsWidget(QWidget):
         # Percent, not the stored fraction. `0.10` reads as a coefficient; `10 %` reads
         # as what it is. The two tabs disagreed about this, of one stored number.
         self.spin_overlap = self._field(
-            ValueSpinBox(suffix=" %", minimum=0.0, maximum=50.0, step=5.0, decimals=0)
+            ValueSpinBox(suffix=" %", minimum=0.0, maximum=90.0, step=5.0, decimals=0)
         )
 
         self.combo_tile_order = self._field(ValueComboBox(
