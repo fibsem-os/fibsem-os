@@ -23,7 +23,6 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QScrollArea,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -52,11 +51,12 @@ from fibsem.ui.widgets.preflight import (
 # right edge would break it.
 _DURATION_WIDTH = 84
 
-# The expanded lamella list is bounded rather than allowed to grow. A hundred-lamella
-# experiment wrapped to a dozen lines and pushed the rest of the dialog off the bottom;
-# the count is in the chip beside it, and the list is for finding a name, not reading
-# every one.
-_NAMES_MAX_HEIGHT = 62
+# How many lamella names the expanded list shows before it stops counting them out. A
+# hundred-lamella experiment wrapped to a dozen lines and pushed the rest of the dialog
+# off the bottom. A scroll area bounded it but put Qt's arrow-button scrollbar in the
+# middle of otherwise flat chrome, to reach names nobody hunts for by scrolling -- so
+# the list truncates and says how many it did not show instead.
+_NAMES_SHOWN = 12
 
 
 def _clock(when: Optional[datetime], reference: Optional[datetime]) -> str:
@@ -94,8 +94,13 @@ def _metric(label_text: str, value_text: str) -> QWidget:
     answers "when do I come back", and the second is the one people act on.
     """
     frame = QFrame()
+    # Scoped to this frame by name. A bare `QFrame { ... }` selector also matches every
+    # QFrame *inside* it, and preflight.chip() is one -- which repainted each chip with
+    # the panel's fill on top of its own.
+    frame.setObjectName("preflightMetric")
     frame.setStyleSheet(
-        f"QFrame {{ background: {PANEL}; border: 1px solid {BORDER}; border-radius: 4px; }}"
+        f"QFrame#preflightMetric {{ background: {PANEL}; border: 1px solid {BORDER};"
+        f" border-radius: 4px; }}"
     )
     layout = QVBoxLayout(frame)
     layout.setContentsMargins(12, 9, 12, 9)
@@ -140,8 +145,12 @@ def _task_row(task: TaskEstimate, reference: Optional[datetime] = None) -> QWidg
 
 def _task_block(tasks: List[TaskEstimate], reference: Optional[datetime] = None) -> QFrame:
     frame = QFrame()
+    # Scoped by name: the rows carry chips, and chips are QFrames, so a bare selector
+    # would restyle them with this block's fill and border.
+    frame.setObjectName("preflightTaskBlock")
     frame.setStyleSheet(
-        f"QFrame {{ background: {PANEL}; border: 1px solid {BORDER}; border-radius: 4px; }}"
+        f"QFrame#preflightTaskBlock {{ background: {PANEL}; border: 1px solid {BORDER};"
+        f" border-radius: 4px; }}"
     )
     layout = QVBoxLayout(frame)
     layout.setContentsMargins(12, 10, 12, 10)
@@ -193,7 +202,7 @@ class WorkflowPreflightDialog(QDialog):
         chips.addStretch()
         chips.addWidget(self._lamella_disclosure())
         layout.addLayout(chips)
-        layout.addWidget(self._lamella_names_area)
+        layout.addWidget(self._lamella_names_label)
 
         metrics = QHBoxLayout()
         metrics.setSpacing(10)
@@ -243,43 +252,49 @@ class WorkflowPreflightDialog(QDialog):
         per-task breakdown replaces them with `×2`. They come back here, once, rather
         than repeated under every task.
 
-        Builds the names area as a side effect and leaves it on the instance; the
+        Builds the names label as a side effect and leaves it on the instance; the
         caller places it, because it belongs under the chip row rather than inside it.
         """
-        names = QLabel("   ".join(self.estimate.lamella_names))
-        names.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px; border: none;")
+        names = QLabel(self._names_text())
+        names.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
         names.setWordWrap(True)
-        names.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-
-        # Bounded and scrollable rather than free to grow: at a hundred lamellae the
-        # wrapped label ran to a dozen lines and overlapped everything below it.
-        area = QScrollArea()
-        area.setWidget(names)
-        area.setWidgetResizable(True)
-        area.setFrameShape(QFrame.NoFrame)
-        area.setMaximumHeight(_NAMES_MAX_HEIGHT)
-        area.setStyleSheet("QScrollArea { background: transparent; border: none; }")
-        area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        area.setVisible(False)
+        names.setVisible(False)
 
         button = QToolButton()
         button.setText(f"{len(self.estimate.lamella_names)} lamellae")
         button.setCheckable(True)
         button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         button.setArrowType(Qt.RightArrow)
+        # Transparent explicitly: with no background rule a QToolButton paints the
+        # platform's default button fill, which reads as a raised control next to the
+        # chips it sits beside.
         button.setStyleSheet(
-            f"QToolButton {{ color: {TEXT_MUTED}; font-size: 11px; border: none; }}"
+            f"QToolButton {{ color: {TEXT_MUTED}; font-size: 11px; border: none;"
+            f" background: transparent; padding: 2px 0px; }}"
         )
 
         def _toggle(checked: bool) -> None:
             button.setArrowType(Qt.DownArrow if checked else Qt.RightArrow)
-            area.setVisible(checked)
+            names.setVisible(checked)
             self.adjustSize()
 
         button.toggled.connect(_toggle)
         self._lamella_names_label = names
-        self._lamella_names_area = area
         return button
+
+    def _names_text(self) -> str:
+        """The names, truncated with a count of what is not shown.
+
+        A selection of a hundred is confirmed by spot-checking a few and trusting the
+        count, not by reading all of them -- and the count is what "+88 more" gives
+        that a scrollbar hides.
+        """
+        names = self.estimate.lamella_names
+        shown = "   ".join(names[:_NAMES_SHOWN])
+        remaining = len(names) - _NAMES_SHOWN
+        if remaining > 0:
+            return f"{shown}   + {remaining} more"
+        return shown
 
     def _exception_notes(self) -> List[QLabel]:
         """The two things that stop the headline figure being the whole story.

@@ -214,29 +214,37 @@ def test_a_finish_further_out_keeps_its_date(dialog):
 
 def test_a_hundred_lamellae_do_not_push_the_dialog_apart(dialog):
     """Regression: the expanded names wrapped to a dozen lines and overlapped the
-    metrics, the note and every task row. The list is bounded and scrolls instead --
-    the count is in the chip beside it, and the list is for finding a name rather than
-    reading all of them."""
-    from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
-        _NAMES_MAX_HEIGHT,
-    )
+    metrics, the note and every task row. The list truncates and says how many it did
+    not show -- a selection of a hundred is confirmed by spot-checking a few and
+    trusting the count."""
+    from fibsem.applications.autolamella.ui.workflow_preflight_dialog import _NAMES_SHOWN
 
-    many = [f"{i:02d}-scale-lamella" for i in range(1, 101)]
-    few = dialog(_estimate())
-    lots = dialog(_estimate(lamella_names=many))
-    few.show()
-    lots.show()
+    def _expanded_names(count):
+        d = dialog(_estimate(lamella_names=[f"{i:02d}-scale-lamella" for i in range(count)]))
+        d.show()
+        d.findChild(QToolButton).setChecked(True)
+        return d._lamella_names_label.text()
 
-    few.findChild(QToolButton).setChecked(True)
-    lots.findChild(QToolButton).setChecked(True)
-    few.adjustSize()
-    lots.adjustSize()
+    hundred = _expanded_names(100)
+    thousand = _expanded_names(1000)
 
-    assert lots._lamella_names_area.maximumHeight() == _NAMES_MAX_HEIGHT
-    grew = lots.size().height() - few.size().height()
-    assert grew <= _NAMES_MAX_HEIGHT, (
-        f"100 names added {grew}px; the list must stay bounded"
-    )
+    assert "+ 88 more" in hundred, "the count is what a truncated list has to give back"
+    assert "+ 988 more" in thousand
+
+    # The mechanism that bounds the dialog, asserted rather than its pixel height:
+    # ten times the lamellae must render the same number of names.
+    assert hundred.count("scale-lamella") == _NAMES_SHOWN
+    assert thousand.count("scale-lamella") == _NAMES_SHOWN
+
+
+def test_a_short_lamella_list_is_shown_whole(dialog):
+    """The common case: a handful of lamellae, every one of them visible."""
+    d = dialog(_estimate())
+    d.show()
+    d.findChild(QToolButton).setChecked(True)
+    text = d._lamella_names_label.text()
+    assert "01-fancy-mite" in text and "02-civil-cub" in text
+    assert "more" not in text
 
 
 def test_the_breakdown_is_per_task_not_per_lamella(dialog):
@@ -263,3 +271,38 @@ def test_run_is_refused_when_no_task_is_selected(dialog):
 
 def test_run_is_offered_when_there_is_work(dialog):
     assert dialog(_estimate()).button_run.isEnabled() is True
+
+
+# ── the chips keep their own background ──────────────────────────────────────
+
+def test_the_panels_do_not_restyle_the_chips_inside_them(dialog):
+    """Regression, and invisible without running the app: a bare `QFrame { ... }`
+    selector matches every QFrame *inside* the widget it is set on, and
+    preflight.chip() is a QFrame -- so the task block was repainting each chip with
+    the panel's fill and border on top of the chip's own.
+
+    Only visible on a real style; offscreen rendering hid it. Pinned by the selector
+    rather than by pixels for that reason.
+    """
+    from PyQt5.QtWidgets import QFrame
+
+    tasks = [TaskEstimate("Polishing", 2, 785.0, supervised=True)]
+    d = dialog(_estimate(tasks=tasks))
+
+    panels = [
+        f for f in d.findChildren(QFrame)
+        if f.objectName() in {"preflightTaskBlock", "preflightMetric"}
+    ]
+    assert len(panels) == 3, "one task block and two metric cards"
+    for panel in panels:
+        assert f"QFrame#{panel.objectName()}" in panel.styleSheet()
+        assert "QFrame {" not in panel.styleSheet(), (
+            "a bare selector would cascade into the chips"
+        )
+
+
+def test_the_lamella_button_is_not_a_raised_control(dialog):
+    """With no background rule a QToolButton paints the platform default, which reads
+    as a button beside the flat chips it sits next to."""
+    d = dialog(_estimate())
+    assert "background: transparent" in d.findChild(QToolButton).styleSheet()
