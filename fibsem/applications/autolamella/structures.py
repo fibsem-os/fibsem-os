@@ -661,6 +661,18 @@ class DefectState:
         self.updated_at = datetime.timestamp(datetime.now())
 
 
+# The thumbnail is only ever displayed, and its largest reader is the cozy lamella
+# card at 280 px wide (the hover tooltip is 256). Storing the acquired frame at full
+# resolution meant decoding a 1536x1024, 823 KB PNG per card per refresh for a picture
+# thrown away at a fifth of the size -- 26 ms each, and the card strip re-reads every
+# lamella whenever one is added (FIB-681).
+#
+# 512 rather than 280: it leaves the largest card headroom on a HiDPI display, still
+# decodes in ~3 ms, and is a tenth of the bytes. Only ever shrinks -- a frame already
+# smaller than this is written through untouched.
+_THUMBNAIL_MAX_EDGE = 512
+
+
 def _make_thumbnail_placeholder():
     import numpy as np
     from PIL import Image, ImageDraw, ImageFont
@@ -973,6 +985,10 @@ class Lamella:
         on the same filesystem -- hence writing it in the same directory rather than
         somewhere under /tmp. A reader sees either the previous thumbnail or the new
         one, never a partial.
+
+        Written at display size rather than at the acquired resolution -- see
+        `_THUMBNAIL_MAX_EDGE`. This is a thumbnail, not a copy of the frame; the frame
+        itself is saved separately by the task that acquired it.
         """
         import tempfile
 
@@ -990,7 +1006,13 @@ class Lamella:
         )
         os.close(handle)
         try:
-            Image.fromarray(data.astype(np.uint8)).save(staged)
+            thumbnail = Image.fromarray(data.astype(np.uint8))
+            # In place, and never upscales: a frame smaller than the bound keeps its
+            # own size, which is what a caller passing an already-small image expects.
+            thumbnail.thumbnail(
+                (_THUMBNAIL_MAX_EDGE, _THUMBNAIL_MAX_EDGE), Image.LANCZOS
+            )
+            thumbnail.save(staged)
             os.replace(staged, destination)
         except BaseException:
             # Including cancellation: a staged file left behind would accumulate in the
