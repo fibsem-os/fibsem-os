@@ -208,8 +208,8 @@ def test_both_stop_paths_interrupt_the_hardware_the_same_way():
     import fibsem
 
     ui_dir = Path(fibsem.__path__[0]) / "applications" / "autolamella" / "ui"
-    autolamella_ui = (ui_dir / "AutoLamellaUI.py").read_text()
-    main_ui = (ui_dir / "AutoLamellaMainUI.py").read_text()
+    autolamella_ui = (ui_dir / "AutoLamellaUI.py").read_text(encoding="utf-8")
+    main_ui = (ui_dir / "AutoLamellaMainUI.py").read_text(encoding="utf-8")
 
     def body(source: str, name: str) -> str:
         """The text of one method, up to the next def at the same indent."""

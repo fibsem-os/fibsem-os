@@ -30,7 +30,7 @@ import fibsem
 
 def _thermo_class() -> ast.ClassDef:
     """The `ThermoMicroscope` class body, parsed from source."""
-    source = (Path(fibsem.__file__).parent / "microscope.py").read_text()
+    source = (Path(fibsem.__file__).parent / "microscope.py").read_text(encoding="utf-8")
     return next(
         node
         for node in ast.walk(ast.parse(source))

@@ -2064,14 +2064,14 @@ def test_auto_save_writes_one_correlation_json(qapp, tmp_path):
     assert not (tmp_path / "correlation_data.json").exists()
     assert not (tmp_path / "correlation_result.json").exists()
 
-    raw = json.loads(single.read_text())
+    raw = json.loads(single.read_text(encoding="utf-8"))
     assert raw["version"] == 1
     assert raw["result"] is None
     assert raw["input_data"]["fib_coordinates"][0]["point"]["x"] == 3.0
 
     # a run adds the result to the same file
     w._on_result_ready(_result_from(_input(fib=(3.0, 4.0))))
-    raw = json.loads(single.read_text())
+    raw = json.loads(single.read_text(encoding="utf-8"))
     assert raw["result"] is not None
     assert "computed_from" in raw["result"]  # the snapshot, renamed
 
@@ -2100,7 +2100,7 @@ def test_load_correlation_flags_a_stale_consolidated_file(qapp, tmp_path):
     w.set_data(_input(fib=(9.0, 9.0)))  # ...then the points move
     w.data_changed.emit(w.data)         # rewrite: new points, stale result
 
-    raw = json.loads((tmp_path / "correlation.json").read_text())
+    raw = json.loads((tmp_path / "correlation.json").read_text(encoding="utf-8"))
     assert raw["input_data"]["fib_coordinates"][0]["point"]["x"] == 9.0
     assert raw["result"]["computed_from"]["fib_coordinates"][0]["point"]["x"] == 1.0
 

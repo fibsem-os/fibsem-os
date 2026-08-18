@@ -508,7 +508,7 @@ def test_configure_logging_sends_output_to_the_experiment_logfile(tmp_path):
             handler.flush()
 
         assert Path(logfile) == Path(exp.path) / "logfile.log"
-        assert "from a standalone script" in Path(logfile).read_text()
+        assert "from a standalone script" in Path(logfile).read_text(encoding="utf-8")
     finally:
         for handler in list(root.handlers):
             if handler not in saved:

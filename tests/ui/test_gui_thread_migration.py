@@ -60,7 +60,7 @@ def _gui_python_files() -> List[Path]:
 
 def _raw_thread_constructions(path: Path) -> List[Tuple[int, str]]:
     """Return (lineno, source-ish) for every ``threading.Thread(...)`` construction."""
-    tree = ast.parse(path.read_text(), filename=str(path))
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     hits = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -95,7 +95,7 @@ def test_no_raw_threads_in_gui_code():
 @pytest.mark.parametrize("relpath", MIGRATED_MODULES)
 def test_migrated_modules_use_function_worker(relpath: str):
     """Each migrated widget still imports and uses FunctionWorker."""
-    src = (REPO_ROOT / relpath).read_text()
+    src = (REPO_ROOT / relpath).read_text(encoding="utf-8")
     assert "from fibsem.ui.qt.threading import" in src, f"{relpath} lost its FunctionWorker import"
     assert "FunctionWorker(" in src, f"{relpath} no longer constructs a FunctionWorker"
 
@@ -107,7 +107,7 @@ def test_non_gui_layers_are_left_alone():
         "fibsem/fm/microscope.py",
         "fibsem/hooks.py",
     ):
-        src = (REPO_ROOT / relpath).read_text()
+        src = (REPO_ROOT / relpath).read_text(encoding="utf-8")
         assert "FunctionWorker" not in src, (
             f"{relpath} is Qt-free by design; importing FunctionWorker would drag Qt into it"
         )

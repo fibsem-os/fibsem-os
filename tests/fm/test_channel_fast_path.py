@@ -200,7 +200,7 @@ class TestBothDriversHaveIt:
             ("fm/autoscript.py", "ThermoFisherFluorescenceMicroscope"),
             ("microscopes/simulator.py", "SimulatedFluorescenceMicroscope"),
         ):
-            tree = ast.parse((root / module).read_text())
+            tree = ast.parse((root / module).read_text(encoding="utf-8"))
             cls = next(
                 n for n in ast.walk(tree)
                 if isinstance(n, ast.ClassDef) and n.name == cls_name

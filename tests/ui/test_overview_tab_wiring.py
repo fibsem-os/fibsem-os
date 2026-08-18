@@ -36,7 +36,7 @@ NEW = "overview_canvas_tab"
 
 @pytest.fixture(scope="module")
 def window_source() -> str:
-    return WINDOW.read_text()
+    return WINDOW.read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")

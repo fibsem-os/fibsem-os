@@ -19,8 +19,8 @@ jobs:
         # Linux on every supported version, Windows on the ends of the range.
         # The microscopes all run Windows, so every platform-specific claim in the
         # codebase was previously untested on the platform that matters (FIB-704) --
-        # but six versions x two platforms is a lot of wall-clock for a suite that
-        # takes ~7 minutes, and the oldest and newest catch what the middle would.
+        # but twelve jobs is more wall-clock than the coverage is worth, and the
+        # oldest and newest catch what the middle would.
         os: [ubuntu-latest]
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
         include:

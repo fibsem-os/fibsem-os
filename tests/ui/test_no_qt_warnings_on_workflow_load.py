@@ -215,7 +215,7 @@ def test_building_a_row_emits_no_null_pixmap_warning(qapp, module_name):
 def test_row_module_uses_the_shared_handle(qapp, module_name):
     """No module names the asset itself; that is how the paths drifted apart."""
     module = __import__(module_name, fromlist=["__file__"])
-    source = Path(module.__file__).read_text()
+    source = Path(module.__file__).read_text(encoding="utf-8")
 
     assert "drag_handle.svg" not in source, f"{module_name} re-derives the asset path"
     assert "drag_handle_pixmap" in source, f"{module_name} does not use the helper"

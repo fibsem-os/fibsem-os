@@ -115,7 +115,7 @@ def test_the_shipped_fm_configuration_still_parses():
     from fibsem.fm.structures import OverviewParameters
 
     path = Path(fibsem.__file__).parent / "config" / "fm" / "fm-configuration-default.yaml"
-    config = yaml.safe_load(path.read_text())
+    config = yaml.safe_load(path.read_text(encoding="utf-8"))
 
     params = OverviewParameters.from_dict(config["overview_parameters"])
     assert params.autofocus_mode is AutoFocusMode.ONCE
