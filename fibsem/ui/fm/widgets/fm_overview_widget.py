@@ -55,6 +55,11 @@ from fibsem.ui.widgets.canvas.overlays.tile_grid_options_panel import (
 )
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
+from fibsem.ui.widgets.canvas.overlay_controls import (
+    CanvasOverlayControls,
+    CanvasPopover,
+)
+from fibsem.ui.widgets.canvas.overlays import stage_context
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
     GRID_BOUNDARY_RADIUS_M,
     MinimapShapesOverlay,
@@ -318,6 +323,23 @@ class FMOverviewWidget(QWidget):
         # settings widget so there is one place the selection lives.
         self.tile_grid_overlay = TileGridOverlay()
         self.canvas.canvas.add_overlay(self.tile_grid_overlay)
+
+        # The same three switches the beam tab offers, over the same three shapes, from
+        # the same entries -- so neither tab can offer a switch the other does not, or
+        # word it differently. This tab draws no saved-position or gridbar overlay, so
+        # it takes only the stage-context set.
+        self.overlay_controls = CanvasOverlayControls(
+            list(stage_context.CONTEXT_OVERLAY_ENTRIES)
+        )
+        self.overlay_controls.toggled.connect(
+            lambda *_: self._refresh_stage_metadata()
+        )
+        self.btn_overlays = self.canvas.canvas.add_toolbar_button(
+            "mdi:eye-outline", "Overlays", self._toggle_overlays, checkable=True,
+        )
+        self.overlay_popover = CanvasPopover(
+            self.overlay_controls, parent=self.canvas.canvas
+        )
 
         # Grid display options live on the canvas toolbar, beside the layers control:
         # they are about reading the image, not about what gets acquired, so they do
@@ -1182,61 +1204,31 @@ class FMOverviewWidget(QWidget):
             coordinate_system=origin.coordinate_system,
         )
 
+    def _toggle_overlays(self) -> None:
+        """Show or hide the overlays popover, anchored under its button."""
+        self.overlay_popover.set_open(self.btn_overlays.isChecked(), self.btn_overlays)
+
     def _refresh_stage_metadata(self) -> None:
         """Draw where the sample and the stage can physically go.
 
         The context an overview is read against: which grid you are on, how far from its
-        centre, and how much travel is left. Same shapes the minimap draws, but placed
-        straight into the canvas frame -- on a real-space canvas there is no stitched
-        image to reproject onto, so the indirection disappears.
+        centre, and how much travel is left. The same shapes the beam tab draws, from the
+        same functions -- this tab had a copy, and the copy had drifted three ways: the
+        travel box gated on `stage_is_compustage`, the grid boundary sized in stage axes
+        rather than along the surface and drawn as a circle, and raw slot positions
+        handed to a frame that raises on the `r=None` the holder file leaves (FIB-698).
         """
         frame = self._frame()
         if frame is None:
             self.stage_overlay.set_shapes([])
             return
-
-        specs = []
-        try:
-            centre = frame.to_canvas(
-                FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=0.0)
-            )
-        except Exception as e:
-            logging.debug(f"Cannot place the grid centre: {e}")
-            self.stage_overlay.set_shapes([])
-            return
-
-        limits = getattr(self.microscope._stage, "limits", None)
-        if limits and self.microscope.stage_is_compustage:
-            # The travel envelope, as a box around the grid centre. Sized from the
-            # limits rather than projected corner-by-corner: the projection is flips
-            # and a tilt, which keep an axis-aligned box axis-aligned.
-            specs.append(ShapeSpec(
-                kind="rect", cx=centre[0], cy=centre[1], color=STAGE_LIMITS_COLOUR,
-                width=frame.length(limits["x"].max - limits["x"].min),
-                height=frame.length(limits["y"].max - limits["y"].min),
-                label="Stage limits",
-            ))
-            specs.append(ShapeSpec(
-                kind="circle", cx=centre[0], cy=centre[1], color=GRID_BOUNDARY_COLOUR,
-                radius=frame.length(GRID_BOUNDARY_RADIUS_M), label="Grid boundary",
-            ))
-
-        holder = getattr(self.microscope._stage, "holder", None)
-        for slot in getattr(holder, "slots", {}).values():
-            position = getattr(slot, "position", None)
-            if position is None:
-                continue
-            try:
-                point = frame.to_canvas(position)
-            except Exception as e:
-                logging.debug(f"Cannot place slot {position.name!r}: {e}")
-                continue
-            specs.append(ShapeSpec(
-                kind="crosshair", cx=point[0], cy=point[1], color=SLOT_COLOUR,
-                label=position.name or "",
-            ))
-
-        self.stage_overlay.set_shapes(specs)
+        self.stage_overlay.set_shapes(stage_context.context_shapes(
+            self.microscope, frame,
+            limits=self.overlay_controls.is_visible(stage_context.OVERLAY_LIMITS),
+            boundaries=self.overlay_controls.is_visible(
+                stage_context.OVERLAY_BOUNDARIES),
+            slots=self.overlay_controls.is_visible(stage_context.OVERLAY_SLOTS),
+        ))
 
     def _refresh_current_position(self) -> None:
         """Mark where the stage is now."""

@@ -101,3 +101,62 @@ def test_the_grid_radius_is_defined_once():
         assigned = _assigned_names(source)
         strays = {n for n in assigned if "GRID_RADIUS" in n or "BOUNDARY_RADIUS" in n}
         assert not strays, f"{tab} defines its own grid radius: {strays}"
+
+
+# ── the geometry, not just the colours ───────────────────────────────────
+
+STAGE_CONTEXT = (
+    REPO_ROOT / "fibsem" / "ui" / "widgets" / "canvas" / "overlays" / "stage_context.py"
+)
+
+# The shapes both tabs draw for stage context. Built once, in `stage_context`, and
+# neither tab may build its own -- which is what let the fluorescence copy drift into
+# gating the travel box on the stage type, sizing the boundary in stage axes rather than
+# along the surface, and handing a frame the `r=None` a holder file leaves (FIB-698).
+SHARED_BUILDERS = ("limit_shapes", "boundary_shapes", "slot_shapes", "context_shapes")
+
+
+def test_the_stage_context_shapes_are_built_in_one_place():
+    defined = {
+        n.name
+        for n in ast.parse(STAGE_CONTEXT.read_text(encoding="utf-8")).body
+        if isinstance(n, ast.FunctionDef)
+    }
+    assert set(SHARED_BUILDERS) <= defined
+
+
+@pytest.mark.parametrize("tab", ["beam", "fm"])
+def test_neither_tab_builds_its_own_stage_context_shapes(tab, sources):
+    """A `ShapeSpec` for stage context, constructed in a tab, is the drift starting again.
+
+    Each tab still builds specs of its own -- the beam tab's gridbars and both tabs'
+    position markers -- so this looks for the *labels* the shared builders own rather
+    than for `ShapeSpec` outright.
+    """
+    source = sources[tab]
+    for label in ("Stage Limits", "Grid Boundary"):
+        assert f'"{label}"' not in source and f"'{label}'" not in source, (
+            f"the {tab} tab writes the {label!r} shape itself; "
+            "`stage_context` is where both tabs get it"
+        )
+
+
+def test_the_fluorescence_tab_sizes_nothing_with_frame_length():
+    """`frame.length()` is a pure scale, so anything lying *on the sample* sized with it
+    is the same size in every view -- and therefore right in at most one of them.
+
+    This tab did exactly that for the grid boundary, which is why it drew a circle where
+    the beam tab draws an ellipse. `stage_context.canvas_span` is the one that applies
+    the view's foreshortening.
+
+    **The beam tab is deliberately not checked.** It still has three, all in the gridbar
+    lattice, and its own comment says they are wrong in the same way -- a square lattice
+    on the sample is not square in a tilted view, so at the milling pose the horizontal
+    bars sit about four times too far apart. That is the rest of FIB-615, left on
+    purpose. Asserting it here would be asserting something known to be false, and the
+    test would have to be deleted to make the tree green rather than fixed.
+    """
+    assert "frame.length(" not in FM.read_text(encoding="utf-8"), (
+        "the fluorescence tab sizes something with frame.length(); if it lies on the "
+        "sample surface it wants stage_context.canvas_span()"
+    )
