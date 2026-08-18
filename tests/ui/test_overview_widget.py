@@ -869,6 +869,32 @@ class TestTheDefaultsAreNotShared:
     would be rewritten by every keystroke in the tab.
     """
 
+    def test_the_napari_tab_keeps_the_resolution_it_has_always_acquired_at(self):
+        """Sharing the factory must not quietly re-resolution the shipped tab.
+
+        The constant the minimap used to hold omitted `resolution`, so it inherited
+        `ImageSettings`' non-square default -- and that is what every overview taken
+        from that tab has been. The factory sets a square one, which the rebuilt tab
+        wants (FIB-619) and which is a real change for the other: `hfw` is the
+        *horizontal* field, so the same 500 um at 1024x1024 is 0.49 um/px against 0.33
+        and half again as tall.
+
+        Asserted against `ImageSettings()` rather than a literal, because the point is
+        that the value is inherited. If that default ever moves, this fires and asks
+        whether the shipped tab should move with it -- which is the question, not the
+        number.
+        """
+        from fibsem.structures import ImageSettings
+        from fibsem.ui.FibsemMinimapWidget import OVERVIEW_RESOLUTION
+        from fibsem.ui.widgets.overview_acquisition_settings_widget import (
+            default_overview_acquisition_settings,
+        )
+
+        assert tuple(OVERVIEW_RESOLUTION) == tuple(ImageSettings().resolution)
+        assert tuple(OVERVIEW_RESOLUTION) != tuple(
+            default_overview_acquisition_settings().image_settings.resolution
+        ), "the two tabs agree now; drop this pin rather than leaving it asserting nothing"
+
     def test_each_call_hands_back_its_own_settings(self):
         from fibsem.ui.widgets.overview_acquisition_settings_widget import (
             default_overview_acquisition_settings,
