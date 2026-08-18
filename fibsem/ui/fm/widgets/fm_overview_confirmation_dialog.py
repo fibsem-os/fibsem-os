@@ -5,19 +5,15 @@ it goes, and a primary action in the footer. Each fact appears once — the wind
 is the heading, the Channels row is the channel count, and the skipped chip is what
 "sparse" would have said.
 
-The style itself now lives in `fibsem.ui.widgets.preflight`, lifted out when the third
-dialog in this shape appeared — as the second one's docstring said to do.
+The style itself moved to `fibsem.ui.widgets.preflight` when the third dialog in this
+shape appeared — as the second one's docstring said to do — and the *dialog* followed it
+there once the beam overview turned out to present its run in exactly this way. What is
+left here is only the facts a fluorescence run is described by.
 """
 
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
-from PyQt5.QtWidgets import (
-    QDialog,
-    QHBoxLayout,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PyQt5.QtWidgets import QWidget
 
 from fibsem import constants
 from fibsem.fm.structures import (
@@ -30,17 +26,10 @@ from fibsem.fm.structures import (
 )
 from fibsem.fm.timing import estimate_tileset_acquisition_time
 from fibsem.structures import TileOrderStrategy
-from fibsem.ui import stylesheets
-from fibsem.ui.widgets.preflight import (
-    BACKGROUND,
-    chip,
-    detail_block,
-    format_duration,
-    meta_label,
-)
+from fibsem.ui.widgets.preflight import OverviewPreflightDialog, format_duration
 
 
-class FMOverviewConfirmationDialog(QDialog):
+class FMOverviewConfirmationDialog(OverviewPreflightDialog):
     """Confirm an overview before it runs, with what it will cost."""
 
     def __init__(
@@ -64,13 +53,13 @@ class FMOverviewConfirmationDialog(QDialog):
         # so the number it reports is the one the settings panel was showing.
         self.objective_current = objective_current
         self.objective_focus = objective_focus
-
-        self.setWindowTitle("Start Overview Acquisition")
-        self.setMinimumWidth(430)
-        self.setStyleSheet(f"QDialog {{ background: {BACKGROUND}; }}")
         self._init_ui()
 
     # ── content ──────────────────────────────────────────────────────────
+
+    def _tile_counts(self) -> Tuple[int, int]:
+        p = self.parameters
+        return p.n_enabled_tiles, p.rows * p.cols
 
     def _estimate(self) -> dict:
         return estimate_tileset_acquisition_time(
@@ -179,54 +168,3 @@ class FMOverviewConfirmationDialog(QDialog):
             + ")",
         ))
         return detail
-
-    # ── layout ───────────────────────────────────────────────────────────
-
-    def _init_ui(self) -> None:
-        p = self.parameters
-        total = p.rows * p.cols
-        acquired = p.n_enabled_tiles
-
-        # No in-dialog heading: the window title already says "Start Overview
-        # Acquisition", and repeating it 8px below costs a line and says nothing. The
-        # meta line leads instead, so it carries normal text weight rather than muted.
-        meta = meta_label(self._meta_line())
-
-        # Tile counts only. The channel count was a third chip, but the Channels row
-        # below lists them by name -- the chip added a number, not information.
-        chips = QHBoxLayout()
-        chips.setSpacing(6)
-        chips.addWidget(chip(f"{acquired} to acquire"))
-        if acquired != total:
-            chips.addWidget(chip(f"{total - acquired} skipped"))
-        chips.addStretch()
-
-        detail = detail_block(self._rows())
-
-        self.button_start = QPushButton("Start Acquisition")
-        self.button_start.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
-        self.button_start.setMinimumHeight(30)
-        self.button_start.clicked.connect(self.accept)
-        button_cancel = QPushButton("Cancel")
-        button_cancel.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        button_cancel.setMinimumHeight(30)
-        button_cancel.clicked.connect(self.reject)
-
-        footer = QHBoxLayout()
-        footer.addStretch()
-        footer.addWidget(button_cancel)
-        footer.addWidget(self.button_start)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(10)
-        layout.addWidget(meta)
-        layout.addLayout(chips)
-        layout.addWidget(detail)
-        layout.addLayout(footer)
-
-        if acquired == 0:
-            # Nothing to do: the runner would reject this anyway, so say why here
-            # rather than letting it fail after the dialog is dismissed.
-            self.button_start.setEnabled(False)
-            self.button_start.setToolTip("No tiles are selected.")

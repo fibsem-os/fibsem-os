@@ -8,32 +8,21 @@ tab switch. This is the last place either announces itself.
 
 Same house style as the fluorescence and coincidence dialogs, from the same module, so
 the three cannot drift: a meta line, count chips, a detail block, a primary action in
-the footer.
+the footer. The fluorescence one is more than a style-mate -- both confirm an overview
+and present it identically, so both are `OverviewPreflightDialog` and what is left here
+is only the facts a beam run is described by.
 """
 
 from typing import List, Optional, Tuple
 
-from PyQt5.QtWidgets import (
-    QDialog,
-    QHBoxLayout,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PyQt5.QtWidgets import QWidget
 
 from fibsem import constants
 from fibsem.structures import OverviewAcquisitionSettings
-from fibsem.ui import stylesheets
-from fibsem.ui.widgets.preflight import (
-    BACKGROUND,
-    chip,
-    detail_block,
-    format_duration,
-    meta_label,
-)
+from fibsem.ui.widgets.preflight import OverviewPreflightDialog, format_duration
 
 
-class OverviewConfirmationDialog(QDialog):
+class OverviewConfirmationDialog(OverviewPreflightDialog):
     """Confirm an overview before it runs, with what it will do."""
 
     def __init__(
@@ -58,13 +47,13 @@ class OverviewConfirmationDialog(QDialog):
         self.settings = settings
         self.view_description = view_description
         self.offset = offset
-
-        self.setWindowTitle("Start Overview Acquisition")
-        self.setMinimumWidth(430)
-        self.setStyleSheet(f"QDialog {{ background: {BACKGROUND}; }}")
         self._init_ui()
 
     # ── content ──────────────────────────────────────────────────────────
+
+    def _tile_counts(self) -> Tuple[int, int]:
+        return (self.settings.n_enabled_tiles,
+                self.settings.nrows * self.settings.ncols)
 
     def _meta_line(self) -> str:
         s = self.settings
@@ -130,44 +119,3 @@ class OverviewConfirmationDialog(QDialog):
             f"   ({format_duration(image.scan_time)} per tile, before stage movement)",
         ))
         return detail
-
-    # ── layout ───────────────────────────────────────────────────────────
-
-    def _init_ui(self) -> None:
-        total = self.settings.nrows * self.settings.ncols
-        acquired = self.settings.n_enabled_tiles
-
-        chips = QHBoxLayout()
-        chips.setSpacing(6)
-        chips.addWidget(chip(f"{acquired} to acquire"))
-        if acquired != total:
-            chips.addWidget(chip(f"{total - acquired} skipped"))
-        chips.addStretch()
-
-        self.button_start = QPushButton("Start Acquisition")
-        self.button_start.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
-        self.button_start.setMinimumHeight(30)
-        self.button_start.clicked.connect(self.accept)
-        button_cancel = QPushButton("Cancel")
-        button_cancel.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        button_cancel.setMinimumHeight(30)
-        button_cancel.clicked.connect(self.reject)
-
-        footer = QHBoxLayout()
-        footer.addStretch()
-        footer.addWidget(button_cancel)
-        footer.addWidget(self.button_start)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(10)
-        layout.addWidget(meta_label(self._meta_line()))
-        layout.addLayout(chips)
-        layout.addWidget(detail_block(self._rows()))
-        layout.addLayout(footer)
-
-        if acquired == 0:
-            # Nothing to do: the runner refuses this anyway, so say why here rather than
-            # letting it fail after the dialog is dismissed.
-            self.button_start.setEnabled(False)
-            self.button_start.setToolTip("No tiles are selected.")

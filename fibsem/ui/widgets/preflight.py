@@ -8,15 +8,23 @@ overview's dialog is the third.
 
 Only the parts all three agree on live here. The footer does not: milling makes Cancel
 the default button because a mill is irreversible, and an overview does not.
+
+The *two overview* dialogs agree on more than that -- on everything except which facts
+they list -- so they also share `OverviewPreflightDialog` below. The milling one is not a
+third subclass of it and should not become one: it confirms a different kind of thing,
+and the seven places it differs are seven constructor arguments a base class would carry
+for one caller.
 """
 
-from typing import Iterable, Tuple
+from typing import Iterable, List, Optional, Tuple
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
+    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -113,3 +121,87 @@ def meta_label(text: str) -> QLabel:
     label.setStyleSheet(f"color: {TEXT_STRONG}; font-size: 12px;")
     label.setWordWrap(True)
     return label
+
+
+class OverviewPreflightDialog(QDialog):
+    """What both overview tabs put in front of a run.
+
+    The two tabs describe very different runs -- one lists channels, a z-stack and a
+    focus sweep, the other a dwell time and where the grid was dragged to -- and they
+    present them identically: the same title, the same width, the same
+    acquire/skipped chips, the same footer, and the same refusal when no tile is
+    selected. Everything except the facts, in other words, which is exactly the split
+    a subclass hook makes.
+
+    Subclasses fill in :meth:`_meta_line`, :meth:`_rows` and :meth:`_tile_counts`, then
+    call :meth:`_init_ui` at the end of their own ``__init__`` -- last, because it reads
+    all three, and none of them can answer before the subclass has stored what it is
+    describing.
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setWindowTitle("Start Overview Acquisition")
+        self.setMinimumWidth(430)
+        self.setStyleSheet(f"QDialog {{ background: {BACKGROUND}; }}")
+
+    # ── what a subclass supplies ─────────────────────────────────────────
+
+    def _meta_line(self) -> str:
+        """The line that leads: what is about to happen, in one sentence."""
+        raise NotImplementedError
+
+    def _rows(self) -> List[Tuple[str, str]]:
+        """Label/value pairs for the detail block, in reading order."""
+        raise NotImplementedError
+
+    def _tile_counts(self) -> Tuple[int, int]:
+        """``(to acquire, total)``. Equal means every tile; the chips say the rest."""
+        raise NotImplementedError
+
+    # ── layout ───────────────────────────────────────────────────────────
+
+    def _init_ui(self) -> None:
+        acquired, total = self._tile_counts()
+
+        # No in-dialog heading: the window title already says "Start Overview
+        # Acquisition", and repeating it 8px below costs a line and says nothing. The
+        # meta line leads instead, so it carries normal text weight rather than muted.
+        #
+        # Tile counts only in the chips. A channel count was a third one once, and the
+        # Channels row below already lists them by name -- it added a number, not
+        # information.
+        chips = QHBoxLayout()
+        chips.setSpacing(6)
+        chips.addWidget(chip(f"{acquired} to acquire"))
+        if acquired != total:
+            chips.addWidget(chip(f"{total - acquired} skipped"))
+        chips.addStretch()
+
+        self.button_start = QPushButton("Start Acquisition")
+        self.button_start.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+        self.button_start.setMinimumHeight(30)
+        self.button_start.clicked.connect(self.accept)
+        button_cancel = QPushButton("Cancel")
+        button_cancel.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        button_cancel.setMinimumHeight(30)
+        button_cancel.clicked.connect(self.reject)
+
+        footer = QHBoxLayout()
+        footer.addStretch()
+        footer.addWidget(button_cancel)
+        footer.addWidget(self.button_start)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
+        layout.addWidget(meta_label(self._meta_line()))
+        layout.addLayout(chips)
+        layout.addWidget(detail_block(self._rows()))
+        layout.addLayout(footer)
+
+        if acquired == 0:
+            # Nothing to do: both runners refuse this anyway, so say why here rather
+            # than letting it fail after the dialog is dismissed.
+            self.button_start.setEnabled(False)
+            self.button_start.setToolTip("No tiles are selected.")
