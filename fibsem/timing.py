@@ -74,6 +74,16 @@ ALIGNMENT_IMAGE_S = 0.85
 # Autocontrast, once per alignment pass. n=3: 0.9 / 1.3 / 1.7 s.
 ALIGNMENT_AUTOCONTRAST_S = 1.7
 
+# Aligning to a stored reference image (`_align_reference_image`): one autocontrast plus
+# a short burst of reduced-area frames. n=2, 4.5 / 4.6 s end to end. Charged whole rather
+# than composed, because the number of frames is not configurable the way a milling
+# alignment's `steps` is.
+REFERENCE_ALIGNMENT_S = 4.8
+
+# Per spot-burn point, on top of the exposure: blank, park the beam, unblank. n=21,
+# median 0.69 / 0.70 s across two runs -- small, but it is paid once per coordinate.
+SPOT_BURN_POINT_OVERHEAD_S = 0.75
+
 # Still not counted, and deliberately not invented here: the pattern setup between the
 # milling estimate and the first stroke (0 s on a rectangle, 15 s on a trench in the one
 # run measured -- too variable to pick a number from), and the per-task setup either

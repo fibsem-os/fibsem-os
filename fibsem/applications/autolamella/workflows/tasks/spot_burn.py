@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import ClassVar, Optional, Type
 
 from fibsem import config as fcfg
+from fibsem import timing
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import (
     ALIGNMENT_REFERENCE_IMAGE_FILENAME,
@@ -62,13 +63,24 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
 
     @property
     def estimated_duration(self) -> float:
-        """The base estimate plus the burn itself: one exposure per coordinate.
+        """The base estimate plus everything ``_run`` does, in the order it does it.
 
-        This is the task's dominant term and the base cannot see it -- on the
-        measured run, 11 points at 10 s was 110 s of a 264 s task, while the
-        inherited estimate accounted for none of it.
+        The burn is the dominant term and the base cannot see it: on the measured run,
+        11 points at 10 s was 110 s of the task. But the burn alone left the estimate
+        at 0.71x of the machine time, and the remainder is all here -- the move onto
+        the milling pose, the alignment against the stored reference, and the beam
+        current switching into the burn current and back out.
+
+        Each point costs its exposure plus a blank/park/unblank cycle.
         """
-        return super().estimated_duration + len(self.coordinates) * self.exposure_time
+        total = super().estimated_duration
+        total += timing.stage_move_cost(1)            # _move_to_milling_pose
+        total += timing.REFERENCE_ALIGNMENT_S         # _align_reference_image
+        total += 2 * timing.BEAM_CURRENT_CHANGE_S     # into the burn current and back
+        total += len(self.coordinates) * (
+            self.exposure_time + timing.SPOT_BURN_POINT_OVERHEAD_S
+        )
+        return total
 
     def to_dict(self) -> dict:
         ddict = {}

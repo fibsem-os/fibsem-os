@@ -40,12 +40,27 @@ def test_base_estimate_counts_reference_imaging_at_both_ends():
 # ── spot burn: one exposure per coordinate ───────────────────────────────────
 
 def test_spot_burn_adds_an_exposure_per_coordinate():
+    """Each point costs its exposure plus a blank/park/unblank cycle."""
     cfg = SpotBurnFiducialTaskConfig(exposure_time=10)
     baseline = cfg.estimated_duration
 
     cfg.coordinates = [Point(x=0.1, y=0.1), Point(x=0.2, y=0.2), Point(x=0.3, y=0.3)]
 
-    assert cfg.estimated_duration == pytest.approx(baseline + 3 * 10)
+    assert cfg.estimated_duration == pytest.approx(
+        baseline + 3 * (10 + timing.SPOT_BURN_POINT_OVERHEAD_S)
+    )
+
+
+def test_spot_burn_counts_the_move_alignment_and_current_change():
+    """The burn alone left the estimate at 0.71x of machine time; the rest is here."""
+    cfg = SpotBurnFiducialTaskConfig(exposure_time=10)
+    expected = (
+        2 * timing.reference_image_cost(cfg.reference_imaging)
+        + timing.stage_move_cost(1)
+        + timing.REFERENCE_ALIGNMENT_S
+        + 2 * timing.BEAM_CURRENT_CHANGE_S
+    )
+    assert cfg.estimated_duration == pytest.approx(expected)
 
 
 def test_spot_burn_with_no_points_costs_only_the_base():
