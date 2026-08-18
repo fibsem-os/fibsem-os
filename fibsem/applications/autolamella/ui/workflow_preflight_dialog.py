@@ -273,8 +273,8 @@ class WorkflowPreflightDialog(QDialog):
         button.setCheckable(True)
         button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         button.setArrowType(Qt.RightArrow)
-        # Transparent explicitly: with no background rule a QToolButton paints the
-        # platform's default button fill, which reads as a raised control next to the
+        # Transparent explicitly: NAPARI_STYLE gives every QToolButton a
+        # BORDER_COLOR fill and a radius, which reads as a raised control next to the
         # chips it sits beside.
         button.setStyleSheet(
             f"QToolButton {{ color: {TEXT_MUTED}; font-size: 11px; border: none;"
