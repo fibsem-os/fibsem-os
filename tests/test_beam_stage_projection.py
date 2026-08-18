@@ -45,6 +45,25 @@ PIXEL_SIZE = 2e-7
 
 
 @pytest.fixture(scope="module")
+def aquilos():
+    """A 35 degree pre-tilted shuttle with a 52 degree ion column.
+
+    Module level rather than a fixture on the class that uses it. A class-scoped fixture
+    written as an instance method is removed in pytest 10 -- it runs once per class while
+    each test gets a fresh instance, so anything set on `self` would be invisible -- and
+    the repo runs `filterwarnings = ["error"]`, so it fails CI on any pytest new enough to
+    emit the deprecation while passing on an older one locally. The suggested `staticmethod`
+    form trades that for a different hazard: staticmethod objects are not callable before
+    Python 3.10, and CI builds on 3.8. Out here it is neither.
+    """
+    scope, _ = utils.setup_session(
+        manufacturer="Demo",
+        config_path=os.path.join(cfg.CONFIG_PATH, "tfs-aquilos2-configuration.yaml"),
+    )
+    return scope
+
+
+@pytest.fixture(scope="module")
 def microscope():
     scope, _ = utils.setup_session(manufacturer="Demo")
     return scope
@@ -492,17 +511,6 @@ class TestSurfaceForeshortening:
     The two views where the beam looks straight down the surface normal are what make
     it obvious: a grid there must render as a circle, and did not.
     """
-
-    @pytest.fixture(scope="class")
-    def aquilos(self):
-        """A 35 degree pre-tilted shuttle with a 52 degree ion column."""
-        scope, _ = utils.setup_session(
-            manufacturer="Demo",
-            config_path=os.path.join(
-                cfg.CONFIG_PATH, "tfs-aquilos2-configuration.yaml"
-            ),
-        )
-        return scope
 
     # (orientation, beam, angle between the beam and the sample-surface normal)
     VIEWS = [
