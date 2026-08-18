@@ -60,6 +60,16 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
     def parameters(self) -> tuple[str, ...]:
         return tuple(p for p in super().parameters if p != "coordinates")
 
+    @property
+    def estimated_duration(self) -> float:
+        """The base estimate plus the burn itself: one exposure per coordinate.
+
+        This is the task's dominant term and the base cannot see it -- on the
+        measured run, 11 points at 10 s was 110 s of a 264 s task, while the
+        inherited estimate accounted for none of it.
+        """
+        return super().estimated_duration + len(self.coordinates) * self.exposure_time
+
     def to_dict(self) -> dict:
         ddict = {}
         ddict["task_type"] = self.task_type

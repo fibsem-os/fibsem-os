@@ -19,6 +19,7 @@ from fibsem.applications.autolamella.workflows.ui import (
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, ZParameters
 from fibsem.fm.calibration import run_coarse_fine_autofocus, AutoFocusResult
+from fibsem.fm.timing import estimate_acquisition_time
 from fibsem.structures import field_meta
 
 
@@ -68,7 +69,22 @@ class AcquireFluorescenceImageConfig(AutoLamellaTaskConfig):
             retract_objective=data.get("retract_objective", True),
         )
 
-# TODO: implement time estimates...
+    @property
+    def estimated_duration(self) -> float:
+        """The base estimate plus the fluorescence acquisition itself.
+
+        Delegates to the FM timing module, which already models channels, z-planes
+        and their ordering. Without it the inherited estimate saw only the reference
+        images and came out at 0.13x of the measured duration.
+
+        The objective insert/retract either side is not counted: it is not measured,
+        and guessing it is how fm/timing.py acquired its unmeasured constants.
+        """
+        return super().estimated_duration + estimate_acquisition_time(
+            self.channel_settings, self.zparams
+        )
+
+
 class AcquireFluorescenceImageTask(AutoLamellaTask):
     """Task to acquire fluorescence image with specified settings."""
     config: AcquireFluorescenceImageConfig

@@ -44,6 +44,7 @@ from fibsem.structures import (
     SessionInfo,
     get_fields_with_metadata,
 )
+from fibsem import timing
 from fibsem.utils import configure_logging as _configure_logging
 from fibsem.utils import format_duration
 
@@ -210,6 +211,27 @@ class AutoLamellaTaskConfig(ABC):
         milling_time = sum(t.estimated_time for t in self.milling.values())
         imaging_time = self.reference_imaging.estimated_time
         return milling_time + imaging_time
+
+    @property
+    def estimated_duration(self) -> float:
+        """Conservative forward estimate of this task's wall-clock, in seconds.
+
+        Unlike :attr:`estimated_time`, which counts only the scan arithmetic and the
+        milling, this adds the measured per-operation costs the task actually pays --
+        see :mod:`fibsem.timing`. On the run it was calibrated against, that moved
+        Setup Lamella Position from 0.22x of its real duration to 0.99x.
+
+        A task whose cost is dominated by something this base cannot see -- spot burn
+        exposures, fluorescence channels -- overrides this and adds its own term. The
+        estimate lives on the config rather than on the task because the callers that
+        need it (the pre-run dialog, the queue) hold configs and have no microscope to
+        construct a task with.
+        """
+        # reference images are acquired at both ends of a task
+        total = 2 * timing.reference_image_cost(self.reference_imaging)
+        for milling_task in self.milling.values():
+            total += timing.milling_task_cost(milling_task)
+        return total
     
     @property
     def imaging(self) -> ImageSettings:
