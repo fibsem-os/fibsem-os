@@ -212,6 +212,45 @@ def test_a_finish_further_out_keeps_its_date(dialog):
     assert "2026-08-21" in text
 
 
+def test_a_hundred_lamellae_do_not_push_the_dialog_apart(dialog):
+    """Regression: the expanded names wrapped to a dozen lines and overlapped the
+    metrics, the note and every task row. The list is bounded and scrolls instead --
+    the count is in the chip beside it, and the list is for finding a name rather than
+    reading all of them."""
+    from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
+        _NAMES_MAX_HEIGHT,
+    )
+
+    many = [f"{i:02d}-scale-lamella" for i in range(1, 101)]
+    few = dialog(_estimate())
+    lots = dialog(_estimate(lamella_names=many))
+    few.show()
+    lots.show()
+
+    few.findChild(QToolButton).setChecked(True)
+    lots.findChild(QToolButton).setChecked(True)
+    few.adjustSize()
+    lots.adjustSize()
+
+    assert lots._lamella_names_area.maximumHeight() == _NAMES_MAX_HEIGHT
+    grew = lots.size().height() - few.size().height()
+    assert grew <= _NAMES_MAX_HEIGHT, (
+        f"100 names added {grew}px; the list must stay bounded"
+    )
+
+
+def test_the_breakdown_is_per_task_not_per_lamella(dialog):
+    """What keeps the dialog a fixed size at any scale: five tasks over a hundred
+    lamellae is still five rows."""
+    tasks = [
+        TaskEstimate("Mill Fiducial", 100, 19800.0, supervised=False),
+        TaskEstimate("Rough Milling", 100, 61200.0, supervised=False),
+    ]
+    text = _texts(dialog(_estimate(tasks=tasks, lamella_names=[f"l{i}" for i in range(100)])))
+    assert "×100" in text
+    assert "200 steps" in text
+
+
 # ── nothing to do ────────────────────────────────────────────────────────────
 
 def test_run_is_refused_when_no_task_is_selected(dialog):

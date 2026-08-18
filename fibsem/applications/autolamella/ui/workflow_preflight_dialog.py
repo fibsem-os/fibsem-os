@@ -23,6 +23,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -50,6 +51,12 @@ from fibsem.ui.widgets.preflight import (
 # dialog however many chips a row carries. That column is what gets scanned; a ragged
 # right edge would break it.
 _DURATION_WIDTH = 84
+
+# The expanded lamella list is bounded rather than allowed to grow. A hundred-lamella
+# experiment wrapped to a dozen lines and pushed the rest of the dialog off the bottom;
+# the count is in the chip beside it, and the list is for finding a name, not reading
+# every one.
+_NAMES_MAX_HEIGHT = 62
 
 
 def _clock(when: Optional[datetime], reference: Optional[datetime]) -> str:
@@ -186,7 +193,7 @@ class WorkflowPreflightDialog(QDialog):
         chips.addStretch()
         chips.addWidget(self._lamella_disclosure())
         layout.addLayout(chips)
-        layout.addWidget(self._lamella_names_label)
+        layout.addWidget(self._lamella_names_area)
 
         metrics = QHBoxLayout()
         metrics.setSpacing(10)
@@ -236,9 +243,25 @@ class WorkflowPreflightDialog(QDialog):
         per-task breakdown replaces them with `×2`. They come back here, once, rather
         than repeated under every task.
 
-        Builds the names label as a side effect and leaves it on the instance; the
+        Builds the names area as a side effect and leaves it on the instance; the
         caller places it, because it belongs under the chip row rather than inside it.
         """
+        names = QLabel("   ".join(self.estimate.lamella_names))
+        names.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px; border: none;")
+        names.setWordWrap(True)
+        names.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+
+        # Bounded and scrollable rather than free to grow: at a hundred lamellae the
+        # wrapped label ran to a dozen lines and overlapped everything below it.
+        area = QScrollArea()
+        area.setWidget(names)
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.NoFrame)
+        area.setMaximumHeight(_NAMES_MAX_HEIGHT)
+        area.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        area.setVisible(False)
+
         button = QToolButton()
         button.setText(f"{len(self.estimate.lamella_names)} lamellae")
         button.setCheckable(True)
@@ -247,20 +270,15 @@ class WorkflowPreflightDialog(QDialog):
         button.setStyleSheet(
             f"QToolButton {{ color: {TEXT_MUTED}; font-size: 11px; border: none; }}"
         )
-        button.setToolTip(", ".join(self.estimate.lamella_names))
-
-        names = QLabel("   ".join(self.estimate.lamella_names))
-        names.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
-        names.setWordWrap(True)
-        names.setVisible(False)
 
         def _toggle(checked: bool) -> None:
             button.setArrowType(Qt.DownArrow if checked else Qt.RightArrow)
-            names.setVisible(checked)
+            area.setVisible(checked)
             self.adjustSize()
 
         button.toggled.connect(_toggle)
         self._lamella_names_label = names
+        self._lamella_names_area = area
         return button
 
     def _exception_notes(self) -> List[QLabel]:
