@@ -3255,3 +3255,75 @@ class TestAnOverviewIsDrawnFromWhatIsHeld:
             "the artists were recreated, so the draw order is whatever add order was"
         )
         assert first != second
+
+
+@pytest.fixture
+def at_sem(microscope):
+    """Start at the SEM pose, and put the stage back afterwards.
+
+    The `microscope` fixture is module-scoped, so a test that re-poses the stage leaves
+    it re-posed for every test after it -- and inherits whatever the one before it left.
+    Both directions bit: these tests are about what a re-pose does, so they cannot start
+    from "wherever we happen to be".
+    """
+    before = microscope.get_stage_orientation()
+    microscope.move_to_orientation("SEM")
+    yield microscope
+    microscope.move_to_orientation(before)
+
+
+class TestAViewWithNothingInItSaysSo:
+    """Re-posing the stage moves the displayed view to wherever the next run would land.
+
+    That is the design (FIB-620), and it is what a planner wants -- but if nothing was
+    acquired *there*, the canvas empties while every record is still held. A canvas that
+    goes blank moments after a stage move reads as a fault, and was reported as one: the
+    beam had to be "re-selected" to get the picture back. The beam was never involved.
+    Changing it changes the view, and changing the view back is what restored the image
+    (FIB-659).
+    """
+
+    def _acquired(self, widget, microscope):
+        base = microscope.get_stage_position()
+        return widget.set_image(_tile(microscope, _at(base), shape=(64, 64)))
+
+    def test_moving_off_the_only_overview_says_where_it_went(self, widget, at_sem):
+        self._acquired(widget, at_sem)
+        assert widget.canvas._hint_text is None, "it spoke while the overview was shown"
+
+        at_sem.move_to_orientation("MILLING")
+
+        assert not widget.canvas.placed_keys, "the canvas did not actually empty"
+        assert widget._records, "the record was dropped rather than left behind"
+        hint = widget.canvas._hint_text
+        assert hint and "SEM @ SEM" in hint, f"hint was {hint!r}"
+
+    def test_an_empty_canvas_with_nothing_acquired_stays_silent(self, widget):
+        """The blank backdrop already means "nothing was acquired here", and that is
+        still true. What it cannot say is "but something was acquired elsewhere", which
+        is the only case worth a caption."""
+        assert not widget.canvas.placed_keys
+        assert widget.canvas._hint_text is None
+
+    def test_coming_back_to_the_view_clears_it(self, widget, at_sem):
+        self._acquired(widget, at_sem)
+        at_sem.move_to_orientation("MILLING")
+        assert widget.canvas._hint_text is not None
+
+        widget.show_view(widget.views[0])
+
+        assert widget.canvas.placed_keys
+        assert widget.canvas._hint_text is None
+
+    def test_it_names_the_count_rather_than_one_view_when_there_are_several(
+        self, widget, at_sem
+    ):
+        """Naming every view would run past the room the status zone has, and the chips
+        directly above already list them."""
+        self._acquired(widget, at_sem)
+        at_sem.move_to_orientation("MILLING")
+        self._acquired(widget, at_sem)
+        at_sem.move_to_orientation("FIB")
+
+        hint = widget.canvas._hint_text
+        assert hint and "2 other views" in hint, f"hint was {hint!r}"

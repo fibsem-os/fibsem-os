@@ -1689,6 +1689,40 @@ class FibsemOverviewWidget(QWidget):
         tile count, so a run in progress has to keep up with itself.
         """
         self.overview_list.set_records(self.overviews)
+        self._refresh_empty_view_hint()
+
+    def _refresh_empty_view_hint(self) -> None:
+        """Say where the overviews went when the displayed view moved off them.
+
+        Re-posing the stage moves the displayed view to wherever the next run would land
+        (`_follow_the_acquisition_view`), which is what a planner wants. But if nothing
+        was acquired *there*, the canvas goes blank while the records are all still held
+        -- and a canvas that empties itself moments after a stage move reads as a fault
+        rather than as a view change.
+
+        It was reported as one: the beam had to be "re-selected" to get the picture back,
+        which worked only because changing the beam changes the view, and changing the
+        view back is what actually restored it. The beam was never the problem (FIB-659).
+
+        A hint rather than something drawn on the canvas. The status zone already ranks a
+        standing instruction below the cursor readout and decays the readout so the hint
+        underneath is not shut out, and the chips that resolve this sit directly above.
+        `_plot_empty` stays silent on purpose -- its blank backdrop means "nothing was
+        acquired here", which is a different and still-true statement. This one is
+        "nothing was acquired here, but something was somewhere else", which the backdrop
+        cannot say.
+        """
+        elsewhere = {
+            record.view.label
+            for record in self._records.values()
+            if record.view is not None and record.view != self._current_view
+        }
+        if self.canvas.placed_keys or not elsewhere:
+            self.canvas.set_hint(None)
+            return
+        names = sorted(elsewhere)
+        where = names[0] if len(names) == 1 else f"{len(names)} other views"
+        self.canvas.set_hint(f"No overview in this view — {where} has one")
 
     def load_overview(self, path: str) -> Optional[str]:
         """Load a saved overview from disk and place it. Returns its record id."""
