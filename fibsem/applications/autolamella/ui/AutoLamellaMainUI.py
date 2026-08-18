@@ -40,7 +40,17 @@ from fibsem.ui.icon import fibsem_icon
 import fibsem
 from fibsem.versioning import get_version_string
 import fibsem.config as fibsem_cfg
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, Lamella
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskStatus,
+    Experiment,
+    Lamella,
+)
+from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
+    WorkflowPreflightDialog,
+)
+from fibsem.applications.autolamella.workflows.workflow_estimate import (
+    estimate_workflow,
+)
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI, INSTRUCTIONS
 from fibsem.applications.autolamella.ui.autolamella_fluorescence_overview_tab import (
     AutoLamellaFluorescenceOverviewTab,
@@ -103,54 +113,19 @@ def play_notification_sound():
 
 
 def confirm_run_workflow_dialog(
+    experiment: Experiment,
     lamella_names: list,
     task_names: list,
     parent=None,
 ) -> bool:
-    """Show a confirmation dialog before starting the workflow. Returns True if confirmed."""
-    dlg = QDialog(parent)
-    dlg.setWindowTitle("Run Workflow")
-    dlg.setMinimumWidth(600)
+    """Show the pre-flight estimate before starting the workflow.
 
-    layout = QVBoxLayout(dlg)
-    layout.setSpacing(8)
-
-    msg_label = QLabel(
-        f"Run workflow for {len(lamella_names)} lamella with {len(task_names)} task(s)?"
-    )
-    layout.addWidget(msg_label)
-
-    col_row = QHBoxLayout()
-    col_row.setSpacing(8)
-
-    detail_height = min(max(len(lamella_names), len(task_names)) * 20 + 16, 216)
-
-    for heading, items in [("Lamella", lamella_names), ("Tasks", task_names)]:
-        col = QVBoxLayout()
-        col.setSpacing(4)
-        col.addWidget(QLabel(f"<b>{heading}</b>"))
-        te = QTextEdit()
-        te.setPlainText("\n".join(f"• {n}" for n in items))
-        te.setReadOnly(True)
-        te.setFixedHeight(detail_height)
-        col.addWidget(te)
-        col_row.addLayout(col)
-
-    layout.addLayout(col_row)
-
-    btn_row = QHBoxLayout()
-    btn_row.addStretch()
-    yes_btn = QPushButton("Yes")
-    no_btn = QPushButton("No")
-    yes_btn.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
-    no_btn.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
-    yes_btn.clicked.connect(dlg.accept)
-    no_btn.clicked.connect(dlg.reject)
-    no_btn.setDefault(True)
-    btn_row.addWidget(no_btn)
-    btn_row.addWidget(yes_btn)
-    layout.addLayout(btn_row)
-
+    Returns True if confirmed. Replaces two columns of bullets that restated the
+    selection the user had just made; see WorkflowPreflightDialog. Takes the
+    experiment because the estimate reads each lamella's task configs.
+    """
+    estimate = estimate_workflow(experiment, task_names, lamella_names)
+    dlg = WorkflowPreflightDialog(estimate, parent=parent)
     return dlg.exec_() == QDialog.Accepted
 
 
@@ -1022,7 +997,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         task_names = [t.name for t in selected_tasks]
         lamella_names = [lam.name for lam in selected_lamella]
 
-        if not confirm_run_workflow_dialog(lamella_names, task_names, parent=self):
+        if not confirm_run_workflow_dialog(
+            ui.experiment, lamella_names, task_names, parent=self
+        ):
             return
 
         initial_state = "supervised" if selected_tasks[0].supervise else "automated"

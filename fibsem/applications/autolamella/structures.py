@@ -1409,28 +1409,6 @@ class Experiment:
             positions.append(pos)
         return positions
 
-    def estimate_remaining_time(self) -> float:
-        """Estimate the remaining time for all lamellas in the experiment"""
-        ESTIMATED_SETUP_TIME = 5*60         # 5min
-        OVERHEAD_TIME = 2*60                # 2min
-        total_remaining_time: float = 0.0
-        for p in self.positions:
-
-            # skip failed lamellas
-            if p.is_failure:
-                continue
-
-            # remaining time for individual lamella
-            remaining_tasks = self.task_protocol.workflow_config.get_remaining_tasks(p)
-            remaining_time: float = 0
-            for rt in remaining_tasks:
-                estimated_milling_time = p.task_config[rt].estimated_time
-                remaining_time += estimated_milling_time + OVERHEAD_TIME
-            logging.debug(f"Total estimated time: {format_duration(remaining_time)}")
-
-            total_remaining_time += remaining_time
-        return total_remaining_time
-
     def add_lamella(self, lamella: Lamella) -> None:
         """Add a lamella to the experiment."""
         if not isinstance(lamella, Lamella):
