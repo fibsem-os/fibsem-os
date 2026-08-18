@@ -272,3 +272,68 @@ def test_the_done_state_in_the_status_bar_clears_itself(window_source):
         "nothing hides the Done state; it stays until another operation replaces it"
     )
     assert "singleShot" in body, "the hide has to be delayed, or Done is never seen"
+
+
+# ── the two host tabs' shared base ───────────────────────────────────────
+
+UI_DIR = REPO_ROOT / "fibsem" / "applications" / "autolamella" / "ui"
+HOST_TABS = {
+    "AutoLamellaOverviewTab": UI_DIR / "autolamella_overview_tab.py",
+    "AutoLamellaFluorescenceOverviewTab": UI_DIR / "autolamella_fluorescence_overview_tab.py",
+}
+
+
+def _class_def(path: Path, name: str) -> ast.ClassDef:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return next(n for n in ast.walk(tree)
+                if isinstance(n, ast.ClassDef) and n.name == name)
+
+
+def test_the_two_host_tabs_share_one_base():
+    """Both drive an experiment the same way, so neither owns that plumbing.
+
+    Read from source rather than imported, like everything else in this file: this is
+    the one UI test module CI actually runs, because it needs no PyQt5. An earlier
+    version of this test imported the classes and turned the whole run red on every
+    platform.
+
+    Only the methods whose code was byte-identical moved (FIB-697), so this asserts the
+    ones that did and deliberately *not* the ones that did not: `refresh_positions` and
+    the request handlers differ because of which pose they read, and pretending
+    otherwise is how the two tabs would come to mark different things.
+    """
+    shared = {"is_available", "microscope", "experiment", "refresh_experiment",
+              "set_selected", "set_interactive", "_on_list_selection",
+              "_on_marker_clicked"}
+
+    for name, path in HOST_TABS.items():
+        cls = _class_def(path, name)
+        bases = {b.id for b in cls.bases if isinstance(b, ast.Name)}
+        assert "AutoLamellaOverviewTabBase" in bases, f"{name} bases are {bases}"
+
+        defined = {n.name for n in cls.body
+                   if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        again = defined & shared
+        assert not again, (
+            f"{name} defines {sorted(again)} again; the base is what stops the two tabs "
+            "drifting apart"
+        )
+        # The pose is the difference between the tabs, so each must still answer it.
+        assert "refresh_positions" in defined, (
+            f"{name} inherits refresh_positions, which would mark nothing"
+        )
+
+        # Both signals are declared once, on the base. A subclass redeclaring one
+        # shadows it, and the window connects to whichever it happens to see first.
+        assigned = {t.id for n in cls.body if isinstance(n, ast.Assign)
+                    for t in n.targets if isinstance(t, ast.Name)}
+        assert not assigned & {"availability_changed", "lamella_selected"}, (
+            f"{name} redeclares a signal the base owns"
+        )
+
+
+def test_the_base_owns_the_signals_the_window_connects_to():
+    base = _class_def(UI_DIR / "overview_tab_base.py", "AutoLamellaOverviewTabBase")
+    assigned = {t.id for n in base.body if isinstance(n, ast.Assign)
+                for t in n.targets if isinstance(t, ast.Name)}
+    assert {"availability_changed", "lamella_selected"} <= assigned
