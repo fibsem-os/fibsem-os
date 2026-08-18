@@ -583,7 +583,7 @@ class FMOverviewWidget(QWidget):
         # The field of view goes on its own line rather than into the join: the panel
         # is narrow, and wrapping a "287 × 287 µm" mid-value reads as two numbers.
         summary = "  ·  ".join(parts)
-        fov = self.settings_widget.label_total_fov.text()
+        fov = self.settings_widget.grid.label_total_fov.text()
         if fov and fov != "—":
             summary = f"{summary}\n{fov}"
         # Said in words as well as drawn, because a grid sitting away from the stage
@@ -1986,7 +1986,7 @@ class FMOverviewWidget(QWidget):
         directly, which would leave the two views to drift apart on any path that
         touched only one of them.
         """
-        mask = self.settings_widget.tile_mask.mask
+        mask = self.settings_widget.tile_mask
         parameters = self.settings_widget.parameters
         if mask is None:
             mask = [[True] * parameters.cols for _ in range(parameters.rows)]
@@ -1994,7 +1994,7 @@ class FMOverviewWidget(QWidget):
             return
 
         mask[row][col] = enabled
-        self.settings_widget.tile_mask.mask = mask
+        self.settings_widget.set_mask(mask)
 
     def _on_settings_changed(self) -> None:
         if self.is_acquiring:

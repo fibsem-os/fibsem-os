@@ -129,13 +129,13 @@ def test_settings_round_trip_every_field(qapp):
 
 def test_changing_the_grid_size_resizes_the_mask(qapp):
     widget = FMOverviewSettingsWidget()
-    widget.spin_rows.setValue(4)
-    widget.spin_cols.setValue(6)
+    widget.grid.spin_rows.setValue(4)
+    widget.grid.spin_cols.setValue(6)
 
     assert widget.parameters.rows == 4
     assert widget.parameters.cols == 6
-    assert widget.tile_mask.grid._rows == 4
-    assert widget.tile_mask.grid._cols == 6
+    assert widget.grid.tile_mask.grid._rows == 4
+    assert widget.grid.tile_mask.grid._cols == 6
 
 
 def test_the_sweep_controls_are_only_live_when_focusing(qapp):
@@ -155,11 +155,11 @@ def test_a_spiral_with_per_row_focus_says_what_will_actually_happen(qapp):
     """The runner promotes EACH_ROW to EACH_TILE for a spiral; don't make that a surprise."""
     widget = FMOverviewSettingsWidget()
     widget.combo_autofocus_mode.set_value(AutoFocusMode.EACH_ROW)
-    widget.combo_tile_order.set_value(TileOrderStrategy.SPIRAL)
+    widget.grid.combo_tile_order.set_value(TileOrderStrategy.SPIRAL)
 
     assert "per-tile" in widget.label_summary.text()
 
-    widget.combo_tile_order.set_value(TileOrderStrategy.TYPEWRITER)
+    widget.grid.combo_tile_order.set_value(TileOrderStrategy.TYPEWRITER)
     assert "per-tile" not in widget.label_summary.text()
 
 
@@ -169,7 +169,7 @@ def test_the_selection_is_counted_once(qapp):
     widget = FMOverviewSettingsWidget()
     widget.parameters = OverviewParameters(rows=3, cols=3, tile_mask=plus_mask(3))
 
-    assert "5/9 tiles" in widget.tile_mask.label_count.text()
+    assert "5/9 tiles" in widget.grid.tile_mask.label_count.text()
     assert "tiles" not in widget.label_summary.text()
 
 
@@ -189,14 +189,14 @@ def test_the_grid_reports_the_total_field_of_view(qapp, rows, cols, overlap, exp
     widget.set_tile_fov(100e-6, 100e-6)
 
     widget.parameters = OverviewParameters(rows=rows, cols=cols, overlap=overlap)
-    assert widget.label_total_fov.text() == expected
+    assert widget.grid.label_total_fov.text() == expected
 
-    widget.tile_mask.grid.set_all(False)
-    assert widget.label_total_fov.text() == expected
+    widget.grid.tile_mask.grid.set_all(False)
+    assert widget.grid.label_total_fov.text() == expected
 
 
 def test_the_total_field_of_view_is_unknown_until_the_camera_is_known(qapp):
-    assert FMOverviewSettingsWidget().label_total_fov.text() == "—"
+    assert FMOverviewSettingsWidget().grid.label_total_fov.text() == "—"
 
 
 def test_focusing_with_every_pass_disabled_is_called_out(qapp):
@@ -501,8 +501,9 @@ def test_collapsed_panels_do_not_stretch(qapp):
     widget.show()
     widget.resize(500, 1200)  # far taller than the folded panels need
 
-    panels = (widget.focus_panel, widget.zstack_panel,
-              widget.grid_panel, widget.mask_panel)
+    # Three, not four: the tile mask now lives inside the Grid panel rather than in
+    # one of its own.
+    panels = (widget.focus_panel, widget.zstack_panel, widget.grid.panel)
     for panel in panels:
         panel.collapse()
     qapp.processEvents()
@@ -585,7 +586,7 @@ def test_clicking_a_tile_updates_the_mask_the_settings_widget_owns(qapp, overvie
     """One mask, two views. The overlay must not keep its own copy -- a click routes
     through the settings widget, and the redraw follows from that."""
     widget = overview_widget
-    widget.settings_widget.tile_mask.mask = None
+    widget.settings_widget.set_mask(None)
     qapp.processEvents()
 
     overlay = widget.tile_grid_overlay
@@ -594,8 +595,8 @@ def test_clicking_a_tile_updates_the_mask_the_settings_widget_owns(qapp, overvie
     _click(overlay, x + tw / 2, y + th / 2)
     qapp.processEvents()
 
-    assert widget.settings_widget.tile_mask.mask[0][0] is False
-    assert widget.settings_widget.tile_mask.n_enabled == 8
+    assert widget.settings_widget.tile_mask[0][0] is False
+    assert widget.settings_widget.grid.tile_mask.n_enabled == 8
     # and the overlay redrew from the widget's mask, rather than mutating its own
     assert next(
         t for t in overlay._tiles if (t.row, t.col) == (0, 0)
@@ -604,7 +605,7 @@ def test_clicking_a_tile_updates_the_mask_the_settings_widget_owns(qapp, overvie
 
 def test_clicking_the_same_tile_twice_returns_it(qapp, overview_widget):
     widget = overview_widget
-    widget.settings_widget.tile_mask.mask = None
+    widget.settings_widget.set_mask(None)
     qapp.processEvents()
 
     overlay = widget.tile_grid_overlay
@@ -615,21 +616,21 @@ def test_clicking_the_same_tile_twice_returns_it(qapp, overview_widget):
         _click(overlay, x + tw / 2, y + th / 2)
         qapp.processEvents()
 
-    assert widget.settings_widget.tile_mask.n_enabled == 9
+    assert widget.settings_widget.grid.tile_mask.n_enabled == 9
 
 
 def test_resizing_the_grid_redraws_the_overlay(qapp, overview_widget):
     widget = overview_widget
-    widget.settings_widget.tile_mask.mask = None
-    widget.settings_widget.spin_rows.setValue(5)
-    widget.settings_widget.spin_cols.setValue(4)
+    widget.settings_widget.set_mask(None)
+    widget.settings_widget.grid.spin_rows.setValue(5)
+    widget.settings_widget.grid.spin_cols.setValue(4)
     qapp.processEvents()
 
     assert len(widget.tile_grid_overlay._tiles) == 20
     assert len(widget.tile_grid_overlay._artists) == 20
 
-    widget.settings_widget.spin_rows.setValue(3)
-    widget.settings_widget.spin_cols.setValue(3)
+    widget.settings_widget.grid.spin_rows.setValue(3)
+    widget.settings_widget.grid.spin_cols.setValue(3)
     qapp.processEvents()
 
     assert len(widget.tile_grid_overlay._tiles) == 9
@@ -734,18 +735,18 @@ def test_setting_both_grid_dimensions_notifies_once(qapp):
     widget = FMOverviewSettingsWidget()
     seen = []
     widget.changed.connect(
-        lambda: seen.append((widget.spin_rows.value(), widget.spin_cols.value()))
+        lambda: seen.append((widget.grid.rows, widget.grid.cols))
     )
 
     widget.set_grid_size(2, 7)
 
     assert seen == [(2, 7)]
-    assert (widget.tile_mask.grid._rows, widget.tile_mask.grid._cols) == (2, 7)
+    assert (widget.grid.tile_mask.grid._rows, widget.grid.tile_mask.grid._cols) == (2, 7)
 
 
 def test_setting_the_same_grid_size_is_a_no_op(qapp):
     widget = FMOverviewSettingsWidget()
-    rows, cols = widget.spin_rows.value(), widget.spin_cols.value()
+    rows, cols = widget.grid.rows, widget.grid.cols
     seen = []
     widget.changed.connect(lambda: seen.append(1))
 
@@ -1737,9 +1738,9 @@ def test_an_empty_grid_still_forbids_acquiring_after_a_lock_is_lifted(qapp):
     """The third fact. A tab unlocked with no tiles selected has nothing to acquire,
     and the button that starts it should say so."""
     widget = _fresh_widget(qapp)
-    widget.settings_widget.tile_mask.mask = [[False, False], [False, False]]
+    widget.settings_widget.set_mask([[False, False], [False, False]])
     widget.settings_widget.set_grid_size(2, 2)
-    widget.settings_widget.tile_mask.mask = [[False, False], [False, False]]
+    widget.settings_widget.set_mask([[False, False], [False, False]])
     widget._on_settings_changed()
     assert not widget.button_acquire.isEnabled()
 
@@ -4710,3 +4711,22 @@ def test_zz_the_shared_fixture_is_still_wired_at_the_end_of_the_file(qapp, overv
     }
 
     assert all(counts.values()), f"the shared fixture went deaf mid-file: {counts}"
+
+
+def test_the_column_opens_at_the_dataclass_default_overlap(qapp):
+    """The default is stated once, in `OverviewParameters`, and the column takes it.
+
+    It used to be `spin_overlap.setValue(0.1)` in the widget -- the same number written
+    a second time -- and the shared grid panel cannot carry it, because the beam side
+    defaults the same setting to 0.0. Adopting the panel therefore silently opened the
+    fluorescence column at 0 % until this was seeded, which is a different run for
+    anyone who pressed Acquire without touching overlap.
+
+    Caught by rendering the column, not by a test: nothing asserted the default.
+    """
+    from fibsem.fm.structures import OverviewParameters
+
+    widget = FMOverviewSettingsWidget()
+
+    assert widget.parameters.overlap == OverviewParameters().overlap == 0.1
+    assert "10" in widget.grid.spin_overlap.text()

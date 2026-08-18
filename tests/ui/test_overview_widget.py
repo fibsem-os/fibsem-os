@@ -1614,6 +1614,32 @@ class TestTheTileMaskSurvivesTheSettingsWidget:
         disabled = set(disabled)
         return [[(i, j) not in disabled for j in range(cols)] for i in range(rows)]
 
+    def test_setting_both_dimensions_notifies_once(self, qapp):
+        """The shared panel's own contract, tested on this side for the first time.
+
+        It emitted twice: the mask resize was done outside the block, and the mask emits
+        `changed` when its shape moves, so `set_grid_size` fired once for the mask and
+        once for itself -- the very thing the method exists to prevent. Invisible when a
+        spin box is nudged by hand; an edge drag on the canvas does it on every motion
+        event, refreshing the overlay twice against a size asked for once.
+
+        The fluorescence tab always blocked the mask, and adopting this widget is what
+        brought its test to bear (FIB-696). Guarded here too, because the beam tab is
+        where the widget lives and where the next edit to it will be made.
+        """
+        from fibsem.ui.widgets.overview_grid_settings_widget import (
+            OverviewGridSettingsWidget,
+        )
+
+        grid = OverviewGridSettingsWidget()
+        seen = []
+        grid.changed.connect(lambda: seen.append((grid.rows, grid.cols)))
+
+        grid.set_grid_size(2, 7)
+
+        assert seen == [(2, 7)]
+        assert (grid.tile_mask.grid._rows, grid.tile_mask.grid._cols) == (2, 7)
+
     def test_no_mask_by_default(self, widget):
         assert widget._settings().tile_mask is None
 

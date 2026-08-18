@@ -254,19 +254,26 @@ class OverviewGridSettingsWidget(QWidget):
         size nobody asked for -- the new row count against the old column count. That is
         invisible when a spin box is nudged and constant when an edge is dragged on the
         canvas, which emits on every motion event.
+
+        The mask is blocked along with the boxes, and resized inside the block. It emits
+        `changed` of its own when its shape moves, so resizing it outside made this emit
+        *twice* -- once for the mask and once here -- which is the very thing the method
+        exists to prevent. The fluorescence tab had it right and its test is what caught
+        this on the way in.
         """
         rows, cols = int(rows), int(cols)
         if (rows, cols) == (self.rows, self.cols):
             return
-        for spinbox in (self.spin_rows, self.spin_cols):
-            spinbox.blockSignals(True)
+        blocked = (self.spin_rows, self.spin_cols, self.tile_mask)
+        for widget in blocked:
+            widget.blockSignals(True)
         try:
             self.spin_rows.setValue(rows)
             self.spin_cols.setValue(cols)
+            self.tile_mask.set_grid_size(rows, cols)
         finally:
-            for spinbox in (self.spin_rows, self.spin_cols):
-                spinbox.blockSignals(False)
-        self.tile_mask.set_grid_size(rows, cols)
+            for widget in blocked:
+                widget.blockSignals(False)
         self._on_changed()
 
     def set_mask(self, mask: Optional[List[List[bool]]]) -> None:

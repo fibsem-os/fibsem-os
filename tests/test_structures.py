@@ -211,7 +211,10 @@ def test_overview_acquisition_settings_defaults():
     s = OverviewAcquisitionSettings()
     assert s.nrows == 3
     assert s.ncols == 3
-    assert s.overlap == 0.0
+    # 10%, matching `OverviewParameters` on the fluorescence side. The two defaulted
+    # differently for one setting with one meaning, so a run configured on one tab and
+    # read on the other started from a different grid (FIB-696).
+    assert s.overlap == 0.1
     assert s.focus_stack_settings.enabled is False
     assert s.focus_stack_settings.n_steps == 3
     assert s.focus_stack_settings.auto_focus is True
