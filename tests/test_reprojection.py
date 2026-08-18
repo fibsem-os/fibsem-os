@@ -66,7 +66,7 @@ class TestCalculateReprojectedStagePosition:
         assert point.y != pytest.approx(centre.y)
 
     def test_y_sign_flips_across_the_image_position(self, image):
-        """`dy = dy if delta.y < 0 else -dy` -- the branch is worth pinning."""
+        """The `delta.y < 0` branch on the y displacement is worth pinning."""
         above = calculate_reprojected_stage_position(
             image, _base(image) + FibsemStagePosition(x=0, y=10e-6, z=0)
         )
@@ -76,6 +76,26 @@ class TestCalculateReprojectedStagePosition:
         centre = calculate_reprojected_stage_position(image, _base(image))
 
         assert (above.y - centre.y) == pytest.approx(-(below.y - centre.y))
+
+    def test_a_higher_stage_y_draws_above_the_image_centre(self, image):
+        """The absolute sense, not just the flip.
+
+        Every other sign test in this class is symmetric -- above vs below, plain vs
+        rotated -- so inverting the whole y convention passes all of them and draws
+        every marker mirrored. That is exactly how FIB-692 survived in the polygon
+        converter, so the direction is pinned outright: +y on the stage is *up* the
+        image, which is a smaller row index.
+        """
+        centre = calculate_reprojected_stage_position(image, _base(image))
+        higher = calculate_reprojected_stage_position(
+            image, _base(image) + FibsemStagePosition(x=0, y=10e-6, z=0)
+        )
+        righter = calculate_reprojected_stage_position(
+            image, _base(image) + FibsemStagePosition(x=10e-6, y=0, z=0)
+        )
+
+        assert higher.y < centre.y
+        assert righter.x > centre.x
 
     def test_z_contributes_to_the_y_displacement(self, image):
         """dy is sqrt(delta.y^2 + delta.z^2), so z is folded into the in-image y."""
@@ -162,6 +182,19 @@ class TestVariant2:
 
         assert point.x == pytest.approx(image.data.shape[1] / 2)
         assert point.y == pytest.approx(image.data.shape[0] / 2)
+
+    def test_a_higher_stage_y_draws_above_the_image_centre(self, image):
+        """The same absolute sense as the original variant -- see its twin above."""
+        centre = calculate_reprojected_stage_position2(image, _base(image))
+        higher = calculate_reprojected_stage_position2(
+            image, _base(image) + FibsemStagePosition(x=0, y=10e-6, z=0)
+        )
+        righter = calculate_reprojected_stage_position2(
+            image, _base(image) + FibsemStagePosition(x=10e-6, y=0, z=0)
+        )
+
+        assert higher.y < centre.y
+        assert righter.x > centre.x
 
     def test_x_offset_matches_the_original_variant(self, image):
         """x carries no projection, so the two variants must agree on it exactly."""
