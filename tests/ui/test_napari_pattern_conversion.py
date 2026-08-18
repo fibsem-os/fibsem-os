@@ -19,10 +19,20 @@ import pytest
 pytest.importorskip("napari")
 
 from fibsem.milling.patterning.plotting import _polygon_pattern_to_image_pixels
-from fibsem.structures import FibsemPolygonSettings, FibsemRectangleSettings
+from fibsem.conversions import microscope_image_to_image_coordinates
+from fibsem.structures import (
+    FibsemCircleSettings,
+    FibsemLineSettings,
+    FibsemPolygonSettings,
+    FibsemRectangleSettings,
+    Point,
+)
 from fibsem.ui.napari.patterns import (
+    convert_pattern_to_napari_circle,
+    convert_pattern_to_napari_line,
     convert_pattern_to_napari_polygon,
     convert_pattern_to_napari_rect,
+    convert_point_to_napari,
 )
 
 SHAPE = (512, 1024)   # (height, width) -> centre (256, 512)
@@ -93,3 +103,65 @@ def test_a_polygon_with_no_vertices_is_empty_not_an_error():
     pattern = FibsemPolygonSettings(vertices=np.zeros((0, 2)), depth=1e-6)
 
     assert convert_pattern_to_napari_polygon(pattern, SHAPE, PS)[0].shape == (0, 2)
+
+
+# ---------------------------------------------------------------------------
+# every converter reads the centre the same way (FIB-644)
+# ---------------------------------------------------------------------------
+
+ODD = (511, 1023)
+
+
+def _expected(x, y, shape=SHAPE):
+    pt = microscope_image_to_image_coordinates(Point(x=x, y=y), shape, PS)
+    return int(pt.x), int(pt.y)
+
+
+@pytest.mark.parametrize("shape", [SHAPE, ODD])
+def test_circle_agrees_with_the_shared_conversion(shape):
+    p = FibsemCircleSettings(
+        radius=3e-6, depth=1e-6, thickness=0, centre_x=2e-6, centre_y=ABOVE,
+        start_angle=0, end_angle=360,
+    )
+    rows = convert_pattern_to_napari_circle(p, shape, PS)[0]
+    cx, cy = _expected(2e-6, ABOVE, shape)
+
+    # corners are (y, x); the centre is their mean
+    assert sum(r for r, _ in rows) / 4 == pytest.approx(cy)
+    assert sum(c for _, c in rows) / 4 == pytest.approx(cx)
+
+
+@pytest.mark.parametrize("shape", [SHAPE, ODD])
+def test_line_agrees_with_the_shared_conversion(shape):
+    p = FibsemLineSettings(
+        start_x=2e-6, start_y=ABOVE, end_x=-1e-6, end_y=-2e-6, depth=1e-6
+    )
+    (y0, x0), (y1, x1) = convert_pattern_to_napari_line(p, shape, PS)[0]
+
+    assert (x0, y0) == _expected(2e-6, ABOVE, shape)
+    assert (x1, y1) == _expected(-1e-6, -2e-6, shape)
+
+
+@pytest.mark.parametrize("shape", [SHAPE, ODD])
+def test_rectangle_agrees_with_the_shared_conversion(shape):
+    p = FibsemRectangleSettings(
+        width=2e-6, height=3e-6, depth=1e-6, centre_x=2e-6, centre_y=ABOVE
+    )
+    rows = convert_pattern_to_napari_rect(p, shape, PS)[0]
+    cx, cy = _expected(2e-6, ABOVE, shape)
+
+    assert sum(r for r, _ in rows) / 4 == pytest.approx(cy)
+    assert sum(c for _, c in rows) / 4 == pytest.approx(cx)
+
+
+def test_convert_point_to_napari_takes_width_height_not_shape():
+    """The trap this helper hides: `resolution` is [x, y] — the opposite order
+    to a numpy shape. Indexing it [1] then [0] looks like a bug and is not one.
+
+    A non-square resolution is the only way to catch getting it wrong.
+    """
+    resolution = [1024, 512]          # width, height  -> centre (256, 512)
+
+    got = convert_point_to_napari(resolution, PS, Point(0.0, ABOVE))
+
+    assert (got.x, got.y) == (512, 156)
