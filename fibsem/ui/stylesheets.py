@@ -433,3 +433,19 @@ QDateTimeEdit::down-arrow {{
 MILLING_PROGRESS_BAR_STYLESHEET = PROGRESS_BAR_STYLESHEET
 RUN_WORKFLOW_BUTTON_STYLESHEET = CONFIRM_BUTTON_STYLESHEET
 STOP_WORKFLOW_BUTTON_STYLESHEET = DANGER_BUTTON_STYLESHEET
+
+
+# A small panel floating over a canvas, opened from a toolbar button. Shared so the
+# canvas's popovers cannot drift apart -- contrast and the overlay switches are the same
+# kind of thing in the same corner, and looked it only by coincidence while each carried
+# its own copy of these greys.
+CANVAS_POPOVER_STYLE = (
+    "QFrame { background: rgba(30,33,36,230); border: 1px solid #555;"
+    " border-radius: 4px; }"
+    "QLabel { color: #d1d2d4; font-size: 10px; background: transparent; border: none; }"
+    "QCheckBox { color: #d1d2d4; font-size: 10px; background: transparent;"
+    " border: none; }"
+    "QPushButton { background: rgba(60,63,70,200); border: 1px solid #666;"
+    " border-radius: 3px; color: #d1d2d4; font-size: 10px; padding: 2px 8px; }"
+    "QPushButton:hover { background: rgba(80,83,90,220); }"
+)

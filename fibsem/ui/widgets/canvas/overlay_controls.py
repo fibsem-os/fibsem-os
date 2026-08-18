@@ -25,7 +25,9 @@ from __future__ import annotations
 from typing import Dict, Iterable, Optional, Tuple
 
 from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QCheckBox, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QCheckBox, QFrame, QVBoxLayout, QWidget
+
+from fibsem.ui.stylesheets import CANVAS_POPOVER_STYLE
 
 # (key, label, shown by default)
 OverlayEntry = Tuple[str, str, bool]
@@ -87,3 +89,52 @@ class CanvasOverlayControls(QWidget):
 
     def keys(self) -> Tuple[str, ...]:
         return tuple(self._boxes)
+
+
+class CanvasPopover(QFrame):
+    """A small panel floating over a canvas, anchored under a toolbar button.
+
+    The canvas toolbar's established shape for a control that belongs *to* what is on
+    screen rather than to the settings that produced it: a button that opens a panel
+    beside the thing it changes, costing no room in the column when closed.
+
+    Takes any content widget, so what it holds is the caller's business -- overlay
+    checkboxes here, but the lattice pitch spinners ride along with them, because a
+    control for the gridbars belongs with the switch that draws them and not several
+    panels away.
+
+    `ContrastGammaControl` has this same positioning code inside it, written before
+    there was a second popover to share it with. It should end up here; leaving that
+    for its own change rather than editing a shipped widget on the way past.
+    """
+
+    def __init__(self, content: QWidget, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        # A frame, and styled as one: the shared popover style keys off `QFrame`, and a
+        # bare `QWidget` took none of it -- which drew the switches as unbacked text
+        # directly over the picture they were meant to control.
+        self.setStyleSheet(CANVAS_POPOVER_STYLE)
+        self._anchor: Optional[QWidget] = None
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.addWidget(content)
+        self.setVisible(False)
+
+    def set_open(self, open_: bool, anchor: Optional[QWidget] = None) -> None:
+        """Show or hide, re-anchoring under *anchor* when one is given."""
+        if anchor is not None:
+            self._anchor = anchor
+        self.setVisible(open_)
+        if open_:
+            self.reposition()
+            self.raise_()
+
+    def reposition(self) -> None:
+        """Sit under the anchor at the parent's top right, clamped inside it."""
+        parent = self.parentWidget()
+        if parent is None:
+            return
+        self.adjustSize()
+        x = parent.width() - self.width() - 4
+        y = 4 if self._anchor is None else self._anchor.y() + self._anchor.height() + 4
+        self.move(max(4, x), y)

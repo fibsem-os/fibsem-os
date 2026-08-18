@@ -102,7 +102,10 @@ from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
 from fibsem.ui.widgets.canvas.overlays.gridbar_overlay import GridBarOverlay
 from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import TileGridOverlay
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointsOverlay
-from fibsem.ui.widgets.canvas.overlay_controls import CanvasOverlayControls
+from fibsem.ui.widgets.canvas.overlay_controls import (
+    CanvasOverlayControls,
+    CanvasPopover,
+)
 from fibsem.ui.widgets.canvas.real_space_canvas import (
     WHOLE_IMAGE,
     FibsemRealSpaceCanvas,
@@ -741,6 +744,17 @@ class FibsemOverviewWidget(QWidget):
             # to do nothing.
             _spin.setEnabled(self.overlay_controls.is_visible(_OVERLAY_GRIDBARS))
 
+        # On the canvas toolbar beside contrast, not in the settings column: what is
+        # drawn *over* the picture is a looking-at-it question, where the column is for
+        # setting up the next run. In the column it also sat at the bottom of a scroll,
+        # which is the least reachable place on the tab. Built here rather than with the
+        # other toolbar buttons because it holds the controls above, which have to exist
+        # first.
+        self.btn_overlays = self.canvas.add_toolbar_button(
+            "mdi:eye-outline", "Overlays", self._toggle_overlays, checkable=True,
+        )
+        self.overlay_popover = CanvasPopover(self._overlay_panel(), parent=self.canvas)
+
         # "Acquire Overview" says what the button produces; "Run Tile Collection" said
         # how it is produced, which is the part the settings above already describe.
         self.button_acquire = QPushButton("Acquire Overview")
@@ -792,7 +806,13 @@ class FibsemOverviewWidget(QWidget):
         controls_layout.setSpacing(10)
         controls_layout.addWidget(overviews_panel)
         controls_layout.addWidget(self.settings_widget)
-        controls_layout.addWidget(self._section("Display", self._display_panel()))
+        # Kept as a handle: with the overlay switches moved onto the canvas toolbar
+        # this section holds only the view note, which is empty whenever there is
+        # nothing to say -- and an empty titled panel is chrome that has not earned its
+        # place, the same argument the view strip is hidden on.
+        self.display_section = self._section("Display", self._display_panel())
+        self.display_section.setVisible(False)
+        controls_layout.addWidget(self.display_section)
         controls_layout.addStretch()
 
         scroll = QScrollArea()
@@ -860,14 +880,31 @@ class FibsemOverviewWidget(QWidget):
         layout.addWidget(self.label_status)
         return panel
 
+    def _overlay_panel(self) -> QWidget:
+        """What the overlays button opens: the switches, then the bars\' own pitch.
+
+        The pitch controls follow the switch that draws them rather than staying in the
+        column. They mean nothing while the lattice is off -- which is why they are
+        disabled with it -- so several panels away from their checkbox is the one place
+        they should not be.
+        """
+        panel = QWidget()
+        layout = QFormLayout(panel)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.addRow(self.overlay_controls)
+        layout.addRow("Bar spacing", self.spin_gridbar_spacing)
+        layout.addRow("Bar width", self.spin_gridbar_width)
+        return panel
+
+    def _toggle_overlays(self) -> None:
+        """Show or hide the overlays popover, anchored under its button."""
+        self.overlay_popover.set_open(self.btn_overlays.isChecked(), self.btn_overlays)
+
     def _display_panel(self) -> QWidget:
         panel = QWidget()
         layout = QFormLayout(panel)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.addRow(self.label_view_note)
-        layout.addRow(self.overlay_controls)
-        layout.addRow("Bar spacing", self.spin_gridbar_spacing)
-        layout.addRow("Bar width", self.spin_gridbar_width)
         return panel
 
     def _section(self, title: str, widget: QWidget) -> QWidget:
@@ -969,12 +1006,25 @@ class FibsemOverviewWidget(QWidget):
         ):
             self.label_view_note.clear()
             self.label_view_note.setVisible(False)
+            self._show_display_section(False)
             return
         self.label_view_note.setText(
             f"Showing {self._current_view.label}; the stage is at "
             f"{acquisition.label}, so the next acquisition would not appear here."
         )
         self.label_view_note.setVisible(True)
+        self._show_display_section(True)
+
+    def _show_display_section(self, visible: bool) -> None:
+        """The section follows the only thing left in it.
+
+        `getattr` because the view selector refreshes during construction, before the
+        section exists -- the panel is built from the controls, so it cannot be built
+        before them.
+        """
+        section = getattr(self, "display_section", None)
+        if section is not None:
+            section.setVisible(visible)
 
     def _on_overlay_toggled(self, key: str, checked: bool) -> None:
         """One overlay turned on or off.

@@ -3398,3 +3398,64 @@ class TestTheOverlaysCanBeTurnedOff:
         """An overlay whose control was never added is one nobody chose to hide.
         Defaulting to hidden makes a forgotten entry look like a drawing bug."""
         assert widget.overlay_controls.is_visible("something-nobody-added") is True
+
+
+class TestTheOverlaySwitchesAreOnTheCanvas:
+    """On the canvas toolbar beside contrast, not in the settings column.
+
+    What is drawn *over* the picture is a looking-at-it question; the column is for
+    setting up the next run. In the column the switches also landed at the bottom of a
+    scroll, which is the least reachable place on the tab (FIB-572).
+    """
+
+    def test_the_button_opens_and_closes_the_popover(self, widget):
+        """`isVisibleTo`, not `isVisible`: the fixture never shows the widget, so
+        `isVisible` is False for every child whatever was set on it -- which makes an
+        assertion that something is hidden pass without testing anything."""
+        assert not widget.overlay_popover.isVisibleTo(widget.canvas)
+
+        widget.btn_overlays.setChecked(True)
+        widget._toggle_overlays()
+        assert widget.overlay_popover.isVisibleTo(widget.canvas)
+
+        widget.btn_overlays.setChecked(False)
+        widget._toggle_overlays()
+        assert not widget.overlay_popover.isVisibleTo(widget.canvas)
+
+    def test_it_is_styled_so_it_is_readable_over_the_picture(self, widget):
+        """A bare `QWidget` took none of the shared style, whose selectors key off
+        `QFrame` -- which drew the switches as unbacked text straight over the data."""
+        from PyQt5.QtWidgets import QFrame
+
+        from fibsem.ui.stylesheets import CANVAS_POPOVER_STYLE
+
+        assert isinstance(widget.overlay_popover, QFrame)
+        assert widget.overlay_popover.styleSheet() == CANVAS_POPOVER_STYLE
+
+    def test_the_pitch_controls_moved_with_their_switch(self, widget):
+        """They mean nothing while the lattice is off, so several panels away from the
+        checkbox that draws it is the one place they should not be."""
+        popover = widget.overlay_popover
+        assert widget.spin_gridbar_spacing.isAncestorOf is not None
+        for spin in (widget.spin_gridbar_spacing, widget.spin_gridbar_width):
+            assert popover.isAncestorOf(spin), "a pitch control was left in the column"
+        assert popover.isAncestorOf(widget.overlay_controls)
+
+    def test_the_display_section_goes_when_it_has_nothing_to_say(self, widget):
+        """With the switches moved out it holds only the view note, which is empty
+        unless the displayed view differs from where the next run would land. An empty
+        titled panel is chrome that has not earned its place."""
+        assert not widget.label_view_note.isVisibleTo(widget)
+        assert not widget.display_section.isVisibleTo(widget)
+
+    def test_the_display_section_comes_back_with_the_note(self, widget, at_sem):
+        self._note_showing(widget, at_sem)
+        assert widget.label_view_note.isVisibleTo(widget)
+        assert widget.display_section.isVisibleTo(widget)
+
+    @staticmethod
+    def _note_showing(widget, microscope):
+        """Look at one view while the stage sits at another."""
+        showing = widget.acquisition_view
+        microscope.move_to_orientation("MILLING")
+        widget.show_view(showing)
