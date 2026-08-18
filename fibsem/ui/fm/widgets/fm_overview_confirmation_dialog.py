@@ -26,7 +26,17 @@ from fibsem.fm.structures import (
 )
 from fibsem.fm.timing import estimate_tileset_acquisition_time
 from fibsem.structures import TileOrderStrategy
-from fibsem.ui.widgets.preflight import OverviewPreflightDialog, format_duration
+from fibsem.ui.widgets.preflight import (
+    OverviewPreflightDialog,
+    PathValue,
+    format_bytes,
+    format_duration,
+    mosaic_pixels,
+)
+
+# Fluorescence images are 16-bit. Stated rather than read off a tile, because the dialog
+# is shown before anything has been acquired.
+FM_BYTES_PER_PIXEL = 2
 
 
 class FMOverviewConfirmationDialog(OverviewPreflightDialog):
@@ -41,6 +51,8 @@ class FMOverviewConfirmationDialog(OverviewPreflightDialog):
         autofocus_settings: Optional[AutoFocusSettings] = None,
         objective_current: Optional[float] = None,
         objective_focus: Optional[float] = None,
+        tile_resolution: Optional[tuple] = None,
+        save_directory: Optional[str] = None,
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
@@ -53,6 +65,11 @@ class FMOverviewConfirmationDialog(OverviewPreflightDialog):
         # so the number it reports is the one the settings panel was showing.
         self.objective_current = objective_current
         self.objective_focus = objective_focus
+        # Both passed in rather than read: this dialog takes no microscope, which is what
+        # lets it be built and tested on its own, and the camera resolution is a hardware
+        # read on a shared connection (FIB-517).
+        self.tile_resolution = tile_resolution
+        self.save_directory = save_directory
         self._init_ui()
 
     # ── content ──────────────────────────────────────────────────────────
@@ -158,6 +175,28 @@ class FMOverviewConfirmationDialog(OverviewPreflightDialog):
             detail.extend(self._sweep_rows())
 
         detail.append(("Images", f"{estimate['total_images']:,}"))
+
+        # What it will cost on disk. One file per tile plus the stitch beside them, all
+        # uncompressed, so the array sizes are the estimate rather than a floor for it.
+        # Each tile is already max-projected when it is written, so the z-planes multiply
+        # the *time* and not the bytes -- which is why this reads from the channel count
+        # and not from `zparams`.
+        if self.tile_resolution is not None:
+            width, height = self.tile_resolution
+            channels = max(1, len(self.channel_settings))
+            mosaic_w, mosaic_h = mosaic_pixels(p.rows, p.cols, p.overlap, width, height)
+            tile_bytes = channels * width * height * FM_BYTES_PER_PIXEL
+            total = (p.n_enabled_tiles * tile_bytes
+                     + channels * mosaic_w * mosaic_h * FM_BYTES_PER_PIXEL)
+            detail.append((
+                "Disk",
+                f"~{format_bytes(total)}"
+                f"   ({format_bytes(tile_bytes)} per tile"
+                f" · {mosaic_w} × {mosaic_h} px stitched)",
+            ))
+
+        if self.save_directory:
+            detail.append(("Saving to", PathValue(self.save_directory)))
         detail.append((
             "Estimated time",
             f"{format_duration(estimate['total_time'])}"

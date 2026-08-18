@@ -857,8 +857,21 @@ class ElidedLabel(QLabel):
     fit; a caller wanting a different tooltip sets it after `setText`.
     """
 
-    def __init__(self, text: str = "", parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        text: str = "",
+        parent: Optional[QWidget] = None,
+        mode: Qt.TextElideMode = Qt.ElideRight,
+    ) -> None:
+        """
+        Args:
+            mode: which end goes. `ElideRight` for prose, where the start carries the
+                sense. **`ElideLeft` for a path**, where it is the tail -- the
+                experiment and the run -- that answers "am I writing where I meant
+                to", and the leading directories are the same on every line.
+        """
         super().__init__(parent)
+        self._mode = mode
         self._full_text = ""
         # Ignored horizontally: the label neither asks for room nor refuses to shrink,
         # which is the whole point -- its content must not set anyone's minimum.
@@ -887,7 +900,7 @@ class ElidedLabel(QLabel):
     def _elide(self) -> None:
         metrics = QFontMetrics(self.font())
         elided = metrics.elidedText(
-            self._full_text, Qt.ElideRight, max(0, self.width() - 2)
+            self._full_text, self._mode, max(0, self.width() - 2)
         )
         # `super().text()`, not ours: ours returns the full string, so this would differ
         # on every paint of an elided label and schedule another one forever. QLabel
