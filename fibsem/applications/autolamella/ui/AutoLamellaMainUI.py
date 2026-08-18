@@ -61,7 +61,7 @@ from fibsem.ui.stylesheets import (
     SECONDARY_BUTTON_STYLESHEET,
     GRAY_ICON_COLOR,
     DEFECT_ORANGE_COLOR,
-    WORKFLOW_BORDER_STYLESHEET,
+    border_stylesheet,
 )
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
@@ -230,7 +230,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # Apply napari-style dark theme. Border state rules live here (on the parent)
         # so that setProperty + unpolish/polish on _border_frame re-evaluates them.
-        self.setStyleSheet(NAPARI_STYLE + WORKFLOW_BORDER_STYLESHEET)
+        self.setStyleSheet(NAPARI_STYLE + border_stylesheet("workflow_border_frame"))
 
         # Central tab widget wrapped in a QFrame so the border renders reliably
         self.tab_widget = QTabWidget()
