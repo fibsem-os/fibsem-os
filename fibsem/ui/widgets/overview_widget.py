@@ -102,6 +102,9 @@ from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
 from fibsem.ui.widgets.canvas.overlays.gridbar_overlay import GridBarOverlay
 from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import TileGridOverlay
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointsOverlay
+from fibsem.ui.widgets.canvas.overlays.tile_grid_options_panel import (
+    TileGridOptionsPanel,
+)
 from fibsem.ui.widgets.canvas.overlay_controls import (
     CanvasOverlayControls,
     CanvasPopover,
@@ -755,6 +758,26 @@ class FibsemOverviewWidget(QWidget):
         )
         self.overlay_popover = CanvasPopover(self._overlay_panel(), parent=self.canvas)
 
+        # The planned tileset gets its own button rather than a switch among the others,
+        # matching the fluorescence tab: it is the one overlay you *edit* -- drag it,
+        # resize it, click tiles out of it -- so it carries colour, fill and a re-centre
+        # beside its visibility, which is more than a checkbox row holds. Same panel
+        # class as the FM tab now that it lives beside the overlay it configures, so the
+        # two tabs cannot drift apart on the one overlay they both draw.
+        self.btn_tile_grid = self.canvas.add_toolbar_button(
+            "mdi:grid", "Tile grid", self._toggle_tile_grid_panel, checkable=True,
+        )
+        self.tile_grid_panel = TileGridOptionsPanel(self)
+        self.tile_grid_panel.hide()
+        self.tile_grid_panel.visibility_changed.connect(
+            self.tile_grid_overlay.set_grid_visible
+        )
+        self.tile_grid_panel.color_changed.connect(self.tile_grid_overlay.set_color)
+        self.tile_grid_panel.fill_alpha_changed.connect(
+            self.tile_grid_overlay.set_fill_alpha
+        )
+        self.tile_grid_panel.centre_requested.connect(self.clear_target)
+
         # "Acquire Overview" says what the button produces; "Run Tile Collection" said
         # how it is produced, which is the part the settings above already describe.
         self.button_acquire = QPushButton("Acquire Overview")
@@ -895,6 +918,32 @@ class FibsemOverviewWidget(QWidget):
         layout.addRow("Bar spacing", self.spin_gridbar_spacing)
         layout.addRow("Bar width", self.spin_gridbar_width)
         return panel
+
+    def _toggle_tile_grid_panel(self) -> None:
+        """Show or hide the tile grid panel, in the canvas's top-right corner.
+
+        A `Qt.Tool` window rather than a child of the canvas, which is how it was built
+        for the fluorescence tab, so it is placed in global coordinates rather than by
+        `CanvasPopover`. Re-fitted on every open because its summary is word-wrapped and
+        grows -- dragging the grid adds a line saying how far it now sits from the stage,
+        and a panel sized once at open time clipped it (FIB-510).
+
+        Notably *not* accompanied by the FM tab's gesture hint. That writes to the
+        canvas's status zone, which on this tab already carries the "no overview in this
+        view" caption (FIB-659); two writers to one zone is what the zone was built to
+        prevent, and picking between them is its own small piece of work.
+        """
+        if not self.btn_tile_grid.isChecked():
+            self.tile_grid_panel.hide()
+            return
+        self.tile_grid_panel.adjustSize()
+        corner = self.canvas.mapToGlobal(self.canvas.rect().topRight())
+        self.tile_grid_panel.move(
+            corner.x() - self.tile_grid_panel.width() - 8,
+            corner.y() + self.btn_tile_grid.height() + 8,
+        )
+        self.tile_grid_panel.show()
+        self.tile_grid_panel.raise_()
 
     def _toggle_overlays(self) -> None:
         """Show or hide the overlays popover, anchored under its button."""

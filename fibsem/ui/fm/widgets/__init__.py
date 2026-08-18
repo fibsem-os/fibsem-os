@@ -20,6 +20,9 @@ from .fm_multi_channel_widget import FluorescenceMultiChannelWidget
 # Moved to `fibsem.ui.widgets`: a grid of toggles is not fluorescence-specific,
 # and the FIB/SEM overview needs it too. Re-exported here because this package's
 # name is where callers have been importing it from.
+from fibsem.ui.widgets.canvas.overlays.tile_grid_options_panel import (
+    TileGridOptionsPanel,
+)
 from fibsem.ui.widgets.tile_mask_widget import TileMaskWidget
 from .fm_overview_settings_widget import FMOverviewSettingsWidget
 from .fm_overview_confirmation_dialog import FMOverviewConfirmationDialog
@@ -38,6 +41,7 @@ __all__ = [
     'FMImageViewerWidget',
     'ChannelListWidget',
     'FluorescenceMultiChannelWidget',
+    'TileGridOptionsPanel',
     'TileMaskWidget',
     'FMOverviewSettingsWidget',
     'FMOverviewConfirmationDialog',

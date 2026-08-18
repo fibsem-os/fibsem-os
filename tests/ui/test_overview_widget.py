@@ -3459,3 +3459,62 @@ class TestTheOverlaySwitchesAreOnTheCanvas:
         showing = widget.acquisition_view
         microscope.move_to_orientation("MILLING")
         widget.show_view(showing)
+
+
+class TestTheTileGridHasItsOwnButton:
+    """The planned tileset gets a button of its own rather than a row among the switches.
+
+    It is the one overlay you *edit* -- drag it, resize it, click tiles out of it -- so
+    it carries colour, fill and a re-centre beside its visibility, which is more than a
+    checkbox row holds. Same panel class as the fluorescence tab, so the two tabs cannot
+    drift apart on the one overlay they both draw (FIB-572).
+    """
+
+    def test_the_panel_drives_the_overlay(self, widget):
+        overlay = widget.tile_grid_overlay
+        assert overlay.is_grid_visible
+
+        widget.tile_grid_panel.visibility_changed.emit(False)
+        assert not overlay.is_grid_visible
+
+        widget.tile_grid_panel.visibility_changed.emit(True)
+        assert overlay.is_grid_visible
+
+    def test_re_centring_clears_a_dragged_target(self, widget, microscope):
+        """The panel's re-centre is the way back after dragging the grid off the stage,
+        and `clear_target` is what this tab already calls it."""
+        base = microscope.get_stage_position()
+        widget._target = _at(base, dx=250e-6)
+
+        widget.tile_grid_panel.centre_requested.emit()
+
+        assert widget._target is None
+
+    def test_the_button_opens_and_closes_it(self, widget):
+        assert not widget.tile_grid_panel.isVisible()
+
+        widget.btn_tile_grid.setChecked(True)
+        widget._toggle_tile_grid_panel()
+        assert widget.tile_grid_panel.isVisible()
+
+        widget.btn_tile_grid.setChecked(False)
+        widget._toggle_tile_grid_panel()
+        assert not widget.tile_grid_panel.isVisible()
+
+    def test_it_does_not_write_the_gesture_hint_over_the_view_caption(
+        self, widget, at_sem
+    ):
+        """The fluorescence tab pairs this panel with a hint naming the grid's gestures,
+        and that writes to the canvas's status zone -- which on this tab already carries
+        the "no overview in this view" caption. Two writers to one zone is what the zone
+        exists to prevent, so the hint was deliberately not ported."""
+        base = at_sem.get_stage_position()
+        widget.set_image(_tile(at_sem, _at(base), shape=(64, 64)))
+        at_sem.move_to_orientation("MILLING")
+        caption = widget.canvas._hint_text
+        assert caption and "No overview in this view" in caption
+
+        widget.btn_tile_grid.setChecked(True)
+        widget._toggle_tile_grid_panel()
+
+        assert widget.canvas._hint_text == caption, "the panel overwrote the caption"

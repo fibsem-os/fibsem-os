@@ -50,7 +50,9 @@ from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
 )
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
 from fibsem.ui.widgets.overview_list_widget import OverviewListWidget
-from fibsem.ui.fm.widgets.tile_grid_options_panel import TileGridOptionsPanel
+from fibsem.ui.widgets.canvas.overlays.tile_grid_options_panel import (
+    TileGridOptionsPanel,
+)
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (

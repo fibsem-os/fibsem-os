@@ -4000,7 +4000,9 @@ def test_the_tile_grid_summary_is_never_clipped(qapp):
     lines was not enough to trigger it, which is why the widget-level test above passes
     either way.
     """
-    from fibsem.ui.fm.widgets.tile_grid_options_panel import TileGridOptionsPanel
+    from fibsem.ui.widgets.canvas.overlays.tile_grid_options_panel import (
+        TileGridOptionsPanel,
+    )
 
     panel = TileGridOptionsPanel()
     panel.set_summary("3 × 3  ·  10% overlap  ·  9/9 tiles\n287 × 287 µm")
