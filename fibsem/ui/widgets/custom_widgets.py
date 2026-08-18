@@ -879,6 +879,13 @@ class ElidedLabel(QLabel):
         self.setText(text)
 
     def setText(self, text: Optional[str]) -> None:  # noqa: N802 - Qt naming
+        if (text or "") == self._full_text:
+            # Re-measuring costs a QFontMetrics and an elidedText per call, and callers
+            # that refresh a whole row on a timer re-set the same string every time --
+            # the workflow timeline does it for every row of every status update, where
+            # this was a third of the cost. Nothing else here depends on width, which
+            # resizeEvent and paintEvent handle.
+            return
         self._full_text = text or ""
         self.setToolTip(self._full_text)
         self._elide()

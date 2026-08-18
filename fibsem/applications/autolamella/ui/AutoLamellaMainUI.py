@@ -1004,6 +1004,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         initial_state = "supervised" if selected_tasks[0].supervise else "automated"
         self._set_border_state(initial_state)
+        self._push_timeline_estimates(
+            [(ln, tn) for tn in task_names for ln in lamella_names]
+        )
         # The run writes the experiment from its own thread. Land any edit still
         # waiting in the editor first, so there is only ever one writer (FIB-683).
         self.lamella_widget.flush_pending_save()
@@ -1872,7 +1875,61 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_queue_changed(self, info: dict) -> None:
         """The queue was edited between tasks — no task lifecycle to hang it off."""
-        self.workflow_timeline.refresh_queue(info.get("queue_items", []))
+        items = info.get("queue_items", [])
+        # An added item can be a (lamella, task) pair the launch matrix never held, so
+        # the estimates are recomputed here rather than only at the start.
+        self._push_timeline_estimates([(i.lamella_name, i.task_name) for i in items])
+        self.workflow_timeline.refresh_queue(items)
+
+    def _push_timeline_estimates(self, pairs: list) -> None:
+        """Give the timeline the per-item durations, and the schedule they walk past.
+
+        Computed here rather than inside the widget: an estimate comes from a lamella's
+        task config, and the timeline is generic — it has no business reaching for an
+        Experiment. Recomputed on workflow start and on a queue edit only, never per
+        status update: `estimated_duration` walks every milling stage of every task, and
+        the status path is the one already watched for latency (FIB-683).
+        """
+        experiment = getattr(self.autolamella_ui, "experiment", None)
+        if experiment is None:
+            return
+
+        lamella_by_name = {lam.name: lam for lam in experiment.positions}
+        estimates = {}
+        for lamella_name, task_name in pairs:
+            lamella = lamella_by_name.get(lamella_name)
+            if lamella is None:
+                continue
+            config = lamella.task_config.get(task_name)
+            # A lamella with no config for the task has no duration to offer, and
+            # inventing one would be worse than leaving the column empty.
+            if config is None:
+                continue
+            try:
+                estimates[(lamella_name, task_name)] = config.estimated_duration
+            except Exception:
+                # Deliberately caught, against this codebase's fail-fast default. This
+                # runs in a slot, and PyQt5 aborts the process on an unhandled exception
+                # in one (FIB-329) — which here would kill the worker thread mid-mill
+                # over a decorative number. `estimated_time` divides by the sputter rate
+                # (milling/base.py:292), so a hand-edited protocol can reach a
+                # ZeroDivisionError. The column already has a well-defined "no estimate
+                # to offer" state, so degrading into it is the graceful failure.
+                logging.warning(
+                    "Could not estimate duration for %s on %s; the timeline will show "
+                    "no estimate for it.", task_name, lamella_name, exc_info=True,
+                )
+        self.workflow_timeline.set_estimates(estimates)
+
+        protocol = experiment.task_protocol
+        schedule = {}
+        if protocol is not None:
+            schedule = {
+                task.name: task.scheduled_at
+                for task in protocol.workflow_config.tasks
+                if task.scheduled_at is not None
+            }
+        self.workflow_timeline.set_schedule(schedule)
 
     def _on_queue_action(self, action: str, item_id: str) -> None:
         """Apply a timeline row action to the live queue.
@@ -2060,6 +2117,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         supervised = self._update_supervised_status()
 
         waiting = self.autolamella_ui.WAITING_FOR_USER_INTERACTION
+        # The timeline freezes its countdown on this: a wait for a human is not machine
+        # time, and left running it would spend the estimate while nothing is happening.
+        self.workflow_timeline.set_waiting_for_user(waiting)
         if waiting:
             # Show user attention button and change status bar color
             self.user_attention_btn.show()

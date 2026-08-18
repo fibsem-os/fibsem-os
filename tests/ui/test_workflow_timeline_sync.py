@@ -327,16 +327,21 @@ def test_skip_reason_lands_on_the_right_row(widget, queue):
     assert widget._outer._steps[1].subtitle == "Trench"  # untouched
 
 
-def test_completion_subtitle_is_not_wiped_by_a_later_sync(widget, queue):
+def test_what_a_finished_row_says_is_not_wiped_by_a_later_sync(widget, queue):
+    """Both halves of it: the completion time in the subtitle, the duration in the
+    column beside it. Neither is rebuilt from the queue snapshot, so a sync that does
+    not know either of them must leave both alone."""
     item = start_next(widget, queue)
     finish(widget, queue, item, task_duration=12.0)
     subtitle = widget._outer._steps[0].subtitle
-    assert "12" in subtitle
+    trailing = widget._outer._steps[0].trailing
+    assert trailing == "12s"
 
     queue.add("L9", "Polish")
     widget.refresh_queue(queue.items)
 
     assert widget._outer._steps[0].subtitle == subtitle
+    assert widget._outer._steps[0].trailing == trailing
 
 
 # ── Through the real TaskManager ──────────────────────────────────────────────
