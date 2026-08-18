@@ -69,7 +69,7 @@ class TestRealFiles:
 
         mismatched = []
         for path in files:
-            raw = Path(path).read_text()
+            raw = Path(path).read_text(encoding="utf-8")
             try:
                 original = yaml.safe_load(raw)
             except yaml.YAMLError:
@@ -92,7 +92,7 @@ class TestRealFiles:
         with open(path, "w") as handle:
             _yaml.safe_dump(document, handle, indent=4)
 
-        assert yaml.safe_load(path.read_text()) == document
+        assert yaml.safe_load(path.read_text(encoding="utf-8")) == document
 
 
 class TestAwkwardDocuments:
@@ -308,7 +308,7 @@ class TestItIsTheSafePairOnly:
         here later would silently keep the pure-Python cost."""
         import ast
 
-        source = (REPO_ROOT / "fibsem" / "applications" / "autolamella" / "structures.py").read_text()
+        source = (REPO_ROOT / "fibsem" / "applications" / "autolamella" / "structures.py").read_text(encoding="utf-8")
         direct = [
             node.lineno
             for node in ast.walk(ast.parse(source))
