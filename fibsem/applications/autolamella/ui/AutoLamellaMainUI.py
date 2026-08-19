@@ -1421,9 +1421,20 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         (FIB-725). What it will need, once a fluorescence run emits here, is to say
         *which* -- not to drop one.
         """
-        counter = ddict.get("counter", 0)
-        total = ddict.get("total", 1)
+        counter = ddict.get("counter")
+        total = ddict.get("total")
         msg = ddict.get("msg", "Collecting tiles")
+
+        if not ddict.get("finished") and (counter is None or not total):
+            # A phase that carries no counts: a stage move, a stitch, a save. The
+            # fluorescence runner reports several of these and the beam tiler none, so
+            # this only started mattering when both reported here (FIB-725).
+            #
+            # Nothing is drawn for them, which leaves the last real count standing --
+            # still true while the stage moves or the mosaic is written. Defaulting
+            # instead, as this did, meant `counter=0, total=1` on every such payload:
+            # the bar snapped back to zero at every tile boundary.
+            return
 
         if ddict.get("finished"):
             self.progress_widget.update_progress(self._overview_outcome(ddict, msg))

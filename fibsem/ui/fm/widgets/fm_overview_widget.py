@@ -54,6 +54,7 @@ from fibsem.ui.widgets.canvas.overlays.tile_grid_options_panel import (
     TileGridOptionsPanel,
 )
 from fibsem.ui.qt.threading import FunctionWorker
+from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE
 from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
 from fibsem.ui.widgets.canvas.overlay_controls import (
     CanvasOverlayControls,
@@ -293,6 +294,14 @@ class FMOverviewWidget(QWidget):
         self._on_settings_changed()
 
         self._progress_received.connect(self._apply_progress)
+        # Two scales, two signals now. The tileset -- tile n of N, the mosaic so far,
+        # and how the run ended -- reports on `tiled_acquisition_signal` beside the beam
+        # tiler's, because it is the same event (FIB-725). The work *inside* a tile
+        # stays on the detector's own progress signal, which is where a z-stack, a
+        # channel acquisition and an autofocus sweep report from whether or not a
+        # tileset is running. `_apply_progress` still sorts them; it just no longer has
+        # to sort them out of one stream.
+        self.microscope.tiled_acquisition_signal.connect(self._on_progress)
         self.fm.acquisition_progress_signal.connect(self._on_progress)
         self._stage_moved.connect(self._on_stage_moved)
         # A plain bound method, not `self._stage_moved.emit`, matching how the progress
@@ -2243,7 +2252,43 @@ class FMOverviewWidget(QWidget):
         `moving` has always been handled. Rendering these as indeterminate would paint a
         *full* bar, which is exactly the "it finished" impression they exist to correct.
         """
-        self.fm.acquisition_progress_signal.emit({"state": state, "task": "tileset"})
+        self.microscope.tiled_acquisition_signal.emit(
+            {"modality": MODALITY_FLUORESCENCE, "state": state, "task": "tileset"}
+        )
+
+    # What a finished run is called on the shared signal, per outcome.
+    TERMINAL_MESSAGES = {
+        "finished": "Overview Complete",
+        "cancelled": "Overview Cancelled",
+        "failed": "Overview Failed",
+    }
+
+    def _emit_terminal(self, state: str, outcome: str, error: str = "") -> None:
+        """Say how the run ended, in both vocabularies.
+
+        `state` is this widget's own -- `_apply_progress` and `_finish` branch on it,
+        and it distinguishes "the mosaic is saved" from the runner's "the tiles are in".
+
+        `finished` and `outcome` are the shared signal's, which the beam tiler has used
+        since it learned to report every outcome. Carried as well, not instead: a
+        consumer reads whichever it understands, and the window's status bar reads the
+        second (FIB-725). Redundant on purpose -- collapsing the two vocabularies into
+        one is the typed-payload work, not this.
+
+        Without `finished`, the status bar would never clear after a fluorescence run:
+        the terminal it recognises is a key this widget did not send.
+        """
+        payload = {
+            "modality": MODALITY_FLUORESCENCE,
+            "state": state,
+            "task": "tileset",
+            "finished": True,
+            "outcome": outcome,
+            "msg": self.TERMINAL_MESSAGES.get(outcome, "Overview"),
+        }
+        if error:
+            payload["error"] = error
+        self.microscope.tiled_acquisition_signal.emit(payload)
 
     def _acquire_worker(self) -> None:
         """Runs off the GUI thread. Only signals may cross back."""
@@ -2263,19 +2308,13 @@ class FMOverviewWidget(QWidget):
                 self._emit_state("saving")
                 self._saved_path = self._destination.save_mosaic(mosaic)
             self.overview_acquired.emit(mosaic)
-            self.fm.acquisition_progress_signal.emit(
-                {"state": "overview-finished", "task": "tileset"}
-            )
+            self._emit_terminal("overview-finished", "finished")
         except OperationCancelledError:
             logging.info("Overview acquisition cancelled")
-            self.fm.acquisition_progress_signal.emit(
-                {"state": "overview-cancelled", "task": "tileset"}
-            )
+            self._emit_terminal("overview-cancelled", "cancelled")
         except Exception as e:
             logging.error(f"Overview acquisition failed: {e}", exc_info=True)
-            self.fm.acquisition_progress_signal.emit(
-                {"state": "overview-failed", "task": "tileset", "error": str(e)}
-            )
+            self._emit_terminal("overview-failed", "failed", str(e))
         finally:
             # A run that ends still marked as acquiring leaves the FM unusable for
             # the rest of the session, with nothing on screen to say why -- so this goes
@@ -2371,7 +2410,7 @@ class FMOverviewWidget(QWidget):
             # run. The next tile's first payload overwrites it a moment later anyway.
             self._show_preview(payload)
 
-        current, total = payload.get("current", 0), payload.get("total", 1)
+        current, total = payload.get("counter", 0), payload.get("total", 1)
         remaining = payload.get("estimated_remaining_time")
         # The widget renders the count itself, so the message says what is being
         # counted and nothing more -- otherwise it reads "Tile 4/9 — 4/9".

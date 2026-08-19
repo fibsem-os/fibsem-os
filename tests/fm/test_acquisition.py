@@ -1314,13 +1314,13 @@ def test_progress_totals_count_enabled_tiles_not_grid_cells(fm_microscope, monke
     """A bar that stops at 9/25 on a successful run reads as a failure."""
     _record_tile_positions(fm_microscope, monkeypatch)
     emitted = []
-    fm_microscope.fm.acquisition_progress_signal.connect(emitted.append)
+    fm_microscope.tiled_acquisition_signal.connect(emitted.append)
 
     _sparse_runner(fm_microscope, 5, 5, mask=_plus_mask(5)).run()
 
     totals = {p["total"] for p in emitted if "total" in p}
     assert totals == {9}
-    counters = [p["current"] for p in emitted if p.get("state") == "acquiring"]
+    counters = [p["counter"] for p in emitted if p.get("state") == "acquiring"]
     assert counters[-1] == 9
 
 
@@ -1500,7 +1500,7 @@ def test_stitching_demands_to_be_told_where_the_mosaic_is():
 
 def _preview_frames(microscope, rows, cols, mask=None, channels=1):
     frames = []
-    microscope.fm.acquisition_progress_signal.connect(
+    microscope.tiled_acquisition_signal.connect(
         lambda d: frames.append(d) if d.get("state") == "tile" else None
     )
     channel_settings = [
@@ -1522,7 +1522,7 @@ def test_a_preview_frame_is_published_for_every_acquired_tile(fm_microscope):
     frames = _preview_frames(fm_microscope, 3, 3, mask=mask)
 
     assert len(frames) == 5  # the plus, not the grid
-    assert [f["current"] for f in frames] == [1, 2, 3, 4, 5]
+    assert [f["counter"] for f in frames] == [1, 2, 3, 4, 5]
     assert {f["total"] for f in frames} == {5}
 
 
@@ -1655,6 +1655,8 @@ def test_a_cancelled_sweep_does_not_start_the_next_pass(fm_microscope, monkeypat
     _record_tile_positions(fm_microscope, monkeypatch)
     stop_event = threading.Event()
     seen = []
+    # Still the detector's signal: an autofocus sweep is work *inside* a tile, which is
+    # the scale that stayed there when the tileset moved to `tiled_acquisition_signal`.
     fm_microscope.fm.acquisition_progress_signal.connect(
         lambda d: seen.append(d) if d.get("task") == "autofocus" else None
     )
@@ -2252,7 +2254,7 @@ def test_the_stitch_is_announced_between_the_last_tile_and_the_mosaic(fm_microsc
     drive. The beam tiler has always said "Stitching Tiles" here (FIB-725).
     """
     emitted = []
-    fm_microscope.fm.acquisition_progress_signal.connect(emitted.append)
+    fm_microscope.tiled_acquisition_signal.connect(emitted.append)
 
     acquisition.FMTiledAcquisitionRunner(
         microscope=fm_microscope,
@@ -2274,7 +2276,7 @@ def test_the_stitch_announcement_carries_no_counts(fm_microscope):
     mosaic is being built, and rendering this as indeterminate would paint a *full* bar
     — exactly the "it finished" impression the phase exists to correct."""
     emitted = []
-    fm_microscope.fm.acquisition_progress_signal.connect(emitted.append)
+    fm_microscope.tiled_acquisition_signal.connect(emitted.append)
 
     acquisition.FMTiledAcquisitionRunner(
         microscope=fm_microscope,
@@ -2292,7 +2294,7 @@ def test_a_run_that_never_reaches_the_stitch_does_not_announce_one(fm_microscope
     """`run()` on its own acquires without stitching — a caller wanting the tiles. It
     must not claim a mosaic is being built that nobody asked for."""
     emitted = []
-    fm_microscope.fm.acquisition_progress_signal.connect(emitted.append)
+    fm_microscope.tiled_acquisition_signal.connect(emitted.append)
 
     acquisition.FMTiledAcquisitionRunner(
         microscope=fm_microscope,
