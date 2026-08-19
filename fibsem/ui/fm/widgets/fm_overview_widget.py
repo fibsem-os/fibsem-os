@@ -2416,6 +2416,14 @@ class FMOverviewWidget(QWidget):
             # it vanish and reappear at every tile boundary -- a flicker for the whole
             # run. The next tile's first payload overwrites it a moment later anyway.
             self._show_preview(payload)
+            # And deliberately does not fall through to the bar below. This payload
+            # delivers the mosaic so far; the count it also carries is the *completed*
+            # tally, where `acquiring` carries the tile starting and an estimate to go
+            # with it. Rendering both put two different bars in one place, alternating
+            # every tile: `acquiring` draws a countdown scaled in tenths of a second
+            # (52/242) and this drew tiles (2/4), so the fill jumped and the text
+            # changed shape at every boundary. One producer for one bar.
+            return
 
         current, total = payload.get("counter", 0), payload.get("total", 1)
         remaining = payload.get("estimated_remaining_time")
