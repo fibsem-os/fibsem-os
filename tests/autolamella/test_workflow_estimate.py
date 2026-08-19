@@ -339,3 +339,105 @@ def test_a_timezone_aware_schedule_in_the_queue_does_not_raise():
     aware = (NOW + timedelta(hours=4)).replace(tzinfo=timezone.utc)
     est = estimate_queue(_items(("01", "A")), _flat(60.0), schedule={"A": aware}, now=NOW)
     assert est.expected_finish is not None
+
+
+# ── adding to a running queue ─────────────────────────────────────────────────
+# Two figures that can disagree: the work added, and the delay it causes. The gap
+# between them is the whole reason this is computed by difference rather than summed.
+
+from fibsem.applications.autolamella.workflows.workflow_estimate import (  # noqa: E402
+    estimate_addition,
+)
+
+
+def test_adding_work_to_a_plain_queue_delays_it_by_exactly_that_work():
+    est = estimate_addition(_items(("01", "A")), [("02", "A")], _flat(60.0), now=NOW)
+    assert est.work_seconds == pytest.approx(60.0)
+    assert est.delay_seconds == pytest.approx(60.0)
+    assert est.finish_after == est.finish_before + timedelta(seconds=60)
+
+
+def test_the_work_added_does_not_depend_on_where_it_lands():
+    items = _items(("01", "A"), ("02", "B"))
+    at_end = estimate_addition(items, [("03", "A")], _flat(60.0), run_next=False, now=NOW)
+    up_next = estimate_addition(items, [("03", "A")], _flat(60.0), run_next=True, now=NOW)
+    assert at_end.work_seconds == pytest.approx(up_next.work_seconds)
+
+
+def test_work_that_fits_inside_a_scheduled_hold_costs_no_delay():
+    """The case the two figures exist for. The workflow was going to sit until 8pm
+    anyway; work slotted in ahead of that is absorbed, so an hour of milling moves the
+    finish by nothing. Summing the addition instead of differencing would say an hour."""
+    at = NOW + timedelta(hours=4)
+    items = _items(("01", "Scheduled"))
+    est = estimate_addition(items, [("02", "Earlier")], _flat(3600.0),
+                            run_next=True, schedule={"Scheduled": at}, now=NOW)
+    assert est.work_seconds == pytest.approx(3600.0)
+    assert est.delay_seconds == 0.0
+    assert est.finish_after == est.finish_before
+
+
+def test_the_same_work_after_the_hold_does_delay_it():
+    """Same queue, same work, other end -- and now it costs its full duration. Position
+    is a property of the hold, not of the work, which is why this cannot be a sum."""
+    at = NOW + timedelta(hours=4)
+    items = _items(("01", "Scheduled"))
+    est = estimate_addition(items, [("02", "Later")], _flat(3600.0),
+                            run_next=False, schedule={"Scheduled": at}, now=NOW)
+    assert est.delay_seconds == pytest.approx(3600.0)
+
+
+def test_run_next_lands_the_batch_ahead_of_the_pending_work_not_of_history():
+    """`front=True` clamps to `_pending_start()`, so a completed item stays where it is
+    and the addition cannot be placed before the running one."""
+    from fibsem.applications.autolamella.workflows.workflow_estimate import _with_addition
+    items = _items(("01", "A", AutoLamellaTaskStatus.Completed),
+                   ("02", "A", AutoLamellaTaskStatus.InProgress),
+                   ("03", "A"))
+    order = [(i.lamella_name, i.task_name) for i in
+             _with_addition(items, _items(("09", "New")), run_next=True)]
+    assert order == [("01", "A"), ("02", "A"), ("09", "New"), ("03", "A")]
+
+
+def test_added_items_with_no_estimate_are_counted_but_not_priced():
+    """The dialog needs to know the difference between "no delay" and "cannot say"."""
+    est = estimate_addition(_items(("01", "A")), [("02", "A"), ("03", "A")],
+                            lambda item: None, now=NOW)
+    assert est.total_count == 2
+    assert est.priced_count == 0
+    assert est.is_priced is False
+    assert est.delay_seconds == 0.0
+
+
+def test_a_partly_priced_addition_still_says_so():
+    seconds_for = lambda item: 60.0 if item.lamella_name == "02" else None
+    est = estimate_addition(_items(("01", "A")), [("02", "A"), ("03", "A")],
+                            seconds_for, now=NOW)
+    assert (est.priced_count, est.total_count) == (1, 2)
+    assert est.is_priced is True
+    assert est.work_seconds == pytest.approx(60.0)
+
+
+def test_adding_to_an_empty_queue_is_the_whole_queue():
+    est = estimate_addition([], [("01", "A")], _flat(60.0), now=NOW)
+    assert est.work_seconds == pytest.approx(60.0)
+    assert est.finish_after == NOW + timedelta(seconds=60)
+
+
+def test_the_delay_never_goes_negative():
+    """Two large sums differenced can land a hair below zero; `-0s` reads as a bug."""
+    est = estimate_addition(_items(("01", "A")), [], _flat(60.0), now=NOW)
+    assert est.delay_seconds == 0.0
+    assert est.total_count == 0
+
+
+def test_the_delay_is_exact_even_when_the_running_task_cannot_be_priced():
+    """Both walks treat the active task identically, so whatever `active_elapsed` fails
+    to account for cancels in the subtraction. The absolute finish may be optimistic;
+    the delay is not."""
+    items = _items(("01", "A", AutoLamellaTaskStatus.InProgress), ("02", "A"))
+    known = estimate_addition(items, [("03", "A")], _flat(60.0), now=NOW,
+                              active_elapsed=10.0)
+    unknown = estimate_addition(items, [("03", "A")], _flat(60.0), now=NOW)
+    assert known.delay_seconds == pytest.approx(unknown.delay_seconds)
+    assert known.finish_after != unknown.finish_after

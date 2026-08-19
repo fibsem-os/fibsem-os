@@ -126,6 +126,48 @@ def format_clock(when: Optional[datetime], reference: Optional[datetime]) -> str
     return when.strftime(DATETIME_DISPLAY_AMPM)
 
 
+# Anything sitting on a panel has to say it is transparent. The app applies
+# NAPARI_STYLE, whose bare `QWidget { background-color: ... }` rule reaches every
+# descendant, so a label that only sets `color` paints the *surface* colour onto the
+# darker panel behind it -- a lighter block around every word. Only visible with the app
+# stylesheet loaded, which is why offscreen renders of it looked clean.
+ON_PANEL = "background: transparent; border: none; "
+
+
+def metric(caption_text: str, value_text: str, sub_text: str = "") -> QWidget:
+    """A figure the dialog leads with, in a panel of its own.
+
+    Args:
+        sub_text: a smaller line under the value, for the figure's own context -- what a
+            number *was* before the change being confirmed, most usefully. Omitted by
+            the pre-flight dialog, whose two figures need none.
+    """
+    frame = QFrame()
+    # Scoped to this frame by name. A bare `QFrame { ... }` selector also matches every
+    # QFrame *inside* it, and `chip()` is one -- which repainted each chip with the
+    # panel's fill on top of its own.
+    frame.setObjectName("preflightMetric")
+    frame.setStyleSheet(
+        f"QFrame#preflightMetric {{ background: {PANEL}; border: 1px solid {BORDER};"
+        f" border-radius: 4px; }}"
+    )
+    layout = QVBoxLayout(frame)
+    layout.setContentsMargins(12, 9, 12, 9)
+    layout.setSpacing(2)
+
+    caption = QLabel(caption_text)
+    caption.setStyleSheet(ON_PANEL + f"color: {TEXT_MUTED}; font-size: 11px;")
+    value = QLabel(value_text)
+    value.setStyleSheet(ON_PANEL + f"color: {TEXT_STRONG}; font-size: 19px;")
+    layout.addWidget(caption)
+    layout.addWidget(value)
+    if sub_text:
+        sub = QLabel(sub_text)
+        sub.setStyleSheet(ON_PANEL + f"color: {TEXT_MUTED}; font-size: 11px;")
+        layout.addWidget(sub)
+    return frame
+
+
 def chip(text: str) -> QWidget:
     """Plain pill label. No status dot: these are counts, not states, and a colour
     that does not encode anything reads as though it does."""

@@ -279,3 +279,120 @@ def estimate_queue(
         active_remaining=active_remaining,
         active_estimate_spent=active_estimate_spent,
     )
+
+
+@dataclass(frozen=True)
+class AdditionEstimate:
+    """What appending work to a running queue costs, and what it moves.
+
+    Two figures rather than one, because they can disagree and the disagreement is the
+    point: work added ahead of a scheduled hold is absorbed into dead time the workflow
+    was going to spend anyway, so ``work_seconds`` can be an hour while ``delay_seconds``
+    is zero. Quoting only the first would overstate the cost; quoting only the second
+    would hide that the machine is now busy for an hour it was not.
+    """
+
+    work_seconds: float = 0.0
+    """Machine time the addition adds. Independent of where it lands in the queue."""
+
+    delay_seconds: float = 0.0
+    """How much later the workflow now finishes. Zero when a hold absorbs the work."""
+
+    finish_before: Optional[datetime] = None
+    finish_after: Optional[datetime] = None
+
+    hold_seconds: float = 0.0
+    """Scheduled dead time in the queue once the addition is in.
+
+    Zero when nothing is scheduled, which is what lets a caller tell "this work costs no
+    delay because a wait absorbed it" from "this work costs no delay because there is
+    barely any of it" -- two sentences that must not be swapped.
+    """
+
+    priced_count: int = 0
+    """How many of the added items had an estimate to offer."""
+
+    total_count: int = 0
+
+    @property
+    def is_priced(self) -> bool:
+        """Whether there is a number worth showing at all.
+
+        False when nothing added could be priced -- a protocol whose configs cannot be
+        estimated, say. The caller shows the addition without the figures rather than
+        quoting a confident zero.
+        """
+        return self.priced_count > 0
+
+
+def _with_addition(
+    items: "Sequence[WorkItem]",
+    added: "Sequence[WorkItem]",
+    run_next: bool,
+) -> "List[WorkItem]":
+    """The queue as it would be with ``added`` spliced in.
+
+    Mirrors where ``TaskQueue`` actually puts them: ``run_next`` lands the batch at the
+    first pending slot -- ``_pending_start()``, so never ahead of the running item or
+    inside history -- and otherwise at the end. The batch keeps the order it is given,
+    which is what ``_on_add_to_queue`` produces by anchoring each item after the last.
+    """
+    if not run_next:
+        return list(items) + list(added)
+    start = next((n for n, i in enumerate(items) if i.is_pending), len(items))
+    return list(items[:start]) + list(added) + list(items[start:])
+
+
+def estimate_addition(
+    items: "Sequence[WorkItem]",
+    pairs: "Sequence",
+    seconds_for: "Callable[[WorkItem], Optional[float]]",
+    run_next: bool = False,
+    schedule: Optional[Dict[str, datetime]] = None,
+    now: Optional[datetime] = None,
+    active_elapsed: Optional[float] = None,
+) -> AdditionEstimate:
+    """Estimate what adding ``pairs`` to a running queue would cost.
+
+    The same queue walk twice, over the snapshot as it is and as it would be. Doing it
+    by difference rather than by summing the addition is what makes the scheduled-hold
+    case come out right: a hold is not a property of the added work, it is a property of
+    where the work lands relative to it.
+
+    It also makes the *delay* exact even when the absolute finish is not. Both walks
+    treat the running task identically, so whatever ``active_elapsed`` cannot account for
+    -- a supervised pause, most of all -- cancels in the subtraction.
+
+    Args:
+        items: the live queue snapshot, in order
+        pairs: (lamella_name, task_name) to add, in the order they will be inserted
+        seconds_for: per-item estimate; None for an item with nothing to offer
+        run_next: True to insert at the front of the pending region, False for the end
+        schedule: ``scheduled_at`` per task name, for the tasks that have one
+        now: the clock to walk from; defaults to the current time
+        active_elapsed: seconds the running task has been going
+
+    Returns:
+        AdditionEstimate: the work added, and the delay it causes.
+    """
+    from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
+
+    clock = now if now is not None else datetime.now()
+    added = [WorkItem(lamella_name=ln, task_name=tn) for ln, tn in pairs]
+    proposed = _with_addition(items, added, run_next)
+
+    before = estimate_queue(items, seconds_for, schedule, clock, active_elapsed)
+    after = estimate_queue(proposed, seconds_for, schedule, clock, active_elapsed)
+
+    priced = sum(1 for item in added if seconds_for(item) is not None)
+    return AdditionEstimate(
+        work_seconds=after.work_seconds - before.work_seconds,
+        # Never negative: adding work cannot bring a finish forward, and floating-point
+        # dust on two large sums should not render as "-0s".
+        delay_seconds=max(0.0, (after.expected_finish - before.expected_finish).total_seconds()),
+        finish_before=before.expected_finish,
+        finish_after=after.expected_finish,
+        hold_seconds=after.hold_seconds,
+        priced_count=priced,
+        total_count=len(pairs),
+    )

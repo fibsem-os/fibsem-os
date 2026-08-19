@@ -49,6 +49,8 @@ from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
     WorkflowPreflightDialog,
 )
 from fibsem.applications.autolamella.workflows.workflow_estimate import (
+    AdditionEstimate,
+    estimate_addition,
     estimate_workflow,
 )
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI, INSTRUCTIONS
@@ -73,9 +75,9 @@ from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
     GRAY_ICON_COLOR,
-    DEFECT_ORANGE_COLOR,
     border_stylesheet,
 )
+from fibsem.ui.widgets import preflight
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
 from fibsem.ui import notification_service
@@ -134,44 +136,82 @@ def confirm_add_to_queue_dialog(
     task_names: list,
     run_next: bool,
     already_queued: list,
+    estimate: Optional[AdditionEstimate] = None,
     parent=None,
 ) -> bool:
     """Confirm adding work to a queue that is already running.
 
-    ``already_queued`` is stated rather than acted on: a task that runs twice
-    mills twice — the same mechanism that makes "Run again" useful — so the
-    consequence is named and the operator decides. Silently adding four of the
-    six pairs asked for would be its own surprise.
+    Two figures, and they are allowed to disagree. "Adds" is machine time the addition
+    costs; "Expected finish" is what that does to the workflow -- and work slotted in
+    ahead of a scheduled hold is absorbed into dead time the workflow was going to spend
+    anyway, so the first can be an hour while the second does not move. Quoting only the
+    work would overstate the cost; quoting only the finish would hide that the machine
+    is now busy for an hour it was not.
+
+    ``already_queued`` is stated rather than acted on: a task that runs twice mills
+    twice — the same mechanism that makes "Run again" useful — so the consequence is
+    named and the operator decides. Silently adding four of the six pairs asked for
+    would be its own surprise.
+
+    ``estimate`` is optional and may be unpriced. A protocol whose configs cannot be
+    estimated still has to be able to queue work, so the figures are dropped rather than
+    shown as a confident zero.
     """
     dlg = QDialog(parent)
     dlg.setWindowTitle("Add to Queue")
-    dlg.setMinimumWidth(600)
+    dlg.setMinimumWidth(560)
+    dlg.setStyleSheet(f"QDialog {{ background: {preflight.BACKGROUND}; }}")
 
     layout = QVBoxLayout(dlg)
-    layout.setSpacing(8)
+    layout.setContentsMargins(18, 16, 18, 14)
+    layout.setSpacing(12)
 
     total = len(lamella_names) * len(task_names)
-    where = "to run next" if run_next else "at the end of the queue"
-    layout.addWidget(QLabel(
-        f"Add {total} task(s) for {len(lamella_names)} lamella {where}?"
-    ))
+    heading = QLabel(f"Add {total} task(s) to a workflow that is already running?")
+    heading.setStyleSheet(f"color: {preflight.TEXT_STRONG}; font-size: 14px;")
+    layout.addWidget(heading)
 
-    col_row = QHBoxLayout()
-    col_row.setSpacing(8)
-    detail_height = min(max(len(lamella_names), len(task_names)) * 20 + 16, 216)
-    for heading, items in [("Lamella", lamella_names), ("Tasks", task_names)]:
-        col = QVBoxLayout()
-        col.setSpacing(4)
-        col.addWidget(QLabel(f"<b>{heading}</b>"))
-        te = QTextEdit()
-        te.setPlainText("\n".join(f"• {n}" for n in items))
-        te.setReadOnly(True)
-        te.setFixedHeight(detail_height)
-        col.addWidget(te)
-        col_row.addLayout(col)
-    layout.addLayout(col_row)
+    if estimate is not None and estimate.is_priced:
+        metrics = QHBoxLayout()
+        metrics.setSpacing(10)
+        metrics.addWidget(
+            preflight.metric(
+                "Adds",
+                preflight.format_duration(estimate.work_seconds),
+                _priced_note(estimate),
+            ),
+            1,
+        )
+        reference = estimate.finish_before
+        metrics.addWidget(
+            preflight.metric(
+                "Expected finish",
+                preflight.format_clock(estimate.finish_after, reference),
+                f"was {preflight.format_clock(estimate.finish_before, reference)}",
+            ),
+            1,
+        )
+        layout.addLayout(metrics)
+
+    layout.addWidget(preflight.detail_block([
+        ("Position", "Run next" if run_next else "At the end of the queue"),
+        ("Lamella", ", ".join(lamella_names)),
+        ("Tasks", ", ".join(task_names)),
+    ]))
+
+    absorbed = _absorbed_note(estimate)
+    if absorbed:
+        note = QLabel(absorbed)
+        note.setWordWrap(True)
+        note.setStyleSheet(f"color: {preflight.TEXT_MUTED}; font-size: 11px;")
+        layout.addWidget(note)
 
     if already_queued:
+        # Body text, no accent colour anywhere. This is a consequence to notice rather
+        # than an alarm: the count is bold enough to catch and Cancel is right there,
+        # while three lines in a warning colour out-shouted the two figures that are
+        # supposed to lead the dialog. Body rather than muted because it is content, not
+        # the secondary shade the detail-block labels use.
         warning = QLabel(
             f"<b>{len(already_queued)} already queued</b> and will be added again, "
             f"so those tasks will run twice:<br>"
@@ -179,7 +219,7 @@ def confirm_add_to_queue_dialog(
             + ("<br>• …" if len(already_queued) > 6 else "")
         )
         warning.setWordWrap(True)
-        warning.setStyleSheet(f"color: {DEFECT_ORANGE_COLOR};")
+        warning.setStyleSheet(f"color: {preflight.TEXT}; font-size: 11px;")
         layout.addWidget(warning)
 
     btn_row = QHBoxLayout()
@@ -196,6 +236,52 @@ def confirm_add_to_queue_dialog(
     layout.addLayout(btn_row)
 
     return dlg.exec_() == QDialog.Accepted
+
+
+def _priced_note(estimate: AdditionEstimate) -> str:
+    """The task count, and how much of it the figure above actually covers.
+
+    A partly-priced addition would otherwise read as a complete one that happens to be
+    quick — a lamella missing a config for one of the tasks contributes nothing, by the
+    same rule the pre-flight dialog and the timeline follow.
+    """
+    tasks = f"{estimate.total_count} task(s)"
+    if estimate.priced_count == estimate.total_count:
+        return tasks
+    return f"{tasks} · {estimate.priced_count} estimated"
+
+
+def _absorbed_note(estimate: Optional[AdditionEstimate]) -> str:
+    """Said only when the two figures disagree, because then they look wrong.
+
+    An hour of work that moves the finish by nothing is the correct answer and reads as
+    an error, so the reason goes on screen with it.
+
+    Two guards, and both are needed. **There has to be a scheduled wait**, because that
+    is what the sentence claims -- and `delay_seconds` comes back through a datetime
+    (microseconds) while `work_seconds` is a difference of two float sums, so for the
+    same quantity they can disagree in the twelfth decimal place. That was enough to
+    explain a wait that did not exist on a queue with nothing scheduled at all.
+
+    **And the disagreement has to be one the reader can see.** Both figures are rendered
+    with `format_duration`, so a gap that rounds away is not a discrepancy needing an
+    explanation -- it is two identical numbers with a paragraph between them.
+    """
+    if estimate is None or not estimate.is_priced:
+        return ""
+    if estimate.hold_seconds <= 0 or estimate.work_seconds <= 0:
+        return ""
+    if preflight.format_duration(estimate.delay_seconds) == preflight.format_duration(
+        estimate.work_seconds
+    ):
+        return ""
+    if estimate.delay_seconds <= 0:
+        return ("The workflow is already waiting for a scheduled task, and this work "
+                "fits inside that wait — so it costs no extra time overall.")
+    return (
+        f"Only {preflight.format_duration(estimate.delay_seconds)} of this lands after "
+        "the workflow's scheduled wait; the rest fits inside it."
+    )
 
 
 class AutoLamellaSingleWindowUI(QMainWindow):
@@ -1918,8 +2004,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         already = [f"{t} for {ln}" for t in task_names for ln in lamella_names
                    if (ln, t) in pending]
 
-        if not confirm_add_to_queue_dialog(lamella_names, task_names, run_next,
-                                           already, parent=self):
+        # Task-outer, lamella-inner: the order the items are really inserted in below,
+        # so what is priced is what will be queued.
+        pairs = [(ln, tn) for tn in task_names for ln in lamella_names]
+        if not confirm_add_to_queue_dialog(
+            lamella_names, task_names, run_next, already,
+            estimate=self._estimate_addition(manager, pairs, run_next),
+            parent=self,
+        ):
             return
 
         # A lamella created before a task joined the protocol has no config for
@@ -1965,6 +2057,62 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # the estimates are recomputed here rather than only at the start.
         self._push_timeline_estimates([(i.lamella_name, i.task_name) for i in items])
         self.workflow_timeline.refresh_queue(items)
+
+    def _estimate_addition(self, manager, pairs: list, run_next: bool):
+        """What adding `pairs` would cost the running queue, or None if it cannot say.
+
+        Priced from the same `estimated_duration` the pre-flight dialog and the timeline
+        use, over a snapshot of the live queue — `queue.items` hands out copies, so the
+        hypothetical is built without touching what is running.
+        """
+        experiment = getattr(self.autolamella_ui, "experiment", None)
+        if experiment is None:
+            return None
+
+        lamella_by_name = {lam.name: lam for lam in experiment.positions}
+
+        def seconds_for(item):
+            lamella = lamella_by_name.get(item.lamella_name)
+            if lamella is None:
+                return None
+            config = lamella.task_config.get(item.task_name)
+            if config is None:
+                return None
+            try:
+                return config.estimated_duration
+            except Exception:
+                # `estimated_time` divides by the sputter rate (milling/base.py:292), so
+                # a hand-edited protocol can raise. Losing the figure is a great deal
+                # better than losing the dialog that queues the work.
+                logging.warning("Could not estimate duration for %s on %s.",
+                                item.task_name, item.lamella_name, exc_info=True)
+                return None
+
+        schedule = {}
+        protocol = experiment.task_protocol
+        if protocol is not None:
+            schedule = {
+                task.name: task.scheduled_at
+                for task in protocol.workflow_config.tasks
+                if task.scheduled_at is not None
+            }
+
+        # Wall-clock since the running task started, which is what the recorded duration
+        # measures too. It counts any supervised wait, so the absolute finish can run a
+        # little optimistic — but both walks share it, so the *delay* is unaffected.
+        active_elapsed = None
+        active = manager.queue.active
+        if active is not None:
+            lamella = lamella_by_name.get(active.lamella_name)
+            if lamella is not None and lamella.task_state.start_timestamp:
+                active_elapsed = max(
+                    0.0, time.time() - lamella.task_state.start_timestamp
+                )
+
+        return estimate_addition(
+            manager.queue.items, pairs, seconds_for,
+            run_next=run_next, schedule=schedule, active_elapsed=active_elapsed,
+        )
 
     def _push_timeline_estimates(self, pairs: list) -> None:
         """Give the timeline the per-item durations, and the schedule they walk past.
