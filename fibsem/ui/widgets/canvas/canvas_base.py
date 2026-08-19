@@ -1007,11 +1007,19 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         """Register an overlay and attach it to the current axes."""
         self._overlays.append(overlay)
         overlay.attach(self._ax, self)
-        if self._img_w is not None:
-            try:
-                self._notify_overlay(overlay, self._content_rect())
-            except Exception:
-                _logger.exception("Overlay content update failed: %r", overlay)
+        # Unconditionally, and `_content_rect()` decides whether there is anything to
+        # report. The guard here used to be `self._img_w is not None`, which is a
+        # *single image* canvas's notion of content and is never set by one that places
+        # images in stage space -- so an overlay added to a real-space canvas was never
+        # told what it had been added to. Harmless for an overlay its host redraws by
+        # hand (a tile grid), and fatal for one that builds its artists on the first
+        # content report (a rectangle), which simply never appeared. The guard was
+        # redundant even here: the base `_content_rect` already answers `EMPTY_CONTENT`
+        # when there is no image, and every overlay checks `rect.is_empty`.
+        try:
+            self._notify_overlay(overlay, self._content_rect())
+        except Exception:
+            _logger.exception("Overlay content update failed: %r", overlay)
         self.draw_idle()
 
     def remove_overlay(self, overlay: CanvasOverlay) -> None:
