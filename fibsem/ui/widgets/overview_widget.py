@@ -465,6 +465,12 @@ class FibsemOverviewWidget(QWidget):
     """Configure, run and view a tiled FIB/SEM overview on a real-space canvas."""
 
     overview_acquired = pyqtSignal(object)  # FibsemImage (the stitched mosaic)
+    # Whether a run is in progress here. A *state*, re-emitted on every change
+    # rather than an edge, so a host that connects late or recomputes from
+    # several facts cannot end up holding a stale answer. The host that matters
+    # is the window, which must stop the other overview driving the stage while
+    # this one is mid-tileset (FIB-706).
+    acquiring_changed = pyqtSignal(bool)
 
     # A user right-clicked the canvas and asked for a position there. Requests, not
     # commands: this widget knows nothing about lamellae, so a host that owns an
@@ -542,6 +548,7 @@ class FibsemOverviewWidget(QWidget):
         # Two independent facts kept apart on purpose: a workflow ending must not
         # re-enable a tab whose acquisition is still going, nor the reverse.
         self._running = False
+        self._lock_reason = "a workflow is running"
         self._interactive = True
         self._tiles_acquired = 0
 
@@ -1136,7 +1143,19 @@ class FibsemOverviewWidget(QWidget):
 
     @property
     def is_acquiring(self) -> bool:
-        return self._worker is not None and self._worker.is_alive()
+        """Whether an overview acquisition is running here.
+
+        `_running` as well as the worker, and the order is why: `acquire` calls
+        `_set_running(True)` *before* it builds the worker, so for the width of that
+        gap a worker-only answer says no while a run is starting. That gap is exactly
+        when `acquiring_changed` is emitted, so a host locking the other overview off
+        this property got False and locked nothing (FIB-706).
+
+        Keeping the worker check as well as the flag, rather than replacing it: the
+        union is true over a superset of the interval either is, and every caller is a
+        guard, so being early and late is the safe direction to be wrong in.
+        """
+        return self._running or (self._worker is not None and self._worker.is_alive())
 
     def _settings(self) -> Optional[OverviewAcquisitionSettings]:
         """The planned acquisition, read from the settings widget.
@@ -1212,9 +1231,17 @@ class FibsemOverviewWidget(QWidget):
             except Exception as e:
                 logger.debug(f"Could not show the save directory: {e}")
 
-    def set_interactive(self, enabled: bool) -> None:
-        """Allow or forbid starting work, for a host that has taken the instrument."""
+    def set_interactive(self, enabled: bool, reason: str = "") -> None:
+        """Allow or forbid starting work, for a host that has taken the instrument.
+
+        *reason* completes the sentence "Cannot move the stage while ___" when a move is
+        refused. The widget cannot know why it was locked -- a workflow owning the
+        instrument and the other overview being mid-tileset are the same `False` here --
+        and a refusal naming the wrong one is barely better than one naming nothing
+        (FIB-706).
+        """
         self._interactive = bool(enabled)
+        self._lock_reason = reason or "a workflow is running"
         self._apply_enabled_state()
 
     def _apply_enabled_state(self) -> None:
@@ -2332,11 +2359,14 @@ class FibsemOverviewWidget(QWidget):
             logger.debug(f"Could not read the stage position: {e}")
 
     def move_to(self, position: FibsemStagePosition) -> None:
-        """Drive the stage to a position, off the GUI thread."""
-        if self.is_acquiring:
-            notification_service.show_toast(
-                "Cannot move the stage during an acquisition.", "warning"
-            )
+        """Drive the stage to a position, off the GUI thread.
+
+        Public because a host drives it too -- picking a lamella out of a list is the
+        same act as double-clicking where it is drawn, so it goes through the same gate.
+        It used to ask only whether *this* widget was acquiring, which let a host move
+        the stage in cases a user clicking the canvas was refused.
+        """
+        if not self._may_move():
             return
         worker = FunctionWorker(self._move_worker, position)
         worker.start()
@@ -2423,7 +2453,7 @@ class FibsemOverviewWidget(QWidget):
             return False
         if not self._interactive:
             notification_service.show_toast(
-                "Cannot move the stage while a workflow is running.", "warning"
+                f"Cannot move the stage while {self._lock_reason}.", "warning"
             )
             return False
         return True
@@ -2726,6 +2756,7 @@ class FibsemOverviewWidget(QWidget):
     def _set_running(self, running: bool) -> None:
         self._running = running
         self._apply_enabled_state()
+        self.acquiring_changed.emit(running)
         if running:
             # The framing you pressed Acquire with is the framing you keep. A run is the
             # worst moment to re-frame: the preview lands under one key and the stitch
@@ -2749,8 +2780,7 @@ class FibsemOverviewWidget(QWidget):
     def _on_finished(self, result: dict) -> None:
         self._worker = None
         self._stop_event.clear()
-        self._running = False
-        self._apply_enabled_state()
+        self._set_running(False)
         # The bar has done its job; the label below it carries the outcome from here.
         self.progress.reset()
         if result.get("error"):

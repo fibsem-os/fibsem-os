@@ -3570,3 +3570,74 @@ class TestTheTileGridHasItsOwnButton:
         widget._toggle_tile_grid_panel()
 
         assert widget.canvas._hint_text == caption, "the panel overwrote the caption"
+
+
+class TestSayingWhenARunStarts:
+    """`acquiring_changed`, which is how a host learns to lock the other overview.
+
+    A host that hears the signal and then *asks* the widget must get a consistent
+    answer, and that is the whole trap here: `acquire()` calls `_set_running(True)`
+    before it builds the worker, so a worker-only `is_acquiring` said no while a run was
+    starting -- which is exactly when the signal fires (FIB-706).
+    """
+
+    def test_the_signal_reports_the_new_state(self, widget):
+        seen = []
+        widget.acquiring_changed.connect(seen.append)
+        widget._set_running(True)
+        widget._set_running(False)
+        assert seen == [True, False]
+
+    def test_is_acquiring_already_agrees_when_the_signal_arrives(self, widget):
+        """A host derives the lock by asking both tabs rather than trusting the bool, so
+        the property has to be true by the time the signal says a run began."""
+        answers = []
+        widget.acquiring_changed.connect(lambda _: answers.append(widget.is_acquiring))
+        widget._set_running(True)
+        assert answers == [True], "the widget announced a run it does not admit to"
+        widget._set_running(False)
+        assert answers == [True, False]
+
+    def test_a_finished_run_says_so(self, widget):
+        """The finish path used to set the flag by hand, so it would have announced
+        nothing and left a host holding the lock for good."""
+        seen = []
+        widget._set_running(True)
+        widget.acquiring_changed.connect(seen.append)
+        widget._on_finished({})
+        assert seen == [False]
+        assert widget.is_acquiring is False
+
+
+class TestDrivingTheStageFromAHost:
+    """`move_to` is what the lamella list calls, and it went through a weaker gate than
+    a double-click on the same point -- so a locked tab could still be made to move."""
+
+    def test_a_host_cannot_move_while_the_tab_is_locked(self, widget, monkeypatch):
+        moved = []
+        monkeypatch.setattr(widget, "_move_worker", moved.append)
+        widget.set_interactive(False)
+        try:
+            widget.move_to(FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=0.0))
+            assert moved == [], "moved the stage for a host while locked"
+        finally:
+            widget.set_interactive(True)
+
+    def test_move_to_asks_the_same_question_a_double_click_does(
+        self, widget, monkeypatch
+    ):
+        """Not merely "it refuses when locked" -- that could be any check. This is the
+        one gate, so the two ways of asking for a move cannot come apart again.
+
+        No worker is started: `_may_move` answering False is what stops it, which keeps
+        a stage move off a test thread.
+        """
+        asked = []
+
+        def refuse():
+            asked.append(True)
+            return False
+
+        monkeypatch.setattr(widget, "_may_move", refuse)
+        widget.move_to(FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=0.0))
+        assert asked, "move_to did not go through _may_move"
