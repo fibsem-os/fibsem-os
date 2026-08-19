@@ -4927,3 +4927,50 @@ def test_a_beam_run_does_not_drive_the_fluorescence_bar(qapp, overview_widget):
     qapp.processEvents()
 
     assert _bar(widget.progress_tiles).format() == before
+
+
+def test_the_preview_payload_does_not_redraw_the_tile_bar(qapp):
+    """One producer for one bar.
+
+    Both payloads a tile emits carry counts, and they mean different things: `acquiring`
+    names the tile *starting* and comes with an estimate, `tile` carries the mosaic so
+    far and the *completed* tally. Rendering both put two different bars in one place —
+    `acquiring` draws a countdown scaled in tenths of a second and the preview drew
+    tiles, so the fill jumped and the text changed shape at every tile boundary. Found
+    by running the app; every test here was green throughout.
+    """
+    router = _Router()
+    router._apply_progress({
+        "modality": "fluorescence", "state": "acquiring", "task": "tileset",
+        "counter": 2, "total": 4,
+        "estimated_remaining_time": 18.0, "estimated_total_time": 24.0,
+    })
+    before = (_bar(router.progress_tiles).value(),
+              _bar(router.progress_tiles).maximum(),
+              _bar(router.progress_tiles).format())
+
+    router._apply_progress({
+        "modality": "fluorescence", "state": "tile", "task": "tileset",
+        "counter": 2, "total": 4,
+    })
+
+    after = (_bar(router.progress_tiles).value(),
+             _bar(router.progress_tiles).maximum(),
+             _bar(router.progress_tiles).format())
+    assert after == before, "the preview payload redrew the bar on a different scale"
+    assert "remaining" in after[2], "the estimate was dropped"
+
+
+def test_the_preview_is_still_shown(qapp):
+    """The filter above must not cost the thing the payload is actually for."""
+    shown = []
+    router = _Router()
+    router._show_preview = shown.append
+
+    payload = {
+        "modality": "fluorescence", "state": "tile", "task": "tileset",
+        "counter": 2, "total": 4,
+    }
+    router._apply_progress(payload)
+
+    assert shown == [payload]
