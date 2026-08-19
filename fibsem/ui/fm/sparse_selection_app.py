@@ -1,17 +1,15 @@
 """Standalone app for the sparse FM selection panes.
 
-Opens the two halves side by side against a real or simulated microscope, so they can be
-driven before the dialog that will hold them exists.
+Opens the selection dialog against a real or simulated microscope, acquires the beam
+overviews it needs, and prints what comes back -- so the whole path can be driven before
+anything in AutoLamella constructs it.
 
     python -m fibsem.ui.fm.sparse_selection_app                    # Demo, two beam views
     python -m fibsem.ui.fm.sparse_selection_app --manufacturer Thermo --ip 10.0.0.1
 
 Right-click the left pane to add a region, then drag it or its corners. The right pane
-shows the FM tiles that selection would acquire, recomputed on every change.
-
-The wiring here is a stand-in for the dialog, not its design: it does the minimum to
-make the two panes talk, so the pieces can be exercised on hardware while the dialog is
-still being built.
+shows the FM tiles that selection would acquire, recomputed on every change. Accepting
+prints the grid, the mask and the centre the acquisition would be given.
 """
 
 import argparse
@@ -62,80 +60,24 @@ def acquire_beam_overviews(
     return views
 
 
-def build_window(microscope: FibsemMicroscope):
-    from PyQt5.QtWidgets import (
-        QHBoxLayout,
-        QLabel,
-        QVBoxLayout,
-        QWidget,
-    )
+def run_dialog(microscope: FibsemMicroscope, hfw: float = OVERVIEW_HFW):
+    """Acquire the beam overviews, run the dialog, and return what it produced."""
+    from fibsem.fm.structures import OverviewParameters
+    from fibsem.ui.fm.widgets.fm_sparse_selection_dialog import FMSparseSelectionDialog
 
-    from fibsem.ui.fm.widgets.fm_region_selector import FMRegionSelectorWidget
-    from fibsem.ui.fm.widgets.fm_tile_preview import FMTilePreviewWidget
-    from fibsem.ui.stylesheets import CANVAS_BG
-    from fibsem.ui.tokens import TEXT_COLOR, TEXT_MUTED_COLOR
-
-    views = acquire_beam_overviews(microscope)
+    views = acquire_beam_overviews(microscope, hfw)
     # Back to the fluorescence pose, as the FM tab would leave it. The preview must be
     # right from either, which is what pinning its frame to the FM orientation is for --
-    # try commenting this out, and nothing about the right pane should change.
+    # comment this out and nothing about the right-hand pane should change.
     microscope.move_to_microscope("FM")
 
-    selector = FMRegionSelectorWidget(microscope)
-    preview = FMTilePreviewWidget(microscope)
-    selector.set_views(views)
-
-    status = QLabel()
-    status.setStyleSheet(f"color:{TEXT_COLOR};font-size:11px;padding:4px 8px;")
-    hint = QLabel(
-        "right-click the beam overview to add a region  ·  drag it or its corners  ·  "
-        "click a tile on the right to add or drop it"
+    channels = getattr(microscope.fm, "channel_settings", None)
+    return FMSparseSelectionDialog.choose(
+        microscope,
+        views,
+        OverviewParameters(overlap=OVERLAP),
+        channel_settings=list(channels) if channels else None,
     )
-    hint.setStyleSheet(f"color:{TEXT_MUTED_COLOR};font-size:10px;padding:0 8px 4px;")
-
-    def recompute():
-        regions = selector.regions
-        if not regions or selector.base is None or selector.projection is None:
-            preview.clear()
-        else:
-            preview.set_selection(
-                regions, selector.base, selector.projection, OVERLAP
-            )
-        describe()
-
-    def describe():
-        plan = preview.plan
-        if plan is None:
-            status.setText(f"{selector.describe_selected()}   —   no tiles selected")
-            return
-        minutes = preview.enabled_tiles * 3 * 4 // 60
-        status.setText(
-            f"{selector.describe_selected()}   —   "
-            f"{plan.rows} x {plan.cols} grid, "
-            f"{preview.enabled_tiles} of {preview.total_tiles} tiles, "
-            f"~{minutes} min"
-        )
-
-    selector.regions_changed.connect(recompute)
-    selector.selection_changed.connect(lambda _index: describe())
-    preview.selection_changed.connect(describe)
-
-    panes = QHBoxLayout()
-    panes.setSpacing(8)
-    panes.addWidget(selector, 3)
-    panes.addWidget(preview, 2)
-
-    window = QWidget()
-    window.setWindowTitle("Sparse FM selection — panes")
-    window.setStyleSheet(f"QWidget {{ background: {CANVAS_BG}; }}")
-    layout = QVBoxLayout(window)
-    layout.setContentsMargins(8, 8, 8, 8)
-    layout.addLayout(panes)
-    layout.addWidget(status)
-    layout.addWidget(hint)
-    window.resize(1180, 680)
-    describe()
-    return window
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -156,9 +98,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     microscope = build_microscope(
         manufacturer=args.manufacturer, ip_address=args.ip
     )
-    window = build_window(microscope)
-    window.show()
-    return app.exec_()
+    selection = run_dialog(microscope, args.hfw)
+    if selection is None:
+        logging.info("cancelled -- nothing selected")
+        return 0
+
+    parameters = selection.parameters
+    enabled = sum(sum(1 for on in row if on) for row in parameters.tile_mask)
+    logging.info(
+        f"grid {parameters.rows} x {parameters.cols}, "
+        f"{enabled} of {parameters.rows * parameters.cols} tiles, "
+        f"overlap {parameters.overlap:.0%}"
+    )
+    logging.info(f"centred on {selection.centre_position.pretty}")
+    return 0
 
 
 if __name__ == "__main__":

@@ -43,6 +43,13 @@ def build_microscope(
         microscope.stage_is_compustage = compustage
         microscope.system.stage.shuttle_pre_tilt = 0
         microscope._update_orientations()
+        # Re-read the travel limits, which `FibsemStage.__init__` cached before the flag
+        # above was set. They are not a detail: a compustage travels +/-999.9 um in x and
+        # only +/-377.8 um in y, against a grid boundary of 1000 um radius -- so in y the
+        # stage runs out of travel well inside the grid, and it is the limits rather than
+        # the boundary that say how far an overview can reach. Left stale, the simulator
+        # reports +/-100 mm and anything drawing them shows nothing at grid scale.
+        microscope._stage.limits = microscope._get_axis_limits()
         microscope.move_stage_absolute(
             FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=np.deg2rad(tilt_deg))
         )
