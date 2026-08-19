@@ -1332,7 +1332,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         msg = ddict.get("msg", "Collecting tiles")
 
         if ddict.get("finished"):
-            self.progress_widget.update_progress(ProgressUpdate.done())
+            self.progress_widget.update_progress(self._overview_outcome(ddict, msg))
             # Hide the Done state after a moment, the same way spot burn does above.
             # It used to be cleared by `_on_tile_acquisition_finished`, which is wired
             # to the napari minimap's own signal -- so a run driven from anywhere else
@@ -1346,6 +1346,25 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.progress_widget.update_progress(
                 ProgressUpdate.numeric(counter, total, msg)
             )
+
+    @staticmethod
+    def _overview_outcome(ddict: dict, msg: str) -> ProgressUpdate:
+        """How a finished tiled acquisition reads once the bar is full.
+
+        Everything terminal used to take one branch and say "Done", so a run that was
+        cancelled — or that failed — told the status bar it had completed. The runner
+        has reported which it was since it learned to emit a terminal payload for every
+        outcome (`TiledAcquisitionRunner._emit_terminal`); nothing was reading it.
+
+        A cancel is deliberately not `failed`, which paints the bar red: it is someone
+        getting what they asked for.
+        """
+        outcome = ddict.get("outcome")
+        if outcome == "failed":
+            return ProgressUpdate.failed(msg)
+        if outcome == "cancelled":
+            return ProgressUpdate(finished=True, message=msg)
+        return ProgressUpdate.done()
 
     def _on_tile_acquisition_finished(self, result: dict) -> None:
         self.progress_widget.reset()
