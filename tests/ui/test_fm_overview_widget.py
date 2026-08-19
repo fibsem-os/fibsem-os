@@ -1785,7 +1785,7 @@ class _StubHost:
     _refresh_fm_overview_microscope = _Real._refresh_fm_overview_microscope
     _on_fm_overview_availability = _Real._on_fm_overview_availability
     _fm_overview_unavailable_reason = _Real._fm_overview_unavailable_reason
-    _refresh_fm_overview_positions = _Real._refresh_fm_overview_positions
+    _refresh_overview_positions = _Real._refresh_overview_positions
     _on_fm_overview_lamella_selected = _Real._on_fm_overview_lamella_selected
     _set_minimap_workflow_enabled = _Real._set_minimap_workflow_enabled
     _rebuild_lamella_list = _Real._rebuild_lamella_list
@@ -1825,7 +1825,7 @@ class _StubHost:
         self.fm_overview_tab.refresh_experiment()
 
     def _update_fm_overview_positions(self):
-        self._refresh_fm_overview_positions()
+        self._refresh_overview_positions()
 
     def _update_fm_overview_selection(self, lamella):
         self.fm_overview_tab.set_selected(lamella)

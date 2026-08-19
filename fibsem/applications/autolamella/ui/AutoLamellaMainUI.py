@@ -1480,7 +1480,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             try:
                 events.inserted.disconnect(self._rebuild_lamella_list)
                 events.removed.disconnect(self._rebuild_lamella_list)
-                events.changed.disconnect(self._refresh_fm_overview_positions)
+                events.changed.disconnect(self._refresh_overview_positions)
             except Exception as e:
                 logging.debug(f"Could not disconnect position events: {e}")
 
@@ -1499,7 +1499,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             # -- `update_lamella_position_ui` emits it after replacing a milling pose.
             # The list rows do not care, but the canvas draws the positions themselves,
             # so it has to be told.
-            events.changed.connect(self._refresh_fm_overview_positions)
+            events.changed.connect(self._refresh_overview_positions)
         self._lamella_list_experiment = experiment
 
     def create_notification_button(self):
@@ -2094,12 +2094,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_list_widget.clear()
         self.lamella_card_container.clear()
         self._on_lamella_card_selected(None)
-        # The FM canvas is another display of the same set, so it is rebuilt here rather
-        # than from its own subscription -- one handler for "the lamellae changed" means
-        # the two cannot end up disagreeing about what the experiment holds. Before the
-        # `experiment is None` return, because an experiment closing has to clear the
-        # canvas as much as an experiment opening has to fill it.
-        self._refresh_fm_overview_positions()
+        # The overview canvases are further displays of the same set, so they are
+        # rebuilt here rather than from subscriptions of their own -- one handler for
+        # "the lamellae changed" means the displays cannot end up disagreeing about what
+        # the experiment holds. Before the `experiment is None` return, because an
+        # experiment closing has to clear them as much as an experiment opening has to
+        # fill them.
+        self._refresh_overview_positions()
         if experiment is None:
             return
         for lamella in experiment.positions:
@@ -2365,18 +2366,27 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         finally:
             self._syncing_selection = False
 
-    def _refresh_fm_overview_positions(self):
-        """Re-mark the FM overview, tolerating there being no tab.
+    def _refresh_overview_positions(self):
+        """Re-mark **both** overview canvases, tolerating either tab being absent.
 
-        A method on the window rather than connecting `fm_overview_tab.refresh_positions`
-        straight to the experiment's signal: the tab is rebuilt when the microscope
+        A method on the window rather than connecting each tab's `refresh_positions`
+        straight to the experiment's signal: a tab is rebuilt when the microscope
         changes, and a subscription holding the old one's bound method would be both
         stale and undisconnectable. This one is stable for the window's lifetime, which
         is what `_wire_position_events`' disconnect needs.
+
+        Both, because for a long time it was only the fluorescence one -- so a lamella
+        marked on the FIB/SEM overview appeared on the FM canvas, and one marked on the
+        FM overview never appeared on the beam canvas at all. The beam tab papered over
+        its own edits by re-marking inline and went stale for everything else: a lamella
+        added from the FM tab, from the Microscope tab, or by a workflow, and any pose
+        replaced in place (FIB-709). Neither tab subscribes to the experiment itself, so
+        this is the only place that can see all of it.
         """
-        if getattr(self, "fm_overview_tab", None) is None:
-            return
-        self.fm_overview_tab.refresh_positions()
+        for name in ("fm_overview_tab", "overview_canvas_tab"):
+            tab = getattr(self, name, None)
+            if tab is not None:
+                tab.refresh_positions()
 
     def _on_fm_overview_availability(self, available: bool):
         """Enable the tab when it has something to drive, and say why when it does not.
