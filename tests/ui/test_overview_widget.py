@@ -78,7 +78,23 @@ def confirmations(monkeypatch):
 
 @pytest.fixture(scope="module")
 def microscope():
-    scope, _ = utils.setup_session(manufacturer="Demo")
+    """A simulated Arctis, because half of what is drawn here is compustage-shaped.
+
+    A plain Demo session is not a compustage, and the limits box, the holder slots, the
+    grid boundary and the MILLING orientation all behave differently or do not draw at
+    all without one -- eight tests, whose assertions read as unrelated ("overlay shapes",
+    "view orientations") and are not (FIB-734).
+
+    `sim-arctis-configuration.yaml` is the same configuration `test_overview_tab_host.py`
+    and `test_beam_stage_projection.py` use, so the three agree on what an Arctis is.
+    """
+    import fibsem.config as fibsem_config
+
+    path = os.path.join(
+        os.path.dirname(fibsem_config.__file__), "config", "sim-arctis-configuration.yaml"
+    )
+    scope, _ = utils.setup_session(manufacturer="Demo", config_path=path)
+    assert scope.stage_is_compustage, "the config stopped being a compustage"
     return scope
 
 
