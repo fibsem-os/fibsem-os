@@ -14,7 +14,10 @@ from typing import List, Tuple
 import numpy as np
 
 from fibsem import movement
-from fibsem.conversions import is_inside_image_bounds
+from fibsem.conversions import (
+    is_inside_image_bounds,
+    microscope_image_to_image_coordinates,
+)
 from fibsem.structures import (
     BeamType,
     FibsemHardwareGeometry,
@@ -38,32 +41,45 @@ def calculate_reprojected_stage_position(image: FibsemImage, pos: FibsemStagePos
     # projection of the positions onto the image
     dx = delta.x
     dy = np.sqrt(delta.y**2 + delta.z**2) # TODO: correct for perspective here
-    dy = dy if (delta.y<0) else -dy
+    # Signed in the microscope image frame, +y *up*: a target at a lower stage y sits
+    # below the image centre. The conversion at the end is what mirrors that onto the
+    # image's own y-down axis, so the sign here reads the opposite way round to the
+    # `dy if delta.y < 0 else -dy` it replaces.
+    dy = -dy if (delta.y<0) else dy
 
     pt_delta = Point(dx, dy)
-    px_delta = pt_delta._to_pixels(image.metadata.pixel_size.x)
 
     beam_type = image.metadata.image_settings.beam_type
     if beam_type is BeamType.ELECTRON:
         scan_rotation = image.metadata.microscope_state.electron_beam.scan_rotation
     if beam_type is BeamType.ION:
         scan_rotation = image.metadata.microscope_state.ion_beam.scan_rotation
-    
+
+    # Both corrections are pure sign flips, which commute with the pixel-size divide
+    # the conversion does -- so they are applied in metres here where they used to be
+    # applied in pixels.
     if np.isclose(scan_rotation, np.pi):
-        px_delta.x *= -1.0
-        px_delta.y *= -1.0
+        pt_delta.x *= -1.0
+        pt_delta.y *= -1.0
 
     # account for compustage tilt, when mounted upside down
     if np.isclose(image.metadata.stage_position.t, np.radians(-180), atol=np.radians(5)):
-        px_delta.y *= -1.0
-
-    image_centre = Point(x=image.data.shape[1]/2, y=image.data.shape[0]/2)
-    point = image_centre + px_delta
+        pt_delta.y *= -1.0
 
     # NB: there is a small reprojection error that grows with distance from centre
     # print(f"ERROR: dy: {dy}, delta_y: {delta.y}, delta_z: {delta.z}")
 
-    return point
+    # [:2] rather than the whole shape: FibsemImage's constructor squeezes a (H, W, 1)
+    # array but its `data` setter does not, so an image assigned through the setter can
+    # carry a third axis (FIB-702). The old inline centring indexed [0] and [1] and
+    # ignored it; the shared conversion requires exactly two, so trim rather than
+    # start raising.
+    return microscope_image_to_image_coordinates(
+        pt_delta,
+        image_shape=image.data.shape[:2],
+        pixel_size=image.metadata.pixel_size.x,
+        subpixel_precision=True,
+    )
 
 def reproject_stage_positions_onto_image(
         image:FibsemImage, 
@@ -163,17 +179,24 @@ def calculate_reprojected_stage_position2(image: FibsemImage, pos: FibsemStagePo
     # dy = microscope._inverse_y_corrected_stage_movement(dy=delta.y, dz=delta.z, beam_type=beam_type) # type: ignore
     dy = _inverse_y_corrected_stage_movement(image, dy=delta.y, dz=delta.z, beam_type=beam_type) # type: ignore
 
-    pt_delta = Point(dx, -dy)
-    px_delta = pt_delta._to_pixels(pixel_size)
+    # `dy` is already in the microscope image frame (+y up), which is what the shared
+    # conversion below takes -- so the hand-rolled `-dy` that used to flip it onto the
+    # image's y-down axis goes away with the hand-rolled centring (FIB-644).
+    pt_delta = Point(dx, dy)
 
+    # A sign flip commutes with the pixel-size divide, so the scan-rotation correction
+    # is applied in metres here where it used to be applied in pixels.
     if np.isclose(scan_rotation, np.pi):
-        px_delta.x *= -1.0
-        px_delta.y *= -1.0
+        pt_delta.x *= -1.0
+        pt_delta.y *= -1.0
 
-    image_centre = Point(x=image.data.shape[1]/2, y=image.data.shape[0]/2)
-    point = image_centre + px_delta
-
-    return point
+    # [:2] for the same reason as in `calculate_reprojected_stage_position`.
+    return microscope_image_to_image_coordinates(
+        pt_delta,
+        image_shape=image.data.shape[:2],
+        pixel_size=pixel_size,
+        subpixel_precision=True,
+    )
 
 def reproject_stage_positions_onto_image2(
         image:FibsemImage, 

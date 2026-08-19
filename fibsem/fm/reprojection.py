@@ -29,6 +29,10 @@ from typing import TYPE_CHECKING, List, Tuple
 
 import numpy as np
 
+from fibsem.conversions import (
+    image_to_microscope_image_coordinates2,
+    microscope_image_to_image_coordinates,
+)
 from fibsem.fm.structures import FibsemHardwareGeometry
 from fibsem.structures import FibsemStagePosition, Point
 from fibsem.transformations import (
@@ -53,7 +57,8 @@ def project_stage_position(
         position: the stage position to locate.
         base_position: the stage position the image was acquired at.
         pixel_size: image pixel size, in metres.
-        image_shape: image shape as (height, width), in pixels.
+        image_shape: image shape as (height, width), in pixels. Exactly two axes --
+            a longer shape now raises rather than silently using its first two.
         geometry: the geometry the image was captured under.
 
     Returns:
@@ -75,10 +80,19 @@ def project_stage_position(
     # mapping serves both directions -- see `CameraImageTransform`.
     dx, dy = geometry.transform.apply_to_delta(delta.x, dy)
 
-    # Image y grows downward while the projected displacement grows upward.
-    return Point(
-        x=image_shape[1] / 2 + dx / pixel_size,
-        y=image_shape[0] / 2 - dy / pixel_size,
+    # `dx, dy` are now a displacement in the microscope image frame, in metres:
+    # centred on the image with +y *up*. The shared conversion is what puts that on
+    # the image's own axes, mirroring y and offsetting from the centre -- the same
+    # arithmetic the milling, detection and correlation paths run (FIB-644).
+    #
+    # `subpixel_precision=True` because this is a continuous projection, not a pixel
+    # index: flooring the centre would move every marker half a pixel on an
+    # odd-sized image, and the inverse below has to agree with it exactly.
+    return microscope_image_to_image_coordinates(
+        Point(x=dx, y=dy),
+        image_shape=image_shape,
+        pixel_size=pixel_size,
+        subpixel_precision=True,
     )
 
 
@@ -98,14 +112,23 @@ def project_image_point(
         point: pixel coordinates in the displayed image.
         base_position: the stage position the image was acquired at.
         pixel_size: image pixel size, in metres.
-        image_shape: image shape as (height, width), in pixels.
+        image_shape: image shape as (height, width), in pixels. Exactly two axes --
+            a longer shape now raises rather than silently using its first two.
         geometry: the geometry the image was captured under.
 
     Returns:
         FibsemStagePosition: the absolute position under that pixel.
     """
-    dx = (point.x - image_shape[1] / 2) * pixel_size
-    dy = -(point.y - image_shape[0] / 2) * pixel_size
+    # The exact inverse of the conversion the forward runs, flag included: pairing a
+    # true centre one way with a floored one the other loses half a pixel per
+    # round trip on an odd-sized image.
+    delta = image_to_microscope_image_coordinates2(
+        point,
+        image_shape=image_shape,
+        pixelsize=pixel_size,
+        subpixel_precision=True,
+    )
+    dx, dy = delta.x, delta.y
 
     dx, dy = geometry.transform.apply_to_delta(dx, dy)
     y_move, z_move = view_corrected_stage_movement(

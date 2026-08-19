@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Optional, Protocol, Tuple
 
 import numpy as np
 
+from fibsem.conversions import get_image_pixel_centre
 from fibsem.fm.reprojection import project_image_point, project_stage_position
 from fibsem.imaging.tiling.reprojection import (
     inverse_y_corrected_stage_movement_tescan_from_geometry,
@@ -182,9 +183,17 @@ class FMStageProjection:
         )
         # `project_stage_position` answers in pixels measured from the corner; the
         # frame wants metres measured from the centre.
+        #
+        # Only the *centre* is shared with `fibsem.conversions`, not the conversion:
+        # the plane's y runs **down**, image-fashion, so this must not mirror y the
+        # way `image_to_microscope_image_coordinates` does. It looks like the same
+        # arithmetic and is not, and because `from_plane` inherits the same
+        # convention the pair round-trips cleanly either way -- so a round-trip test
+        # would not catch the mistake (FIB-644).
+        cy, cx = get_image_pixel_centre(self.shape, subpixel_precision=True)
         return (
-            (point.x - self.shape[1] / 2) * self.pixel_size,
-            (point.y - self.shape[0] / 2) * self.pixel_size,
+            (point.x - cx) * self.pixel_size,
+            (point.y - cy) * self.pixel_size,
         )
 
     def from_plane(
@@ -193,9 +202,12 @@ class FMStageProjection:
         # `project_image_point` is the exact inverse of `project_stage_position`,
         # sharing its sign terms, so a click on a marker resolves to the position that
         # marker was drawn from rather than to somewhere plausibly near it.
+        # y is *added*, not subtracted -- see `to_plane` on why this is not the
+        # mirroring conversion in `fibsem.conversions`.
+        cy, cx = get_image_pixel_centre(self.shape, subpixel_precision=True)
         point = Point(
-            x=self.shape[1] / 2 + dx / self.pixel_size,
-            y=self.shape[0] / 2 + dy / self.pixel_size,
+            x=cx + dx / self.pixel_size,
+            y=cy + dy / self.pixel_size,
         )
         return project_image_point(
             point, base, self.pixel_size, self.shape, self.geometry
