@@ -69,6 +69,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
 
         self.setup_connections()
         self.update_ui()
+        self.refresh_first_run_offer()
 
     def _create_first_run_callout(self) -> QtWidgets.QFrame:
         """The offer to run the setup wizard, shown only on a fresh install.
@@ -140,8 +141,22 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         self._button_dismiss_first_run.clicked.connect(self._dismiss_first_run)
         layout.addWidget(self._button_dismiss_first_run, 0, QtCore.Qt.AlignTop)
 
-        frame.setVisible(setup_wizard.is_first_run())
+        # Hidden until refresh_first_run_offer decides otherwise, which cannot happen
+        # here -- it reads self._frame_first_run, and that is what this returns.
+        frame.setVisible(False)
         return frame
+
+    def refresh_first_run_offer(self, enabled: Optional[bool] = None) -> None:
+        """Show the offer only on a fresh install, and only if the flag is on.
+
+        Public because the flag can be turned on while the window is open, and the
+        connection tab is one someone is likely to be looking at when they do. Called
+        from AutoLamella's `_apply_preferences`, which passes the preferences it is
+        already holding; None reads them, for the standalone widget that has no host.
+        """
+        if enabled is None:
+            enabled = cfg.load_user_preferences().features.setup_wizard_enabled
+        self._frame_first_run.setVisible(bool(enabled) and setup_wizard.is_first_run())
 
     def _dismiss_first_run(self) -> None:
         """Hide the offer, and record that it was declined."""

@@ -873,6 +873,19 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._preferences.features.scripts_enabled
             or self.script_menu_controller.runner.is_running
         )
+        # Tools -> Setup Wizard, and the offer for it on the connection tab. Both go
+        # together: hiding one and leaving the other would mean a fresh install is
+        # invited to run something the menu says does not exist.
+        self.action_setup_wizard.setVisible(
+            self._preferences.features.setup_wizard_enabled
+        )
+        # getattr because this also runs from the preferences dialog, and the tab it
+        # reaches into is built by AutoLamellaUI rather than here.
+        system_widget = getattr(self.autolamella_ui, "system_widget", None)
+        if system_widget is not None:
+            system_widget.refresh_first_run_offer(
+                self._preferences.features.setup_wizard_enabled
+            )
 
     #### USER SCRIPTS (FIB-338)
 

@@ -481,14 +481,30 @@ def test_a_save_that_fails_leaves_the_dialog_open(dialog, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+def _enable_flag(enabled: bool = True) -> None:
+    """Write the feature flag, as the preferences dialog would."""
+    preferences = cfg.load_user_preferences()
+    preferences.features.setup_wizard_enabled = enabled
+    cfg.save_user_preferences(preferences)
+
+
 @pytest.fixture
 def connection_tab(qapp, isolated_state, monkeypatch):
+    """The connection tab with the flag on, since that is what most of these test."""
     pytest.importorskip("napari")
     from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 
     monkeypatch.setattr(
         "fibsem.ui.notification_service.show_toast", lambda *a, **k: None
     )
+    # Written before the widget is built, and then removed: saving preferences is
+    # itself what ends the first run, so the file has to be gone again for the offer
+    # to have anything to appear for.
+    _enable_flag(True)
+    preferences = cfg.load_user_preferences()
+    os.remove(cfg.USER_PREFERENCES_PATH)
+
+    monkeypatch.setattr(cfg, "load_user_preferences", lambda: preferences)
     widget = FibsemSystemSetupWidget()
     yield widget
     widget.deleteLater()
@@ -496,6 +512,32 @@ def connection_tab(qapp, isolated_state, monkeypatch):
 
 def test_the_offer_appears_on_a_fresh_install(connection_tab):
     assert not connection_tab._frame_first_run.isHidden()
+
+
+def test_the_offer_is_behind_the_feature_flag(qapp, isolated_state, monkeypatch):
+    """A fresh install with the flag off is offered nothing.
+
+    The wizard writes a configuration file and two registry entries, and it is offered
+    to someone with no way yet to judge whether it is trustworthy. Until it has bench
+    time that offer is opt-in.
+    """
+    pytest.importorskip("napari")
+    from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
+
+    monkeypatch.setattr(
+        "fibsem.ui.notification_service.show_toast", lambda *a, **k: None
+    )
+    assert wizard.is_first_run()  # the offer has something to appear for
+    widget = FibsemSystemSetupWidget()
+    try:
+        assert widget._frame_first_run.isHidden()
+        # And it appears the moment the flag is turned on, without a restart.
+        widget.refresh_first_run_offer(True)
+        assert not widget._frame_first_run.isHidden()
+        widget.refresh_first_run_offer(False)
+        assert widget._frame_first_run.isHidden()
+    finally:
+        widget.deleteLater()
 
 
 def test_dismissing_the_offer_makes_it_stay_dismissed(connection_tab, isolated_state):

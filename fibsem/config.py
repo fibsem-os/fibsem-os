@@ -357,14 +357,23 @@ class FeatureFlags:
     # instrument, and the existing tab is the one people are relying on until this has
     # had bench time (FIB-413, FIB-405).
     #
-    # The only staging flag left after FIB-609, and it goes the same way the others did
-    # -- deleted when the tab replaces the napari one, not kept as a preference.
+    # Deleted when the tab replaces the napari one, not kept as a preference.
     overview_canvas_tab: bool = False
     # Planning a sparse fluorescence overview by drawing regions on a FIB/SEM one.
     # Off while it has had no bench time: it decides where an expensive acquisition
     # goes, and the geometry it rests on is only checkable against real data
     # (FIB-597). Staging, like the flag above -- deleted when it ships, not kept.
     sparse_fm_selection: bool = False
+    # The first-run setup wizard: the callout on the connection tab, and Tools ->
+    # Setup Wizard (FIB-740). A staging flag, like the two above, and it goes the same
+    # way -- deleted once the wizard is the route a new install takes, not kept as a
+    # preference.
+    #
+    # Off by default for a reason specific to this one: it is *offered* on first run,
+    # to someone who has no way to judge whether it is trustworthy yet, and it writes
+    # a configuration file plus two registry entries. Until it has had bench time on
+    # real instruments, that offer should be made deliberately rather than by default.
+    setup_wizard_enabled: bool = False
 
 @dataclass
 class MovementPreferences:

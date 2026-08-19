@@ -69,6 +69,13 @@ _TIP_OVERVIEW_CANVAS = (
     "Tiles are placed where they were acquired rather than stitched first. Still being "
     "finished, and it drives the same microscope as the Overview tab it will replace."
 )
+_LBL_SETUP_WIZARD  = "Enable Setup Wizard"
+_TIP_SETUP_WIZARD  = (
+    "Offer a step-by-step microscope setup on the Connection tab of a fresh install, "
+    "and add Tools > Setup Wizard. It writes a new configuration file rather than "
+    "editing the one you are using, so it is non-destructive — but it is still being "
+    "finished, and it has not had bench time on every instrument."
+)
 _LBL_SCRIPTS       = "Enable User Scripts"
 _TIP_SCRIPTS       = (
     "Show Tools > Scripts, for running your own .py files against the open "
@@ -168,12 +175,15 @@ class PreferencesDialog(QDialog):
         self._chk_overview_canvas.setToolTip(_TIP_OVERVIEW_CANVAS)
         self._chk_sparse_fm = QCheckBox()
         self._chk_sparse_fm.setToolTip(_TIP_SPARSE_FM)
+        self._chk_setup_wizard = QCheckBox()
+        self._chk_setup_wizard.setToolTip(_TIP_SETUP_WIZARD)
         features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
         features_form.addRow(_LBL_SAMPLE_HOLDER, self._chk_sample_holder)
         features_form.addRow(_LBL_BUG_REPORT, self._chk_bug_report)
         features_form.addRow(_LBL_SCRIPTS, self._chk_scripts)
         features_form.addRow(_LBL_OVERVIEW_CANVAS, self._chk_overview_canvas)
         features_form.addRow(_LBL_SPARSE_FM, self._chk_sparse_fm)
+        features_form.addRow(_LBL_SETUP_WIZARD, self._chk_setup_wizard)
         self._stack.addWidget(features_page)
 
         # --- Experiment Defaults ---
@@ -247,6 +257,7 @@ class PreferencesDialog(QDialog):
         self._chk_scripts.setChecked(f.scripts_enabled)
         self._chk_overview_canvas.setChecked(f.overview_canvas_tab)
         self._chk_sparse_fm.setChecked(f.sparse_fm_selection)
+        self._chk_setup_wizard.setChecked(f.setup_wizard_enabled)
 
         e = prefs.experiment
         self._dir_experiment.setText(e.default_experiment_directory)
@@ -319,6 +330,7 @@ class PreferencesDialog(QDialog):
                 scripts_enabled=self._chk_scripts.isChecked(),
                 overview_canvas_tab=self._chk_overview_canvas.isChecked(),
                 sparse_fm_selection=self._chk_sparse_fm.isChecked(),
+                setup_wizard_enabled=self._chk_setup_wizard.isChecked(),
             ),
             movement=MovementPreferences(
                 acquire_sem_after_stage_movement=self._chk_acquire_sem.isChecked(),
