@@ -40,9 +40,11 @@ from fibsem.ui.widgets.preflight import (
     TEXT,
     TEXT_MUTED,
     TEXT_STRONG,
+    ON_PANEL,
     chip,
     format_clock as _clock,
     format_duration,
+    metric as _metric,
     meta_label,
 )
 
@@ -58,40 +60,7 @@ _DURATION_WIDTH = 84
 # the list truncates and says how many it did not show instead.
 _NAMES_SHOWN = 12
 
-# Anything sitting on a panel has to say it is transparent. The app applies
-# NAPARI_STYLE, whose bare `QWidget { background-color: ... }` rule reaches every
-# descendant, so a label that only sets `color` paints the *surface* colour onto the
-# darker panel behind it -- a lighter block around every word. Only visible with the
-# app stylesheet loaded, which is why the offscreen renders looked clean.
-_ON_PANEL = "background: transparent; border: none; "
-
-
-def _metric(label_text: str, value_text: str) -> QWidget:
-    """One of the two figures that lead the dialog.
-
-    Two, not one: the duration answers "is this worth starting", the wall-clock finish
-    answers "when do I come back", and the second is the one people act on.
-    """
-    frame = QFrame()
-    # Scoped to this frame by name. A bare `QFrame { ... }` selector also matches every
-    # QFrame *inside* it, and preflight.chip() is one -- which repainted each chip with
-    # the panel's fill on top of its own.
-    frame.setObjectName("preflightMetric")
-    frame.setStyleSheet(
-        f"QFrame#preflightMetric {{ background: {PANEL}; border: 1px solid {BORDER};"
-        f" border-radius: 4px; }}"
-    )
-    layout = QVBoxLayout(frame)
-    layout.setContentsMargins(12, 9, 12, 9)
-    layout.setSpacing(2)
-
-    caption = QLabel(label_text)
-    caption.setStyleSheet(_ON_PANEL + f"color: {TEXT_MUTED}; font-size: 11px;")
-    value = QLabel(value_text)
-    value.setStyleSheet(_ON_PANEL + f"color: {TEXT_STRONG}; font-size: 19px;")
-    layout.addWidget(caption)
-    layout.addWidget(value)
-    return frame
+_ON_PANEL = ON_PANEL  # see preflight.ON_PANEL for why every label on a panel needs it
 
 
 def _task_row(task: TaskEstimate, reference: Optional[datetime] = None) -> QWidget:
