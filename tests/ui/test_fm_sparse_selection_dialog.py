@@ -13,7 +13,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication, QDialog
+from PyQt5.QtWidgets import QApplication, QDialog, QSizePolicy
 
 from fibsem.fm.structures import (
     AutoFocusMode,
@@ -242,11 +242,41 @@ def test_a_selection_the_stage_cannot_reach_cannot_be_accepted(dialog):
 
 def test_it_says_how_many_tiles_are_out_of_reach(dialog):
     with_regions(dialog, 1)
+    assert dialog._warning.isHidden()
 
     stretch(dialog, _TOO_TALL)
 
     count = len(dialog.preview.unreachable_tiles)
-    assert f"{count} beyond the stage's travel" in dialog._status.text()
+    assert f"{count} tiles beyond the stage's travel" in dialog._warning.text()
+    assert dialog._warning.isHidden() is False
+
+
+def test_the_warning_gets_its_own_row_and_elides(dialog):
+    """A message whose length depends on what the user drew must not decide how wide the
+    dialog is.
+
+    It ran past 90 characters on the counter's row and took the whole bar with it -- the
+    same fault FIB-470 fixed on the FM overview widget, where one long status dragged the
+    minimum width from 1030 px to 1728. Two defences: its own row, and a label whose size
+    policy refuses to ask for the space.
+    """
+    with_regions(dialog, 1)
+    before = dialog.sizeHint().width()
+
+    stretch(dialog, _TOO_TALL)
+
+    assert dialog.sizeHint().width() <= before
+    assert dialog._warning.sizePolicy().horizontalPolicy() == QSizePolicy.Ignored
+
+
+def test_the_warning_goes_away_with_the_problem(dialog):
+    with_regions(dialog, 1)
+    stretch(dialog, _TOO_TALL)
+    assert dialog._warning.isHidden() is False
+
+    stretch(dialog, _WITHIN_REACH)
+
+    assert dialog._warning.isHidden()
 
 
 def test_no_duration_is_quoted_for_a_run_that_cannot_happen(dialog):

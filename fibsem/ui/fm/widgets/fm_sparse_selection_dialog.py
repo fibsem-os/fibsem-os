@@ -46,6 +46,7 @@ from fibsem.ui.tokens import (
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
 )
+from fibsem.ui.widgets.custom_widgets import ElidedLabel
 from fibsem.ui.widgets.preflight import format_duration
 
 # Amber, matching the stage-limits box the preview draws it against.
@@ -108,10 +109,25 @@ class FMSparseSelectionDialog(QDialog):
         self.preview = FMTilePreviewWidget(microscope)
         self.selector.set_views(views)
 
+        # The warning gets a row of its own and an `ElidedLabel`; the counter gets
+        # neither. A message whose length depends on what the user drew must not decide
+        # how wide the dialog is -- the warning ran past 90 characters and took the whole
+        # bar with it, the same fault FIB-470 fixed on the FM overview widget, where one
+        # long status dragged the minimum width from 1030 px to 1728.
+        #
+        # Not both, though: `ElidedLabel` has an Ignored size policy, so it asks for no
+        # width at all. Applied to the counter as well, the stretch beside it took
+        # everything and the counter rendered as nothing. It is bounded anyway -- a
+        # region index and two dimensions.
         self._status = QLabel()
         self._status.setStyleSheet(
             f"color:{TEXT_COLOR};font-size:11px;border:none;background:transparent;"
         )
+        self._warning = ElidedLabel()
+        self._warning.setStyleSheet(
+            f"color:{_WARNING};font-size:11px;border:none;background:transparent;"
+        )
+        self._warning.hide()
         hint = QLabel(_HINT)
         hint.setStyleSheet(
             f"color:{TEXT_MUTED_COLOR};font-size:10px;border:none;background:transparent;"
@@ -122,11 +138,15 @@ class FMSparseSelectionDialog(QDialog):
             f"QFrame{{background:{PANEL_COLOR};border:1px solid {BORDER_COLOR};"
             "border-radius:4px;}"
         )
-        bar_layout = QHBoxLayout(bar)
+        bar_layout = QVBoxLayout(bar)
         bar_layout.setContentsMargins(10, 7, 10, 7)
-        bar_layout.addWidget(hint)
-        bar_layout.addStretch(1)
-        bar_layout.addWidget(self._status)
+        bar_layout.setSpacing(3)
+        top_row = QHBoxLayout()
+        top_row.addWidget(hint)
+        top_row.addStretch(1)
+        top_row.addWidget(self._status)
+        bar_layout.addLayout(top_row)
+        bar_layout.addWidget(self._warning)
 
         # Hand-built rather than a `QDialogButtonBox`: that renders native buttons,
         # which read as light chrome against this app's dark canvases, and puts them in
@@ -233,17 +253,18 @@ class FMSparseSelectionDialog(QDialog):
             parts.append(f"{enabled} of {total} tiles")
         if duration is not None and not unreachable:
             parts.append(format_duration(duration))
-        if unreachable:
-            # Said here rather than left to `raise_if_outside_stage_limits`, which
-            # refuses once the run starts. Blocking rather than warning, because the
-            # runner will refuse anyway and finding out afterwards costs the whole setup.
-            # Masking off the offending tiles is a legitimate fix, so the way out is on
-            # screen already.
-            parts.append(
-                f"<span style='color:{_WARNING}'>{unreachable} beyond the stage's "
-                "travel — move or shrink the region, or drop those tiles</span>"
-            )
         self._status.setText("   ·   ".join(parts))
+
+        # Said here rather than left to `raise_if_outside_stage_limits`, which refuses
+        # once the run starts. Blocking rather than warning, because the runner will
+        # refuse anyway and finding out afterwards costs the whole setup. Masking off the
+        # offending tiles is a legitimate fix, so the way out is on screen already.
+        self._warning.setVisible(bool(unreachable))
+        if unreachable:
+            self._warning.setText(
+                f"{unreachable} tile{'s' if unreachable != 1 else ''} beyond the "
+                "stage's travel — move or shrink the region, or drop those tiles"
+            )
 
     def _counts(self) -> Tuple[int, int, Optional[float]]:
         """Enabled tiles, total tiles, and how long the run would take.
