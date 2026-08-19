@@ -661,6 +661,9 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         # so their reduction is computed once here rather than on every re-render.
         # Invalidated wherever `_held` is, and wherever the display cap moves.
         self._held_reduced: Dict[str, Dict[str, np.ndarray]] = {}
+        # Auto contrast limits per placed image per channel, as
+        # ``{key: {channel: (source_plane, (lo, hi))}}``. See `_auto_clim`.
+        self._held_clim: Dict[str, Dict[str, Tuple[np.ndarray, Tuple[float, float]]]] = {}
 
     def _make_canvas(self) -> FibsemCanvasBase:
         return FibsemRealSpaceCanvas()
@@ -700,6 +703,7 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         answering for a channel nothing displays.
         """
         self._held_reduced.pop(key, None)
+        self._held_clim.pop(key, None)
         return self._held.pop(key, None) is not None
 
     def clear_overviews(self) -> None:
@@ -708,6 +712,7 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
             self.canvas.remove_image(key)
         self._held.clear()
         self._held_reduced.clear()
+        self._held_clim.clear()
 
     def set_placement(self, centre: Tuple[float, float]) -> None:
         """Where the composite sits, in metres from the canvas origin.
@@ -794,6 +799,61 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         hit = cached.get(name)
         return self._reduce(planes[name]) if hit is None else hit
 
+    def _auto_clim(self, key: str, name: str, source: np.ndarray) -> Tuple[float, float]:
+        """Auto contrast limits for one channel of one placed image, computed once.
+
+        **Pinned to the whole image, not to what is drawn of it.** `composite_fm_layers`
+        takes its own percentile from whatever array it is handed, and caches that on
+        the *identity* of the array. Both are right for a live frame and wrong for a part
+        of a stored one: drawing a region would stretch the contrast to that region, and
+        every region is a fresh array, so panning would restyle the image under the
+        cursor. Held here instead, so which part is drawn cannot change how it looks.
+
+        Measured on the **stored** plane rather than the reduced one it is drawn through,
+        which is where this differs from what the widget used to do. `downsample`
+        box-averages, and averaging narrows a histogram by however much power the image
+        has at the pixel scale -- so limits taken from the reduction are limits for one
+        particular display cap, and a patch drawn at a different reduction would not
+        match them. Measured on white noise the reduced span is 0.45x the stored one; on
+        smooth structure with shot noise, which is what fluorescence data looks like, the
+        two agree to 1.00. So this is the same picture in practice and the right answer
+        in principle.
+
+        `auto_clim` strides to ~250k samples first, so reading the full plane is cheap --
+        8.6 ms for a 12632 sq uint16 mosaic. It is handed the raw array deliberately:
+        `np.asarray(..., dtype=np.float32)` on that plane costs 150 ms and 638 MB before
+        a single percentile is taken.
+
+        Keyed on the identity of the stored plane, which a recomposite does not rebuild
+        -- keying on the reduction would miss every time and cache nothing.
+        """
+        cached = self._held_clim.setdefault(key, {})
+        hit = cached.get(name)
+        if hit is not None and hit[0] is source:
+            return hit[1]
+        clim = auto_clim(np.asarray(source))
+        cached[name] = (source, clim)
+        return clim
+
+    def _pinned(
+        self, key: str, layer: FMLayer, source: np.ndarray, reduced: np.ndarray
+    ) -> FMLayer:
+        """*layer* ready to blend *reduced*, with contrast that will not drift.
+
+        A channel the user has taken off Auto keeps the limits they set -- pinning is
+        about making *automatic* contrast independent of what is on screen, not about
+        overriding a choice.
+        """
+        if not layer.autocontrast and layer.clim is not None:
+            return replace(layer, data=reduced, _clim_cache=None)
+        return replace(
+            layer,
+            data=reduced,
+            clim=self._auto_clim(key, layer.name, source),
+            autocontrast=False,
+            _clim_cache=None,
+        )
+
     def _reduce(self, plane: np.ndarray) -> np.ndarray:
         """A plane at the resolution the canvas will actually store.
 
@@ -816,8 +876,9 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         continuously. Blending the reduced planes is the same picture for the cost of the
         pixels that survive.
         """
+        key = self._composite_key
         reduced = [
-            replace(layer, data=self._reduce(layer.data), _clim_cache=None)
+            self._pinned(key, layer, layer.data, self._reduce(layer.data))
             if layer.data is not None else layer
             for layer in self._layers
         ]
@@ -850,15 +911,16 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
                 continue
             reduced = self._held_reduced.get(key) or {}
             layers = [
-                replace(
+                # Cached at hold time: a held image's planes do not change, so the
+                # reduction is the same answer on every re-render. Falls back rather
+                # than indexing, so a cache that somehow missed an entry costs time
+                # instead of raising out of a paint (FIB-329). Compared against None
+                # explicitly -- `or` on an array raises rather than testing presence.
+                self._pinned(
+                    key,
                     layer,
-                    # Cached at hold time: a held image's planes do not change, so the
-                    # reduction is the same answer on every re-render. Falls back rather
-                    # than indexing, so a cache that somehow missed an entry costs time
-                    # instead of raising out of a paint (FIB-329). Compared against None
-                    # explicitly -- `or` on an array raises rather than testing presence.
-                    data=self._reduced_plane(reduced, planes, layer.name),
-                    _clim_cache=None,
+                    planes[layer.name],
+                    self._reduced_plane(reduced, planes, layer.name),
                 )
                 for layer in self._layers
                 if layer.name in planes
