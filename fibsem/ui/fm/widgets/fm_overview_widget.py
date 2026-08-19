@@ -171,6 +171,16 @@ class PlacedOverviewImageRecord:
         return " · ".join(parts)
 
 
+# What each countless phase of a run is called on screen. All three are handled the same
+# way and for the same reason: the bar keeps its last count, which stays true
+# throughout, and the phase goes to the status label instead.
+PHASE_LABELS = {
+    "moving": "Moving stage…",
+    "stitching": "Stitching tiles…",
+    "saving": "Saving overview…",
+}
+
+
 class FMOverviewWidget(QWidget):
     """Configure, run and view a fluorescence overview acquisition."""
 
@@ -2225,6 +2235,16 @@ class FMOverviewWidget(QWidget):
             )
             return None
 
+    def _emit_state(self, state: str) -> None:
+        """Announce a phase of this run that carries no counts.
+
+        The tile bar keeps whatever it last showed -- N/N is still true while the mosaic
+        is being written -- and the state goes to the status label, which is how
+        `moving` has always been handled. Rendering these as indeterminate would paint a
+        *full* bar, which is exactly the "it finished" impression they exist to correct.
+        """
+        self.fm.acquisition_progress_signal.emit({"state": state, "task": "tileset"})
+
     def _acquire_worker(self) -> None:
         """Runs off the GUI thread. Only signals may cross back."""
         from fibsem.cancellation import OperationCancelledError
@@ -2236,6 +2256,11 @@ class FMOverviewWidget(QWidget):
             # Saved here rather than after the signal: a consumer of `overview_acquired`
             # may want the file, and the mosaic carries the run's name once written.
             if self._destination is not None:
+                # The larger half of the gap between the last tile and a finished run:
+                # the stitch is a memcpy into a preallocated canvas (~0.3 s for 1.3 GB)
+                # and the write is most of the rest (~2.3 s for the same). Silent until
+                # now, so a big run appeared to hang just as it completed.
+                self._emit_state("saving")
                 self._saved_path = self._destination.save_mosaic(mosaic)
             self.overview_acquired.emit(mosaic)
             self.fm.acquisition_progress_signal.emit(
@@ -2328,12 +2353,14 @@ class FMOverviewWidget(QWidget):
             self.progress_tile_detail.update_progress(self._tile_detail_update(payload))
 
     def _apply_tile_progress(self, payload: dict, state: Optional[str]) -> None:
-        if state == "moving":
+        label = PHASE_LABELS.get(state or "")
+        if label is not None:
             # Deliberately not `indeterminate`: that paints a *full* bar with a
             # spinner, so every stage move looked like the run had just completed.
-            # The bar keeps the last tile count -- which is still true between tiles --
-            # and the transient state goes to the status label instead.
-            self.status.setText("Moving stage…")
+            # The bar keeps the last tile count -- which is still true between tiles,
+            # and while the mosaic is being stitched and written -- and the transient
+            # state goes to the status label instead.
+            self.status.setText(label)
             return
 
         self.status.setText("")
