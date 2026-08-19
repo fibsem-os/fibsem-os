@@ -204,6 +204,70 @@ def test_clearing_a_selection_leaves_the_stage_context_drawn(pane, microscope):
     assert pane.stage_overlay._specs
 
 
+# ── how far the stage can reach ──────────────────────────────────────────
+
+
+def test_the_pane_draws_both_the_travel_limits_and_the_grid_boundary(pane):
+    """Both, because on a compustage they answer different questions and neither
+    contains the other.
+
+    Travel is +/-999.9 um in x and only +/-377.8 um in y, against a grid boundary of
+    1000 um radius -- so in y the stage runs out of travel well inside the grid, and a
+    selection can be on the grid and still unreachable. The boundary alone would say it
+    was fine.
+    """
+    labels = {spec.label for spec in pane.stage_overlay._specs}
+
+    assert labels == {"Stage limits", "Grid boundary"}
+
+
+def test_reachability_is_worked_out_without_asking_the_instrument(pane, microscope):
+    """A UI event must not read the microscope, and this one would read it per *tile*.
+
+    `project_fm_stable_move` reads `fm.camera_tilt` and the camera transform on every
+    call -- 216 ms each on the simulator, so one per tile on a region change is half a
+    minute of frozen UI for a 150 tile grid, plus instrument traffic on a mouse event.
+    The held `FMStageProjection` is the same arithmetic over the same geometry and agrees
+    to 1.4e-20 m.
+    """
+    from unittest.mock import patch
+
+    with patch.object(
+        type(microscope),
+        "project_fm_stable_move",
+        side_effect=AssertionError("the preview asked the instrument"),
+    ):
+        plan = select(pane, microscope, *TWO_REGIONS)
+
+    # It got all the way through, which it could not have done by asking.
+    assert plan is not None
+    assert pane.enabled_tiles > 0
+    # And it did the work rather than skipping it: this selection reaches roughly
+    # +/-450 um of ground against +/-377.8 um of travel, so some of it is genuinely out
+    # of reach and an empty answer here would mean the check never ran.
+    assert pane.unreachable_tiles
+
+
+def test_the_limits_drawn_are_the_stage_it_was_given(pane, microscope):
+    """Read from the instrument rather than assumed, so a stage with different travel
+    draws a different box."""
+    limits = microscope._stage.limits
+    [box] = [s for s in pane.stage_overlay._specs if s.kind == "rect"]
+
+    ratio = box.height / box.width
+    expected = (limits["y"].max - limits["y"].min) / (limits["x"].max - limits["x"].min)
+    assert ratio == pytest.approx(expected, rel=1e-6)
+
+
+def test_the_limits_box_is_shorter_than_the_grid_is_wide(pane):
+    """The property that makes drawing it worth anything: a box the size of the boundary
+    would tell the user nothing they could not already see."""
+    [box] = [s for s in pane.stage_overlay._specs if s.kind == "rect"]
+    [circle] = [s for s in pane.stage_overlay._specs if s.kind == "circle"]
+
+    assert box.height < 2 * circle.radius
+
+
 # ── what the host reads ──────────────────────────────────────────────────
 
 

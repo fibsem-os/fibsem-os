@@ -39,8 +39,17 @@ from fibsem.ui.fm.widgets.fm_region_selector import FMRegionSelectorWidget
 from fibsem.ui.fm.widgets.fm_tile_preview import FMTilePreviewWidget
 from fibsem.ui import stylesheets
 from fibsem.ui.stylesheets import CANVAS_BG
-from fibsem.ui.tokens import BORDER_COLOR, PANEL_COLOR, TEXT_COLOR, TEXT_MUTED_COLOR
+from fibsem.ui.tokens import (
+    BORDER_COLOR,
+    PANEL_COLOR,
+    STAGE_LIMITS_COLOUR,
+    TEXT_COLOR,
+    TEXT_MUTED_COLOR,
+)
 from fibsem.ui.widgets.preflight import format_duration
+
+# Amber, matching the stage-limits box the preview draws it against.
+_WARNING = STAGE_LIMITS_COLOUR
 
 _HINT = (
     "right-click the overview to add a region  ·  drag it or its corners  ·  "
@@ -213,7 +222,8 @@ class FMSparseSelectionDialog(QDialog):
         other is how a button comes to offer a different number from the line above it.
         """
         enabled, total, duration = self._counts()
-        self.accept_button.setEnabled(enabled > 0)
+        unreachable = len(self.preview.unreachable_tiles)
+        self.accept_button.setEnabled(enabled > 0 and not unreachable)
         self.accept_button.setText(
             f"Use {enabled} tiles" if enabled else "Use these tiles"
         )
@@ -221,8 +231,18 @@ class FMSparseSelectionDialog(QDialog):
         parts = [self.selector.describe_selected()]
         if total:
             parts.append(f"{enabled} of {total} tiles")
-        if duration is not None:
+        if duration is not None and not unreachable:
             parts.append(format_duration(duration))
+        if unreachable:
+            # Said here rather than left to `raise_if_outside_stage_limits`, which
+            # refuses once the run starts. Blocking rather than warning, because the
+            # runner will refuse anyway and finding out afterwards costs the whole setup.
+            # Masking off the offending tiles is a legitimate fix, so the way out is on
+            # screen already.
+            parts.append(
+                f"<span style='color:{_WARNING}'>{unreachable} beyond the stage's "
+                "travel — move or shrink the region, or drop those tiles</span>"
+            )
         self._status.setText("   ·   ".join(parts))
 
     def _counts(self) -> Tuple[int, int, Optional[float]]:

@@ -23,6 +23,7 @@ from fibsem.fm.structures import (
 )
 from fibsem.structures import TileOrderStrategy
 from fibsem.ui.fm.widgets.fm_sparse_selection_dialog import FMSparseSelectionDialog
+from fibsem.ui.widgets.preflight import format_duration
 
 
 @pytest.fixture(scope="module")
@@ -201,6 +202,107 @@ def test_a_z_stack_is_only_costed_when_the_run_is_one(microscope, views):
     with_regions(on, 1)
 
     assert off._counts()[2] < on._counts()[2]
+
+
+# ── beyond where the stage can go ────────────────────────────────────────
+
+
+# Enough to put a handful of tiles past the stage's +/-377.8 um of y travel, and no
+# more: every extra one costs a redraw in the test that drops them by hand.
+_TOO_TALL = 1.4e-4
+_WITHIN_REACH = 4e-5
+
+
+def stretch(dialog, half_height_m):
+    """Grow the selected region symmetrically in the beam plane's y."""
+    overlay = dialog.selector._overlays[-1]
+    rect = overlay.get_rect()
+    canvas = dialog.selector.canvas
+    _, half = canvas.metres_to_canvas(0.0, half_height_m)
+    overlay.set_rect(rect["x0"], rect["cy"] - half, rect["width"], 2 * half)
+    overlay.rect_changed.emit(overlay.get_rect())
+
+
+def test_a_selection_the_stage_cannot_reach_cannot_be_accepted(dialog):
+    """`raise_if_outside_stage_limits` would refuse the run anyway. Refusing here costs
+    the user a drag; refusing there costs them the whole setup.
+
+    Reachable in ordinary use: on a compustage the travel is +/-999.9 um in x and only
+    +/-377.8 um in y, against a grid boundary of 1000 um radius -- so a region can sit
+    well inside the grid and still be out of reach.
+    """
+    with_regions(dialog, 1)
+    assert dialog.accept_button.isEnabled() is True
+
+    stretch(dialog, _TOO_TALL)
+
+    assert dialog.preview.unreachable_tiles
+    assert dialog.accept_button.isEnabled() is False
+
+
+def test_it_says_how_many_tiles_are_out_of_reach(dialog):
+    with_regions(dialog, 1)
+
+    stretch(dialog, _TOO_TALL)
+
+    count = len(dialog.preview.unreachable_tiles)
+    assert f"{count} beyond the stage's travel" in dialog._status.text()
+
+
+def test_no_duration_is_quoted_for_a_run_that_cannot_happen(dialog):
+    """Quoting a time for it would suggest it is merely long.
+
+    Against the duration the estimate *would* have given, rather than against a pattern:
+    the warning is prose and matching on letters in it says nothing.
+    """
+    with_regions(dialog, 1)
+
+    stretch(dialog, _TOO_TALL)
+
+    duration = dialog._counts()[2]
+    assert duration is not None, "the estimate still exists; it is the display that hides it"
+    assert format_duration(duration) not in dialog._status.text()
+
+
+def test_shrinking_back_inside_the_limits_makes_it_acceptable_again(dialog):
+    """The way out has to be reversible, or the only escape is Cancel."""
+    with_regions(dialog, 1)
+    stretch(dialog, _TOO_TALL)
+    assert dialog.accept_button.isEnabled() is False
+
+    stretch(dialog, _WITHIN_REACH)
+
+    assert dialog.preview.unreachable_tiles == []
+    assert dialog.accept_button.isEnabled() is True
+
+
+def test_dropping_the_tiles_out_of_reach_is_a_way_out(dialog):
+    """The stated escape, so it has to work: only tiles that will be *visited* are
+    checked, which is what makes masking off an unreachable corner a legitimate fix
+    rather than a way to lie about one. `raise_if_outside_stage_limits` says the same
+    thing on the runner's side.
+    """
+    with_regions(dialog, 1)
+    stretch(dialog, _TOO_TALL)
+    out_of_reach = dialog.preview.unreachable_tiles
+    assert out_of_reach
+
+    for row, col in out_of_reach:
+        dialog.preview._on_tile_toggled(row, col, False)
+
+    assert dialog.preview.unreachable_tiles == []
+    assert dialog.accept_button.isEnabled() is True
+
+
+def test_clearing_the_selection_forgets_what_was_out_of_reach(dialog):
+    """Or the next selection inherits a complaint about tiles that no longer exist."""
+    with_regions(dialog, 1)
+    stretch(dialog, _TOO_TALL)
+    assert dialog.preview.unreachable_tiles
+
+    dialog.selector.clear_regions()
+
+    assert dialog.preview.unreachable_tiles == []
 
 
 # ── what comes back ──────────────────────────────────────────────────────
