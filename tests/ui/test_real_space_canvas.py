@@ -1310,3 +1310,63 @@ def test_an_image_occupying_part_of_the_canvas_is_budgeted_for_that_part():
         f"{c.display_max_px} px cap — each was priced as if it owned the canvas"
     )
     c.close()
+
+
+# ── content that changes under an image nobody is looking at ─────────────
+
+
+def test_a_forced_refresh_reaches_an_image_that_is_off_screen_later():
+    """`force` means the *sources* changed, not that the visible ones need redrawing.
+
+    An image off screen cannot be redrawn now -- there is no region to fetch -- and the
+    patch it is holding was built from the old content. Every test `_needs_detail`
+    applies then says to keep it: it covers the viewport, at the right resolution. So the
+    next pan back at the same zoom shows content from before the change, indefinitely.
+
+    Both consumers of this canvas do exactly that. `overview_widget._reapply_contrast`
+    applies a contrast curve and forces a refresh; the fluorescence canvas does the same
+    for a colour, opacity or gamma edit. Neither can reasonably know which of its images
+    the viewport happens to intersect.
+    """
+    c = _canvas(display_max_px=1024)
+    c.resize(600, 600)
+    c.show()
+    _app.processEvents()
+
+    side, span = 600, 60e-6
+    shade = {"near": 40, "far": 40}
+
+    def source(key):
+        def fetch(region, max_px):
+            n = max(1, min(max_px, int(side * (region.right - region.left))))
+            return np.full((n, n), shade[key], dtype=np.uint8), region
+        return fetch
+
+    for i, key in enumerate(("near", "far")):
+        c.add_image(
+            np.full((side, side), 40, dtype=np.uint8),
+            centre=(i * span * 1.5, 0.0), pixel_size=span / side,
+            key=key, covers=(span, span), detail=source(key),
+        )
+
+    def look_at(index):
+        centre = index * span * 1.5 / (span / side)
+        c._ax.set_xlim(centre - side / 2, centre + side / 2)
+        c._ax.set_ylim(side / 2, -side / 2)
+        _flush_detail(c)
+
+    def drawn(key):
+        return int(np.asarray(c._placed[key].artist.get_array()).mean())
+
+    look_at(1)  # `far` gets a patch at this zoom...
+    look_at(0)  # ...and is then off screen at the same zoom
+
+    shade["near"] = shade["far"] = 200
+    c.refresh_detail(force=True)
+    assert drawn("near") == 200, "the visible image did not pick up the new content"
+    assert drawn("far") == 40, "this test needs `far` to have been skipped"
+
+    look_at(1)
+
+    assert drawn("far") == 200, "panned back to an image built from the old content"
+    c.close()

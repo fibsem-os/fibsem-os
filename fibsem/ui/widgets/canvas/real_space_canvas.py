@@ -182,6 +182,12 @@ class PlacedImage:
     # request against what arrived rather than against what was requested makes every
     # patch look deficient, and re-asking returns the identical array, forever.
     asked_px: int = 0
+    # The source's own content changed under the patch, so what is drawn is out of date
+    # however well it fits the view. Set for *every* image by a forced refresh, and
+    # cleared only when that image is actually redrawn -- an image off screen when the
+    # change happened keeps the flag until it comes back, which is the whole point of it
+    # (see `refresh_detail`).
+    stale: bool = False
 
 
 class FibsemRealSpaceCanvas(FibsemCanvasBase):
@@ -374,6 +380,9 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         if placed.drawn != WHOLE_IMAGE:
             placed.artist.set_extent(placed.extent)
         placed.drawn, placed.asked_px = WHOLE_IMAGE, int(max(shown.shape[:2]))
+        # The whole of the current image is in the artist, so nothing is out of date --
+        # even if this ran while the image was off screen and no patch follows.
+        placed.stale = False
         if placed.detail is not None:
             # Scheduled, not immediate: this is the per-frame call during a live
             # acquisition, and fetching synchronously on each frame is the cost the
@@ -584,12 +593,23 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         a contrast curve, a re-blend, a new frame — which the view knows nothing about,
         so none of the usual tests would notice.
 
+        *force* marks every source's patch stale, not only the ones it can redraw now.
+        An image off screen cannot be redrawn — there is no region to fetch — and if the
+        flag were not left set, the next pan back to it would find a patch that covers
+        the viewport at the right resolution and keep it, styled the way it was before
+        the change. That is a restyle silently not applying to part of the canvas, which
+        is exactly the failure the caller used *force* to avoid.
+
         Deliberately *not* a content change: an image's footprint is unchanged by which
         part of it is in the artist, so nothing here refits, and `PlacedImage.extent`
         stays the whole image throughout. That is what keeps this from chasing its own
         tail -- a refit would move the limits, which would schedule another refresh.
         """
         changed = False
+        if force:
+            for placed in self._placed.values():
+                if placed.detail is not None:
+                    placed.stale = True
         for placed in list(self._placed.values()):
             if placed.detail is None:
                 continue
@@ -607,7 +627,7 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
                 continue  # off screen: leave the last patch, it costs nothing to keep
             fetch = self._visible_region(placed, margin=_DETAIL_MARGIN) or wanted
             budget = self._detail_budget(placed, fetch)
-            if not force and not self._needs_detail(placed, wanted, fetch, budget):
+            if not placed.stale and not self._needs_detail(placed, wanted, fetch, budget):
                 continue
             try:
                 answer = placed.detail(fetch, budget)
@@ -746,6 +766,7 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         ))
         placed.drawn = region
         placed.asked_px = budget
+        placed.stale = False
         return True
 
     def metres_to_canvas(self, x: float, y: float) -> Tuple[float, float]:

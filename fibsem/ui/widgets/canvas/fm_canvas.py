@@ -45,7 +45,11 @@ from fibsem.ui.widgets.canvas.fm_composite import (
 from fibsem.imaging.reduce import downsample
 from fibsem.ui.widgets.canvas.canvas_base import FibsemCanvasBase
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
-from fibsem.ui.widgets.canvas.real_space_canvas import FibsemRealSpaceCanvas
+from fibsem.ui.widgets.canvas.real_space_canvas import (
+    WHOLE_IMAGE,
+    FibsemRealSpaceCanvas,
+    ImageRegion,
+)
 
 if TYPE_CHECKING:
     from fibsem.fm.structures import FluorescenceImage
@@ -286,7 +290,7 @@ class FMCanvasWidget(QWidget):
         self.canvas._reposition_overlay_buttons()
 
         self._panel = FMLayersPanel(self)
-        self._panel.changed.connect(self._recomposite)
+        self._panel.changed.connect(self._restyle)
         self._panel.hide()
 
     # ── public API ────────────────────────────────────────────────────────
@@ -474,6 +478,16 @@ class FMCanvasWidget(QWidget):
         }
         self._show_composite(rgb, reshaped)
 
+    def _restyle(self) -> None:
+        """Redraw under the current layer settings, the pixels being unchanged.
+
+        Separate from :meth:`_recomposite` because the two are different questions that
+        happened to have the same answer here. New pixels have to be blended; a colour,
+        opacity or gamma edit only has to be *shown*, and a subclass that draws part of
+        what it holds can answer that without blending everything it holds first.
+        """
+        self._recomposite()
+
     def _show_composite(self, rgb: np.ndarray, reshaped: bool) -> None:
         """Put the blended RGB frame on the canvas.
 
@@ -657,10 +671,6 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         # Channel planes of everything placed, so a layer change can re-render images
         # composited long ago. Only the newest is in `_layers`; the rest are here.
         self._held: Dict[str, Dict[str, np.ndarray]] = {}
-        # The same planes at display resolution. Held images do not change while held,
-        # so their reduction is computed once here rather than on every re-render.
-        # Invalidated wherever `_held` is, and wherever the display cap moves.
-        self._held_reduced: Dict[str, Dict[str, np.ndarray]] = {}
         # Auto contrast limits per placed image per channel, as
         # ``{key: {channel: (source_plane, (lo, hi))}}``. See `_auto_clim`.
         self._held_clim: Dict[str, Dict[str, Tuple[np.ndarray, Tuple[float, float]]]] = {}
@@ -674,7 +684,7 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         Several images share one set of controls here, so a channel dropped from the
         newest is not dropped from the canvas -- an earlier overview may well have it.
         Removing the control would leave that overview with a channel nothing can
-        style, and `_restyle_others` would quietly stop drawing it: acquire a
+        style, and its detail source would quietly stop drawing it: acquire a
         one-channel overview and the two-channel one beside it loses a colour.
         """
         return any(name in planes for planes in self._held.values())
@@ -698,11 +708,10 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         """Drop the channel planes held for one image. False if none were held.
 
         The counterpart to the canvas's `remove_image`, and it has to be called with it:
-        the planes are what `_restyle_others` re-renders from, so keeping them for an
-        image no longer placed leaks the pixels and leaves `_channel_still_shown`
-        answering for a channel nothing displays.
+        the planes are what `_patch` draws from, so keeping them for an image no longer
+        placed leaks the pixels and leaves `_channel_still_shown` answering for a channel
+        nothing displays.
         """
-        self._held_reduced.pop(key, None)
         self._held_clim.pop(key, None)
         return self._held.pop(key, None) is not None
 
@@ -711,7 +720,6 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         for key in list(self._held):
             self.canvas.remove_image(key)
         self._held.clear()
-        self._held_reduced.clear()
         self._held_clim.clear()
 
     def set_placement(self, centre: Tuple[float, float]) -> None:
@@ -753,21 +761,13 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         covers = None
         if self._shape:
             covers = (self._shape[1] * self._pixel_size, self._shape[0] * self._pixel_size)
-        # Keep this image's planes, so a later layer change can re-render it once its
-        # channels are no longer the ones in `_layers`. Reduced once here rather than on
-        # every re-render: these are held at *acquisition* resolution -- a stitched 10x10
-        # mosaic is 10240px square per channel -- and they do not change while they are
-        # held, so re-reducing them per re-render is the same answer computed repeatedly.
-        # That cost nothing while the reduction was a strided view and is 9 ms a plane
-        # now it averages; `_restyle_others` runs it for every held image on every layer
-        # change, so it multiplied by both counts at once.
+        # Keep this image's planes at *acquisition* resolution: they are what `_patch`
+        # slices, so how far a zoom can go is set by what is kept here. No reduction is
+        # cached beside them -- the canvas holds the patch it last fetched and refetches
+        # only when the view outgrows it, so a second cache would answer a question
+        # nothing asks.
         self._held[key] = {
             layer.name: layer.data for layer in self._layers if layer.data is not None
-        }
-        self._held_reduced[key] = {
-            name: reduced
-            for name, reduced in self._blended_planes.items()
-            if name in self._held[key]
         }
         # Placed over other images rather than over a background, so it goes on as
         # colour plus coverage: an opaque frame hides whatever it covers, including
@@ -784,20 +784,80 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
                 # Ordered by the *acquired* pixel size: how much detail an image holds
                 # is a property of the data, not of the blend.
                 zorder=self._detail_zorder(self._pixel_size),
+                # Bound to the key, and held by the canvas for as long as the image is
+                # placed, so dropping the image drops the source with it. `rgb` above is
+                # the whole image at the display cap -- the same answer this would give
+                # for `WHOLE_IMAGE` -- so it stands as the first patch and nothing is
+                # blended twice to get started.
+                detail=lambda region, max_px, key=key: self._patch(key, region, max_px),
             )
         else:
             self.canvas.update_image(key, placed)
-        self._restyle_others(key)
+        # Everything else placed is restyled through its own source, which asks only
+        # about images the viewport actually intersects. `_restyle_others` re-blended
+        # every held image whether it was on screen or not, which is where five
+        # overviews cost five blends a frame.
+        self.canvas.refresh_detail(force=True)
 
-    def _reduced_plane(
-        self,
-        cached: Dict[str, np.ndarray],
-        planes: Dict[str, np.ndarray],
-        name: str,
-    ) -> np.ndarray:
-        """A held plane at display resolution, from the cache when it is there."""
-        hit = cached.get(name)
-        return self._reduce(planes[name]) if hit is None else hit
+    def _restyle(self) -> None:
+        """A layer edit changes no pixels, so there is nothing to blend up front.
+
+        The base re-blends everything it holds and re-places it. Here the canvas asks
+        each source for the part of its image that is on screen, at the resolution the
+        screen can use, and skips the images that are not on screen at all.
+        """
+        self.canvas.refresh_detail(force=True)
+
+    def _patch(
+        self, key: str, region: ImageRegion, max_px: int
+    ) -> Optional[Tuple[np.ndarray, ImageRegion]]:
+        """The part of a placed overview *region* names, blended, at most *max_px* across.
+
+        What the canvas asks for as the view moves. The blend runs **at patch
+        resolution** rather than over a finished composite, which is the inversion
+        `_composite_inputs` already makes for a different reason: reducing first and
+        blending second costs the pixels that survive rather than the pixels held.
+
+        Snapped outward to whole stored pixels, and the region *actually* covered is
+        returned rather than the one asked for -- the canvas draws the patch over the
+        rectangle this names, and a fractional-pixel disagreement between the two would
+        show as a seam every time the view moved.
+
+        Contrast comes from `_pinned`, so it belongs to the image rather than to this
+        region of it. Without that a dim corner would be stretched to itself and drawn as
+        bright as the sample.
+        """
+        planes = self._held.get(key)
+        if not planes:
+            return None
+        layers = [layer for layer in self._layers if layer.name in planes]
+        if not layers:
+            return None
+
+        height, width = planes[layers[0].name].shape[:2]
+        x0 = min(max(0, int(np.floor(region.left * width))), width - 1)
+        y0 = min(max(0, int(np.floor(region.top * height))), height - 1)
+        x1 = min(width, max(int(np.ceil(region.right * width)), x0 + 1))
+        y1 = min(height, max(int(np.ceil(region.bottom * height)), y0 + 1))
+
+        blended = [
+            self._pinned(
+                key,
+                layer,
+                planes[layer.name],
+                downsample(planes[layer.name][y0:y1, x0:x1], max_px),
+            )
+            for layer in layers
+        ]
+        # Shape passed explicitly so hiding every channel yields black rather than
+        # nothing: `to_rgba` turns black into transparent, which is the image
+        # disappearing. Declining here would leave the last patch drawn instead.
+        rgb = composite_fm_layers(blended, blended[0].data.shape[:2])
+        if rgb is None:
+            return None
+        return to_rgba(rgb), ImageRegion(
+            x0 / width, x1 / width, y0 / height, y1 / height
+        )
 
     def _auto_clim(self, key: str, name: str, source: np.ndarray) -> Tuple[float, float]:
         """Auto contrast limits for one channel of one placed image, computed once.
@@ -896,44 +956,6 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         behind whatever was taken at higher resolution over it.
         """
         return -pixel_size * 1e9  # nanometres/px, negated: smaller pixels draw on top
-
-    def _restyle_others(self, current: str) -> None:
-        """Re-render everything except *current* under the present layer settings.
-
-        Layers are display state shared by everything placed; the pixels are not. So a
-        colour or contrast change has to be applied to each held image's own planes,
-        which is why they are kept. Without this, changing a channel's colour would
-        recolour the newest overview and leave the others as they were — the same data
-        drawn two different ways, side by side.
-        """
-        for key, planes in self._held.items():
-            if key == current or key not in self.canvas.placed_keys:
-                continue
-            reduced = self._held_reduced.get(key) or {}
-            layers = [
-                # Cached at hold time: a held image's planes do not change, so the
-                # reduction is the same answer on every re-render. Falls back rather
-                # than indexing, so a cache that somehow missed an entry costs time
-                # instead of raising out of a paint (FIB-329). Compared against None
-                # explicitly -- `or` on an array raises rather than testing presence.
-                self._pinned(
-                    key,
-                    layer,
-                    planes[layer.name],
-                    self._reduced_plane(reduced, planes, layer.name),
-                )
-                for layer in self._layers
-                if layer.name in planes
-            ]
-            if not layers:
-                continue
-            shape = layers[0].data.shape[:2]
-            rgb = composite_fm_layers(layers, shape)
-            if rgb is not None:
-                # Same transform as the image that triggered this: these are placed
-                # over each other too, and re-rendering one opaque would put back the
-                # occlusion `_show_composite` just avoided.
-                self.canvas.update_image(key, to_rgba(rgb))
 
     def set_pixel_size(self, pixel_size: Optional[float]) -> None:
         """Record the scale without touching the canvas's own.
