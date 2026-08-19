@@ -197,6 +197,56 @@ def test_the_ruler_clamps_to_the_content_bounds_not_to_zero():
     assert ruler._p2 == [1400.0, 2200.0]  # and its bottom-right
 
 
+# ── an overlay is told what it was added to ──────────────────────────────
+
+
+def test_an_overlay_added_to_a_real_space_canvas_is_told_the_content():
+    """`add_overlay` used to gate this on `_img_w`, which is a *single image* canvas's
+    notion of content and is never set by one placing images in stage space.
+
+    So an overlay added to a real-space canvas was never told what it had been added to.
+    Harmless for one its host redraws by hand -- a tile grid -- and fatal for one that
+    builds its artists on the first content report: a `RectOverlay` added this way drew
+    nothing at all, with no error.
+    """
+    from fibsem.ui.widgets.canvas.real_space_canvas import FibsemRealSpaceCanvas
+
+    canvas = FibsemRealSpaceCanvas()
+    canvas.add_image(_img(64, 64), centre=(0.0, 0.0), pixel_size=1e-6)
+    overlay = _Recorder()
+
+    canvas.add_overlay(overlay)
+
+    assert overlay.rects, "the overlay was never told the canvas had content"
+    assert not overlay.rects[-1].is_empty
+
+
+def test_an_overlay_added_to_an_empty_canvas_is_told_it_is_empty():
+    """Told, rather than not told. Every overlay guards on `rect.is_empty`, so the
+    report costs nothing and the alternative is a silent difference between the two
+    canvases."""
+    canvas = FibsemImageCanvas()
+    overlay = _Recorder()
+
+    canvas.add_overlay(overlay)
+
+    assert overlay.rects == [EMPTY_CONTENT]
+
+
+def test_a_rectangle_overlay_on_a_real_space_canvas_actually_draws():
+    """The regression in the shape it was found in."""
+    from fibsem.ui.widgets.canvas.overlays.rect_overlay import RectOverlay
+    from fibsem.ui.widgets.canvas.real_space_canvas import FibsemRealSpaceCanvas
+
+    canvas = FibsemRealSpaceCanvas()
+    canvas.add_image(_img(64, 64), centre=(0.0, 0.0), pixel_size=1e-6)
+    overlay = RectOverlay()
+
+    canvas.add_overlay(overlay)
+
+    assert overlay._patch is not None
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
