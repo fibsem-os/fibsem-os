@@ -1553,14 +1553,28 @@ class FibsemOverviewWidget(QWidget):
 
     def place_image(self, image: FibsemImage, key: Optional[str] = None,
                     zorder: Optional[float] = None) -> Optional[str]:
-        """Put one image on the canvas where it was acquired.
+        """Put one image on the canvas where it was acquired. See :meth:`_place`."""
+        return self._place(image, key=key, zorder=zorder)[0]
+
+    def _place(self, image: FibsemImage, key: Optional[str] = None,
+               zorder: Optional[float] = None
+               ) -> Tuple[Optional[str], Optional["_PlacedTile"]]:
+        """Put one image on the canvas, and hand back the tile that was stored for it.
+
+        The tile comes back because a caller that keeps a *record* needs the same one:
+        reducing the image again to fill the record built a second, equal copy of the
+        largest arrays this widget holds, and kept both -- the canvas binds its tile into
+        the `detail` closure, so nothing dropped the first. At the 128 MB store budget
+        that is up to a quarter of a gigabyte per overview instead of an eighth, and the
+        reduction itself (measured at 218 MB of temporary and 38 ms for a 10x10 of
+        1024 px tiles, see `_stored_tile`) was paid twice.
 
         Switches the canvas to the image's own view first, if it is not already there:
         you placed the image in order to look at it, and it would otherwise be recorded
         into a view nothing is showing.
 
-        Returns the canvas key, or None if the image cannot be placed -- which is the
-        case for anything acquired before the stage position and pixel size were
+        Returns `(key, tile)`, or `(None, None)` if the image cannot be placed -- which
+        is the case for anything acquired before the stage position and pixel size were
         recorded. Refused rather than placed at the origin: an image in the wrong place
         looks exactly like an image in the right place.
         """
@@ -1568,11 +1582,11 @@ class FibsemOverviewWidget(QWidget):
         pixel_size = self._pixel_size_of(image)
         if position is None or not pixel_size:
             logger.debug("Cannot place an image with no stage position or pixel size.")
-            return None
+            return None, None
 
         view = self._view_of(image)
         if view is None:
-            return None
+            return None, None
         if self._current_view is None:
             self._current_view = view
             self._refresh_view_selector()
@@ -1588,9 +1602,8 @@ class FibsemOverviewWidget(QWidget):
         if self.canvas.reference_pixel_size is None:
             reframed |= self.canvas.set_reference_pixel_size(pixel_size)
 
-        placed = self._place_on_canvas(
-            self._stored_tile(image), view, key=key, zorder=zorder
-        )
+        tile = self._stored_tile(image)
+        placed = self._place_on_canvas(tile, view, key=key, zorder=zorder)
         # Only when the *frame* moved, which is the origin or the scale and nothing else.
         # An image is drawn in the frame; it does not decide it, so a placement that
         # leaves both alone changes nothing any overlay is derived from -- and every
@@ -1600,7 +1613,7 @@ class FibsemOverviewWidget(QWidget):
         # acquisition (FIB-647).
         if reframed:
             self._refresh_context_overlays()
-        return placed
+        return placed, tile
 
     # ── contrast and gamma ────────────────────────────────────────────────
 
@@ -1703,8 +1716,8 @@ class FibsemOverviewWidget(QWidget):
         self._record_count += 1
         record_id = f"overview-{self._record_count}"
         view = self._view_of(image)
-        key = self.place_image(image, key=record_id)
-        if key is None:
+        key, tile = self._place(image, key=record_id)
+        if key is None or tile is None:
             notification_service.show_toast(
                 "That image does not record where it was acquired, so it cannot be "
                 "placed on the overview.",
@@ -1713,7 +1726,7 @@ class FibsemOverviewWidget(QWidget):
             return None
         record = OverviewRecord(record_id, os.path.basename(record_id), [key], view=view)
         record.pixel_size = self._pixel_size_of(image)
-        record.images.append(self._stored_tile(image))
+        record.images.append(tile)
         self._records[record_id] = record
         self._refresh_overview_list()
         return record_id
@@ -1806,12 +1819,12 @@ class FibsemOverviewWidget(QWidget):
         if record is None:
             return
         record.view = self._view_of(mosaic)
-        key = self.place_image(mosaic, key=record.id)
-        if key is None:
+        key, tile = self._place(mosaic, key=record.id)
+        if key is None or tile is None:
             logger.debug("The finished overview could not be placed.")
             return
         record.keys = [key]
-        record.images = [self._stored_tile(mosaic)]
+        record.images = [tile]
         record.pixel_size = self._pixel_size_of(mosaic)
         self._refresh_overview_list()
 
@@ -1916,8 +1929,19 @@ class FibsemOverviewWidget(QWidget):
     def _refresh_context_overlays(self) -> None:
         """Redraw the stage limits, holder slots and planned overview footprint.
 
-        Everything here is derived from configuration and the cached stage position, so
-        it costs no hardware access and is safe to call on any UI event.
+        Everything here is derived from configuration and the cached stage position --
+        with one exception, which is unavoidable rather than an oversight: the *first*
+        refresh in a view builds that view's `BeamStageProjection`, and building one
+        reads the scan rotation off the instrument. There is no drawing a view without
+        a projection, and no projection without that read.
+
+        Once per view, then cached (`_projection`), so the cost is not per event -- and
+        it recurs only after `invalidate_projection`, which a host calls precisely
+        because the instrument changed and the old answer is wrong. Worth knowing
+        because on TFS that read is a set-then-read on the shared imaging channel
+        (FIB-544, FIB-600), and the rest of this class goes to some trouble to keep such
+        reads off UI events: `_on_cursor_moved` and `_target_offset` both take the
+        cached projection for exactly that reason.
 
         The one place that anchors the canvas, so `_frame` stays a pure read: this runs
         on construction, on a stage move, on a settings change and on a view change,
@@ -2407,6 +2431,15 @@ class FibsemOverviewWidget(QWidget):
         Measured on screen, not in data units: at a wide zoom every marker would be
         within any sensible micron radius of the click, and at a tight one none would be.
         """
+        if not self.overlay_controls.is_visible(_OVERLAY_POSITIONS):
+            # Turned off means gone, not merely invisible. `_refresh_position_markers`
+            # reads the same control and draws nothing, so picking here would select a
+            # lamella from a click on what looks like bare mosaic -- and the host fans
+            # that selection out to every list in the window, with nothing on screen to
+            # say why. The one marker that stays drawn when these are off is the current
+            # stage position, and it was never pickable.
+            return None
+
         frame = self._frame()
         ax = getattr(self.canvas, "_ax", None)
         if frame is None or ax is None or not self._positions:

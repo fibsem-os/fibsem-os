@@ -428,6 +428,93 @@ class TestOneDerivationForBothDirections:
         assert widget._position_at(x + 4000, y + 4000) is None
 
 
+    def test_a_hidden_marker_is_not_a_target(self, widget, microscope):
+        """Turned off means gone, not merely invisible.
+
+        With saved positions hidden, `_refresh_position_markers` draws nothing — so a
+        pick here selects a lamella from a click on what looks like bare mosaic, and the
+        host fans that selection out to every list in the window with nothing on screen
+        to explain it.
+        """
+        base = microscope.get_stage_position()
+        widget.place_image(_tile(microscope, _at(base)))
+        widget.set_positions([_at(base, 0.0, 0.0, "A")])
+        frame = widget._frame()
+        x, y = frame.to_canvas(_at(base, 0.0, 0.0))
+        assert widget._position_at(x, y) == "A", "not pickable while shown"
+
+        widget.overlay_controls.set_visible("positions", False)
+
+        assert widget._position_at(x, y) is None
+
+    def test_a_marker_shown_again_is_pickable_again(self, widget, microscope):
+        """The guard must not outlive the state it reads."""
+        base = microscope.get_stage_position()
+        widget.place_image(_tile(microscope, _at(base)))
+        widget.set_positions([_at(base, 0.0, 0.0, "A")])
+        frame = widget._frame()
+        x, y = frame.to_canvas(_at(base, 0.0, 0.0))
+
+        widget.overlay_controls.set_visible("positions", False)
+        widget.overlay_controls.set_visible("positions", True)
+
+        assert widget._position_at(x, y) == "A"
+
+
+class TestAnOverviewIsReducedOnce:
+    """The reduced arrays are the largest thing this widget holds.
+
+    Placing built one and binding it into the canvas's `detail` closure, then the record
+    built a second, equal one — so the reduction was paid twice and both copies were
+    kept. At the 128 MB store budget that is up to a quarter of a gigabyte per overview
+    instead of an eighth.
+    """
+
+    def test_a_loaded_overview_is_reduced_once(self, widget, microscope, monkeypatch):
+        base = microscope.get_stage_position()
+        widget.place_image(_tile(microscope, _at(base)))  # anchors the view
+
+        calls = []
+        original = widget._stored_tile
+        monkeypatch.setattr(
+            widget, "_stored_tile",
+            lambda image: calls.append(image) or original(image),
+        )
+
+        widget.set_image(_tile(microscope, _at(base, dx=10e-6)))
+
+        assert len(calls) == 1, f"reduced {len(calls)} times"
+
+    def test_the_record_keeps_the_tile_that_was_placed(
+        self, widget, microscope, monkeypatch
+    ):
+        """Not an equal one. Two equal copies is exactly the waste being removed, and
+        `show_view` re-places from the record — so if they ever diverged, a view switch
+        would redraw something other than what is on screen.
+
+        Identity against the tile the canvas was actually handed, captured at
+        `_place_on_canvas`. Asserting the record merely holds *a* tile would pass just
+        as well against the version that built two.
+        """
+        base = microscope.get_stage_position()
+        widget.place_image(_tile(microscope, _at(base)))
+
+        placed = []
+        original = widget._place_on_canvas
+        monkeypatch.setattr(
+            widget, "_place_on_canvas",
+            lambda tile, view, **kwargs: placed.append(tile) or original(
+                tile, view, **kwargs
+            ),
+        )
+
+        record_id = widget.set_image(_tile(microscope, _at(base, dx=10e-6)))
+
+        record = widget._records[record_id]
+        assert len(placed) == 1
+        assert record.images == [placed[0]], "the record kept a second, equal tile"
+
+
 class TestItDoesNotReadHardwareOnUiEvents:
     """The rule the old tab broke twice, and the reason this widget caches.
 
