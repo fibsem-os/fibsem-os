@@ -4929,19 +4929,23 @@ def test_a_beam_run_does_not_drive_the_fluorescence_bar(qapp, overview_widget):
     assert _bar(widget.progress_tiles).format() == before
 
 
-def test_the_preview_payload_does_not_redraw_the_tile_bar(qapp):
+def test_the_announcement_payload_does_not_redraw_the_tile_bar(qapp):
     """One producer for one bar.
 
-    Both payloads a tile emits carry counts, and they mean different things: `acquiring`
-    names the tile *starting* and comes with an estimate, `tile` carries the mosaic so
-    far and the *completed* tally. Rendering both put two different bars in one place —
-    `acquiring` draws a countdown scaled in tenths of a second and the preview drew
-    tiles, so the fill jumped and the text changed shape at every tile boundary. Found
-    by running the app; every test here was green throughout.
+    A tile emits twice: an announcement before it -- which tile is starting -- and a
+    report after it, carrying the completed tally, the estimate and the preview. Only
+    the second describes progress, and only the second touches the bar.
+
+    Both used to carry counts, with different meanings and different shapes, so the bar
+    changed scale at every boundary: a countdown in tenths of a second against a tally
+    in tiles (FIB-739). Fixing that in this widget left the bar driven by the
+    announcement, which is emitted *before* its tile and could only ever be one short --
+    it stopped at 3/4 for the whole run (FIB-736). The announcement now carries no
+    counts at all, which settles both.
     """
     router = _Router()
     router._apply_progress({
-        "modality": "fluorescence", "state": "acquiring", "task": "tileset",
+        "modality": "fluorescence", "state": "tile", "task": "tileset",
         "counter": 2, "total": 4,
         "estimated_remaining_time": 18.0, "estimated_total_time": 24.0,
     })
@@ -4950,14 +4954,14 @@ def test_the_preview_payload_does_not_redraw_the_tile_bar(qapp):
               _bar(router.progress_tiles).format())
 
     router._apply_progress({
-        "modality": "fluorescence", "state": "tile", "task": "tileset",
-        "counter": 2, "total": 4,
+        "modality": "fluorescence", "state": "acquiring", "task": "tileset",
+        "row": 2, "col": 3, "total_rows": 2, "total_cols": 2,
     })
 
     after = (_bar(router.progress_tiles).value(),
              _bar(router.progress_tiles).maximum(),
              _bar(router.progress_tiles).format())
-    assert after == before, "the preview payload redrew the bar on a different scale"
+    assert after == before, "the announcement redrew the bar"
     assert "remaining" in after[2], "the estimate was dropped"
 
 
