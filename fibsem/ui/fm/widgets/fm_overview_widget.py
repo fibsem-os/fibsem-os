@@ -525,21 +525,18 @@ class FMOverviewWidget(QWidget):
         self.button_cancel.clicked.connect(self.cancel)
         self.button_cancel.setEnabled(False)
 
-        # Above the run controls, because it changes *what* will run rather than
-        # starting it. Hidden unless the feature is on -- see `set_sparse_selection_enabled`.
-        self.button_select_ground = QPushButton("Select from FIB/SEM overview…")
-        self.button_select_ground.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        # In the Grid panel's header, not stacked above Acquire. It sets rows, columns
+        # and the mask, so it belongs where those live -- and full width beside the run
+        # controls gave it the same weight as the button that starts a twenty-minute
+        # acquisition. The count it produces is read off the tile mask directly below.
+        self.button_select_ground = IconToolButton(
+            icon="mdi:crop-free",
+            tooltip="Select the ground to image on a FIB/SEM overview",
+            size=_HEADER_BTN_SIZE,
+        )
         self.button_select_ground.clicked.connect(self.select_ground_to_image)
         self.button_select_ground.setVisible(False)
-
-        # What the selection did, and that doing it again replaces rather than adds to
-        # it. There is no restore: the regions end with the dialog, so a second selection
-        # starts over, and saying so is cheaper than letting someone find out.
-        self.label_selection = ElidedLabel()
-        self.label_selection.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-size: 10px; border: none;"
-        )
-        self.label_selection.setVisible(False)
+        self.settings_widget.add_grid_header_widget(self.button_select_ground)
 
         buttons = QWidget()
         buttons_layout = QHBoxLayout(buttons)
@@ -562,8 +559,6 @@ class FMOverviewWidget(QWidget):
         actions_layout.addWidget(self.orientation_banner)
         actions_layout.addWidget(self.progress_tiles)
         actions_layout.addWidget(self.progress_tile_detail)
-        actions_layout.addWidget(self.button_select_ground)
-        actions_layout.addWidget(self.label_selection)
         actions_layout.addWidget(buttons)
 
         side = QWidget()
@@ -1130,8 +1125,6 @@ class FMOverviewWidget(QWidget):
         """
         self._sparse_selection_enabled = bool(enabled)
         self.button_select_ground.setVisible(self._sparse_selection_enabled)
-        if not self._sparse_selection_enabled:
-            self.label_selection.setVisible(False)
 
     def select_ground_to_image(self) -> None:
         """Draw regions on a saved beam overview, and take the grid they produce.
@@ -1181,11 +1174,14 @@ class FMOverviewWidget(QWidget):
         self._target = selection.centre_position
         enabled = selection.parameters.n_enabled_tiles
         total = selection.parameters.rows * selection.parameters.cols
-        self.label_selection.setText(
+        # The Grid header already shows "28/66 tiles" whenever a run is sparse, so the
+        # count is not repeated here -- what it cannot say is *where the mask came from*,
+        # and that selecting again replaces rather than adds to it. There is no restore:
+        # the regions end with the dialog.
+        self.button_select_ground.setToolTip(
             f"{enabled} of {total} tiles came from a selection. "
             "Selecting again replaces it."
         )
-        self.label_selection.setVisible(True)
         self._refresh_tile_grid()
 
     @property

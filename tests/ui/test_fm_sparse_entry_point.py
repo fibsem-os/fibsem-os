@@ -170,6 +170,19 @@ def dialog_never_opens():
         module.FMSparseSelectionDialog.choose = original
 
 
+def test_the_button_sits_with_the_grid_it_sets(widget):
+    """In the Grid panel's header, not stacked above Acquire.
+
+    It sets rows, columns and the mask, so it belongs where those live -- and full width
+    beside the run controls gave it the same weight as the button that starts a
+    twenty-minute acquisition.
+    """
+    header = widget.settings_widget.grid.panel
+
+    assert widget.button_select_ground.parent() is not None
+    assert header.isAncestorOf(widget.button_select_ground)
+
+
 def test_the_flag_is_carried_past_the_button(widget):
     """A control nobody can see is not a feature that is off. Someone reaching the
     method another way must meet the same answer as someone looking for the button."""
@@ -193,7 +206,6 @@ def test_with_no_overviews_it_says_so_rather_than_opening_an_empty_dialog(
         built.select_ground_to_image()
 
     assert opened == []
-    assert built.label_selection.isVisibleTo(built) is False
 
 
 def test_it_does_open_when_there_is_something_to_select_on(widget):
@@ -240,9 +252,13 @@ def test_applying_a_selection_moves_where_the_run_will_be_centred(widget):
 
 def test_it_says_the_grid_came_from_a_selection_and_will_be_replaced(widget):
     """There is no restore: the regions end with the dialog, so a second selection starts
-    over. Saying so is cheaper than letting someone find out."""
+    over. Saying so is cheaper than letting someone find out.
+
+    On the button rather than a label of its own, because the mask grid is directly below
+    and already shows which tiles are in -- the one thing it cannot show is where they
+    came from.
+    """
     widget.apply_sparse_selection(selection(rows=4, cols=3))
 
-    assert widget.label_selection.isVisibleTo(widget) is True
-    assert "2 of 12 tiles came from a selection" in widget.label_selection.text()
-    assert "replaces it" in widget.label_selection.text()
+    assert "2 of 12 tiles came from a selection" in widget.button_select_ground.toolTip()
+    assert "replaces it" in widget.button_select_ground.toolTip()
