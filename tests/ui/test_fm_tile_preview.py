@@ -1,0 +1,237 @@
+"""The FM tile preview pane: what a selection of ground would actually acquire.
+
+The pane's job is to be *right* and to be *inert*. Right, because a grid drawn against
+the wrong pose still looks like a grid — the arithmetic behind that is pinned in
+`tests/fm/test_planning.py`, and what is pinned here is that the widget uses it. Inert,
+because it is a preview inside a dialog and the stage must not move while someone is
+deciding where to look.
+"""
+import os
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+import pytest
+
+pytest.importorskip("PyQt5")
+
+from PyQt5.QtWidgets import QApplication
+
+from fibsem.imaging.tiling.geometry import PlaneRegion
+from fibsem.projection import BeamStageProjection, surface_foreshortening
+from fibsem.structures import BeamType, FibsemStagePosition
+from fibsem.ui.fm.widgets.fm_tile_preview import FMTilePreviewWidget
+
+OVERLAP = 0.1
+
+
+@pytest.fixture(scope="module")
+def qapp():
+    return QApplication.instance() or QApplication([])
+
+
+@pytest.fixture()
+def microscope(qapp):
+    from fibsem.ui.fm.overview_app import build_microscope
+
+    return build_microscope()
+
+
+@pytest.fixture()
+def pane(microscope):
+    widget = FMTilePreviewWidget(microscope)
+    widget.setFixedSize(316, 386)
+    return widget
+
+
+def beam_view(microscope, orientation="MILLING", beam_type=BeamType.ION):
+    projection = BeamStageProjection.from_microscope(microscope, beam_type)
+    pose = microscope.get_orientation(orientation)
+    return projection, FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t)
+
+
+def regions(*boxes):
+    return [PlaneRegion.from_points([(x0, y0), (x1, y1)]) for x0, y0, x1, y1 in boxes]
+
+
+# A wide, shallow pair in the beam plane. Shallow on purpose: the ion view at the
+# milling pose is foreshortened, so a box that looks nearly square there is a strip of
+# ground almost four times taller.
+TWO_REGIONS = ((-560e-6, -110e-6, -60e-6, -17e-6), (300e-6, 34e-6, 760e-6, 125e-6))
+
+
+def select(pane, microscope, *boxes, overlap=OVERLAP):
+    projection, base = beam_view(microscope)
+    return pane.set_selection(regions(*boxes), base, projection, overlap)
+
+
+# ── inert ────────────────────────────────────────────────────────────────
+
+
+def test_nothing_in_the_pane_can_move_the_stage(pane):
+    """The safety property, and the reason it is worth a test rather than a comment.
+
+    The canvas only *emits* click signals; every stage move in the FM overview tab lives
+    in that tab's handlers, connected to those same signals. So the pane is inert only
+    for as long as nobody copies the tab's wiring block across — which is exactly the
+    kind of thing that gets copied.
+    """
+    canvas = pane.canvas.canvas
+    assert canvas.receivers(canvas.canvas_clicked) == 0
+    assert canvas.receivers(canvas.canvas_double_clicked) == 0
+
+
+def test_the_grid_cannot_be_dragged_out_of_shape(pane):
+    """Rows, columns and centre come from the regions. A grid dragged here would spring
+    back on the next recompute, which reads as a broken control rather than an absent
+    one."""
+    assert pane.tile_grid_overlay._geometry_editable is False
+
+
+def test_selected_tiles_are_filled_not_just_outlined(pane):
+    """`ENABLED_ALPHA` is 0 on the canvas, so enabled tiles are outlines. That reads over
+    an image and does not read over nothing, and this pane is nothing but the grid."""
+    assert pane.tile_grid_overlay._fill_alpha > 0
+
+
+# ── right ────────────────────────────────────────────────────────────────
+
+
+def test_the_frame_is_posed_for_fluorescence_wherever_the_stage_is(microscope):
+    """Built with the stage at the milling pose, because that is where a beam overview
+    was just acquired. Anchoring on the live position draws every tile 1.086x too tall.
+    """
+    milling = microscope.get_orientation("MILLING")
+    microscope.move_stage_absolute(
+        FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=milling.r, t=milling.t)
+    )
+    widget = FMTilePreviewWidget(microscope)
+
+    assert surface_foreshortening(
+        widget._projection, widget._origin
+    ) == pytest.approx(1.0, abs=1e-9)
+
+
+def test_the_drawn_grid_is_the_planned_grid(pane, microscope):
+    """The widget must not re-derive a shape of its own; it draws what the planner said."""
+    plan = select(pane, microscope, *TWO_REGIONS)
+
+    drawn = pane.tile_grid_overlay._tiles
+    assert plan is not None
+    assert max(t.row for t in drawn) + 1 == plan.rows
+    assert max(t.col for t in drawn) + 1 == plan.cols
+    assert [[t.enabled for t in drawn if t.row == r] for r in range(plan.rows)] == plan.mask
+
+
+def test_a_bigger_selection_needs_a_bigger_grid(pane, microscope):
+    one = select(pane, microscope, TWO_REGIONS[0])
+    two = select(pane, microscope, *TWO_REGIONS)
+
+    assert two.rows * two.cols > one.rows * one.cols
+    assert pane.enabled_tiles > 0
+
+
+# ── the frame holds still ────────────────────────────────────────────────
+
+
+def test_the_working_area_is_declared_once(pane, microscope):
+    """A stable frame is what lets a growing selection read as growing, rather than as
+    the world shrinking around it. `refit=False` cannot deliver that on a canvas with no
+    image: `_fit_extent` falls back to the working area when nothing is placed, so
+    re-declaring per selection moves the view anyway. So it is never re-declared.
+    """
+    at_open = pane.canvas.canvas.world_extent
+    select(pane, microscope, TWO_REGIONS[0])
+    select(pane, microscope, *TWO_REGIONS)
+    pane.clear()
+
+    assert pane.canvas.canvas.world_extent == at_open
+
+
+# ── editing by hand ──────────────────────────────────────────────────────
+
+
+def test_toggling_a_tile_changes_the_mask_but_not_the_plan(pane, microscope):
+    plan = select(pane, microscope, *TWO_REGIONS)
+    before = pane.enabled_tiles
+
+    pane._on_tile_toggled(0, 0, not pane.mask[0][0])
+
+    assert pane.enabled_tiles != before
+    assert pane.plan is plan, "the plan is what the regions said; a toggle is not"
+
+
+def test_a_new_selection_discards_tiles_toggled_by_hand(pane, microscope):
+    """The grid is re-derived, so a toggle recorded against the old one would land on a
+    different tile or on none. Nothing marks a surviving toggle — the overlay draws every
+    enabled tile alike — so keeping them would leave tiles on for no visible reason."""
+    select(pane, microscope, *TWO_REGIONS)
+    pane._on_tile_toggled(0, 0, not pane.mask[0][0])
+    edited = pane.mask
+
+    select(pane, microscope, *TWO_REGIONS)
+
+    assert pane.mask != edited
+
+
+def test_a_toggle_outside_the_current_grid_is_ignored(pane, microscope):
+    """The overlay emits against the grid it was last given, and a selection change
+    between the press and the release would otherwise write outside the mask."""
+    select(pane, microscope, TWO_REGIONS[0])
+    before = pane.mask
+
+    pane._on_tile_toggled(999, 999, True)
+
+    assert pane.mask == before
+
+
+# ── nothing selected ─────────────────────────────────────────────────────
+
+
+def test_a_region_with_no_area_selects_nothing_rather_than_raising(pane, microscope):
+    """A click that never became a drag. A state, not a failure."""
+    assert select(pane, microscope, (1e-4, 1e-4, 1e-4, 1e-4)) is None
+    assert pane.plan is None
+    assert pane.enabled_tiles == 0
+
+
+def test_clearing_a_selection_leaves_the_stage_context_drawn(pane, microscope):
+    """The boundary and limits are the pane's only reachability cue, and they do not
+    depend on there being a selection."""
+    select(pane, microscope, *TWO_REGIONS)
+    pane.clear()
+
+    assert pane.tile_grid_overlay._tiles == []
+    assert pane.stage_overlay._specs
+
+
+# ── what the host reads ──────────────────────────────────────────────────
+
+
+def test_the_pane_reports_every_change_once(pane, microscope):
+    fired = []
+    pane.selection_changed.connect(lambda: fired.append(1))
+
+    select(pane, microscope, *TWO_REGIONS)
+    pane._on_tile_toggled(0, 0, not pane.mask[0][0])
+    pane.clear()
+
+    assert len(fired) == 3
+
+
+def test_clearing_nothing_reports_nothing(pane):
+    """Or a host that recomputes on every signal would do so for no reason."""
+    fired = []
+    pane.selection_changed.connect(lambda: fired.append(1))
+
+    pane.clear()
+
+    assert fired == []
+
+
+def test_the_mask_the_host_reads_cannot_be_written_through(pane, microscope):
+    select(pane, microscope, *TWO_REGIONS)
+    taken = pane.mask
+
+    taken[0][0] = not taken[0][0]
+
+    assert pane.mask != taken

@@ -56,9 +56,11 @@ class SparseOverviewPlan:
 
     Attributes:
         centre_position: Stage position the grid straddles, at the FM orientation.
-            `FMTiledAcquisitionRunner` takes this directly, and it doubles as the origin
-            for a canvas frame drawing the plan -- see the module docstring on why that
-            must not come from the live stage.
+            `FMTiledAcquisitionRunner` takes this directly. It is also at the pose a
+            canvas frame drawing the plan must be anchored at -- though a widget wants a
+            *fixed* origin rather than one that moves with the selection, so
+            `FMTilePreviewWidget` re-poses the stage position once instead. What matters
+            is the pose; see the module docstring on why it must not be the live one.
         rows: Grid rows.
         cols: Grid columns.
         mask: Per-tile enable mask, `mask[row][col]`.
