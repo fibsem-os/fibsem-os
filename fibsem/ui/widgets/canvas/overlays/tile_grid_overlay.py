@@ -97,6 +97,9 @@ class TileGridOverlay(QObject, CanvasOverlay):
         self._previous_margin: Optional[float] = None
         self._cids: List[int] = []
         self._resize_axes: Optional[Tuple[bool, bool]] = None  # (horizontal, vertical)
+        # Whether dragging may change the grid's *geometry*. Tile toggling is separate
+        # and always allowed -- see `set_grid_editable`.
+        self._geometry_editable: bool = True
         self._cursor_set: bool = False
         # A press inside the grid, held until it resolves into a move or a tile click:
         # (press_px_x, press_px_y, press_x, press_y, anchor_x, anchor_y). The screen
@@ -242,6 +245,21 @@ class TileGridOverlay(QObject, CanvasOverlay):
         """Hide the grid without discarding it, for an unobstructed look at the data."""
         self._visible = bool(visible)
         self._redraw()
+
+    def set_grid_editable(self, editable: bool) -> None:
+        """Whether dragging may move or resize the grid. Toggling tiles is unaffected.
+
+        For a host that derives the grid from something else and would only have to undo
+        the drag -- the sparse selection dialog computes rows, columns and centre from
+        the regions drawn on a beam overview, so a grid dragged here would spring back
+        the moment the plan was recomputed, which reads as a broken control rather than
+        an absent one.
+
+        The resize cursor goes with it. An affordance that advertises a gesture the host
+        discards is worse than no affordance, since the only way to learn it does nothing
+        is to try it.
+        """
+        self._geometry_editable = bool(editable)
 
     @property
     def is_grid_visible(self) -> bool:
@@ -493,7 +511,7 @@ class TileGridOverlay(QObject, CanvasOverlay):
             return
 
         edges = self._edge_at(event.xdata, event.ydata)
-        if edges is not None:
+        if edges is not None and self._geometry_editable:
             self._resize_axes = edges
             self._claim(event)
             return
@@ -588,6 +606,7 @@ class TileGridOverlay(QObject, CanvasOverlay):
         if (
             self._visible
             and self._tiles
+            and self._geometry_editable
             and event.inaxes is self._ax
             and event.xdata is not None
         ):
@@ -609,7 +628,10 @@ class TileGridOverlay(QObject, CanvasOverlay):
             self._drag_paint(event)
             return
         if self._move_start is not None:
-            self._drag_move(event)
+            # Still held when the geometry is fixed: it is what the release reads to
+            # decide the press was a click, and so a tile toggle.
+            if self._geometry_editable:
+                self._drag_move(event)
             return
         if self._resize_axes is None:
             self._update_cursor(event)

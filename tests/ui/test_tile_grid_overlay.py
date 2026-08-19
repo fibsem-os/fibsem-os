@@ -975,3 +975,78 @@ def test_detaching_mid_paint_does_not_leave_the_gesture_armed(qapp):
 
     assert overlay._paint_value is None
     assert overlay._painted == set()
+
+
+# ── a grid whose geometry belongs to someone else ────────────────────────
+#
+# The sparse selection dialog derives rows, columns and centre from regions drawn on a
+# beam overview, so a grid dragged in its preview pane would spring back the moment the
+# plan was recomputed. `set_grid_editable(False)` withdraws the two geometry gestures
+# and leaves everything else, which is the only combination that pane can use.
+
+
+def test_the_grid_is_editable_by_default(qapp):
+    """The flag is opt-out; every existing caller wants the drag."""
+    overlay, _ = build(3, 3)
+    right, _ = _edges(overlay)
+
+    overlay._on_press(_event(overlay, right, overlay._rect.cy))
+
+    assert overlay.is_resizing is True
+
+
+def test_a_fixed_grid_cannot_be_resized(qapp):
+    overlay, _ = build(3, 3, overlap=OVERLAP)
+    overlay.set_grid_editable(False)
+    requested = []
+    overlay.grid_resize_requested.connect(lambda r, c: requested.append((r, c)))
+    right, _ = _edges(overlay)
+
+    overlay._on_press(_event(overlay, right, overlay._rect.cy))
+    overlay._on_drag(_event(overlay, right + WIDTH, overlay._rect.cy))
+
+    assert overlay.is_resizing is False
+    assert requested == []
+
+
+def test_a_fixed_grid_cannot_be_moved(qapp):
+    overlay, _ = build(3, 3)
+    overlay.set_grid_editable(False)
+    moved = []
+    overlay.grid_move_requested.connect(lambda x, y: moved.append((x, y)))
+    cx, cy = _centre(overlay)
+
+    _drag(overlay, (cx, cy), (cx + 300.0, cy - 125.0))
+
+    assert moved == []
+
+
+def test_a_fixed_grid_can_still_have_its_tiles_toggled(qapp):
+    """The point of the flag: hand adjustment survives, geometry does not.
+
+    A press inside the grid is held rather than acted on, because the same press starts
+    a move and a toggle -- so withdrawing the move must not also withdraw what the
+    release reads.
+    """
+    overlay, tiles = build(3, 3)
+    overlay.set_grid_editable(False)
+    toggled = []
+    overlay.tile_toggled.connect(lambda r, c, e: toggled.append((r, c, e)))
+    centre = next(t for t in tiles if (t.row, t.col) == (1, 1))
+    x, y, width, height = overlay._rect_for(centre)
+
+    _click(overlay, x + width / 2, y + height / 2)
+
+    assert toggled == [(1, 1, False)]
+
+
+def test_a_fixed_grid_offers_no_resize_cursor(qapp):
+    """An affordance for a gesture the host discards is worse than none: the only way
+    to learn it does nothing is to try it."""
+    overlay, _ = build(3, 3)
+    overlay.set_grid_editable(False)
+    right, _ = _edges(overlay)
+
+    overlay._update_cursor(_event(overlay, right, overlay._rect.cy))
+
+    assert overlay._canvas.cursor is None
