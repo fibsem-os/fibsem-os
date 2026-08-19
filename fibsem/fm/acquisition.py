@@ -19,6 +19,7 @@ from fibsem.imaging.reduce import (
     PreviewMosaic,
     downsample,
 )
+from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE
 from fibsem.imaging.tiling.geometry import (
     TilePosition,
     compute_tile_grid_from_fov,
@@ -889,7 +890,7 @@ class FMTiledAcquisitionRunner:
             # `total` counts tiles that will actually be acquired, not grid cells --
             # a progress bar that stops at 9/25 on a successful sparse run reads as a
             # failure.
-            "current": 1, "total": len(self._ordered),
+            "counter": 1, "total": len(self._ordered),
             "estimated_total_time": self._total_estimated_time,
             "estimated_remaining_time": self._total_estimated_time,
         })
@@ -1070,7 +1071,25 @@ class FMTiledAcquisitionRunner:
     # ── helpers ──────────────────────────────────────────────────────────
 
     def _emit(self, payload: dict) -> None:
-        self.microscope.fm.acquisition_progress_signal.emit(payload)
+        """Report a phase of this run.
+
+        On `tiled_acquisition_signal`, not the detector's own progress signal. This is
+        tile *n* of *N* and a mosaic so far -- the same event the beam tiler reports,
+        and it belonged on the same signal all along. It grew up on the fluorescence one
+        because this runner grew up in the FM package, next to a signal that was already
+        there and that also carries z-stacks, channel acquisitions and autofocus sweeps
+        (FIB-725).
+
+        What stays on the detector's signal is the work *inside* a tile: those are a
+        different scale, and `FMOverviewWidget` draws them in a different bar.
+
+        Stamped with the modality on the way out, so no consumer has to remember to. Two
+        of them draw a beam overview from this signal and would otherwise paint a
+        fluorescence mosaic into it.
+        """
+        self.microscope.tiled_acquisition_signal.emit(
+            {"modality": MODALITY_FLUORESCENCE, **payload}
+        )
 
     def _emit_preview(self, tile: TilePosition) -> None:
         """Publish the mosaic-so-far, so a viewer can watch it fill in.
@@ -1092,7 +1111,7 @@ class FMTiledAcquisitionRunner:
             "state": "tile", "task": "tileset",
             "row": tile.row, "col": tile.col,
             "total_rows": self._rows, "total_cols": self._cols,
-            "current": self._n_acquired, "total": len(self._ordered),
+            "counter": self._n_acquired, "total": len(self._ordered),
             "image": self._preview.canvas.copy(),
             "preview_stride": self._preview.stride,
         })
@@ -1115,7 +1134,7 @@ class FMTiledAcquisitionRunner:
             "state": "acquiring", "task": "tileset",
             "row": row + 1, "col": col + 1,
             "total_rows": self._rows, "total_cols": self._cols,
-            "current": current_tile, "total": total_tiles,
+            "counter": current_tile, "total": total_tiles,
             "estimated_total_time": self._total_estimated_time,
             "estimated_remaining_time": estimated_remaining_time,
             "elapsed_time": elapsed_time,

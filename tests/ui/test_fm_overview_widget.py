@@ -311,7 +311,7 @@ def test_a_tileset_payload_moves_only_the_tile_bar(qapp):
     router = _Router()
 
     router._apply_progress({
-        "state": "acquiring", "task": "tileset", "current": 4, "total": 9,
+        "modality": "fluorescence", "state": "acquiring", "task": "tileset", "counter": 4, "total": 9,
     })
 
     # value/maximum directly, not a percentage -- the widget counts items.
@@ -359,7 +359,7 @@ def test_a_completed_tile_leaves_the_detail_bar_alone(qapp):
     })
 
     router._apply_progress({
-        "state": "tile", "task": "tileset", "current": 1, "total": 9,
+        "modality": "fluorescence", "state": "tile", "task": "tileset", "current": 1, "total": 9,
     })
 
     assert router.progress_tile_detail.isVisible()
@@ -378,7 +378,7 @@ def test_the_estimate_is_shown_when_the_payload_carries_one(qapp):
     router = _Router()
 
     router._apply_progress({
-        "state": "acquiring", "task": "tileset", "current": 2, "total": 9,
+        "modality": "fluorescence", "state": "acquiring", "task": "tileset", "counter": 2, "total": 9,
         "estimated_remaining_time": 134.0, "estimated_total_time": 180.0,
     })
 
@@ -393,10 +393,10 @@ def test_a_stage_move_does_not_fill_the_bar(qapp):
     """
     router = _Router()
     router._apply_progress({
-        "state": "acquiring", "task": "tileset", "current": 3, "total": 9,
+        "modality": "fluorescence", "state": "acquiring", "task": "tileset", "counter": 3, "total": 9,
     })
 
-    router._apply_progress({"state": "moving", "task": "tileset"})
+    router._apply_progress({"modality": "fluorescence", "state": "moving", "task": "tileset"})
 
     assert (_bar(router.progress_tiles).value(),
             _bar(router.progress_tiles).maximum()) == (3, 9)
@@ -422,10 +422,12 @@ def test_the_end_of_a_run_is_not_silent(qapp, state, label):
     """
     router = _Router()
     router._apply_progress({
-        "state": "acquiring", "task": "tileset", "current": 9, "total": 9,
+        "modality": "fluorescence", "state": "acquiring", "task": "tileset", "counter": 9, "total": 9,
     })
 
-    router._apply_progress({"state": state, "task": "tileset"})
+    router._apply_progress(
+        {"modality": "fluorescence", "state": state, "task": "tileset"}
+    )
 
     assert router.status.text() == label
     assert (_bar(router.progress_tiles).value(),
@@ -435,11 +437,11 @@ def test_the_end_of_a_run_is_not_silent(qapp, state, label):
 def test_a_phase_label_is_cleared_by_the_next_tile(qapp):
     """Otherwise "Stitching tiles…" would still be on screen through the next run."""
     router = _Router()
-    router._apply_progress({"state": "saving", "task": "tileset"})
+    router._apply_progress({"modality": "fluorescence", "state": "saving", "task": "tileset"})
     assert router.status.text() == "Saving overview…"
 
     router._apply_progress({
-        "state": "acquiring", "task": "tileset", "current": 1, "total": 9,
+        "modality": "fluorescence", "state": "acquiring", "task": "tileset", "counter": 1, "total": 9,
     })
     assert router.status.text() == ""
 
@@ -4867,14 +4869,14 @@ def test_the_worker_announces_the_save_before_it_writes(qapp, overview_widget, t
             return mosaic
 
     seen = []
-    widget.fm.acquisition_progress_signal.connect(seen.append)
+    widget.microscope.tiled_acquisition_signal.connect(seen.append)
     runner, destination, saved = widget._runner, widget._destination, widget._saved_path
     try:
         widget._runner = _StubRunner()
         widget._destination = OverviewDestination.create(str(tmp_path))
         widget._acquire_worker()
     finally:
-        widget.fm.acquisition_progress_signal.disconnect(seen.append)
+        widget.microscope.tiled_acquisition_signal.disconnect(seen.append)
         widget._runner, widget._destination, widget._saved_path = runner, destination, saved
 
     states = [p.get("state") for p in seen if p.get("task") == "tileset"]
@@ -4882,3 +4884,46 @@ def test_the_worker_announces_the_save_before_it_writes(qapp, overview_widget, t
     assert states.index("saving") < states.index("overview-finished"), (
         "the save was announced after it had already happened"
     )
+
+
+def test_a_tileset_payload_reaches_the_real_widget(qapp, overview_widget):
+    """The wiring, not the rendering.
+
+    Every other test here drives `_apply_progress` directly, which covers what the
+    widget *does* with a payload and nothing about whether one arrives. The tileset
+    moved to `tiled_acquisition_signal` (FIB-725), so the subscription is precisely what
+    changed — and a broken one leaves this tab's own bar dead for a whole run with no
+    test noticing.
+    """
+    widget = overview_widget
+    widget.microscope.tiled_acquisition_signal.emit({
+        "modality": "fluorescence", "state": "acquiring", "task": "tileset",
+        "counter": 4, "total": 9,
+    })
+    qapp.processEvents()
+
+    assert "4 / 9" in _bar(widget.progress_tiles).format()
+
+
+def test_a_beam_run_does_not_drive_the_fluorescence_bar(qapp, overview_widget):
+    """Both tilers report on this signal now. This tab draws one of them.
+
+    Ignored today even without the modality check — beam payloads carry no `task` — but
+    that is an accident of vocabulary rather than a decision, and the beam tiler gaining
+    a `task` key would be a reasonable thing for it to do.
+    """
+    widget = overview_widget
+    widget.microscope.tiled_acquisition_signal.emit({
+        "modality": "fluorescence", "state": "acquiring", "task": "tileset",
+        "counter": 4, "total": 9,
+    })
+    qapp.processEvents()
+    before = _bar(widget.progress_tiles).format()
+
+    widget.microscope.tiled_acquisition_signal.emit({
+        "modality": "beam", "task": "tileset", "counter": 8, "total": 9,
+        "msg": "Tile Collected",
+    })
+    qapp.processEvents()
+
+    assert _bar(widget.progress_tiles).format() == before
