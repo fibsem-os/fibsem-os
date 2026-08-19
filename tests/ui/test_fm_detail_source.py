@@ -222,3 +222,62 @@ def test_a_source_asked_about_pixels_that_are_gone_declines(widget):
     """It runs off a timer, and PyQt5 aborts the process on an exception out of a slot
     (FIB-329). Declining leaves whatever is drawn alone."""
     assert widget._patch("never-placed", WHOLE_IMAGE, 512) is None
+
+
+def test_an_overview_restyled_while_off_screen_is_right_when_you_pan_back(widget):
+    """The hole that skipping off-screen images opens, and the reason `force` marks
+    every patch stale rather than only redrawing the visible ones.
+
+    `_restyle_others` re-rendered every held image unconditionally, so this could not
+    arise. Skipping the invisible ones is what makes a layer edit cheap -- but the patch
+    an off-screen image is holding was blended under the *old* settings, and it covers
+    the viewport at the right resolution, so every test `_needs_detail` applies says to
+    keep it. Pan back at the same zoom and the overview is still the old colour while its
+    neighbour is the new one.
+
+    The beam Overview tab has the same shape in `_reapply_contrast`, so the fix is in the
+    canvas rather than here.
+    """
+    near, far = "near", "far"
+    for i, key in enumerate((near, far)):
+        widget.set_composite_key(key)
+        widget.set_placement((i * SIDE * 1.5 * 1e-7, 0.0))
+        widget.set_channels([("green", plane(), "green")])
+
+    def look_at(index):
+        centre = index * SIDE * 1.5
+        widget.canvas._ax.set_xlim(centre - SIDE / 2, centre + SIDE / 2)
+        widget.canvas._ax.set_ylim(SIDE / 2, -SIDE / 2)
+        widget.canvas.refresh_detail()
+
+    def is_red(key):
+        rgb = np.asarray(widget.canvas._placed[key].artist.get_array())
+        mean = rgb[..., :3].reshape(-1, 3).mean(axis=0)
+        return mean[0] > mean[1]
+
+    look_at(1)  # `far` gets a patch at this zoom...
+    look_at(0)  # ...and is then off screen at the same zoom
+    assert not is_red(far), "this test needs `far` to start green"
+
+    widget.layers[0].color = "red"
+    widget._panel.changed.emit()
+    look_at(1)
+
+    assert is_red(far), "panned back to an overview still styled the old way"
+    assert is_red(near)
+
+
+def test_a_redrawn_patch_stops_being_stale(widget, monkeypatch):
+    """Otherwise the flag is a one-way switch and every view change refetches forever,
+    which gives back most of what skipping the invisible ones buys. A pan the current
+    patch already covers must cost nothing."""
+    place(widget)
+    widget.canvas._ax.set_xlim(-SIDE / 2, SIDE / 2)
+    widget.canvas._ax.set_ylim(SIDE / 2, -SIDE / 2)
+    widget.canvas.refresh_detail(force=True)  # marks stale, redraws, clears
+    asked = watch_patches(widget, monkeypatch)
+
+    widget.canvas.refresh_detail()
+    widget.canvas.refresh_detail()
+
+    assert asked == [], "refetched a patch that was already the right one"
