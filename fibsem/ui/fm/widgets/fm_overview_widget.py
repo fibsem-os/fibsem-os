@@ -175,6 +175,12 @@ class FMOverviewWidget(QWidget):
     """Configure, run and view a fluorescence overview acquisition."""
 
     overview_acquired = pyqtSignal(FluorescenceImage)
+    # Whether a run is in progress here. A *state*, re-emitted on every change
+    # rather than an edge, so a host that connects late or recomputes from
+    # several facts cannot end up holding a stale answer. The host that matters
+    # is the window, which must stop the other overview driving the stage while
+    # this one is mid-tileset (FIB-706).
+    acquiring_changed = pyqtSignal(bool)
 
     # A user right-clicked the canvas and asked for a position there. Both carry a
     # *fluorescence* stage position -- the canvas is anchored on the FM side, and both
@@ -269,6 +275,7 @@ class FMOverviewWidget(QWidget):
         # re-enable a tab whose acquisition is still going, nor the reverse. See
         # `_apply_enabled_state`, which is the only thing that reads them.
         self._running = False
+        self._lock_reason = "a workflow is running"
         self._interactive = True
 
         self._init_ui(channel_settings or self._default_channels())
@@ -557,7 +564,19 @@ class FMOverviewWidget(QWidget):
 
     @property
     def is_acquiring(self) -> bool:
-        return self._worker is not None and self._worker.is_alive()
+        """Whether an overview acquisition is running here.
+
+        `_running` as well as the worker, and the order is why: `acquire` calls
+        `_set_running(True)` *before* it builds the worker, so for the width of that
+        gap a worker-only answer says no while a run is starting. That gap is exactly
+        when `acquiring_changed` is emitted, so a host locking the other overview off
+        this property got False and locked nothing (FIB-706).
+
+        Keeping the worker check as well as the flag, rather than replacing it: the
+        union is true over a superset of the interval either is, and every caller is a
+        guard, so being early and late is the safe direction to be wrong in.
+        """
+        return self._running or (self._worker is not None and self._worker.is_alive())
 
     @property
     def channels(self) -> List[ChannelSettings]:
@@ -1068,7 +1087,7 @@ class FMOverviewWidget(QWidget):
         """Where the last acquired overview was written, if it was."""
         return self._saved_path
 
-    def set_interactive(self, enabled: bool) -> None:
+    def set_interactive(self, enabled: bool, reason: str = "") -> None:
         """Allow or forbid starting work, without touching a run already in progress.
 
         For a host that owns the instrument for a while -- an AutoLamella workflow --
@@ -1078,8 +1097,15 @@ class FMOverviewWidget(QWidget):
         Deliberately not `setEnabled(False)` on the whole widget: greying out the canvas
         would also stop you *reading* the overview you just acquired, and looking at it
         costs the workflow nothing.
+
+        *reason* completes the sentence "Cannot move the stage while ___" when a move is
+        refused. The widget cannot know why it was locked -- a workflow owning the
+        instrument and the other overview being mid-tileset are the same `False` here --
+        and a refusal naming the wrong one is barely better than one naming nothing
+        (FIB-706).
         """
         self._interactive = enabled
+        self._lock_reason = reason or "a workflow is running"
         self._apply_enabled_state()
 
     def set_origin(self, position: Optional[FibsemStagePosition]) -> None:
@@ -1727,6 +1753,15 @@ class FMOverviewWidget(QWidget):
                 "Cannot move the stage during an acquisition.", "warning"
             )
             return False
+        if not self._interactive:
+            # The lock reached the buttons and not the canvas, so a workflow that owned
+            # the instrument could still have the stage driven out from under it by a
+            # double-click. The beam widget refused this from the start; the two now
+            # agree, which is what lets the window lock either tab and mean it (FIB-706).
+            notification_service.show_toast(
+                f"Cannot move the stage while {self._lock_reason}.", "warning"
+            )
+            return False
         if not self.at_acquisition_orientation():
             notification_service.show_toast(
                 f"Cannot move the stage from {self._where_the_stage_is()} — the "
@@ -2245,6 +2280,7 @@ class FMOverviewWidget(QWidget):
     def _set_running(self, running: bool) -> None:
         self._running = running
         self._apply_enabled_state()
+        self.acquiring_changed.emit(running)
         if running:
             # Cleared at the start, so a run that fails to save cannot inherit the
             # previous run's path and report itself saved.

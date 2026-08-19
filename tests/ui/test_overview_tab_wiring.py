@@ -385,3 +385,21 @@ def test_a_lamella_added_anywhere_reaches_both_canvases(window_source):
         assert f"events.{event}.connect" in window_source, (
             f"nothing follows the experiment's `{event}` event any more"
         )
+
+
+def test_both_tabs_tell_the_window_when_they_start_acquiring(window_source):
+    """The cross-tab stage lock is derived from both tabs, so both have to report.
+
+    `test_overview_tab_host.py` checks the rule itself against real widgets, with the
+    signal connected by the fixture. That fixture cannot notice production forgetting to
+    connect it -- which is the likely failure, since the connection lives in each tab's
+    builder rather than anywhere the two are handled together (FIB-706).
+    """
+    for tab in (TWIN, NEW):
+        assert f"self.{tab}.acquiring_changed.connect(" in window_source, (
+            f"{tab} never tells the window it is acquiring, so the other overview is "
+            "free to drive the stage during its run"
+        )
+    assert window_source.count("acquiring_changed.connect(self._apply_overview_locks)") == 2, (
+        "the tabs report to something other than the one place that derives the lock"
+    )

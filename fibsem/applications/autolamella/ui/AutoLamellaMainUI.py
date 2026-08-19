@@ -4,7 +4,7 @@ import argparse
 import logging
 import sys
 import time
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 try:
     sys.modules.pop("PySide6.QtCore")
@@ -200,6 +200,12 @@ def confirm_add_to_queue_dialog(
 
 class AutoLamellaSingleWindowUI(QMainWindow):
     """Main window for AutoLamella UI with embedded napari viewers."""
+
+    # Whether a workflow currently permits the overview tabs to work. Held rather than
+    # applied where it arrives, because each tab's interactivity is derived from this
+    # *and* from whether the other tab is acquiring -- and two callers each setting one
+    # control from their own half of the truth is how a control gets stuck on.
+    _overviews_allowed = True
 
     def __init__(self):
         super().__init__()
@@ -1072,20 +1078,72 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.workflow_timeline.set_actions_enabled(False)
 
     def _set_minimap_workflow_enabled(self, enabled: bool):
-        """Enable/disable overview acquisition in both overview tabs during a workflow.
+        """Record whether a workflow currently permits the overviews to work.
 
         A running workflow owns the instrument, so neither tab should be able to start
-        competing for it. The FM tab keeps its Cancel button live regardless -- see
-        `FMOverviewWidget.set_interactive` -- so a lock arriving mid-run cannot strand an
-        acquisition with no way to stop it.
+        competing for it. Both tabs keep their Cancel button live regardless -- see
+        `set_interactive` on either widget -- so a lock arriving mid-run cannot strand
+        an acquisition with no way to stop it.
+
+        The answer is recorded rather than applied: `_apply_overview_locks` is what
+        reaches the tabs, because it is not the only fact that decides.
         """
         if hasattr(self, "minimap_widget"):
             self.minimap_widget.pushButton_run_tile_collection.setEnabled(enabled)
             self.minimap_widget.pushButton_load_image.setEnabled(enabled)
-        if getattr(self, "fm_overview_tab", None) is not None:
-            self.fm_overview_tab.set_interactive(enabled)
-        if getattr(self, "overview_canvas_tab", None) is not None:
-            self.overview_canvas_tab.set_interactive(enabled)
+        self._overviews_allowed = bool(enabled)
+        self._apply_overview_locks()
+
+    def _apply_overview_locks(self, *_) -> None:
+        """Decide, for each overview tab, whether it may work right now.
+
+        Two facts, and both have to be answered in one place. A workflow owning the
+        instrument is one; the *other* overview being mid-run is the other, and it was
+        not asked at all. Each tab locked itself while it ran, so nothing stopped a
+        click-to-move on the beam overview during a fluorescence tileset -- and that
+        does not fail loudly. The runner goes on placing tiles at the poses it planned,
+        so the mosaic comes out plausible and wrong (FIB-706).
+
+        Derived from both every time rather than each caller setting the flag it knows
+        about: a workflow finishing while an overview runs must not re-enable the other
+        tab, and a run finishing inside a locked window must not either.
+
+        Takes and ignores an argument so it can be connected straight to
+        `acquiring_changed`, whose bool it deliberately does not read -- it asks the tabs
+        instead, so a missed or duplicated signal cannot leave this holding a state the
+        tabs disagree with.
+
+        Written out per tab rather than looped, so that `test_overview_tab_wiring.py`
+        can still see `self.<tab>.set_interactive` in the window's source. That test is
+        the parity check between the two tabs and one of the few CI runs without PyQt5;
+        a loop over local variables hides the calls from it.
+        """
+        fm = getattr(self, "fm_overview_tab", None)
+        beam = getattr(self, "overview_canvas_tab", None)
+        if fm is not None:
+            allowed, reason = self._overview_may_work(beam)
+            self.fm_overview_tab.set_interactive(allowed, reason)
+        if beam is not None:
+            allowed, reason = self._overview_may_work(fm)
+            self.overview_canvas_tab.set_interactive(allowed, reason)
+
+    def _overview_may_work(self, other) -> Tuple[bool, str]:
+        """Whether an overview tab may work given what *other* is doing, and why not.
+
+        The reason travels with the answer because the widget cannot work it out: both
+        causes are the same `False` by the time they reach it, and a refusal that blames
+        a workflow when the real reason is the other overview sends someone looking in
+        the wrong place.
+
+        The workflow is named first when both hold. It is the outer authority -- the
+        overview run would not have started under it -- so it is the fact that has to
+        change first.
+        """
+        if not self._overviews_allowed:
+            return False, "a workflow is running"
+        if other is not None and other.is_acquiring:
+            return False, "the other overview is acquiring"
+        return True, ""
 
     def _set_border_state(self, state: str):
         """Update the tab widget border to reflect current workflow state.
@@ -2321,6 +2379,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._on_fm_overview_availability
         )
         self.fm_overview_tab.lamella_selected.connect(self._on_fm_overview_lamella_selected)
+        self.fm_overview_tab.acquiring_changed.connect(self._apply_overview_locks)
 
         self.tab_widget.insertTab(
             2, self.fm_overview_tab,
@@ -2352,6 +2411,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.overview_canvas_tab.lamella_selected.connect(
             self._on_overview_canvas_lamella_selected
         )
+        self.overview_canvas_tab.acquiring_changed.connect(self._apply_overview_locks)
 
         self.tab_widget.insertTab(
             3, self.overview_canvas_tab,

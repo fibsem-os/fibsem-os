@@ -69,6 +69,11 @@ class AutoLamellaOverviewTabBase(QWidget):
     # lists; nothing here selects them directly, which is what keeps the sync in one
     # place instead of four.
     lamella_selected = pyqtSignal(object)
+    # Whether a run is in progress in this tab, forwarded from the widget. The window
+    # listens so it can stop the *other* overview taking the stage (FIB-706); it
+    # connects to the tab rather than the widget because the widget is rebuilt on every
+    # reconnection and a subscription to the old one would be stale and undisconnectable.
+    acquiring_changed = pyqtSignal(bool)
 
     # What this canvas marks, in the words a message needs: "has no fluorescence pose to
     # move to" against "has no position to move to". A user reading the second one on the
@@ -205,6 +210,9 @@ class AutoLamellaOverviewTabBase(QWidget):
         self.overview.position_add_requested.connect(self._on_add_requested)
         self.overview.position_move_requested.connect(self._on_move_requested)
         self.overview.position_selected.connect(self._on_marker_clicked)
+        # Signal to signal: the widget's answer is this tab's answer, and forwarding it
+        # by hand would be a second place for the two to disagree.
+        self.overview.acquiring_changed.connect(self.acquiring_changed)
         # In the settings column rather than beside it: the positions are the subject of
         # this tab, and a column of their own would read as a third pane.
         self.overview.add_settings_section("Lamella Positions", self.lamella_list)
@@ -242,6 +250,11 @@ class AutoLamellaOverviewTabBase(QWidget):
         self.overview.deleteLater()
         self.overview = None
         self._microscope = None
+        # A tab with no widget is certainly not acquiring, and nothing else will say so:
+        # the widget that would have emitted it is the one just dropped. Without this a
+        # host that locked the other tab during a run would hold that lock forever if
+        # the running tab were dropped -- a reconnection mid-run does exactly that.
+        self.acquiring_changed.emit(False)
 
     def refresh_experiment(self) -> None:
         """Tell the overview widget where to save, and what to mark."""
@@ -307,11 +320,16 @@ class AutoLamellaOverviewTabBase(QWidget):
         if not self._syncing_selection and lamella is not None:
             self.lamella_list.select(lamella.name)
 
-    def set_interactive(self, enabled: bool) -> None:
-        """Allow or forbid starting work, for a host that has taken the instrument."""
+    def set_interactive(self, enabled: bool, reason: str = "") -> None:
+        """Allow or forbid starting work, for a host that has taken the instrument.
+
+        *reason* is carried through to the widget, which quotes it when it refuses a
+        move: the widget sees one `False` whether a workflow owns the instrument or the
+        other overview is mid-run, and only the host knows which.
+        """
         if self.overview is None:
             return
-        self.overview.set_interactive(enabled)
+        self.overview.set_interactive(enabled, reason)
 
     # ── the list ─────────────────────────────────────────────────────────
 

@@ -1788,6 +1788,9 @@ class _StubHost:
     _refresh_overview_positions = _Real._refresh_overview_positions
     _on_fm_overview_lamella_selected = _Real._on_fm_overview_lamella_selected
     _set_minimap_workflow_enabled = _Real._set_minimap_workflow_enabled
+    _apply_overview_locks = _Real._apply_overview_locks
+    _overview_may_work = _Real._overview_may_work
+    _overviews_allowed = _Real._overviews_allowed
     _rebuild_lamella_list = _Real._rebuild_lamella_list
     _wire_position_events = _Real._wire_position_events
 
@@ -4737,3 +4740,66 @@ def test_the_column_opens_at_the_dataclass_default_overlap(qapp):
 
     assert widget.parameters.overlap == OverviewParameters().overlap == 0.1
     assert "10" in widget.grid.spin_overlap.text()
+
+
+class TestTheLockReachesTheCanvasToo:
+    """`set_interactive` gated the buttons and not the canvas.
+
+    So a workflow that owned the instrument could still have the stage driven out from
+    under it by a double-click on this overview -- the beam widget refused that from the
+    start, and the two disagreeing is what made a window-level lock unreliable (FIB-706).
+    """
+
+    def test_a_locked_widget_refuses_to_move(self, interactive_widget, monkeypatch):
+        widget = interactive_widget
+        toasts = []
+        monkeypatch.setattr(
+            "fibsem.ui.fm.widgets.fm_overview_widget.notification_service.show_toast",
+            lambda message, level="info", *a, **k: toasts.append((message, level)),
+        )
+        widget.set_interactive(False)
+        try:
+            assert widget._may_move() is False
+        finally:
+            widget.set_interactive(True)
+        # Refused for the stated reason, not incidentally by the orientation check that
+        # follows it -- which would pass this test while leaving the hole open.
+        assert any("workflow" in message for message, _ in toasts), toasts
+
+    def test_an_unlocked_widget_is_not_refused_for_that_reason(
+        self, interactive_widget, monkeypatch
+    ):
+        widget = interactive_widget
+        toasts = []
+        monkeypatch.setattr(
+            "fibsem.ui.fm.widgets.fm_overview_widget.notification_service.show_toast",
+            lambda message, level="info", *a, **k: toasts.append((message, level)),
+        )
+        widget.set_interactive(True)
+        widget._may_move()
+        assert not any("workflow" in message for message, _ in toasts), toasts
+
+
+class TestSayingWhenARunStarts:
+    """The signal a host locks the other overview off, and the trap underneath it:
+    `acquire()` sets the flag before it builds the worker, so a worker-only
+    `is_acquiring` said no at the exact moment the signal said yes."""
+
+    def test_the_signal_reports_the_new_state(self, interactive_widget):
+        seen = []
+        widget = interactive_widget
+        widget.acquiring_changed.connect(seen.append)
+        widget._set_running(True)
+        widget._set_running(False)
+        assert seen == [True, False]
+
+    def test_is_acquiring_already_agrees_when_the_signal_arrives(self, interactive_widget):
+        widget = interactive_widget
+        answers = []
+        widget.acquiring_changed.connect(lambda _: answers.append(widget.is_acquiring))
+        widget._set_running(True)
+        try:
+            assert answers == [True], "the widget announced a run it does not admit to"
+        finally:
+            widget._set_running(False)
+        assert answers == [True, False]
