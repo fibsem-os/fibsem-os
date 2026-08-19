@@ -45,6 +45,7 @@ from fibsem.applications.autolamella.structures import (
     Lamella,
 )
 from fibsem.imaging import tiled
+from fibsem.imaging.tiling.progress import MODALITY_BEAM, is_modality
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import FibsemMillingStage
 from fibsem.structures import (
@@ -646,7 +647,15 @@ class FibsemMinimapWidget(QWidget):
         which leaves the last real progress standing -- true, rather than reset to zero.
 
         `FibsemOverviewWidget._apply_progress` reads the same signal the same way.
+
+        Beam runs only. This tab drives a beam overview and assigns the payload's mosaic
+        straight into its napari layer, so a fluorescence run reaching here would be
+        drawn into the beam minimap -- and the fluorescence preview is keyed `image`
+        already, deliberately, to match this signal (FIB-725).
         """
+        if not is_modality(ddict, MODALITY_BEAM):
+            return
+
         # track counts for result dict
         counter = ddict.get("counter")
         total = ddict.get("total")

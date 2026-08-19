@@ -19,6 +19,12 @@ import pytest
 
 from fibsem import utils
 from fibsem.imaging.tiled import TiledAcquisitionRunner
+from fibsem.imaging.tiling.progress import (
+    MODALITY_BEAM,
+    MODALITY_FLUORESCENCE,
+    is_modality,
+    modality_of,
+)
 from fibsem.structures import (
     BeamType,
     ImageSettings,
@@ -117,3 +123,37 @@ def test_the_run_ends_with_a_terminal_update(payloads):
     terminal = [p for p in payloads if p.get("finished")]
     assert terminal, "no terminal update was emitted"
     assert terminal[-1].get("outcome") == "finished"
+
+
+def test_every_payload_says_which_modality_produced_it(payloads):
+    """The discriminator this signal never had.
+
+    Consumers used to work out what they had received from which keys were present,
+    which was survivable while `imaging/tiled.py` was the only emitter. It is not once a
+    second producer reports here: two consumers hand the payload's mosaic straight to a
+    *beam* canvas, and the fluorescence preview is keyed `image` already — deliberately,
+    to match this signal (FIB-725).
+
+    Asserted on every payload, not just the per-tile ones: a terminal update that could
+    not say whose run had finished would leave a consumer unable to decide whether to
+    clear its own progress.
+    """
+    assert payloads, "the run emitted nothing"
+    for payload in payloads:
+        assert payload.get("modality") == MODALITY_BEAM, payload.get("msg")
+
+
+def test_an_unlabelled_payload_reads_as_a_beam_run():
+    """`modality` is new, so a producer that predates it — including anything outside
+    this repository subscribing to a public signal — emits without it. Absent means
+    beam, which is what this signal carried for its whole life. A consumer written as
+    `payload.get("modality") == MODALITY_BEAM` would silently drop all of it."""
+    assert modality_of({}) == MODALITY_BEAM
+    assert is_modality({"counter": 1, "total": 2}, MODALITY_BEAM)
+    assert not is_modality({}, MODALITY_FLUORESCENCE)
+
+
+def test_a_fluorescence_payload_is_not_mistaken_for_a_beam_one():
+    payload = {"modality": MODALITY_FLUORESCENCE, "counter": 1, "total": 2}
+    assert is_modality(payload, MODALITY_FLUORESCENCE)
+    assert not is_modality(payload, MODALITY_BEAM)

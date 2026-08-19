@@ -3641,3 +3641,37 @@ class TestDrivingTheStageFromAHost:
         monkeypatch.setattr(widget, "_may_move", refuse)
         widget.move_to(FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=0.0))
         assert asked, "move_to did not go through _may_move"
+
+
+class TestItOnlyDrawsItsOwnRuns:
+    """`tiled_acquisition_signal` is about to carry a second producer.
+
+    This widget places the payload's mosaic on its own canvas and counts the tiles into
+    its own record, so a fluorescence run reaching here would be drawn as one of this
+    tab's overviews. Only `modality` separates them (FIB-725).
+    """
+
+    def test_a_fluorescence_run_is_ignored(self, widget):
+        from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE
+
+        widget._tiles_acquired = 0
+        widget._apply_progress({
+            "modality": MODALITY_FLUORESCENCE,
+            "counter": 7, "total": 9, "msg": "Tile Collected",
+        })
+        assert widget._tiles_acquired == 0, "a fluorescence run moved this tab's count"
+
+    def test_a_beam_run_is_still_drawn(self, widget):
+        widget._tiles_acquired = 0
+        widget._apply_progress({
+            "modality": "beam",
+            "counter": 7, "total": 9, "msg": "Tile Collected",
+        })
+        assert widget._tiles_acquired == 7
+
+    def test_an_unlabelled_run_is_still_drawn(self, widget):
+        """Anything predating the key — including a producer outside this repository
+        subscribing to a public signal — must keep working."""
+        widget._tiles_acquired = 0
+        widget._apply_progress({"counter": 7, "total": 9, "msg": "Tile Collected"})
+        assert widget._tiles_acquired == 7
