@@ -2416,16 +2416,24 @@ class FMOverviewWidget(QWidget):
             # it vanish and reappear at every tile boundary -- a flicker for the whole
             # run. The next tile's first payload overwrites it a moment later anyway.
             self._show_preview(payload)
-            # And deliberately does not fall through to the bar below. This payload
-            # delivers the mosaic so far; the count it also carries is the *completed*
-            # tally, where `acquiring` carries the tile starting and an estimate to go
-            # with it. Rendering both put two different bars in one place, alternating
-            # every tile: `acquiring` draws a countdown scaled in tenths of a second
-            # (52/242) and this drew tiles (2/4), so the fill jumped and the text
-            # changed shape at every boundary. One producer for one bar.
+
+        current, total = payload.get("counter"), payload.get("total")
+        if current is None or not total:
+            # An announcement rather than a progress report: the payload that says which
+            # tile is starting carries no counts, because emitted *before* the tile it
+            # could only ever be one short -- a bar driven from it stopped at 3/4 for the
+            # whole run (FIB-736). It has already done its job above, clearing the label
+            # the stage move put up.
+            #
+            # This is also what stops the bar flickering. Two payloads per tile used to
+            # carry counts with different meanings and different shapes, and the bar
+            # changed scale at every boundary (FIB-739); now exactly one of them does.
             return
 
-        current, total = payload.get("counter", 0), payload.get("total", 1)
+        # The final payload of a run reports 0 remaining and so renders as a plain
+        # count -- `FibsemProgressWidget` picks the shape from `remaining_seconds > 0`,
+        # not from the caller. That is the run finishing rather than a flicker: one
+        # transition at the end, where the bar is full either way.
         remaining = payload.get("estimated_remaining_time")
         # The widget renders the count itself, so the message says what is being
         # counted and nothing more -- otherwise it reads "Tile 4/9 — 4/9".

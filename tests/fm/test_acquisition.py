@@ -1320,8 +1320,13 @@ def test_progress_totals_count_enabled_tiles_not_grid_cells(fm_microscope, monke
 
     totals = {p["total"] for p in emitted if "total" in p}
     assert totals == {9}
-    counters = [p["counter"] for p in emitted if p.get("state") == "acquiring"]
-    assert counters[-1] == 9
+    # Read from the payload that reports progress rather than the one that announces a
+    # tile: `acquiring` is emitted *before* its tile and so carries no count at all --
+    # it could only ever be one short, and a bar driven from it stopped there for the
+    # whole run (FIB-736).
+    counters = [p["counter"] for p in emitted if "counter" in p]
+    assert counters[-1] == 9, "the bar never reached the last tile"
+    assert counters == sorted(counters), f"the count went backwards: {counters}"
 
 
 def test_tile_order_drives_the_visit_sequence(fm_microscope, monkeypatch):
@@ -2303,3 +2308,66 @@ def test_a_run_that_never_reaches_the_stitch_does_not_announce_one(fm_microscope
     ).run()
 
     assert "stitching" not in [p.get("state") for p in emitted]
+
+
+def test_the_count_reaches_the_last_tile(fm_microscope):
+    """The bar has to fill.
+
+    `counter` means tiles *completed*, matching the beam tiler, so the run's last
+    counted payload must equal the total. It did not when the count rode on the
+    announcement emitted *before* each tile: that can only ever report one fewer than
+    the truth, so the bar sat at 3/4 while the fourth tile was acquired and then the run
+    ended (FIB-736).
+    """
+    emitted = []
+    fm_microscope.tiled_acquisition_signal.connect(emitted.append)
+
+    acquisition.FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=[ChannelSettings(name="CH0", exposure_time=0.001)],
+        overview_parameters=OverviewParameters(rows=2, cols=2, overlap=0.1),
+    ).run()
+
+    counted = [p for p in emitted if "counter" in p]
+    assert counted[0]["counter"] == 0, "the run claimed a tile before taking one"
+    assert counted[-1]["counter"] == counted[-1]["total"] == 4
+
+
+def test_the_announcement_carries_no_progress(fm_microscope):
+    """It is emitted before its tile, so any count or estimate on it is a claim about
+    work not yet done. Its job is saying *where* the run is."""
+    emitted = []
+    fm_microscope.tiled_acquisition_signal.connect(emitted.append)
+
+    acquisition.FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=[ChannelSettings(name="CH0", exposure_time=0.001)],
+        overview_parameters=OverviewParameters(rows=1, cols=2, overlap=0.1),
+    ).run()
+
+    announcements = [
+        p for p in emitted
+        if p.get("state") == "acquiring" and p.get("task") == "tileset" and "row" in p
+    ]
+    assert announcements, "nothing announces the tile being acquired"
+    for payload in announcements:
+        assert "counter" not in payload
+        assert "estimated_remaining_time" not in payload
+        assert payload["row"] and payload["col"], "it should still say which tile"
+
+
+def test_every_counted_payload_carries_an_estimate(fm_microscope):
+    """One payload, the whole picture. Splitting the count from the estimate is what let
+    a consumer render two different bars in one widget (FIB-739)."""
+    emitted = []
+    fm_microscope.tiled_acquisition_signal.connect(emitted.append)
+
+    acquisition.FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=[ChannelSettings(name="CH0", exposure_time=0.001)],
+        overview_parameters=OverviewParameters(rows=1, cols=2, overlap=0.1),
+    ).run()
+
+    for payload in [p for p in emitted if p.get("counter")]:
+        assert "estimated_remaining_time" in payload
+        assert "estimated_total_time" in payload

@@ -881,16 +881,18 @@ class FMTiledAcquisitionRunner:
 
         self._init_preview_canvas()
 
-        first = self._ordered[0]
         self._emit({"state": "moving", "task": "tileset"})
+        # The run's opening report: nothing acquired, and how long it should take. A
+        # progress report rather than an announcement -- it carries no tile coordinates,
+        # because it is not about a tile. It used to name the first one *and* claim a
+        # count of 1, which was a tile that had not been taken; conflating the two is
+        # what left one key meaning two things (FIB-736).
+        #
+        # `total` counts tiles that will actually be acquired, not grid cells -- a
+        # progress bar that stops at 9/25 on a successful sparse run reads as a failure.
         self._emit({
             "state": "acquiring", "task": "tileset",
-            "row": first.row + 1, "col": first.col + 1,
-            "total_rows": self._rows, "total_cols": self._cols,
-            # `total` counts tiles that will actually be acquired, not grid cells --
-            # a progress bar that stops at 9/25 on a successful sparse run reads as a
-            # failure.
-            "counter": 1, "total": len(self._ordered),
+            "counter": 0, "total": len(self._ordered),
             "estimated_total_time": self._total_estimated_time,
             "estimated_remaining_time": self._total_estimated_time,
         })
@@ -1107,37 +1109,62 @@ class FMTiledAcquisitionRunner:
         one thing that does not need to be fast: at ~10 MB against a tile exposure, the
         copy does not show.
         """
+        estimated_total, estimated_remaining, elapsed = self._time_estimate()
         self._emit({
             "state": "tile", "task": "tileset",
             "row": tile.row, "col": tile.col,
             "total_rows": self._rows, "total_cols": self._cols,
+            # **Tiles completed**, which is what `counter` means on this signal -- the
+            # beam tiler increments and then emits, so its count has always meant this.
+            # The fluorescence side used to say it twice per tile with two meanings: the
+            # tile *starting* before the acquisition and the tally after. One key cannot
+            # be both, and a consumer choosing between them got a bar that changed scale
+            # at every boundary (FIB-736, FIB-739).
             "counter": self._n_acquired, "total": len(self._ordered),
+            # The estimate rides with the count rather than with the announcement below,
+            # so one payload carries the whole picture and a consumer never has to
+            # assemble progress from two.
+            "estimated_total_time": estimated_total,
+            "estimated_remaining_time": estimated_remaining,
+            "elapsed_time": elapsed,
             "image": self._preview.canvas.copy(),
             "preview_stride": self._preview.stride,
         })
 
-    def _emit_tile_progress(self, row: int, col: int) -> None:
-        # Counted by visits, not by grid index. `row * cols + col` assumed a full
-        # row-major traversal; under a spiral it jumps around, and under a mask it
-        # overcounts by every skipped tile.
-        current_tile = self._n_acquired + 1
+    def _time_estimate(self):
+        """`(total, remaining, elapsed)` for the run, from what it has done so far.
+
+        Expressed in tiles *completed*, which is what the runner actually knows. It was
+        written in terms of the tile starting -- `elapsed / (current - 1)` against
+        `total - current + 1` -- which is the same arithmetic said awkwardly, and part of
+        why the count came to mean two things.
+        """
+        elapsed = time.time() - self._acquisition_start_time
+        completed = self._n_acquired
         total_tiles = len(self._ordered)
-        elapsed_time = time.time() - self._acquisition_start_time
-
-        if current_tile > 1:
-            time_per_tile = elapsed_time / (current_tile - 1)
-            estimated_remaining_time = time_per_tile * (total_tiles - current_tile + 1)
+        if completed:
+            per_tile = elapsed / completed
+            remaining = per_tile * (total_tiles - completed)
         else:
-            estimated_remaining_time = self._total_estimated_time
+            remaining = self._total_estimated_time
+        return self._total_estimated_time, remaining, elapsed
 
+    def _emit_tile_progress(self, row: int, col: int) -> None:
+        """Announce the tile about to be acquired.
+
+        Deliberately carries **no counts and no estimate**. Those describe what the run
+        has done, and this is emitted before the tile is taken -- it could only ever
+        report one fewer than the truth, and a consumer driving a bar from it would stop
+        one short of the total for the whole run (measured; the bar ended at 3/4).
+
+        What it is for is *where we are*: the tile coordinates, and clearing the
+        "Moving stage…" label the previous payload put up. The progress arrives after
+        the tile, with the preview.
+        """
         self._emit({
             "state": "acquiring", "task": "tileset",
             "row": row + 1, "col": col + 1,
             "total_rows": self._rows, "total_cols": self._cols,
-            "counter": current_tile, "total": total_tiles,
-            "estimated_total_time": self._total_estimated_time,
-            "estimated_remaining_time": estimated_remaining_time,
-            "elapsed_time": elapsed_time,
         })
 
 
