@@ -3853,12 +3853,25 @@ class ThermoMicroscope(FibsemMicroscope):
             values = [v for v in VALUES if limits.min <= v <= limits.max]
             return values
         
-        if key == "detector_type":
-            values = self.connection.detector.type.available_values
-        
-        if key == "detector_mode":
-            values = self.connection.detector.mode.available_values
-        
+        # The same shared-channel pair as `_get`/`_set` -- except these two never set the
+        # channel at all, so this is not a race: they answer from whichever detector is
+        # active and report it as the requested beam's, ignoring `beam_type` entirely
+        # (FIB-544).
+        #
+        # Worse than one wrong read, because `get_available_values_cached` keeps the
+        # answer for the rest of the session -- including an answer given while the FM
+        # held the channel, which is then never revisited.
+        if key in ("detector_type", "detector_mode"):
+            with self._threading_lock:
+                # No channel to claim when the caller named no beam; the pre-existing
+                # behaviour of answering for whatever is active is all that is available.
+                if beam_type is not None:
+                    self.set_channel(beam_type)
+                if key == "detector_type":
+                    values = self.connection.detector.type.available_values
+                if key == "detector_mode":
+                    values = self.connection.detector.mode.available_values
+
         if key == "scan_direction":
             TFS_SCAN_DIRECTIONS = [
                 "BottomToTop",
@@ -3885,6 +3898,27 @@ class ThermoMicroscope(FibsemMicroscope):
         logging.debug({"msg": "get_available_values", "key": key, "values": values})
 
         return values
+
+    def get_detector_settings(self, beam_type: BeamType = BeamType.ELECTRON) -> FibsemDetectorSettings:
+        """Read all four detector properties as one consistent group.
+
+        Overridden here rather than fixed on the base class because the reason is
+        TFS-specific: the FM and the beams share one connection with one active view, so
+        each property read below is a set-then-read pair against a channel another client
+        can take (FIB-544). Other backends have their own connections and want no lock.
+
+        Locking each pair on its own would make every value correct and still let the
+        channel move *between* them, so the four could describe two different states --
+        and each pair would re-claim the channel, so a contended read flips the active
+        view four times rather than once. `_threading_lock` is an RLock, so the pairs
+        inside keep their own guard at no cost.
+
+        Not extended to `get_microscope_state`, which is this twice plus two beam reads
+        plus a stage read: `_threading_lock` is shared by every caller in the process,
+        and that is too long to hold them all.
+        """
+        with self._threading_lock:
+            return super().get_detector_settings(beam_type)
 
     def _get(self, key: str, beam_type: Optional[BeamType] = None) -> Union[int, float, str, list, Point, FibsemStagePosition, FibsemManipulatorPosition, None]:
         """Get a property of the microscope."""
@@ -3982,19 +4016,29 @@ class ThermoMicroscope(FibsemMicroscope):
             return self.connection.vacuum.chamber_pressure.value
 
         # detector mode and type
+        #
+        # One lock over the pair, for the same reason `acquire_image` holds one over its
+        # set-and-grab (FIB-542). `connection.detector` resolves against the *active
+        # device*, so a channel that is no longer ours when the read lands answers from
+        # the other column -- and answers silently, because a bare float or string carries
+        # nothing to say which device replied (FIB-544).
+        #
+        # Narrow on purpose: `_threading_lock` is a class attribute shared by every caller
+        # in the process. `get_detector_settings` takes it across all four of these so the
+        # group describes one state rather than four, which an RLock makes free to nest.
         if key in ["detector_mode", "detector_type", "detector_brightness", "detector_contrast"]:
-            
-            # set beam active view and device
-            self.set_channel(beam_type)
+            with self._threading_lock:
+                # set beam active view and device
+                self.set_channel(beam_type)
 
-            if key == "detector_type":
-                return self.connection.detector.type.value
-            if key == "detector_mode":
-                return self.connection.detector.mode.value
-            if key == "detector_brightness":
-                return self.connection.detector.brightness.value
-            if key == "detector_contrast":
-                return self.connection.detector.contrast.value
+                if key == "detector_type":
+                    return self.connection.detector.type.value
+                if key == "detector_mode":
+                    return self.connection.detector.mode.value
+                if key == "detector_brightness":
+                    return self.connection.detector.brightness.value
+                if key == "detector_contrast":
+                    return self.connection.detector.contrast.value
 
         # manipulator properties
         if key == "manipulator_position":
@@ -4104,37 +4148,43 @@ class ThermoMicroscope(FibsemMicroscope):
             return
 
         # detector properties
+        #
+        # The write half of the pair, and the one that does damage rather than reporting
+        # it: the value lands on whichever detector is active when the assignment goes
+        # out, so a stolen channel sets brightness or contrast on the other column and
+        # leaves it there (FIB-544). Locked for the same reason as the read above.
         if key in ["detector_mode", "detector_type", "detector_brightness", "detector_contrast"]:
-            self.set_channel(beam_type)
+            with self._threading_lock:
+                self.set_channel(beam_type)
 
-            if key == "detector_mode":
-                if value in self.connection.detector.mode.available_values:
-                    self.connection.detector.mode.value = value
-                    logging.info(f"Detector mode set to {value}.")
-                else:
-                    logging.warning(f"Detector mode {value} not available.")
-                return
-            if key == "detector_type":
-                if value in self.connection.detector.type.available_values:
-                    self.connection.detector.type.value = value
-                    logging.info(f"Detector type set to {value}.")
-                else:
-                    logging.warning(f"Detector type {value} not available.")
-                return
-            if key == "detector_brightness":
-                if 0 < value <= 1 :
-                    self.connection.detector.brightness.value = value
-                    logging.info(f"Detector brightness set to {value}.")
-                else:
-                    logging.warning(f"Detector brightness {value} not available, must be between 0 and 1.")
-                return
-            if key == "detector_contrast":
-                if 0 < value <= 1 :
-                    self.connection.detector.contrast.value = value
-                    logging.info(f"Detector contrast set to {value}.")
-                else:
-                    logging.warning(f"Detector contrast {value} not available, mut be between 0 and 1.")
-                return
+                if key == "detector_mode":
+                    if value in self.connection.detector.mode.available_values:
+                        self.connection.detector.mode.value = value
+                        logging.info(f"Detector mode set to {value}.")
+                    else:
+                        logging.warning(f"Detector mode {value} not available.")
+                    return
+                if key == "detector_type":
+                    if value in self.connection.detector.type.available_values:
+                        self.connection.detector.type.value = value
+                        logging.info(f"Detector type set to {value}.")
+                    else:
+                        logging.warning(f"Detector type {value} not available.")
+                    return
+                if key == "detector_brightness":
+                    if 0 < value <= 1 :
+                        self.connection.detector.brightness.value = value
+                        logging.info(f"Detector brightness set to {value}.")
+                    else:
+                        logging.warning(f"Detector brightness {value} not available, must be between 0 and 1.")
+                    return
+                if key == "detector_contrast":
+                    if 0 < value <= 1 :
+                        self.connection.detector.contrast.value = value
+                        logging.info(f"Detector contrast set to {value}.")
+                    else:
+                        logging.warning(f"Detector contrast {value} not available, mut be between 0 and 1.")
+                    return
 
         # system properties
         if key == "beam_enabled":
