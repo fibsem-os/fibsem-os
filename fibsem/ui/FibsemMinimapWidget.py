@@ -632,17 +632,34 @@ class FibsemMinimapWidget(QWidget):
 
     @ensure_main_thread
     def handle_tile_acquisition_progress(self, ddict: dict) -> None:
-        """Callback for handling the tile acquisition progress."""
+        """Callback for handling the tile acquisition progress.
 
+        Read with `.get`, not indexed. This signal has no discriminator -- a consumer
+        works out what it received from which keys are present -- so a payload shape
+        that omits any of these is not a degraded label here, it is a `KeyError` inside
+        a Qt slot, mid-acquisition. All three shapes `tiled.py` emits happen to carry
+        them today, which is the only reason indexing has held (FIB-402).
+
+        `total` is guarded rather than defaulted, because it is a divisor: a payload
+        reporting nothing to do would take the bar out with a `ZeroDivisionError`
+        instead. Nothing is drawn for a payload that cannot say how far along it is,
+        which leaves the last real progress standing -- true, rather than reset to zero.
+
+        `FibsemOverviewWidget._apply_progress` reads the same signal the same way.
+        """
         # track counts for result dict
-        count, total = ddict["counter"], ddict["total"]
-        self._tiles_acquired = count
-        self._tile_total_count = total
+        counter = ddict.get("counter")
+        total = ddict.get("total")
+        if counter is not None and total:
+            self._tiles_acquired = counter
+            self._tile_total_count = total
 
-        # progress bar
-        self.progressBar_acquisition.setMaximum(100)
-        self.progressBar_acquisition.setValue(int(count/total*100))
-        self.progressBar_acquisition.setFormat(f"{ddict['msg']} — {count}/{total} tiles (%p%)")
+            # progress bar
+            self.progressBar_acquisition.setMaximum(100)
+            self.progressBar_acquisition.setValue(int(counter / total * 100))
+            self.progressBar_acquisition.setFormat(
+                f"{ddict.get('msg', 'Acquiring')} — {counter}/{total} tiles (%p%)"
+            )
 
         image = ddict.get("image", None)
         if image is not None:
