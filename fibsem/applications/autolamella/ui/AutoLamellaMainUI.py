@@ -626,10 +626,18 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             parent=self,
         )
 
-        # Below the separator because it is the one entry here that acts on the
-        # install rather than on the experiment: read-only, and the thing you open
-        # when a Scripts entry above did not appear.
+        # Below the separator because these act on the install rather than on the
+        # experiment. The wizard needs a home here as well as on the connection tab:
+        # the callout there appears once and is dismissible, so without this entry a
+        # second microscope could never be set up through it.
         tools_menu.addSeparator()
+        self.action_setup_wizard = QAction("Setup Wizard...", self)
+        self.action_setup_wizard.setToolTip(
+            "Configure a microscope connection step by step"
+        )
+        self.action_setup_wizard.triggered.connect(self._on_setup_wizard)
+        tools_menu.addAction(self.action_setup_wizard)
+
         self.action_show_plugins = QAction("Plugins...", self)
         self.action_show_plugins.setToolTip(
             "Show every registered pattern, strategy and task, and where it came from"
@@ -949,6 +957,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             microscope=microscope,
             parent=self,
         )
+
+    def _on_setup_wizard(self):
+        """Run the microscope setup wizard.
+
+        Delegated to the connection tab rather than opened here, so that whatever the
+        wizard saves is selected in the one combo box that decides what the next
+        connection uses -- and so the live microscope is handed over, rather than the
+        wizard opening a second client against the same instrument.
+        """
+        self.autolamella_ui.system_widget.run_setup_wizard()
 
     def _on_show_plugins(self):
         """Open the read-only listing of registered extensions."""

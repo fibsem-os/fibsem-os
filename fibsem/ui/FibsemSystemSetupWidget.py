@@ -2,10 +2,11 @@ import logging
 from pprint import pprint
 from typing import Optional
 
-from PyQt5 import QtWidgets
+from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import pyqtSignal
 
 from fibsem import config as cfg
+from fibsem import setup_wizard
 from fibsem import utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import MicroscopeSettings, SystemSettings
@@ -15,6 +16,7 @@ from fibsem.ui.tokens import (
     BORDER_COLOR,
     NEUTRAL_500,
     PANEL_COLOR,
+    PRIMARY_COLOR,
     WHITE_ICON_COLOR,
 )
 from fibsem.ui.utils import message_box_ui, open_existing_file_dialog
@@ -43,26 +45,138 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         self.label_connection_information = QtWidgets.QLabel("No Connected")
         self.label_connection = QtWidgets.QLabel("Configuration")
 
-        self.gridLayout.addWidget(self.label_connection, 0, 0, 1, 1)
-        self.gridLayout.addWidget(self.comboBox_configuration, 0, 1, 1, 1)
-        self.gridLayout.addWidget(self.toolButton_import_configuration, 0, 2, 1, 1)
-        self.gridLayout.addWidget(self.pushButton_connect_to_microscope, 1, 0, 1, 3)
-        self.gridLayout.addWidget(self.pushButton_apply_configuration, 2, 0, 1, 3)
-        self.gridLayout.addWidget(self.label_connection_status, 3, 0, 1, 3)
-        self.gridLayout.addWidget(self.label_connection_information, 4, 0, 1, 3)
+        # Row 0 is the first-run offer, above the configuration it is offering to
+        # create. Everything else sits a row lower than it reads in the file.
+        self._frame_first_run = self._create_first_run_callout()
+        self.gridLayout.addWidget(self._frame_first_run, 0, 0, 1, 3)
+        self.gridLayout.addWidget(self.label_connection, 1, 0, 1, 1)
+        self.gridLayout.addWidget(self.comboBox_configuration, 1, 1, 1, 1)
+        self.gridLayout.addWidget(self.toolButton_import_configuration, 1, 2, 1, 1)
+        self.gridLayout.addWidget(self.pushButton_connect_to_microscope, 2, 0, 1, 3)
+        self.gridLayout.addWidget(self.pushButton_apply_configuration, 3, 0, 1, 3)
+        self.gridLayout.addWidget(self.label_connection_status, 4, 0, 1, 3)
+        self.gridLayout.addWidget(self.label_connection_information, 5, 0, 1, 3)
         self.gridLayout.addItem(
             QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding),
-            5, 0, 1, 3
+            6, 0, 1, 3
         )
 
         # hide the old status labels and replace with a card
         self.label_connection_status.setVisible(False)
         self.label_connection_information.setVisible(False)
         self._frame_status = self._create_connection_status_card()
-        self.gridLayout.addWidget(self._frame_status, 4, 0, 1, 3)
+        self.gridLayout.addWidget(self._frame_status, 5, 0, 1, 3)
 
         self.setup_connections()
         self.update_ui()
+
+    def _create_first_run_callout(self) -> QtWidgets.QFrame:
+        """The offer to run the setup wizard, shown only on a fresh install.
+
+        Tinted rather than coloured, with an outline button: this is an offer, not a
+        warning, and the tab it appears on is one people open every session. It is
+        dismissible for the same reason -- someone who intends to configure by hand
+        should be able to say so once.
+        """
+        frame = QtWidgets.QFrame()
+        frame.setObjectName("frame_first_run")
+        frame.setStyleSheet(f"""
+            QFrame#frame_first_run {{
+                background-color: rgba(0, 122, 204, 0.12);
+                border: 1px solid {PRIMARY_COLOR};
+                border-radius: 6px;
+            }}
+        """)
+
+        layout = QtWidgets.QHBoxLayout(frame)
+        layout.setContentsMargins(12, 10, 8, 10)
+        layout.setSpacing(10)
+
+        icon = QtWidgets.QLabel()
+        icon.setStyleSheet("background: transparent; border: none;")
+        icon.setFixedSize(20, 20)
+        icon.setPixmap(fibsem_icon("mdi:auto-fix", color=PRIMARY_COLOR).pixmap(20, 20))
+        layout.addWidget(icon, 0, QtCore.Qt.AlignTop)
+
+        text = QtWidgets.QVBoxLayout()
+        text.setSpacing(2)
+        title = QtWidgets.QLabel("First time here?")
+        title.setStyleSheet(
+            f"background: transparent; border: none; color: {PRIMARY_COLOR};"
+            " font-weight: bold; font-size: 11px;"
+        )
+        subtitle = QtWidgets.QLabel(
+            "The setup wizard will configure this microscope connection for you."
+        )
+        subtitle.setWordWrap(True)
+        subtitle.setStyleSheet(
+            f"background: transparent; border: none; color: {NEUTRAL_500}; font-size: 10px;"
+        )
+        text.addWidget(title)
+        text.addWidget(subtitle)
+        layout.addLayout(text, 1)
+
+        self._button_run_wizard = QtWidgets.QPushButton("Run Setup Wizard")
+        self._button_run_wizard.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {PRIMARY_COLOR};
+                border: 1px solid {PRIMARY_COLOR};
+                border-radius: 4px;
+                padding: 5px 12px;
+                font-size: 11px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{ background-color: rgba(0, 122, 204, 0.20); }}
+        """)
+        self._button_run_wizard.clicked.connect(self.run_setup_wizard)
+        layout.addWidget(self._button_run_wizard, 0, QtCore.Qt.AlignVCenter)
+
+        self._button_dismiss_first_run = QtWidgets.QToolButton()
+        self._button_dismiss_first_run.setIcon(fibsem_icon("mdi:close", color=NEUTRAL_500))
+        self._button_dismiss_first_run.setToolTip("Do not offer this again")
+        self._button_dismiss_first_run.setAutoRaise(True)
+        self._button_dismiss_first_run.setStyleSheet("border: none; background: transparent;")
+        self._button_dismiss_first_run.clicked.connect(self._dismiss_first_run)
+        layout.addWidget(self._button_dismiss_first_run, 0, QtCore.Qt.AlignTop)
+
+        frame.setVisible(setup_wizard.is_first_run())
+        return frame
+
+    def _dismiss_first_run(self) -> None:
+        """Hide the offer, and record that it was declined."""
+        self._frame_first_run.setVisible(False)
+        setup_wizard.dismiss_first_run()
+
+    def run_setup_wizard(self) -> Optional[str]:
+        """Open the wizard, and select whatever it saved.
+
+        The live microscope is handed over so the wizard can read the stage without
+        opening a second client against the same instrument.
+        """
+        from fibsem.ui.widgets.setup_wizard_dialog import open_setup_wizard
+
+        name = open_setup_wizard(parent=self, microscope=self.microscope)
+        if name is None:
+            # Backing out is not declining. The offer stays where it was, so someone
+            # who cancelled to go and read the instrument's address can pick it up
+            # again without hunting through the menus.
+            return None
+        # Finishing writes the preferences file that is_first_run reads, so this only
+        # brings the change forward to now rather than to the next start.
+        self._frame_first_run.setVisible(False)
+
+        combo = self.comboBox_configuration
+        combo.blockSignals(True)
+        index = combo.findText(name)
+        if index == -1:
+            combo.addItem(name)
+            index = combo.count() - 1
+        combo.setCurrentIndex(index)
+        combo.blockSignals(False)
+        self.load_configuration(name)
+        notification_service.show_toast(f"Configuration {name} is ready.", "info")
+        return name
 
     def _create_connection_status_card(self) -> QtWidgets.QFrame:
         frame = QtWidgets.QFrame()
