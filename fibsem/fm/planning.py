@@ -19,6 +19,15 @@ selection cheap in both.
 The caller supplies regions in the beam overview's own displayed plane, in metres from a
 base stage position -- what :meth:`StageFrame.offset` answers. Pixels are the display's
 business and cancel immediately; taking them here would mean being told which pixels.
+
+**Anything drawing this plan anchors its frame at the fluorescence orientation**, and
+:attr:`SparseOverviewPlan.centre_position` is already there, so it can serve as the frame
+origin directly. This is not a formality. A canvas frame takes its r and t from its
+origin, and `FMOverviewWidget._posed()` reads them off the *live* stage -- which, when
+this dialog opens, is at the milling pose, because that is where the beam overview was
+just acquired. Anchoring on the live position draws every FM tile 1.086x too tall
+(1.624x from the FIB pose): small enough to look like a grid, large enough to plan the
+wrong one. `tests/fm/test_planning.py` pins both numbers.
 """
 
 from __future__ import annotations
@@ -47,15 +56,18 @@ class SparseOverviewPlan:
 
     Attributes:
         centre_position: Stage position the grid straddles, at the FM orientation.
-            `FMTiledAcquisitionRunner` takes this directly.
+            `FMTiledAcquisitionRunner` takes this directly, and it doubles as the origin
+            for a canvas frame drawing the plan -- see the module docstring on why that
+            must not come from the live stage.
         rows: Grid rows.
         cols: Grid columns.
         mask: Per-tile enable mask, `mask[row][col]`.
         regions: The selection, projected into the FM plane and measured from
-            :attr:`centre_position`. Kept because the mask alone cannot be re-edited:
-            reopening a plan with only a mask lets tiles be toggled but leaves nothing
-            to move, and no way to say which tiles came from a region and which from a
-            hand edit.
+            :attr:`centre_position`. For drawing, and for telling a tile that came from
+            a region from one toggled by hand -- both of which only matter while the
+            selection is being made. **Not persisted:** what an acquisition needs is the
+            mask, and storing the regions beside it would mean a second representation
+            of the same thing, able to disagree with it. Selecting again starts over.
     """
 
     centre_position: FibsemStagePosition
@@ -215,8 +227,8 @@ def plan_sparse_fm_overview(
         plan.centre_dx, plan.centre_dy, fm_base
     )
     # Re-expressed against the grid centre rather than the base the caller happened to
-    # draw against, so the regions travel with the plan: a stored selection has to mean
-    # the same thing when it is reopened, and the drawing origin does not survive.
+    # draw against, so the regions and the tiles are in one frame: the display draws both
+    # together, and the drawing origin is the caller's business, not the plan's.
     centred = tuple(
         PlaneRegion(
             r.x0 - plan.centre_dx,

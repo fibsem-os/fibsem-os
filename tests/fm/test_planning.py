@@ -72,10 +72,15 @@ def region(x0, y0, x1, y1):
 
 
 def test_re_posing_keeps_the_translation_and_writes_the_orientation():
-    """The whole plan rests on x, y and z naming the same ground at either pose."""
+    """The whole plan rests on x, y and z naming the same ground at either pose.
+
+    The input rotation is deliberately non-zero. Every orientation on a compustage sits
+    at r = 0, so an input already at 0 cannot tell whether r is being written or merely
+    left alone -- and r is half of what "at the FM orientation" means.
+    """
     fm = FibsemStagePosition(r=0.0, t=np.deg2rad(-180))
     posed = to_fm_pose(
-        FibsemStagePosition(x=1e-3, y=2e-3, z=3e-3, r=0.0, t=np.deg2rad(-23)),
+        FibsemStagePosition(x=1e-3, y=2e-3, z=3e-3, r=np.deg2rad(90), t=np.deg2rad(-23)),
         fm,
         is_compustage=True,
     )
@@ -344,3 +349,82 @@ def test_the_selection_is_not_mirrored_on_its_way_to_the_run(geometry):
     assert enabled
     for footprint in enabled:
         assert any(footprint.overlaps(r) for r in fm_regions)
+
+
+# ── the frame the plan is drawn in ───────────────────────────────────────
+#
+# A canvas frame takes its rotation and tilt from its origin -- `StageFrame.offset` is a
+# one-line pass through to `projection.to_plane(position, self.origin)`, which is what
+# these test directly, since importing `StageFrame` pulls in PyQt5 and CI does not
+# install it.
+#
+# The mistake these exist to catch: `FMOverviewWidget._posed()` reads r and t off the
+# *live* stage, which is correct for a tab that follows the instrument and wrong for a
+# dialog planning a pose the stage is not in yet. When this dialog opens the stage sits
+# at the milling orientation, because that is where the beam overview was acquired.
+
+STAGE_POSES = ["SEM", "MILLING", "FIB", "FM"]
+
+
+def posed(microscope, name):
+    """A stage position at one of the orientations, as the live stage would report it."""
+    pose = microscope.get_orientation(name)
+    return FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t)
+
+
+@pytest.mark.parametrize("stage_pose", STAGE_POSES)
+def test_the_plans_centre_is_already_a_frame_origin(geometry, stage_pose):
+    """Whatever pose the stage is in, the plan's centre is at the FM orientation -- so a
+    frame anchored on it draws the tiles at true size without anyone re-posing it."""
+    plan, _ = make_plan(geometry, [region(0.0, 0.0, 2e-4, 1e-4)])
+    assert surface_foreshortening(
+        geometry["fm_projection"], plan.centre_position
+    ) == pytest.approx(1.0, abs=1e-9)
+
+
+@pytest.mark.parametrize(
+    "stage_pose, factor", [("SEM", 1.000), ("MILLING", 1.086), ("FIB", 1.624), ("FM", 1.000)]
+)
+def test_anchoring_on_the_live_stage_pose_foreshortens_every_tile(
+    geometry, stage_pose, factor
+):
+    """The guard, and the measurement.
+
+    Without it the test above passes against a projection that is unforeshortened
+    everywhere, proving nothing. The milling row is the one that matters: 8.6% is
+    invisible by eye, where a gross error would be caught the first time anyone looked.
+    """
+    live = posed(geometry["microscope"], stage_pose)
+    drawn = 1.0 / surface_foreshortening(geometry["fm_projection"], live)
+    assert drawn == pytest.approx(factor, abs=1e-3)
+    # ...and going through `to_fm_pose` removes it, from every one of them.
+    fixed = to_fm_pose(live, geometry["fm_orientation"], is_compustage=True)
+    assert surface_foreshortening(
+        geometry["fm_projection"], fixed
+    ) == pytest.approx(1.0, abs=1e-9)
+
+
+def test_tiles_land_identically_whatever_pose_the_stage_is_in(geometry):
+    """The consequence, on a real tile position rather than on a probe length.
+
+    One tile from one plan, placed through frames anchored on each pose the stage could
+    be in when the dialog opens. Re-posed, they must all agree exactly.
+    """
+    m = geometry["microscope"]
+    plan, _ = make_plan(geometry, [region(0.0, 0.0, 3e-4, 2e-4)])
+    tile = m.project_fm_stable_move(
+        dx=geometry["fov_x"], dy=geometry["fov_y"], base_position=plan.centre_position
+    )
+
+    placements = {
+        geometry["fm_projection"].to_plane(
+            tile, to_fm_pose(posed(m, name), geometry["fm_orientation"], is_compustage=True)
+        )
+        for name in STAGE_POSES
+    }
+    assert len(placements) == 1, placements
+
+    # And the same tile through an un-posed milling origin does *not* agree -- otherwise
+    # the assertion above would hold no matter what `to_fm_pose` did.
+    astray = geometry["fm_projection"].to_plane(tile, posed(m, "MILLING"))
+    assert astray != placements.pop()
