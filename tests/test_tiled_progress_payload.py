@@ -59,9 +59,14 @@ def _per_tile(payloads):
 
 
 def test_every_tile_update_carries_the_keys_its_consumers_index(payloads):
-    """`counter`, `total` and `msg` are read unconditionally by more than one consumer
-    -- `FibsemMinimapWidget.handle_tile_acquisition_progress` indexes them directly and
-    raises on a payload without them."""
+    """`counter`, `total` and `msg` are what every consumer draws its bar from.
+
+    They used to be *indexed* -- `FibsemMinimapWidget.handle_tile_acquisition_progress`
+    raised on a payload without them, so this test stood between that consumer and a
+    `KeyError` mid-acquisition. Both consumers now read with `.get` and skip the update
+    instead (FIB-402), so the stake is lower: a per-tile payload missing these shows no
+    progress rather than taking the widget out. Still a contract, and still worth
+    asserting -- a run whose progress silently stops moving is its own bug."""
     updates = _per_tile(payloads)
     assert len(updates) == 2, "expected one update per tile"
     for payload in updates:
