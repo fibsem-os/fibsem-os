@@ -34,7 +34,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import constants
-from fibsem.config import AVAILABLE_RESOLUTIONS_ZIP, DEFAULT_SQUARE_RESOLUTION
+from fibsem.config import AVAILABLE_RESOLUTIONS_ZIP
 from fibsem.structures import (
     AutoFocusMode,
     AutoFocusSettings,

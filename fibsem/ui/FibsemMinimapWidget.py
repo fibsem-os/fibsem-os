@@ -95,19 +95,6 @@ if TYPE_CHECKING:
 
 COLOURS = CORRELATION_IMAGE_LAYER_PROPERTIES["colours"]
 
-# What this tab acquires an overview at, and the one thing the shared default cannot
-# supply. It was never chosen here: the constant this tab used to hold omitted
-# `resolution`, so it inherited `ImageSettings`' own non-square default, and that is
-# what every overview taken from this tab has been. The rebuilt tab deliberately opens
-# square instead (FIB-619), so one factory cannot serve both.
-#
-# Pinned here rather than resolved in favour of whichever tab owns the factory, because
-# the difference is not cosmetic: `hfw` is the *horizontal* field, so the same 500 um
-# at 1024x1024 is 0.49 um/px against 0.33 and half again as tall. Whether both tabs
-# should agree -- and on which -- is a question for the swap, not for a change that
-# promises the current workflow is untouched.
-OVERVIEW_RESOLUTION = (1536, 1024)
-
 # Crosshair layer configuration constants
 CROSSHAIR_CONFIG = {
     "layer_name": "stage-position",
@@ -480,7 +467,6 @@ class FibsemMinimapWidget(QWidget):
             raise ValueError("Experiment in parent widget is None, cannot proceed.")
 
         settings = default_overview_acquisition_settings()
-        settings.image_settings.resolution = OVERVIEW_RESOLUTION
         settings.image_settings.path = str(self.parent_widget.experiment.path)
         self.overview_acquisition_widget.update_from_settings(settings)
         try:
