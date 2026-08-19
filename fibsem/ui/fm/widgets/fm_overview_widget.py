@@ -54,7 +54,7 @@ from fibsem.ui.widgets.canvas.overlays.tile_grid_options_panel import (
     TileGridOptionsPanel,
 )
 from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE
+from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE, is_modality
 from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
 from fibsem.ui.widgets.canvas.overlay_controls import (
     CanvasOverlayControls,
@@ -2387,6 +2387,13 @@ class FMOverviewWidget(QWidget):
 
         task = payload.get("task")
         if task == "tileset":
+            if not is_modality(payload, MODALITY_FLUORESCENCE):
+                # A beam run, on the signal this now shares with the beam tiler. It is
+                # ignored today even without this -- beam payloads carry no `task` -- but
+                # that is an accident of vocabulary, not a decision, and the beam tiler
+                # gaining a `task` key would be an entirely reasonable thing for it to
+                # do (FIB-725).
+                return
             self._apply_tile_progress(payload, state)
         elif task in ("z-stack", "channels", "autofocus"):
             self.progress_tile_detail.update_progress(self._tile_detail_update(payload))
