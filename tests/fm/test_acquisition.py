@@ -2240,3 +2240,64 @@ def test_the_retracted_objective_is_caught_before_anything_moves(
         "the objective was driven somewhere before the run was refused"
     )
     assert fm_microscope.fm.objective.state == "Retracted", "the run inserted it"
+
+
+def test_the_stitch_is_announced_between_the_last_tile_and_the_mosaic(fm_microscope):
+    """Between the last tile and the finished mosaic there is real work, and it used to
+    be reported as nothing at all.
+
+    The tile bar stopped at N/N and the run looked complete while the app built and
+    wrote a multi-gigabyte array — measured at ~2.1 s per GB of mosaic on a local SSD,
+    about 7 s for a 5x5 at ARCTIS resolution in four channels, and worse to a network
+    drive. The beam tiler has always said "Stitching Tiles" here (FIB-725).
+    """
+    emitted = []
+    fm_microscope.fm.acquisition_progress_signal.connect(emitted.append)
+
+    acquisition.FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=[ChannelSettings(name="CH0", exposure_time=0.001)],
+        overview_parameters=OverviewParameters(rows=2, cols=2, overlap=0.1),
+    ).run_and_stitch()
+
+    states = [p.get("state") for p in emitted if p.get("task") == "tileset"]
+    assert "stitching" in states, "the stitch is still silent"
+
+    # After every tile, not before one: announced too early it would sit on screen for
+    # the whole acquisition, which is the opposite failure.
+    last_tile = max(i for i, s in enumerate(states) if s == "acquiring")
+    assert states.index("stitching") > last_tile
+
+
+def test_the_stitch_announcement_carries_no_counts(fm_microscope):
+    """So a consumer keeps whatever the bar last showed. N/N is still true while the
+    mosaic is being built, and rendering this as indeterminate would paint a *full* bar
+    — exactly the "it finished" impression the phase exists to correct."""
+    emitted = []
+    fm_microscope.fm.acquisition_progress_signal.connect(emitted.append)
+
+    acquisition.FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=[ChannelSettings(name="CH0", exposure_time=0.001)],
+        overview_parameters=OverviewParameters(rows=1, cols=2, overlap=0.1),
+    ).run_and_stitch()
+
+    stitching = [p for p in emitted if p.get("state") == "stitching"]
+    assert len(stitching) == 1
+    assert "current" not in stitching[0]
+    assert "total" not in stitching[0]
+
+
+def test_a_run_that_never_reaches_the_stitch_does_not_announce_one(fm_microscope):
+    """`run()` on its own acquires without stitching — a caller wanting the tiles. It
+    must not claim a mosaic is being built that nobody asked for."""
+    emitted = []
+    fm_microscope.fm.acquisition_progress_signal.connect(emitted.append)
+
+    acquisition.FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=[ChannelSettings(name="CH0", exposure_time=0.001)],
+        overview_parameters=OverviewParameters(rows=1, cols=2, overlap=0.1),
+    ).run()
+
+    assert "stitching" not in [p.get("state") for p in emitted]

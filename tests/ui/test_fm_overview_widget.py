@@ -403,6 +403,47 @@ def test_a_stage_move_does_not_fill_the_bar(qapp):
     assert router.status.text() == "Moving stage…"
 
 
+@pytest.mark.parametrize(
+    "state, label",
+    [
+        ("stitching", "Stitching tiles…"),
+        ("saving", "Saving overview…"),
+    ],
+)
+def test_the_end_of_a_run_is_not_silent(qapp, state, label):
+    """Between the last tile and a finished run the app builds and writes a mosaic —
+    ~2.1 s per GB, about 7 s for a 5x5 at ARCTIS resolution in four channels. That was
+    reported as nothing at all, so a long run appeared to hang just as it completed.
+
+    Handled exactly as `moving` is, and for the same reason: the count stays put, since
+    N/N is still true while the mosaic is written, and the phase goes to the label. The
+    bar must not be filled — `indeterminate` paints a *full* bar, which is the very
+    impression these phases exist to correct.
+    """
+    router = _Router()
+    router._apply_progress({
+        "state": "acquiring", "task": "tileset", "current": 9, "total": 9,
+    })
+
+    router._apply_progress({"state": state, "task": "tileset"})
+
+    assert router.status.text() == label
+    assert (_bar(router.progress_tiles).value(),
+            _bar(router.progress_tiles).maximum()) == (9, 9)
+
+
+def test_a_phase_label_is_cleared_by_the_next_tile(qapp):
+    """Otherwise "Stitching tiles…" would still be on screen through the next run."""
+    router = _Router()
+    router._apply_progress({"state": "saving", "task": "tileset"})
+    assert router.status.text() == "Saving overview…"
+
+    router._apply_progress({
+        "state": "acquiring", "task": "tileset", "current": 1, "total": 9,
+    })
+    assert router.status.text() == ""
+
+
 # ── layout stability ─────────────────────────────────────────────────────
 
 
@@ -4803,3 +4844,41 @@ class TestSayingWhenARunStarts:
         finally:
             widget._set_running(False)
         assert answers == [True, False]
+
+
+def test_the_worker_announces_the_save_before_it_writes(qapp, overview_widget, tmp_path):
+    """The larger half of the end-of-run gap, and the half the *widget* owns.
+
+    Measured: the stitch is ~0.3 s for a 1.3 GB mosaic and the write is ~2.3 s of the
+    same 2.6 s. So announcing only the stitch — which the runner does — would still
+    leave most of the silence in place (FIB-725).
+
+    Driven through the real `_acquire_worker` rather than by emitting the payload from
+    the test: the whole risk here is that the widget does not send it, which a test that
+    sends it itself cannot see.
+    """
+    from fibsem.fm.acquisition import OverviewDestination
+
+    widget = overview_widget
+    mosaic = _acquire(widget)
+
+    class _StubRunner:
+        def run_and_stitch(self):
+            return mosaic
+
+    seen = []
+    widget.fm.acquisition_progress_signal.connect(seen.append)
+    runner, destination, saved = widget._runner, widget._destination, widget._saved_path
+    try:
+        widget._runner = _StubRunner()
+        widget._destination = OverviewDestination.create(str(tmp_path))
+        widget._acquire_worker()
+    finally:
+        widget.fm.acquisition_progress_signal.disconnect(seen.append)
+        widget._runner, widget._destination, widget._saved_path = runner, destination, saved
+
+    states = [p.get("state") for p in seen if p.get("task") == "tileset"]
+    assert "saving" in states, "the write is still silent"
+    assert states.index("saving") < states.index("overview-finished"), (
+        "the save was announced after it had already happened"
+    )

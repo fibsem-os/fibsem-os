@@ -607,6 +607,17 @@ class FMTiledAcquisitionRunner:
         true of none of them.
         """
         self.run()
+        # Between the last tile and the mosaic there is real work, and until this it was
+        # reported as nothing at all: the tile bar stopped at N/N and the run looked
+        # finished while the app built and wrote a multi-gigabyte array. Measured at
+        # ~2.1 s per GB of mosaic on a local SSD -- about 7 s for a 5x5 at ARCTIS
+        # resolution in four channels, and worse to a network drive (FIB-725).
+        #
+        # The beam tiler has always said "Stitching Tiles" here. This is the same phase
+        # in the same place; it is only that the fluorescence stitch and save happen in
+        # two different objects, so they are announced separately -- the save from the
+        # widget that performs it.
+        self._emit({"state": "stitching", "task": "tileset"})
         return stitch_tileset(
             self.tileset,
             self.overview_parameters.overlap,
