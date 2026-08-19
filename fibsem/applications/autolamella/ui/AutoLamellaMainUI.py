@@ -1326,7 +1326,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     @ensure_main_thread
     def _on_tile_acquisition_progress(self, ddict: dict) -> None:
-        """Handle tiled acquisition progress updates from the microscope."""
+        """Handle tiled acquisition progress updates from the microscope.
+
+        Deliberately **not** filtered by `modality`, unlike the two overview widgets
+        that read this signal. They each drive one modality's canvas and must ignore the
+        other's run; the status bar is the one consumer that wants both, because its
+        whole job is saying what is happening while you are looking at another tab
+        (FIB-725). What it will need, once a fluorescence run emits here, is to say
+        *which* -- not to drop one.
+        """
         counter = ddict.get("counter", 0)
         total = ddict.get("total", 1)
         msg = ddict.get("msg", "Collecting tiles")

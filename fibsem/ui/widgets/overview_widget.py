@@ -64,6 +64,7 @@ from fibsem import constants
 from fibsem.fm.composite import auto_clim
 from fibsem.imaging import tiled
 from fibsem.imaging.reduce import downsample, downsample_mask
+from fibsem.imaging.tiling.progress import MODALITY_BEAM, is_modality
 from fibsem.microscope import FibsemMicroscope
 from fibsem.projection import BeamStageProjection
 from fibsem.structures import (
@@ -2835,7 +2836,14 @@ class FibsemOverviewWidget(QWidget):
 
         Reads with `.get`, not indexing: this signal is emitted from several places with
         several shapes, and the terminal update carries none of the per-tile keys.
+
+        Beam runs only. This widget places the payload's mosaic on its own canvas and
+        counts the tiles into its own record, so a fluorescence run reaching here would
+        be drawn as one of this tab's overviews (FIB-725).
         """
+        if not is_modality(payload, MODALITY_BEAM):
+            return
+
         counter = payload.get("counter")
         total = payload.get("total")
         if counter is not None and total:

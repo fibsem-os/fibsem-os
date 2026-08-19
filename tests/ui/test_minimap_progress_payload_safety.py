@@ -92,6 +92,33 @@ def test_a_payload_with_no_counts_leaves_the_last_progress_standing(handler):
     assert handler._tiles_acquired == 4
 
 
+def test_a_fluorescence_run_is_not_drawn_into_the_beam_minimap(handler):
+    """This tab drives a *beam* overview and assigns the payload's mosaic straight into
+    its napari layer. The fluorescence preview is keyed `image` already — deliberately,
+    to match this signal — so once a fluorescence run reports here, nothing but the
+    modality stops it being painted into the beam minimap (FIB-725)."""
+    from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE
+
+    sentinel = object()
+    handler.handle_tile_acquisition_progress({
+        "modality": MODALITY_FLUORESCENCE,
+        "counter": 3, "total": 9, "msg": "Tile Collected", "image": sentinel,
+    })
+    assert handler.shown == [], "a fluorescence mosaic was drawn into the beam minimap"
+    assert handler._tiles_acquired == 0, "a fluorescence run moved the beam tile count"
+
+
+def test_a_beam_run_is_still_drawn(handler):
+    """The filter must not cost the thing it guards."""
+    sentinel = object()
+    handler.handle_tile_acquisition_progress({
+        "modality": "beam",
+        "counter": 3, "total": 9, "msg": "Tile Collected", "image": sentinel,
+    })
+    assert handler.shown == [sentinel]
+    assert handler._tiles_acquired == 3
+
+
 def test_a_preview_is_still_shown_when_the_counts_are_missing(handler):
     """The image and the counters are independent: dropping the bar update must not
     drop the picture with it."""

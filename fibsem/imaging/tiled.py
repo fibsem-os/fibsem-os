@@ -19,6 +19,7 @@ from fibsem.conversions import is_inside_image_bounds
 # Moved to the `tiling` package (FIB-390); re-exported so existing importers and the
 # public API are unaffected. `fibsem/imaging/__init__.py` star-imports this module.
 from fibsem.imaging.reduce import PreviewMosaic, downsample
+from fibsem.imaging.tiling.progress import MODALITY_BEAM
 from fibsem.imaging.tiling.geometry import (  # noqa: E402,F401
     TilePosition,
     compute_tile_grid,
@@ -171,6 +172,7 @@ class TiledAcquisitionRunner:
         """
         total_tiles = self.settings.n_enabled_tiles
         self.microscope.tiled_acquisition_signal.emit({
+            "modality": MODALITY_BEAM,
             "msg": message,
             "counter": getattr(self, "_n_tiles_acquired", 0),
             "total": total_tiles,
@@ -206,6 +208,7 @@ class TiledAcquisitionRunner:
 
         # notify the UI immediately so the progress bar appears before the first move
         self.microscope.tiled_acquisition_signal.emit({
+            "modality": MODALITY_BEAM,
             "msg": "Computing Tile Positions",
             "counter": 0,
             "total": self.settings.n_enabled_tiles,
@@ -430,6 +433,7 @@ class TiledAcquisitionRunner:
             self._paint_preview(tile, image)
             self._n_tiles_acquired += 1
             self.microscope.tiled_acquisition_signal.emit({
+                "modality": MODALITY_BEAM,
                 "msg": "Tile Collected",
                 "i": tile.row,
                 "j": tile.col,
