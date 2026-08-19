@@ -273,6 +273,7 @@ class FMOverviewWidget(QWidget):
         # somewhere. None means "wherever the stage is", which is what the runner does
         # by default -- so an untouched grid describes exactly what would be acquired.
         self._target: Optional[FibsemStagePosition] = None
+        self._sparse_selection_enabled = False
         # Where acquired overviews are written. None means nowhere: the widget opens
         # standalone against a simulator as often as it runs inside an experiment, and
         # inventing a directory for those runs would scatter files through whatever
@@ -524,6 +525,22 @@ class FMOverviewWidget(QWidget):
         self.button_cancel.clicked.connect(self.cancel)
         self.button_cancel.setEnabled(False)
 
+        # Above the run controls, because it changes *what* will run rather than
+        # starting it. Hidden unless the feature is on -- see `set_sparse_selection_enabled`.
+        self.button_select_ground = QPushButton("Select from FIB/SEM overview…")
+        self.button_select_ground.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.button_select_ground.clicked.connect(self.select_ground_to_image)
+        self.button_select_ground.setVisible(False)
+
+        # What the selection did, and that doing it again replaces rather than adds to
+        # it. There is no restore: the regions end with the dialog, so a second selection
+        # starts over, and saying so is cheaper than letting someone find out.
+        self.label_selection = ElidedLabel()
+        self.label_selection.setStyleSheet(
+            f"color: {TEXT_MUTED}; font-size: 10px; border: none;"
+        )
+        self.label_selection.setVisible(False)
+
         buttons = QWidget()
         buttons_layout = QHBoxLayout(buttons)
         buttons_layout.setContentsMargins(0, 0, 0, 0)
@@ -545,6 +562,8 @@ class FMOverviewWidget(QWidget):
         actions_layout.addWidget(self.orientation_banner)
         actions_layout.addWidget(self.progress_tiles)
         actions_layout.addWidget(self.progress_tile_detail)
+        actions_layout.addWidget(self.button_select_ground)
+        actions_layout.addWidget(self.label_selection)
         actions_layout.addWidget(buttons)
 
         side = QWidget()
@@ -1100,6 +1119,74 @@ class FMOverviewWidget(QWidget):
         experiments: it is handed a microscope, and its tests construct it that way.
         """
         self._save_directory = path
+
+    def set_sparse_selection_enabled(self, enabled: bool) -> None:
+        """Offer planning an overview by selecting on a FIB/SEM one, or do not.
+
+        Part of the host contract, like `set_save_directory`: this widget is handed a
+        microscope and knows nothing about preferences. Carried past the button rather
+        than only to it -- a control nobody can see is not a feature that is off, and
+        `select_ground_to_image` refuses on the same flag.
+        """
+        self._sparse_selection_enabled = bool(enabled)
+        self.button_select_ground.setVisible(self._sparse_selection_enabled)
+        if not self._sparse_selection_enabled:
+            self.label_selection.setVisible(False)
+
+    def select_ground_to_image(self) -> None:
+        """Draw regions on a saved beam overview, and take the grid they produce.
+
+        The overviews come off disk rather than from the FIB/SEM tab: that tab keeps
+        pixels and a position, not the metadata a projection is read from, and going
+        through the files means this works in a session that did not acquire them.
+        """
+        from fibsem.ui.fm.widgets.fm_sparse_selection_dialog import (
+            FMSparseSelectionDialog,
+            beam_overviews_in,
+        )
+
+        if not self._sparse_selection_enabled:
+            return
+        views = beam_overviews_in(self._save_directory, self.microscope)
+        if not views:
+            notification_service.show_toast(
+                "No FIB/SEM overviews found to select on. Acquire one on the Overview "
+                "tab first.",
+                "info",
+            )
+            return
+
+        selection = FMSparseSelectionDialog.choose(
+            self.microscope,
+            views,
+            self.settings_widget.parameters,
+            # The same two the confirmation dialog costs a run with, so the estimate
+            # here and the one at Acquire cannot disagree.
+            channel_settings=self.channels,
+            zparams=self.settings_widget.z_parameters,
+            parent=self,
+        )
+        if selection is None:
+            return
+        self.apply_sparse_selection(selection)
+
+    def apply_sparse_selection(self, selection) -> None:
+        """Take a completed selection: the grid, the mask, and where it is centred.
+
+        The centre goes to `_target`, which already exists for a grid dragged off the
+        stage position and is what `_grid_centre` hands the runner -- so the drawn grid
+        and the acquisition agree without either being told about this feature.
+        """
+        self.settings_widget.parameters = selection.parameters
+        self._target = selection.centre_position
+        enabled = selection.parameters.n_enabled_tiles
+        total = selection.parameters.rows * selection.parameters.cols
+        self.label_selection.setText(
+            f"{enabled} of {total} tiles came from a selection. "
+            "Selecting again replaces it."
+        )
+        self.label_selection.setVisible(True)
+        self._refresh_tile_grid()
 
     @property
     def saved_path(self) -> Optional[str]:

@@ -56,6 +56,13 @@ _TIP_BUG_REPORT    = (
     "Show the 'Report an Issue...' option in the Help menu, for reporting bugs and "
     "optionally submitting experiment data privately to the maintainers."
 )
+_LBL_SPARSE_FM = "Enable Sparse FM Selection"
+_TIP_SPARSE_FM = (
+    "Plan a fluorescence overview by drawing regions on a FIB/SEM one, so only "
+    "the interesting parts of the grid are imaged.\n\n"
+    "Off until it has had bench time: it decides where an expensive acquisition "
+    "goes, and the geometry behind it can only be checked against real data."
+)
 _LBL_OVERVIEW_CANVAS = "Enable Overview (Canvas) Tab"
 _TIP_OVERVIEW_CANVAS = (
     "Add a rebuilt Overview tab on the real-space canvas, beside the existing one. "
@@ -159,11 +166,14 @@ class PreferencesDialog(QDialog):
         self._chk_scripts.setToolTip(_TIP_SCRIPTS)
         self._chk_overview_canvas = QCheckBox()
         self._chk_overview_canvas.setToolTip(_TIP_OVERVIEW_CANVAS)
+        self._chk_sparse_fm = QCheckBox()
+        self._chk_sparse_fm.setToolTip(_TIP_SPARSE_FM)
         features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
         features_form.addRow(_LBL_SAMPLE_HOLDER, self._chk_sample_holder)
         features_form.addRow(_LBL_BUG_REPORT, self._chk_bug_report)
         features_form.addRow(_LBL_SCRIPTS, self._chk_scripts)
         features_form.addRow(_LBL_OVERVIEW_CANVAS, self._chk_overview_canvas)
+        features_form.addRow(_LBL_SPARSE_FM, self._chk_sparse_fm)
         self._stack.addWidget(features_page)
 
         # --- Experiment Defaults ---
@@ -236,6 +246,7 @@ class PreferencesDialog(QDialog):
         self._chk_bug_report.setChecked(f.bug_report_enabled)
         self._chk_scripts.setChecked(f.scripts_enabled)
         self._chk_overview_canvas.setChecked(f.overview_canvas_tab)
+        self._chk_sparse_fm.setChecked(f.sparse_fm_selection)
 
         e = prefs.experiment
         self._dir_experiment.setText(e.default_experiment_directory)
@@ -307,6 +318,7 @@ class PreferencesDialog(QDialog):
                 bug_report_enabled=self._chk_bug_report.isChecked(),
                 scripts_enabled=self._chk_scripts.isChecked(),
                 overview_canvas_tab=self._chk_overview_canvas.isChecked(),
+                sparse_fm_selection=self._chk_sparse_fm.isChecked(),
             ),
             movement=MovementPreferences(
                 acquire_sem_after_stage_movement=self._chk_acquire_sem.isChecked(),

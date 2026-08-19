@@ -18,6 +18,8 @@ with it. Selecting again starts over.
 
 from __future__ import annotations
 
+import logging
+import os
 from dataclasses import dataclass, replace
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -295,3 +297,72 @@ class FMSparseSelectionDialog(QDialog):
     def mask(self) -> List[List[bool]]:
         """The mask as it stands, for a caller watching rather than waiting."""
         return self.preview.mask
+
+
+# Extensions `FibsemImage.load` reads. Listed rather than "try everything", so a scan
+# does not attempt to open the parameters JSON and the tile folders beside them.
+_IMAGE_SUFFIXES = (".tif", ".tiff")
+
+
+def beam_overviews_in(
+    directory: Optional[str], microscope: FibsemMicroscope
+) -> Dict[object, List[FibsemImage]]:
+    """Stitched beam overviews saved under *directory*, grouped by the view they belong to.
+
+    From disk rather than from the beam overview tab, deliberately. That tab keeps
+    `_PlacedTile` -- pixels, a position and a pixel size -- and not the metadata a
+    projection is read from, so it could not answer this without being changed; and going
+    through the files means a selection can be made in a session that did not acquire the
+    overview, which is the ordinary case after a restart.
+
+    Top level only. A run writes its tiles into a directory and the stitched mosaic
+    *beside* it under the same name, so the mosaics are exactly the files here and the
+    tiles are exactly the ones this does not descend into.
+
+    Fluorescence overviews live in the same experiment folder and are silently skipped:
+    what is kept is what `BeamStageProjection.from_image` can read, which is the same
+    question as whether a region drawn on it could be resolved at all.
+
+    Returns:
+        Views to their images, newest first, so a caller offering a default gets the
+        overview most recently acquired.
+    """
+    from fibsem.projection import BeamStageProjection
+    from fibsem.ui.widgets.overview_widget import OverviewView
+
+    if not directory or not os.path.isdir(directory):
+        return {}
+
+    paths = [
+        os.path.join(directory, name)
+        for name in os.listdir(directory)
+        if name.lower().endswith(_IMAGE_SUFFIXES)
+    ]
+    paths.sort(key=os.path.getmtime, reverse=True)
+
+    views: Dict[object, List[FibsemImage]] = {}
+    for path in paths:
+        try:
+            image = FibsemImage.load(path)
+        except Exception as e:
+            logging.debug(f"Not an overview this can use: {path} ({e})")
+            continue
+        if BeamStageProjection.from_image(image) is None:
+            continue
+        position = getattr(
+            getattr(getattr(image, "metadata", None), "microscope_state", None),
+            "stage_position",
+            None,
+        )
+        if position is None:
+            continue
+        try:
+            view = OverviewView(
+                image.metadata.image_settings.beam_type,
+                microscope.get_stage_orientation(stage_position=position),
+            )
+        except Exception as e:
+            logging.debug(f"Could not tell which view {path} belongs to: {e}")
+            continue
+        views.setdefault(view, []).append(image)
+    return views
