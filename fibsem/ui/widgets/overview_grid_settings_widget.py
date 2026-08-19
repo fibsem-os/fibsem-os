@@ -133,17 +133,21 @@ class OverviewGridSettingsWidget(QWidget):
         body.addLayout(form)
         body.addWidget(self.tile_mask)
 
-        # Shown in the header so a sparse run announces itself even folded away. Blank
-        # at full coverage: a badge that is always there stops being read.
-        self.label_sparse = QLabel("")
-        self.label_sparse.setStyleSheet(_MUTED)
-
         self.panel = TitledPanel("Grid", content=content)
-        self.panel.add_header_widget(self.label_sparse)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(self.panel)
+
+    def add_header_widget(self, widget) -> None:
+        """Put a control in the Grid header.
+
+        For an owner with another way of setting the grid -- the fluorescence tab plans
+        one by selecting regions on a beam overview. Offered rather than built in, so
+        this widget stays the same for both tabs and neither inherits the other's
+        controls.
+        """
+        self.panel.add_header_widget(widget)
 
     @staticmethod
     def _field(widget: QWidget) -> QWidget:
@@ -186,9 +190,6 @@ class OverviewGridSettingsWidget(QWidget):
         self.changed.emit()
 
     def _refresh_derived(self) -> None:
-        enabled, total = self.tile_mask.n_enabled, self.rows * self.cols
-        self.label_sparse.setText("" if enabled == total else f"{enabled}/{total} tiles")
-
         if self._tile_fov is None:
             self.label_total_fov.setText("—")
             return

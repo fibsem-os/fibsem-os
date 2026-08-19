@@ -147,6 +147,64 @@ def test_the_working_area_is_declared_once(pane, microscope):
     assert pane.canvas.canvas.world_extent == at_open
 
 
+def view_centre(pane):
+    """The middle of what the pane actually shows, read off the axes."""
+    xlim = pane.canvas.canvas._ax.get_xlim()
+    ylim = pane.canvas.canvas._ax.get_ylim()
+    return ((xlim[0] + xlim[1]) / 2, (ylim[0] + ylim[1]) / 2)
+
+
+@pytest.mark.parametrize("orientation", ["FM", "MILLING"])
+def test_the_view_is_framed_on_the_stage_not_on_wherever_it_was_parked(
+    microscope, orientation
+):
+    """The declared area has to be centred on what is drawn in it.
+
+    Canvas (0, 0) is the *frame* origin -- wherever the stage happened to be standing
+    when the dialog opened. Everything this pane draws is placed about the *stage*
+    origin instead: the travel limits, the grid boundary, and a plan that follows the
+    sample rather than the pose. Framing on canvas (0, 0) therefore slid the whole scene
+    by the live stage displacement, which on a compustage reaches a full grid radius --
+    enough to push the grid off the edge of the pane.
+
+    Both poses, because the dialog is opened from the milling one: that is where the
+    beam overview was just acquired. Reading the framing off the live pose rather than
+    the fluorescence-posed origin is wrong there and indistinguishable at FM.
+    """
+    pose = microscope.get_orientation(orientation)
+    microscope.move_stage_absolute(
+        FibsemStagePosition(x=-450e-6, y=-300e-6, z=0.0, r=pose.r, t=pose.t)
+    )
+    pane = FMTilePreviewWidget(microscope)
+
+    [circle] = [s for s in pane.stage_overlay._specs if s.kind == "circle"]
+
+    assert (circle.cx, circle.cy) == pytest.approx(view_centre(pane), abs=1e-6), (
+        "the grid boundary is drawn somewhere other than the middle of the view"
+    )
+
+
+def test_a_stage_that_moves_under_the_dialog_does_not_take_the_framing_with_it(
+    microscope,
+):
+    """Framing on the stage origin must not become framing on the *live* stage: the
+    origin is fixed for the life of the pane, so the answer cannot depend on when it is
+    asked."""
+    fm = microscope.get_orientation("FM")
+    microscope.move_stage_absolute(
+        FibsemStagePosition(x=100e-6, y=50e-6, z=0.0, r=fm.r, t=fm.t)
+    )
+    pane = FMTilePreviewWidget(microscope)
+    at_open = pane.canvas.canvas.world_extent
+
+    microscope.move_stage_absolute(
+        FibsemStagePosition(x=-400e-6, y=-250e-6, z=0.0, r=fm.r, t=fm.t)
+    )
+    select(pane, microscope, *TWO_REGIONS)
+
+    assert pane.canvas.canvas.world_extent == at_open
+
+
 # ── editing by hand ──────────────────────────────────────────────────────
 
 

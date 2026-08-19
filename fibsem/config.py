@@ -357,6 +357,11 @@ class FeatureFlags:
     # The only staging flag left after FIB-609, and it goes the same way the others did
     # -- deleted when the tab replaces the napari one, not kept as a preference.
     overview_canvas_tab: bool = False
+    # Planning a sparse fluorescence overview by drawing regions on a FIB/SEM one.
+    # Off while it has had no bench time: it decides where an expensive acquisition
+    # goes, and the geometry it rests on is only checkable against real data
+    # (FIB-597). Staging, like the flag above -- deleted when it ships, not kept.
+    sparse_fm_selection: bool = False
 
 @dataclass
 class MovementPreferences:

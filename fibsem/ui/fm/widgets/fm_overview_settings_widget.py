@@ -238,6 +238,10 @@ class FMOverviewSettingsWidget(QWidget):
     def set_mask(self, mask: Optional[List[List[bool]]]) -> None:
         self.grid.set_mask(mask)
 
+    def add_grid_header_widget(self, widget) -> None:
+        """Put a control in the Grid panel's header. See `OverviewGridSettingsWidget`."""
+        self.grid.add_header_widget(widget)
+
     def _on_grid_changed(self) -> None:
         """Anything in the grid panel moved -- including the tile order, which is half
         of the spiral/per-row conflict."""

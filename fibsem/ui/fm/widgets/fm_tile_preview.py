@@ -45,6 +45,10 @@ from fibsem.ui.widgets.canvas.stage_frame import StageFrame
 # image and does not read over nothing. This pane is nothing but the grid.
 _SELECTED_FILL_ALPHA = 0.30
 
+# The centre of the sample holder, and so of the travel limits, the grid boundary and
+# the framing. Distinct from the frame origin, which is wherever the stage is standing.
+STAGE_ORIGIN = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=0.0)
+
 
 class FMTilePreviewWidget(QWidget):
     """The FM grid a set of regions produces, on a real-space canvas.
@@ -135,10 +139,29 @@ class FMTilePreviewWidget(QWidget):
         # streams in and the grid is not draggable, so there is nothing to re-declare
         # for -- and a frame that holds still is what lets a growing selection be read
         # as growing rather than as the world shrinking around it.
+        #
+        # Centred on the stage *origin*, not on canvas (0, 0). Canvas (0, 0) is the frame
+        # origin, which is wherever the stage happened to be when the dialog opened;
+        # everything drawn here -- the travel limits, the grid boundary, and a plan that
+        # follows the sample -- is placed about the stage origin instead. Centring on the
+        # frame origin therefore shoved the whole scene by the live stage displacement,
+        # which on a compustage is up to a full grid radius, and clipped it off the edge.
         self.canvas.set_world_extent(
-            2 * GRID_BOUNDARY_RADIUS_M, 2 * GRID_BOUNDARY_RADIUS_M, (0.0, 0.0), refit=True
+            2 * GRID_BOUNDARY_RADIUS_M,
+            2 * GRID_BOUNDARY_RADIUS_M,
+            self._stage_origin_offset(),
+            refit=True,
         )
         self._draw_stage_context()
+
+    def _stage_origin_offset(self) -> Tuple[float, float]:
+        """Where stage (0, 0) sits in this canvas's metres, or the frame origin if the
+        projection cannot answer."""
+        try:
+            return self._frame().offset(STAGE_ORIGIN)
+        except Exception as e:  # pragma: no cover - geometry the projection rejects
+            logging.debug(f"Cannot place the stage origin; framing on the pose: {e}")
+            return (0.0, 0.0)
 
     # ── the selection ────────────────────────────────────────────────────
 
@@ -318,9 +341,7 @@ class FMTilePreviewWidget(QWidget):
         """
         frame = self._frame()
         try:
-            centre = frame.to_canvas(
-                FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=0.0)
-            )
+            centre = frame.to_canvas(STAGE_ORIGIN)
         except Exception as e:
             logging.debug(f"Cannot place the grid centre: {e}")
             return
