@@ -297,14 +297,20 @@ def test_the_two_host_tabs_share_one_base():
     version of this test imported the classes and turned the whole run red on every
     platform.
 
-    Only the methods whose code was byte-identical moved (FIB-697), so this asserts the
-    ones that did and deliberately *not* the ones that did not: `refresh_positions` and
-    the request handlers differ because of which pose they read, and pretending
-    otherwise is how the two tabs would come to mark different things.
+    The first pass moved only the methods whose code was byte-identical (FIB-697); the
+    second moved the ones that differed solely in *which pose they read*, behind the
+    `_pose_of` hook (FIB-709). What is left below is the whole shared surface, and a
+    subclass defining any of it again is a subclass that can drift.
+
+    `_on_move_requested` is deliberately absent: dragging a marker writes one pose on
+    one tab and derives both on the other, after asking. Those are different operations
+    sharing a name.
     """
-    shared = {"is_available", "microscope", "experiment", "refresh_experiment",
-              "set_selected", "set_interactive", "_on_list_selection",
-              "_on_marker_clicked"}
+    shared = {"is_available", "is_acquiring", "microscope", "experiment",
+              "refresh_experiment", "refresh_microscope", "refresh_positions",
+              "set_selected", "set_interactive", "_drop_overview",
+              "_on_list_selection", "_on_marker_clicked", "_on_move_to_requested",
+              "_on_add_requested", "_on_remove_requested"}
 
     for name, path in HOST_TABS.items():
         cls = _class_def(path, name)
@@ -318,10 +324,11 @@ def test_the_two_host_tabs_share_one_base():
             f"{name} defines {sorted(again)} again; the base is what stops the two tabs "
             "drifting apart"
         )
-        # The pose is the difference between the tabs, so each must still answer it.
-        assert "refresh_positions" in defined, (
-            f"{name} inherits refresh_positions, which would mark nothing"
-        )
+        # The pose is the difference between the tabs, so each must still answer it --
+        # inheriting `_pose_of` would raise on the first lamella, and a subclass that
+        # somehow satisfied it generically would be marking one tab's poses on both.
+        for hook in ("_pose_of", "_build_overview", "_on_move_requested"):
+            assert hook in defined, f"{name} does not answer {hook}"
 
         # Both signals are declared once, on the base. A subclass redeclaring one
         # shadows it, and the window connects to whichever it happens to see first.
@@ -337,3 +344,44 @@ def test_the_base_owns_the_signals_the_window_connects_to():
     assigned = {t.id for n in base.body if isinstance(n, ast.Assign)
                 for t in n.targets if isinstance(t, ast.Name)}
     assert {"availability_changed", "lamella_selected"} <= assigned
+
+
+def test_a_lamella_added_anywhere_reaches_both_canvases(window_source):
+    """The window's position-change handler has to re-mark *both* overviews.
+
+    Neither tab subscribes to the experiment itself -- deliberately, since a tab is
+    rebuilt when the microscope changes and a subscription holding the old one's bound
+    method would be stale and undisconnectable -- so this handler is the only thing that
+    can see a lamella added, removed or re-posed anywhere in the window.
+
+    It reached only the fluorescence tab. The beam tab papered over its own edits by
+    re-marking inline, and went stale for everything else: a lamella marked on the FM
+    overview, added from the Microscope tab, or moved by a workflow, none of which
+    appeared on the FIB/SEM canvas (FIB-709). That is the mirror of the bug
+    `_wire_position_events` was written to fix, and it survived because the parity test
+    above lists the calls the window makes *directly* on each tab, and this one is made
+    through a handler.
+    """
+    tree = ast.parse(window_source)
+    handler = next(
+        (n for n in ast.walk(tree)
+         if isinstance(n, ast.FunctionDef) and n.name == "_refresh_overview_positions"),
+        None,
+    )
+    assert handler is not None, (
+        "the window has no `_refresh_overview_positions`; if it was renamed, this test "
+        "and the events wired to it need to follow"
+    )
+
+    # Read as text rather than by attribute access: the handler loops over tab names, so
+    # `self.<tab>.refresh_positions` never appears as an attribute chain to walk.
+    body = ast.get_source_segment(window_source, handler) or ""
+    for tab in (TWIN, NEW):
+        assert tab in body, f"{tab} is not re-marked when the experiment's lamellae change"
+    assert "refresh_positions" in body
+
+    # And the handler has to be what the experiment's events actually reach.
+    for event in ("inserted", "removed", "changed"):
+        assert f"events.{event}.connect" in window_source, (
+            f"nothing follows the experiment's `{event}` event any more"
+        )

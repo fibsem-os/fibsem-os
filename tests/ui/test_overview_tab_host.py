@@ -353,3 +353,97 @@ class TestTheFlagOff:
         first = tab.overview
         tab.set_enabled(True)
         assert tab.overview is first, "rebuilt on an unchanged flag"
+
+
+@pytest.fixture
+def fm_tab(microscope, tmp_path):
+    """The fluorescence tab against the same stub window, so the two can be compared.
+
+    Added with the pose hook (FIB-709): once both tabs answer `_pose_of`, the question
+    "does this tab mark its own pose" is one test shape, and asking it of only one of
+    them is how the mistake it guards against would reach the other.
+    """
+    from fibsem.applications.autolamella.ui.autolamella_fluorescence_overview_tab import (
+        AutoLamellaFluorescenceOverviewTab,
+    )
+
+    experiment = Experiment(path=tmp_path, name="fm-overview-tab-test")
+    os.makedirs(str(experiment.path), exist_ok=True)
+    window = _StubWindow(microscope, experiment)
+    tab = AutoLamellaFluorescenceOverviewTab(window)
+    tab.refresh_microscope()
+    assert tab.is_available, "the fluorescence tab did not build its widget"
+    yield tab
+    tab._drop_overview()
+
+
+class TestItMarksTheFluorescenceSidePose:
+    """The mirror of `TestItMarksTheBeamSidePose`, and the reason `_pose_of` is a hook.
+
+    Both tabs now inherit `refresh_positions`, so the only thing deciding what each one
+    marks is one small method. A mistake there is invisible to any assertion on x/y --
+    see the beam-side test for the measurement.
+    """
+
+    def test_a_lamella_is_marked_at_its_fluorescence_pose(self, fm_tab, microscope):
+        lamella = _lamella(fm_tab, microscope, dx=90e-6)
+        fm_tab.refresh_positions()
+
+        marked = fm_tab.overview._positions
+        assert [p.name for p in marked] == [lamella.name]
+
+        milling_tilt = lamella.milling_pose.stage_position.t
+        fluorescence_tilt = lamella.fluorescence_pose.stage_position.t
+        assert milling_tilt != pytest.approx(fluorescence_tilt), (
+            "the two poses are indistinguishable on this microscope, so this test "
+            "cannot check which one was used"
+        )
+        assert marked[0].t == pytest.approx(fluorescence_tilt), (
+            "the marker carries the milling pose, not the fluorescence one"
+        )
+
+    def test_a_lamella_with_no_fluorescence_pose_is_listed_but_not_marked(
+        self, fm_tab, microscope
+    ):
+        """It cannot be placed on this canvas, and it must not vanish from the list --
+        which is the only place that says it exists at all."""
+        lamella = _lamella(fm_tab, microscope, dx=70e-6)
+        # Dropped from the pose dict rather than assigned None -- the setter takes only
+        # a `MicroscopeState`, and an experiment saved before fluorescence poses existed
+        # simply has no such key. This is that lamella.
+        lamella.poses.pop("FLUORESCENCE", None)
+        fm_tab.refresh_positions()
+
+        assert fm_tab.overview._positions == []
+        assert [row.lamella.name for row in fm_tab.lamella_list._rows()] == [lamella.name]
+
+    def test_move_to_drives_to_the_fluorescence_pose(self, fm_tab, microscope):
+        """Moving to the milling pose from here would swing the stage 180 degrees away
+        from the view being centred."""
+        lamella = _lamella(fm_tab, microscope, dx=40e-6)
+        drove_to = []
+        fm_tab.overview.move_to = drove_to.append
+
+        fm_tab._on_move_to_requested(lamella)
+
+        assert len(drove_to) == 1
+        assert drove_to[0].t == pytest.approx(
+            lamella.fluorescence_pose.stage_position.t
+        )
+
+
+class TestBothTabsAnswerIsAcquiring:
+    """Whether a run is in progress has to be askable of *either* tab.
+
+    The window has to know before it lets anything drive the stage: a click-to-move on
+    one overview while the other is mid-tileset does not fail loudly, it stamps tiles
+    with poses the runner only planned (FIB-706). Only the beam tab used to answer.
+    """
+
+    def test_neither_is_acquiring_when_idle(self, tab, fm_tab):
+        assert tab.is_acquiring is False
+        assert fm_tab.is_acquiring is False
+
+    def test_a_tab_with_no_widget_is_not_acquiring(self, tab):
+        tab._drop_overview()
+        assert tab.is_acquiring is False
