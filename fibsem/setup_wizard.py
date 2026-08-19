@@ -395,11 +395,11 @@ def apply_setup(choices: SetupChoices, directory: Optional[str] = None) -> Setup
 
 
 def _save_folder_preferences(choices: SetupChoices, warnings: List[str]) -> bool:
-    """Record the folder answers, and make the preferences file exist.
+    """Record the folder answers.
 
-    Both halves matter. The values are what the new-experiment dialog reads; the file
-    existing is what :func:`is_first_run` tests, so writing it is also what stops the
-    connection tab offering this wizard again.
+    Only the values; what stops the offer reappearing is the registration above, which
+    is what :func:`is_first_run` reads. So a failure here loses two paths and nothing
+    else -- it cannot leave the wizard offering itself forever.
 
     Never fatal. A configuration that saved and preferences that did not is a partly
     finished setup; raising here would report the whole thing as failed.
@@ -426,29 +426,42 @@ def _save_folder_preferences(choices: SetupChoices, warnings: List[str]) -> bool
 
 
 def is_first_run() -> bool:
-    """Whether nobody has ever set this install up.
+    """Whether a microscope configuration has ever been registered on this machine.
 
-    The absence of a user preferences file. It is gitignored, so a source checkout
-    does not ship one, and nothing writes it at startup -- every writer is a person
-    changing a preference, finishing this wizard, or dismissing its offer. So its
-    absence means no one has yet made a single choice on this machine, which is the
-    question being asked.
+    The absence of ``user-configurations.yaml``. It is gitignored, so no install ships
+    one, and nothing writes it at startup -- ``config.py`` falls back to an in-memory
+    default without touching the disk. Every writer is someone importing a
+    configuration, setting a default, or finishing this wizard. So its absence means
+    this machine has never had a microscope set up, which is the question being asked.
 
-    Not the absence of ``user-configurations.yaml``: that appears the first time any
-    configuration is imported, which someone might well do before running this.
+    **Not** the absence of ``user-preferences.yaml``, which is what this used to be and
+    was wrong in a way no test caught: the feature flag that gates the offer lives in
+    that file, so turning the flag on created it, and the offer could never appear. Any
+    signal a preference write can extinguish is the wrong signal for "nothing has been
+    configured yet".
     """
-    return not os.path.exists(cfg.USER_PREFERENCES_PATH)
+    return not os.path.exists(cfg.USER_CONFIGURATIONS_PATH)
+
+
+def is_offer_dismissed() -> bool:
+    """Whether the offer was waved away.
+
+    Separate from :func:`is_first_run` because they answer different questions --
+    "has anything been configured" and "does this person want to be asked" -- and
+    conflating them is what broke the first attempt.
+    """
+    try:
+        return bool(cfg.load_user_preferences().display.setup_wizard_dismissed)
+    except Exception as e:  # pragma: no cover - defensive
+        logger.warning(f"Could not read the setup wizard dismissal: {e}")
+        return False
 
 
 def dismiss_first_run() -> None:
-    """Record that the offer was seen and declined.
-
-    Writing the preferences file with whatever it already holds. That is the whole
-    mechanism -- the same file, written for the same reason, so there is no second
-    piece of state that can disagree with the first about whether this is a new
-    install.
-    """
+    """Record that the offer was seen and declined."""
     try:
-        cfg.save_user_preferences(cfg.load_user_preferences())
+        preferences = cfg.load_user_preferences()
+        preferences.display.setup_wizard_dismissed = True
+        cfg.save_user_preferences(preferences)
     except Exception as e:  # pragma: no cover - defensive
         logger.warning(f"Could not record the setup wizard dismissal: {e}")

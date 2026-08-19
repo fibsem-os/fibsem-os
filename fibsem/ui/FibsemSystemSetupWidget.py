@@ -146,17 +146,24 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         frame.setVisible(False)
         return frame
 
-    def refresh_first_run_offer(self, enabled: Optional[bool] = None) -> None:
-        """Show the offer only on a fresh install, and only if the flag is on.
+    def refresh_first_run_offer(self, preferences=None) -> None:
+        """Show the offer when the flag is on, nothing is configured, and it stands.
 
-        Public because the flag can be turned on while the window is open, and the
-        connection tab is one someone is likely to be looking at when they do. Called
-        from AutoLamella's `_apply_preferences`, which passes the preferences it is
-        already holding; None reads them, for the standalone widget that has no host.
+        Three separate conditions on purpose. Folding the first two together is what
+        broke this the first time: the flag lived in the file whose absence meant
+        "fresh install", so turning the flag on suppressed the offer it enabled.
+
+        Takes the whole preferences object rather than a bool, so AutoLamella's
+        `_apply_preferences` can pass the one it already holds. None reads them, for
+        the standalone widget that has no host.
         """
-        if enabled is None:
-            enabled = cfg.load_user_preferences().features.setup_wizard_enabled
-        self._frame_first_run.setVisible(bool(enabled) and setup_wizard.is_first_run())
+        if preferences is None:
+            preferences = cfg.load_user_preferences()
+        self._frame_first_run.setVisible(
+            preferences.features.setup_wizard_enabled
+            and not preferences.display.setup_wizard_dismissed
+            and setup_wizard.is_first_run()
+        )
 
     def _dismiss_first_run(self) -> None:
         """Hide the offer, and record that it was declined."""

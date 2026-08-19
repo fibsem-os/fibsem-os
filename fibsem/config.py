@@ -342,6 +342,15 @@ class DisplayPreferences:
     # Cozy, because it is what the strip drew before the other two existed: a new
     # layout is offered, never imposed on an upgrade.
     lamella_card_mode: str = MODE_COZY
+    # Whether the first-run setup wizard offer has been waved away. State rather than
+    # a preference -- nobody sets this in the dialog, they set it by pressing the x on
+    # the callout -- and it lives here for the same reason `last_experiment_path` does.
+    #
+    # Its own field, and deliberately not inferred from this file existing. The offer
+    # is shown when no microscope configuration has ever been registered, and
+    # dismissing must not fake one: a person who intends to configure by hand has
+    # still configured nothing.
+    setup_wizard_dismissed: bool = False
 
 @dataclass
 class FeatureFlags:

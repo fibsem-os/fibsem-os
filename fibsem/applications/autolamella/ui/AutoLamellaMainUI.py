@@ -632,6 +632,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # second microscope could never be set up through it.
         tools_menu.addSeparator()
         self.action_setup_wizard = QAction("Setup Wizard...", self)
+        # NoRole, or macOS steals it. Qt's default MenuRole is TextHeuristicRole, and
+        # the heuristic scans the text for "about", "config", "preference", "options",
+        # "setting" and "setup" -- so "Setup Wizard..." is read as a preferences item
+        # and moved into the application menu, where it displaces Edit -> Preferences
+        # and opens the wizard instead. Nothing about the connection is wrong; the
+        # action is simply no longer in the menu it was added to.
+        self.action_setup_wizard.setMenuRole(QAction.NoRole)
         self.action_setup_wizard.setToolTip(
             "Configure a microscope connection step by step"
         )
@@ -883,9 +890,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # reaches into is built by AutoLamellaUI rather than here.
         system_widget = getattr(self.autolamella_ui, "system_widget", None)
         if system_widget is not None:
-            system_widget.refresh_first_run_offer(
-                self._preferences.features.setup_wizard_enabled
-            )
+            system_widget.refresh_first_run_offer(self._preferences)
 
     #### USER SCRIPTS (FIB-338)
 

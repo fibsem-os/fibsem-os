@@ -40,11 +40,15 @@ def isolated_state(tmp_path, monkeypatch):
     unreadable -- and the wizard's save then fails into a modal error box that a
     headless test cannot dismiss.
     """
-    import glob
     import shutil
 
-    for source in glob.glob(os.path.join(cfg.CONFIG_PATH, "*.yaml")):
-        shutil.copy(source, tmp_path)
+    # Named files, not `*.yaml`. A glob also copies whatever `user-*.yaml` the
+    # developer's own runs have left in the config directory, and those are exactly
+    # the files these tests are about -- the fixture would then inherit a machine that
+    # has already been set up, and every first-run assertion would fail on a working
+    # tree and pass on a clean one.
+    for model in wizard.MICROSCOPE_MODELS:
+        shutil.copy(model.path, tmp_path)
     monkeypatch.setattr(cfg, "CONFIG_PATH", str(tmp_path))
 
     configurations = {"default-configuration": {"path": cfg.MICROSCOPE_CONFIGURATION_PATH}}
@@ -60,6 +64,9 @@ def isolated_state(tmp_path, monkeypatch):
     monkeypatch.setattr(
         cfg, "USER_PREFERENCES_PATH", str(tmp_path / "user-preferences.yaml")
     )
+    # Self-checking, because the failure mode above is silent: leaked state does not
+    # error, it just makes every first-run test assert against a configured machine.
+    assert wizard.is_first_run(), "the isolated state is not a fresh install"
     return tmp_path
 
 
@@ -490,21 +497,21 @@ def _enable_flag(enabled: bool = True) -> None:
 
 @pytest.fixture
 def connection_tab(qapp, isolated_state, monkeypatch):
-    """The connection tab with the flag on, since that is what most of these test."""
+    """The connection tab with the flag on, since that is what most of these test.
+
+    Nothing is faked here any more. Enabling the flag writes the preferences file, and
+    that is now simply not the first-run signal -- which is the whole point of the fix.
+    The previous version of this fixture wrote the flag, deleted the file and
+    monkeypatched the reader to keep both true at once; that it had to invent a state
+    the disk cannot hold was the defect, showing up in the harness.
+    """
     pytest.importorskip("napari")
     from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 
     monkeypatch.setattr(
         "fibsem.ui.notification_service.show_toast", lambda *a, **k: None
     )
-    # Written before the widget is built, and then removed: saving preferences is
-    # itself what ends the first run, so the file has to be gone again for the offer
-    # to have anything to appear for.
     _enable_flag(True)
-    preferences = cfg.load_user_preferences()
-    os.remove(cfg.USER_PREFERENCES_PATH)
-
-    monkeypatch.setattr(cfg, "load_user_preferences", lambda: preferences)
     widget = FibsemSystemSetupWidget()
     yield widget
     widget.deleteLater()
@@ -512,6 +519,29 @@ def connection_tab(qapp, isolated_state, monkeypatch):
 
 def test_the_offer_appears_on_a_fresh_install(connection_tab):
     assert not connection_tab._frame_first_run.isHidden()
+
+
+def test_turning_the_flag_on_does_not_suppress_the_offer(qapp, isolated_state, monkeypatch):
+    """The defect this whole arrangement exists to prevent, at the widget.
+
+    The flag lives in the preferences file. When that file's absence was the first-run
+    signal, every route to enabling the flag -- the dialog, or writing the file by
+    hand -- also ended the first run, so the callout could not be reached at all.
+    """
+    pytest.importorskip("napari")
+    from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
+
+    monkeypatch.setattr(
+        "fibsem.ui.notification_service.show_toast", lambda *a, **k: None
+    )
+    _enable_flag(True)  # writes user-preferences.yaml, exactly as the dialog does
+    assert os.path.exists(cfg.USER_PREFERENCES_PATH)
+
+    widget = FibsemSystemSetupWidget()
+    try:
+        assert not widget._frame_first_run.isHidden()
+    finally:
+        widget.deleteLater()
 
 
 def test_the_offer_is_behind_the_feature_flag(qapp, isolated_state, monkeypatch):
@@ -532,10 +562,34 @@ def test_the_offer_is_behind_the_feature_flag(qapp, isolated_state, monkeypatch)
     try:
         assert widget._frame_first_run.isHidden()
         # And it appears the moment the flag is turned on, without a restart.
-        widget.refresh_first_run_offer(True)
+        preferences = cfg.load_user_preferences()
+        preferences.features.setup_wizard_enabled = True
+        widget.refresh_first_run_offer(preferences)
         assert not widget._frame_first_run.isHidden()
-        widget.refresh_first_run_offer(False)
+        preferences.features.setup_wizard_enabled = False
+        widget.refresh_first_run_offer(preferences)
         assert widget._frame_first_run.isHidden()
+    finally:
+        widget.deleteLater()
+
+
+def test_a_dismissed_offer_stays_dismissed_with_the_flag_on(
+    qapp, isolated_state, monkeypatch
+):
+    """Dismissal is its own answer, not a side effect of anything else."""
+    pytest.importorskip("napari")
+    from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
+
+    monkeypatch.setattr(
+        "fibsem.ui.notification_service.show_toast", lambda *a, **k: None
+    )
+    _enable_flag(True)
+    wizard.dismiss_first_run()
+
+    widget = FibsemSystemSetupWidget()
+    try:
+        assert widget._frame_first_run.isHidden()
+        assert wizard.is_first_run()  # still nothing configured
     finally:
         widget.deleteLater()
 
@@ -543,7 +597,7 @@ def test_the_offer_is_behind_the_feature_flag(qapp, isolated_state, monkeypatch)
 def test_dismissing_the_offer_makes_it_stay_dismissed(connection_tab, isolated_state):
     connection_tab._dismiss_first_run()
     assert connection_tab._frame_first_run.isHidden()
-    assert not wizard.is_first_run()
+    assert wizard.is_offer_dismissed()
 
     from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 
@@ -554,13 +608,19 @@ def test_dismissing_the_offer_makes_it_stay_dismissed(connection_tab, isolated_s
         second.deleteLater()
 
 
-def test_the_offer_is_absent_once_preferences_exist(qapp, isolated_state, monkeypatch):
-    cfg.save_user_preferences(cfg.load_user_preferences())
+def test_the_offer_is_absent_once_a_configuration_is_registered(
+    qapp, isolated_state, monkeypatch
+):
+    """Setting a microscope up is what ends the first run, however it was done."""
     monkeypatch.setattr(
         "fibsem.ui.notification_service.show_toast", lambda *a, **k: None
     )
     pytest.importorskip("napari")
     from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
+
+    _enable_flag(True)
+    cfg.register_configuration(path=cfg.MICROSCOPE_CONFIGURATION_PATH, configuration_name="Bay 2")
+    assert not wizard.is_first_run()
 
     widget = FibsemSystemSetupWidget()
     try:

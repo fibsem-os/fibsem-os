@@ -36,6 +36,9 @@ def isolated_registry(tmp_path, monkeypatch):
     monkeypatch.setattr(
         cfg, "USER_PREFERENCES_PATH", str(tmp_path / "user-preferences.yaml")
     )
+    # Self-checking: leaked real state would not error, it would just make every
+    # first-run assertion below run against a machine that is already configured.
+    assert wizard.is_first_run(), "the isolated registry is not a fresh install"
     return tmp_path
 
 
@@ -315,21 +318,50 @@ def test_the_written_configuration_loads_back_as_settings(isolated_registry):
 # ---------------------------------------------------------------------------
 
 
-def test_first_run_is_the_absence_of_a_preferences_file(isolated_registry):
+def test_first_run_is_the_absence_of_a_registered_configuration(isolated_registry):
     assert wizard.is_first_run()
-    wizard.dismiss_first_run()
+    wizard.apply_setup(wizard.SetupChoices(name="Bay 2"), directory=str(isolated_registry))
+    assert os.path.exists(cfg.USER_CONFIGURATIONS_PATH)
     assert not wizard.is_first_run()
+
+
+def test_writing_preferences_does_not_end_the_first_run(isolated_registry):
+    """The regression test for the defect that made the offer unreachable.
+
+    The feature flag that gates the offer lives in the preferences file. When that
+    file's absence *was* the first-run signal, turning the flag on created it and the
+    offer could never appear -- through the dialog or by hand, every route to enabling
+    it also suppressed it. Any signal a preference write can extinguish is the wrong
+    signal for "nothing has been configured yet".
+    """
+    assert wizard.is_first_run()
+
+    preferences = cfg.load_user_preferences()
+    preferences.features.setup_wizard_enabled = True
+    cfg.save_user_preferences(preferences)
+
     assert os.path.exists(cfg.USER_PREFERENCES_PATH)
-
-
-def test_finishing_the_wizard_also_ends_the_first_run(isolated_registry):
-    """Otherwise the offer to set the microscope up would survive setting it up."""
     assert wizard.is_first_run()
-    result = wizard.apply_setup(
-        wizard.SetupChoices(name="Bay 2"), directory=str(isolated_registry)
-    )
-    assert result.preferences_saved
+
+
+def test_finishing_the_wizard_ends_the_first_run(isolated_registry):
+    """Otherwise the offer to set the microscope up would survive setting it up.
+
+    Through the registration rather than the preferences write, so it still holds if
+    the folder preferences fail to save.
+    """
+    assert wizard.is_first_run()
+    wizard.apply_setup(wizard.SetupChoices(name="Bay 2"), directory=str(isolated_registry))
     assert not wizard.is_first_run()
+
+
+def test_dismissal_is_recorded_without_faking_a_configuration(isolated_registry):
+    """Someone who waves the offer away has still configured nothing."""
+    assert not wizard.is_offer_dismissed()
+    wizard.dismiss_first_run()
+    assert wizard.is_offer_dismissed()
+    # Still a fresh install -- the dismissal says "do not ask", not "it is done".
+    assert wizard.is_first_run()
 
 
 def test_dismissal_keeps_the_preferences_that_were_already_there(isolated_registry):
@@ -340,3 +372,4 @@ def test_dismissal_keeps_the_preferences_that_were_already_there(isolated_regist
 
     wizard.dismiss_first_run()
     assert cfg.load_user_preferences().experiment.user == "someone"
+    assert cfg.load_user_preferences().display.setup_wizard_dismissed
