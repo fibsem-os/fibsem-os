@@ -246,9 +246,10 @@ def test_apply_setup_writes_registers_and_defaults(isolated_registry):
         model_key="tfs-arctis",
         address="192.168.0.55",
         name="Arctis Bay 2",
+        configuration_directory=str(isolated_registry),
         experiment_directory=str(isolated_registry / "experiments"),
     )
-    result = wizard.apply_setup(choices, directory=str(isolated_registry))
+    result = wizard.apply_setup(choices)
 
     assert os.path.exists(result.path)
     with open(result.path) as f:
@@ -269,9 +270,60 @@ def test_apply_setup_writes_registers_and_defaults(isolated_registry):
     )
 
 
+def test_the_configuration_folder_defaults_to_the_shipped_one(isolated_registry):
+    """Unanswered means today's location, so no new convention is invented here."""
+    assert wizard.SetupChoices().resolved_configuration_directory == cfg.CONFIG_PATH
+
+
+def test_the_configuration_can_live_outside_the_package(isolated_registry, tmp_path):
+    """The whole point of asking: a configuration kept where an upgrade cannot reach it.
+
+    Already supported by the registry -- ``register_configuration`` stores an absolute
+    path and ``load_configuration`` loads from it, which is what importing a
+    configuration from the connection tab has always relied on. The wizard simply
+    never offered the choice.
+    """
+    elsewhere = tmp_path / "somewhere" / "else"
+    result = wizard.apply_setup(
+        wizard.SetupChoices(name="Off Package", configuration_directory=str(elsewhere))
+    )
+
+    assert os.path.dirname(result.path) == str(elsewhere)
+    assert not result.path.startswith(cfg.CONFIG_PATH)
+    # Registered by absolute path, so it is selectable from wherever it landed.
+    assert cfg.USER_CONFIGURATIONS[result.configuration_name]["path"] == result.path
+
+
+def test_the_two_folder_answers_do_not_touch_each_other(isolated_registry, tmp_path):
+    """They are separate questions, and were being answered as one.
+
+    The configuration folder decides where a file is written; the experiment folder is
+    a preference the new-experiment dialog reads. Nothing should make one follow the
+    other.
+    """
+    configurations = tmp_path / "configurations"
+    experiments = tmp_path / "experiments"
+    result = wizard.apply_setup(
+        wizard.SetupChoices(
+            name="Split",
+            configuration_directory=str(configurations),
+            experiment_directory=str(experiments),
+        )
+    )
+
+    assert os.path.dirname(result.path) == str(configurations)
+    saved = cfg.load_user_preferences().experiment.default_experiment_directory
+    assert saved == str(experiments)
+    assert saved != os.path.dirname(result.path)
+
+
 def test_apply_setup_can_leave_the_default_alone(isolated_registry):
-    choices = wizard.SetupChoices(name="Second Rig", set_as_default=False)
-    result = wizard.apply_setup(choices, directory=str(isolated_registry))
+    choices = wizard.SetupChoices(
+        name="Second Rig",
+        set_as_default=False,
+        configuration_directory=str(isolated_registry),
+    )
+    result = wizard.apply_setup(choices)
     assert not result.is_default
     assert cfg.USER_CONFIGURATIONS_YAML["default"] == "default-configuration"
     # Still selectable, which is the point of registering separately from defaulting.
@@ -282,10 +334,10 @@ def test_a_taken_name_is_reported_as_the_name_it_actually_got(isolated_registry)
     """``register_configuration`` suffixes rather than refusing, so the caller has to
     use the name it returns -- selecting the one that was typed would find nothing."""
     wizard.apply_setup(
-        wizard.SetupChoices(name="Bay 2"), directory=str(isolated_registry)
+        wizard.SetupChoices(name="Bay 2", configuration_directory=str(isolated_registry))
     )
     second = wizard.apply_setup(
-        wizard.SetupChoices(name="Bay 2"), directory=str(isolated_registry)
+        wizard.SetupChoices(name="Bay 2", configuration_directory=str(isolated_registry))
     )
     assert second.configuration_name != "Bay 2"
     assert second.configuration_name in cfg.USER_CONFIGURATIONS
@@ -305,8 +357,8 @@ def test_the_written_configuration_loads_back_as_settings(isolated_registry):
             location_key=wizard.LOCATION_OFFLINE,
             address="",
             name="Sim Rig",
-        ),
-        directory=str(isolated_registry),
+            configuration_directory=str(isolated_registry),
+        )
     )
     settings = utils.load_microscope_configuration(result.path)
     assert settings.system.info.manufacturer == "Demo"
@@ -320,7 +372,9 @@ def test_the_written_configuration_loads_back_as_settings(isolated_registry):
 
 def test_first_run_is_the_absence_of_a_registered_configuration(isolated_registry):
     assert wizard.is_first_run()
-    wizard.apply_setup(wizard.SetupChoices(name="Bay 2"), directory=str(isolated_registry))
+    wizard.apply_setup(
+        wizard.SetupChoices(name="Bay 2", configuration_directory=str(isolated_registry))
+    )
     assert os.path.exists(cfg.USER_CONFIGURATIONS_PATH)
     assert not wizard.is_first_run()
 
@@ -351,7 +405,9 @@ def test_finishing_the_wizard_ends_the_first_run(isolated_registry):
     the folder preferences fail to save.
     """
     assert wizard.is_first_run()
-    wizard.apply_setup(wizard.SetupChoices(name="Bay 2"), directory=str(isolated_registry))
+    wizard.apply_setup(
+        wizard.SetupChoices(name="Bay 2", configuration_directory=str(isolated_registry))
+    )
     assert not wizard.is_first_run()
 
 

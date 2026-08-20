@@ -84,7 +84,8 @@ STEP_SUBTITLES = [
     "Where this runs, and how it reaches the instrument. The stage step reads from the "
     "microscope, so this comes first.",
     "The two values that describe how the sample sits on the stage.",
-    "Where experiments are created, and which protocol they start from.",
+    "Two different places: where this configuration is saved, and where experiments "
+    "are created.",
     "These answers are written as a new microscope configuration.",
 ]
 
@@ -899,6 +900,22 @@ class SetupWizardDialog(QtWidgets.QDialog):
 
         preferences = cfg.load_user_preferences()
 
+        # First, because it is the one directory this wizard actually writes to. It
+        # used to be unasked and unnamed, which left "Experiments" as the only folder
+        # question on the page and invited it being answered for both.
+        self._configuration_dir = QDirectoryLineEdit()
+        self._configuration_dir.setText(cfg.CONFIG_PATH)
+        self._configuration_dir.textChanged.connect(self._on_configuration_dir_changed)
+        column.addLayout(
+            self._directory_row(
+                "Configuration",
+                self._configuration_dir,
+                "Where this configuration file is saved. The default is inside the "
+                "installed package, so an upgrade replaces it — point it elsewhere to "
+                "keep it.",
+            )
+        )
+
         self._experiment_dir = QDirectoryLineEdit()
         self._experiment_dir.setText(
             preferences.experiment.default_experiment_directory
@@ -908,7 +925,8 @@ class SetupWizardDialog(QtWidgets.QDialog):
             self._directory_row(
                 "Experiments",
                 self._experiment_dir,
-                "Where a new experiment is created unless you say otherwise.",
+                "Somewhere else entirely: where a new experiment is created unless you "
+                "say otherwise. Experiments hold data, and there will be many of them.",
             )
         )
 
@@ -923,6 +941,10 @@ class SetupWizardDialog(QtWidgets.QDialog):
         )
         column.addStretch()
         return page
+
+    def _on_configuration_dir_changed(self, text: str) -> None:
+        """Kept live so the review screen's path is never stale."""
+        self.choices.configuration_directory = text.strip()
 
     @staticmethod
     def _directory_row(caption: str, editor: QtWidgets.QWidget, hint: str):
@@ -997,13 +1019,15 @@ class SetupWizardDialog(QtWidgets.QDialog):
     def _update_review(self) -> None:
         """Rebuild the summary from what would actually be written."""
         self.choices.name = self._name_edit.text().strip()
-        # The file name, not the whole path. The directory is the same one every time
-        # and is long enough to wrap over two lines, which buries the part that
-        # actually changes as you type.
+        # The whole path, since the folder is now a question rather than a constant.
+        # A wizard whose entire output is one file should say where that file goes.
         self._filename_hint.setText(
-            f"Saved as {wizard.configuration_slug(self.choices.name)}.yaml "
-            "in the configuration folder, and listed on the connection tab under "
-            "this name."
+            "Saved as "
+            + os.path.join(
+                self.choices.resolved_configuration_directory,
+                f"{wizard.configuration_slug(self.choices.name)}.yaml",
+            )
+            + ", and listed on the connection tab under this name."
         )
 
         while self._summary_layout.count():
@@ -1041,7 +1065,8 @@ class SetupWizardDialog(QtWidgets.QDialog):
                 "Shuttle pre-tilt",
                 f"{float(stage.get('shuttle_pre_tilt', 0)):.1f}°{from_file}",
             ),
-            ("Experiments", self.choices.experiment_directory or "not set"),
+            ("Configuration folder", self.choices.resolved_configuration_directory),
+            ("Experiments folder", self.choices.experiment_directory or "not set"),
         ]
         if self.choices.needs_stage_step:
             # Only shown when the wizard derived it. It is the rotation the other side
@@ -1140,6 +1165,7 @@ class SetupWizardDialog(QtWidgets.QDialog):
             self.choices.rotation_reference = self._rotation_spin.value()
             self.choices.shuttle_pre_tilt = self._pre_tilt_spin.value()
         elif self._index == STEP_FOLDERS:
+            self.choices.configuration_directory = self._configuration_dir.text().strip()
             self.choices.experiment_directory = self._experiment_dir.text().strip()
             self.choices.protocol_path = self._protocol_file.text().strip()
         elif self._index == STEP_REVIEW:

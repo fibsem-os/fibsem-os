@@ -210,6 +210,13 @@ class SetupChoices:
     manufacturer: Optional[str] = None
     rotation_reference: Optional[float] = None
     shuttle_pre_tilt: Optional[float] = None
+    # Where the configuration this wizard writes is saved. Empty means the shipped
+    # configuration folder, which is also where the model files are read from.
+    #
+    # Asked separately from the experiment directory because they are separate
+    # questions, and a wizard that asks only about experiments while silently writing
+    # a configuration somewhere else invites the two being answered as one.
+    configuration_directory: str = ""
     experiment_directory: str = ""
     protocol_path: str = ""
     name: str = ""
@@ -226,6 +233,15 @@ class SetupChoices:
     @property
     def is_offline(self) -> bool:
         return self.location_key == LOCATION_OFFLINE
+
+    @property
+    def resolved_configuration_directory(self) -> str:
+        """Where the configuration will actually be written.
+
+        Resolved rather than left implicit so the review screen can name the path. A
+        wizard whose entire output is one file should say where that file is going.
+        """
+        return self.configuration_directory or cfg.CONFIG_PATH
 
     @property
     def needs_stage_step(self) -> bool:
@@ -362,17 +378,22 @@ class SetupResult:
     warnings: List[str] = field(default_factory=list)
 
 
-def apply_setup(choices: SetupChoices, directory: Optional[str] = None) -> SetupResult:
+def apply_setup(choices: SetupChoices) -> SetupResult:
     """Write the configuration, register it, and record the folder preferences.
 
     Registration is the step that makes a configuration *selectable*; a file written
     and not registered is a file nobody can choose. It runs before the preferences
     write for the same reason -- if the second half fails, the configuration still
     exists and is still usable.
+
+    The destination comes from the choices rather than a parameter, so there is one
+    way to say where this goes. Anywhere on disk works: ``register_configuration``
+    stores an absolute path and ``load_configuration`` loads from it, which is what
+    the import-from-file flow on the connection tab has always relied on.
     """
     from fibsem import utils
 
-    directory = directory or cfg.CONFIG_PATH
+    directory = choices.resolved_configuration_directory
     os.makedirs(directory, exist_ok=True)
 
     config = build_configuration(choices)

@@ -425,6 +425,34 @@ def test_the_filename_hint_follows_the_name(dialog):
     assert "arctis-bay-2.yaml" in dialog._filename_hint.text()
 
 
+def test_the_folders_step_asks_where_the_configuration_goes(dialog, tmp_path):
+    """It used to ask only about experiments while silently writing the configuration
+    somewhere it never named, which invited the two being answered as one."""
+    dialog._show_step(STEP_FOLDERS)
+    assert dialog._configuration_dir.text() == cfg.CONFIG_PATH
+
+    elsewhere = str(tmp_path / "configurations")
+    dialog._configuration_dir.setText(elsewhere)
+    dialog._experiment_dir.setText(str(tmp_path / "experiments"))
+    dialog._read_current_step()
+
+    assert dialog.choices.configuration_directory == elsewhere
+    assert dialog.choices.experiment_directory == str(tmp_path / "experiments")
+
+
+def test_the_review_names_the_path_the_file_will_be_written_to(dialog, tmp_path):
+    """A wizard whose whole output is one file should say where that file goes."""
+    elsewhere = str(tmp_path / "configurations")
+    dialog._show_step(STEP_FOLDERS)
+    dialog._configuration_dir.setText(elsewhere)
+    dialog._read_current_step()
+
+    dialog._show_step(STEP_REVIEW)
+    dialog._name_edit.setText("Arctis Bay 2")
+    assert os.path.join(elsewhere, "arctis-bay-2.yaml") in dialog._filename_hint.text()
+    assert summary_rows(dialog)["Configuration folder"] == elsewhere
+
+
 def test_saving_without_a_name_asks_for_one(dialog, monkeypatch):
     from PyQt5 import QtWidgets
 
