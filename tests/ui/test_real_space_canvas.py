@@ -557,6 +557,26 @@ def test_a_reference_pixel_size_can_be_fixed_before_any_image():
     assert c.metres_to_canvas(10e-6, 0.0) == pytest.approx((100.0, 0.0))
 
 
+def test_asking_for_the_scale_it_already_has_changes_nothing():
+    """And, crucially, does not repaint.
+
+    The fluorescence tab sets this on every tile grid refresh, which is every motion
+    event of a drag. Until the first image landed it was a full canvas repaint per
+    event -- 18.4 ms against 4.4 -- and it threw away the background the blitted grid
+    was being drawn over. It presented as the tab getting *faster* once an image
+    arrived, because that is when this call starts refusing outright.
+    """
+    c = _canvas()
+    assert c.set_reference_pixel_size(PIXEL_SIZE) is True
+
+    repaints = []
+    c._after_content_change = lambda *a, **k: repaints.append(1)
+
+    assert c.set_reference_pixel_size(PIXEL_SIZE) is False
+    assert repaints == [], "re-setting the same scale repainted the canvas"
+    assert c.reference_pixel_size == PIXEL_SIZE
+
+
 def test_the_reference_pixel_size_is_not_changed_under_a_placed_image():
     """Their extents were computed against it, so changing it would move them."""
     c = _canvas()
