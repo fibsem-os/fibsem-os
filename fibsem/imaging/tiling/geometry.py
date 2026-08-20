@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Iterable, List, Optional, Sequence, Tuple
 
 from fibsem.structures import (
     FibsemStagePosition,
@@ -246,6 +246,74 @@ def validate_tile_stage_positions(
         for tile, sp in zip(ordered, tile_stage_positions)
         if not sp.is_within_limits(limits, axes=["x", "y"])
     ]
+
+
+def grid_centre_offset(tiles: Sequence[TilePosition]) -> Tuple[float, float]:
+    """Where the grid's centre sits in the layout's own offsets, in metres.
+
+    The layout measures from the top-left tile, and both runners shift by
+    `(n - 1) * step / 2` to make the grid straddle the position it is planned around.
+    Taken from the tiles' own extent rather than recomputed from rows, columns and
+    overlap, so a caller cannot centre a grid on a step size the layout did not use.
+
+    *tiles* must be the **whole** grid, disabled ones included -- they hold its shape,
+    which is what the centring is measured from. Ordering and dropping happen after.
+    """
+    xs = [t.dx for t in tiles]
+    ys = [t.dy for t in tiles]
+    if not xs:
+        return (0.0, 0.0)
+    return ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2)
+
+
+def unreachable_tiles(
+    tiles: Sequence[TilePosition],
+    strategy: TileOrderStrategy,
+    project: Callable[[float, float], FibsemStagePosition],
+    limits: Optional[dict],
+) -> List[Tuple[int, int]]:
+    """Which of a planned grid's tiles the stage cannot travel to.
+
+    The question :func:`raise_if_outside_stage_limits` answers at acquire time, asked
+    early enough to be acted on -- from a pre-flight dialog, or while a grid is being
+    dragged. Through the same two helpers the runners use, `order_tiles` to drop the
+    disabled tiles and :func:`validate_tile_stage_positions` to test what is left, so
+    both sides ask about the same tiles: masking off an unreachable corner is a
+    legitimate way to make a grid acquirable, and that only works if they agree.
+
+    The runners keep the authoritative check either way, so a caller here that drifts
+    fails **open** -- the run is still refused, exactly as it is today. That is the mild
+    direction to be wrong in, and worth more than a validate-only seam in the runners.
+
+    Args:
+        tiles: the whole grid from `compute_tile_grid`, disabled tiles included.
+        strategy: the traversal. Only bears on which tiles are dropped, not on whether
+            any of them is reachable -- gone through anyway so the set asked about here
+            is the set the runner will visit, by construction.
+        project: displayed-plane offsets from the grid's centre to a stage position,
+            i.e. `StageProjection.from_plane` bound to that centre. Note the plane
+            measures y **downward** while the layout measures it up, which is why the
+            offsets handed over are negated in y. A cached projection rather than
+            `microscope.project_*_stable_move`: the two agree exactly, but the
+            microscope's re-reads the instrument on every call.
+        limits: `microscope._stage.limits`. Falsy means unknown, which reads as "no
+            answer" rather than "all fine" -- an empty result either way, but the
+            caller should say nothing rather than say it is reachable.
+
+    Returns:
+        (row, col) for each tile that will be visited and cannot be reached. Empty if
+        the grid is acquirable, if every tile is masked off, or if *limits* is unknown.
+    """
+    if not limits:
+        return []
+    ordered = order_tiles(list(tiles), strategy)
+    if not ordered:
+        return []
+    centre_dx, centre_dy = grid_centre_offset(tiles)
+    positions = [
+        project(tile.dx - centre_dx, -(tile.dy - centre_dy)) for tile in ordered
+    ]
+    return validate_tile_stage_positions(ordered, positions, limits)
 
 
 def raise_if_outside_stage_limits(
