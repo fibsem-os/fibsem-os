@@ -487,9 +487,19 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
 
         Refuses once images are placed: their extents were computed against the current
         scale, so changing it would move everything already drawn. Returns whether it
-        was applied.
+        changed anything.
+
+        Asking for the scale it already has changes nothing, and says so rather than
+        repainting. It used to repaint: the fluorescence tab sets this on every tile
+        grid refresh, which is every motion event of a drag, and until the first image
+        landed that was a full canvas repaint per event -- which is also what threw away
+        the blitted background the grid was being drawn over (FIB-752). It looked like
+        the tab getting *faster* once an image arrived, because that is when this call
+        starts refusing.
         """
         if self._placed or not pixel_size or pixel_size <= 0:
+            return False
+        if self._reference_pixel_size == float(pixel_size):
             return False
         self._reference_pixel_size = float(pixel_size)
         self._pixel_size = float(pixel_size)
