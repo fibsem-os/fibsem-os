@@ -18,6 +18,8 @@ is absorbed into the stage moves, not into where the tiles appear.
 
 from __future__ import annotations
 
+import logging
+
 from typing import TYPE_CHECKING, Iterable, List, Optional, Sequence, Tuple
 
 from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
@@ -25,6 +27,8 @@ from PyQt5.QtWidgets import QApplication
 
 from fibsem.imaging.tiling.geometry import TilePosition
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.ui.widgets.canvas.canvas_base import ContentRect
@@ -102,6 +106,11 @@ class TileGridOverlay(QObject, CanvasOverlay):
     tile_toggled = pyqtSignal(int, int, bool)      # row, col, enabled
     grid_resize_requested = pyqtSignal(int, int)   # rows, cols
     grid_move_requested = pyqtSignal(float, float)  # new centre, canvas coordinates
+    # A move or resize gesture has ended. For work a host wants to do once, at the end,
+    # rather than on every motion event -- anything that repaints the whole canvas
+    # belongs here, because during the drag the grid is blitted over a held background
+    # and a repaint throws that away (FIB-752).
+    drag_finished = pyqtSignal()
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         QObject.__init__(self, parent)
@@ -124,6 +133,10 @@ class TileGridOverlay(QObject, CanvasOverlay):
         self._anchor_point: Optional[Tuple[float, float]] = None  # see set_anchor
         self._previous_margin: Optional[float] = None
         self._cids: List[int] = []
+        # The canvas without the grid on it, captured once when a drag starts. See
+        # `_redraw`: while it is held, a drag frame restores it and draws the tiles on
+        # top rather than re-rendering every placed image (FIB-752).
+        self._blit_bg = None
         self._resize_axes: Optional[Tuple[bool, bool]] = None  # (horizontal, vertical)
         # Whether dragging may change the grid's *geometry*. Tile toggling is separate
         # and always allowed -- see `set_grid_editable`.
@@ -162,6 +175,9 @@ class TileGridOverlay(QObject, CanvasOverlay):
             canvas.mpl_connect("button_press_event", self._on_press),
             canvas.mpl_connect("motion_notify_event", self._on_drag),
             canvas.mpl_connect("button_release_event", self._on_release),
+            # See `_on_canvas_drawn`: anything that repaints the canvas mid-drag takes
+            # the grid off it, because a full draw skips animated artists.
+            canvas.mpl_connect("draw_event", self._on_canvas_drawn),
         ]
 
     def detach(self) -> None:
@@ -191,6 +207,11 @@ class TileGridOverlay(QObject, CanvasOverlay):
 
     def on_content_changed(self, rect: "ContentRect") -> None:
         self._rect = rect
+        # Whatever the canvas is holding was captured against the old bounds, so it no
+        # longer describes what is behind the grid. Dropped rather than reused: the next
+        # frame recaptures, which costs one full draw, and blitting a stale background
+        # would paint the previous contents back over the canvas.
+        self._blit_bg = None
         self._redraw()
 
     def _content(self) -> Optional["ContentRect"]:
@@ -428,6 +449,17 @@ class TileGridOverlay(QObject, CanvasOverlay):
         from matplotlib.colors import to_rgba
         from matplotlib.patches import Rectangle
 
+        # A drag repaints on every motion event, and a repaint re-renders the whole
+        # canvas -- every placed overview, to move some rectangles. Measured at 167 ms
+        # per event with six overviews on a 3x3 grid, 427 ms with sixteen, and growing
+        # with every image ever placed. Blitted instead: the background is captured
+        # once, and each frame restores it and draws only the tiles.
+        #
+        # `animated` is what keeps the tiles *out* of that background -- a full draw
+        # skips animated artists -- so it has to be set before the capture, and cleared
+        # when the drag ends or the grid stays invisible until something else redraws it.
+        blitting = self._can_blit()
+
         for tile in self._tiles:
             x, y, width, height = self._rect_for(tile)
             # Only tiles that will actually be visited. A masked-off tile is not going
@@ -452,22 +484,33 @@ class TileGridOverlay(QObject, CanvasOverlay):
                 linestyle="-" if tile.enabled else "--",
                 linewidth=LINE_WIDTH,
                 zorder=20,
+                animated=blitting,
             )
             self._ax.add_patch(patch)
             self._artists.append(patch)
 
             if out_of_reach:
-                self._artists.extend(self._mark_out_of_reach(x, y, width, height))
+                self._artists.extend(
+                    self._mark_out_of_reach(x, y, width, height, animated=blitting)
+                )
 
-        if self._canvas is not None:
-            self._canvas.draw_idle()
+        if self._canvas is None:
+            return
+        if blitting and self._blit_frame():
+            return
+        self._canvas.draw_idle()
 
-    def _mark_out_of_reach(self, x: float, y: float, width: float, height: float) -> list:
+    def _mark_out_of_reach(
+        self, x: float, y: float, width: float, height: float, animated: bool = False
+    ) -> list:
         """A small cross at the tile's centre, added to the axes and handed back.
 
         One artist, not two: a `nan` lifts the pen between the strokes, so both arms are
         drawn by a single `Line2D`. Two artists per tile measured 184 ms against 136 ms
         for a full 15x15 drag frame -- the per-artist overhead, not the drawing.
+
+        *animated* for the same reason the tiles take it: a blitted drag frame draws
+        this itself, and an artist left in the captured background would smear.
         """
         from matplotlib.lines import Line2D
 
@@ -480,9 +523,97 @@ class TileGridOverlay(QObject, CanvasOverlay):
             linewidth=1.3,
             solid_capstyle="round",
             zorder=22,
+            animated=animated,
         )
         self._ax.add_line(line)
         return [line]
+
+    # ── blitting a drag (FIB-752) ────────────────────────────────────────
+
+    def _can_blit(self) -> bool:
+        """Whether this frame should be blitted rather than fully redrawn.
+
+        Only while a gesture is in flight. Outside one there is nothing to be gained --
+        a settings change redraws once -- and the captured background would go stale the
+        moment anything else on the canvas changed.
+
+        Guarded on the canvas actually offering the calls, so a host that is not a
+        matplotlib canvas (the drawing tests use a stand-in) falls back to a normal
+        repaint rather than failing.
+        """
+        if self._canvas is None or self._ax is None or not self.is_dragging:
+            return False
+        return all(
+            hasattr(self._canvas, name)
+            for name in ("draw", "copy_from_bbox", "restore_region", "blit")
+        )
+
+    def _blit_frame(self) -> bool:
+        """Draw the tiles over the captured background. False if it could not be done.
+
+        Captures on the first frame of a drag: by then the artists exist and are
+        animated, so the full draw taken here renders everything *except* them -- which
+        is exactly the background the rest of the drag needs.
+
+        Returning False rather than raising, because a failed blit should cost a frame's
+        efficiency and not the frame: the caller falls back to `draw_idle`.
+        """
+        try:
+            if self._blit_bg is None:
+                self._canvas.draw()
+                self._blit_bg = self._canvas.copy_from_bbox(self._ax.bbox)
+            self._canvas.restore_region(self._blit_bg)
+            for artist in self._artists:
+                self._ax.draw_artist(artist)
+            self._canvas.blit(self._ax.bbox)
+            return True
+        except Exception as e:  # pragma: no cover - a backend that cannot blit
+            logger.debug(f"Could not blit the tile grid: {e}")
+            self._blit_bg = None
+            return False
+
+    def _on_canvas_drawn(self, event) -> None:
+        """Put the grid back after something else repainted the canvas mid-drag.
+
+        A full draw skips animated artists, so the moment a host redraws for its own
+        reasons -- the fluorescence tab refreshes the stage context from the same
+        handler that moves the grid -- the tiles vanish from the canvas and stay gone
+        until the next motion event. That alternation is what a drag looked like:
+        flicker, and the grid missing for stretches of it.
+
+        The background it draws over is recaptured here rather than reused, because the
+        draw that just happened is what the canvas now shows.
+
+        **No `blit()` here.** This runs inside the canvas's own paint, which is about to
+        present what the renderer holds -- drawing the artists into it is enough. Asking
+        the canvas to present again from in here re-enters the paint, which Qt reports as
+        `QWidget::repaint: Recursive repaint detected`, followed by a stream of
+        `QPainter::begin: Paint device returned engine == 0`.
+
+        Not re-entrant the other way either: `_blit_frame`'s own initial `draw()` runs
+        while `_blit_bg` is still None, so this returns before touching anything.
+        """
+        if self._blit_bg is None or not self.is_dragging:
+            return
+        try:
+            self._blit_bg = self._canvas.copy_from_bbox(self._ax.bbox)
+            for artist in self._artists:
+                self._ax.draw_artist(artist)
+        except Exception as e:  # pragma: no cover - a backend that cannot blit
+            logger.debug(f"Could not restore the tile grid after a repaint: {e}")
+            self._blit_bg = None
+
+    def _end_blit(self) -> None:
+        """Drop the background and put the grid back into the canvas proper.
+
+        The redraw is not optional. The artists are `animated` while a drag is in
+        flight, which means a full draw skips them -- so without this the grid would
+        vanish the next time anything else repainted the canvas.
+        """
+        if self._blit_bg is None:
+            return
+        self._blit_bg = None
+        self._redraw()
 
     def _remove_artists(self) -> None:
         for artist in self._artists:
@@ -816,6 +947,13 @@ class TileGridOverlay(QObject, CanvasOverlay):
         self._move_start = None
         self._move_active = False
         self._resize_axes = None
+        # Before anything below can redraw: `_end_blit` reads `is_dragging`, which these
+        # three have just made False, and it is that transition it exists to catch.
+        self._end_blit()
+        if was_dragged:
+            # After `_end_blit`, so a host that repaints in response is repainting a
+            # canvas the grid is already part of again.
+            self.drag_finished.emit()
         self._paint_value = None
         self._paint_origin = None
         self._paint_active = False
