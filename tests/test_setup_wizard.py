@@ -53,17 +53,15 @@ def test_every_offered_model_ships_a_configuration_file():
         assert os.path.exists(model.path), f"{model.label} has no {model.filename}"
 
 
-def test_recognised_models_carry_both_stage_values():
-    """The skip rule depends on this, and it is a property of the shipped files.
+def test_every_model_carries_both_stage_values():
+    """Every model's file is read, either to answer the step or to prefill it.
 
-    If a shipped file ever loses one of the two, the wizard would skip a step that
-    nothing had answered and write whatever the file happened to default to.
+    If a shipped file lost one of the two, the Arctis would skip a step nothing had
+    answered, and the rest would prefill a zero that looks like a measurement.
     """
     from fibsem import utils
 
     for model in wizard.MICROSCOPE_MODELS:
-        if not model.knows_stage:
-            continue
         stage = utils.load_yaml(model.path).get("stage", {})
         assert "rotation_reference" in stage, model.label
         assert "shuttle_pre_tilt" in stage, model.label
@@ -96,13 +94,57 @@ def test_address_follows_the_computer_not_the_model_file():
 # ---------------------------------------------------------------------------
 
 
-def test_a_recognised_model_answers_the_stage_step():
-    for key in ("tfs-arctis", "tfs-hydra", "tfs-aquilos2", "tescan"):
-        assert not wizard.SetupChoices(model_key=key).needs_stage_step, key
+def test_only_the_compustage_answers_the_stage_step():
+    """The Arctis reaches the other side by tilting, so there is no reference rotation
+    to measure, and it has no pre-tilted shuttle. Both values are design facts."""
+    assert not wizard.SetupChoices(model_key="tfs-arctis").needs_stage_step
+    assert wizard.get_model("tfs-arctis").is_compustage
+
+
+def test_a_pre_tilted_shuttle_system_still_has_to_ask():
+    """Carrying a value is not the same as the value being right for this instrument.
+
+    The pre-tilt belongs to whichever shuttle is fitted and the reference rotation to
+    how a sample is loaded here -- site facts, not model facts, so the shipped numbers
+    are a starting point rather than an answer.
+    """
+    for key in ("tfs-hydra", "tfs-aquilos2", "tescan"):
+        assert wizard.SetupChoices(model_key=key).needs_stage_step, key
 
 
 def test_start_blank_still_has_to_ask():
     assert wizard.SetupChoices(model_key="other").needs_stage_step
+
+
+def test_the_shipped_values_are_offered_as_a_starting_point():
+    """What the step is prefilled with, for the models that are still asked."""
+    assert wizard.shipped_stage_values(wizard.get_model("tfs-hydra")) == {
+        "rotation_reference": 0.0,
+        "shuttle_pre_tilt": 35.0,
+    }
+    assert wizard.shipped_stage_values(wizard.get_model("tescan")) == {
+        "rotation_reference": 180.0,
+        "shuttle_pre_tilt": 0.0,
+    }
+
+
+def test_the_derived_opposite_matches_what_each_model_ships():
+    """The models that are asked are exactly the ones the derivation suits.
+
+    `rotation_180` is derived as `reference + 180`, which reproduces what every asked
+    model ships -- and the one model it would get wrong, the compustage with its 0/0
+    pair, is the one that never reaches the step.
+    """
+    from fibsem import utils
+
+    for key in ("tfs-hydra", "tfs-aquilos2", "tescan"):
+        model = wizard.get_model(key)
+        shipped = utils.load_yaml(model.path)["stage"]
+        reference = float(shipped["rotation_reference"])
+        config = wizard.build_configuration(
+            wizard.SetupChoices(model_key=key, rotation_reference=reference)
+        )
+        assert config["stage"]["rotation_180"] == float(shipped["rotation_180"]), key
 
 
 def test_offline_does_not_skip_the_stage_step():

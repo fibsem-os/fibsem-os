@@ -123,6 +123,41 @@ def test_start_blank_stops_at_the_stage_step(dialog):
     assert dialog._index == STEP_STAGE
 
 
+def test_only_the_compustage_skips_the_stage_step(dialog):
+    """Every other model prefills the step and still asks."""
+    dialog._select_model("tfs-arctis")
+    assert dialog._is_skipped(STEP_STAGE)
+    for key in ("tfs-hydra", "tfs-aquilos2", "tescan", "other"):
+        dialog._select_model(key)
+        assert not dialog._is_skipped(STEP_STAGE), key
+
+
+def test_the_stage_step_is_prefilled_from_the_chosen_model(dialog):
+    """Confirming a number is easier than recalling one, so the step opens on the
+    shipped values rather than empty or on a generic 35."""
+    dialog._select_model("tfs-hydra")
+    dialog._show_step(STEP_STAGE)
+    assert dialog._rotation_spin.value() == pytest.approx(0.0)
+    assert dialog._pre_tilt_spin.value() == pytest.approx(35.0)
+
+    dialog._select_model("tescan")
+    assert dialog._rotation_spin.value() == pytest.approx(180.0)
+    assert dialog._pre_tilt_spin.value() == pytest.approx(0.0)
+
+
+def test_a_prefilled_value_is_still_written_as_an_answer(dialog):
+    """Leaving the prefill alone is a confirmation, not a skip -- it has to be written.
+
+    Otherwise "I checked, 35 is right" and "nobody looked" would produce the same file
+    while meaning opposite things.
+    """
+    dialog._select_model("tfs-hydra")
+    dialog._show_step(STEP_STAGE)
+    dialog._read_current_step()
+    assert dialog.choices.shuttle_pre_tilt == pytest.approx(35.0)
+    assert dialog.choices.rotation_reference == pytest.approx(0.0)
+
+
 def test_back_skips_the_same_step_forwards_and_backwards(dialog):
     """A skipped step reachable only by Back is a step nothing filled in."""
     dialog._select_model("tfs-arctis")
@@ -333,6 +368,35 @@ def test_the_diagram_stays_flat_until_a_stage_is_read(dialog, demo_microscope):
     dialog._microscope = demo_microscope
     dialog._on_read_stage()
     assert dialog._stage_diagram._stage_tilt == pytest.approx(17.0, abs=1e-3)
+
+
+def test_the_sample_faces_the_beam_it_is_drawn_facing(qapp):
+    """At pre-tilt + stage tilt = the FIB's own angle, the beam hits the sample square on.
+
+    This was wrong: the stage and shuttle rotated the opposite way, so the sample turned
+    *away* from the FIB and the beam struck the back of the stage -- a picture that
+    contradicted the numbers printed beside it.
+
+    Analytic rather than pixel-based, so it pins the geometry helper the painter rotates
+    by rather than a particular rendering.
+    """
+    import math
+
+    from fibsem.ui.widgets.setup_wizard_dialog import StageDiagram
+
+    diagram = StageDiagram(pre_tilt=35.0, stage_tilt=StageDiagram.FIB_ANGLE - 35.0)
+    try:
+        normal = diagram.sample_normal()
+        fib = StageDiagram.beam_direction(StageDiagram.FIB_ANGLE)
+        dot = normal[0] * fib[0] + normal[1] * fib[1]
+        assert math.degrees(math.acos(max(-1.0, min(1.0, dot)))) == pytest.approx(0, abs=1e-6)
+
+        # And a flat stage faces the SEM instead, which is the other end of the same rule.
+        flat = StageDiagram(pre_tilt=0.0, stage_tilt=0.0)
+        sem = StageDiagram.beam_direction(0.0)
+        assert flat.sample_normal() == pytest.approx(sem, abs=1e-9)
+    finally:
+        diagram.deleteLater()
 
 
 @pytest.mark.parametrize("pre_tilt, stage_tilt", [(0, 0), (35, 17), (-90, 90), (90, -90)])

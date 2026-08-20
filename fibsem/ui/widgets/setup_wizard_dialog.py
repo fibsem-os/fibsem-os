@@ -1,13 +1,16 @@
 """The first-run setup wizard: from a fresh install to a configuration that connects.
 
-Five steps, of which a recognised microscope answers one, so most people see four:
+Five steps, of which the Arctis answers one, so on that instrument people see four:
 
 1. **Microscope** -- first, because the answer decides which of the rest are still
    questions.
 2. **Computer and connection** -- never skipped. The address is a property of the site
    that no shipped file can imply, and step 3 reads the stage, so the connection has to
    be *proven* here rather than merely typed.
-3. **Stage configuration** -- skipped for a recognised model, which ships both values.
+3. **Stage configuration** -- skipped only for the Arctis, whose compustage has no
+   reference rotation to measure and no pre-tilted shuttle. Every other model prefills
+   from its shipped configuration and still asks: those values belong to the shuttle
+   fitted and to how a sample is loaded at that site, not to the model.
 4. **Folders**.
 5. **Review and save**.
 
@@ -251,6 +254,29 @@ class StageDiagram(QtWidgets.QWidget):
 
     SEM_COLOUR = "#4ec26a"
     FIB_COLOUR = "#e8a020"
+    # Degrees from vertical, and drawn to the right of the SEM column.
+    FIB_ANGLE = 52.0
+
+    def surface_tilt(self) -> float:
+        """Degrees the sample surface is turned clockwise on screen.
+
+        Positive tips it *toward* the FIB. Everything the diagram draws rotates by this
+        or by the stage tilt alone, so the sign lives in one place -- it was negative
+        once, which turned the sample away and left the beam striking the back of the
+        stage.
+        """
+        return self._pre_tilt + self._stage_tilt
+
+    def sample_normal(self) -> tuple:
+        """The direction the sample faces, in screen coordinates (y down)."""
+        angle = math.radians(self.surface_tilt())
+        return (math.sin(angle), -math.cos(angle))
+
+    @classmethod
+    def beam_direction(cls, degrees_from_vertical: float) -> tuple:
+        """From the sample toward a beam's source, in screen coordinates."""
+        angle = math.radians(degrees_from_vertical)
+        return (math.sin(angle), -math.cos(angle))
 
     def __init__(self, pre_tilt: float = 35.0, stage_tilt: float = 0.0, parent=None):
         super().__init__(parent)
@@ -275,7 +301,7 @@ class StageDiagram(QtWidgets.QWidget):
         painter.drawRoundedRect(0, 0, width - 1, height - 1, 6, 6)
 
         cx, cy = width * 0.46, height * 0.66
-        total = self._pre_tilt + self._stage_tilt
+        total = self.surface_tilt()
 
         # Read-out first, in the top-left corner. At the bottom it sat where the stage
         # plate and the shuttle swing as the angles change, and a caption crossed by
@@ -299,7 +325,10 @@ class StageDiagram(QtWidgets.QWidget):
         painter.setPen(QtGui.QPen(QtGui.QColor(NEUTRAL_500), 2))
         painter.save()
         painter.translate(cx, cy)
-        painter.rotate(-self._stage_tilt)
+        # Positive, so the plate's right end drops. The sample has to end up facing the
+        # FIB, which is drawn up and to the right; tilting the other way turned the
+        # sample away from it and the beam struck the back of the stage.
+        painter.rotate(self._stage_tilt)
         painter.drawLine(-95, 0, 95, 0)
         painter.setPen(QtGui.QPen(QtGui.QColor(NEUTRAL_500), 1, Qt.DashLine))
         painter.drawLine(-95, 8, 95, 8)
@@ -307,7 +336,10 @@ class StageDiagram(QtWidgets.QWidget):
 
         painter.save()
         painter.translate(cx, cy)
-        painter.rotate(-total)
+        # Same sense as the plate: the shuttle carries the sample round with it, so at
+        # pre-tilt + stage tilt = the FIB's own angle the surface faces the beam square
+        # on -- which is the geometry the numbers underneath are describing.
+        painter.rotate(self.surface_tilt())
         gradient = QtGui.QLinearGradient(-60, -10, 60, 0)
         gradient.setColorAt(0, QtGui.QColor(PRIMARY_COLOR))
         gradient.setColorAt(1, QtGui.QColor("#0a5c9e"))
@@ -329,7 +361,7 @@ class StageDiagram(QtWidgets.QWidget):
             # does. On the right it lands on the FIB beam, which at the usual angles
             # runs within a few degrees of the shuttle -- so the label for the number
             # being entered was the one thing on the diagram you could not read.
-            start = 180 + self._stage_tilt
+            start = 180 - total
             painter.drawArc(
                 QtCore.QRectF(cx - radius, cy - radius, 2 * radius, 2 * radius),
                 int(start * 16),
@@ -352,7 +384,8 @@ class StageDiagram(QtWidgets.QWidget):
             )
 
         self._draw_beam(painter, cx, cy, 0, self.SEM_COLOUR, "SEM")
-        self._draw_beam(painter, cx, cy, 52, self.FIB_COLOUR, "FIB  52°")
+        self._draw_beam(painter, cx, cy, self.FIB_ANGLE, self.FIB_COLOUR,
+                        f"FIB  {self.FIB_ANGLE:g}°")
         painter.end()
 
     @staticmethod
@@ -516,6 +549,11 @@ class SetupWizardDialog(QtWidgets.QDialog):
         # reference is a number nobody re-checks after typing it once.
         install_wheel_blocker_recursive(self)
 
+        # Once the stage controls exist. The first _select_model runs while step 1 is
+        # still being built, so its prefill had nothing to write into.
+        if self.choices.needs_stage_step:
+            self._prefill_stage_from_model()
+
     def _build_rail(self) -> QtWidgets.QWidget:
         rail = QtWidgets.QWidget()
         rail.setFixedWidth(196)
@@ -616,7 +654,24 @@ class SetupWizardDialog(QtWidgets.QDialog):
             self.choices.rotation_reference = None
             self.choices.shuttle_pre_tilt = None
             self._stage_read = None
+        else:
+            self._prefill_stage_from_model()
         self._update_rail()
+
+    def _prefill_stage_from_model(self) -> None:
+        """Seed the stage controls from the chosen model's shipped configuration.
+
+        A starting point, not an answer -- the pre-tilt belongs to whichever shuttle is
+        fitted and the reference rotation to how this site loads a sample, so the step
+        is still asked. Confirming a number is easier than recalling one.
+        """
+        # Guarded because selecting a model happens while step 1 is being built, which
+        # is before step 3 exists.
+        if not hasattr(self, "_rotation_spin"):
+            return
+        values = wizard.shipped_stage_values(self.choices.model)
+        self._rotation_spin.setValue(values["rotation_reference"])
+        self._pre_tilt_spin.setValue(values["shuttle_pre_tilt"])
 
     # -- step 2: computer and connection ------------------------------------
 
@@ -797,7 +852,9 @@ class SetupWizardDialog(QtWidgets.QDialog):
             _label(
                 "Put the stage where a lamella would be milled, then read it. That "
                 "rotation becomes the reference every orientation is measured from. "
-                "The wizard reads the stage; it never moves it.",
+                "The wizard reads the stage; it never moves it. The value below starts "
+                "from the configuration you chose — confirm it rather than assume it, "
+                "since it depends on how a sample is loaded here.",
                 10,
                 TEXT_MUTED_COLOR,
                 wrap=True,
@@ -830,7 +887,8 @@ class SetupWizardDialog(QtWidgets.QDialog):
             _label(
                 "The fixed tilt built into the shuttle or holder. Entered rather than "
                 "read: the stage cannot tell the difference between its own tilt and "
-                "the shuttle's.",
+                "the shuttle's. Prefilled from the configuration you chose, but it "
+                "belongs to whichever shuttle is actually fitted.",
                 10,
                 TEXT_MUTED_COLOR,
                 wrap=True,

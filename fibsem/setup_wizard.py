@@ -96,10 +96,19 @@ def get_location(key: str) -> ComputerLocation:
 class MicroscopeModel:
     """A shipped configuration, offered as a starting point.
 
-    ``knows_stage`` is what lets the wizard skip a step. It is not "is this an
-    Arctis" -- every shipped model file carries both ``rotation_reference`` and
-    ``shuttle_pre_tilt``, so the rule is simply *a recognised model answers the stage
-    question*. Only "start blank" has to ask.
+    ``knows_stage`` is what lets the wizard skip a step, and it is true for the Arctis
+    alone. Every shipped file carries ``rotation_reference`` and ``shuttle_pre_tilt``,
+    but carrying a value is not the same as the value being right for the instrument in
+    front of you: on a pre-tilted-shuttle system the pre-tilt belongs to whichever
+    shuttle is fitted, and the reference rotation to how the sample is loaded at that
+    site. Both are site facts, so the shipped numbers are a starting point and the step
+    still has to be confirmed.
+
+    The Arctis is different in kind rather than in degree. Its stage is a compustage:
+    it reaches the other side of the sample by tilting rather than rotating, so there
+    is no reference rotation to measure, and it has no pre-tilted shuttle. Both values
+    are properties of the design, which is why its configuration reads 0 throughout and
+    why it is the one model that can answer the question outright.
 
     ``is_compustage`` is carried separately because nothing in the file says so. The
     simulator reads ``sim.is_compustage`` and overwrites ``info.model`` with
@@ -148,18 +157,21 @@ MICROSCOPE_MODELS: List[MicroscopeModel] = [
         label="ThermoFisher Hydra",
         summary="Plasma FIB, 35° pre-tilted shuttle",
         filename="tfs-hydra-configuration.yaml",
+        knows_stage=False,
     ),
     MicroscopeModel(
         key="tfs-aquilos2",
         label="ThermoFisher Aquilos 2",
         summary="Cryo-FIB, 35° pre-tilted shuttle",
         filename="tfs-aquilos2-configuration.yaml",
+        knows_stage=False,
     ),
     MicroscopeModel(
         key="tescan",
         label="Tescan",
         summary="Presets rather than beam currents",
         filename="tescan-configuration.yaml",
+        knows_stage=False,
     ),
     MicroscopeModel(
         key="other",
@@ -184,6 +196,30 @@ _MODELS_BY_KEY: Dict[str, MicroscopeModel] = {
 def get_model(key: str) -> MicroscopeModel:
     """The model with this key, falling back to the first offered."""
     return _MODELS_BY_KEY.get(key, MICROSCOPE_MODELS[0])
+
+
+def shipped_stage_values(model: MicroscopeModel) -> Dict[str, float]:
+    """The stage values this model's configuration ships, for prefilling the step.
+
+    A starting point rather than an answer. Offering them beats an empty field or a
+    generic 35: someone confirming "yes, that is my shuttle" is doing something much
+    easier than recalling a number, and the ones who differ are the ones who know they
+    differ.
+
+    Falls back to the field defaults rather than raising, because this is read while
+    drawing a dialog.
+    """
+    from fibsem import utils
+
+    try:
+        stage = utils.load_yaml(model.path).get("stage", {})
+    except Exception as e:  # pragma: no cover - unreadable shipped file
+        logger.warning(f"Could not read the stage values for {model.label}: {e}")
+        stage = {}
+    return {
+        "rotation_reference": float(stage.get("rotation_reference", 0.0)),
+        "shuttle_pre_tilt": float(stage.get("shuttle_pre_tilt", 0.0)),
+    }
 
 
 # ---------------------------------------------------------------------------
