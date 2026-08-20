@@ -249,7 +249,20 @@ class StageDiagram(QtWidgets.QWidget):
     the one thing on the step a user can check their real stage against, so it has to
     be checking the value they actually entered.
 
-    The stage tilt is whatever was read from the instrument, and 0 until something is.
+    **This is the SEM orientation**, which also covers MILLING. ``microscope.py``
+    defines the three: SEM is ``rotation_reference`` with the stage at
+    ``shuttle_pre_tilt``; MILLING shares that rotation and differs only in tilt; FIB is
+    ``rotation_180`` -- a half turn, which reverses the pre-tilt's sense relative to the
+    beams. So SEM and MILLING are the same side view and FIB cannot be, which is why
+    the readout says so rather than letting the picture imply otherwise.
+
+    The SEM orientation is drawn because it is the checkable one: set the stage to your
+    pre-tilt and the sample comes flat, square to the electron beam. Someone can hold
+    that against the real instrument and see immediately whether the number they typed
+    is right, which is the whole reason the picture is here.
+
+    The stage tilt is whatever was read from the instrument; until something is read it
+    shows the pre-tilt, which is the SEM orientation itself.
     """
 
     SEM_COLOUR = "#4ec26a"
@@ -257,15 +270,18 @@ class StageDiagram(QtWidgets.QWidget):
     # Degrees from vertical, and drawn to the right of the SEM column.
     FIB_ANGLE = 52.0
 
+    def effective_stage_tilt(self) -> float:
+        """The stage tilt to draw: what was read, or the SEM orientation."""
+        return self._pre_tilt if self._stage_tilt is None else self._stage_tilt
+
     def surface_tilt(self) -> float:
         """Degrees the sample surface is turned clockwise on screen.
 
-        Positive tips it *toward* the FIB. Everything the diagram draws rotates by this
-        or by the stage tilt alone, so the sign lives in one place -- it was negative
-        once, which turned the sample away and left the beam striking the back of the
-        stage.
+        The shuttle's pre-tilt works *against* the stage tilt in this orientation, so
+        the two cancel at the flat position. Everything the diagram draws rotates by
+        this or by the stage tilt alone, so the sign lives in one place.
         """
-        return self._pre_tilt + self._stage_tilt
+        return self.effective_stage_tilt() - self._pre_tilt
 
     def sample_normal(self) -> tuple:
         """The direction the sample faces, in screen coordinates (y down)."""
@@ -278,9 +294,11 @@ class StageDiagram(QtWidgets.QWidget):
         angle = math.radians(degrees_from_vertical)
         return (math.sin(angle), -math.cos(angle))
 
-    def __init__(self, pre_tilt: float = 35.0, stage_tilt: float = 0.0, parent=None):
+    def __init__(self, pre_tilt: float = 35.0, stage_tilt=None, parent=None):
         super().__init__(parent)
         self._pre_tilt = pre_tilt
+        # None means nothing has been read yet, which is different from a stage that
+        # was read at zero.
         self._stage_tilt = stage_tilt
         self.setMinimumHeight(212)
 
@@ -300,7 +318,7 @@ class StageDiagram(QtWidgets.QWidget):
         painter.setPen(QtGui.QPen(QtGui.QColor(BORDER_COLOR), 1))
         painter.drawRoundedRect(0, 0, width - 1, height - 1, 6, 6)
 
-        cx, cy = width * 0.46, height * 0.66
+        cx, cy = width * 0.56, height * 0.66
         total = self.surface_tilt()
 
         # Read-out first, in the top-left corner. At the bottom it sat where the stage
@@ -312,8 +330,11 @@ class StageDiagram(QtWidgets.QWidget):
         painter.setPen(QtGui.QColor(TEXT_MUTED_COLOR))
         lines = [
             f"shuttle pre-tilt   {self._pre_tilt:g}°",
-            f"stage tilt   {self._stage_tilt:g}°",
-            f"sample faces the FIB at   {total:g}°",
+            f"stage tilt   {self.effective_stage_tilt():g}°",
+            "SEM orientation — sample square to the beam"
+            if abs(total) < 0.05
+            else f"{abs(total):g}° from the SEM orientation",
+            "FIB orientation is a half turn away",
         ]
         for index, line in enumerate(lines):
             painter.drawText(
@@ -328,7 +349,7 @@ class StageDiagram(QtWidgets.QWidget):
         # Positive, so the plate's right end drops. The sample has to end up facing the
         # FIB, which is drawn up and to the right; tilting the other way turned the
         # sample away from it and the beam struck the back of the stage.
-        painter.rotate(self._stage_tilt)
+        painter.rotate(self.effective_stage_tilt())
         painter.drawLine(-95, 0, 95, 0)
         painter.setPen(QtGui.QPen(QtGui.QColor(NEUTRAL_500), 1, Qt.DashLine))
         painter.drawLine(-95, 8, 95, 8)
@@ -361,7 +382,9 @@ class StageDiagram(QtWidgets.QWidget):
             # does. On the right it lands on the FIB beam, which at the usual angles
             # runs within a few degrees of the shuttle -- so the label for the number
             # being entered was the one thing on the diagram you could not read.
-            start = 180 - total
+            # The wedge sits between the plate and the shuttle, so it starts on the
+            # plate's left arm and spans the pre-tilt back to the shuttle's.
+            start = 180 - self.effective_stage_tilt()
             painter.drawArc(
                 QtCore.QRectF(cx - radius, cy - radius, 2 * radius, 2 * radius),
                 int(start * 16),
@@ -850,11 +873,12 @@ class SetupWizardDialog(QtWidgets.QDialog):
         )
         read_layout.addWidget(
             _label(
-                "Put the stage where a lamella would be milled, then read it. That "
-                "rotation becomes the reference every orientation is measured from. "
-                "The wizard reads the stage; it never moves it. The value below starts "
-                "from the configuration you chose — confirm it rather than assume it, "
-                "since it depends on how a sample is loaded here.",
+                "Put the stage in the MILLING orientation — where a lamella would be "
+                "milled — then read it. That rotation becomes the reference every "
+                "orientation is measured from; MILLING and SEM share it, and FIB is a "
+                "half turn from it. The wizard reads the stage; it never moves it. The "
+                "value below starts from the configuration you chose — confirm it "
+                "rather than assume it, since it depends on how a sample is loaded here.",
                 10,
                 TEXT_MUTED_COLOR,
                 wrap=True,
@@ -888,7 +912,8 @@ class SetupWizardDialog(QtWidgets.QDialog):
                 "The fixed tilt built into the shuttle or holder. Entered rather than "
                 "read: the stage cannot tell the difference between its own tilt and "
                 "the shuttle's. Prefilled from the configuration you chose, but it "
-                "belongs to whichever shuttle is actually fitted.",
+                "belongs to whichever shuttle is actually fitted. It is also the stage "
+                "tilt of the SEM orientation, which is what the diagram below shows.",
                 10,
                 TEXT_MUTED_COLOR,
                 wrap=True,

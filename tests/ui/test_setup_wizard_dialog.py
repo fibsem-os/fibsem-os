@@ -362,7 +362,7 @@ def test_the_diagram_stays_flat_until_a_stage_is_read(dialog, demo_microscope):
 
     dialog._select_model("other")
     dialog._show_step(STEP_STAGE)
-    assert dialog._stage_diagram._stage_tilt == pytest.approx(0.0)
+    assert dialog._stage_diagram._stage_tilt is None
 
     demo_microscope.move_stage_absolute(FibsemStagePosition(t=np.radians(17.0)))
     dialog._microscope = demo_microscope
@@ -370,31 +370,43 @@ def test_the_diagram_stays_flat_until_a_stage_is_read(dialog, demo_microscope):
     assert dialog._stage_diagram._stage_tilt == pytest.approx(17.0, abs=1e-3)
 
 
-def test_the_sample_faces_the_beam_it_is_drawn_facing(qapp):
-    """At pre-tilt + stage tilt = the FIB's own angle, the beam hits the sample square on.
+@pytest.mark.parametrize("pre_tilt", [0.0, 35.0, 45.0])
+def test_the_sample_comes_flat_when_the_stage_matches_the_pre_tilt(qapp, pre_tilt):
+    """The relationship the diagram exists to let someone check.
 
-    This was wrong: the stage and shuttle rotated the opposite way, so the sample turned
-    *away* from the FIB and the beam struck the back of the stage -- a picture that
-    contradicted the numbers printed beside it.
+    ``microscope.py`` puts the SEM orientation at stage tilt = ``shuttle_pre_tilt``, so setting
+    the stage to the number you typed should bring the sample square to the electron
+    beam. Somebody can hold that against the real instrument; if the picture disagrees,
+    the number is wrong.
 
-    Analytic rather than pixel-based, so it pins the geometry helper the painter rotates
-    by rather than a particular rendering.
+    Analytic rather than pixel-based, so it pins the geometry the painter rotates by
+    rather than a particular rendering.
     """
-    import math
-
     from fibsem.ui.widgets.setup_wizard_dialog import StageDiagram
 
-    diagram = StageDiagram(pre_tilt=35.0, stage_tilt=StageDiagram.FIB_ANGLE - 35.0)
+    diagram = StageDiagram(pre_tilt=pre_tilt, stage_tilt=pre_tilt)
     try:
-        normal = diagram.sample_normal()
-        fib = StageDiagram.beam_direction(StageDiagram.FIB_ANGLE)
-        dot = normal[0] * fib[0] + normal[1] * fib[1]
-        assert math.degrees(math.acos(max(-1.0, min(1.0, dot)))) == pytest.approx(0, abs=1e-6)
-
-        # And a flat stage faces the SEM instead, which is the other end of the same rule.
-        flat = StageDiagram(pre_tilt=0.0, stage_tilt=0.0)
         sem = StageDiagram.beam_direction(0.0)
-        assert flat.sample_normal() == pytest.approx(sem, abs=1e-9)
+        assert diagram.surface_tilt() == pytest.approx(0.0, abs=1e-9)
+        assert diagram.sample_normal() == pytest.approx(sem, abs=1e-9)
+    finally:
+        diagram.deleteLater()
+
+
+def test_the_diagram_opens_on_the_flat_reference(qapp):
+    """Before anything is read there is no stage tilt to draw, so it shows the position
+    the pre-tilt can be checked at rather than a stage sitting at zero."""
+    from fibsem.ui.widgets.setup_wizard_dialog import StageDiagram
+
+    diagram = StageDiagram(pre_tilt=35.0)
+    try:
+        assert diagram._stage_tilt is None
+        assert diagram.effective_stage_tilt() == pytest.approx(35.0)
+        assert diagram.surface_tilt() == pytest.approx(0.0)
+        # A stage genuinely read at zero is a different thing, and says so.
+        diagram.set_stage_tilt(0.0)
+        assert diagram.effective_stage_tilt() == pytest.approx(0.0)
+        assert diagram.surface_tilt() == pytest.approx(-35.0)
     finally:
         diagram.deleteLater()
 
