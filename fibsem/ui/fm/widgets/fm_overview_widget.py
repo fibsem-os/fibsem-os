@@ -55,6 +55,7 @@ from fibsem.ui.widgets.canvas.overlays.tile_grid_options_panel import (
 )
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE, is_modality
+from fibsem.imaging.tiling import unreachable_tiles
 from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
 from fibsem.ui.widgets.canvas.overlay_controls import (
     CanvasOverlayControls,
@@ -2266,6 +2267,7 @@ class FMOverviewWidget(QWidget):
             # reason to refuse to show the dialog.
             tile_resolution=self._camera_resolution(),
             save_directory=self._save_directory,
+            unreachable=self._unreachable(parameters),
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
@@ -2299,6 +2301,54 @@ class FMOverviewWidget(QWidget):
         )
         self._worker = FunctionWorker(self._acquire_worker)
         self._worker.start()
+
+    def _unreachable(self, parameters: OverviewParameters) -> List[Tuple[int, int]]:
+        """Which tiles of the run about to be confirmed the stage cannot travel to.
+
+        The runner asks this too, but only once the worker has started -- after the
+        dialog has been accepted, a directory has been made and the stage has begun
+        moving. Asked here it is refused while the grid can still be moved or the
+        offending tiles masked off. It matters more on this side than on the beam one:
+        a compustage travels +/-999.9 um in x and only +/-377.8 um in y, so a grid that
+        looks square and central can be unreachable top and bottom.
+
+        Through the kept projection, for the same reason `_refresh_tile_grid` uses it
+        rather than the camera -- reading the geometry sets the shared imaging view and
+        puts it back, which is visible in the microscope's own UI.
+
+        Best effort, like `_camera_resolution` beside it: a check that cannot run leaves
+        the dialog without the warning rather than refusing to open it. The runner keeps
+        the authoritative refusal, so being wrong here fails open. The tile field of
+        view comes from the settings panel while the runner reads its own -- they track
+        the same camera, and a disagreement between them is exactly the mild direction.
+        """
+        try:
+            fov = self.settings_widget._tile_fov
+            projection = self._projection()
+            centre = self._grid_centre()
+            limits = getattr(self.microscope._stage, "limits", None)
+            if fov is None or projection is None or centre is None or not limits:
+                return []
+            height, width = projection.shape
+            tiles = compute_tile_grid_from_fov(
+                nrows=parameters.rows,
+                ncols=parameters.cols,
+                fov_x=fov[0],
+                fov_y=fov[1],
+                image_width=width,
+                image_height=height,
+                overlap=parameters.overlap,
+                mask=parameters.tile_mask,
+            )
+            return unreachable_tiles(
+                tiles,
+                parameters.tile_order,
+                lambda dx, dy: projection.from_plane(dx, dy, centre),
+                limits,
+            )
+        except Exception as e:
+            logging.debug(f"Could not check the grid against the stage limits: {e}")
+            return []
 
     def _camera_resolution(self) -> Optional[tuple]:
         """The camera's pixel dimensions, or None if it cannot be asked right now."""

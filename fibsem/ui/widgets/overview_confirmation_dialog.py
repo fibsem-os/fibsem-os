@@ -13,7 +13,7 @@ and present it identically, so both are `OverviewPreflightDialog` and what is le
 is only the facts a beam run is described by.
 """
 
-from typing import List, Optional, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 from PyQt5.QtWidgets import QWidget
 
@@ -40,6 +40,7 @@ class OverviewConfirmationDialog(OverviewPreflightDialog):
         settings: OverviewAcquisitionSettings,
         view_description: Optional[str] = None,
         offset: Optional[Tuple[float, float]] = None,
+        unreachable: Optional[Sequence[Tuple[int, int]]] = None,
         parent: Optional[QWidget] = None,
     ):
         """
@@ -52,8 +53,11 @@ class OverviewConfirmationDialog(OverviewPreflightDialog):
             offset: how far the grid's centre sits from the stage, in metres (dx, dy).
                 None means it is centred on the stage, which is also what the runner
                 falls back to.
+            unreachable: (row, col) for each tile outside the stage's travel, which the
+                base class turns into a refusal. Worked out by the tab, which holds the
+                projection the check needs -- see `FibsemOverviewWidget._unreachable`.
         """
-        super().__init__(parent)
+        super().__init__(parent, unreachable=unreachable)
         self.settings = settings
         self.view_description = view_description
         self.offset = offset

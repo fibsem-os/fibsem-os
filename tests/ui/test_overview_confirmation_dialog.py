@@ -277,6 +277,60 @@ class TestTheRunsCost:
         assert isinstance(rows["Saving to"], PathValue)
 
 
+class TestAGridTheStageCannotReach:
+    """The second refusal the dialog makes, and for the same reason as the first.
+
+    `raise_if_outside_stage_limits` already rejects these grids -- but from
+    `_compute_grid`, on the worker, after the dialog has been accepted, a directory has
+    been made and the stage has started moving. Here it is said while the grid can still
+    be moved or the offending tiles turned off (FIB-741).
+
+    Which tiles are unreachable is worked out by the tab, which holds the projection;
+    what is checked here is what the dialog does when it is told.
+    """
+
+    def test_an_unreachable_grid_cannot_be_started(self, dialog):
+        d = dialog(settings=_settings(), unreachable=[(0, 0), (0, 1)])
+        assert not d.button_start.isEnabled()
+
+    def test_a_reachable_grid_is_not_held_up(self, dialog):
+        for unreachable in (None, []):
+            d = dialog(settings=_settings(), unreachable=unreachable)
+            assert d.button_start.isEnabled(), unreachable
+            assert not any(
+                "travel" in label.text() for label in d.findChildren(QLabel)
+            ), "a reachable grid was warned about"
+
+    def test_the_reason_is_on_screen_not_only_in_a_tooltip(self, dialog):
+        """A dialog whose primary action is greyed out with no reason visible is a dead
+        end -- and the reason is the entire point of refusing here rather than letting
+        the runner refuse after the dialog is gone."""
+        d = dialog(settings=_settings(), unreachable=[(0, 0), (0, 1), (2, 2)])
+        shown = [label.text() for label in d.findChildren(QLabel)]
+        assert any("3 tiles are outside the stage's travel" in text for text in shown), shown
+        assert any("Turn them off" in text for text in shown), shown
+
+    def test_one_tile_is_not_reported_as_1_tiles(self, dialog):
+        d = dialog(settings=_settings(), unreachable=[(1, 1)])
+        assert "1 tile is outside" in d.button_start.toolTip()
+        assert "Turn it off" in d.button_start.toolTip()
+
+    def test_a_count_rather_than_the_coordinates(self, dialog):
+        """The runner's error names every tile because it has nowhere else to say it. A
+        grid can have dozens out of range, and that list is not something anyone reads
+        and acts on -- the canvas is where "which ones" gets answered."""
+        d = dialog(settings=_settings(), unreachable=[(r, c) for r in range(3) for c in range(3)])
+        assert "9 tiles are outside" in d.button_start.toolTip()
+        assert "(0,0)" not in d.button_start.toolTip()
+
+    def test_nothing_selected_is_still_the_first_thing_said(self, dialog):
+        """Both refusals at once: an empty mask is the more basic problem, and telling
+        someone to turn off tiles they have already turned off is nonsense."""
+        settings = _settings(tile_mask=[[False] * 3 for _ in range(3)])
+        d = dialog(settings=settings, unreachable=[(0, 0)])
+        assert "No tiles" in d.button_start.toolTip()
+
+
 class TestTheDurationFormatters:
     """One shape, one implementation (FIB-701)."""
 

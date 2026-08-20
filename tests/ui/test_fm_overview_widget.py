@@ -240,6 +240,24 @@ def test_the_dialog_refuses_an_empty_selection(qapp):
     assert not dialog.button_start.isEnabled()
 
 
+def test_the_dialog_refuses_a_grid_the_stage_cannot_reach(qapp):
+    """The second refusal, for the same reason as the empty one: the runner rejects
+    these grids too, but from `_compute_grid` -- after the dialog has been accepted, a
+    directory made and the stage started moving (FIB-741)."""
+    dialog = _dialog(OverviewParameters(rows=3, cols=3))
+    assert dialog.button_start.isEnabled()
+
+    refused = FMOverviewConfirmationDialog(
+        parameters=OverviewParameters(rows=3, cols=3),
+        channel_settings=[ChannelSettings(name="GFP", exposure_time=0.05)],
+        tile_fov=(100e-6, 100e-6),
+        unreachable=[(0, 0), (0, 1)],
+    )
+    assert not refused.button_start.isEnabled()
+    shown = " ".join(label.text() for label in refused.findChildren(QLabel))
+    assert "2 tiles are outside the stage's travel" in shown, shown
+
+
 def test_the_dialog_estimate_reflects_the_mask(qapp):
     """A sparse run must not be quoted the duration of the full grid."""
     full = _dialog(OverviewParameters(rows=5, cols=5))
@@ -4978,3 +4996,158 @@ def test_the_preview_is_still_shown(qapp):
     router._apply_progress(payload)
 
     assert shown == [payload]
+
+
+# ── a grid beyond the stage's travel (FIB-741) ───────────────────────────
+
+
+def _runners_verdict(widget, parameters):
+    """What the runner's own route says about the same grid.
+
+    Replicates `FMTiledAcquisitionRunner._compute_grid`'s projection loop -- through
+    `microscope.project_fm_stable_move`, which reads the camera geometry on every call
+    -- so the tab's cached-projection answer is compared against the thing it is
+    standing in for, not against arithmetic repeated from the tab.
+    """
+    from fibsem.imaging.tiling import order_tiles, validate_tile_stage_positions
+    from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
+
+    fov = widget.settings_widget._tile_fov
+    projection = widget._projection()
+    height, width = projection.shape
+    tiles = compute_tile_grid_from_fov(
+        nrows=parameters.rows,
+        ncols=parameters.cols,
+        fov_x=fov[0],
+        fov_y=fov[1],
+        image_width=width,
+        image_height=height,
+        overlap=parameters.overlap,
+        mask=parameters.tile_mask,
+    )
+    step_x = fov[0] * (1 - parameters.overlap)
+    step_y = fov[1] * (1 - parameters.overlap)
+    offset_x = (parameters.cols - 1) * step_x / 2
+    offset_y = (parameters.rows - 1) * step_y / 2
+    centre = widget._grid_centre()
+    ordered = order_tiles(tiles, parameters.tile_order)
+    positions = [
+        widget.microscope.project_fm_stable_move(
+            dx=tile.dx - offset_x, dy=tile.dy + offset_y, base_position=centre
+        )
+        for tile in ordered
+    ]
+    return sorted(
+        validate_tile_stage_positions(
+            ordered, positions, widget.microscope._stage.limits
+        )
+    )
+
+
+@pytest.mark.parametrize(("rows", "cols"), [(3, 3), (11, 11), (25, 3)])
+def test_the_tab_and_the_runner_agree_on_what_cannot_be_reached(
+    qapp, interactive_widget, rows, cols
+):
+    """A compustage travels +/-999.9 um in x and only +/-377.8 um in y, so a grid that
+    looks square and central can be out of range top and bottom -- 11x11 is, 3x3 is not.
+
+    Both sizes on purpose: an agreement test where both sides say "nothing" would pass
+    against a check that never fires.
+    """
+    widget = interactive_widget
+    parameters = widget.settings_widget.parameters
+    previous = (parameters.rows, parameters.cols)
+    try:
+        parameters.rows, parameters.cols = rows, cols
+        assert sorted(widget._unreachable(parameters)) == _runners_verdict(
+            widget, parameters
+        )
+    finally:
+        parameters.rows, parameters.cols = previous
+
+
+@pytest.fixture
+def grid_of(qapp, interactive_widget):
+    """Resize the widget's grid, and put it back.
+
+    Through the settings widget rather than by mutating what `parameters` returns: that
+    property builds a fresh `OverviewParameters` on every read, so an edit to one is
+    not an edit to the widget -- and `acquire()` reads its own.
+    """
+    from copy import deepcopy
+
+    widget = interactive_widget
+    original = deepcopy(widget.settings_widget.parameters)
+
+    def resize(rows, cols):
+        from fibsem.fm.structures import ObjectiveStartPosition
+
+        parameters = deepcopy(original)
+        parameters.rows, parameters.cols = rows, cols
+        parameters.tile_mask = None
+        # Pinned rather than inherited. The widget is module-scoped, and a sibling test
+        # leaves `objective_start` on FOCUS with no focus position saved -- which
+        # `acquire()` refuses before it reaches the dialog, so these would pass alone
+        # and fail in the file.
+        parameters.objective_start = ObjectiveStartPosition.CURRENT
+        widget.settings_widget.parameters = parameters
+        qapp.processEvents()
+        return widget
+
+    yield resize
+    widget.settings_widget.parameters = original
+    qapp.processEvents()
+
+
+@pytest.fixture
+def dialogs(monkeypatch):
+    """Record the pre-flight dialog and decline it -- nothing past it has to run."""
+    from fibsem.ui.fm.widgets import fm_overview_widget as module
+
+    shown = []
+
+    def _exec(dialog):
+        shown.append(dialog)
+        return module.QDialog.Rejected
+
+    monkeypatch.setattr(module.FMOverviewConfirmationDialog, "exec_", _exec)
+    return shown
+
+
+def test_an_out_of_range_grid_reaches_the_dialog(qapp, grid_of, dialogs):
+    """The check is only worth having if what it finds is what the dialog is handed."""
+    widget = grid_of(11, 11)
+    # A sibling test acquires with a fake worker, whose `finally` never runs -- so the
+    # FM can still be marked in use, and `acquire()` refuses before it reaches the
+    # dialog. Cleared rather than depended on: this is already false in a clean state.
+    widget.fm.set_acquiring(False)
+
+    widget.acquire()
+    qapp.processEvents()
+
+    assert len(dialogs) == 1, "the dialog did not open"
+    assert dialogs[0].unreachable, "the dialog was not told the grid is out of range"
+    assert not dialogs[0].button_start.isEnabled()
+
+
+def test_a_check_that_cannot_run_does_not_hold_up_the_fm_dialog(
+    qapp, grid_of, dialogs, monkeypatch
+):
+    """Best effort, like `_camera_resolution` beside it: failing to warn costs the
+    warning, not the run. The runner still refuses the grid."""
+    from fibsem.ui.fm.widgets import fm_overview_widget as module
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("no limits today")
+
+    monkeypatch.setattr(module, "unreachable_tiles", explode)
+
+    widget = grid_of(11, 11)
+    widget.fm.set_acquiring(False)
+
+    widget.acquire()
+    qapp.processEvents()
+
+    assert len(dialogs) == 1, "the dialog did not open"
+    assert dialogs[0].unreachable == []
+    assert dialogs[0].button_start.isEnabled()

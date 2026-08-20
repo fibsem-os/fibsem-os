@@ -34,6 +34,7 @@ from PyQt5.QtWidgets import QApplication, QDialog  # noqa: E402
 from copy import deepcopy  # noqa: E402
 
 from fibsem import utils  # noqa: E402
+from fibsem.imaging import tiled  # noqa: E402
 from fibsem.structures import (  # noqa: E402
     BeamType,
     FibsemImage,
@@ -2796,6 +2797,153 @@ class TestARunIsConfirmedFirst:
         )
         widget.acquire()
         assert confirmations[0].view_description
+
+
+class TestAGridTheStageCannotReach:
+    """Refused while it can still be fixed, rather than after Start (FIB-741).
+
+    `raise_if_outside_stage_limits` already rejects these grids, but from `_compute_grid`
+    -- on the worker, after the dialog has been accepted, a directory has been made and
+    the stage has begun moving. The sequence that produced was: read the dialog, press
+    Start, watch the run fail.
+
+    The tab repeats the runner's work rather than the runner growing a validate-only
+    entry point, so the thing worth pinning is that the two agree: what the dialog is
+    handed here is compared against what the runner actually raises, for the same
+    settings and the same centre.
+    """
+
+    def _fake_worker(self, captured):
+        def factory(fn, *args):
+            captured["args"] = args
+
+            class _W:
+                def start(self_inner):
+                    pass
+
+                def is_alive(self_inner):
+                    return False
+
+            return _W()
+
+        return factory
+
+    def _acquire(self, widget, monkeypatch, tmp_path, rows, cols):
+        captured = {}
+        widget.set_save_directory(str(tmp_path))
+        widget.settings_widget.set_grid_size(rows, cols)
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.FunctionWorker",
+            self._fake_worker(captured),
+        )
+        widget.acquire()
+        return captured
+
+    def test_a_grid_within_the_travel_is_not_warned_about(
+        self, widget, monkeypatch, tmp_path, confirmations
+    ):
+        """The default 3x3 fits an Arctis, so an unconditional warning would be noise --
+        and the check is only worth anything if it stays quiet when it should."""
+        self._acquire(widget, monkeypatch, tmp_path, 3, 3)
+        assert confirmations[0].unreachable == []
+        assert confirmations[0].button_start.isEnabled()
+
+    def test_the_dialog_refuses_exactly_what_the_runner_would(
+        self, widget, microscope, monkeypatch, tmp_path, confirmations
+    ):
+        """The whole design rests on this. A 5x5 of 500 um tiles reaches +/-600 um in y
+        against a compustage's +/-377.8 um, so the top and bottom rows are out of range.
+
+        Compared against the runner rather than against arithmetic repeated here: the
+        risk this introduces is the two drifting apart, and a test that re-derives the
+        answer cannot see that happen.
+        """
+        captured = self._acquire(widget, monkeypatch, tmp_path, 5, 5)
+        dialog = confirmations[0]
+        assert dialog.unreachable, "an out-of-range grid was not flagged"
+        assert not dialog.button_start.isEnabled()
+
+        settings, centre = captured["args"]
+        settings = deepcopy(settings)
+        settings.image_settings.path = str(tmp_path / "runner")
+        settings.image_settings.filename = "overview-image"
+        runner = tiled.TiledAcquisitionRunner(
+            microscope, settings, centre_position=deepcopy(centre)
+        )
+        runner._setup()
+        with pytest.raises(ValueError) as raised:
+            runner._compute_grid()
+
+        message = str(raised.value)
+        assert f"{len(dialog.unreachable)} tile(s) out of bounds" in message
+        for row, col in dialog.unreachable:
+            assert f"({row},{col})" in message, message
+
+    def test_turning_the_unreachable_tiles_off_makes_the_grid_acquirable(
+        self, widget, monkeypatch, tmp_path, confirmations
+    ):
+        """What the refusal tells you to do, done -- and the dialog stops objecting.
+
+        Masking is a legitimate fix because the runner drops disabled tiles before it
+        checks, and this only holds while both sides ask about the same tiles.
+        """
+        self._acquire(widget, monkeypatch, tmp_path, 5, 5)
+        flagged = confirmations[0].unreachable
+        assert flagged
+
+        # Through the widget's own finish path, not by poking `_running`: the fake
+        # worker never completes, and `acquire()` refuses a second run while one is
+        # still in flight.
+        widget._on_finished({"cancelled": False, "error": None})
+
+        mask = [[True] * 5 for _ in range(5)]
+        for row, col in flagged:
+            mask[row][col] = False
+        widget.settings_widget.tile_mask = mask
+        widget.acquire()
+
+        assert confirmations[1].unreachable == []
+        assert confirmations[1].button_start.isEnabled()
+
+    def test_a_check_that_cannot_run_does_not_hold_up_the_dialog(
+        self, widget, monkeypatch, tmp_path, confirmations
+    ):
+        """Best effort, like the fluorescence dialog's disk estimate: the run is still
+        refused by the runner, so failing to warn costs the warning, not the guard.
+        Refusing to open the dialog would cost the run."""
+
+        def explode(*args, **kwargs):
+            raise RuntimeError("no limits today")
+
+        monkeypatch.setattr(
+            "fibsem.ui.widgets.overview_widget.unreachable_tiles", explode
+        )
+        self._acquire(widget, monkeypatch, tmp_path, 5, 5)
+        assert len(confirmations) == 1, "the dialog did not open"
+        assert confirmations[0].unreachable == []
+        assert confirmations[0].button_start.isEnabled()
+
+    def test_the_check_reads_no_hardware(
+        self, widget, microscope, monkeypatch, tmp_path, confirmations
+    ):
+        """Opening a dialog on an explicit press is not what the rule against hardware
+        reads on UI events is aimed at -- but `project_stable_move` re-reads the scan
+        rotation on every call, which would be one instrument read per tile for an
+        answer the tab already holds."""
+        calls = []
+        real = microscope.project_stable_move
+
+        def recording(*args, **kwargs):
+            # Answers properly rather than returning a stub: a stub would break the
+            # check, and the test would then fail on "the check did not run" whatever
+            # the reason. The assertion below is the one that should fire.
+            calls.append(1)
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(microscope, "project_stable_move", recording)
+        self._acquire(widget, monkeypatch, tmp_path, 5, 5)
+        assert confirmations[0].unreachable, "the check did not run"
+        assert not calls, "the dialog projected through the microscope"
 
 
 class TestTheAcquisitionButtons:

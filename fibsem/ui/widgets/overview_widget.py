@@ -64,6 +64,7 @@ from fibsem import constants
 from fibsem.fm.composite import auto_clim
 from fibsem.imaging import tiled
 from fibsem.imaging.reduce import downsample, downsample_mask
+from fibsem.imaging.tiling import unreachable_tiles
 from fibsem.imaging.tiling.progress import MODALITY_BEAM, is_modality
 from fibsem.microscope import FibsemMicroscope
 from fibsem.projection import BeamStageProjection
@@ -2733,9 +2734,47 @@ class FibsemOverviewWidget(QWidget):
             settings=settings,
             view_description=view.describe if view is not None else None,
             offset=self._target_offset(),
+            unreachable=self._unreachable(settings),
             parent=self,
         )
         return dialog.exec_() == QDialog.Accepted
+
+    def _unreachable(self, settings: OverviewAcquisitionSettings) -> List[Tuple[int, int]]:
+        """Which tiles of the run about to be confirmed the stage cannot travel to.
+
+        The runner asks this too, in `_compute_grid` -- but that runs on the worker,
+        after the dialog has been accepted, so the sequence a user gets is: read the
+        dialog, press Start, watch the run fail with a directory already made and the
+        stage already moving. Asked here it is refused while the grid can still be
+        moved or the offending tiles masked off.
+
+        Through the tab's cached projection rather than `microscope.project_stable_move`,
+        which the runner uses: the two agree to the bit, verified against the live call,
+        but the microscope's re-reads the scan rotation every time -- one read per tile,
+        on a dialog opening. The house rule against hardware reads on UI events
+        (FIB-544, FIB-600) is aimed at things that fire constantly rather than at an
+        explicit Acquire press, but there is no reason to pay it when the answer is
+        already held.
+
+        Best effort, like the disk estimate on the fluorescence dialog: a check that
+        cannot run leaves the dialog without the warning rather than refusing to open
+        it. The runner keeps the authoritative refusal, so being wrong here fails open.
+        """
+        try:
+            projection = self._projection(self.acquisition_view)
+            centre = self._grid_centre()
+            limits = getattr(self.microscope._stage, "limits", None)
+            if projection is None or centre is None or not limits:
+                return []
+            return unreachable_tiles(
+                tiled.compute_tile_grid(settings, mask=settings.tile_mask),
+                settings.tile_order,
+                lambda dx, dy: projection.from_plane(dx, dy, centre),
+                limits,
+            )
+        except Exception as e:
+            logger.debug(f"Could not check the grid against the stage limits: {e}")
+            return []
 
     def _target_offset(self) -> Optional[Tuple[float, float]]:
         """How far the grid's centre sits from the stage, in metres, or None for on it.

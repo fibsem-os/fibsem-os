@@ -2,6 +2,7 @@ import pytest
 from matplotlib.figure import Figure
 
 from fibsem.imaging.tiled import TilePosition, _spiral_order, compute_tile_grid, order_tiles, plot_tile_positions, validate_tile_stage_positions
+from fibsem.imaging.tiling import grid_centre_offset, unreachable_tiles
 from fibsem.structures import FibsemStagePosition, ImageSettings, OverviewAcquisitionSettings, RangeLimit, TileOrderStrategy
 
 
@@ -534,3 +535,177 @@ def test_a_run_with_no_tiles_is_refused_before_it_starts(tmp_path):
 
     assert not emitted, "a refused run told consumers it had started"
     assert not list(tmp_path.iterdir()), "a refused run left a directory behind"
+
+
+# ---------------------------------------------------------------------------
+# unreachable_tiles -- the same question the runner asks, early enough to act on
+# ---------------------------------------------------------------------------
+
+
+def _identity_projection(x: float, y: float) -> FibsemStagePosition:
+    """A stage whose coordinates *are* the displayed-plane offsets.
+
+    Not a real projection -- the point of these tests is which tiles get asked about
+    and where, not the geometry that answers, which `test_beam_stage_projection.py`
+    covers. An identity keeps the limits box readable in the offsets themselves.
+    """
+    return FibsemStagePosition(x=x, y=y)
+
+
+def test_the_helper_asks_about_the_offsets_the_runner_projects(tmp_path, monkeypatch):
+    """The whole design rests on this: the dialog refuses the grids the runner would.
+
+    Compared as *offsets* rather than as positions, because that is where the two could
+    disagree -- the projection is shared already. The negation is the convention
+    crossing over: the layout measures y upward, as `project_stable_move` takes it, and
+    a displayed plane measures it down, which is what `from_plane` takes.
+
+    A tile is masked off so the comparison covers the dropping as well as the arithmetic.
+    """
+    from fibsem import utils
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+
+    settings = _make_settings(3, 4, overlap=0.1)
+    settings.tile_mask = [[True] * 4 for _ in range(3)]
+    settings.tile_mask[0][0] = False
+    settings.image_settings.path = str(tmp_path)
+    settings.image_settings.filename = "overview-image"
+
+    runner_offsets = []
+    real = microscope.project_stable_move
+
+    def recording(dx, dy, beam_type, base_position):
+        runner_offsets.append((dx, dy))
+        return real(dx=dx, dy=dy, beam_type=beam_type, base_position=base_position)
+
+    monkeypatch.setattr(microscope, "project_stable_move", recording)
+    runner = TiledAcquisitionRunner(microscope, settings)
+    runner._setup()
+    runner._compute_grid()
+    assert runner_offsets, "the runner projected nothing, so this compares nothing"
+
+    helper_offsets = []
+
+    def project(x, y):
+        helper_offsets.append((x, y))
+        return _identity_projection(x, y)
+
+    unreachable_tiles(
+        compute_tile_grid(settings, mask=settings.tile_mask),
+        settings.tile_order,
+        project,
+        _make_limits(),
+    )
+
+    assert helper_offsets == [(dx, -dy) for dx, dy in runner_offsets]
+
+
+def test_a_grid_within_the_travel_is_not_flagged():
+    settings = _make_settings(3, 3, hfw=100e-6, resolution=(1024, 1024))
+    tiles = compute_tile_grid(settings)
+    assert unreachable_tiles(
+        tiles, settings.tile_order, _identity_projection, _make_limits(150e-6, 150e-6)
+    ) == []
+
+
+def test_masking_off_what_cannot_be_reached_makes_a_grid_acquirable():
+    """The docstring's promise, and the reason the check goes through `order_tiles`.
+
+    A 3x3 of 100 um tiles centres on offsets of -100, 0, +100 um, so travel that stops
+    at +50 um in x puts the whole right-hand column out of range. Turning that column
+    off is a legitimate fix, and the runner treats it as one -- this is the dialog
+    agreeing.
+    """
+    settings = _make_settings(3, 3, hfw=100e-6, resolution=(1024, 1024))
+    limits = {
+        "x": RangeLimit(min=-150e-6, max=50e-6),
+        "y": RangeLimit(min=-150e-6, max=150e-6),
+    }
+
+    flagged = unreachable_tiles(
+        compute_tile_grid(settings), settings.tile_order, _identity_projection, limits
+    )
+    assert sorted(flagged) == [(0, 2), (1, 2), (2, 2)]
+
+    mask = [[True, True, False] for _ in range(3)]
+    assert unreachable_tiles(
+        compute_tile_grid(settings, mask=mask),
+        settings.tile_order,
+        _identity_projection,
+        limits,
+    ) == []
+
+
+@pytest.mark.parametrize(
+    "strategy",
+    [TileOrderStrategy.TYPEWRITER, TileOrderStrategy.SERPENTINE, TileOrderStrategy.SPIRAL],
+)
+def test_the_traversal_does_not_change_which_tiles_are_out_of_range(strategy):
+    """Order decides the sequence, not the reach. Pinned because the check goes through
+    `order_tiles` for the dropping, and it would be easy to read that as the strategy
+    mattering to the answer."""
+    settings = _make_settings(3, 3, hfw=100e-6, resolution=(1024, 1024))
+    limits = {
+        "x": RangeLimit(min=-150e-6, max=50e-6),
+        "y": RangeLimit(min=-150e-6, max=150e-6),
+    }
+    flagged = unreachable_tiles(
+        compute_tile_grid(settings), strategy, _identity_projection, limits
+    )
+    assert sorted(flagged) == [(0, 2), (1, 2), (2, 2)]
+
+
+def test_unknown_limits_are_not_projected_against():
+    """A microscope that does not report its travel is not one that can reach anywhere,
+    so nothing is flagged -- the runner still refuses the grid if it is unreachable.
+
+    Asserted on the projection never being asked, not on the empty result: an empty
+    `limits` dict makes `is_within_limits` answer True for every axis it is not given,
+    so the result is empty whether the guard is there or not. The observable difference
+    is that a caller with no limits does no work.
+    """
+    settings = _make_settings(3, 3)
+    tiles = compute_tile_grid(settings)
+
+    for limits in ({}, None):
+        projected = []
+
+        def project(x, y):
+            projected.append((x, y))
+            return _identity_projection(x, y)
+
+        assert unreachable_tiles(tiles, settings.tile_order, project, limits) == []
+        assert not projected, f"projected against {limits!r} limits"
+
+
+def test_a_grid_with_nothing_enabled_is_not_asked_about():
+    """`n_enabled_tiles == 0` is already refused, with its own message. Answering
+    "nothing is out of range" for it would be true and useless."""
+    settings = _make_settings(2, 2)
+    mask = [[False, False], [False, False]]
+    assert unreachable_tiles(
+        compute_tile_grid(settings, mask=mask),
+        settings.tile_order,
+        _identity_projection,
+        _make_limits(1e-9, 1e-9),
+    ) == []
+
+
+def test_the_centring_comes_from_the_grid_it_is_given():
+    """`(n - 1) * step / 2`, taken from the tiles rather than recomputed -- so a caller
+    cannot centre a grid on a step size the layout did not use."""
+    settings = _make_settings(3, 4, hfw=100e-6, resolution=(1024, 1024), overlap=0.1)
+    step = 100e-6 * 0.9
+    dx, dy = grid_centre_offset(compute_tile_grid(settings))
+    assert dx == pytest.approx(3 * step / 2)
+    assert dy == pytest.approx(-2 * step / 2)
+
+
+def test_the_centring_counts_disabled_tiles_too():
+    """They hold the grid's shape. Centring on only the enabled ones would move the
+    whole grid when a corner was switched off, and the run would not follow."""
+    settings = _make_settings(3, 3, hfw=100e-6, resolution=(1024, 1024))
+    dense = grid_centre_offset(compute_tile_grid(settings))
+    mask = [[True, True, False], [True, True, False], [True, True, False]]
+    assert grid_centre_offset(compute_tile_grid(settings, mask=mask)) == dense

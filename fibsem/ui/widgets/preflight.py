@@ -17,7 +17,7 @@ for one caller.
 """
 
 from datetime import datetime
-from typing import Iterable, List, Optional, Tuple
+from typing import Iterable, List, Optional, Sequence, Tuple
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
@@ -31,7 +31,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.constants import DATETIME_DISPLAY_AMPM, TIME_DISPLAY_AMPM_SHORT
-from fibsem.ui import stylesheets
+from fibsem.ui import stylesheets, tokens
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
 from fibsem.utils import format_time_remaining as utils_format_time_remaining
 
@@ -41,6 +41,7 @@ BORDER = stylesheets.BORDER_COLOR
 TEXT = stylesheets.TEXT_COLOR
 TEXT_STRONG = stylesheets.TEXT_STRONG_COLOR
 TEXT_MUTED = stylesheets.TEXT_MUTED_COLOR
+WARNING = tokens.SEMANTIC_WARNING_COLOR
 
 
 def format_duration(seconds: float) -> str:
@@ -228,6 +229,20 @@ def detail_block(
     return frame
 
 
+def warning_label(text: str) -> QLabel:
+    """Why the dialog will not start this run, said where it can be read.
+
+    Visible rather than only a tooltip on the disabled button. A dialog whose primary
+    action is greyed out with no reason on screen is a dead end -- the reason is the
+    whole point of refusing here rather than letting the runner refuse afterwards, and
+    hovering to find it is not reading it.
+    """
+    label = QLabel(text)
+    label.setStyleSheet(f"color: {WARNING}; font-size: 11px;")
+    label.setWordWrap(True)
+    return label
+
+
 def meta_label(text: str) -> QLabel:
     """The line that leads the dialog: what is about to happen, in one sentence.
 
@@ -256,8 +271,22 @@ class OverviewPreflightDialog(QDialog):
     describing.
     """
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(
+        self,
+        parent: Optional[QWidget] = None,
+        unreachable: Optional[Sequence[Tuple[int, int]]] = None,
+    ):
+        """
+        Args:
+            unreachable: (row, col) for each tile the stage cannot travel to, from
+                `fibsem.imaging.tiling.unreachable_tiles`. Passed in rather than worked
+                out here: neither of these dialogs takes a microscope, which is what
+                lets them be built and tested on their own. None and empty both mean
+                nothing to say -- a caller that could not run the check says nothing
+                rather than claiming the grid is fine.
+        """
         super().__init__(parent)
+        self.unreachable: List[Tuple[int, int]] = list(unreachable or [])
         self.setWindowTitle("Start Overview Acquisition")
         self.setMinimumWidth(430)
         self.setStyleSheet(f"QDialog {{ background: {BACKGROUND}; }}")
@@ -278,8 +307,36 @@ class OverviewPreflightDialog(QDialog):
 
     # ── layout ───────────────────────────────────────────────────────────
 
+    def _refusal(self, acquired: int) -> str:
+        """Why this run cannot start, or "" if it can.
+
+        Both cases are grids the runners refuse anyway -- one with "No tiles are
+        selected", the other in `raise_if_outside_stage_limits`. Said here instead
+        because there they are said after the dialog is dismissed, and the unreachable
+        one only after a directory has been made and the stage has started moving.
+
+        Neither is fixable *in* the dialog, which is Start and Cancel. The refusal is
+        informational: it stops the run and sends you back to the canvas, where both
+        the mask and where the grid sits are set.
+        """
+        if acquired == 0:
+            return "No tiles are selected."
+        if self.unreachable:
+            count = len(self.unreachable)
+            tiles = "tile is" if count == 1 else "tiles are"
+            # A count, not the coordinates. The runner's error names them because it has
+            # nowhere else to say it; here a grid can have dozens out of range, and a
+            # list of them is not something you read and act on.
+            return (
+                f"{count} {tiles} outside the stage's travel. Turn "
+                f"{'it' if count == 1 else 'them'} off, or move the grid, "
+                "to acquire the rest."
+            )
+        return ""
+
     def _init_ui(self) -> None:
         acquired, total = self._tile_counts()
+        refusal = self._refusal(acquired)
 
         # No in-dialog heading: the window title already says "Start Overview
         # Acquisition", and repeating it 8px below costs a line and says nothing. The
@@ -315,10 +372,10 @@ class OverviewPreflightDialog(QDialog):
         layout.addWidget(meta_label(self._meta_line()))
         layout.addLayout(chips)
         layout.addWidget(detail_block(self._rows()))
+        if refusal:
+            layout.addWidget(warning_label(refusal))
         layout.addLayout(footer)
 
-        if acquired == 0:
-            # Nothing to do: both runners refuse this anyway, so say why here rather
-            # than letting it fail after the dialog is dismissed.
+        if refusal:
             self.button_start.setEnabled(False)
-            self.button_start.setToolTip("No tiles are selected.")
+            self.button_start.setToolTip(refusal)

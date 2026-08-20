@@ -11,7 +11,7 @@ there once the beam overview turned out to present its run in exactly this way. 
 left here is only the facts a fluorescence run is described by.
 """
 
-from typing import List, Optional, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 from PyQt5.QtWidgets import QWidget
 
@@ -53,9 +53,10 @@ class FMOverviewConfirmationDialog(OverviewPreflightDialog):
         objective_focus: Optional[float] = None,
         tile_resolution: Optional[tuple] = None,
         save_directory: Optional[str] = None,
+        unreachable: Optional[Sequence[Tuple[int, int]]] = None,
         parent: Optional[QWidget] = None,
     ):
-        super().__init__(parent)
+        super().__init__(parent, unreachable=unreachable)
         self.parameters = parameters
         self.channel_settings = channel_settings
         self.zparams = zparams if parameters.use_zstack else None
