@@ -154,11 +154,6 @@ def main() -> None:
     app.setStyle("Fusion")
     app.setStyleSheet(NAPARI_STYLE)
 
-    # Mock session: never reach for the network to fetch the zeta LUT.
-    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
-
-    riw._ensure_lut = lambda: None
-
     config = CorrelationConfig()
     config.fit.fm_poi_channel = "GFP"
     fib_paths = _write_fib_images()

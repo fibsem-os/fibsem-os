@@ -33,13 +33,6 @@ from fibsem.correlation.structures import (
 from fibsem.structures import FibsemImage
 
 
-@pytest.fixture(autouse=True)
-def _no_lut_download(monkeypatch):
-    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
-
-    monkeypatch.setattr(riw, "_ensure_lut", lambda: None)
-
-
 def _fib(x=1.0, y=2.0):
     return Coordinate(point=PointXYZ(x=x, y=y, z=0.0), point_type=PointType.FIB)
 

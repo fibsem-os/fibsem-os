@@ -25,14 +25,6 @@ from fibsem.correlation.structures import (
 from fibsem.structures import Point
 
 
-@pytest.fixture(autouse=True)
-def _no_lut_download(monkeypatch):
-    """Never hit the network for the zeta LUT during widget construction."""
-    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
-
-    monkeypatch.setattr(riw, "_ensure_lut", lambda: None)
-
-
 def _coord(x=0.0, y=0.0, z=0.0, pt=PointType.FIB) -> Coordinate:
     return Coordinate(point=PointXYZ(x=x, y=y, z=z), point_type=pt)
 

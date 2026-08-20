@@ -38,13 +38,6 @@ from fibsem.structures import FibsemImage
 CORRELATION_JSON = "correlation.json"
 
 
-@pytest.fixture(autouse=True)
-def _no_lut_download(monkeypatch):
-    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
-
-    monkeypatch.setattr(riw, "_ensure_lut", lambda: None)
-
-
 def _widget():
     from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         CorrelationTabWidget,

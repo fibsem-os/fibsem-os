@@ -10,10 +10,42 @@ from fibsem.correlation.refractive_index import (
     lookup_zeta,
 )
 
-pytestmark = pytest.mark.skipif(
-    not _LUT_PATH.exists(),
-    reason=f"LUT CSV not found: {_LUT_PATH}",
-)
+# No skip guard any more: the table ships in the package as of FIB-637, so its
+# absence is a packaging failure to report, not a reason to pass quietly.
+
+
+def test_the_table_ships_with_the_package() -> None:
+    """The whole point of FIB-637.
+
+    It used to be downloaded from a GitHub release on first use, on the GUI
+    thread, on machines that are commonly offline or behind a proxy — and every
+    way that failed was silent (FIB-592). If this fails, an install has no
+    lookup table and the RI calculator is dead.
+    """
+    assert _LUT_PATH.exists(), (
+        f"{_LUT_PATH} is missing. It is tracked package data — check the "
+        f".gitignore negation and [tool.setuptools.package-data] in pyproject."
+    )
+
+
+def test_the_table_is_shipped_compressed() -> None:
+    """Gzipped deliberately: 0.91 MB instead of 9.08 MB in every checkout, and
+    this repo carries ~20 worktrees. pandas reads the compression off the
+    extension, so the suffix is load-bearing, not cosmetic."""
+    assert _LUT_PATH.suffixes[-2:] == [".csv", ".gz"]
+    assert _LUT_PATH.stat().st_size < 2_000_000, "compression regressed"
+
+
+def test_the_shipped_table_is_complete() -> None:
+    """A truncated table is the FIB-592 failure baked in permanently, and it
+    would be silent: lookups raise into a bare handler and the factor just
+    stops moving. Check the grid is whole, not merely present."""
+    lut = SliceScalingFactorLUT()
+    expected = (
+        len(lut.tilts) * len(lut.depths) * len(lut.n2s)
+        * len(lut.wavelengths) * len(lut.nas)
+    )
+    assert expected == 352_408, f"grid shape changed: {expected}"
 
 
 # ---------------------------------------------------------------------------

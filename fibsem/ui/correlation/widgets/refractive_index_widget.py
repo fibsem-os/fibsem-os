@@ -21,7 +21,12 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.correlation.refractive_index import ZetaParams, _LUT_PATH, _ensure_lut, lookup_zeta
+from fibsem.correlation.refractive_index import (
+    ZetaParams,
+    _LUT_PATH,
+    lookup_zeta,
+    lut_load_error,
+)
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueSpinBox
 from fibsem.ui.tokens import (
     NEUTRAL_500,
@@ -125,10 +130,6 @@ class RefractiveIndexWidget(QWidget):
         self._tilt_before_lock: Optional[float] = None
         # Params the user has typed by hand; metadata seeding leaves these alone.
         self._user_edited: set = set()
-        try:
-            _ensure_lut()
-        except Exception as e:
-            logging.warning(f"Failed to download refractive index LUT: {e}")
         self._setup_ui()
         self._connect_signals()
         self._recompute()
@@ -194,10 +195,23 @@ class RefractiveIndexWidget(QWidget):
             lambda: self._spin_factor.setValue(self._default_factor)
         )
 
-        lut_available = _LUT_PATH.exists()
+        # Whether it *loads*, not whether it exists: a present-but-unreadable
+        # table left every control enabled while no lookup worked, which is the
+        # dead calculator of FIB-592. Both states get the same treatment now.
+        load_error = lut_load_error()
+        lut_available = load_error is None
         self._lut_available = lut_available
         if not lut_available:
-            self._lut_warning = QLabel("LUT not found — calculator disabled. Edit correction factor manually.")
+            logging.warning(
+                f"Refractive-index lookup table unusable ({_LUT_PATH}): "
+                f"{type(load_error).__name__}: {load_error}"
+            )
+            unreadable = _LUT_PATH.exists()
+            self._lut_warning = QLabel(
+                "LUT unreadable — calculator disabled. Edit correction factor manually."
+                if unreadable else
+                "LUT not found — calculator disabled. Edit correction factor manually."
+            )
             self._lut_warning.setStyleSheet(
                 "color: #f0a500; font-style: italic; font-size: 11px; padding: 4px 8px;"
             )
@@ -353,7 +367,7 @@ class RefractiveIndexWidget(QWidget):
 
     def _recompute(self, _value: object = None, *, update_factor: bool = True) -> None:
         # _value swallows the float from QDoubleSpinBox.valueChanged connections.
-        if not _LUT_PATH.exists():
+        if not self._lut_available:
             return
         params = self.get_params()
         try:
@@ -368,4 +382,8 @@ class RefractiveIndexWidget(QWidget):
             if update_factor:
                 self.zeta_computed.emit(zeta)
         except Exception:
+            # Debug, not warning: out-of-range parameters raise here legitimately
+            # and this runs on every keystroke. The unusable-table case is
+            # reported once at setup instead, where it is actionable.
+            logging.debug("Zeta lookup failed for %s", params, exc_info=True)
             self._zeta = None

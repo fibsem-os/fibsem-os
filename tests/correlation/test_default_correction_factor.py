@@ -16,22 +16,19 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.correlation.refractive_index import _LUT_PATH, lookup_zeta
+from fibsem.correlation.refractive_index import lookup_zeta
 from fibsem.ui.correlation.widgets.refractive_index_widget import (
     _DEFAULTS,
     _FALLBACK_FACTOR,
     _default_factor,
 )
 
-# Unlike most tests in this directory, these need the *real* table: they are
-# about whether our constants agree with it, so a synthetic stand-in would
-# assert nothing. See FIB-637 — once the LUT ships in the package this skip goes.
-requires_lut = pytest.mark.skipif(
-    not _LUT_PATH.exists(), reason="real refractive-index LUT not present"
-)
+# These need the *real* table: they are about whether our constants agree with
+# it, so a synthetic stand-in would assert nothing. It ships in the package as
+# of FIB-637, so they no longer skip — if the table goes missing that is itself
+# the failure.
 
 
-@requires_lut
 def test_the_fallback_matches_the_lookup_table():
     """The guard that was missing.
 
@@ -52,7 +49,6 @@ def test_the_fallback_matches_the_lookup_table():
     )
 
 
-@requires_lut
 def test_the_default_factor_is_read_from_the_table_not_the_constant():
     """Derivation must be live, not a copy of the literal.
 
@@ -69,7 +65,6 @@ def test_the_default_factor_is_read_from_the_table_not_the_constant():
     assert _default_factor() == pytest.approx(expected, abs=1e-9)
 
 
-@requires_lut
 def test_the_defaults_reproduce_the_published_scaling_factor():
     """`_DEFAULTS` describes a real instrument, not an arbitrary point.
 

@@ -43,13 +43,6 @@ from fibsem.ui.correlation.widgets.correlation_setup_section import (
 from fibsem.structures import FibsemImage, Point
 
 
-@pytest.fixture(autouse=True)
-def _no_lut_download(monkeypatch):
-    import fibsem.ui.correlation.widgets.refractive_index_widget as riw
-
-    monkeypatch.setattr(riw, "_ensure_lut", lambda: None)
-
-
 OLD = "2026-07-20_09-00-00"
 NEW = "2026-07-24_14-32-00"
 
