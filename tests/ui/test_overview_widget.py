@@ -3061,8 +3061,12 @@ class TestTwoRunsCannotLandOnEachOther:
     def test_two_runs_do_not_share_a_directory(self, widget, monkeypatch, tmp_path):
         """The stamp is only worth having if it actually differs. Frozen rather than
         raced: two real runs are minutes apart, and a test that acquires twice in the
-        same second would pass for the wrong reason either way."""
-        from fibsem.ui.widgets import overview_widget as module
+        same second would pass for the wrong reason either way.
+
+        The clock is read where the stamping lives, which is now shared with the
+        fluorescence tab rather than private to this one.
+        """
+        from fibsem.ui.widgets import overview_acquisition_settings_widget as module
 
         times = iter(["14-23-05", "14-31-40"])
         monkeypatch.setattr(
