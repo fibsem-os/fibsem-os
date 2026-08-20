@@ -80,6 +80,12 @@ test = [
     "pytest-timeout>=2.1", # fail a hung test instead of blocking the whole run
 ]
 
+# Lint tooling. Install with `pip install .[dev]`.
+# Pinned rather than floored: a new ruff release can add a rule or change a fix
+# and turn CI red on a commit that changed nothing. Keep the pin in sync with
+# the lint job in .github/workflows/python-package.yml.
+dev = ["ruff==0.16.3"]
+
 [project.scripts]
 fibsem_ui = "fibsem.ui.FibsemUI:main"
 fibsem_label = "fibsem.ui.FibsemLabellingUI:main"
@@ -130,3 +136,58 @@ filterwarnings = [
     # at startup.
     "ignore:'[^']*' deprecated - use:DeprecationWarning",
 ]
+
+[tool.ruff]
+# target-version is deliberately unset: ruff reads requires-python above and
+# infers py38, so the two can never drift apart.
+extend-exclude = [
+    "external",
+    # Ruff rewrites notebooks in place, re-sorting imports inside the cell JSON.
+    # Whether the notebooks are in scope is a separate question to this config.
+    "**/*.ipynb",
+]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+# E501 (line-length) is deliberately absent. A formatter is what wraps code, and
+# most of the ~5.6k current hits are long strings and comments nothing can wrap.
+#
+# RUF100 (unused-noqa) is absent for a sharper reason: it is relative to `select`,
+# so with a narrow rule set it deletes the suppressions for every rule that is
+# not enabled *yet*. Enabling it here would have stripped 133 `# noqa` comments,
+# 95 of them `E402` -- a rule ignored two lines below, so each one would have to
+# be typed back in when E402 is burned down -- plus 8 `N802` Qt-override
+# suppressions for a rule this repo has never run, and the rationale comments
+# attached to them ("kept alive for app lifetime"). It belongs at the end of the
+# ratchet, once `select` has stopped moving.
+
+# Every rule below is a real violation with a real fix, parked so the linter can
+# be enforced from day one instead of after a 694-violation cleanup. Burn them
+# down one rule per PR and delete the line; the counts are as of this commit.
+ignore = [
+    "F401", # 395  unused-import -- read the warning below before touching these
+    "E402", # 66   module-import-not-at-top-of-file
+    "F841", # 61   unused-variable
+    "E702", # 60   multiple-statements-on-one-line-semicolon
+    "F821", # 24   undefined-name -- includes at least one real NameError
+    "E701", # 19   multiple-statements-on-one-line-colon
+    "E741", # 15   ambiguous-variable-name
+    "E712", # 14   true-false-comparison
+    "E721", # 12   type-comparison
+    "F811", # 8    redefined-while-unused
+    "F403", # 5    undefined-local-with-import-star
+    "F405", # 5    undefined-local-with-import-star-usage
+    "E722", # 3    bare-except
+    "E731", # 3    lambda-assignment
+    "F402", # 3    import-shadowed-by-loop-var
+    "F601", # 1    multi-value-repeated-key-literal
+]
+
+# F401 is not a mechanical fix in this codebase, and `--fix` alone is enough to
+# break it -- ruff classes most of these removals as SAFE. A dozen modules exist
+# only to re-export under a shorter name, and ruff honours a redundant `X as X`
+# alias as an explicit re-export but not a renaming one, so every
+# `AUTOLAMELLA_EXPERIMENT_NAME as EXPERIMENT_NAME` reads as unused. Running the
+# fix empties fibsem/applications/autolamella/config.py to nothing and takes
+# `import fibsem.applications.autolamella.structures` down with it. Giving those
+# modules an explicit __all__ is the prerequisite, and it is its own piece of work.
