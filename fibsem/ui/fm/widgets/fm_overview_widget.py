@@ -274,6 +274,9 @@ class FMOverviewWidget(QWidget):
         # somewhere. None means "wherever the stage is", which is what the runner does
         # by default -- so an untouched grid describes exactly what would be acquired.
         self._target: Optional[FibsemStagePosition] = None
+        # Set only while `_on_drag_finished` is running the refresh a drag deferred.
+        # See there: that refresh must not re-frame the view.
+        self._finishing_drag = False
         self._sparse_selection_enabled = False
         # Where acquired overviews are written. None means nowhere: the widget opens
         # standalone against a simulator as often as it runs inside an experiment, and
@@ -587,6 +590,7 @@ class FMOverviewWidget(QWidget):
         self.tile_grid_overlay.tile_toggled.connect(self._on_tile_toggled)
         self.tile_grid_overlay.grid_resize_requested.connect(self._on_grid_resize)
         self.tile_grid_overlay.grid_move_requested.connect(self._on_grid_move)
+        self.tile_grid_overlay.drag_finished.connect(self._on_drag_finished)
         self.canvas.canvas.canvas_clicked.connect(self._on_canvas_clicked)
         self.canvas.canvas.canvas_double_clicked.connect(self._on_canvas_double_clicked)
         self.canvas.canvas.canvas_right_clicked.connect(self._on_canvas_right_clicked)
@@ -766,7 +770,14 @@ class FMOverviewWidget(QWidget):
         )
         # Same camera geometry, so it can be drawn at the same time rather than
         # waiting for an image the tile grid does not wait for either.
-        self._refresh_stage_metadata()
+        #
+        # Not while the grid is being dragged, though. None of these shapes move when
+        # the grid does -- the travel limits, the grid boundary and the holder slots are
+        # all fixed to the stage -- so redrawing them on every motion event is wasted,
+        # and it is a *full* canvas repaint, which costs far more than the grid it was
+        # called alongside. The beam tab skips its equivalent for the same reason.
+        if not self.tile_grid_overlay.is_dragging:
+            self._refresh_stage_metadata()
 
         span_x = parameters.cols * fov[0] * (1 - parameters.overlap) + fov[0]
         span_y = parameters.rows * fov[1] * (1 - parameters.overlap) + fov[1]
@@ -777,9 +788,17 @@ class FMOverviewWidget(QWidget):
         # Keep the declared working area on the grid, always and silently. It is what
         # the zoom limiter measures against, so an area left behind stretches the
         # content across the gap and caps how far the view can zoom in. `refit=False`
-        # is what makes doing this continuously safe: re-declaring used to re-frame,
-        # so dragging the grid snapped the view onto it on every motion event.
-        self.canvas.set_world_extent(span_x, span_y, offset, refit=False)
+        # is what makes doing this safe: re-declaring used to re-frame, so dragging the
+        # grid snapped the view onto it on every motion event.
+        #
+        # Not *during* a drag, though, which is what "continuously" used to mean here.
+        # Re-declaring asks the canvas to repaint, and a repaint is what the blitted
+        # grid is drawn over -- so this alone put two full canvas draws on every motion
+        # event and undid the whole of FIB-752 on this tab. Deferred to
+        # `drag_finished`, which arrives once. Nobody is measuring zoom limits against
+        # it mid-gesture.
+        if not self.tile_grid_overlay.is_dragging:
+            self.canvas.set_world_extent(span_x, span_y, offset, refit=False)
 
         # Re-frame only for a reason the user would expect to move the view: the grid's
         # footprint changed, or it has ended up outside what was framed (a stage move to
@@ -792,8 +811,33 @@ class FMOverviewWidget(QWidget):
         footprint = (parameters.rows, parameters.cols, parameters.overlap)
         changed = footprint != self._grid_footprint
         self._grid_footprint = footprint
-        if (changed or left_area) and not self.tile_grid_overlay.is_dragging:
+        if (
+            (changed or left_area)
+            and not self.tile_grid_overlay.is_dragging
+            and not self._finishing_drag
+        ):
             self.tile_grid_overlay.fit_view()
+
+    def _on_drag_finished(self) -> None:
+        """Do the work a drag deferred, without moving the camera.
+
+        The declared working area has to catch up with where the grid ended and the
+        stage context has to be redrawn -- both repaint, which is why they waited.
+
+        The refit must *not* fire, though, and would: `left_area` compares the grid
+        against a working area that has deliberately stopped following it, so by the
+        end of any drag the grid has "left" an area that simply stayed put. That made
+        every drag end by fitting the view to the grid.
+
+        A drag must not move the view, and the end of a drag is still the drag -- the
+        same rule the mid-gesture guard already states, applied to the moment the
+        gesture finishes.
+        """
+        self._finishing_drag = True
+        try:
+            self._refresh_tile_grid()
+        finally:
+            self._finishing_drag = False
 
     def _grid_has_left_the_working_area(
         self, offset: Tuple[float, float], span_x: float, span_y: float

@@ -5189,3 +5189,109 @@ def test_the_fm_grid_refresh_repaints_once(qapp, grid_of):
         overlay._redraw = original
 
     assert len(redraws) == 1, f"one refresh caused {len(redraws)} repaints"
+
+
+def test_the_fm_drag_does_not_redeclare_the_working_area(qapp, grid_of):
+    """`set_world_extent` asks the canvas to repaint, and a repaint is what the blitted
+    grid is drawn over -- so doing it per motion event put two full canvas draws on
+    every event and undid the blitting on this tab entirely (FIB-627, FIB-752).
+
+    Deferred to `drag_finished`, which arrives once. Nobody measures zoom limits against
+    it mid-gesture.
+    """
+    widget = grid_of(3, 3)
+    overlay = widget.tile_grid_overlay
+    calls = []
+    original = widget.canvas.set_world_extent
+    widget.canvas.set_world_extent = lambda *a, **k: calls.append(1)
+    try:
+        overlay._move_active = True
+        widget._refresh_tile_grid()
+        assert calls == [], "the working area was re-declared during a drag"
+
+        overlay._move_active = False
+        widget._refresh_tile_grid()
+        assert calls, "it was never re-declared once the drag ended"
+    finally:
+        widget.canvas.set_world_extent = original
+        overlay._move_active = False
+
+
+def test_finishing_a_drag_does_not_move_the_view(qapp, grid_of):
+    """A drag must not re-frame, and the end of a drag is still the drag.
+
+    It did: deferring the working area means it stops following the grid, so by the end
+    of any drag `left_area` is true of an area that simply stayed put -- and every drag
+    ended by fitting the view to the grid.
+    """
+    widget = grid_of(3, 3)
+    overlay = widget.tile_grid_overlay
+    anchor = overlay._anchor()
+    fits = []
+    original = overlay.fit_view
+    overlay.fit_view = lambda *a, **k: fits.append(1)
+    try:
+        # Far enough that the grid genuinely leaves the working area it left behind --
+        # asserted below, because a drag too small for that would make this test pass
+        # against no guard at all.
+        overlay._move_active = True
+        widget._on_grid_move(anchor[0] + 4000.0, anchor[1] + 3000.0)
+        qapp.processEvents()
+
+        parameters = widget.settings_widget.parameters
+        fov = widget.settings_widget._tile_fov
+        span_x = parameters.cols * fov[0] * (1 - parameters.overlap) + fov[0]
+        span_y = parameters.rows * fov[1] * (1 - parameters.overlap) + fov[1]
+        assert widget._grid_has_left_the_working_area(
+            widget._grid_offset(), span_x, span_y
+        ), "the grid never left the working area, so nothing would re-frame anyway"
+
+        overlay._move_active = False
+        overlay.drag_finished.emit()
+        qapp.processEvents()
+    finally:
+        overlay.fit_view = original
+        overlay._move_active = False
+        widget.clear_target()
+        qapp.processEvents()
+
+    assert fits == [], "the end of the drag re-framed the view"
+
+
+def test_a_real_reason_to_re_frame_still_re_frames(qapp, grid_of):
+    """The suppression is for the tail of a gesture, not a blanket off switch: a grid
+    whose footprint changed is a reason the user would expect the view to move."""
+    widget = grid_of(3, 3)
+    overlay = widget.tile_grid_overlay
+    fits = []
+    original = overlay.fit_view
+    overlay.fit_view = lambda *a, **k: fits.append(1)
+    try:
+        grid_of(5, 5)                        # a different footprint, outside any drag
+        qapp.processEvents()
+    finally:
+        overlay.fit_view = original
+
+    assert fits, "a changed footprint no longer re-frames"
+
+
+def test_the_fm_tab_finishes_the_drag_when_the_overlay_says_so(qapp, grid_of):
+    """The deferred work has to actually arrive, or the working area stays as it was
+    when the drag started.
+
+    Asserted through `set_world_extent` rather than by patching `_refresh_tile_grid`:
+    the signal is connected to the bound method at construction, so replacing the
+    attribute afterwards intercepts nothing and the test passes on a disconnected
+    signal.
+    """
+    widget = grid_of(3, 3)
+    calls = []
+    original = widget.canvas.set_world_extent
+    widget.canvas.set_world_extent = lambda *a, **k: calls.append(1)
+    try:
+        widget.tile_grid_overlay.drag_finished.emit()
+        qapp.processEvents()
+    finally:
+        widget.canvas.set_world_extent = original
+
+    assert calls, "drag_finished is not wired to anything on this tab"

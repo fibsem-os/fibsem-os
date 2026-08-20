@@ -497,6 +497,257 @@ def test_the_anchor_still_has_two_meanings(qapp):
     assert overlay._anchor_point is None, "None must go back to following the content"
 
 
+# ── blitting a drag (FIB-752) ────────────────────────────────────────────
+
+
+class _BlittingCanvas(_FakeCanvas):
+    """A canvas that offers the blit calls, and records what it was asked to do.
+
+    The plain `_FakeCanvas` deliberately does not: a host without these has to fall
+    back, and that is its own test below.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.full_draws = 0
+        self.captures = 0
+        self.restores = 0
+        self.blits = 0
+
+    def draw(self):
+        self.full_draws += 1
+
+    def copy_from_bbox(self, bbox):
+        self.captures += 1
+        return f"background-{self.captures}"
+
+    def restore_region(self, background):
+        self.restores += 1
+
+    def blit(self, bbox):
+        self.blits += 1
+
+
+def _blitting(rows=3, cols=3):
+    """An overlay whose canvas records the blit calls, over a figure that can serve them.
+
+    The recording canvas cannot render, and `draw_artist` needs a renderer that only a
+    real draw caches -- so an Agg canvas is attached to the *figure* to provide one.
+    Without it the overlay falls back to a repaint, correctly, and the test would be
+    asserting the fallback while claiming to assert the blit.
+    """
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+    overlay, tiles = build(rows, cols)
+    FigureCanvasAgg(overlay._ax.figure)
+    overlay._ax.figure.canvas.draw()
+    overlay._canvas = _BlittingCanvas()
+    return overlay, tiles
+
+
+def test_a_drag_frame_blits_instead_of_repainting(qapp):
+    """A repaint re-renders every placed overview to move some rectangles -- 165 ms per
+    motion event with six of them on a 3x3 grid. A blitted frame restores the canvas as
+    it was without the grid and draws only the tiles: 4.2 ms, measured."""
+    overlay, tiles = _blitting()
+    overlay._move_active = True
+
+    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE, anchor=(1.0, 2.0))
+
+    canvas = overlay._canvas
+    assert canvas.full_draws == 1, "the background is captured once, on the first frame"
+    assert canvas.captures == 1
+    assert (canvas.restores, canvas.blits) == (1, 1)
+    assert canvas.redraws == 0, "a blitted frame must not ask for a full repaint"
+
+
+def test_the_background_is_captured_once_for_the_whole_drag(qapp):
+    overlay, tiles = _blitting()
+    overlay._move_active = True
+
+    for step in range(5):
+        overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE, anchor=(float(step), 0.0))
+
+    canvas = overlay._canvas
+    assert (canvas.full_draws, canvas.captures) == (1, 1)
+    assert (canvas.restores, canvas.blits) == (5, 5)
+
+
+def test_the_tiles_are_animated_so_they_stay_out_of_the_background(qapp):
+    """`animated` is the whole mechanism: a full draw skips animated artists, which is
+    what makes the captured background the canvas *without* the grid. Drawn into it, the
+    grid would smear across every frame of the drag."""
+    overlay, tiles = _blitting()
+    overlay._move_active = True
+
+    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE)
+
+    assert all(artist.get_animated() for artist in overlay._artists)
+
+
+def test_releasing_puts_the_grid_back_into_the_canvas(qapp):
+    """The trap this mechanism sets. Artists left `animated` are skipped by every full
+    draw, so the grid would vanish the next time anything else repainted -- visible only
+    later, and nowhere near the drag that caused it."""
+    overlay, tiles = _blitting()
+    overlay._move_active = True
+    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE)
+    assert overlay._blit_bg is not None
+
+    overlay._on_release(_event(overlay, 0.0, 0.0))
+
+    assert overlay._blit_bg is None, "the background outlived the drag"
+    assert not any(artist.get_animated() for artist in overlay._artists), (
+        "the grid is still animated, so a full draw would leave it out"
+    )
+    assert overlay._canvas.redraws >= 1, "the grid was not put back with a normal draw"
+
+
+def test_nothing_is_blitted_outside_a_drag(qapp):
+    """There is nothing to gain -- a settings change redraws once -- and a background
+    captured outside a gesture would go stale the moment anything else on the canvas
+    changed."""
+    overlay, tiles = _blitting()
+
+    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE)
+
+    canvas = overlay._canvas
+    assert (canvas.captures, canvas.blits) == (0, 0)
+    assert canvas.redraws == 1
+    assert not any(artist.get_animated() for artist in overlay._artists)
+
+
+def test_the_background_is_dropped_when_the_canvas_bounds_change(qapp):
+    """It was captured against the old bounds, so it no longer describes what is behind
+    the grid -- blitting it would paint the previous contents back over the canvas."""
+    overlay, tiles = _blitting()
+    overlay._move_active = True
+    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE)
+    assert overlay._blit_bg is not None
+
+    _seed_content(overlay, width=WIDTH * 2, height=HEIGHT * 2)
+
+    assert overlay._canvas.captures == 2, "the background was reused after a resize"
+
+
+def test_a_canvas_that_cannot_blit_still_gets_its_grid(qapp):
+    """Not every host is a matplotlib canvas. Falling back costs a frame's efficiency;
+    failing would cost the frame."""
+    overlay, tiles = build(3, 3)          # the plain fake, with no blit calls
+    overlay._move_active = True
+
+    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE)
+
+    assert overlay._canvas.redraws >= 1
+    assert overlay._artists, "the grid was not drawn at all"
+    assert not any(artist.get_animated() for artist in overlay._artists)
+
+
+def test_a_backend_that_fails_mid_blit_falls_back_to_a_repaint(qapp):
+    """Costing a frame's efficiency, not the frame."""
+    overlay, tiles = _blitting()
+    overlay._move_active = True
+
+    def explode(bbox):
+        raise RuntimeError("no blitting here")
+
+    overlay._canvas.blit = explode
+    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE)
+
+    assert overlay._canvas.redraws >= 1, "the frame was dropped instead of repainted"
+    assert overlay._blit_bg is None, "a failed blit kept its background"
+
+
+def test_a_repaint_mid_drag_puts_the_grid_back(qapp):
+    """A host that repaints for its own reasons takes the grid off the canvas, because a
+    full draw skips animated artists. On the fluorescence tab that is every motion event
+    -- it refreshes the stage context from the same handler that moves the grid -- and it
+    showed as flicker with the grid missing for stretches of the drag."""
+    overlay, tiles = _blitting()
+    overlay._move_active = True
+    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE)
+    canvas = overlay._canvas
+    before = canvas.captures
+
+    overlay._on_canvas_drawn(None)
+
+    assert canvas.captures == before + 1, "the background was not recaptured"
+
+
+def test_restoring_after_a_repaint_does_not_ask_the_canvas_to_present(qapp):
+    """It runs *inside* the canvas's own paint, which is about to present what the
+    renderer holds. Asking it to present again from in there re-enters the paint, which
+    Qt reports as `QWidget::repaint: Recursive repaint detected` followed by a stream of
+    `QPainter::begin: Paint device returned engine == 0` -- visible only in the log of a
+    running app, which is where it was found."""
+    overlay, tiles = _blitting()
+    overlay._move_active = True
+    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE)
+    canvas = overlay._canvas
+    before = canvas.blits
+
+    overlay._on_canvas_drawn(None)
+
+    assert canvas.blits == before, "blitting from inside a draw re-enters the paint"
+
+
+def test_the_overlay_listens_for_repaints(qapp):
+    """The handler above is only worth anything if it is wired to something.
+
+    Asserted on the connection, not by calling the handler: every other test here calls
+    it directly, and a version with the `mpl_connect` line deleted passed all of them.
+    """
+    from matplotlib.figure import Figure
+
+    connected = []
+
+    class _Recording(_BlittingCanvas):
+        def mpl_connect(self, event, handler):
+            connected.append(event)
+            return len(connected)
+
+    overlay = TileGridOverlay()
+    overlay.attach(Figure().add_subplot(111), _Recording())
+
+    assert "draw_event" in connected, (
+        "nothing restores the grid when a host repaints mid-drag"
+    )
+
+
+def test_nothing_is_restored_outside_a_drag(qapp):
+    overlay, tiles = _blitting()
+    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE)
+    before = overlay._canvas.captures
+    overlay._on_canvas_drawn(None)
+    assert overlay._canvas.captures == before
+
+
+def test_the_end_of_a_drag_is_announced(qapp):
+    """Hosts have work that repaints the whole canvas and does not belong on a motion
+    event. Without somewhere to put it they did it per event, which defeated the blit."""
+    overlay, tiles = _blitting()
+    finished = []
+    overlay.drag_finished.connect(lambda: finished.append(1))
+    overlay._move_active = True
+    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE)
+
+    overlay._on_release(_event(overlay, 0.0, 0.0))
+
+    assert finished == [1]
+
+
+def test_a_click_is_not_the_end_of_a_drag(qapp):
+    """A press and release that never moved is a tile toggle. Announcing a finished drag
+    there would have the host redo its expensive work on every click."""
+    overlay, tiles = _blitting()
+    finished = []
+    overlay.drag_finished.connect(lambda: finished.append(1))
+
+    _click(overlay, 0.0, 0.0)
+
+    assert finished == []
+
+
 # ── resize by dragging an edge ───────────────────────────────────────────
 
 
