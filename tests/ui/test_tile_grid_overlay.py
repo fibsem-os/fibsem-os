@@ -336,31 +336,78 @@ def _edge_hues(overlay):
     return {tuple(round(c, 3) for c in patch.get_edgecolor()[:3]) for patch in overlay._artists}
 
 
-def test_an_unreachable_tile_is_washed_not_re_outlined(qapp):
-    """A fill, because the canvas has no free warm outline colour: yellow is the stage,
-    amber the travel envelope, red the grid boundary. The first attempt recoloured the
-    edge with the warning colour and came out indistinguishable from the travel box --
-    the one thing it must not look like, since that box is what these tiles are outside
-    of. The edge stays the grid's own, so the grid still reads as the grid."""
-    from matplotlib.colors import to_rgba
+def _is_hatch(artist):
+    return bool(getattr(artist, "get_hatch", None) and artist.get_hatch())
 
-    from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import UNREACHABLE_FILL
 
+def _hatches(overlay):
+    """The hatch-only patches, keyed by the tile rectangle they cover."""
+    return {
+        (round(a.get_x(), 3), round(a.get_y(), 3)): a
+        for a in overlay._artists
+        if _is_hatch(a)
+    }
+
+
+def _outlines(overlay):
+    """The tile patches by (row, col).
+
+    Not `zip(_artists, _tiles)`: a flagged tile contributes a second, hatch-only patch,
+    so the artist list is longer than the tile list and the pairing slips from the first
+    flagged tile onward.
+    """
+    outlines = [a for a in overlay._artists if not _is_hatch(a)]
+    return {(t.row, t.col): p for p, t in zip(outlines, overlay._tiles)}
+
+
+def test_an_unreachable_tile_is_hatched_not_recoloured(qapp):
+    """Hue was the wrong axis. The canvas has no free one, and the two tabs need the
+    same answer over very different data -- a red wash read cleanly over greyscale beam
+    images and went muddy over green fluorescence. A hatch has no hue to interact with
+    any of it.
+
+    The tile keeps the grid's own outline, so the grid still reads as the grid; the
+    hatch rides on a second patch, because matplotlib draws a hatch in the patch's own
+    `edgecolor`.
+    """
     overlay, tiles = build(3, 3)
     overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE, unreachable=[(0, 0), (0, 1)])
 
-    wash = tuple(round(c, 3) for c in to_rgba(UNREACHABLE_FILL)[:3])
-    by_coord = {
-        (tile.row, tile.col): patch
-        for patch, tile in zip(overlay._artists, overlay._tiles)
-    }
+    hatched = _hatches(overlay)
+    assert len(hatched) == 2, "one hatch patch per unreachable tile"
+
+    outlines = _outlines(overlay)
     for coord in ((0, 0), (0, 1)):
-        patch = by_coord[coord]
-        assert tuple(round(c, 3) for c in patch.get_facecolor()[:3]) == wash
-        assert patch.get_facecolor()[3] > 0, "the wash is transparent"
-        assert tuple(round(c, 3) for c in patch.get_edgecolor()[:3]) == tuple(
-            round(c, 3) for c in by_coord[(2, 2)].get_edgecolor()[:3]
-        ), "a flagged tile was re-outlined instead of washed"
+        rect = outlines[coord]
+        assert (round(rect.get_x(), 3), round(rect.get_y(), 3)) in hatched
+        assert tuple(round(c, 3) for c in rect.get_edgecolor()[:3]) == tuple(
+            round(c, 3) for c in outlines[(2, 2)].get_edgecolor()[:3]
+        ), "a flagged tile was recoloured instead of hatched"
+
+
+def test_the_hatch_is_visible_on_an_empty_canvas(qapp):
+    """Black was the first choice and reads well over data, but it disappears on the
+    empty canvas -- which is the state you plan a grid in. Pinned as "not near the
+    canvas background" rather than as a literal, since the point is the contrast."""
+    from matplotlib.colors import to_rgba
+
+    from fibsem.ui.tokens import CANVAS_BG
+    from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import (
+        UNREACHABLE_HATCH_COLOUR,
+    )
+
+    hatch = to_rgba(UNREACHABLE_HATCH_COLOUR)[:3]
+    background = to_rgba(CANVAS_BG)[:3]
+    distance = sum(abs(a - b) for a, b in zip(hatch, background))
+    assert distance > 1.0, (
+        f"the hatch {UNREACHABLE_HATCH_COLOUR} is too close to the canvas {CANVAS_BG}"
+    )
+
+
+def test_a_reachable_tile_carries_no_hatch(qapp):
+    overlay, tiles = build(3, 3)
+    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE, unreachable=[(0, 0)])
+    assert len(_hatches(overlay)) == 1
 
 
 def test_an_unreachable_tile_is_thicker_as_well_as_amber(qapp):
@@ -370,8 +417,7 @@ def test_an_unreachable_tile_is_thicker_as_well_as_amber(qapp):
     overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE, unreachable=[(1, 1)])
 
     widths = {
-        (tile.row, tile.col): patch.get_linewidth()
-        for patch, tile in zip(overlay._artists, overlay._tiles)
+        coord: patch.get_linewidth() for coord, patch in _outlines(overlay).items()
     }
     assert widths[(1, 1)] > widths[(0, 0)]
 
@@ -390,10 +436,7 @@ def test_a_tile_that_is_switched_off_is_not_also_flagged(qapp):
     overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE, unreachable=[(0, 0)])
 
     def described(coord):
-        patch = next(
-            patch for patch, tile in zip(overlay._artists, overlay._tiles)
-            if (tile.row, tile.col) == coord
-        )
+        patch = _outlines(overlay)[coord]
         return (
             tuple(round(c, 3) for c in patch.get_edgecolor()),
             tuple(round(c, 3) for c in patch.get_facecolor()),
@@ -405,6 +448,7 @@ def test_a_tile_that_is_switched_off_is_not_also_flagged(qapp):
     assert described((0, 0)) == described((0, 1)), (
         "a switched-off tile was drawn differently because it was also flagged"
     )
+    assert not _hatches(overlay), "a switched-off tile was hatched"
 
 
 def test_passing_no_flags_leaves_the_previous_ones_alone(qapp):

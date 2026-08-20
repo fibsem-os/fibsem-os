@@ -24,7 +24,6 @@ from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.imaging.tiling.geometry import TilePosition
-from fibsem.ui.tokens import SEMANTIC_ERROR_HOVER_COLOR
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
@@ -45,23 +44,30 @@ ENABLED_ALPHA = 0.0
 # easy to miss in a large grid.
 DISABLED_EDGE = "#9aa0a6"
 DISABLED_ALPHA = 0.75
-# A tile the stage cannot travel to, drawn as a wash over the tile rather than as a
-# recoloured outline (FIB-750).
+# A tile the stage cannot travel to, hatched rather than coloured (FIB-750).
 #
-# Not a new hue, because the canvas has no free warm one: yellow is where the stage is,
-# amber is the travel envelope, red is the specimen grid boundary. The first attempt
-# used the warning colour the flagged-lamella markers use, and on the canvas it was
-# indistinguishable from the travel box -- which is the one thing it must not be
-# confused with, since the box is exactly what the flagged tiles are outside of.
+# Hue was the wrong axis to work on. The canvas has no free one -- yellow is where the
+# stage is, amber the travel envelope, red the specimen grid boundary, magenta the grid
+# itself -- and the two tabs need the same answer over very different data: a red wash
+# read cleanly over greyscale beam images and went muddy over green fluorescence.
 #
-# A *fill* is a different visual class from every one of those outlines, so it reads on
-# its own terms whatever hue it takes. The tile keeps the grid's own edge colour, so the
-# grid still reads as the grid; only the wash says something is wrong. Thickened as
-# well, for the reason the skipped tiles are dashed as well as grey: one difference
-# alone is easy to miss in a large grid.
-UNREACHABLE_FILL = SEMANTIC_ERROR_HOVER_COLOR
-UNREACHABLE_ALPHA = 0.28
+# A hatch has no hue to interact with any of that, so it looks the same on both tabs and
+# cannot be confused with anything else drawn here. It is also the ordinary idiom for
+# "unavailable", and distinct from the grey dashed outline that means "switched off".
+#
+# The sparsest density that still reads, which is both the cheapest to draw (26% off a
+# drag frame against "///") and the one that hides least of the data underneath -- the
+# same reason the tile fill defaults to nothing.
+UNREACHABLE_HATCH = "/"
+# White rather than black, which was the first choice and the obvious one. Black hatching
+# reads well over data and **disappears entirely on an empty canvas** -- which is the
+# state you are in while planning a grid, before anything has been acquired, and so the
+# one case the flag most has to work in. Mid grey survives both, but it is within a hair
+# of `DISABLED_EDGE`, and "switched off" is a different thing from "cannot be reached".
+UNREACHABLE_HATCH_COLOUR = "#ffffff"
 LINE_WIDTH = 0.8
+# Thickened as well as hatched, for the reason the skipped tiles are dashed as well as
+# grey: one difference alone is easy to miss in a large grid.
 UNREACHABLE_LINE_WIDTH = LINE_WIDTH * 2.0
 
 # `set_grid(anchor=None)` means "follow the content"; omitting it means "leave it as it
@@ -439,9 +445,7 @@ class TileGridOverlay(QObject, CanvasOverlay):
                 (x, y), width, height,
                 fill=tile.enabled,
                 facecolor=(
-                    to_rgba(UNREACHABLE_FILL, UNREACHABLE_ALPHA) if out_of_reach
-                    else to_rgba(self._color, self._fill_alpha) if tile.enabled
-                    else "none"
+                    to_rgba(self._color, self._fill_alpha) if tile.enabled else "none"
                 ),
                 edgecolor=(
                     to_rgba(self._color, 1.0) if tile.enabled
@@ -453,6 +457,23 @@ class TileGridOverlay(QObject, CanvasOverlay):
             )
             self._ax.add_patch(patch)
             self._artists.append(patch)
+
+            if out_of_reach:
+                # A second patch, because matplotlib draws a hatch in the patch's own
+                # `edgecolor` -- so hatching the tile itself would mean giving up the
+                # grid's outline colour. No fill and no line: this one carries nothing
+                # but the hatch.
+                self._ax.add_patch(
+                    hatched := Rectangle(
+                        (x, y), width, height,
+                        fill=False,
+                        edgecolor=UNREACHABLE_HATCH_COLOUR,
+                        hatch=UNREACHABLE_HATCH,
+                        linewidth=0.0,
+                        zorder=21,
+                    )
+                )
+                self._artists.append(hatched)
 
         if self._canvas is not None:
             self._canvas.draw_idle()
