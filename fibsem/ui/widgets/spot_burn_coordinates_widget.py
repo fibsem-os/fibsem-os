@@ -212,8 +212,8 @@ class SpotBurnCoordinatesWidget(QWidget):
         return PointsSpec(
             id=self.OVERLAY_ID,
             points=px_points,
-            color="white",
-            selected_color="cyan",
+            color="cyan",
+            selected_color="lime",
             marker="o",
             # markersize, in points. Deliberately small: fiducial patterns put spots
             # ~0.01 of the frame apart, and a larger marker merges the cluster into one
