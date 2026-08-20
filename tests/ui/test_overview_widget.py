@@ -927,9 +927,11 @@ class TestTheRunOwnsItsSettings:
         """A 500 um tile with autocontrast, not `ImageSettings`'s generic 150 um.
 
         The tab referenced the overview defaults nowhere at all, so it opened at
-        whatever `ImageSettingsWidget` happens to default to. Every value below differs
-        from that, which is the point: a tab that looks right and images a ninth of the
-        area asked for is not something the picture shows you.
+        whatever `ImageSettingsWidget` happens to default to. The tile field, dwell and
+        autocontrast below all differ from that, which is the point: a tab that looks
+        right and images a ninth of the area asked for is not something the picture
+        shows you. The resolution is the exception and deliberately so -- see
+        `test_both_overview_tabs_open_at_the_shipped_resolution`.
 
         Asserted on the runner's copy for the same reason the filename is -- these are
         the numbers that reach the instrument.
@@ -956,7 +958,7 @@ class TestTheRunOwnsItsSettings:
         assert settings.image_settings.hfw == pytest.approx(500e-6)
         assert settings.image_settings.dwell_time == pytest.approx(1e-6)
         assert settings.image_settings.autocontrast is True
-        assert tuple(settings.image_settings.resolution) == (1024, 1024)
+        assert tuple(settings.image_settings.resolution) == (1536, 1024)
         assert (settings.nrows, settings.ncols) == (3, 3)
 
 
@@ -972,31 +974,35 @@ class TestTheDefaultsAreNotShared:
     would be rewritten by every keystroke in the tab.
     """
 
-    def test_the_napari_tab_keeps_the_resolution_it_has_always_acquired_at(self):
-        """Sharing the factory must not quietly re-resolution the shipped tab.
+    def test_both_overview_tabs_open_at_the_shipped_resolution(self):
+        """One shape for both tabs, and it is the one the shipped tab acquires at.
 
-        The constant the minimap used to hold omitted `resolution`, so it inherited
-        `ImageSettings`' non-square default -- and that is what every overview taken
-        from that tab has been. The factory sets a square one, which the rebuilt tab
-        wants (FIB-619) and which is a real change for the other: `hfw` is the
-        *horizontal* field, so the same 500 um at 1024x1024 is 0.49 um/px against 0.33
-        and half again as tall.
+        The minimap named no `resolution`, so it inherited `ImageSettings`' non-square
+        default -- and that is what every overview taken from that tab has been. The
+        factory opened square instead (FIB-619), so for a while the two tabs disagreed
+        and the minimap pinned its own value on top. They agree now: the factory names
+        the standard shape, and the minimap sets nothing.
 
-        Asserted against `ImageSettings()` rather than a literal, because the point is
-        that the value is inherited. If that default ever moves, this fires and asks
-        whether the shipped tab should move with it -- which is the question, not the
-        number.
+        Not cosmetic. `hfw` is the *horizontal* field, so the same 500 um tile at
+        1024x1024 is 0.49 um/px against 0.33 and half again as tall -- overviews from
+        the two tabs would cover different ground under the same nominal field, which
+        is no way to compare them across the swap.
+
+        Pinned twice on purpose. The literal is the decision; the comparison with
+        `ImageSettings()` is where the number came from. If that default ever moves,
+        the literal fires and asks whether the overview default follows -- which is the
+        question, not the number.
         """
         from fibsem.structures import ImageSettings
-        from fibsem.ui.FibsemMinimapWidget import OVERVIEW_RESOLUTION
         from fibsem.ui.widgets.overview_acquisition_settings_widget import (
             default_overview_acquisition_settings,
         )
 
-        assert tuple(OVERVIEW_RESOLUTION) == tuple(ImageSettings().resolution)
-        assert tuple(OVERVIEW_RESOLUTION) != tuple(
+        resolution = tuple(
             default_overview_acquisition_settings().image_settings.resolution
-        ), "the two tabs agree now; drop this pin rather than leaving it asserting nothing"
+        )
+        assert resolution == (1536, 1024)
+        assert resolution == tuple(ImageSettings().resolution)
 
     def test_each_call_hands_back_its_own_settings(self):
         from fibsem.ui.widgets.overview_acquisition_settings_widget import (

@@ -10,7 +10,11 @@ from PyQt5.QtWidgets import (
 from typing import List, Optional
 
 from fibsem import constants
-from fibsem.config import AVAILABLE_RESOLUTIONS_ZIP, DEFAULT_SQUARE_RESOLUTION
+from fibsem.config import (
+    AVAILABLE_RESOLUTIONS_ZIP,
+    DEFAULT_STANDARD_RESOLUTION,
+    DEFAULT_STANDARD_RESOLUTION_LIST,
+)
 from fibsem.structures import AutoFocusMode, AutoFocusSettings, BeamType, FocusStackSettings, ImageSettings, OverviewAcquisitionSettings, TileOrderStrategy
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueComboBox, ValueSpinBox
@@ -44,10 +48,20 @@ def default_overview_acquisition_settings() -> OverviewAcquisitionSettings:
 
     The grid size is not named here -- `OverviewAcquisitionSettings` already defaults to
     3 x 3, and stating it twice is how the two drift apart.
+
+    The resolution is the standard 1536x1024, not the square one the rebuilt tab used to
+    open with. It is what the shipped tab has always acquired at, and the difference is
+    not cosmetic: `hfw` is the *horizontal* field, so the same 500 um tile at 1024x1024
+    is 0.49 um/px against 0.33 and half again as tall. Square was picked before there was
+    a shipped tab to compare against; there is one now, and overviews that can be put
+    side by side across the swap are worth more than the tidier number.
     """
     return OverviewAcquisitionSettings(
         image_settings=ImageSettings(
-            resolution=tuple(int(px) for px in DEFAULT_SQUARE_RESOLUTION.split("x")),
+            # `tuple`, not the config list itself: `resolution` is annotated as one, and
+            # handing every settings object the same mutable list is the sharing this
+            # factory exists to avoid.
+            resolution=tuple(DEFAULT_STANDARD_RESOLUTION_LIST),
             hfw=OVERVIEW_TILE_HFW,
             dwell_time=OVERVIEW_TILE_DWELL_TIME,
             autocontrast=True,
@@ -194,7 +208,7 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         self.image_settings_widget.set_show_advanced_button(False)
 
         # All standard + square resolutions are supported (non-square aspect handled in acquisition)
-        self.image_settings_widget.set_available_resolutions(AVAILABLE_RESOLUTIONS_ZIP, default=DEFAULT_SQUARE_RESOLUTION)
+        self.image_settings_widget.set_available_resolutions(AVAILABLE_RESOLUTIONS_ZIP, default=DEFAULT_STANDARD_RESOLUTION)
 
         self._btn_advanced_imaging = IconToolButton(
             icon="mdi:tune",
