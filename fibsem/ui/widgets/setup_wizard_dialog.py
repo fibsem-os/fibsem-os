@@ -1,16 +1,18 @@
 """The first-run setup wizard: from a fresh install to a configuration that connects.
 
-Five steps, of which the Arctis answers one, so on that instrument people see four:
+Five steps for everybody; the Arctis is shown the third rather than asked it:
 
 1. **Microscope** -- first, because the answer decides which of the rest are still
    questions.
 2. **Computer and connection** -- never skipped. The address is a property of the site
    that no shipped file can imply, and step 3 reads the stage, so the connection has to
    be *proven* here rather than merely typed.
-3. **Stage configuration** -- skipped only for the Arctis, whose compustage has no
-   reference rotation to measure and no pre-tilted shuttle. Every other model prefills
-   from its shipped configuration and still asks: those values belong to the shuttle
-   fitted and to how a sample is loaded at that site, not to the model.
+3. **Stage configuration** -- read-only for the Arctis, whose compustage has no
+   reference rotation to measure and no pre-tilted shuttle; the step is shown and
+   explained rather than skipped, so the diagram can say why there is nothing to enter.
+   Every other model prefills from its shipped configuration and still asks: those
+   values belong to the shuttle fitted and to how a sample is loaded at that site, not
+   to the model.
 4. **Folders**.
 5. **Review and save**.
 
@@ -67,6 +69,16 @@ FAIL_RED = "#e05252"
 # this every child label repaints the panel's rounded rectangle as a square one, since
 # the application stylesheet sets a background on bare QWidget.
 ON_PANEL = "background: transparent; border: none;"
+
+# The shuttle's base, below the ramp, in the stage diagram. The body's height follows
+# the ramp rather than being fixed: a wedge is only as deep as its slope needs, so at
+# zero pre-tilt this collapses to a thin plate carrying the grid, which is what a
+# holder without a wedge in it actually looks like.
+BASE_THICKNESS = 8
+
+# The pre-tilt wedge is annotated on top of the shuttle body, so it needs to read
+# against the accent colour rather than in it.
+WEDGE_COLOUR = "#dfe5ec"
 
 STEP_MICROSCOPE = 0
 STEP_CONNECTION = 1
@@ -343,72 +355,96 @@ class StageDiagram(QtWidgets.QWidget):
                 line,
             )
 
-        painter.setPen(QtGui.QPen(QtGui.QColor(NEUTRAL_500), 2))
-        painter.save()
-        painter.translate(cx, cy)
-        # Positive, so the plate's right end drops. The sample has to end up facing the
-        # FIB, which is drawn up and to the right; tilting the other way turned the
-        # sample away from it and the beam struck the back of the stage.
-        painter.rotate(self.effective_stage_tilt())
-        painter.drawLine(-95, 0, 95, 0)
-        painter.setPen(QtGui.QPen(QtGui.QColor(NEUTRAL_500), 1, Qt.DashLine))
-        painter.drawLine(-95, 8, 95, 8)
-        painter.restore()
+        # Beams first, so the shuttle drawn over them occludes whatever falls below the
+        # sample surface. A beam that carries on through the holder reads as passing
+        # into it rather than landing on it.
+        self._draw_beam(painter, cx, cy, 0, self.SEM_COLOUR, "SEM")
+        self._draw_beam(painter, cx, cy, self.FIB_ANGLE, self.FIB_COLOUR,
+                        f"FIB  {self.FIB_ANGLE:g}°")
 
+        # Everything below is drawn in the stage's frame, with the sample at the origin.
+        # The shuttle sits *flat* on the plate and carries its pre-tilt in its own
+        # shape -- a low front, a ramp, a raised shelf behind, which is the profile a
+        # pre-tilted shuttle actually has. Rotating a plain bar by pre-tilt + stage tilt
+        # arrives at the same sample angle while drawing a holder nobody would
+        # recognise.
         painter.save()
         painter.translate(cx, cy)
-        # Same sense as the plate: the shuttle carries the sample round with it, so at
-        # pre-tilt + stage tilt = the FIB's own angle the surface faces the beam square
-        # on -- which is the geometry the numbers underneath are describing.
-        painter.rotate(self.surface_tilt())
-        gradient = QtGui.QLinearGradient(-60, -10, 60, 0)
+        painter.rotate(self.effective_stage_tilt())
+
+        # The ramp, rising to the right by the pre-tilt, with the sample seated on it.
+        ramp = math.radians(self._pre_tilt)
+        half = 26.0
+        low = QtCore.QPointF(-half * math.cos(ramp), half * math.sin(ramp))
+        high = QtCore.QPointF(half * math.cos(ramp), -half * math.sin(ramp))
+        front_x, back_x = low.x() - 15, high.x() + 15
+        plate_y = BASE_THICKNESS + half * abs(math.sin(ramp))
+
+        painter.setPen(QtGui.QPen(QtGui.QColor(NEUTRAL_500), 2))
+        painter.drawLine(-95, int(plate_y), 95, int(plate_y))
+        painter.setPen(QtGui.QPen(QtGui.QColor(NEUTRAL_500), 1, Qt.DashLine))
+        painter.drawLine(-95, int(plate_y) + 8, 95, int(plate_y) + 8)
+
+        body = QtGui.QPolygonF([
+            QtCore.QPointF(front_x, plate_y),
+            QtCore.QPointF(front_x, low.y()),
+            low,
+            high,
+            QtCore.QPointF(back_x, high.y()),
+            QtCore.QPointF(back_x, plate_y),
+        ])
+        gradient = QtGui.QLinearGradient(front_x, 0, back_x, 0)
         gradient.setColorAt(0, QtGui.QColor(PRIMARY_COLOR))
         gradient.setColorAt(1, QtGui.QColor("#0a5c9e"))
         painter.setPen(Qt.NoPen)
         painter.setBrush(gradient)
-        painter.drawRoundedRect(QtCore.QRectF(-40, -8, 80, 8), 2, 2)
+        painter.drawPolygon(body)
+
+        # The grid, lying on the ramp rather than on top of the block.
+        painter.save()
+        painter.rotate(-self._pre_tilt)
         painter.setBrush(QtGui.QColor("#d9dde3"))
-        painter.drawRoundedRect(QtCore.QRectF(-14, -12, 28, 5), 1, 1)  # the grid
+        painter.drawRoundedRect(QtCore.QRectF(-13, -4, 26, 4), 1, 1)
         painter.restore()
 
+        # The wedge, annotated where it physically is: at the foot of the ramp, between
+        # the shuttle's own base and the face the sample sits on. Measuring it out in
+        # open space was readable but described an angle nothing in the picture had.
+        label_at = None
         if self._pre_tilt:
-            painter.setPen(QtGui.QPen(QtGui.QColor(PRIMARY_COLOR), 1, Qt.DotLine))
-            radius = 58
-            # Qt measures arcs in 1/16 degree, counter-clockwise from 3 o'clock -- the
-            # opposite sense to the screen-space rotate() above, which is why this once
-            # drew the wedge below the stage instead of between plate and shuttle.
-            #
-            # Drawn on the *left* half, where the same wedge exists and nothing else
-            # does. On the right it lands on the FIB beam, which at the usual angles
-            # runs within a few degrees of the shuttle -- so the label for the number
-            # being entered was the one thing on the diagram you could not read.
-            # The wedge sits between the plate and the shuttle, so it starts on the
-            # plate's left arm and spans the pre-tilt back to the shuttle's.
-            start = 180 - self.effective_stage_tilt()
+            radius = 34
+            # Light, not the accent: this is drawn over the shuttle body, which is
+            # the accent colour, so blue on blue was unreadable. Reads as a
+            # dimension line over the part, which is what it is.
+            painter.setPen(QtGui.QPen(QtGui.QColor(WEDGE_COLOUR), 1, Qt.DotLine))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawLine(low, QtCore.QPointF(low.x() + radius + 12, low.y()))
             painter.drawArc(
-                QtCore.QRectF(cx - radius, cy - radius, 2 * radius, 2 * radius),
-                int(start * 16),
+                QtCore.QRectF(low.x() - radius, low.y() - radius, 2 * radius, 2 * radius),
+                0,
                 int(self._pre_tilt * 16),
             )
+            # Mapped out of the rotated frame, so the text itself stays upright -- a
+            # label that tilts with the stage is the one thing here nobody can read.
+            middle = math.radians(self._pre_tilt / 2)
+            label_at = painter.transform().map(
+                QtCore.QPointF(
+                    low.x() + math.cos(middle) * (radius + 14),
+                    low.y() - math.sin(middle) * (radius + 14),
+                )
+            )
+        painter.restore()
+
+        if label_at is not None:
             font = painter.font()
             font.setPointSize(8)
             painter.setFont(font)
-            painter.setPen(QtGui.QColor(PRIMARY_COLOR))
-            middle = math.radians(start + self._pre_tilt / 2)
+            painter.setPen(QtGui.QColor(WEDGE_COLOUR))
             painter.drawText(
-                QtCore.QRectF(
-                    cx + math.cos(middle) * (radius + 12) - 22,
-                    cy - math.sin(middle) * (radius + 12) - 8,
-                    44,
-                    16,
-                ),
+                QtCore.QRectF(label_at.x() - 22, label_at.y() - 8, 44, 16),
                 Qt.AlignCenter,
                 f"{self._pre_tilt:g}°",
             )
-
-        self._draw_beam(painter, cx, cy, 0, self.SEM_COLOUR, "SEM")
-        self._draw_beam(painter, cx, cy, self.FIB_ANGLE, self.FIB_COLOUR,
-                        f"FIB  {self.FIB_ANGLE:g}°")
         painter.end()
 
     @staticmethod
@@ -419,12 +455,9 @@ class StageDiagram(QtWidgets.QWidget):
         x2 = cx + math.sin(angle) * reach
         y2 = cy - math.cos(angle) * reach
         painter.drawLine(QtCore.QPointF(x2, y2), QtCore.QPointF(cx, cy))
-        for spread in (-6, 6):  # arrow head
-            back = angle + math.radians(180 + spread)
-            painter.drawLine(
-                QtCore.QPointF(cx, cy),
-                QtCore.QPointF(cx + math.sin(back) * 12, cy - math.cos(back) * 12),
-            )
+        # No arrow head. The shuttle is painted over these, so a head at the sample
+        # would be buried in it -- the two lines converging and stopping at the surface
+        # already say where the beams land.
         font = painter.font()
         font.setPointSize(8)
         painter.setFont(font)
@@ -574,7 +607,7 @@ class SetupWizardDialog(QtWidgets.QDialog):
 
         # Once the stage controls exist. The first _select_model runs while step 1 is
         # still being built, so its prefill had nothing to write into.
-        if self.choices.needs_stage_step:
+        if self.choices.stage_is_editable:
             self._prefill_stage_from_model()
 
     def _build_rail(self) -> QtWidgets.QWidget:
@@ -669,7 +702,7 @@ class SetupWizardDialog(QtWidgets.QDialog):
         for card_key, card in self._model_cards.items():
             card.set_selected(card_key == key)
         self._manufacturer_row.setVisible(not wizard.get_model(key).knows_manufacturer)
-        if not self.choices.needs_stage_step:
+        if self.choices.stage_is_readonly:
             # Answers to a question this model no longer asks. Left in place they would
             # be written anyway -- and for a compustage, whose shipped pair is rotation
             # reference 0 with rotation_180 0, a value typed for some other model is
@@ -677,8 +710,10 @@ class SetupWizardDialog(QtWidgets.QDialog):
             self.choices.rotation_reference = None
             self.choices.shuttle_pre_tilt = None
             self._stage_read = None
-        else:
-            self._prefill_stage_from_model()
+        self._prefill_stage_from_model()
+        if hasattr(self, "_stage_note"):
+            self._stage_note.setText("")
+        self._update_stage_controls()
         self._update_rail()
 
     def _prefill_stage_from_model(self) -> None:
@@ -871,19 +906,9 @@ class SetupWizardDialog(QtWidgets.QDialog):
         read_layout.addWidget(
             _label("Reference rotation", 12, TEXT_STRONG_COLOR, bold=True)
         )
-        read_layout.addWidget(
-            _label(
-                "Put the stage in the MILLING orientation — where a lamella would be "
-                "milled — then read it. That rotation becomes the reference every "
-                "orientation is measured from; MILLING and SEM share it, and FIB is a "
-                "half turn from it. The wizard reads the stage; it never moves it. The "
-                "value below starts from the configuration you chose — confirm it "
-                "rather than assume it, since it depends on how a sample is loaded here.",
-                10,
-                TEXT_MUTED_COLOR,
-                wrap=True,
-            )
-        )
+        # Held, because the page explains itself differently when it is not asking.
+        self._rotation_blurb = _label("", 10, TEXT_MUTED_COLOR, wrap=True)
+        read_layout.addWidget(self._rotation_blurb)
         row = QtWidgets.QHBoxLayout()
         row.setSpacing(8)
         self.button_read_stage = QtWidgets.QPushButton("Read Current Stage Position")
@@ -907,18 +932,8 @@ class SetupWizardDialog(QtWidgets.QDialog):
         tilt_layout.setContentsMargins(14, 12, 14, 12)
         tilt_layout.setSpacing(8)
         tilt_layout.addWidget(_label("Shuttle pre-tilt", 12, TEXT_STRONG_COLOR, bold=True))
-        tilt_layout.addWidget(
-            _label(
-                "The fixed tilt built into the shuttle or holder. Entered rather than "
-                "read: the stage cannot tell the difference between its own tilt and "
-                "the shuttle's. Prefilled from the configuration you chose, but it "
-                "belongs to whichever shuttle is actually fitted. It is also the stage "
-                "tilt of the SEM orientation, which is what the diagram below shows.",
-                10,
-                TEXT_MUTED_COLOR,
-                wrap=True,
-            )
-        )
+        self._pre_tilt_blurb = _label("", 10, TEXT_MUTED_COLOR, wrap=True)
+        tilt_layout.addWidget(self._pre_tilt_blurb)
         self._pre_tilt_spin = QtWidgets.QDoubleSpinBox()
         self._pre_tilt_spin.setRange(-90.0, 90.0)
         self._pre_tilt_spin.setDecimals(1)
@@ -963,9 +978,47 @@ class SetupWizardDialog(QtWidgets.QDialog):
         )
 
     def _update_stage_controls(self) -> None:
-        connected = self._active_microscope() is not None
         if not hasattr(self, "button_read_stage"):
             return
+
+        # The compustage answers this step, so it is shown and explained rather than
+        # asked. Disabled rather than hidden: an empty page says nothing, while a
+        # filled-in one that cannot be edited says the answer is already known.
+        editable = self.choices.stage_is_editable
+        self._rotation_spin.setEnabled(editable)
+        self._pre_tilt_spin.setEnabled(editable)
+        if not editable:
+            self.button_read_stage.setEnabled(False)
+            self._rotation_blurb.setText(
+                f"A {self.choices.model.label} has a compustage: it reaches the other "
+                "side of the sample by tilting rather than rotating, so there is no "
+                "reference rotation to measure. It comes from the configuration."
+            )
+            self._pre_tilt_blurb.setText(
+                "Nothing to enter: this instrument has no pre-tilted shuttle, which is "
+                "why the holder below is flat and the sample already sits square to "
+                "the electron beam."
+            )
+            self._stage_note.setText("")
+            return
+
+        self._rotation_blurb.setText(
+            "Put the stage in the SEM orientation — sample flat, square to the electron "
+            "beam — then read it. That rotation becomes the reference every orientation "
+            "is measured from; MILLING shares it, and FIB is a half turn from it. The "
+            "wizard reads the stage; it never moves it. The value below starts from the "
+            "configuration you chose — confirm it rather than assume it, since it "
+            "depends on how a sample is loaded here."
+        )
+        self._pre_tilt_blurb.setText(
+            "The fixed tilt built into the shuttle or holder. Entered rather than read: "
+            "the stage cannot tell the difference between its own tilt and the "
+            "shuttle's. Prefilled from the configuration you chose, but it belongs to "
+            "whichever shuttle is actually fitted. It is also the stage tilt of the SEM "
+            "orientation, which is what the diagram below shows."
+        )
+
+        connected = self._active_microscope() is not None
         self.button_read_stage.setEnabled(connected)
         if not connected and not self._stage_note.text():
             self._stage_note.setText(
@@ -1133,7 +1186,7 @@ class SetupWizardDialog(QtWidgets.QDialog):
         # "from the shipped configuration" is said rather than left implicit: a value
         # nobody typed still ends up in the file, and it should be visible that it was
         # chosen for them rather than by them.
-        from_file = "" if self.choices.needs_stage_step else " (from the shipped configuration)"
+        from_file = " (from the shipped configuration)" if self.choices.stage_is_readonly else ""
         rows = [
             ("Microscope", self.choices.model.label),
             ("Computer", self.choices.location.label),
@@ -1142,7 +1195,7 @@ class SetupWizardDialog(QtWidgets.QDialog):
             (
                 "Reference rotation",
                 f"{float(stage.get('rotation_reference', 0)):.2f}°"
-                + (f" ({self._stage_read})" if self._stage_read and self.choices.needs_stage_step else from_file),
+                + (f" ({self._stage_read})" if self._stage_read and self.choices.stage_is_editable else from_file),
             ),
             (
                 "Shuttle pre-tilt",
@@ -1151,7 +1204,7 @@ class SetupWizardDialog(QtWidgets.QDialog):
             ("Configuration folder", self.choices.resolved_configuration_directory),
             ("Experiments folder", self.choices.experiment_directory or "not set"),
         ]
-        if self.choices.needs_stage_step:
+        if self.choices.stage_is_editable:
             # Only shown when the wizard derived it. It is the rotation the other side
             # of the sample is reached at, and someone who typed 250° should see that
             # this became 70° rather than discover it from a stage that turned the
@@ -1181,18 +1234,31 @@ class SetupWizardDialog(QtWidgets.QDialog):
     # -- navigation ---------------------------------------------------------
 
     def _is_skipped(self, index: int) -> bool:
-        return index == STEP_STAGE and not self.choices.needs_stage_step
+        """Nothing is skipped any more.
+
+        The compustage's stage step is shown read-only instead, so the diagram can say
+        why there is nothing to enter. Kept as a single predicate rather than deleted,
+        because it is the one place a future skip would belong.
+        """
+        return False
 
     def _update_rail(self) -> None:
         for index, row in enumerate(self._rail_rows):
+            # The note travels with the step whatever state it is in, because it says
+            # something about the step rather than about where you are in the wizard.
+            note = (
+                "set by the configuration"
+                if index == STEP_STAGE and self.choices.stage_is_readonly
+                else ""
+            )
             if self._is_skipped(index):
-                row.set_state("skipped", "set by the configuration")
+                row.set_state("skipped", note)
             elif index == self._index:
-                row.set_state("current")
+                row.set_state("current", note)
             elif index < self._index:
-                row.set_state("done")
+                row.set_state("done", note)
             else:
-                row.set_state("pending")
+                row.set_state("pending", note)
 
     def _show_step(self, index: int) -> None:
         self._index = index
@@ -1244,7 +1310,11 @@ class SetupWizardDialog(QtWidgets.QDialog):
             self.choices.address = self._address_edit.text().strip()
             if self.choices.is_offline:
                 self.choices.address = ""
-        elif self._index == STEP_STAGE:
+        elif self._index == STEP_STAGE and self.choices.stage_is_editable:
+            # Only when the step asked. Reading the disabled controls back would turn
+            # "the wizard did not ask" into "the user answered 0", and the derivation
+            # that then runs hands the compustage a 180-degree rotation it does not
+            # have -- the shipped pair is 0 *and* 0.
             self.choices.rotation_reference = self._rotation_spin.value()
             self.choices.shuttle_pre_tilt = self._pre_tilt_spin.value()
         elif self._index == STEP_FOLDERS:

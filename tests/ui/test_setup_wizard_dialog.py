@@ -107,11 +107,15 @@ def summary_rows(widget) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def test_a_recognised_model_skips_the_stage_step(dialog):
+def test_every_model_walks_the_same_five_steps(dialog):
+    """Nothing is skipped. The compustage is shown the stage step read-only instead,
+    so the diagram can say why there is nothing to enter."""
     dialog._select_model("tfs-arctis")
     assert dialog._index == STEP_MICROSCOPE
     dialog._on_next()
     assert dialog._index == STEP_CONNECTION
+    dialog._on_next()
+    assert dialog._index == STEP_STAGE
     dialog._on_next()
     assert dialog._index == STEP_FOLDERS
 
@@ -123,13 +127,41 @@ def test_start_blank_stops_at_the_stage_step(dialog):
     assert dialog._index == STEP_STAGE
 
 
-def test_only_the_compustage_skips_the_stage_step(dialog):
-    """Every other model prefills the step and still asks."""
+def test_the_compustage_is_shown_the_step_but_cannot_edit_it(dialog):
+    """Disabled rather than hidden: an empty page says nothing, while a filled-in one
+    that cannot be edited says the answer is already known."""
     dialog._select_model("tfs-arctis")
-    assert dialog._is_skipped(STEP_STAGE)
+    dialog._show_step(STEP_STAGE)
+    assert not dialog._rotation_spin.isEnabled()
+    assert not dialog._pre_tilt_spin.isEnabled()
+    assert not dialog.button_read_stage.isEnabled()
+    # The panels explain instead of instructing. Telling someone to "confirm it rather
+    # than assume it" beside a field they cannot touch is worse than saying nothing.
+    assert "compustage" in dialog._rotation_blurb.text()
+    assert "Nothing to enter" in dialog._pre_tilt_blurb.text()
+    # And the rail says so wherever you are, since it describes the step not the place.
+    assert dialog._rail_rows[STEP_STAGE]._note.text() == "set by the configuration"
+
     for key in ("tfs-hydra", "tfs-aquilos2", "tescan", "other"):
         dialog._select_model(key)
-        assert not dialog._is_skipped(STEP_STAGE), key
+        assert dialog._rotation_spin.isEnabled(), key
+        assert dialog._pre_tilt_spin.isEnabled(), key
+        assert "SEM orientation" in dialog._rotation_blurb.text(), key
+        assert dialog._rail_rows[STEP_STAGE]._note.text() == "", key
+
+
+def test_the_compustage_writes_its_shipped_values_untouched(dialog):
+    """Read-only means the wizard did not ask, so the shipped pair stands -- including
+    the 0/0 rotation a derivation would get wrong."""
+    dialog._select_model("tfs-arctis")
+    dialog._show_step(STEP_STAGE)
+    dialog._read_current_step()
+    assert dialog.choices.rotation_reference is None
+    assert dialog.choices.shuttle_pre_tilt is None
+
+    config = wizard.build_configuration(dialog.choices)
+    assert config["stage"]["rotation_reference"] == 0
+    assert config["stage"]["rotation_180"] == 0
 
 
 def test_the_stage_step_is_prefilled_from_the_chosen_model(dialog):
@@ -158,12 +190,12 @@ def test_a_prefilled_value_is_still_written_as_an_answer(dialog):
     assert dialog.choices.rotation_reference == pytest.approx(0.0)
 
 
-def test_back_skips_the_same_step_forwards_and_backwards(dialog):
-    """A skipped step reachable only by Back is a step nothing filled in."""
+def test_back_walks_the_same_steps_as_forwards(dialog):
+    """A step reachable only in one direction is a step half the users never see."""
     dialog._select_model("tfs-arctis")
     dialog._show_step(STEP_FOLDERS)
     dialog._on_back()
-    assert dialog._index == STEP_CONNECTION
+    assert dialog._index == STEP_STAGE
 
 
 def test_the_connection_step_is_never_skipped(dialog):
@@ -171,14 +203,6 @@ def test_the_connection_step_is_never_skipped(dialog):
     for key in [model.key for model in wizard.MICROSCOPE_MODELS]:
         dialog._select_model(key)
         assert not dialog._is_skipped(STEP_CONNECTION), key
-
-
-def test_the_rail_says_a_skipped_step_was_answered(dialog):
-    """Dropping it silently would hide that a value was chosen for you."""
-    dialog._select_model("tfs-arctis")
-    assert dialog._rail_rows[STEP_STAGE]._note.text() == "set by the configuration"
-    dialog._select_model("other")
-    assert dialog._rail_rows[STEP_STAGE]._note.text() == ""
 
 
 def test_the_last_step_offers_to_save(dialog):

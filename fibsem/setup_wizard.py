@@ -280,14 +280,25 @@ class SetupChoices:
         return self.configuration_directory or cfg.CONFIG_PATH
 
     @property
-    def needs_stage_step(self) -> bool:
-        """Whether the stage question is still open.
+    def stage_is_readonly(self) -> bool:
+        """Whether the stage step is shown but not editable.
 
-        Being offline is not a reason to skip it -- a simulated instrument still has a
-        pre-tilt, and a run set up offline should behave like the one it stands in for.
-        Only a recognised model answers it.
+        True for the compustage alone, and the step is *shown* rather than skipped so
+        the diagram can say why there is nothing to enter: a flat holder, no wedge, no
+        rotation to measure. Skipping left that as an absence, which reads as an
+        omission rather than an answer.
         """
-        return not self.model.knows_stage
+        return self.model.knows_stage
+
+    @property
+    def stage_is_editable(self) -> bool:
+        """Whether the stage step is asking rather than explaining.
+
+        Being offline is not a reason to close the question -- a simulated instrument
+        still has a pre-tilt, and a run set up offline should behave like the one it
+        stands in for.
+        """
+        return not self.stage_is_readonly
 
     @property
     def needs_manufacturer(self) -> bool:

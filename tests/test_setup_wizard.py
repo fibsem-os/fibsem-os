@@ -94,10 +94,10 @@ def test_address_follows_the_computer_not_the_model_file():
 # ---------------------------------------------------------------------------
 
 
-def test_only_the_compustage_answers_the_stage_step():
+def test_only_the_compustage_is_shown_the_stage_step_read_only():
     """The Arctis reaches the other side by tilting, so there is no reference rotation
     to measure, and it has no pre-tilted shuttle. Both values are design facts."""
-    assert not wizard.SetupChoices(model_key="tfs-arctis").needs_stage_step
+    assert wizard.SetupChoices(model_key="tfs-arctis").stage_is_readonly
     assert wizard.get_model("tfs-arctis").is_compustage
 
 
@@ -109,11 +109,11 @@ def test_a_pre_tilted_shuttle_system_still_has_to_ask():
     are a starting point rather than an answer.
     """
     for key in ("tfs-hydra", "tfs-aquilos2", "tescan"):
-        assert wizard.SetupChoices(model_key=key).needs_stage_step, key
+        assert wizard.SetupChoices(model_key=key).stage_is_editable, key
 
 
 def test_start_blank_still_has_to_ask():
-    assert wizard.SetupChoices(model_key="other").needs_stage_step
+    assert wizard.SetupChoices(model_key="other").stage_is_editable
 
 
 def test_the_shipped_values_are_offered_as_a_starting_point():
@@ -152,7 +152,7 @@ def test_offline_does_not_skip_the_stage_step():
     choices = wizard.SetupChoices(
         model_key="other", location_key=wizard.LOCATION_OFFLINE
     )
-    assert choices.needs_stage_step
+    assert choices.stage_is_editable
 
 
 def test_offline_closes_the_manufacturer_question():
