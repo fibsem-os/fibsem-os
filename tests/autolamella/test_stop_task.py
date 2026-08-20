@@ -18,13 +18,11 @@ import pytest
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-)
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
-from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowConfig,
     Experiment,
     Lamella,
 )
+from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.cancellation import AnyStopEvent, OperationCancelledError
 

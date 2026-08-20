@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from fibsem.autofunctions.metrics import get_focus_measure_function
 import numpy as np
+
+from fibsem.autofunctions.metrics import get_focus_measure_function
+
 
 def block_based_focus_selection(
     focus_stack: np.ndarray, method: str = "laplacian", block_size: int = 128

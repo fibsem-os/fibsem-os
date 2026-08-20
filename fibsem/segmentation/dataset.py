@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 
 import glob
+import os
+import random
+from typing import List
 
+import dask.array as da
 import numpy as np
+import tifffile as tff
 import torch
+from PIL import Image
 from torch.utils.data import DataLoader, Dataset, SubsetRandomSampler
 from torchvision import transforms
-import dask.array as da
-import os
-import tifffile as tff
-import random
-from PIL import Image
-from typing import List
 
 # transformations
 ROT_ANGLE = 15
@@ -91,6 +91,7 @@ class SegmentationDataset(Dataset):
         return len(self.images)
 
 from pathlib import Path
+
 
 def load_dask_dataset_v2(data_paths: List[Path], label_paths: List[Path]):
 

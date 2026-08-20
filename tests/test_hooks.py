@@ -1,8 +1,9 @@
 """Unit tests for the fibsem hook system."""
 
-import yaml
 import io
+
 import pytest
+import yaml
 
 from fibsem.hooks import (
     FunctionHook,
@@ -14,7 +15,6 @@ from fibsem.hooks import (
     WebhookHook,
     fire_event,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

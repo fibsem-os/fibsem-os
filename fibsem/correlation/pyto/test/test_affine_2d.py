@@ -8,14 +8,14 @@ Tests module affine_2d
 
 __version__ = "$Revision: 1152 $"
 
-from copy import copy, deepcopy
 import unittest
+from copy import copy, deepcopy
 
 import numpy
-import numpy.testing as np_test 
+import numpy.testing as np_test
 import scipy
-
 from pyto.affine_2d import Affine2D
+
 
 class TestAffine2D(np_test.TestCase):
     """

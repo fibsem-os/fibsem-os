@@ -1,7 +1,10 @@
 """Manual test script for toast notifications (FIB-100)."""
 import sys
+
 from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget
-from fibsem.ui.widgets.notifications import ToastManager, NotificationBell
+
+from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
+
 
 class TestWindow(QMainWindow):
     def __init__(self):

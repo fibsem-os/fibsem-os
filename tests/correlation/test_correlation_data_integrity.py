@@ -137,8 +137,9 @@ def test_autosave_failure_is_reported_not_swallowed(qapp, tmp_path, monkeypatch)
 
 def _load_via_picker(w, monkeypatch, answer):
     """Drive a user-initiated image load, answering the confirm with `answer`."""
-    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
     from PyQt5.QtWidgets import QMessageBox
+
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
 
     monkeypatch.setattr(
         ctw.FibsemImage,
@@ -209,8 +210,9 @@ def test_image_combo_is_guarded_against_the_mouse_wheel(qapp):
     event: without the guard an event-based check *hangs* offscreen instead of
     failing, which is a useless diagnostic in CI.
     """
-    from fibsem.ui.utils import _WHEEL_GUARD_PROPERTY
     from PyQt5.QtCore import Qt
+
+    from fibsem.ui.utils import _WHEEL_GUARD_PROPERTY
 
     combo = _widget()._images_tab._fib_picker.combo
     assert combo.property(_WHEEL_GUARD_PROPERTY) is True

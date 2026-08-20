@@ -1,9 +1,9 @@
 
 ######## SELECT MILLING POSITION TASK DEFINITIONS ########
 
+import logging
 from dataclasses import dataclass, field
 from typing import ClassVar, Type
-import logging
 
 import numpy as np
 
@@ -77,8 +77,8 @@ class SelectMillingPositionTask(AutoLamellaTask):
 
         if not is_close:
             if self.config.auto_milling_alignment:
-                from fibsem.transformations import get_stage_tilt_from_milling_angle
                 from fibsem import alignment
+                from fibsem.transformations import get_stage_tilt_from_milling_angle
                 target_stage_tilt_degrees = np.degrees(get_stage_tilt_from_milling_angle(self.microscope,
                                                                                  np.radians(milling_angle)))
                 alignment._eucentric_tilt_alignment(microscope=self.microscope,

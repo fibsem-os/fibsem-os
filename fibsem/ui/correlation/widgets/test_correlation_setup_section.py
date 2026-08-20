@@ -42,13 +42,13 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
-from fibsem.ui.correlation.widgets.correlation_tab_widget import CorrelationTabWidget
 from fibsem.fm.structures import (
     FluorescenceChannelMetadata,
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
 from fibsem.structures import FibsemImage, Point
+from fibsem.ui.correlation.widgets.correlation_tab_widget import CorrelationTabWidget
 from fibsem.ui.stylesheets import NAPARI_STYLE
 
 _BURNS = [Point(0.33, 0.51), Point(0.5, 0.51), Point(0.66, 0.51)]

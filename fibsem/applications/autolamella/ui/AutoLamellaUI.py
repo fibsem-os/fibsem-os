@@ -1,6 +1,6 @@
 import sys
-import warnings
 import time
+import warnings
 
 from fibsem import conversions
 
@@ -13,10 +13,30 @@ import os
 import threading
 from copy import deepcopy
 from pathlib import Path
-from typing import List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
+
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtWidgets import (
+    QGridLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QSizePolicy,
+    QSpacerItem,
+    QTabWidget,
+    QWidget,
+)
+
 from fibsem import conversions
+from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
+    LamellaNameListWidget,
+)
+from fibsem.applications.autolamella.ui.selected_lamella_widget import (
+    SelectedLamellaWidget,
+)
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
-from fibsem.ui import notification_service
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,
@@ -31,31 +51,16 @@ from fibsem.ui import (
     FibsemCryoDepositionWidget,
     FibsemImageSettingsWidget,
     FibsemMovementWidget,
-    FibsemSystemSetupWidget,
     FibsemSpotBurnWidget,
+    FibsemSystemSetupWidget,
     MillingTaskViewerWidget,
+    notification_service,
     stylesheets,
 )
-from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
-from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui import utils as fui
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (
-    QGridLayout,
-    QLabel,
-    QLineEdit,
-    QMainWindow,
-    QMessageBox,
-    QPushButton,
-    QSizePolicy,
-    QSpacerItem,
-    QTabWidget,
-    QWidget,
-)
+from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
+from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.applications.autolamella.ui.lamella_name_list_widget import LamellaNameListWidget
-from fibsem.applications.autolamella.ui.selected_lamella_widget import SelectedLamellaWidget
 
 if (
     DETECTION_AVAILABLE
@@ -64,16 +69,15 @@ if (
         FibsemEmbeddedDetectionUI as FibsemEmbeddedDetectionWidget,
     )
 
-from fibsem.applications.autolamella.ui.autolamella_create_experiment_widget import (
-    create_experiment_dialog,
-)
-from fibsem.applications.autolamella.ui.autolamella_load_experiment_widget import load_experiment_dialog
-from fibsem.applications.autolamella.ui.autolamella_load_task_protocol_widget import (
-    load_task_protocol_dialog,
-)
-from fibsem.ui.fm.widgets import MinimapPlotWidget
-from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
+from psygnal import EmissionInfo
+from superqt import ensure_main_thread
+
+# Paired with the disabled completion_summary hook in setup_hooks; FunctionHook and
+# HookEvent come back from fibsem.hooks below at the same time.
+# from fibsem.applications.autolamella.tools.artifacts import write_completion_summary
+import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella import config as cfg
+from fibsem.applications.autolamella.hook_defaults import build_hook_manager
 from fibsem.applications.autolamella.poses import (
     build_lamella_poses,
     sync_fluorescence_pose,
@@ -85,16 +89,20 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
-# Paired with the disabled completion_summary hook in setup_hooks; FunctionHook and
-# HookEvent come back from fibsem.hooks below at the same time.
-# from fibsem.applications.autolamella.tools.artifacts import write_completion_summary
-import fibsem.config as fibsem_cfg
-from fibsem.applications.autolamella.hook_defaults import build_hook_manager
-from fibsem.hooks import HookManager
+from fibsem.applications.autolamella.ui.autolamella_create_experiment_widget import (
+    create_experiment_dialog,
+)
+from fibsem.applications.autolamella.ui.autolamella_load_experiment_widget import (
+    load_experiment_dialog,
+)
+from fibsem.applications.autolamella.ui.autolamella_load_task_protocol_widget import (
+    load_task_protocol_dialog,
+)
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+from fibsem.hooks import HookManager
+from fibsem.ui.fm.widgets import MinimapPlotWidget
+from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
-from psygnal import EmissionInfo
-from superqt import ensure_main_thread
 
 if TYPE_CHECKING:
     import pandas as pd

@@ -3,8 +3,9 @@ from __future__ import annotations
 import pytest
 
 from fibsem import utils
-from fibsem.structures import MicroscopeSettings, BeamType, ImageSettings, FibsemImage
 from fibsem.microscope import FibsemMicroscope
+from fibsem.structures import BeamType, FibsemImage, ImageSettings, MicroscopeSettings
+
 
 @pytest.fixture
 def demo_microscope() -> tuple[FibsemMicroscope, MicroscopeSettings]:

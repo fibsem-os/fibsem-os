@@ -11,20 +11,17 @@ See FIB-338.
 """
 
 from datetime import datetime
-
-from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFontMetrics
-from PyQt5.QtGui import QColor
+from PyQt5.QtGui import QColor, QFontMetrics
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QDialog,
     QFileDialog,
-    QInputDialog,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QPushButton,
     QSizePolicy,
@@ -36,16 +33,17 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.cancellation import OperationCancelledError
+from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.scripting import DiscoveredScript, ScriptResult
 from fibsem.ui.stylesheets import (
     ACCENT_COLOR,
     BORDER_COLOR,
+    DANGER_BUTTON_STYLESHEET,
     DISABLED_BG_COLOR,
     ERROR_COLOR,
     PANEL_COLOR,
     PRIMARY_BUTTON_STYLESHEET,
     ROW_ALT_COLOR,
-    DANGER_BUTTON_STYLESHEET,
     SURFACE_COLOR,
     TEXT_COLOR,
     TEXT_MUTED_COLOR,

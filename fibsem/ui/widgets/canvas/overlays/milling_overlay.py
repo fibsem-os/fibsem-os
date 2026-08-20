@@ -20,12 +20,13 @@ selected-stage highlight, background stages, annulus / bitmap shapes.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import TYPE_CHECKING, Optional, Sequence
 
 import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 from matplotlib.colors import to_rgba
 
+from fibsem.conversions import microscope_image_to_image_coordinates
 from fibsem.structures import (
     FibsemCircleSettings,
     FibsemImage,
@@ -34,19 +35,16 @@ from fibsem.structures import (
     FibsemRectangleSettings,
     Point,
 )
-from fibsem.conversions import microscope_image_to_image_coordinates
 from fibsem.ui.napari.patterns import (
     COLOURS,
     convert_pattern_to_napari_line,
     convert_pattern_to_napari_polygon,
     convert_pattern_to_napari_rect,
 )
-from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
-
-from typing import TYPE_CHECKING
 from fibsem.ui.tokens import (
     CANVAS_BG,
 )
+from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.canvas.canvas_base import ContentRect

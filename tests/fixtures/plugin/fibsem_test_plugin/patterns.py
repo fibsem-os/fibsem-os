@@ -22,7 +22,6 @@ from typing import ClassVar, List
 
 from fibsem.milling.patterning.patterns2 import BasePattern
 from fibsem.structures import FibsemRectangleSettings
-
 from fibsem_test_plugin import CLASHING_PATTERN_NAME, PATTERN_NAME
 
 

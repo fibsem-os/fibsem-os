@@ -11,8 +11,13 @@ from pathlib import Path
 from typing import Optional
 
 from fibsem import acquire, utils
-from fibsem.structures import BeamSettings, BeamType, FibsemDetectorSettings, FibsemStagePosition, ImageSettings
-
+from fibsem.structures import (
+    BeamSettings,
+    BeamType,
+    FibsemDetectorSettings,
+    FibsemStagePosition,
+    ImageSettings,
+)
 
 # ---------------------------------------------------------------------------
 # Unit helpers
@@ -126,7 +131,7 @@ def _print_image_result(image, beam_type: BeamType) -> None:
             saved = Path(s.path) / f"{s.filename}_{suffix}.tif"
             print(f"  saved:       {saved}")
         else:
-            print(f"  saved:       False")
+            print("  saved:       False")
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +187,7 @@ def cmd_move(microscope, settings, args) -> int:
         microscope.move_stage_relative(delta)
 
     pos = microscope.get_stage_position()
-    print(f"Move complete.")
+    print("Move complete.")
     _print_stage_position(pos)
     return 0
 

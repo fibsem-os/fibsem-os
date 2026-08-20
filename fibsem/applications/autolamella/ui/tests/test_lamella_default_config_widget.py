@@ -15,13 +15,10 @@ from __future__ import annotations
 
 import sys
 
+import numpy as np
 from PyQt5.QtWidgets import QApplication
 
-import numpy as np
-
 from fibsem.applications.autolamella.structures import LamellaDefaultConfig
-from fibsem.structures import FibsemRectangle, Point
-from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.applications.autolamella.ui.lamella_default_config_widget import (
     _POI_LIMIT_X_UM,
     _POI_LIMIT_Y_UM,
@@ -31,6 +28,8 @@ from fibsem.applications.autolamella.ui.lamella_default_config_widget import (
     _pixel_to_poi,
     _poi_to_pixel,
 )
+from fibsem.structures import FibsemRectangle, Point
+from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 
 _app = QApplication.instance() or QApplication(sys.argv)
 

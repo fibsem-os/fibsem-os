@@ -38,6 +38,15 @@ from ome_types.model import (
     Detector as OME_Detector,
 )
 
+# Autofocus types are canonical in fibsem.autofunctions.autofocus; re-export here
+# so existing `from fibsem.fm.structures import ...` imports keep working.
+from fibsem.autofunctions.autofocus import (  # noqa: E402,F401
+    AutoFocusResult,
+    AutoFocusSettings,
+    FocusMethod,
+    FocusSweepPass,
+)
+
 # AutoFocusMode is canonical in fibsem.structures -- there was a second, identical
 # enum of the same name here, so the two tilers held different objects for the same
 # concept and `is` comparisons across them silently failed. Imported (and so
@@ -57,15 +66,6 @@ from fibsem.structures import (  # noqa: F401
     FibsemStagePosition,
     TileOrderStrategy,
     _parse_image_transform,
-)
-
-# Autofocus types are canonical in fibsem.autofunctions.autofocus; re-export here
-# so existing `from fibsem.fm.structures import ...` imports keep working.
-from fibsem.autofunctions.autofocus import (  # noqa: E402,F401
-    AutoFocusResult,
-    AutoFocusSettings,
-    FocusMethod,
-    FocusSweepPass,
 )
 
 

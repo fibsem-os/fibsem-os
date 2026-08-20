@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import copy
 import logging
 from typing import List, Optional
@@ -20,15 +21,17 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.constants import SI_TO_MICRO, MICRO_TO_SI
 from fibsem.applications.autolamella.structures import Experiment
+from fibsem.constants import MICRO_TO_SI, SI_TO_MICRO
 from fibsem.structures import ReferenceImageParameters
 from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET
 from fibsem.ui.widgets.custom_widgets import (
     TitledPanel,
     ValueSpinBox,
 )
-from fibsem.ui.widgets.reference_image_parameters_widget import ReferenceImageParametersWidget
+from fibsem.ui.widgets.reference_image_parameters_widget import (
+    ReferenceImageParametersWidget,
+)
 
 
 class AutoLamellaGlobalTaskEditDialog(QDialog):

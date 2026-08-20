@@ -1,6 +1,11 @@
 # style sheets
 import os as _os
 
+# The application-level sheet moved to its own module; re-exported so that both
+# `from fibsem.ui.stylesheets import NAPARI_STYLE` and `stylesheets.NAPARI_STYLE`
+# keep resolving.
+from fibsem.ui.napari_style import NAPARI_STYLE  # noqa: F401
+
 # The colour palette lives in fibsem.ui.tokens and is imported here, at the top,
 # so the QSS constants below can interpolate it. Every name is re-exported for
 # the callers that import colours from this module rather than from tokens.
@@ -10,9 +15,9 @@ from fibsem.ui.tokens import (  # noqa: F401  (re-exported for existing callers)
     BORDER_COLOR,
     CANVAS_BG,
     DEFECT_ORANGE_COLOR,
+    DEFECT_RED_COLOR,
     DISABLED_BG_COLOR,
     DISABLED_TEXT_COLOR,
-    DEFECT_RED_COLOR,
     ERROR_COLOR,
     GRAY_BACKGROUND_COLOR,
     GRAY_CANVAS_COLOR,
@@ -25,6 +30,8 @@ from fibsem.ui.tokens import (  # noqa: F401  (re-exported for existing callers)
     GRAY_TEXT_COLOR,
     GRAY_WHITE_COLOR,
     GREEN_COLOR,
+    NEUTRAL_300,
+    NEUTRAL_650,
     OK_COLOR,
     ORANGE_COLOR,
     PANEL_COLOR,
@@ -46,16 +53,6 @@ from fibsem.ui.tokens import (  # noqa: F401  (re-exported for existing callers)
     TEXT_STRONG_COLOR,
     WARN_COLOR,
     WHITE_ICON_COLOR,
-)
-
-# The application-level sheet moved to its own module; re-exported so that both
-# `from fibsem.ui.stylesheets import NAPARI_STYLE` and `stylesheets.NAPARI_STYLE`
-# keep resolving.
-from fibsem.ui.napari_style import NAPARI_STYLE  # noqa: F401
-from fibsem.ui.tokens import (
-    NEUTRAL_300,
-    NEUTRAL_650,
-    SURFACE_COLOR,
 )
 
 _ICONS_DIR = _os.path.join(_os.path.dirname(__file__), "icons").replace("\\", "/")

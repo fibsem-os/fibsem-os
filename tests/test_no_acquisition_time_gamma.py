@@ -105,7 +105,6 @@ def test_gamma_remains_available_to_call_deliberately() -> None:
     and written to disk.
     """
     from fibsem.autofunctions.gamma import auto_gamma
-
     from fibsem.structures import FibsemImage
 
     image = FibsemImage(data=np.full((8, 8), 200, dtype=np.uint8))

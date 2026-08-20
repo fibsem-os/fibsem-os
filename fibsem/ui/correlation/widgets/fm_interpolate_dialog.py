@@ -25,12 +25,12 @@ from fibsem.correlation.util import INTERPOLATION_METHODS
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.widgets.custom_widgets import ValueComboBox, ValueSpinBox
 from fibsem.ui.tokens import (
     CANVAS_BG,
     NEUTRAL_300,
     NEUTRAL_400,
 )
+from fibsem.ui.widgets.custom_widgets import ValueComboBox, ValueSpinBox
 
 _WARN_COLOR = "#d6b57a"
 

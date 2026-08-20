@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import sys
 from typing import TYPE_CHECKING, Optional, Union
+
 from fibsem.microscopes._stage import SampleGridLoader, SampleHolder, Stage
 
 if TYPE_CHECKING:
@@ -344,11 +345,13 @@ class AutoscriptSputterCoater:
 
 
 
+import time
 from typing import TYPE_CHECKING
-import time 
+
 if TYPE_CHECKING:
     from fibsem.microscope import ThermoMicroscope
 from fibsem.structures import FibsemStagePosition
+
 
 class AutoscriptGISPort:
     port_name: str = "Pt dep"

@@ -1,9 +1,9 @@
-from  __future__ import annotations
+from __future__ import annotations
+
 import logging
 import threading
 import time
 from dataclasses import dataclass, field
-
 from typing import TYPE_CHECKING, List, Optional
 
 from fibsem.structures import BeamType, Point

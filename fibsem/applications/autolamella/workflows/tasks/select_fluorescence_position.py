@@ -13,6 +13,7 @@ from fibsem.applications.autolamella.workflows.ui import (
     ask_user,
 )
 
+
 @dataclass
 class SelectFluorescencePositionConfig(AutoLamellaTaskConfig):
     """Configuration for the SelectFluorescencePositionTask."""

@@ -22,7 +22,6 @@ from fibsem.hooks import (
     unknown_subscriptions,
 )
 
-
 # ---------------------------------------------------------------------------
 # the property that makes groups worth having
 # ---------------------------------------------------------------------------

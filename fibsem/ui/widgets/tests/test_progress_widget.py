@@ -21,7 +21,6 @@ from PyQt5.QtWidgets import (
 
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 
-
 # ---------------------------------------------------------------------------
 # Helper — a labelled demo section
 # ---------------------------------------------------------------------------

@@ -21,11 +21,16 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.correlation.refractive_index import ZetaParams, _LUT_PATH, _ensure_lut, lookup_zeta
-from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueSpinBox
+from fibsem.correlation.refractive_index import (
+    _LUT_PATH,
+    ZetaParams,
+    _ensure_lut,
+    lookup_zeta,
+)
 from fibsem.ui.tokens import (
     NEUTRAL_500,
 )
+from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueSpinBox
 
 _LUT_MISSING_MSG = (
     f"Correction factor calculator unavailable: LUT file not found at\n{_LUT_PATH}\n"

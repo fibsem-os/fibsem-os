@@ -1,17 +1,14 @@
-from typing import Optional
 import logging
+import os
+from pathlib import Path
+from typing import Optional
 
 import numpy as np
+import segmentation_models_pytorch as smp
 import torch
 import torch.nn.functional as F
 
-import segmentation_models_pytorch as smp
 from fibsem.segmentation.utils import decode_segmap, download_checkpoint
-
-from pathlib import Path
-import os
-
-
 
 # NOTE: these models contain numeric training bugs that were fixed in later versions. For reproducibility, we need to re-implement the bug for these models...
 # please contact (pat) if these models arent working as expected. 
@@ -204,7 +201,10 @@ def load_model(
         from fibsem.segmentation.nnunet_model import SegmentationModelNNUnet
         model = SegmentationModelNNUnet(checkpoint=checkpoint)
     elif backend == "onnx":
-        from fibsem.segmentation.onnx_model import SegmentationModelONNX, SegmentationModelWindowONNX
+        from fibsem.segmentation.onnx_model import (
+            SegmentationModelONNX,
+            SegmentationModelWindowONNX,
+        )
         for onnx_model in [SegmentationModelWindowONNX, SegmentationModelONNX]:
             try:
                 logging.debug(f"Trying to load {onnx_model}")
@@ -214,7 +214,9 @@ def load_model(
                 logging.debug(f"Failed to load {type(onnx_model)} for {checkpoint}: {e}")
 
     elif backend == "huggingface":
-        from fibsem.segmentation.hf_segmentation_model import SegmentationModelHuggingFace
+        from fibsem.segmentation.hf_segmentation_model import (
+            SegmentationModelHuggingFace,
+        )
         model = SegmentationModelHuggingFace(checkpoint=checkpoint)
     elif backend == "adaptive-smp":
         from fibsem.segmentation.adaptive_model import AdaptiveSegmentationModel

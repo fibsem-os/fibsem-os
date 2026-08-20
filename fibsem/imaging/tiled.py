@@ -6,6 +6,7 @@ import math
 import os
 import threading
 from copy import deepcopy
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
@@ -14,26 +15,27 @@ from matplotlib.figure import Figure
 
 from fibsem import acquire, conversions
 from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
+from fibsem.constants import DATETIME_FILE
 from fibsem.conversions import is_inside_image_bounds
 
 # Moved to the `tiling` package (FIB-390); re-exported so existing importers and the
 # public API are unaffected. `fibsem/imaging/__init__.py` star-imports this module.
 from fibsem.imaging.reduce import PreviewMosaic, downsample
-from fibsem.imaging.tiling.progress import MODALITY_BEAM
 from fibsem.imaging.tiling.geometry import (  # noqa: E402,F401
     TilePosition,
+    _spiral_order,  # noqa: E402,F401
     compute_tile_grid,
     order_tiles,
     raise_if_outside_stage_limits,
     validate_tile_stage_positions,
 )
-from fibsem.imaging.tiling.geometry import _spiral_order  # noqa: E402,F401
 from fibsem.imaging.tiling.plotting import (  # noqa: E402,F401
     POSITION_COLOURS,
     plot_minimap,
     plot_stage_positions_on_image,
     plot_tile_positions,
 )
+from fibsem.imaging.tiling.progress import MODALITY_BEAM
 from fibsem.imaging.tiling.reprojection import (  # noqa: E402,F401
     _inverse_y_corrected_stage_movement,
     _inverse_y_corrected_stage_movement_tescan,
@@ -45,10 +47,7 @@ from fibsem.imaging.tiling.reprojection import (  # noqa: E402,F401
     reproject_stage_positions_onto_image,
     reproject_stage_positions_onto_image2,
 )
-from fibsem.constants import DATETIME_FILE
 from fibsem.microscope import FibsemMicroscope
-from dataclasses import dataclass
-
 from fibsem.structures import (
     AutoFocusMode,
     BeamType,
@@ -59,9 +58,6 @@ from fibsem.structures import (
     Point,
     TileOrderStrategy,
 )
-
-
-
 
 ##### TILE GRID
 

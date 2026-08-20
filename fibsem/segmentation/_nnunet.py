@@ -1,20 +1,15 @@
 import glob
 import json
 import os
-
-import torch
-import numpy as np
-import matplotlib.pyplot as plt
-from nnunetv2.imageio.simpleitk_reader_writer import SimpleITKIO
-from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
-
-import glob
-import PIL.Image
-from tqdm import tqdm
-import os
 import shutil
 
-import json
+import matplotlib.pyplot as plt
+import numpy as np
+import PIL.Image
+import torch
+from nnunetv2.imageio.simpleitk_reader_writer import SimpleITKIO
+from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
+from tqdm import tqdm
 
 
 def load_model(path: str, device) -> nnUNetPredictor:
@@ -65,9 +60,8 @@ def load_from_checkpoint(
     # TODO: this is a copy of nnunetv2.inference.predict_from_raw_data.load_from_checkpoint
     # should be depreciated once the change is upstreamed...
 
-    from nnunetv2.utilities.plans_handling.plans_handler import PlansManager
-    from nnunetv2.inference.predict_from_raw_data import determine_num_input_channels
     import nnunetv2
+    from nnunetv2.inference.predict_from_raw_data import determine_num_input_channels
     from nnunetv2.utilities.find_class_by_name import recursive_find_python_class
     from nnunetv2.utilities.label_handling.label_handling import (
         determine_num_input_channels,
@@ -246,7 +240,7 @@ def convert_to_nnunet_dataset(
         )
 
         print(
-            f"NNUnet requires the dataset folder to begin with DatasetXXX, where XXX is the number of the dataset."
+            "NNUnet requires the dataset folder to begin with DatasetXXX, where XXX is the number of the dataset."
         )
         ret = input(f"Rename {NNUNET_DATA_PATH} to {new_nnunet_path}? (y/n)")
 
@@ -317,7 +311,7 @@ def convert_to_nnunet_dataset(
                     f"WARNING: Number of unique labels ({len(unique_labels)}) does not match number of labels in LABEL_MAP ({len(LABEL_MAP)})"
                 )
         else:
-            print(f"WARNING: No label map provided. Using default label map.")
+            print("WARNING: No label map provided. Using default label map.")
             LABEL_MAP = [f"label_{i:02d}" for i in range(len(unique_labels))]
 
         dataset_json["labels"] = {label: i for i, label in enumerate(LABEL_MAP)}
@@ -332,8 +326,8 @@ def convert_to_nnunet_dataset(
     n_images = len(glob.glob(os.path.join(NNUNET_IMAGES_PATH, f"{GLOB_PATTERN}")))
     n_labels = len(glob.glob(os.path.join(NNUNET_LABELS_PATH, f"{GLOB_PATTERN}")))
 
-    print(f"-" * 50)
-    print(f"Summary: ")
+    print("-" * 50)
+    print("Summary: ")
     print(f"{n_images} images in {NNUNET_IMAGES_PATH}")
     print(f"{n_labels} labels in {NNUNET_LABELS_PATH}")
     print(f"Number of unique labels: {len(unique_labels)}")
@@ -350,23 +344,23 @@ def convert_to_nnunet_dataset(
     print(f"Dataset ID: {DATASET_ID}")
     print(f"Dataset Path: {NNUNET_DATA_PATH}")
 
-    print(f"\n1. Set the following environment variables:")
+    print("\n1. Set the following environment variables:")
     print(f"nnUNet_raw={nnUnetRaw}")
 
-    print(f"Currently, the environment variables are set to:")
+    print("Currently, the environment variables are set to:")
     print(f"nnUNet_raw: {os.environ.get('nnUNet_raw')}")
     print(f"nnUNet_preprocessed: {os.environ.get('nnUNet_preprocessed')}")
     print(f"nnUNet_results: {os.environ.get('nnUNet_results')}")
 
     # pre-process the dataset
-    print(f"\n2. Pre-Process the Dataset: ")
+    print("\n2. Pre-Process the Dataset: ")
     print(f"nnUNetv2_plan_and_preprocess -d {DATASET_ID} --verify_dataset_integrity")
 
     # train the dataset
     print(f"\n3. Train the Model on the Dataset {DATASET_ID}: ")
     print(f"nnUNetv2_train {DATASET_ID} 2d all")
 
-    print(f"Post Training: ")
-    print(f"\nOnce training is complete, you can run inference on the dataset:")
-    print(f"See doc/nnunet_inference.md for more details.")
-    print(f"-" * 50)
+    print("Post Training: ")
+    print("\nOnce training is complete, you can run inference on the dataset:")
+    print("See doc/nnunet_inference.md for more details.")
+    print("-" * 50)

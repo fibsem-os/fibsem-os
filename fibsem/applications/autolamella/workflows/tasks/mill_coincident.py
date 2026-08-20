@@ -2,18 +2,15 @@ from __future__ import annotations
 
 import logging
 import os
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import (
     ClassVar,
     Literal,
-    Type,
     Optional,
+    Type,
 )
-from copy import deepcopy
-from fibsem.milling.patterning.patterns2 import RectanglePattern
-from fibsem.milling.tasks import FibsemMillingTaskConfig, FibsemMillingStage
-from fibsem.milling.base import FibsemMillingSettings
-from fibsem.structures import CrossSectionPattern, field_meta
+
 import fibsem.utils as utils
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows._default_milling_config import (
@@ -31,10 +28,14 @@ from fibsem.applications.autolamella.workflows.ui import (
 )
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.structures import ChannelSettings
+from fibsem.milling.base import FibsemMillingSettings
+from fibsem.milling.patterning.patterns2 import RectanglePattern
 from fibsem.milling.strategy.coincidence import (
     CoincidenceMillingStrategy,
     CoincidenceMillingStrategyConfig,
 )
+from fibsem.milling.tasks import FibsemMillingStage, FibsemMillingTaskConfig
+from fibsem.structures import CrossSectionPattern, field_meta
 
 MILL_COINCIDENT_KEY = "mill_coincident"
 

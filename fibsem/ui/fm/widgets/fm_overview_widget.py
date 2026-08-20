@@ -40,6 +40,9 @@ from fibsem.fm.structures import (
     ObjectiveStartPosition,
     OverviewParameters,
 )
+from fibsem.imaging.tiling import unreachable_tiles
+from fibsem.imaging.tiling.geometry import TilePosition, compute_tile_grid_from_fov
+from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE, is_modality
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemStagePosition
 from fibsem.ui import notification_service, stylesheets
@@ -49,14 +52,16 @@ from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
     FMOverviewConfirmationDialog,
 )
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
-from fibsem.ui.widgets.overview_list_widget import OverviewListWidget
-from fibsem.ui.widgets.canvas.overlays.tile_grid_options_panel import (
-    TileGridOptionsPanel,
-)
 from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE, is_modality
-from fibsem.imaging.tiling import unreachable_tiles
-from fibsem.imaging.tiling.geometry import TilePosition, compute_tile_grid_from_fov
+from fibsem.ui.tokens import (
+    CURRENT_POSITION_COLOUR,
+    GRID_BOUNDARY_COLOUR,
+    SAVED_POSITION_COLOUR,
+    SELECTED_POSITION_COLOUR,
+    SLOT_COLOUR,
+    STAGE_LIMITS_COLOUR,
+)
+from fibsem.ui.widgets.canvas.fm_canvas import FMRealSpaceCanvasWidget
 from fibsem.ui.widgets.canvas.overlay_controls import (
     CanvasOverlayControls,
     CanvasPopover,
@@ -67,16 +72,12 @@ from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
     MinimapShapesOverlay,
     ShapeSpec,
 )
-from fibsem.ui.tokens import (
-    CURRENT_POSITION_COLOUR,
-    GRID_BOUNDARY_COLOUR,
-    SAVED_POSITION_COLOUR,
-    SELECTED_POSITION_COLOUR,
-    SLOT_COLOUR,
-    STAGE_LIMITS_COLOUR,
-)
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointsOverlay
+from fibsem.ui.widgets.canvas.overlays.tile_grid_options_panel import (
+    TileGridOptionsPanel,
+)
 from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import TileGridOverlay
+from fibsem.ui.widgets.canvas.stage_frame import FMStageProjection, StageFrame
 from fibsem.ui.widgets.custom_widgets import (
     ContextMenu,
     ContextMenuConfig,
@@ -84,12 +85,11 @@ from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     TitledPanel,
 )
+from fibsem.ui.widgets.overview_list_widget import OverviewListWidget
 from fibsem.ui.widgets.progress_widget import (
     FibsemProgressWidget,
     ProgressUpdate,
 )
-from fibsem.ui.widgets.canvas.fm_canvas import FMRealSpaceCanvasWidget
-from fibsem.ui.widgets.canvas.stage_frame import FMStageProjection, StageFrame
 
 TEXT_MUTED = stylesheets.TEXT_MUTED_COLOR
 PROGRESS_FONT_PX = 10

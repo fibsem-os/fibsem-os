@@ -28,77 +28,83 @@ from PyQt5.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
-    QTextEdit,
     QSplitter,
     QTabWidget,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 from superqt import ensure_main_thread
-from fibsem.ui.icon import fibsem_icon
 
 import fibsem
-from fibsem.versioning import get_version_string
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskStatus,
     Experiment,
     Lamella,
 )
+from fibsem.applications.autolamella.ui.autolamella_fluorescence_overview_tab import (
+    AutoLamellaFluorescenceOverviewTab,
+)
+from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
+    AutoLamellaProtocolEditorWidget,
+)
+from fibsem.applications.autolamella.ui.autolamella_overview_tab import (
+    AutoLamellaOverviewTab,
+)
+from fibsem.applications.autolamella.ui.autolamella_task_config_editor import (
+    AutoLamellaProtocolTaskConfigEditor,
+)
+from fibsem.applications.autolamella.ui.AutoLamellaUI import INSTRUCTIONS, AutoLamellaUI
+from fibsem.applications.autolamella.ui.lamella_card_widget import LamellaCardContainer
+from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
+    LamellaTaskImageWidget,
+)
+from fibsem.applications.autolamella.ui.lamella_workflow_widget import (
+    LamellaWorkflowWidget,
+)
 from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
     WorkflowPreflightDialog,
 )
+from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
+    WorkflowProgressWidget,
+)
+from fibsem.applications.autolamella.workflows.tasks.queue import QueueOp, QueueResult
+from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.applications.autolamella.workflows.workflow_estimate import (
     AdditionEstimate,
     estimate_addition,
     estimate_workflow,
 )
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI, INSTRUCTIONS
-from fibsem.applications.autolamella.ui.autolamella_fluorescence_overview_tab import (
-    AutoLamellaFluorescenceOverviewTab,
-)
-from fibsem.applications.autolamella.ui.autolamella_overview_tab import (
-    AutoLamellaOverviewTab,
-)
-from fibsem.applications.autolamella.workflows.tasks.queue import QueueOp, QueueResult
-from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
+from fibsem.structures import BeamType
+from fibsem.ui import notification_service
 from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
+from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.gc import install_main_thread_gc
 from fibsem.ui.stylesheets import (
-    PROGRESS_BAR_STYLESHEET,
-    NAPARI_STYLE,
     DANGER_BUTTON_STYLESHEET,
+    GRAY_ICON_COLOR,
+    NAPARI_STYLE,
+    PRIMARY_BUTTON_STYLESHEET,
+    PROGRESS_BAR_STYLESHEET,
+    SECONDARY_BUTTON_STYLESHEET,
+    STATUS_BAR_STYLESHEET,
     SUPERVISION_STATUS_AUTOMATED_STYLESHEET,
     SUPERVISION_STATUS_SUPERVISED_STYLESHEET,
     USER_ATTENTION_BUTTON_STYLESHEET,
-    STATUS_BAR_STYLESHEET,
-    PRIMARY_BUTTON_STYLESHEET,
-    SECONDARY_BUTTON_STYLESHEET,
-    GRAY_ICON_COLOR,
     border_stylesheet,
 )
-from fibsem.ui.widgets import preflight
-from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
-from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
-from fibsem.ui import notification_service
-from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
-    AutoLamellaProtocolEditorWidget,
-)
-from fibsem.applications.autolamella.ui.autolamella_task_config_editor import (
-    AutoLamellaProtocolTaskConfigEditor,
-)
-from fibsem.applications.autolamella.ui.lamella_card_widget import LamellaCardContainer
-from fibsem.applications.autolamella.ui.lamella_task_image_widget import LamellaTaskImageWidget
-from fibsem.structures import BeamType
-from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
-from fibsem.applications.autolamella.ui.lamella_workflow_widget import LamellaWorkflowWidget
-from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
-from fibsem.applications.autolamella.ui.workflow_timeline_widget import WorkflowProgressWidget
-from fibsem.utils import format_duration
 from fibsem.ui.tokens import (
     SURFACE_COLOR,
     TEXT_COLOR,
 )
+from fibsem.ui.widgets import preflight
+from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
+from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
+from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
+from fibsem.utils import format_duration
+from fibsem.versioning import get_version_string
 
 # Suppress a specific upstream Napari/NumPy warning from shapes miter computation.
 warnings.filterwarnings(

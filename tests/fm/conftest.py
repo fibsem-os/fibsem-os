@@ -1,7 +1,8 @@
 import os
-import pytest
-import fibsem.config as fconfig
 
+import pytest
+
+import fibsem.config as fconfig
 
 SIM_ARCTIS_CONFIG_PATH = os.path.join(fconfig.CONFIG_PATH, "sim-arctis-configuration.yaml")
 

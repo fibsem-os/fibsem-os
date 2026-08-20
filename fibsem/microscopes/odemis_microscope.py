@@ -2,13 +2,15 @@ import logging
 import os
 import sys
 from copy import deepcopy
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
+
 import numpy as np
 from psygnal import Signal
 
 from fibsem.microscope import FibsemMicroscope, ThermoMicroscope
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import (
+    ACTIVE_MILLING_STATES,
     BeamSettings,
     BeamType,
     CrossSectionPattern,
@@ -22,16 +24,15 @@ from fibsem.structures import (
     FibsemManipulatorPosition,
     FibsemMillingSettings,
     FibsemPolygonSettings,
+    FibsemRectangle,
     FibsemRectangleSettings,
     FibsemStagePosition,
     FibsemUser,
     ImageSettings,
-    FibsemRectangle,
     MicroscopeState,
     MillingState,
     Point,
     SystemSettings,
-    ACTIVE_MILLING_STATES,
 )
 
 
@@ -72,7 +73,6 @@ add_odemis_path()
 
 from odemis import model
 from odemis.util.dataio import open_acquisition
-
 
 if TYPE_CHECKING:
     from odemis.driver.autoscript_client import SEM as OdemisAutoscriptClient

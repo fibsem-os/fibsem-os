@@ -46,57 +46,57 @@ __all__ = [
     "SelectFluorescencePositionTask",
 ]
 
+from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import (
+    AcquireFluorescenceImageConfig,
+    AcquireFluorescenceImageTask,
+)
 from fibsem.applications.autolamella.workflows.tasks.base import (
-    AutoLamellaTask,
-    get_task_supervision,
-    MAX_ALIGNMENT_ATTEMPTS,
-    ALIGNMENT_REFERENCE_IMAGE_FILENAME,
-    TAutoLamellaTaskConfig,
     _LIFECYCLE_STEPS,
+    ALIGNMENT_REFERENCE_IMAGE_FILENAME,
+    MAX_ALIGNMENT_ATTEMPTS,
+    AutoLamellaTask,
+    TAutoLamellaTaskConfig,
+    get_task_supervision,
 )
-from fibsem.applications.autolamella.workflows.tasks.trench import (
-    MillTrenchTaskConfig,
-    MillTrenchTask,
-)
-from fibsem.applications.autolamella.workflows.tasks.undercut import (
-    MillUndercutTaskConfig,
-    MillUndercutTask,
-)
-from fibsem.applications.autolamella.workflows.tasks.rough import (
-    MillRoughTaskConfig,
-    MillRoughTask,
-)
-from fibsem.applications.autolamella.workflows.tasks.polishing import (
-    MillPolishingTaskConfig,
-    MillPolishingTask,
+from fibsem.applications.autolamella.workflows.tasks.basic_milling import (
+    BasicMillingTask,
+    BasicMillingTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.fiducial import (
-    MillFiducialTaskConfig,
     MillFiducialTask,
+    MillFiducialTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
-    SpotBurnFiducialTaskConfig,
-    SpotBurnFiducialTask,
+from fibsem.applications.autolamella.workflows.tasks.polishing import (
+    MillPolishingTask,
+    MillPolishingTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.reference_image import (
     AcquireReferenceImageConfig,
     AcquireReferenceImageTask,
 )
-from fibsem.applications.autolamella.workflows.tasks.select_position import (
-    SelectMillingPositionTaskConfig,
-    SelectMillingPositionTask,
-)
-from fibsem.applications.autolamella.workflows.tasks.basic_milling import (
-    BasicMillingTaskConfig,
-    BasicMillingTask,
-)
-from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import (
-    AcquireFluorescenceImageConfig,
-    AcquireFluorescenceImageTask,
+from fibsem.applications.autolamella.workflows.tasks.rough import (
+    MillRoughTask,
+    MillRoughTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.select_fluorescence_position import (
     SelectFluorescencePositionConfig,
     SelectFluorescencePositionTask,
+)
+from fibsem.applications.autolamella.workflows.tasks.select_position import (
+    SelectMillingPositionTask,
+    SelectMillingPositionTaskConfig,
+)
+from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
+    SpotBurnFiducialTask,
+    SpotBurnFiducialTaskConfig,
+)
+from fibsem.applications.autolamella.workflows.tasks.trench import (
+    MillTrenchTask,
+    MillTrenchTaskConfig,
+)
+from fibsem.applications.autolamella.workflows.tasks.undercut import (
+    MillUndercutTask,
+    MillUndercutTaskConfig,
 )
 
 # related tasks (must be defined after task definitions, due to circular nature)

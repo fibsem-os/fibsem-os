@@ -18,21 +18,23 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from superqt import ensure_main_thread
-from fibsem import conversions, utils
+
 from fibsem import config as fcfg
+from fibsem import conversions, utils
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.calibration import run_autofocus
 from fibsem.fm.config import record_recent_channels
 from fibsem.fm.structures import (
     AutoFocusSettings,
     ChannelSettings,
-    FluorescenceImage,
     FluorescenceConfiguration,
+    FluorescenceImage,
     OverviewParameters,
     ZParameters,
 )
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import Point
+from fibsem.ui import notification_service
 from fibsem.ui.fm.widgets import (
     AutofocusWidget,
     CameraWidget,
@@ -41,12 +43,11 @@ from fibsem.ui.fm.widgets import (
     ObjectiveControlWidget,
     ZParametersWidget,
 )
-from fibsem.ui import notification_service
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
-from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     TitledPanel,
@@ -1049,7 +1050,7 @@ class FMControlWidget(QWidget):
                 f"method={autofocus_settings.method.value}"
             )
 
-            from fibsem.fm.calibration import run_coarse_fine_autofocus, plot_autofocus
+            from fibsem.fm.calibration import plot_autofocus, run_coarse_fine_autofocus
 
             result = run_coarse_fine_autofocus(
                 self.fm,

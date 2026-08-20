@@ -15,7 +15,12 @@ import sys
 
 import numpy as np
 from PyQt5.QtWidgets import (
-    QApplication, QCheckBox, QHBoxLayout, QLabel, QVBoxLayout, QWidget,
+    QApplication,
+    QCheckBox,
+    QHBoxLayout,
+    QLabel,
+    QVBoxLayout,
+    QWidget,
 )
 
 from fibsem.structures import FibsemImage

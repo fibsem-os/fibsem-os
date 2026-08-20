@@ -27,7 +27,9 @@ from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
     confirm_add_to_queue_dialog,
 )
 from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
-from fibsem.applications.autolamella.workflows.workflow_estimate import estimate_addition
+from fibsem.applications.autolamella.workflows.workflow_estimate import (
+    estimate_addition,
+)
 from fibsem.ui.stylesheets import NAPARI_STYLE
 
 NOW = datetime(2026, 8, 19, 14, 0, 0)

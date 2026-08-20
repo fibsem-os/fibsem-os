@@ -1,7 +1,9 @@
+from typing import List, Tuple
+
 import numpy as np
 import torch
 from transformers import SamModel, SamProcessor
-from typing import List, Tuple
+
 
 class SamModelWrapper:
     def __init__(self, checkpoint: str = "facebook/sam-vit-base", device: str = None):

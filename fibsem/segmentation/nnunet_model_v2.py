@@ -1,6 +1,5 @@
 
 import os
-
 from typing import List, Optional
 
 import numpy as np
@@ -9,6 +8,7 @@ from nnunetv2.inference import predict_from_raw_data as nnunet_predict
 
 from fibsem.segmentation import config as scfg
 from fibsem.segmentation.utils import decode_segmap_v2
+
 
 class SegmentationModelNNUnetV2():
     def __init__(self, checkpoint: str):

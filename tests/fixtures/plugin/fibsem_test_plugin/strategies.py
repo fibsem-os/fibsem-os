@@ -10,7 +10,6 @@ from fibsem.milling.base import (
     MillingStrategy,
     MillingStrategyConfig,
 )
-
 from fibsem_test_plugin import STRATEGY_NAME
 
 

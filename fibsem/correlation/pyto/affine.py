@@ -9,13 +9,14 @@ transformation followed by translation) on points (vectors).
 __version__ = "$Revision: 1292 $"
 
 
-import warnings
 import logging
+import warnings
+from functools import reduce
 
 import numpy
 import scipy
 import scipy.linalg as linalg
-from functools import reduce
+
 
 class Affine(object):
     """

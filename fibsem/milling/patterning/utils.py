@@ -1,13 +1,16 @@
 """Utility functions for pattern analysis and coordinate conversion."""
 from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING, Any, List, Tuple
+
 import numpy as np
-from typing import List, Tuple, Any, TYPE_CHECKING
 
 from fibsem.structures import FibsemRectangle
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
+
     from fibsem.milling.patterning.patterns2 import BasePattern
     from fibsem.structures import FibsemImage
 

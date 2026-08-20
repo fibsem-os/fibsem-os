@@ -15,17 +15,17 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from fibsem.ui.icon import fibsem_icon
 
 from fibsem.microscopes._stage import GridSlot, SampleGrid, SampleHolder
 from fibsem.ui import stylesheets
-from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueSpinBox
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
     CANVAS_BG,
     NEUTRAL_500,
     NEUTRAL_700,
     SURFACE_COLOR,
 )
+from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueSpinBox
 
 _ROW_HEIGHT = 40
 _BTN_SIZE = QSize(32, 32)
@@ -491,7 +491,9 @@ class SampleHolderWidget(QWidget):
 
 if __name__ == "__main__":
     import sys
+
     from PyQt5.QtWidgets import QApplication
+
     from fibsem import utils
 
     logging.basicConfig(level=logging.DEBUG)

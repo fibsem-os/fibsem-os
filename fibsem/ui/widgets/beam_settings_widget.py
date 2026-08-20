@@ -10,11 +10,10 @@ from PyQt5.QtWidgets import (
     QLabel,
     QWidget,
 )
-
 from superqt.utils import qdebounced
 
-from fibsem import constants, utils
 from fibsem import config as cfg
+from fibsem import constants, utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamSettings, BeamType, Point
 from fibsem.ui.utils import install_wheel_blocker

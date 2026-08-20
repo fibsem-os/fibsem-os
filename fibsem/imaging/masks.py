@@ -1,9 +1,10 @@
 import numpy as np
 import scipy.ndimage as ndi
+from PIL import Image, ImageDraw
+
 from fibsem import conversions
 from fibsem.imaging import utils as image_utils
-from fibsem.structures import Point, FibsemImage
-from PIL import Image, ImageDraw
+from fibsem.structures import FibsemImage, Point
 
 
 ### MASKING

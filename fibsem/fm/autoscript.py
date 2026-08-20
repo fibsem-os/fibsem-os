@@ -1,19 +1,19 @@
 import logging
 import threading
 from contextlib import contextmanager
-from typing import Literal, Tuple, Optional, Union, Dict, Any
+from typing import Any, Dict, Literal, Optional, Tuple, Union
 
 import numpy as np
-from autoscript_sdb_microscope_client.structures import (
-    GrabFrameSettings,
-    GetImageSettings,
-)
 from autoscript_sdb_microscope_client.enumerations import (
     CameraEmissionType,
     CameraFilterType,
     ImagingDevice,
     ImagingState,
     RetractableDeviceState,
+)
+from autoscript_sdb_microscope_client.structures import (
+    GetImageSettings,
+    GrabFrameSettings,
 )
 
 from fibsem.fm.microscope import (

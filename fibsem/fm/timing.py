@@ -9,8 +9,13 @@ z-stacks, and tilesets.
 import logging
 from typing import List, Optional, Tuple, Union
 
-from fibsem.fm.structures import ChannelSettings, ZParameters, ZStackOrder
-from fibsem.fm.structures import AutoFocusMode, AutoFocusSettings
+from fibsem.fm.structures import (
+    AutoFocusMode,
+    AutoFocusSettings,
+    ChannelSettings,
+    ZParameters,
+    ZStackOrder,
+)
 
 # Timing constants for acquisition operations
 # Camera readout, processing and save, per image, on top of the exposure. Measured

@@ -4,6 +4,7 @@ import os
 
 from fibsem.detection.detection import generate_segmentation_objects
 
+
 def main():
 
     parser = argparse.ArgumentParser("Generate segmentation objects from segmentation labels")

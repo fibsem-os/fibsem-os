@@ -17,7 +17,6 @@ from PyQt5 import QtWidgets
 from PyQt5.QtGui import QFont
 
 import fibsem
-from fibsem.versioning import get_version_string
 from fibsem.segmentation import utils as seg_utils
 from fibsem.segmentation.config import (
     CLASS_COLORS,
@@ -32,6 +31,7 @@ from fibsem.ui.utils import (
     open_existing_directory_dialog,
     open_existing_file_dialog,
 )
+from fibsem.versioning import get_version_string
 
 # setup a basic logger
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)

@@ -355,9 +355,11 @@ def test_the_column_does_not_move_when_the_hover_button_appears(widget, app):
 from PyQt5.QtCore import QObject, pyqtSignal  # noqa: E402
 
 from fibsem.applications.autolamella.structures import Experiment, Lamella  # noqa: E402
-from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager  # noqa: E402
 from fibsem.applications.autolamella.workflows.tasks.fiducial import (  # noqa: E402
     MillFiducialTaskConfig,
+)
+from fibsem.applications.autolamella.workflows.tasks.manager import (
+    TaskManager,  # noqa: E402
 )
 from fibsem.applications.autolamella.workflows.tasks.select_position import (  # noqa: E402
     SelectMillingPositionTaskConfig,

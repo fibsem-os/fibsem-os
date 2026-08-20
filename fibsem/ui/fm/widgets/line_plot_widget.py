@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
     GRAY_WHITE_COLOR,

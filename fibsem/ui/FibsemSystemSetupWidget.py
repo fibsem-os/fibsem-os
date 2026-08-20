@@ -4,23 +4,22 @@ from typing import Optional
 
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import pyqtSignal
-from fibsem.ui.icon import fibsem_icon
 
 from fibsem import config as cfg
 from fibsem import utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import MicroscopeSettings, SystemSettings
-from fibsem.ui import stylesheets
-from fibsem.ui import notification_service
-from fibsem.ui.utils import message_box_ui, open_existing_file_dialog
-from fibsem.ui.widgets.custom_widgets import (
-    ValueComboBox,
-)
+from fibsem.ui import notification_service, stylesheets
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
     BORDER_COLOR,
     NEUTRAL_500,
     PANEL_COLOR,
     WHITE_ICON_COLOR,
+)
+from fibsem.ui.utils import message_box_ui, open_existing_file_dialog
+from fibsem.ui.widgets.custom_widgets import (
+    ValueComboBox,
 )
 
 

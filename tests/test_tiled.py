@@ -1,10 +1,22 @@
 import pytest
 from matplotlib.figure import Figure
 
-from fibsem.imaging.tiled import TilePosition, _spiral_order, compute_tile_grid, order_tiles, plot_tile_positions, validate_tile_stage_positions
+from fibsem.imaging.tiled import (
+    TilePosition,
+    _spiral_order,
+    compute_tile_grid,
+    order_tiles,
+    plot_tile_positions,
+    validate_tile_stage_positions,
+)
 from fibsem.imaging.tiling import grid_centre_offset, unreachable_tiles
-from fibsem.structures import FibsemStagePosition, ImageSettings, OverviewAcquisitionSettings, RangeLimit, TileOrderStrategy
-
+from fibsem.structures import (
+    FibsemStagePosition,
+    ImageSettings,
+    OverviewAcquisitionSettings,
+    RangeLimit,
+    TileOrderStrategy,
+)
 
 # ---------------------------------------------------------------------------
 # compute_tile_grid

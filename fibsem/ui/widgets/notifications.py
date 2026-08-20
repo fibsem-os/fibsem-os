@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import sys
+
 try:
     sys.modules.pop("PySide6.QtCore")
 except Exception:
     pass
 
 from datetime import datetime
-from PyQt5.QtCore import QPropertyAnimation, QTimer, Qt, QPoint
+
+from PyQt5.QtCore import QPoint, QPropertyAnimation, Qt, QTimer
 from PyQt5.QtWidgets import (
     QApplication,
     QGraphicsOpacityEffect,
@@ -19,9 +21,10 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from fibsem.ui.icon import fibsem_icon
+
 from fibsem.constants import TIME_DISPLAY
 from fibsem.ui import stylesheets
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
     BORDER_COLOR,
@@ -31,6 +34,7 @@ from fibsem.ui.tokens import (
     SURFACE_COLOR,
     TEXT_COLOR,
 )
+
 
 class ToastNotification(QWidget):
     """A toast notification widget that appears in the bottom-right corner."""

@@ -1,3 +1,5 @@
+from typing import List, Optional
+
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
@@ -7,7 +9,6 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from typing import List, Optional
 
 from fibsem import constants
 from fibsem.config import (
@@ -15,11 +16,24 @@ from fibsem.config import (
     DEFAULT_STANDARD_RESOLUTION,
     DEFAULT_STANDARD_RESOLUTION_LIST,
 )
-from fibsem.utils import current_timestamp_v3
-from fibsem.structures import AutoFocusMode, AutoFocusSettings, BeamType, FocusStackSettings, ImageSettings, OverviewAcquisitionSettings, TileOrderStrategy
+from fibsem.structures import (
+    AutoFocusMode,
+    AutoFocusSettings,
+    BeamType,
+    FocusStackSettings,
+    ImageSettings,
+    OverviewAcquisitionSettings,
+    TileOrderStrategy,
+)
 from fibsem.ui import stylesheets
-from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueComboBox, ValueSpinBox
+from fibsem.ui.widgets.custom_widgets import (
+    IconToolButton,
+    TitledPanel,
+    ValueComboBox,
+    ValueSpinBox,
+)
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
+from fibsem.utils import current_timestamp_v3
 
 # What an overview run looks like before anyone touches it.
 #
@@ -431,6 +445,7 @@ class OverviewAcquisitionSettingsWidget(QWidget):
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     import sys
+
     from PyQt5.QtWidgets import QApplication, QPushButton
 
     app = QApplication(sys.argv)

@@ -5,21 +5,31 @@ from pathlib import Path
 from typing import List
 
 import pytest
+from psygnal.containers import EventedDict
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     DefectState,
     DefectType,
     Experiment,
-    LamellaDefaultConfig,
     Lamella,
+    LamellaDefaultConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.basic_milling import BasicMillingTaskConfig
+from fibsem.applications.autolamella.workflows.tasks.basic_milling import (
+    BasicMillingTaskConfig,
+)
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns2 import RectanglePattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import DEFAULT_ALIGNMENT_AREA, FibsemMillingSettings, FibsemRectangle, ImageSettings, MicroscopeState, Point, ReferenceImageParameters
-from psygnal.containers import EventedDict
+from fibsem.structures import (
+    DEFAULT_ALIGNMENT_AREA,
+    FibsemMillingSettings,
+    FibsemRectangle,
+    ImageSettings,
+    MicroscopeState,
+    Point,
+    ReferenceImageParameters,
+)
 
 # ── DefectState tests ─────────────────────────────────────────────────────────
 

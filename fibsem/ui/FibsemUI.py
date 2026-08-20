@@ -1,18 +1,18 @@
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt
 
-from fibsem.versioning import get_version_string
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import MicroscopeSettings
 from fibsem.ui import notification_service
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.FibsemManipulatorWidget import FibsemManipulatorWidget
-from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
 from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 from fibsem.ui.qtdesigner_files import FibsemUI as FibsemUIMainWindow
 from fibsem.ui.stylesheets import NAPARI_STYLE
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
+from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
+from fibsem.versioning import get_version_string
 
 
 class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):

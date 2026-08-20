@@ -5,7 +5,6 @@ from typing import ClassVar, Type
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
-
 from fibsem_test_plugin import TASK_TYPE
 
 

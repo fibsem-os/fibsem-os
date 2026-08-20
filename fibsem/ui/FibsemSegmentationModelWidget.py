@@ -1,7 +1,6 @@
 
 import napari
 import napari.utils.notifications
-from fibsem.ui.qt.threading import thread_worker
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtGui import QFont
@@ -9,6 +8,7 @@ from PyQt5.QtGui import QFont
 from fibsem.detection.detection import DetectedFeatures
 from fibsem.segmentation.model import SegmentationModel, load_model
 from fibsem.ui import stylesheets
+from fibsem.ui.qt.threading import thread_worker
 from fibsem.ui.utils import install_wheel_blocker
 
 CHECKPOINT_PATH = "autolamella-mega-20240107.pt"

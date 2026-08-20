@@ -1,14 +1,13 @@
 import datetime
 import glob
 import json
-
 import logging
 import math
 import os
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Tuple, Optional, Union
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
 import yaml
 from PIL import Image
@@ -20,6 +19,7 @@ from fibsem.structures import (
     FibsemImage,
     MicroscopeSettings,
 )
+
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 

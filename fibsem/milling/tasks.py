@@ -1,21 +1,27 @@
 from __future__ import annotations
 
-from datetime import datetime
 import logging
 import os
+import threading
 import time
 import uuid
-import threading
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from fibsem import acquire
 from fibsem import config as fcfg
-from fibsem.microscope import FibsemMicroscope
 from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
+from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage
-from fibsem.structures import BeamType, FibsemImage, ImageSettings, MillingAlignment, Point
+from fibsem.structures import (
+    BeamType,
+    FibsemImage,
+    ImageSettings,
+    MillingAlignment,
+    Point,
+)
 from fibsem.utils import current_timestamp_v3
 
 if TYPE_CHECKING:

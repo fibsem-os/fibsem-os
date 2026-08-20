@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-import os
+import concurrent.futures
+import itertools
 import logging
+import os
 
 import cv2
 import numpy as np
@@ -10,9 +12,7 @@ import onnxruntime
 import PIL.Image
 from onnxruntime import InferenceSession
 from skimage.util.shape import view_as_windows
-import itertools
 from tqdm import tqdm
-import concurrent.futures
 
 from fibsem.segmentation.utils import decode_segmap_v2, download_checkpoint
 

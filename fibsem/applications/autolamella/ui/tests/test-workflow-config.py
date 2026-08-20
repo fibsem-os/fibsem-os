@@ -16,8 +16,12 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
 )
-from fibsem.applications.autolamella.ui.workflow_config_widget import WorkflowConfigWidget
-from fibsem.applications.autolamella.ui.workflow_task_editor_widget import WorkflowTaskEditorWidget
+from fibsem.applications.autolamella.ui.workflow_config_widget import (
+    WorkflowConfigWidget,
+)
+from fibsem.applications.autolamella.ui.workflow_task_editor_widget import (
+    WorkflowTaskEditorWidget,
+)
 
 SAMPLE_CONFIG = AutoLamellaWorkflowConfig(
     name="Standard Cryo-Lamella",

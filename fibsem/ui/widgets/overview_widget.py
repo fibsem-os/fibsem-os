@@ -42,7 +42,7 @@ from functools import partial
 from typing import Callable, Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
 import numpy as np
-from PyQt5.QtCore import pyqtSignal, pyqtSlot
+from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -57,7 +57,6 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PyQt5.QtCore import Qt
 from superqt import ensure_main_thread
 
 from fibsem import constants
@@ -94,26 +93,23 @@ from fibsem.ui.tokens import (
     SLOT_COLOUR,
     STAGE_LIMITS_COLOUR,
 )
-from fibsem.ui.widgets.overview_acquisition_settings_widget import (
-    stamped_overview_name,
-)
 from fibsem.ui.widgets.canvas.contrast_gamma_control import ContrastGammaControl
+from fibsem.ui.widgets.canvas.overlay_controls import (
+    CanvasOverlayControls,
+    CanvasPopover,
+)
 from fibsem.ui.widgets.canvas.overlays import stage_context
+from fibsem.ui.widgets.canvas.overlays.gridbar_overlay import GridBarOverlay
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
     GRID_BOUNDARY_RADIUS_M,
     MinimapShapesOverlay,
     ShapeSpec,
 )
-from fibsem.ui.widgets.canvas.overlays.gridbar_overlay import GridBarOverlay
-from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import TileGridOverlay
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointsOverlay
 from fibsem.ui.widgets.canvas.overlays.tile_grid_options_panel import (
     TileGridOptionsPanel,
 )
-from fibsem.ui.widgets.canvas.overlay_controls import (
-    CanvasOverlayControls,
-    CanvasPopover,
-)
+from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import TileGridOverlay
 from fibsem.ui.widgets.canvas.real_space_canvas import (
     WHOLE_IMAGE,
     FibsemRealSpaceCanvas,
@@ -129,6 +125,9 @@ from fibsem.ui.widgets.custom_widgets import (
 )
 from fibsem.ui.widgets.fibsem_overview_settings_widget import (
     FibsemOverviewSettingsWidget,
+)
+from fibsem.ui.widgets.overview_acquisition_settings_widget import (
+    stamped_overview_name,
 )
 from fibsem.ui.widgets.overview_confirmation_dialog import OverviewConfirmationDialog
 from fibsem.ui.widgets.overview_list_widget import OverviewListWidget

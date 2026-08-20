@@ -31,7 +31,9 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.ui.lamella_card_widget import LamellaCardContainer
 from fibsem.applications.autolamella.ui.lamella_list_widget import LamellaListWidget
-from fibsem.applications.autolamella.ui.workflow_config_widget import WorkflowConfigWidget
+from fibsem.applications.autolamella.ui.workflow_config_widget import (
+    WorkflowConfigWidget,
+)
 
 
 @pytest.fixture(scope="module")

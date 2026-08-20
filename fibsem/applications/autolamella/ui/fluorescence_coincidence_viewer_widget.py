@@ -56,35 +56,39 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from superqt import ensure_main_thread
-from fibsem.ui.icon import fibsem_icon
 
 from fibsem import conversions
+from fibsem.applications.autolamella.poses import sync_fluorescence_pose
+from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
+    LamellaNameListWidget,
+)
+from fibsem.applications.autolamella.ui.selected_lamella_widget import (
+    SelectedLamellaWidget,
+)
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
 from fibsem.structures import BeamType, FibsemImage, Point
 from fibsem.ui import notification_service, stylesheets
-from fibsem.ui.stylesheets import CANVAS_BG, SURFACE_COLOR
 from fibsem.ui.fm.widgets import LinePlotWidget
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.ui.widgets.custom_widgets import (
-    IntegerValueSpinBox,
-    TitledPanel,
-)
-from fibsem.applications.autolamella.poses import sync_fluorescence_pose
-from fibsem.applications.autolamella.ui.lamella_name_list_widget import LamellaNameListWidget
-from fibsem.ui.widgets.coincidence_milling_confirmation_dialog import (
-    CoincidenceMillingConfirmationDialog,
-)
-from fibsem.applications.autolamella.ui.selected_lamella_widget import SelectedLamellaWidget
-from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
-from fibsem.ui.widgets.canvas.overlays import RectOverlay, ScanDirectionArrowOverlay
+from fibsem.ui.stylesheets import CANVAS_BG, SURFACE_COLOR
 from fibsem.ui.tokens import (
     BORDER_COLOR,
     DISABLED_BG_COLOR,
     DISABLED_TEXT_COLOR,
     SURFACE_COLOR,
     TEXT_COLOR,
+)
+from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.overlays import RectOverlay, ScanDirectionArrowOverlay
+from fibsem.ui.widgets.coincidence_milling_confirmation_dialog import (
+    CoincidenceMillingConfirmationDialog,
+)
+from fibsem.ui.widgets.custom_widgets import (
+    IntegerValueSpinBox,
+    TitledPanel,
 )
 
 if TYPE_CHECKING:
@@ -772,11 +776,11 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if self.microscope is None:
             return self._placeholder("No microscope connected")
 
-        from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
         from fibsem.milling.base import FibsemMillingSettings, FibsemMillingStage
         from fibsem.milling.patterning import RectanglePattern
         from fibsem.milling.tasks import FibsemMillingTaskConfig
         from fibsem.structures import CrossSectionPattern
+        from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 
         # Default coincidence milling task config (previously defined in the
         # removed fluorescence_coincidence_widget module).
@@ -958,6 +962,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
     def _load_milling_config(self):
         """Load the last-used coincidence milling config, or None."""
         import os
+
         from fibsem import config as cfg
         from fibsem.milling.tasks import FibsemMillingTaskConfig
         from fibsem.utils import load_yaml
@@ -2458,14 +2463,15 @@ open_coincidence_viewer_dialog = open_coincidence_viewer_window
 
 def main():
     import sys
+
     from PyQt5.QtWidgets import QApplication
 
     app = QApplication.instance() or QApplication(sys.argv)
     # app.setStyle("Fusion")
 
     from fibsem import utils
-    from fibsem.config import load_user_preferences
     from fibsem.applications.autolamella.structures import Experiment
+    from fibsem.config import load_user_preferences
 
     microscope, settings = utils.setup_session()
     import os

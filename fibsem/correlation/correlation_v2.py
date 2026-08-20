@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import contextlib
 import datetime
 import logging
@@ -9,7 +10,10 @@ import numpy as np
 import yaml
 
 from fibsem.constants import DATETIME_FILE
-from fibsem.correlation.pyto.rigid_3d import Rigid3D # NOTE: this is still a 3DCT dependency, migrate
+from fibsem.conversions import image_to_microscope_image_coordinates_px
+from fibsem.correlation.pyto.rigid_3d import (
+    Rigid3D,  # NOTE: this is still a 3DCT dependency, migrate
+)
 from fibsem.correlation.structures import (
     Coordinate,
     CorrelationInputData,
@@ -18,7 +22,6 @@ from fibsem.correlation.structures import (
     PointXYZ,
     apply_z_surface_correction,
 )
-from fibsem.conversions import image_to_microscope_image_coordinates_px
 from fibsem.structures import Point
 
 DEFAULT_OPTIMIZATION_PARAMETERS = {

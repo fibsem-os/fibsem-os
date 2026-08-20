@@ -23,13 +23,13 @@ from dataclasses import dataclass, field
 
 import pytest
 
+import fibsem.structures as fstructures
 from fibsem.structures import (
     DEFAULT_FIELD_METADATA,
     RENAMED_METADATA_KEYS,
     field_meta,
     get_fields_with_metadata,
 )
-import fibsem.structures as fstructures
 
 
 def keyword_only_parameters():

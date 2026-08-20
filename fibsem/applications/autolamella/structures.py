@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import logging
 import os
 import uuid
@@ -16,9 +17,8 @@ import yaml
 from psygnal import evented
 from psygnal.containers import EventedDict, EventedList
 
+from fibsem import timing
 from fibsem.applications.autolamella import config as cfg
-from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
-from fibsem.correlation.config import CorrelationConfig
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MICROEXPANSION_KEY,
@@ -29,7 +29,8 @@ from fibsem.applications.autolamella.protocol.constants import (
     TRENCH_KEY,
     UNDERCUT_KEY,
 )
-
+from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
+from fibsem.correlation.config import CorrelationConfig
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import (
     DEFAULT_ALIGNMENT_AREA,
@@ -44,7 +45,6 @@ from fibsem.structures import (
     SessionInfo,
     get_fields_with_metadata,
 )
-from fibsem import timing
 from fibsem.utils import configure_logging as _configure_logging
 from fibsem.utils import format_duration
 
@@ -532,11 +532,11 @@ class AutoLamellaTaskProtocol:
             AutoLamellaStage,
         )
         from fibsem.applications.autolamella.workflows.tasks.tasks import (
+            MillFiducialTaskConfig,
             MillPolishingTaskConfig,
             MillRoughTaskConfig,
             MillTrenchTaskConfig,
             MillUndercutTaskConfig,
-            MillFiducialTaskConfig,
             SelectMillingPositionTaskConfig,
         )
         protocol = AutoLamellaProtocol.load(path)
@@ -1042,8 +1042,8 @@ class Lamella:
         """
         import tempfile
 
-        from PIL import Image
         import numpy as np
+        from PIL import Image
         data = image.filtered_data
         if data.ndim == 2:
             data = np.stack([data, data, data], axis=2)

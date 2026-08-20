@@ -2,44 +2,48 @@ import logging
 import math
 import os
 import threading
-from dataclasses import dataclass, replace
 import time
 from copy import deepcopy
-from typing import Dict, List, Optional, Tuple, Union, TYPE_CHECKING, Literal
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Tuple, Union
 
-import numpy as np
-import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import matplotlib.pyplot as plt
+import numpy as np
 
 from fibsem import utils
 from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
 from fibsem.fm.calibration import run_autofocus, run_coarse_fine_autofocus
+from fibsem.fm.microscope import FluorescenceMicroscope
+from fibsem.fm.structures import (
+    AutoFocusMode,
+    AutoFocusSettings,
+    ChannelSettings,
+    FluorescenceImage,
+    FMStagePosition,
+    ObjectiveStartPosition,
+    OverviewParameters,
+    ZParameters,
+    ZStackOrder,
+)
+from fibsem.fm.timing import (
+    estimate_positions_acquisition_time,
+    estimate_tileset_acquisition_time,
+)
 from fibsem.imaging.reduce import (
     PREVIEW_MAX_DIMENSION,
     PreviewMosaic,
     downsample,
 )
-from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE
 from fibsem.imaging.tiling.geometry import (
     TilePosition,
     compute_tile_grid_from_fov,
     order_tiles,
     raise_if_outside_stage_limits,
 )
-from fibsem.fm.microscope import FluorescenceMicroscope
-from fibsem.fm.structures import (
-    AutoFocusMode,
-    ChannelSettings,
-    FluorescenceImage,
-    ObjectiveStartPosition,
-    OverviewParameters,
-    ZParameters,
-    ZStackOrder,
-    FMStagePosition,
-    AutoFocusSettings,
-)
-from fibsem.fm.timing import estimate_tileset_acquisition_time, estimate_positions_acquisition_time
+from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE
 from fibsem.structures import BeamType, FibsemStagePosition, TileOrderStrategy
+
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 

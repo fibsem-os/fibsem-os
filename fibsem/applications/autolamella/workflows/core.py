@@ -19,8 +19,8 @@ from fibsem.structures import (
 )
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
     from fibsem.applications.autolamella.structures import Lamella
+    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 
 # CORE WORKFLOW STEPS
 def log_status_message(lamella: 'Lamella', step: str):

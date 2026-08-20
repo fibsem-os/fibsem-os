@@ -45,7 +45,6 @@ from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_i
 from fibsem.ui.tokens import CANVAS_BG, NEUTRAL_550
 from fibsem.ui.widgets.custom_widgets import IconToolButton
 
-
 _LAMELLA_NAME_MIN_WIDTH = 160
 _LAMELLA_ROW_HEIGHT = 30
 _LAMELLA_BTN_SIZE = QSize(24, 24)

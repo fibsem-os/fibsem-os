@@ -5,6 +5,7 @@ Run with:
     python fibsem/ui/widgets/tests/test-image-settings-widget.py
 """
 import sys
+
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QApplication,
@@ -57,7 +58,7 @@ def main():
 
     def print_image_settings():
         s = widget._get_image_settings_from_ui()
-        print(f"\n--- ImageSettings ---")
+        print("\n--- ImageSettings ---")
         print(f"  beam_type:    {s.beam_type}")
         print(f"  resolution:   {s.resolution}")
         print(f"  dwell_time:   {s.dwell_time*1e6:.2f} µs")

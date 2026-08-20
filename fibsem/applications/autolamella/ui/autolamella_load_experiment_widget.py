@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Optional
 
 from PyQt5 import QtCore, QtGui, QtWidgets
-from fibsem.ui.icon import fibsem_icon
 
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.structures import (
@@ -21,6 +20,7 @@ from fibsem.config import (
     save_user_preferences,
 )
 from fibsem.ui import utils as fui
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import (
     BORDER_COLOR,
     DISABLED_TEXT_COLOR,

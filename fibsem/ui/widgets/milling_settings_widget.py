@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from PyQt5.QtCore import pyqtSignal
@@ -8,8 +9,6 @@ from PyQt5.QtWidgets import (
     QLabel,
     QWidget,
 )
-
-from dataclasses import dataclass
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, FibsemMillingSettings

@@ -10,23 +10,22 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from fibsem.structures import BeamType, FibsemImage, FibsemRectangle
 from fibsem.autofunctions.acb import (
-    AutoContrastBrightnessSettings,
     AutoContrastBrightnessIteration,
     AutoContrastBrightnessResult,
+    AutoContrastBrightnessSettings,
     run_auto_contrast_brightness,
 )
 from fibsem.autofunctions.autofocus import (
-    AutoFocusSettings,
     AutoFocusIteration,
     AutoFocusResult,
+    AutoFocusSettings,
     FocusSweepPass,
     run_auto_focus,
 )
-from fibsem.autofunctions.plotting import plot_acb_result, plot_autofocus_result
 from fibsem.autofunctions.charge_neutralisation import auto_charge_neutralisation
-
+from fibsem.autofunctions.plotting import plot_acb_result, plot_autofocus_result
+from fibsem.structures import BeamType, FibsemImage, FibsemRectangle
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 

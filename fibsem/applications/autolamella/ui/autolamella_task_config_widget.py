@@ -16,6 +16,7 @@ sub-configs and reference imaging to show, and no type selector.
 """
 
 import logging
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, get_type_hints
 
 from PyQt5.QtCore import pyqtSignal
@@ -27,13 +28,11 @@ from PyQt5.QtWidgets import (
 )
 from superqt import QCollapsible
 
-from dataclasses import dataclass
-
 from fibsem import utils
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
-from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 from fibsem.ui.widgets.form_builder import Control, FormDefaults, build_control
+from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 
 # What this form falls back to for keys a field does not declare. These are the
 # bounds and precision it already had hardcoded; passing them keeps the form

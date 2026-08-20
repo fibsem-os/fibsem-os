@@ -1,32 +1,34 @@
 from __future__ import annotations
+
 import logging
 import math
 from dataclasses import dataclass
-from typing import List, Tuple, Union, Optional, overload
+from typing import List, Optional, Tuple, Union, overload
 
-import numpy as np
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
-from matplotlib.colors import to_rgba, ListedColormap
+import numpy as np
 from matplotlib.collections import PatchCollection
+from matplotlib.colors import ListedColormap, to_rgba
 from skimage.transform import resize
 
 from fibsem.conversions import (
     get_image_pixel_centre,
     microscope_image_to_image_coordinates,
 )
-from fibsem.utils import format_value
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.structures import (
+    FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemImage,
     FibsemLineSettings,
-    FibsemRectangleSettings,
-    FibsemBitmapSettings,
     FibsemPatternSettings,
     FibsemPolygonSettings,
+    FibsemRectangleSettings,
     Point,
 )
+from fibsem.utils import format_value
+
 from .utils import (
     create_pattern_mask,
     get_pattern_bounding_box,

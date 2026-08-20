@@ -10,20 +10,18 @@ __version__ = "$Revision: 1179 $"
 # ToDo: see if this should become a superclass for some of the scripts
 
 import imp
-import sys
+import logging
 import os
 import os.path
-import time
-import platform
 import pickle
+import platform
+import sys
+import time
 from copy import copy, deepcopy
-import logging
 
 import numpy
-
 import tdct.pyto
 import tdct.pyto.attributes as attributes
-
 
 #################################################
 #
