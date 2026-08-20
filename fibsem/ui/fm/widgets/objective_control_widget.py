@@ -1,6 +1,7 @@
 import logging
 from typing import Optional
 
+import numpy as np
 from PyQt5.QtCore import pyqtSlot
 from PyQt5.QtWidgets import (
     QDialog,
@@ -13,19 +14,19 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-import numpy as np
-from fibsem.ui.qt.threading import FunctionWorker, thread_worker
+from superqt import ensure_main_thread
+from superqt.utils import qdebounced
+
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.ui import notification_service
+from fibsem.ui.napari.utilities import update_text_overlay
+from fibsem.ui.qt.threading import FunctionWorker, thread_worker
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
-from superqt import ensure_main_thread
-from superqt.utils import qdebounced
 from fibsem.ui.utils import message_box_ui
-from fibsem.ui.napari.utilities import update_text_overlay
 from fibsem.ui.widgets.custom_widgets import (
     ValueSpinBox,
 )

@@ -6,14 +6,14 @@ import time
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional, Set
 
-from fibsem.constants import DATETIME_DISPLAY_AMPM
 import pandas as pd
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
-from fibsem.cancellation import AnyStopEvent, OperationCancelledError
-from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue, WorkItem
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
+from fibsem.cancellation import AnyStopEvent, OperationCancelledError
+from fibsem.constants import DATETIME_DISPLAY_AMPM
+from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.microscope import FibsemMicroscope
 from fibsem.utils import format_time_remaining
 

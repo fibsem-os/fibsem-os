@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from matplotlib.patches import Rectangle as MplRectangle
 from PyQt5.QtCore import QObject, pyqtSignal
 
-from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay  # noqa: F401  (re-exported by package)
-
-from typing import TYPE_CHECKING
+from fibsem.ui.widgets.canvas.overlays.base import (
+    CanvasOverlay,  # noqa: F401  (re-exported by package)
+)
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.canvas.canvas_base import ContentRect

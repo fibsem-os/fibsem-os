@@ -36,16 +36,20 @@ from fibsem.ui import stylesheets
 from fibsem.ui.widgets.preflight import (
     BACKGROUND,
     BORDER,
+    ON_PANEL,
     PANEL,
     TEXT,
     TEXT_MUTED,
     TEXT_STRONG,
-    ON_PANEL,
     chip,
-    format_clock as _clock,
     format_duration,
-    metric as _metric,
     meta_label,
+)
+from fibsem.ui.widgets.preflight import (
+    format_clock as _clock,
+)
+from fibsem.ui.widgets.preflight import (
+    metric as _metric,
 )
 
 # The duration column is fixed and right-aligned so the times hold one line down the

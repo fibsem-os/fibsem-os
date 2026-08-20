@@ -13,7 +13,6 @@ from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
 )
 from fibsem.structures import BeamType, Point
 
-
 # --- config -----------------------------------------------------------------
 
 

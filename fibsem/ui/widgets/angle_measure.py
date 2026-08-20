@@ -15,7 +15,7 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import QPoint, QRect, Qt
 from PyQt5.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 
-from fibsem.ui.widgets.drag_distance import _MeasureOverlayBase, _fmt_distance
+from fibsem.ui.widgets.drag_distance import _fmt_distance, _MeasureOverlayBase
 
 _COLOR_ARM1  = QColor(80, 200, 255, 220)   # blue
 _COLOR_ARM2  = QColor(120, 255, 120, 220)  # green

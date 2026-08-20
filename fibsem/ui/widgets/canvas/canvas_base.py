@@ -39,19 +39,20 @@ import numpy as np
 from matplotlib.backend_bases import MouseEvent
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
-from PyQt5.QtCore import QSize, QTimer, Qt, pyqtSignal
+from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QFontMetrics
 from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QSizePolicy
 
 from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.stylesheets import CANVAS_BG as _BG, PRIMARY_ACCENT as _ACCENT
-from fibsem.ui.widgets.canvas.contrast_gamma_control import ContrastGammaControl
+from fibsem.ui.stylesheets import CANVAS_BG as _BG
+from fibsem.ui.stylesheets import PRIMARY_ACCENT as _ACCENT
 from fibsem.ui.tokens import (
     GRAY_WHITE_COLOR,
     NEUTRAL_400,
     NEUTRAL_450,
     WHITE_ICON_COLOR,
 )
+from fibsem.ui.widgets.canvas.contrast_gamma_control import ContrastGammaControl
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay

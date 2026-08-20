@@ -24,10 +24,10 @@ from fibsem.fm.acquisition import (
 from fibsem.fm.structures import (
     AutoFocusMode,
     AutoFocusSettings,
-    ObjectiveStartPosition,
     ChannelSettings,
     FluorescenceImage,
     FMStagePosition,
+    ObjectiveStartPosition,
     OverviewParameters,
     ZParameters,
     ZStackOrder,

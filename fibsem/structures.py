@@ -6,11 +6,26 @@ import logging
 import os
 import sys
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field, fields, asdict, InitVar
+from dataclasses import InitVar, asdict, dataclass, field, fields
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import Callable, List, Mapping, Optional, Sequence, Tuple, Union, Set, Any, Dict, Type, TypeVar, Literal, TYPE_CHECKING
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Mapping,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 
 import cv2
 import numpy as np
@@ -18,13 +33,12 @@ import tifffile as tff
 from numpy.typing import NDArray
 
 import fibsem
-from fibsem.versioning import get_revision
 from fibsem.config import (
     METADATA_VERSION,
     SUPPORTED_COORDINATE_SYSTEMS,
     UNVERSIONED_METADATA,
 )
-
+from fibsem.versioning import get_revision
 
 TFibsemPatternSettings = TypeVar(
     "TFibsemPatternSettings", bound="FibsemPatternSettings"
@@ -2836,11 +2850,11 @@ class FibsemImage:
             Instrument,
             ManufacturerSpec,
             MapAnnotation,
+            Microscope,
             Pixels,
             Plane,
             StructuredAnnotations,
             TiffData,
-            Microscope,
         )
         from ome_types.model.simple_types import UnitsLength
 
@@ -3038,8 +3052,9 @@ class FibsemImage:
         Raises:
             ValueError: If gamma is not positive.
         """
-        from fibsem.autofunctions.gamma import apply_gamma as _apply_gamma
         from copy import deepcopy
+
+        from fibsem.autofunctions.gamma import apply_gamma as _apply_gamma
         return FibsemImage(data=_apply_gamma(self.data, gamma), metadata=deepcopy(self.metadata))
 
     def auto_contrast_brightness(
@@ -3060,6 +3075,7 @@ class FibsemImage:
             FibsemImage: New image with stretched data and the same metadata.
         """
         from copy import deepcopy
+
         from fibsem.imaging.utils import percentile_stretch
         stretched = percentile_stretch(self.data, clip_percentile_lo, clip_percentile_hi)
         return FibsemImage(data=stretched, metadata=deepcopy(self.metadata))

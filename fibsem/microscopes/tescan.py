@@ -6,7 +6,7 @@ import threading
 import time
 from copy import deepcopy
 from queue import Queue
-from typing import Dict, List, Union, Tuple, Optional
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -23,8 +23,9 @@ DEFAULT_IMAGING_PRESET = "30 keV; 10 pA"           # Fallback for finish_milling
 try:
     import tescanautomation
     from tescanautomation import Automation
-    from tescanautomation.Common import Document, Bpp, Detector
-    from tescanautomation.DrawBeam import DepthUnit, IEtching, Status as DBStatus
+    from tescanautomation.Common import Bpp, Detector, Document
+    from tescanautomation.DrawBeam import DepthUnit, IEtching
+    from tescanautomation.DrawBeam import Status as DBStatus
     from tescanautomation.SEM import HVBeamStatus as SEMStatus
 
     sys.modules.pop("tescanautomation.GUI")

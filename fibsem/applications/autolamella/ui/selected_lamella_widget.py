@@ -13,15 +13,17 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import Lamella
+from fibsem.applications.autolamella.ui.lamella_pose_list_widget import (
+    LamellaPoseListWidget,
+)
 from fibsem.constants import METRE_TO_MICRON
+from fibsem.ui.tokens import (
+    NEUTRAL_550,
+)
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     TitledPanel,
     ValueSpinBox,
-)
-from fibsem.applications.autolamella.ui.lamella_pose_list_widget import LamellaPoseListWidget
-from fibsem.ui.tokens import (
-    NEUTRAL_550,
 )
 
 

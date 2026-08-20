@@ -24,7 +24,6 @@ from fibsem.structures import (
     OverviewAcquisitionSettings,
 )
 
-
 POSITION_COLOURS = ["lime", "blue", "cyan", "magenta", "hotpink", "yellow", "orange", "red"]
 
 

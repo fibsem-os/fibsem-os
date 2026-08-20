@@ -1,5 +1,6 @@
 import os
 
+
 def _get_extension(filename: str) -> str:
     if filename.endswith(".ome.tiff"): # special case for OME-TIFF files (double extension)
         return ".ome.tiff"

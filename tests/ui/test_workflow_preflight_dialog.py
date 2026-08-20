@@ -29,11 +29,11 @@ from PyQt5.QtWidgets import QApplication, QLabel, QToolButton  # noqa: E402
 from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (  # noqa: E402
     WorkflowPreflightDialog,
 )
-from fibsem.ui.stylesheets import NAPARI_STYLE  # noqa: E402
 from fibsem.applications.autolamella.workflows.workflow_estimate import (  # noqa: E402
     TaskEstimate,
     WorkflowEstimate,
 )
+from fibsem.ui.stylesheets import NAPARI_STYLE  # noqa: E402
 
 _app = QApplication.instance() or QApplication(sys.argv)
 # The app stylesheet, because without it these tests are run under conditions the user
@@ -223,7 +223,9 @@ def test_a_hundred_lamellae_do_not_push_the_dialog_apart(dialog):
     metrics, the note and every task row. The list truncates and says how many it did
     not show -- a selection of a hundred is confirmed by spot-checking a few and
     trusting the count."""
-    from fibsem.applications.autolamella.ui.workflow_preflight_dialog import _NAMES_SHOWN
+    from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
+        _NAMES_SHOWN,
+    )
 
     def _expanded_names(count):
         d = dialog(_estimate(lamella_names=[f"{i:02d}-scale-lamella" for i in range(count)]))

@@ -335,8 +335,8 @@ class TestTheDurationFormatters:
     """One shape, one implementation (FIB-701)."""
 
     def test_the_preflight_format_is_the_padded_shared_one(self):
-        from fibsem.utils import format_time_remaining
         from fibsem.ui.widgets.preflight import format_duration
+        from fibsem.utils import format_time_remaining
 
         for seconds in (0, 5, 45, 59.6, 60, 65, 125, 3599, 3600, 7000, 86_399):
             assert format_duration(seconds) == format_time_remaining(seconds, pad=True)

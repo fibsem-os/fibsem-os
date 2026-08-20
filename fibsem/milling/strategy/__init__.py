@@ -1,10 +1,10 @@
 import typing
 
 from fibsem.milling.base import MillingStrategy
-from fibsem.plugins.loader import PluginRecord, load_entry_point_group, plugin_classes
-from fibsem.milling.strategy.standard import StandardMillingStrategy
+from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy  # noqa: F401
 from fibsem.milling.strategy.overtilt import OvertiltTrenchMillingStrategy
-from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy # noqa: F401
+from fibsem.milling.strategy.standard import StandardMillingStrategy
+from fibsem.plugins.loader import PluginRecord, load_entry_point_group, plugin_classes
 
 DEFAULT_STRATEGY = StandardMillingStrategy
 DEFAULT_STRATEGY_NAME = DEFAULT_STRATEGY.name

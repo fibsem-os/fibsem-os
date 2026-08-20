@@ -28,6 +28,7 @@ from PyQt5.QtWidgets import (
     QCheckBox,
     QFormLayout,
     QLabel,
+    QLineEdit,  # noqa: E402  (grouped with the Qt imports above)
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -56,8 +57,6 @@ from fibsem.ui.widgets.overview_acquisition_settings_widget import (
     default_overview_acquisition_settings,
 )
 from fibsem.ui.widgets.overview_grid_settings_widget import OverviewGridSettingsWidget
-
-from PyQt5.QtWidgets import QLineEdit  # noqa: E402  (grouped with the Qt imports above)
 
 _MUTED = f"color: {TEXT_MUTED_COLOR}; font-size: 11px;"
 _FIELD_MIN_WIDTH = 90

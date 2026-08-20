@@ -1,31 +1,33 @@
 from __future__ import annotations
-from dataclasses import fields
 
+from dataclasses import fields
 from typing import Type
+
 import numpy as np
 import pytest
 
-from fibsem.milling.patterning.patterns2 import (
-    BasePattern,
-    CirclePattern,
-    FibsemCircleSettings,
-    FibsemLineSettings,
-    FibsemRectangleSettings,
-    LinePattern,
-    RectanglePattern,
-    TrenchPattern,
-    ArrayPattern,
-    CloverPattern,
-    FiducialPattern,
-)
 from fibsem.milling.patterning import (
     MILLING_PATTERNS,
     get_pattern,
+)
+from fibsem.milling.patterning.patterns2 import (
+    ArrayPattern,
+    BasePattern,
+    CirclePattern,
+    CloverPattern,
+    FibsemCircleSettings,
+    FibsemLineSettings,
+    FibsemRectangleSettings,
+    FiducialPattern,
+    LinePattern,
+    RectanglePattern,
+    TrenchPattern,
 )
 from fibsem.structures import (
     CrossSectionPattern,
     Point,
 )
+
 
 @pytest.mark.parametrize("pattern", list(MILLING_PATTERNS.values()))
 def test_required_attributes(pattern: Type[BasePattern]) -> None:

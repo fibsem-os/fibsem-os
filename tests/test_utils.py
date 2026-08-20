@@ -1,9 +1,9 @@
 import pytest
 
 from fibsem.utils import (
-    _get_scale_from_value,
-    _get_prefix_from_scale,
     _get_display_unit,
+    _get_prefix_from_scale,
+    _get_scale_from_value,
     format_value,
 )
 

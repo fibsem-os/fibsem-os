@@ -13,48 +13,13 @@ from fibsem.plugins.loader import PluginRecord, load_entry_point_group, plugin_c
 
 if TYPE_CHECKING:
     from psygnal.containers import EventedDict
+
     from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 
-from fibsem.applications.autolamella.workflows.tasks.tasks import AutoLamellaTask
-
-# Built-in task classes
-from fibsem.applications.autolamella.workflows.tasks.tasks import (
-    MillTrenchTask,
-    MillUndercutTask,
-    MillRoughTask,
-    MillPolishingTask,
-    SpotBurnFiducialTask,
-    MillFiducialTask,
-    AcquireReferenceImageTask,
-    BasicMillingTask,
-    SelectMillingPositionTask,
-    SelectFluorescencePositionTask,
-    AcquireFluorescenceImageTask,
-)
-
-# Built-in task config classes
-from fibsem.applications.autolamella.workflows.tasks.tasks import (
-    MillTrenchTaskConfig,
-    MillUndercutTaskConfig,
-    MillRoughTaskConfig,
-    MillPolishingTaskConfig,
-    SpotBurnFiducialTaskConfig,
-    MillFiducialTaskConfig,
-    AcquireReferenceImageConfig,
-    BasicMillingTaskConfig,
-    SelectMillingPositionTaskConfig,
-    SelectFluorescencePositionConfig,
-    AcquireFluorescenceImageConfig,
-)
-
-# Helper functions and exceptions
-from fibsem.applications.autolamella.workflows.tasks.tasks import (
-    get_task_supervision,
-)
 from fibsem.applications.autolamella.workflows.tasks.manager import (
+    TaskManager,
     run_task,
     run_tasks,
-    TaskManager,
 )
 from fibsem.applications.autolamella.workflows.tasks.queue import (
     QueueOp,
@@ -62,6 +27,37 @@ from fibsem.applications.autolamella.workflows.tasks.queue import (
     TaskQueue,
     WorkItem,
 )
+
+# Built-in task classes
+# Built-in task config classes
+# Helper functions and exceptions
+from fibsem.applications.autolamella.workflows.tasks.tasks import (
+    AcquireFluorescenceImageConfig,
+    AcquireFluorescenceImageTask,
+    AcquireReferenceImageConfig,
+    AcquireReferenceImageTask,
+    AutoLamellaTask,
+    BasicMillingTask,
+    BasicMillingTaskConfig,
+    MillFiducialTask,
+    MillFiducialTaskConfig,
+    MillPolishingTask,
+    MillPolishingTaskConfig,
+    MillRoughTask,
+    MillRoughTaskConfig,
+    MillTrenchTask,
+    MillTrenchTaskConfig,
+    MillUndercutTask,
+    MillUndercutTaskConfig,
+    SelectFluorescencePositionConfig,
+    SelectFluorescencePositionTask,
+    SelectMillingPositionTask,
+    SelectMillingPositionTaskConfig,
+    SpotBurnFiducialTask,
+    SpotBurnFiducialTaskConfig,
+    get_task_supervision,
+)
+
 
 class TaskNotRegisteredError(Exception):
     """Exception raised when a task is not registered in the TASK_REGISTRY."""

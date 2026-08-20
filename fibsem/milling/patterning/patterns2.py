@@ -2,32 +2,46 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from dataclasses import dataclass, field, fields, asdict
+from dataclasses import asdict, dataclass, field, fields
 from functools import cached_property
-from typing import Dict, List, Tuple, Union, Any, Optional, Type, ClassVar, TypeVar, Generic, Literal
+from typing import (
+    Any,
+    ClassVar,
+    Dict,
+    Generic,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 
 import numpy as np
 from numpy.typing import NDArray
 
 from fibsem import constants
+from fibsem.milling.properties import (
+    DEFAULT_ANGLE_METADATA,
+    DEFAULT_CROSS_SECTION_METADATA,
+    DEFAULT_DISTANCE_METADATA,
+    DEFAULT_DURATION_METADATA,
+    DEFAULT_PASSES_METADATA,
+    DEFAULT_SCAN_DIRECTION_METADATA,
+)
 from fibsem.structures import (
     CrossSectionPattern,
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemLineSettings,
-    FibsemRectangleSettings,
     FibsemPolygonSettings,
+    FibsemRectangleSettings,
     Point,
     TFibsemPatternSettings,
     field_meta,
     get_fields_with_metadata,
 )
-from fibsem.milling.properties import (DEFAULT_DISTANCE_METADATA,
-                                       DEFAULT_ANGLE_METADATA,
-                                       DEFAULT_DURATION_METADATA,
-                                       DEFAULT_SCAN_DIRECTION_METADATA,
-                                       DEFAULT_CROSS_SECTION_METADATA,
-                                       DEFAULT_PASSES_METADATA)
 
 TPattern = TypeVar("TPattern", bound="BasePattern")
 

@@ -35,13 +35,13 @@ from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import DRAG_HANDLE_HEIGHT, DRAG_HANDLE_WIDTH, drag_handle_pixmap
-from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, ValueSpinBox
 from fibsem.ui.tokens import (
     BORDER_COLOR,
     CANVAS_BG,
     NEUTRAL_700,
     ORANGE_COLOR,
 )
+from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, ValueSpinBox
 
 _NAME_MIN_WIDTH = 130
 _EXCITATION_FIXED_WIDTH = 90

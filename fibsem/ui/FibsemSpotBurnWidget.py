@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QFormLayout,
     QLabel,
@@ -11,7 +11,6 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from superqt import ensure_main_thread
 
 from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn

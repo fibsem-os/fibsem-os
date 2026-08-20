@@ -1,5 +1,5 @@
 from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QCheckBox, QVBoxLayout, QWidget, QHBoxLayout
+from PyQt5.QtWidgets import QCheckBox, QHBoxLayout, QVBoxLayout, QWidget
 
 from fibsem.milling.tasks import MillingTaskAcquisitionSettings
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
@@ -143,6 +143,7 @@ class FibsemMillingTaskAcquisitionSettingsWidget(QWidget):
 
 if __name__ == "__main__":
     import sys
+
     from PyQt5.QtWidgets import QApplication, QPushButton, QVBoxLayout
 
     app = QApplication(sys.argv)

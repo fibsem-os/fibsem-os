@@ -32,7 +32,6 @@ from PyQt5.QtWidgets import (
 from superqt import QDoubleSlider
 
 from fibsem.autofunctions.gamma import apply_gamma
-
 from fibsem.ui.stylesheets import CANVAS_POPOVER_STYLE as _PANEL_STYLE
 
 

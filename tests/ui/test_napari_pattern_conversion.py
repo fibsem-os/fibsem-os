@@ -18,8 +18,8 @@ import pytest
 
 pytest.importorskip("napari")
 
-from fibsem.milling.patterning.plotting import _polygon_pattern_to_image_pixels
 from fibsem.conversions import microscope_image_to_image_coordinates
+from fibsem.milling.patterning.plotting import _polygon_pattern_to_image_pixels
 from fibsem.structures import (
     FibsemCircleSettings,
     FibsemLineSettings,

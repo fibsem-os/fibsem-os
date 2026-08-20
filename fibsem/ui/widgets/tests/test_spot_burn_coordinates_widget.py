@@ -23,7 +23,10 @@ from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
 )
 from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.structures import BeamType, FibsemImage, Point
-from fibsem.ui.widgets.canvas.quad_view import LamellaEditorView, MicroscopeViewController
+from fibsem.ui.widgets.canvas.quad_view import (
+    LamellaEditorView,
+    MicroscopeViewController,
+)
 from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWidget
 
 _app = QApplication.instance() or QApplication(sys.argv)
@@ -311,9 +314,11 @@ def test_button_wiring_on_the_real_editor():
         AutoLamellaTaskProtocol,
         Experiment,
     )
-    from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTaskConfig
     from fibsem.applications.autolamella.ui.autolamella_task_config_editor import (
         AutoLamellaProtocolTaskConfigEditor,
+    )
+    from fibsem.applications.autolamella.workflows.tasks.base import (
+        AutoLamellaTaskConfig,
     )
 
     logging.disable(logging.CRITICAL)

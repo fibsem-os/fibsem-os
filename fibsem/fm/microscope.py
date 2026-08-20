@@ -6,7 +6,7 @@ from abc import ABC
 from contextlib import contextmanager, nullcontext
 from copy import deepcopy
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Optional, Tuple, Union, Literal
+from typing import TYPE_CHECKING, Literal, Optional, Tuple, Union
 
 import numpy as np
 from psygnal import Signal

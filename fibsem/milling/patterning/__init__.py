@@ -9,29 +9,28 @@ import logging
 import typing
 from typing import Any, Dict, Optional, Tuple, Type
 
-from fibsem.milling.patterning.patterns2 import BasePattern
-from fibsem.plugins.loader import PluginRecord, load_entry_point_group, plugin_classes
-
 # Built-in patterns (imported from patterns2.py)
 from fibsem.milling.patterning.patterns2 import (
-    RectanglePattern,
-    LinePattern, 
+    ArrayPattern,
+    BasePattern,
+    BitmapPattern,
     CirclePattern,
-    TrenchPattern,
+    CloverPattern,
+    FiducialPattern,
     HorseshoePattern,
     HorseshoePatternVertical,
-    SerialSectionPattern,
-    UndercutPattern,
-    FiducialPattern,
-    ArrayPattern,
+    LinePattern,
     MicroExpansionPattern,
-    WaffleNotchPattern,
-    CloverPattern,
-    TriForcePattern,
-    BitmapPattern,
+    RectanglePattern,
+    SerialSectionPattern,
     TrenchBitmapPattern,
+    TrenchPattern,
     TrenchTrapezoidPattern,
+    TriForcePattern,
+    UndercutPattern,
+    WaffleNotchPattern,
 )
+from fibsem.plugins.loader import PluginRecord, load_entry_point_group, plugin_classes
 
 # Built-in patterns registry
 BUILTIN_PATTERNS: Dict[str, Type[BasePattern]] = {

@@ -20,12 +20,12 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
-from fibsem.ui import stylesheets
 from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     StepStatus,
     WorkflowProgressWidget,
 )
+from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
+from fibsem.ui import stylesheets
 
 # ── Fake workflow data ────────────────────────────────────────────────────────
 LAMELLA_NAMES = ["Lamella-01", "Lamella-02"]

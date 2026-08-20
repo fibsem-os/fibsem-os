@@ -11,7 +11,9 @@ from fibsem import timing
 from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import (
     AcquireFluorescenceImageConfig,
 )
-from fibsem.applications.autolamella.workflows.tasks.fiducial import MillFiducialTaskConfig
+from fibsem.applications.autolamella.workflows.tasks.fiducial import (
+    MillFiducialTaskConfig,
+)
 from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )
@@ -79,7 +81,9 @@ def test_a_task_that_does_not_move_is_not_charged_for_it():
 
 def test_reference_alignment_is_opt_in():
     """A task that claims it when it does not adds 5 s of fiction to every estimate."""
-    from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskConfig
+    from fibsem.applications.autolamella.workflows.tasks.rough import (
+        MillRoughTaskConfig,
+    )
     from fibsem.applications.autolamella.workflows.tasks.undercut import (
         MillUndercutTaskConfig,
     )

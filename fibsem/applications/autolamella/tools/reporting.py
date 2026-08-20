@@ -26,7 +26,6 @@ from reportlab.platypus import (
 from scipy.ndimage import median_filter
 from skimage.transform import resize
 
-from fibsem.constants import DATE_LONG
 from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
@@ -35,6 +34,7 @@ from fibsem.applications.autolamella.tools.data import (
     format_pretty_dataframes,
     parse_logfile,
 )
+from fibsem.constants import DATE_LONG
 from fibsem.imaging.tiled import plot_stage_positions_on_image
 from fibsem.milling import plot_milling_patterns
 from fibsem.structures import FibsemImage

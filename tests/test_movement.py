@@ -1,7 +1,8 @@
-import pytest
 import numpy as np
+import pytest
 
 from fibsem import movement
+
 
 def test_angle_difference():
     assert np.isclose(movement.angle_difference(np.deg2rad(0), np.deg2rad(0)), 0)

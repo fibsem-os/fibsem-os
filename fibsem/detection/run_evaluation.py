@@ -6,6 +6,7 @@ import yaml
 
 from fibsem.detection import evaluation
 
+
 def main(config: dict):
 
     os.makedirs(config["save_path"], exist_ok=True)

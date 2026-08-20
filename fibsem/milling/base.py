@@ -1,24 +1,34 @@
 import threading
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from dataclasses import dataclass, fields, field, asdict
+from dataclasses import asdict, dataclass, field, fields
 from functools import cached_property
-from typing import List, Union, Dict, Any, Tuple, Optional, Type, TypeVar, ClassVar, Generic
+from typing import (
+    Any,
+    ClassVar,
+    Dict,
+    Generic,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.config import MILLING_SPUTTER_RATE
+from fibsem.milling.patterning import DEFAULT_MILLING_PATTERN, get_pattern
 from fibsem.milling.patterning.patterns2 import BasePattern
-from fibsem.milling.patterning import get_pattern, DEFAULT_MILLING_PATTERN
 from fibsem.structures import (
-    FibsemMillingSettings,
-    MillingAlignment,
-    ImageSettings,
     CrossSectionPattern,
-    FibsemPatternSettings,
     FibsemImage,
+    FibsemMillingSettings,
+    FibsemPatternSettings,
+    ImageSettings,
+    MillingAlignment,
     get_fields_with_metadata,
 )
-
 
 TMillingStrategyConfig = TypeVar(
     "TMillingStrategyConfig", bound="MillingStrategyConfig"
@@ -102,7 +112,7 @@ class MillingStrategy(ABC, Generic[TMillingStrategyConfig]):
 def get_strategy(
     name: str = "Standard", config: Optional[Dict[str, Any]] = None
 ) -> MillingStrategy[Any]:
-    from fibsem.milling.strategy import get_strategies, DEFAULT_STRATEGY
+    from fibsem.milling.strategy import DEFAULT_STRATEGY, get_strategies
 
     if config is None:
         config = {}

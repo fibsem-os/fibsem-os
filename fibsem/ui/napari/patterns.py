@@ -3,31 +3,31 @@ from __future__ import annotations
 import logging
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple, Dict, Any, Set, Union, Type
+from typing import Any, Dict, List, Optional, Set, Tuple, Type, Union
 
-from matplotlib.colors import to_rgba
 import napari
 import numpy as np
+from matplotlib.colors import to_rgba
 from napari.layers import Image as NapariImageLayer
 from napari.layers import Layer as NapariLayer
 from napari.layers import Shapes as NapariShapesLayers
 from napari.utils import Colormap as NapariColormap
 from skimage.transform import resize
 
+from fibsem.conversions import microscope_image_to_image_coordinates
 from fibsem.milling import FibsemMillingStage
 from fibsem.milling.patterning.patterns2 import (
     BasePattern,
     FiducialPattern,
 )
-from fibsem.conversions import microscope_image_to_image_coordinates
 from fibsem.structures import (
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemImage,
     FibsemLineSettings,
     FibsemPatternSettings,
-    FibsemRectangle,
     FibsemPolygonSettings,
+    FibsemRectangle,
     FibsemRectangleSettings,
     Point,
     calculate_fiducial_area_v2,

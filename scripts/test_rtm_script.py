@@ -1,10 +1,9 @@
-from matplotlib import pyplot as plot
-from IPython.display import clear_output
 import numpy
-
 from autoscript_sdb_microscope_client import SdbMicroscopeClient
 from autoscript_sdb_microscope_client.enumerations import *
 from autoscript_sdb_microscope_client.structures import *
+from IPython.display import clear_output
+from matplotlib import pyplot as plot
 
 # microscope = SdbMicroscopeClient()
 # microscope.connect("localhost")
@@ -38,8 +37,8 @@ def get_images_from_rtm_data(rtm_data, rtm_positions):
     return result
 
 from fibsem import utils
-from fibsem.structures import FibsemRectangleSettings
 from fibsem.milling.patterning import RectanglePattern
+from fibsem.structures import FibsemRectangleSettings
 
 m1, settings = utils.setup_session()
 microscope = m1.connection

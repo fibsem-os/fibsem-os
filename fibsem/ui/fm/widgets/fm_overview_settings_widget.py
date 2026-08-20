@@ -16,8 +16,8 @@ from PyQt5.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLabel,
-    QSizePolicy,
     QLineEdit,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -25,18 +25,18 @@ from PyQt5.QtWidgets import (
 from fibsem import constants
 from fibsem.fm.structures import (
     AutoFocusMode,
-    ObjectiveStartPosition,
     AutoFocusSettings,
     ChannelSettings,
+    ObjectiveStartPosition,
     OverviewParameters,
     ZParameters,
 )
 from fibsem.structures import TileOrderStrategy
 from fibsem.ui.fm.widgets.autofocus_widget import AutofocusWidget
-from fibsem.ui.widgets.overview_grid_settings_widget import (
-    OverviewGridSettingsWidget,
-)
 from fibsem.ui.fm.widgets.z_parameters_widget import ZParametersWidget
+from fibsem.ui.tokens import (
+    TEXT_MUTED_COLOR,
+)
 from fibsem.ui.widgets.custom_widgets import (
     QDirectoryLineEdit,
     TitledPanel,
@@ -46,8 +46,8 @@ from fibsem.ui.widgets.overview_acquisition_settings_widget import (
     DEFAULT_OVERVIEW_FILENAME,
     stamped_overview_name,
 )
-from fibsem.ui.tokens import (
-    TEXT_MUTED_COLOR,
+from fibsem.ui.widgets.overview_grid_settings_widget import (
+    OverviewGridSettingsWidget,
 )
 
 MUTED = f"color: {TEXT_MUTED_COLOR}; font-size: 11px;"

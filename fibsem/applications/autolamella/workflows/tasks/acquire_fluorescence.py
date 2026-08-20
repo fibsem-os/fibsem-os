@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import (
     ClassVar,
     Optional,
@@ -11,16 +11,16 @@ from typing import (
 )
 
 import fibsem.utils as utils
+from fibsem import timing
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.ui import (
     ask_user,
 )
 from fibsem.fm.acquisition import acquire_image
+from fibsem.fm.calibration import AutoFocusResult, run_coarse_fine_autofocus
 from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, ZParameters
-from fibsem.fm.calibration import run_coarse_fine_autofocus, AutoFocusResult
 from fibsem.fm.timing import estimate_acquisition_time, estimate_autofocus_time
-from fibsem import timing
 from fibsem.structures import field_meta
 
 

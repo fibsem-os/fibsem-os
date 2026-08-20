@@ -13,7 +13,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-
 _BAR_STYLE = """
 QProgressBar {
     background-color: #3a3d42;

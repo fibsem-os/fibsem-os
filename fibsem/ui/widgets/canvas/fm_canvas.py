@@ -15,14 +15,22 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
-from PyQt5.QtCore import Qt, QPoint, QSize, pyqtSignal
+from PyQt5.QtCore import QPoint, QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QIcon, QPainter, QPixmap
 from PyQt5.QtWidgets import (
-    QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QSlider, QToolButton,
-    QVBoxLayout, QWidget,
+    QComboBox,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSlider,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
 )
 from superqt import QRangeSlider
 
+from fibsem.imaging.reduce import downsample
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
@@ -39,11 +47,14 @@ from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
-from fibsem.ui.widgets.canvas.fm_composite import (
-    AVAILABLE_COLORS, FMLayer, auto_clim, composite_fm_layers, to_rgba,
-)
-from fibsem.imaging.reduce import downsample
 from fibsem.ui.widgets.canvas.canvas_base import FibsemCanvasBase
+from fibsem.ui.widgets.canvas.fm_composite import (
+    AVAILABLE_COLORS,
+    FMLayer,
+    auto_clim,
+    composite_fm_layers,
+    to_rgba,
+)
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.real_space_canvas import (
     WHOLE_IMAGE,

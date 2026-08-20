@@ -22,13 +22,18 @@ pins the old formula's wrong answer so the defect cannot creep back.
 """
 
 from unittest.mock import Mock, patch
-from fibsem.fm.structures import AutoFocusMode, ChannelSettings, OverviewParameters
+
 import numpy as np
 import pytest
 
 from fibsem import movement, utils
 from fibsem.fm.microscope import FluorescenceMicroscope
-from fibsem.fm.structures import CameraImageTransform
+from fibsem.fm.structures import (
+    AutoFocusMode,
+    CameraImageTransform,
+    ChannelSettings,
+    OverviewParameters,
+)
 from fibsem.structures import BeamType, FibsemHardwareGeometry, FibsemStagePosition
 
 # sweep: stage tilt x pretilt x rotation x beam x compustage
@@ -391,7 +396,9 @@ class TestTiledInverseMatchesMicroscope:
     def test_agrees_with_microscope_at_every_compustage_orientation(
         self, microscope, image, tilt_deg, orientation, beam_type
     ):
-        from fibsem.imaging.tiled import _inverse_y_corrected_stage_movement as tiled_inverse
+        from fibsem.imaging.tiled import (
+            _inverse_y_corrected_stage_movement as tiled_inverse,
+        )
 
         position = _configure(
             microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=tilt_deg, compustage=True
@@ -412,7 +419,9 @@ class TestTiledInverseMatchesMicroscope:
         "tilt_deg, orientation", TestCompustageInverseRoundTrip.COMPUSTAGE_POSES
     )
     def test_round_trips_against_the_forward(self, microscope, image, tilt_deg, orientation):
-        from fibsem.imaging.tiled import _inverse_y_corrected_stage_movement as tiled_inverse
+        from fibsem.imaging.tiled import (
+            _inverse_y_corrected_stage_movement as tiled_inverse,
+        )
 
         position = _configure(
             microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=tilt_deg, compustage=True
@@ -427,7 +436,9 @@ class TestTiledInverseMatchesMicroscope:
 
     def test_non_compustage_is_untouched(self, microscope, image):
         """The pre-tilted shuttle path through tiled.py is unchanged."""
-        from fibsem.imaging.tiled import _inverse_y_corrected_stage_movement as tiled_inverse
+        from fibsem.imaging.tiled import (
+            _inverse_y_corrected_stage_movement as tiled_inverse,
+        )
 
         position = _configure(
             microscope, pretilt_deg=35, rotation_deg=0, tilt_deg=20, compustage=False

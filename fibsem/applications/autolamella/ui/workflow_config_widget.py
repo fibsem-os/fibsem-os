@@ -16,24 +16,24 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskDescription,
+    AutoLamellaWorkflowConfig,
+)
+from fibsem.constants import DATETIME_DISPLAY_AMPM
+from fibsem.ui import stylesheets
 from fibsem.ui.icon import (
     DRAG_HANDLE_HEIGHT,
     DRAG_HANDLE_WIDTH,
     drag_handle_pixmap,
     fibsem_icon,
 )
-
-from fibsem.constants import DATETIME_DISPLAY_AMPM
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaTaskDescription,
-    AutoLamellaWorkflowConfig,
-)
-from fibsem.ui import stylesheets
-from fibsem.ui.widgets.custom_widgets import IconToolButton
 from fibsem.ui.tokens import (
     CANVAS_BG,
     NEUTRAL_700,
 )
+from fibsem.ui.widgets.custom_widgets import IconToolButton
 
 _NAME_MIN_WIDTH = 180
 _BTN_SIZE = QSize(32, 32)

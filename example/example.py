@@ -1,9 +1,10 @@
 
 
-from fibsem import utils, acquire
-
-import matplotlib.pyplot as plt
 import matplotlib
+import matplotlib.pyplot as plt
+
+from fibsem import acquire, utils
+
 matplotlib.use('TkAgg', force=True) # Activate 'agg' backend for off-screen plotting.
 
 

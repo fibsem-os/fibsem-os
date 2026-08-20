@@ -6,9 +6,41 @@ from pprint import pprint
 from typing import List
 
 import numpy as np
+
 from fibsem import acquire, alignment, calibration
 from fibsem import config as fcfg
 from fibsem import utils as fibsem_utils
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaProtocol,
+    AutoLamellaStage,
+    Experiment,
+    Lamella,
+    LamellaState,
+    create_new_lamella,
+)
+from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.applications.autolamella.workflows import actions
+from fibsem.applications.autolamella.workflows.core import (
+    align_feature_coincident,
+    mill_trench,
+    mill_undercut,
+)
+from fibsem.applications.autolamella.workflows.legacy.autoliftout import (
+    end_of_stage_update,
+    log_status_message,
+    log_status_message_raw,
+    mill_lamella,
+    setup_lamella,
+    start_of_stage_update,
+)
+from fibsem.applications.autolamella.workflows.ui import (
+    ask_user,
+    set_images_ui,
+    update_detection_ui,
+    update_experiment_ui,
+    update_milling_ui,
+    update_status_ui,
+)
 from fibsem.detection import detection
 from fibsem.detection.detection import (
     CopperAdapterBottomEdge,
@@ -43,43 +75,10 @@ from fibsem.structures import (
     FibsemImage,
     FibsemRectangle,
     FibsemStagePosition,
+    ImageSettings,
     MicroscopeSettings,
     MicroscopeState,
-    ImageSettings,
     Point,
-)
-
-from fibsem.applications.autolamella.structures import (
-    AutoLamellaProtocol,
-    AutoLamellaStage,
-    Experiment,
-    Lamella,
-    LamellaState,
-    create_new_lamella,
-)
-
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
-from fibsem.applications.autolamella.workflows import actions
-from fibsem.applications.autolamella.workflows.legacy.autoliftout import (
-    end_of_stage_update,
-    log_status_message,
-    mill_lamella,
-    setup_lamella,
-    start_of_stage_update,
-    log_status_message_raw,
-)
-from fibsem.applications.autolamella.workflows.core import (
-    align_feature_coincident,
-    mill_trench,
-    mill_undercut,
-)
-from fibsem.applications.autolamella.workflows.ui import (
-    ask_user,
-    set_images_ui,
-    update_detection_ui,
-    update_experiment_ui,
-    update_milling_ui,
-    update_status_ui,
 )
 
 # serial workflow functions
@@ -133,7 +132,7 @@ def liftout_lamella(
 
     # align manipulator to top of lamella in electron
 
-    log_status_message(lamella, f"NEEDLE_EB_DETECTION_0")
+    log_status_message(lamella, "NEEDLE_EB_DETECTION_0")
     update_status_ui(parent_ui, f"{lamella.info} Moving Manipulator to Lamella...")
 
     image_settings.beam_type = BeamType.ELECTRON

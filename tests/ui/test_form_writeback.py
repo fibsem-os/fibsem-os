@@ -22,6 +22,8 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
+from PyQt5.QtWidgets import QCheckBox  # noqa: E402
+
 from fibsem import utils  # noqa: E402
 from fibsem.milling.base import get_strategy  # noqa: E402
 from fibsem.milling.patterning import get_pattern  # noqa: E402
@@ -31,13 +33,15 @@ from fibsem.ui.widgets.custom_widgets import (  # noqa: E402
     ValueComboBox,
     ValueSpinBox,
 )
-from fibsem.ui.widgets.milling_settings_widget import FibsemMillingSettingsWidget  # noqa: E402
-from fibsem.ui.widgets.pattern_settings_widget import FibsemPatternSettingsWidget  # noqa: E402
+from fibsem.ui.widgets.milling_settings_widget import (
+    FibsemMillingSettingsWidget,  # noqa: E402
+)
+from fibsem.ui.widgets.pattern_settings_widget import (
+    FibsemPatternSettingsWidget,  # noqa: E402
+)
 from fibsem.ui.widgets.strategy_settings_widget import (  # noqa: E402
     FibsemStrategySettingsWidget,
 )
-
-from PyQt5.QtWidgets import QCheckBox  # noqa: E402
 
 
 @pytest.fixture(scope="module")

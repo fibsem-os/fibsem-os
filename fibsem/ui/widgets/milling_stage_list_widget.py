@@ -19,18 +19,19 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
 from fibsem.milling.base import FibsemMillingStage, get_strategy
 from fibsem.milling.patterning import get_pattern, get_pattern_names
 from fibsem.milling.strategy import get_strategy_names
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import DRAG_HANDLE_HEIGHT, DRAG_HANDLE_WIDTH, drag_handle_pixmap
 from fibsem.ui.napari.patterns import COLOURS
-from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, ValueSpinBox
 from fibsem.ui.tokens import (
     CANVAS_BG,
     NEUTRAL_700,
     ORANGE_COLOR,
 )
+from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, ValueSpinBox
 
 # Columns are flexible: each is (minimum_width, stretch). The header and every row
 # consume the SAME spec so their column boundaries stay aligned as the panel resizes,

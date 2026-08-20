@@ -7,10 +7,13 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from fibsem.autofunctions.autofocus import (
+    AutoFocusIteration,
+    AutoFocusResult,
+    FocusSweepPass,
+)
 from fibsem.fm.calibration import run_autofocus, run_coarse_fine_autofocus
-from fibsem.autofunctions.autofocus import AutoFocusIteration, AutoFocusResult, FocusSweepPass
 from fibsem.fm.structures import AutoFocusSettings, FocusMethod, ZParameters
-
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 

@@ -6,16 +6,14 @@
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
-from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
-
-from typing import TYPE_CHECKING
 from fibsem.ui.tokens import (
     CANVAS_BG,
 )
+from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.canvas.canvas_base import ContentRect

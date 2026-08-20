@@ -20,13 +20,14 @@ from PyQt5.QtWidgets import (
 )
 from superqt import ensure_main_thread
 
-from fibsem.ui.icon import fibsem_icon
-
 from fibsem.applications.autolamella.structures import DefectState, DefectType, Lamella
+from fibsem.applications.autolamella.ui.lamella_list_widget import (
+    _defect_icon,
+    _status_text,
+)
 from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY, MODE_STANDARD
-from fibsem.applications.autolamella.ui.lamella_list_widget import _defect_icon, _status_text
 from fibsem.ui import stylesheets
-from fibsem.ui.widgets.custom_widgets import ElidedLabel
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
     NEUTRAL_200,
     NEUTRAL_550,
@@ -34,6 +35,7 @@ from fibsem.ui.tokens import (
     PRIMARY_COLOR,
     SURFACE_COLOR,
 )
+from fibsem.ui.widgets.custom_widgets import ElidedLabel
 
 _CARD_WIDTH = 300
 _THUMB_PADDING = 6        # inset from card edges so rounded corners stay visible

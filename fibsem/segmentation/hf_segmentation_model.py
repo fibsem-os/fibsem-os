@@ -1,11 +1,12 @@
 import numpy as np
 import torch
-
 from PIL import Image
-from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation
 from torch import nn
+from transformers import SegformerForSemanticSegmentation, SegformerImageProcessor
+
 from fibsem.segmentation import config as scfg
 from fibsem.segmentation.utils import decode_segmap_v2
+
 
 class SegmentationModelHuggingFace:
     """HuggingFace model for semantic segmentation"""

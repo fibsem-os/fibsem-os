@@ -22,9 +22,22 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem import conversions, constants
+from fibsem import constants, conversions
 from fibsem.applications.autolamella.structures import (
     Lamella,
+)
+from fibsem.applications.autolamella.ui.autolamella_apply_protocol_dialog import (
+    ApplyLamellaConfigDialog,
+)
+from fibsem.applications.autolamella.ui.autolamella_fluorescence_acquisition_task_config_widget import (
+    AutoLamellaFluorescenceAcquisitionTaskConfigWidget,
+)
+from fibsem.applications.autolamella.ui.autolamella_task_config_widget import (
+    AutoLamellaTaskParametersConfigWidget,
+)
+from fibsem.applications.autolamella.workflows.tasks.tasks import (
+    AcquireFluorescenceImageConfig,
+    SpotBurnFiducialTaskConfig,
 )
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
@@ -35,11 +48,13 @@ from fibsem.structures import (
     Point,
     ReferenceImageParameters,
 )
+from fibsem.ui.tokens import (
+    NEUTRAL_200,
+)
 from fibsem.ui.widgets.canvas.canvas_state import AlignmentSpec, PointsSpec
-from fibsem.ui.widgets.canvas.quad_view import LamellaEditorView, MicroscopeViewController
-from fibsem.applications.autolamella.ui.autolamella_apply_protocol_dialog import ApplyLamellaConfigDialog
-from fibsem.applications.autolamella.ui.autolamella_task_config_widget import (
-    AutoLamellaTaskParametersConfigWidget,
+from fibsem.ui.widgets.canvas.quad_view import (
+    LamellaEditorView,
+    MicroscopeViewController,
 )
 from fibsem.ui.widgets.custom_widgets import (
     ContextMenuConfig,
@@ -51,20 +66,10 @@ from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 from fibsem.ui.widgets.reference_image_parameters_widget import (
     ReferenceImageParametersWidget,
 )
-from fibsem.utils import format_value
-from fibsem.applications.autolamella.ui.autolamella_fluorescence_acquisition_task_config_widget import (
-    AutoLamellaFluorescenceAcquisitionTaskConfigWidget,
-)
-from fibsem.applications.autolamella.workflows.tasks.tasks import (
-    AcquireFluorescenceImageConfig,
-    SpotBurnFiducialTaskConfig,
-)
 from fibsem.ui.widgets.spot_burn_coordinates_widget import (
     SpotBurnCoordinatesWidget,
 )
-from fibsem.ui.tokens import (
-    NEUTRAL_200,
-)
+from fibsem.utils import format_value
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment

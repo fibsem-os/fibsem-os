@@ -28,7 +28,6 @@ import numpy as np
 
 from fibsem import acquire, alignment, calibration, constants, utils
 from fibsem import config as fcfg
-from fibsem.cancellation import OperationCancelledError
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MILL_POLISHING_KEY,
@@ -58,6 +57,7 @@ from fibsem.applications.autolamella.workflows.ui import (
     update_alignment_area_ui,
     update_spot_burn_parameters,
 )
+from fibsem.cancellation import OperationCancelledError
 from fibsem.detection.detection import (
     Feature,
     LamellaBottomEdge,
@@ -478,7 +478,11 @@ class AutoLamellaTask(ABC):
         the starting working distance first); _is_cancellation treats that as a
         cancellation rather than a task failure, so it is deliberately not caught here.
         """
-        from fibsem.autofunctions.autofocus import run_auto_focus, AutoFocusSettings, FocusSweepPass
+        from fibsem.autofunctions.autofocus import (
+            AutoFocusSettings,
+            FocusSweepPass,
+            run_auto_focus,
+        )
         settings = AutoFocusSettings(
             method="tenengrad",
             passes=[

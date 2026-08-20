@@ -26,7 +26,10 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import DefectState, DefectType
-from fibsem.applications.autolamella.ui.lamella_name_list_widget import LamellaNameListWidget, _LamellaRow
+from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
+    LamellaNameListWidget,
+    _LamellaRow,
+)
 
 
 @pytest.fixture(scope="module")

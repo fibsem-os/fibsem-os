@@ -15,11 +15,15 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
-from fibsem.applications.autolamella.workflows.tasks.fiducial import MillFiducialTaskConfig
+from fibsem.applications.autolamella.workflows.tasks.fiducial import (
+    MillFiducialTaskConfig,
+)
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
-from fibsem.applications.autolamella.workflows.workflow_estimate import estimate_workflow
+from fibsem.applications.autolamella.workflows.workflow_estimate import (
+    estimate_workflow,
+)
 
 NOW = datetime(2026, 8, 18, 14, 0, 0)
 
@@ -202,7 +206,9 @@ def test_an_empty_workflow_finishes_now(tmp_path):
 # `estimate_queue` answers the same question as `estimate_workflow` from the other end:
 # against a queue that is part-way through rather than an experiment about to start.
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus  # noqa: E402
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskStatus,  # noqa: E402
+)
 from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem  # noqa: E402
 from fibsem.applications.autolamella.workflows.workflow_estimate import (  # noqa: E402
     estimate_queue,
@@ -390,7 +396,9 @@ def test_the_same_work_after_the_hold_does_delay_it():
 def test_run_next_lands_the_batch_ahead_of_the_pending_work_not_of_history():
     """`front=True` clamps to `_pending_start()`, so a completed item stays where it is
     and the addition cannot be placed before the running one."""
-    from fibsem.applications.autolamella.workflows.workflow_estimate import _with_addition
+    from fibsem.applications.autolamella.workflows.workflow_estimate import (
+        _with_addition,
+    )
     items = _items(("01", "A", AutoLamellaTaskStatus.Completed),
                    ("02", "A", AutoLamellaTaskStatus.InProgress),
                    ("03", "A"))

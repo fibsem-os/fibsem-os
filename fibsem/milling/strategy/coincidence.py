@@ -1,28 +1,29 @@
 from __future__ import annotations
+
 import datetime
 import logging
 import os
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, List, Optional
 from queue import Queue
+from typing import TYPE_CHECKING, List, Optional
 
 import numpy as np
 import tifffile as tff
 from psygnal import Signal
 
 from fibsem import constants
-from fibsem.utils import save_json
 from fibsem.fm.structures import ChannelSettings, FluorescenceImage, ZParameters
 from fibsem.microscope import FibsemMicroscope
+from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.milling import (
-    setup_milling,
     FibsemMillingStage,
     MillingStrategy,
     MillingStrategyConfig,
+    setup_milling,
 )
 from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, field_meta
-from fibsem.microscopes.simulator import DemoMicroscope
+from fibsem.utils import save_json
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2

@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass, field
-from enum import auto, Enum
-from typing import Optional
 import json
 import logging
 import os
 import time
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from typing import Optional
 
 import numpy as np
+
 from fibsem.conversions import image_to_microscope_image_coordinates_px
-from fibsem.structures import FibsemImage, Point
 from fibsem.fm.structures import FluorescenceImage
+from fibsem.structures import FibsemImage, Point
 
 
 class PointType(Enum):

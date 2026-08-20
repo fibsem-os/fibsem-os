@@ -21,18 +21,19 @@ protocol = {
     }
 }
 
-from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import MicroscopeSettings, BeamType
-from fibsem import utils, acquire, milling, alignment
-from fibsem.structures import ImageSettings, BeamType
-from fibsem.ui.utils import _draw_milling_stages_on_image
-from fibsem.milling import get_milling_stages
-import numpy as np
-import matplotlib.pyplot as plt
-
-from pprint import pprint
-import logging
 import copy
+import logging
+from pprint import pprint
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+from fibsem import acquire, alignment, milling, utils
+from fibsem.microscope import FibsemMicroscope
+from fibsem.milling import get_milling_stages
+from fibsem.structures import BeamType, ImageSettings, MicroscopeSettings
+from fibsem.ui.utils import _draw_milling_stages_on_image
+
 
 def adaptive_mill_polishing(microscope: FibsemMicroscope, settings: MicroscopeSettings, protocol: dict, parent_ui=None):
     """Adaptive lamella polishing using contrast detection
@@ -116,7 +117,7 @@ def adaptive_mill_polishing(microscope: FibsemMicroscope, settings: MicroscopeSe
             plt.imshow(image.data, cmap="gray")
             plt.show()
         
-            response = input(f"Has the contrast faded? (y/n)")
+            response = input("Has the contrast faded? (y/n)")
 
             if response == 'y':
                 break

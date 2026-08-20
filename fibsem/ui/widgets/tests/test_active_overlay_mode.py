@@ -13,7 +13,12 @@ import sys
 
 import numpy as np
 from PyQt5.QtWidgets import (
-    QApplication, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
+    QApplication,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
 
 from fibsem.structures import FibsemImage

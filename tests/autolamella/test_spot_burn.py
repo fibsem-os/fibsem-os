@@ -11,11 +11,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn
-from fibsem.structures import BeamType, Point
 from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )
+from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn
+from fibsem.structures import BeamType, Point
 
 # The widget-dispatch tests need the UI stack (napari/PyQt5), which isn't installed
 # in the core CI env (`pip install .`). Probe the third-party packages themselves,

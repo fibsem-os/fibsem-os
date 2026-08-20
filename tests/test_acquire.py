@@ -7,6 +7,7 @@ from fibsem.structures import (
     FibsemRectangle,
 )
 
+
 def test_reduced_area_acquisition():
     """Test the reduced area acquisition functionality of the acquire module."""
     # setup a demo microscope session

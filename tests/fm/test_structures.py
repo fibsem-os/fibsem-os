@@ -1,24 +1,25 @@
 import tempfile
-import pytest
-import numpy as np
-import yaml
 from datetime import datetime
+
+import numpy as np
+import pytest
+import yaml
 
 from fibsem.fm.structures import (
     AutoFocusMode,
     ChannelSettings,
+    FluorescenceChannelMetadata,
     FluorescenceConfiguration,
     FluorescenceImage,
-    FluorescenceChannelMetadata,
     FluorescenceImageMetadata,
     OverviewParameters,
     ZParameters,
     ZStackOrder,
 )
 from fibsem.fm.timing import (
-    DEFAULT_STAGE_MOVE_TIME,
     DEFAULT_AUTOFOCUS_TIME,
     DEFAULT_OVERHEAD_PER_IMAGE,
+    DEFAULT_STAGE_MOVE_TIME,
     DEFAULT_Z_MOVE_TIME,
     calculate_total_images_count,
     estimate_acquisition_time,
@@ -2438,10 +2439,10 @@ class TestCombiningImagesKeepsTheirMetadata:
     def _image(**overrides):
         from fibsem.fm.structures import (
             CameraImageTransform,
+            FibsemHardwareGeometry,
             FluorescenceChannelMetadata,
             FluorescenceImage,
             FluorescenceImageMetadata,
-            FibsemHardwareGeometry,
         )
 
         metadata = FluorescenceImageMetadata(

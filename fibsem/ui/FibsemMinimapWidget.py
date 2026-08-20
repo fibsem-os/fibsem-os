@@ -30,7 +30,6 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 from fibsem import constants, conversions
-from fibsem.ui import notification_service
 from fibsem.applications.autolamella.poses import sync_fluorescence_pose
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
@@ -44,6 +43,10 @@ from fibsem.applications.autolamella.structures import (
     DefectType,
     Lamella,
 )
+from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
+    LamellaNameListWidget,
+)
+from fibsem.conversions import is_inside_image_bounds
 from fibsem.imaging import tiled
 from fibsem.imaging.tiling.progress import MODALITY_BEAM, is_modality
 from fibsem.microscope import FibsemMicroscope
@@ -55,10 +58,9 @@ from fibsem.structures import (
     OverviewAcquisitionSettings,
     Point,
 )
-from fibsem.ui import FibsemMovementWidget, stylesheets
+from fibsem.ui import FibsemMovementWidget, notification_service, stylesheets
 from fibsem.ui import utils as ui_utils
 from fibsem.ui.napari.patterns import COLOURS as MILLING_PATTERN_COLOURS
-from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.napari.patterns import (
     MILLING_PATTERN_LAYER_NAME,
     draw_milling_patterns_in_napari,
@@ -68,7 +70,6 @@ from fibsem.ui.napari.properties import (
     GRIDBAR_IMAGE_LAYER_PROPERTIES,
     OVERVIEW_IMAGE_LAYER_PROPERTIES,
 )
-from fibsem.conversions import is_inside_image_bounds
 from fibsem.ui.napari.utilities import (
     NapariShapeOverlay,
     create_circle_shape,
@@ -76,6 +77,7 @@ from fibsem.ui.napari.utilities import (
     create_rectangle_shape,
     update_text_overlay,
 )
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.custom_widgets import (
     ContextMenu,
     ContextMenuConfig,
@@ -83,7 +85,6 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
     ValueSpinBox,
 )
-from fibsem.applications.autolamella.ui.lamella_name_list_widget import LamellaNameListWidget
 from fibsem.ui.widgets.overview_acquisition_settings_widget import (
     OverviewAcquisitionSettingsWidget,
     default_overview_acquisition_settings,

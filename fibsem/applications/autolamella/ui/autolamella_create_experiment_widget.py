@@ -9,7 +9,6 @@ from typing import Optional
 from PyQt5 import QtWidgets
 
 from fibsem.applications.autolamella import config as cfg
-from fibsem.constants import DATETIME_EXPERIMENT
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -19,6 +18,7 @@ from fibsem.config import (
     load_user_preferences,
     save_user_preferences,
 )
+from fibsem.constants import DATETIME_EXPERIMENT
 from fibsem.ui import utils as fui
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,

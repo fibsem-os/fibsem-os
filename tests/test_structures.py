@@ -21,7 +21,6 @@ from fibsem.structures import (
     TileOrderStrategy,
 )
 
-
 # microscope state
 # electron_beam, electron_detector, ion_beam, ion_detector are now optional
 
@@ -146,6 +145,7 @@ def test_fibsem_image_brightness():
 def test_fibsem_image_apply_gamma():
     """apply_gamma returns a new image with pixel values adjusted and metadata preserved."""
     import numpy as np
+
     from fibsem.autofunctions.gamma import apply_gamma
     data = np.full((10, 10), 128, dtype=np.uint8)
     image = FibsemImage.generate_blank_image(resolution=(10, 10), hfw=10e-6)

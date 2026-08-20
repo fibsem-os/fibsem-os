@@ -1,14 +1,14 @@
 import logging
 
 from fibsem import milling, utils
+from fibsem.milling import FibsemMillingStage, MillingAlignment
+from fibsem.milling.patterning.patterns2 import Point, RectanglePattern
 from fibsem.structures import (
     FibsemCircleSettings,
     FibsemLineSettings,
     FibsemMillingSettings,
     FibsemRectangleSettings,
 )
-from fibsem.milling import FibsemMillingStage, MillingAlignment
-from fibsem.milling.patterning.patterns2 import RectanglePattern, Point
 
 """
 This script demonstrates how to use the milling module to mill a rectangle and two lines.
@@ -69,7 +69,7 @@ def main():
         depth = 1.0e-6,
     )
 
-    logging.info(f"""\nMilling Pattern Example: """)
+    logging.info("""\nMilling Pattern Example: """)
     logging.info(f"The current milling settings are: \n{settings.milling}")
     logging.info(f"The current rectangle pattern is \n{rectangle_shape}")
     logging.info(f"The current circle pattern ins is \n{circle_shape}")

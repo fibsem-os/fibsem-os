@@ -31,11 +31,14 @@ def test_the_coincidence_viewer_records_what_the_panel_will_find(tmp_path, monke
     task, so it has to record the output on the history entry it appends. What it
     records and what the panel discovers must line up.
     """
-    import numpy as np
     from types import SimpleNamespace
 
+    import numpy as np
+
+    from fibsem.applications.autolamella.ui import (
+        fluorescence_coincidence_viewer_widget as viewer,
+    )
     from fibsem.structures import FibsemImage
-    from fibsem.applications.autolamella.ui import fluorescence_coincidence_viewer_widget as viewer
 
     monkeypatch.setattr(viewer.notification_service, "show_toast", lambda *a, **k: None)
 

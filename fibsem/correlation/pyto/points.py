@@ -12,6 +12,7 @@ import numpy
 import scipy
 import scipy.linalg as linalg
 
+
 class Points(object):
     """
 

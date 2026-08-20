@@ -14,7 +14,6 @@ from PyQt5.QtWidgets import (
     QAction,
     QComboBox,
     QDoubleSpinBox,
-    QSpinBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -22,18 +21,19 @@ from PyQt5.QtWidgets import (
     QListWidget,
     QMenu,
     QSizePolicy,
+    QSpinBox,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
-from fibsem.ui.icon import fibsem_icon, qta
 
 from fibsem.ui import stylesheets as stylesheets
-from fibsem.ui.utils import install_wheel_blocker
-from fibsem.utils import format_value
+from fibsem.ui.icon import fibsem_icon, qta
 from fibsem.ui.tokens import (
     CANVAS_BG,
 )
+from fibsem.ui.utils import install_wheel_blocker
+from fibsem.utils import format_value
 
 
 class QFilePathLineEdit(QWidget):

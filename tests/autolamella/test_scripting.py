@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 from psygnal.containers import EventedDict
 
-from fibsem.cancellation import OperationCancelledError
 from fibsem.applications.autolamella.scripting import (
     DEFAULT_SCRIPTS_DIR,
     SCRIPTS_DIR_ENV_VAR,
@@ -19,6 +18,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
+from fibsem.cancellation import OperationCancelledError
 from fibsem.structures import MicroscopeState
 
 

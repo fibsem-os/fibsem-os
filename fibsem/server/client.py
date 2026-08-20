@@ -25,8 +25,8 @@ from fibsem.structures import (
     FibsemPatternSettings,
     FibsemStagePosition,
     ImageSettings,
-    MillingState,
     MicroscopeState,
+    MillingState,
     Point,
     SystemSettings,
 )

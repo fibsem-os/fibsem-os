@@ -10,13 +10,14 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
+import numpy as np
+
 from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
 from fibsem.structures import BeamType
 
-import numpy as np
 if TYPE_CHECKING:
-    from fibsem.structures import BeamType, FibsemRectangle, ImageSettings
     from fibsem.microscope import FibsemMicroscope
+    from fibsem.structures import BeamType, FibsemRectangle, ImageSettings
 
 logger = logging.getLogger(__name__)
 

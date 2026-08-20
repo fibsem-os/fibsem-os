@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 
 import argparse
-    
+import glob
+import os
+import time
+
 # import matplotlib.pyplot as plt
 import numpy as np
 import segmentation_models_pytorch as smp
-from fibsem.segmentation import dataset, utils, validate_config
+import tifffile as tff
 import torch
-import os
 import wandb
-from PIL import Image
 import yaml
 import zarr
-import glob
-import tifffile as tff
-import time
+from PIL import Image
+
+from fibsem.segmentation import dataset, utils, validate_config
+
 
 def inference(images, output_dir, model, model_path, device, WANDB=False):
     """Helper function for performing inference with the model"""

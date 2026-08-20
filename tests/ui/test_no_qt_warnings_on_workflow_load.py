@@ -48,18 +48,6 @@ from PyQt5.QtCore import (  # noqa: E402
 from PyQt5.QtGui import QPixmap  # noqa: E402
 from PyQt5.QtWidgets import QLabel  # noqa: E402
 
-from fibsem.correlation.structures import Coordinate  # noqa: E402
-from fibsem.fm.structures import ChannelSettings  # noqa: E402
-from fibsem.milling.base import FibsemMillingStage  # noqa: E402
-from fibsem.milling.patterning import get_pattern_names  # noqa: E402
-from fibsem.milling.strategy import get_strategy_names  # noqa: E402
-from fibsem.ui import icon  # noqa: E402
-from fibsem.ui.icon import (  # noqa: E402
-    DRAG_HANDLE_HEIGHT,
-    DRAG_HANDLE_PATH,
-    DRAG_HANDLE_WIDTH,
-    drag_handle_pixmap,
-)
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
@@ -70,10 +58,22 @@ from fibsem.applications.autolamella.ui.lamella_workflow_widget import (  # noqa
 from fibsem.applications.autolamella.ui.workflow_config_widget import (  # noqa: E402
     WorkflowTaskRowWidget,
 )
+from fibsem.correlation.structures import Coordinate  # noqa: E402
+from fibsem.fm.structures import ChannelSettings  # noqa: E402
+from fibsem.milling.base import FibsemMillingStage  # noqa: E402
+from fibsem.milling.patterning import get_pattern_names  # noqa: E402
+from fibsem.milling.strategy import get_strategy_names  # noqa: E402
+from fibsem.ui import icon  # noqa: E402
 from fibsem.ui.correlation.widgets.coordinate_list_widget import (  # noqa: E402
     CoordinateRowWidget,
 )
 from fibsem.ui.fm.widgets.channel_list_widget import ChannelRowWidget  # noqa: E402
+from fibsem.ui.icon import (  # noqa: E402
+    DRAG_HANDLE_HEIGHT,
+    DRAG_HANDLE_PATH,
+    DRAG_HANDLE_WIDTH,
+    drag_handle_pixmap,
+)
 from fibsem.ui.widgets.milling_stage_list_widget import (  # noqa: E402
     MillingStageRowWidget,
 )

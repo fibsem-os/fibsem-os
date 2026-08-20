@@ -12,12 +12,12 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from fibsem.ui.icon import fibsem_icon
 
 from fibsem import constants
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.ui import stylesheets
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueSpinBox
 from fibsem.ui.widgets.milling_alignment_widget import FibsemMillingAlignmentWidget
 from fibsem.ui.widgets.milling_stages_widget import FibsemMillingStagesWidget

@@ -13,26 +13,29 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 import numpy as np
 
 from fibsem.autofunctions.autofocus import AutoFocusIteration, AutoFocusResult
-from fibsem.fm.structures import AutoFocusSettings, ZParameters
-from fibsem.structures import FibsemRectangle
+from fibsem.autofunctions.integration import (
+    adaptive_frame_integration,
+    frame_integration,
+)
 from fibsem.autofunctions.metrics import (
+    calculate_focus_quality,
+    find_best_focus_plane,
     get_focus_measure_function,
     laplacian_focus_measure,
     sobel_focus_measure,
-    variance_focus_measure,
     tenengrad_focus_measure,
-    find_best_focus_plane,
-    calculate_focus_quality,
+    variance_focus_measure,
 )
+from fibsem.autofunctions.plotting import plot_autofocus_result as plot_autofocus
 from fibsem.autofunctions.stacking import (
     block_based_focus_selection,
-    create_focus_stack_from_selection,
-    pixel_based_focus_selection,
-    create_pixel_based_focus_stack,
     create_block_based_focus_stack,
+    create_focus_stack_from_selection,
+    create_pixel_based_focus_stack,
+    pixel_based_focus_selection,
 )
-from fibsem.autofunctions.integration import frame_integration, adaptive_frame_integration
-from fibsem.autofunctions.plotting import plot_autofocus_result as plot_autofocus
+from fibsem.fm.structures import AutoFocusSettings, ZParameters
+from fibsem.structures import FibsemRectangle
 
 __all__ = [
     "get_focus_measure_function",

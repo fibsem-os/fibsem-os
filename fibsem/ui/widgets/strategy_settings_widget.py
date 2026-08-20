@@ -15,11 +15,11 @@ from PyQt5.QtWidgets import (
 
 from fibsem.milling.base import MillingStrategy, get_strategy
 from fibsem.milling.strategy import get_strategy_names
-from fibsem.ui.widgets.custom_widgets import ValueComboBox
-from fibsem.ui.widgets.form_builder import Control, build_control
 from fibsem.ui.tokens import (
     NEUTRAL_700,
 )
+from fibsem.ui.widgets.custom_widgets import ValueComboBox
+from fibsem.ui.widgets.form_builder import Control, build_control
 
 
 @dataclass

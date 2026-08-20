@@ -4,12 +4,10 @@ from functools import partial
 from typing import Optional
 
 import numpy as np
-from fibsem.ui.qt.threading import thread_worker
 from PyQt5 import QtCore, QtWidgets
 from superqt import ensure_main_thread
 
 from fibsem import config as cfg
-from fibsem.ui import notification_service
 from fibsem import constants, conversions
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
@@ -17,7 +15,9 @@ from fibsem.structures import (
     FibsemStagePosition,
     Point,
 )
+from fibsem.ui import notification_service
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
+from fibsem.ui.qt.threading import thread_worker
 from fibsem.ui.stylesheets import (
     LABEL_INSTRUCTIONS_STYLE,
     PRIMARY_BUTTON_STYLESHEET,

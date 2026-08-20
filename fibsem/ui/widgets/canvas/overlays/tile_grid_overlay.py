@@ -19,7 +19,6 @@ is absorbed into the stage moves, not into where the tiles appear.
 from __future__ import annotations
 
 import logging
-
 from typing import TYPE_CHECKING, Iterable, List, Optional, Sequence, Tuple
 
 from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal

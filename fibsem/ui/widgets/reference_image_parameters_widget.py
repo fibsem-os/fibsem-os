@@ -1,4 +1,5 @@
-import copy 
+import copy
+
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
@@ -8,11 +9,11 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.constants import SI_TO_MICRO, MICRO_TO_SI
+from fibsem.constants import MICRO_TO_SI, SI_TO_MICRO
 from fibsem.structures import ReferenceImageParameters
 from fibsem.ui import stylesheets
-from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, ValueSpinBox
+from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
 # GUI Configuration Constants
 WIDGET_CONFIG = {

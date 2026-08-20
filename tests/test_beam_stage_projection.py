@@ -31,6 +31,7 @@ from fibsem.imaging.tiling.reprojection import (
     reproject_stage_positions_onto_image2,
     y_corrected_stage_movement_tescan_from_geometry,
 )
+from fibsem.projection import BeamStageProjection, surface_foreshortening
 from fibsem.structures import (
     BeamType,
     FibsemHardwareGeometry,
@@ -38,7 +39,6 @@ from fibsem.structures import (
     FibsemStagePosition,
     ImageSettings,
 )
-from fibsem.projection import BeamStageProjection, surface_foreshortening
 
 SHAPE = (1024, 1536)  # (height, width) -- deliberately non-square, so an axis swap shows
 PIXEL_SIZE = 2e-7

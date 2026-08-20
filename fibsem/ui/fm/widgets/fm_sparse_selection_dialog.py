@@ -37,9 +37,9 @@ from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameter
 from fibsem.fm.timing import estimate_tileset_acquisition_time
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemImage, FibsemStagePosition
+from fibsem.ui import stylesheets
 from fibsem.ui.fm.widgets.fm_region_selector import FMRegionSelectorWidget
 from fibsem.ui.fm.widgets.fm_tile_preview import FMTilePreviewWidget
-from fibsem.ui import stylesheets
 from fibsem.ui.stylesheets import CANVAS_BG
 from fibsem.ui.tokens import (
     BORDER_COLOR,

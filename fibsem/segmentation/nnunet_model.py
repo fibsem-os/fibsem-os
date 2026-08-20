@@ -1,21 +1,20 @@
 
-from typing import Optional, List
-
-import numpy as np
-import torch
-
-from fibsem.segmentation.utils import decode_segmap_v2
-
-from pathlib import Path
-from fibsem.segmentation import config as scfg
 import os
-from huggingface_hub import hf_hub_download
-
-
-from fibsem.segmentation import _nnunet as nnunet
 
 # TODO: actually implement this
 from abc import ABC
+from pathlib import Path
+from typing import List, Optional
+
+import numpy as np
+import torch
+from huggingface_hub import hf_hub_download
+
+from fibsem.segmentation import _nnunet as nnunet
+from fibsem.segmentation import config as scfg
+from fibsem.segmentation.utils import decode_segmap_v2
+
+
 def SegmentationModelBase(ABC):
 
     def __init__(self, checkpoint: str):

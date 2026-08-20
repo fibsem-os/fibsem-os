@@ -396,7 +396,9 @@ def test_the_cross_sits_at_the_tile_centre(qapp):
 
 def test_the_cross_scales_with_the_tiles(qapp):
     """A fixed size would swamp a large grid, where the tiles are small on screen."""
-    from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import UNREACHABLE_MARK_SIZE
+    from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import (
+        UNREACHABLE_MARK_SIZE,
+    )
 
     overlay, tiles = build(3, 3)
     overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE, unreachable=[(1, 1)])

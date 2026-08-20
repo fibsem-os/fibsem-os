@@ -1,5 +1,6 @@
 import logging
 import threading
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -11,8 +12,6 @@ from fibsem.milling.base import (
     MillingStrategy,
     MillingStrategyConfig,
 )
-
-import time
 
 
 @dataclass

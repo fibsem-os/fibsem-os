@@ -1,7 +1,9 @@
 import logging
+
 import numpy as np
 import torch
 from adaptive_polish.dl_segmentation import sem_lamella_segmentor as sgm
+
 from fibsem.segmentation.utils import decode_segmap_v2, download_checkpoint
 
 

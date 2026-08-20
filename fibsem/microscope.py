@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import copy
 import dataclasses
 import datetime
@@ -11,14 +12,13 @@ import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from functools import wraps
-from typing import Dict, List, Optional, Tuple, Union, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
-from skimage import transform
 from packaging.version import InvalidVersion
 from packaging.version import parse as parse_version
 from psygnal import Signal
-
+from skimage import transform
 
 THERMO_API_AVAILABLE = False
 MINIMUM_AUTOSCRIPT_VERSION_4_7 = parse_version("4.7")
@@ -60,17 +60,18 @@ try:
     )
     from autoscript_sdb_microscope_client.enumerations import (
         CoordinateSystem,
+        ImagingState,
         ManipulatorCoordinateSystem,
         ManipulatorSavedPosition,
         ManipulatorState,
         MultiChemInsertPosition,
         PatterningState,
         RegularCrossSectionScanMethod,
-        ImagingState,
     )
     from autoscript_sdb_microscope_client.structures import (
         AdornedImage,
         BitmapPatternDefinition,
+        GetImageSettings,
         GrabFrameSettings,
         Limits,
         Limits2d,
@@ -78,7 +79,6 @@ try:
         MoveSettings,
         Rectangle,
         StagePosition,
-        GetImageSettings,
     )
     THERMO_API_AVAILABLE = True
 except AutoScriptException as e:
@@ -93,6 +93,14 @@ except Exception:
 
 
 import fibsem.constants as constants
+from fibsem.fm.microscope import FluorescenceMicroscope
+from fibsem.microscopes.autoscript import (
+    fibsem_image_from_adorned_image,
+    manipulator_position_from_autoscript,
+    manipulator_position_to_autoscript,
+    stage_position_from_autoscript,
+    stage_position_to_autoscript,
+)
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
     BeamSettings,
@@ -124,19 +132,13 @@ from fibsem.structures import (
     RangeLimit,
     SystemSettings,
 )
-from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.transformations import get_stage_tilt_from_milling_angle
-from fibsem.microscopes.autoscript import (
-    fibsem_image_from_adorned_image,
-    manipulator_position_from_autoscript,
-    manipulator_position_to_autoscript,
-    stage_position_from_autoscript,
-    stage_position_to_autoscript,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
     from numpy.typing import NDArray
+
     from fibsem.structures import TFibsemPatternSettings
 
 class FibsemMicroscope(ABC):
@@ -2702,7 +2704,10 @@ class ThermoMicroscope(FibsemMicroscope):
 
     def _get_axis_limits(self) -> Dict[str, RangeLimit]:
         """Get the stage axis limits for x, y, z, t, r."""
-        from fibsem.microscopes.simulator import STAGE_LIMITS_COMPUSTAGE, STAGE_LIMITS_DEFAULT
+        from fibsem.microscopes.simulator import (
+            STAGE_LIMITS_COMPUSTAGE,
+            STAGE_LIMITS_DEFAULT,
+        )
         if self.stage_is_compustage:
             return STAGE_LIMITS_COMPUSTAGE
         

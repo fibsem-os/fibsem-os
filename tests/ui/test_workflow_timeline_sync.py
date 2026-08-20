@@ -25,12 +25,12 @@ from PyQt5.QtCore import QObject, pyqtSignal
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
 from fibsem.applications.autolamella.structures import Experiment, Lamella
-from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
-from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
 from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     StepStatus,
     WorkflowProgressWidget,
 )
+from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
 
 
 @pytest.fixture
@@ -182,9 +182,11 @@ def test_failures_and_cancellations_are_both_named(widget, queue):
 def test_a_cancelled_row_does_not_look_like_a_running_one(widget, queue):
     """They were #e0a030 and #ff9800 — the same colour to the eye."""
     from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
-        _DOT_ACTIVE, _DOT_CANCELLED, _status_color,
+        _DOT_ACTIVE,
+        _DOT_CANCELLED,
+        StepStatus,
+        _status_color,
     )
-    from fibsem.applications.autolamella.ui.workflow_timeline_widget import StepStatus
 
     assert _DOT_CANCELLED != _DOT_ACTIVE
     assert _status_color(StepStatus.CANCELLED) == _DOT_CANCELLED

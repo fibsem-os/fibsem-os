@@ -25,13 +25,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import numpy as np
 from PyQt5.QtWidgets import QApplication, QPushButton
 
-from fibsem.structures import FibsemImage
-from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
-from fibsem.ui.widgets.canvas.overlays import RectOverlay, ScanDirectionArrowOverlay
 from fibsem.applications.autolamella.ui.fluorescence_coincidence_viewer_widget import (
     _FibImageCanvas,
     _FmImageCanvas,
 )
+from fibsem.structures import FibsemImage
+from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.overlays import RectOverlay, ScanDirectionArrowOverlay
 
 _app = QApplication.instance() or QApplication(sys.argv)
 

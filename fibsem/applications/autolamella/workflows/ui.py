@@ -1,10 +1,12 @@
 from __future__ import annotations
+
 import logging
 import time
 from copy import deepcopy
 from typing import TYPE_CHECKING, List, Optional, Sequence
 
 from fibsem import milling
+from fibsem.applications.autolamella.structures import Experiment
 from fibsem.detection import detection
 from fibsem.detection import utils as det_utils
 from fibsem.detection.detection import DetectedFeatures, Feature
@@ -17,7 +19,7 @@ from fibsem.structures import (
     ImageSettings,
     Point,
 )
-from fibsem.applications.autolamella.structures import Experiment
+
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
     from fibsem.imaging.spot import SpotBurnSettings

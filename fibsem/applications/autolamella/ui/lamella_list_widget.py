@@ -21,8 +21,6 @@ from PyQt5.QtWidgets import (
 )
 from superqt import ensure_main_thread
 
-from fibsem.ui.icon import fibsem_icon
-
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskStatus,
     DefectState,
@@ -30,11 +28,12 @@ from fibsem.applications.autolamella.structures import (
     Lamella,
 )
 from fibsem.ui import stylesheets
-from fibsem.ui.widgets.custom_widgets import IconToolButton
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
     CANVAS_BG,
     NEUTRAL_550,
 )
+from fibsem.ui.widgets.custom_widgets import IconToolButton
 
 _NAME_MIN_WIDTH = 160
 _BTN_SIZE = QSize(32, 32)

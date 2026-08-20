@@ -128,7 +128,6 @@ class TestThePreviewPaintsWhatItIsGiven:
     @staticmethod
     def _runner_with_preview(n_channels, stride, canvas_shape):
         from fibsem.fm.acquisition import FMTiledAcquisitionRunner
-
         from fibsem.imaging.reduce import PreviewMosaic
 
         runner = FMTiledAcquisitionRunner.__new__(FMTiledAcquisitionRunner)

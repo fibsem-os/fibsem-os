@@ -1,9 +1,10 @@
+import logging
+
 import matplotlib
 import matplotlib.pyplot as plt
 
 from fibsem import acquire, utils
 from fibsem.structures import BeamType
-import logging
 
 matplotlib.use('TkAgg', force=True) # Activate 'agg' backend for off-screen plotting.
 
@@ -24,7 +25,7 @@ def main():
     microscope, settings = utils.setup_session(manufacturer="Demo", ip_address="localhost")
 
     # info about ImageSettings
-    logging.info(f"\nAcquiring Images Example:")
+    logging.info("\nAcquiring Images Example:")
     logging.info(f"The current image settings are: \n{settings.image}")
 
     # take an image with the electron beam

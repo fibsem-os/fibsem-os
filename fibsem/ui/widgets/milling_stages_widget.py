@@ -8,12 +8,12 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.ui import stylesheets
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage, MillingStrategy, get_strategy
 from fibsem.milling.patterning import get_pattern
 from fibsem.milling.patterning.patterns2 import BasePattern
 from fibsem.structures import BeamType, FibsemMillingSettings
+from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
 from fibsem.ui.widgets.milling_settings_widget import FibsemMillingSettingsWidget
 from fibsem.ui.widgets.milling_stage_list_widget import MillingStageListWidget

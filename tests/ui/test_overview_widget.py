@@ -28,10 +28,10 @@ import pytest
 # module-level imports below turn a skip into a collection error.
 pytest.importorskip("PyQt5")
 
+from copy import deepcopy  # noqa: E402
+
 from PyQt5.QtCore import QPoint  # noqa: E402
 from PyQt5.QtWidgets import QApplication, QDialog  # noqa: E402
-
-from copy import deepcopy  # noqa: E402
 
 from fibsem import utils  # noqa: E402
 from fibsem.imaging import tiled  # noqa: E402
@@ -3148,7 +3148,8 @@ class TestAnOverviewDoesNotPaintOverTheOneBeneathIt:
 
     def test_an_unacquired_region_is_transparent_and_the_rest_is_not(self):
         from fibsem.ui.widgets.overview_widget import (
-            _as_colour_and_coverage, _contrast_limits,
+            _as_colour_and_coverage,
+            _contrast_limits,
         )
 
         data = self._partial()
@@ -3164,7 +3165,8 @@ class TestAnOverviewDoesNotPaintOverTheOneBeneathIt:
         pixel has to stay opaque, or the overview beneath shows through it and the
         result is neither picture."""
         from fibsem.ui.widgets.overview_widget import (
-            _as_colour_and_coverage, _contrast_limits,
+            _as_colour_and_coverage,
+            _contrast_limits,
         )
 
         data = np.array([[1, 40, 128, 255]], dtype=np.uint8)
@@ -3176,7 +3178,8 @@ class TestAnOverviewDoesNotPaintOverTheOneBeneathIt:
     def test_nothing_acquired_is_wholly_transparent(self):
         """A run that has not produced a tile yet, and a cancelled one that never did."""
         from fibsem.ui.widgets.overview_widget import (
-            _as_colour_and_coverage, _contrast_limits,
+            _as_colour_and_coverage,
+            _contrast_limits,
         )
 
         data = np.zeros((16, 16), dtype=np.uint8)
@@ -3187,7 +3190,8 @@ class TestAnOverviewDoesNotPaintOverTheOneBeneathIt:
         them win the minimum squeezes what *is* there into the top of the range. That
         renders a half-done overview visibly bleached."""
         from fibsem.ui.widgets.overview_widget import (
-            _as_colour_and_coverage, _contrast_limits,
+            _as_colour_and_coverage,
+            _contrast_limits,
         )
 
         data = self._partial()
@@ -3202,7 +3206,8 @@ class TestAnOverviewDoesNotPaintOverTheOneBeneathIt:
         """The common case must not change: with nothing to exclude, this is the same
         stretch the canvas applied before."""
         from fibsem.ui.widgets.overview_widget import (
-            _as_colour_and_coverage, _contrast_limits,
+            _as_colour_and_coverage,
+            _contrast_limits,
         )
 
         rng = np.random.default_rng(11)

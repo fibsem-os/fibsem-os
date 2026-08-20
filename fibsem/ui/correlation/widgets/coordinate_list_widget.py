@@ -33,11 +33,11 @@ from fibsem.ui.icon import (
     drag_handle_pixmap,
     fibsem_icon,
 )
-from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueSpinBox
 from fibsem.ui.tokens import (
     CANVAS_BG,
     GRAY_TEXT_COLOR,
 )
+from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueSpinBox
 
 _NAME_FIXED_WIDTH = 100
 _SPIN_FIXED_WIDTH = 75

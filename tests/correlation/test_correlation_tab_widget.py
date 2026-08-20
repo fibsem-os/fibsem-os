@@ -17,8 +17,8 @@ from fibsem.correlation.structures import (
     Coordinate,
     CorrelationInputData,
     CorrelationPointOfInterest,
-    CorrelationState,
     CorrelationResult,
+    CorrelationState,
     PointType,
     PointXYZ,
 )
@@ -1776,9 +1776,9 @@ def test_auto_accept_applies_without_dialog(qapp, monkeypatch):
 
 
 def test_auto_accept_error_still_shows_dialog(qapp, monkeypatch):
-    import fibsem.ui.correlation.widgets.correlation_tab_widget as mod
     from PyQt5.QtWidgets import QDialog
 
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as mod
     from fibsem.ui.correlation.widgets.fit_confirmation_dialog import FitStatus
 
     w = _widget(qapp)
@@ -1833,8 +1833,8 @@ def test_refit_applies_on_accept_not_on_reject(qapp, monkeypatch):
     import numpy as np
     from PyQt5.QtWidgets import QDialog
 
-    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
     import fibsem.correlation.util as util
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
 
     w = _widget(qapp)
     w._fib_image = SimpleNamespace(filtered_data=np.zeros((64, 64), dtype=np.float32))

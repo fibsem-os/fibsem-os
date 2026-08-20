@@ -1,7 +1,15 @@
-from datasets import Dataset, DatasetDict, Image, NamedSplit, DatasetInfo, ClassLabel, Features
-import os
 import glob
+import os
 
+from datasets import (
+    ClassLabel,
+    Dataset,
+    DatasetDict,
+    DatasetInfo,
+    Features,
+    Image,
+    NamedSplit,
+)
 
 WAFFLE_TRAIN_PATH = "/home/patrick/github/data/autolamella-paper/model-development/train/autolamella-waffle/train/"
 WAFFLE_TEST_PATH = "/home/patrick/github/data/autolamella-paper/model-development/train/autolamella-waffle/test/"

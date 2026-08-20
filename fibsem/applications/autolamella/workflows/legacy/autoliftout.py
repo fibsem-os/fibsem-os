@@ -1,58 +1,72 @@
 import logging
+import os
 import time
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 
-import os
 import numpy as np
-from fibsem import acquire, alignment, calibration
-from fibsem.autofunctions.charge_neutralisation import auto_charge_neutralisation
-from fibsem.alignment import AlignmentSubsystem
+
+from fibsem import acquire, alignment, calibration, validation
+from fibsem import config as fcfg
 from fibsem import utils as fibsem_utils
-from fibsem import validation
+from fibsem.alignment import AlignmentSubsystem
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaStage,
+    Experiment,
+    Lamella,
+)
+from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+from fibsem.applications.autolamella.workflows import actions
+from fibsem.applications.autolamella.workflows.core import (
+    end_of_stage_update,
+    log_status_message,
+    log_status_message_raw,
+    mill_lamella,
+    mill_trench,
+    mill_undercut,
+    setup_lamella,
+    start_of_stage_update,
+)
+from fibsem.applications.autolamella.workflows.ui import (
+    ask_user,
+    set_images_ui,
+    update_detection_ui,
+    update_experiment_ui,
+    update_milling_ui,
+    update_status_ui,
+)
+from fibsem.autofunctions.charge_neutralisation import auto_charge_neutralisation
 from fibsem.detection import detection
 from fibsem.detection.detection import (
+    DetectedFeatures,
     ImageCentre,
+    LamellaBottomEdge,
     LamellaCentre,
     LamellaLeftEdge,
     LamellaRightEdge,
+    LamellaTopEdge,
     LandingPost,
     NeedleTip,
-    LandingPost,
-    LamellaTopEdge,
-    LamellaBottomEdge,
     detect_features,
-    DetectedFeatures,
 )
 from fibsem.imaging import utils as image_utils
 from fibsem.microscope import FibsemMicroscope
-from fibsem.milling import FibsemMillingStage, get_milling_stages, get_protocol_from_stages
+from fibsem.milling import (
+    FibsemMillingStage,
+    get_milling_stages,
+    get_protocol_from_stages,
+)
 from fibsem.structures import (
     BeamType,
+    FibsemImage,
     FibsemRectangle,
     FibsemStagePosition,
-    FibsemImage,
+    ImageSettings,
     MicroscopeSettings,
     MicroscopeState,
     Point,
-    ImageSettings
 )
-
-from fibsem.applications.autolamella.workflows import actions
-from fibsem.applications.autolamella.structures import AutoLamellaStage, Experiment, Lamella
-from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
-from fibsem import config as fcfg
-
-
-from fibsem.applications.autolamella.workflows.core import (log_status_message, log_status_message_raw,
-                                        start_of_stage_update, end_of_stage_update, 
-                                        mill_trench, mill_undercut, mill_lamella, 
-                                        setup_lamella)
-from fibsem.applications.autolamella.workflows.ui import (update_milling_ui, update_status_ui, 
-                                      set_images_ui, ask_user, update_detection_ui, 
-                                      update_experiment_ui)
-
 
 # autoliftout workflow functions
 
@@ -1261,7 +1275,7 @@ def prepare_manipulator_surface(microscope: FibsemMicroscope, settings: Microsco
     
     # insert manipulator to eucentric z=-10
     log_status_message_raw(workflow_stage, "INSERT_MANIPULATOR")
-    update_status_ui(parent_ui, f"Inserting Manipulator...")
+    update_status_ui(parent_ui, "Inserting Manipulator...")
     actions.move_needle_to_prepare_position(microscope)
 
     # move manipulator to centre of image
@@ -1275,12 +1289,12 @@ def prepare_manipulator_surface(microscope: FibsemMicroscope, settings: Microsco
 
     # mill prepare-manipulator (clean the manipulator surface)
     log_status_message_raw(workflow_stage, "MILL_PREPARE_MANIPULATOR_SURFACE")
-    settings.image.filename = f"ref_prepare_manipulator_surface"
+    settings.image.filename = "ref_prepare_manipulator_surface"
     settings.image.hfw = fcfg.REFERENCE_HFW_HIGH
     settings.image.save = True
     eb_image, ib_image = acquire.take_reference_images(microscope, settings.image)
     set_images_ui(parent_ui, eb_image, ib_image)
-    update_status_ui(parent_ui, f"Preparing Manipulator Surface...")
+    update_status_ui(parent_ui, "Preparing Manipulator Surface...")
 
     # create rectangle pattern at tip (horizontal rect)
     stages = get_milling_stages("prepare-manipulator", ["milling"])
@@ -1296,13 +1310,13 @@ def prepare_manipulator_surface(microscope: FibsemMicroscope, settings: Microsco
         point.y *= -1.0
 
     stages = update_milling_ui(microscope, stages=stages, 
-                msg=f"Press Run Milling to mill the manipulator. Press Continue when done.", 
+                msg="Press Run Milling to mill the manipulator. Press Continue when done.", 
                 parent_ui=parent_ui, validate=validate)
 
     # reference images
     log_status_message_raw(workflow_stage, "REFERENCE_IMAGES")
     settings.image.hfw = fcfg.REFERENCE_HFW_HIGH
-    settings.image.filename = f"ref_prepare_manipulator_surface_final"
+    settings.image.filename = "ref_prepare_manipulator_surface_final"
     eb_image, ib_image = acquire.take_reference_images(microscope, settings.image)
     set_images_ui(parent_ui, eb_image, ib_image)
 
@@ -1339,7 +1353,7 @@ def _prepare_manipulator_autoliftout(microscope: FibsemMicroscope,
                     pos="Yes", neg="No")
 
     if ret is False:
-        logging.info(f"Exiting prepare manipulator workflow. Manipulator is not calibrated")
+        logging.info("Exiting prepare manipulator workflow. Manipulator is not calibrated")
         return
     
     # prepare manipulator surface
@@ -1371,12 +1385,12 @@ def _prepare_manipulator_serial_liftout(microscope: FibsemMicroscope, settings: 
                     pos="Yes", neg="No")
 
     if ret is False:
-        logging.info(f"Exiting prepare manipulator workflow. Manipulator is not calibrated")
+        logging.info("Exiting prepare manipulator workflow. Manipulator is not calibrated")
         return
 
     # move to landing grid
     log_status_message_raw(workflow_stage, "MOVE_TO_LANDING_GRID")
-    update_status_ui(parent_ui, f"Moving to Landing Grid...")
+    update_status_ui(parent_ui, "Moving to Landing Grid...")
     position = fibsem_utils._get_position(settings.protocol["options"]["landing_start_position"])
     microscope.safe_absolute_stage_movement(position)
 
@@ -1387,23 +1401,23 @@ def _prepare_manipulator_serial_liftout(microscope: FibsemMicroscope, settings: 
     # ask the user to navigate to the desired location
     ask_user(
         parent_ui,
-        msg=f"Please navigate to the desired location for preparing the copper adaptors. Press Continue when ready.",
+        msg="Please navigate to the desired location for preparing the copper adaptors. Press Continue when ready.",
         pos="Continue",
     )
 
 
     # mill prepare-copper-grid (clean the grid surface)
-    settings.image.filename = f"ref_prepare_copper_grid"
+    settings.image.filename = "ref_prepare_copper_grid"
     settings.image.hfw = fcfg.REFERENCE_HFW_HIGH
     settings.image.save = True
     eb_image, ib_image = acquire.take_reference_images(microscope, settings.image)
     set_images_ui(parent_ui, eb_image, ib_image)
-    update_status_ui(parent_ui, f"Preparing Copper Grid...")
+    update_status_ui(parent_ui, "Preparing Copper Grid...")
 
     log_status_message_raw(workflow_stage, "MILL_PREPARE_COPPER_GRID")
     stages = get_milling_stages("prepare-copper-grid", settings.protocol["milling"])
     stages = update_milling_ui(microscope, stages=stages,
-            msg=f"Press Run Milling to mill the grid preparation milling. Press Continue when done.", 
+            msg="Press Run Milling to mill the grid preparation milling. Press Continue when done.", 
             parent_ui=parent_ui, validate=validate)
     
     # refernce images
@@ -1412,7 +1426,7 @@ def _prepare_manipulator_serial_liftout(microscope: FibsemMicroscope, settings: 
         microscope=microscope,
         image_settings=settings.image,
         hfws=[fcfg.REFERENCE_HFW_MEDIUM, fcfg.REFERENCE_HFW_HIGH],
-        filename=f"ref_prepare_copper_grid_final",
+        filename="ref_prepare_copper_grid_final",
     )
     set_images_ui(parent_ui, reference_images.high_res_eb, reference_images.high_res_ib)
 
@@ -1421,16 +1435,16 @@ def _prepare_manipulator_serial_liftout(microscope: FibsemMicroscope, settings: 
 
     # rotate flat to ion
     log_status_message_raw(workflow_stage, "ROTATE_FLAT_TO_ION")
-    update_status_ui(parent_ui, f"Rotating to Ion Beam...")
+    update_status_ui(parent_ui, "Rotating to Ion Beam...")
     microscope.move_flat_to_beam(beam_type=BeamType.ION)
 
     # mill prepare-copper-blocks (chain of blocks)
-    settings.image.filename = f"ref_prepare_copper_blocks"
+    settings.image.filename = "ref_prepare_copper_blocks"
     settings.image.hfw = fcfg.REFERENCE_HFW_HIGH
     settings.image.save = True
     eb_image, ib_image = acquire.take_reference_images(microscope, settings.image)
     set_images_ui(parent_ui, eb_image, ib_image)
-    update_status_ui(parent_ui, f"Preparing Copper Blocks...")
+    update_status_ui(parent_ui, "Preparing Copper Blocks...")
 
 
     # get top pattern position
@@ -1443,20 +1457,20 @@ def _prepare_manipulator_serial_liftout(microscope: FibsemMicroscope, settings: 
     # mill prepare-copper-blocks (chain of blocks)
     stages = get_milling_stages("prepare-copper-blocks", settings.protocol["milling"], point=points)
     stages = update_milling_ui(microscope, stages=stages, 
-                msg=f"Press Run Milling to mill the copper blocks. Press Continue when done.", 
+                msg="Press Run Milling to mill the copper blocks. Press Continue when done.", 
                 parent_ui=parent_ui, validate=validate)
     
 
     # move back to milling orientation
     log_status_message_raw(workflow_stage, "MOVE_TO_MILLING_ORIENTATION")
-    update_status_ui(parent_ui, f"Moving to Milling Orientation...")
+    update_status_ui(parent_ui, "Moving to Milling Orientation...")
     microscope.set_microscope_state(milling_state)
 
     # align coincidence
     if validate:
         ask_user(
             parent_ui,
-            msg=f"Please align the coincidence of the beam. Press Continue when ready.",
+            msg="Please align the coincidence of the beam. Press Continue when ready.",
             pos="Continue",
         )
 
@@ -1475,13 +1489,13 @@ def _prepare_manipulator_serial_liftout(microscope: FibsemMicroscope, settings: 
 
     # insert manipulator to eucentric z=-10
     log_status_message_raw(workflow_stage, "INSERT_MANIPULATOR")
-    update_status_ui(parent_ui, f"Inserting Manipulator...")
+    update_status_ui(parent_ui, "Inserting Manipulator...")
     actions.move_needle_to_prepare_position(microscope)
 
     # polish surfaces flat, cleaning cross section?
     ask_user(
         parent_ui,
-        msg=f"Confirm that both surfaces are flat. Polish with milling if required. Press Continue when ready.",
+        msg="Confirm that both surfaces are flat. Polish with milling if required. Press Continue when ready.",
         pos="Continue",
     )
 
@@ -1501,7 +1515,7 @@ def _prepare_manipulator_serial_liftout(microscope: FibsemMicroscope, settings: 
 
     # reference images
     log_status_message_raw(workflow_stage, "REFERENCE_IMAGES")
-    settings.image.filename = f"ref_prepare_weld_position"
+    settings.image.filename = "ref_prepare_weld_position"
     settings.image.hfw = fcfg.REFERENCE_HFW_ULTRA
     settings.image.save = True
     eb_image, ib_image = acquire.take_reference_images(microscope, settings.image)
@@ -1512,12 +1526,12 @@ def _prepare_manipulator_serial_liftout(microscope: FibsemMicroscope, settings: 
     log_status_message_raw(workflow_stage, "MILL_COPPER_WELD")
     stages = get_milling_stages("prepare-copper-weld", settings.protocol["milling"])
     stages = update_milling_ui(microscope, stages=stages,
-                        msg=f"Press Run Milling to weld the copper block. Press Continue when done.", 
+                        msg="Press Run Milling to weld the copper block. Press Continue when done.", 
                         parent_ui=parent_ui, validate=validate)
 
     # reference images
     log_status_message_raw(workflow_stage, "REFERENCE_IMAGES")
-    settings.image.filename = f"ref_prepare_copper_release"
+    settings.image.filename = "ref_prepare_copper_release"
     settings.image.hfw = fcfg.REFERENCE_HFW_SUPER
     settings.image.save = True
     eb_image, ib_image = acquire.take_reference_images(microscope, settings.image)
@@ -1531,7 +1545,7 @@ def _prepare_manipulator_serial_liftout(microscope: FibsemMicroscope, settings: 
         # mill prepare-copper-release (release the copper block)
         stages = get_milling_stages("prepare-copper-release", settings.protocol["milling"])
         stages = update_milling_ui(microscope, stages=stages, 
-                msg=f"Press Run Milling to mill copper block release. Press Continue when done.", 
+                msg="Press Run Milling to mill copper block release. Press Continue when done.", 
                         parent_ui=parent_ui, validate=validate)
 
         # check for release
@@ -1541,7 +1555,7 @@ def _prepare_manipulator_serial_liftout(microscope: FibsemMicroscope, settings: 
 
     # reference images
     log_status_message_raw(workflow_stage, "REFERENCE_IMAGES")
-    settings.image.filename = f"ref_prepare_manipulator_final"
+    settings.image.filename = "ref_prepare_manipulator_final"
     settings.image.hfw = fcfg.REFERENCE_HFW_HIGH
     settings.image.save = True
     eb_image, ib_image = acquire.take_reference_images(microscope, settings.image)
