@@ -60,6 +60,7 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 from fibsem import constants
+from fibsem.config import DEFAULT_STANDARD_RESOLUTION_LIST
 from fibsem.fm.composite import auto_clim
 from fibsem.imaging import tiled
 from fibsem.imaging.reduce import downsample, downsample_mask
@@ -105,7 +106,10 @@ from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
     MinimapShapesOverlay,
     ShapeSpec,
 )
-from fibsem.ui.widgets.canvas.overlays.point_overlay import PointsOverlay
+from fibsem.ui.widgets.canvas.overlays.point_overlay import (
+    FieldOfViewOverlay,
+    PointsOverlay,
+)
 from fibsem.ui.widgets.canvas.overlays.tile_grid_options_panel import (
     TileGridOptionsPanel,
 )
@@ -202,6 +206,16 @@ DEFAULT_GRIDBAR_WIDTH_UM = 20.0
 # Screen-space hit radius for picking a marker, matching the FM overview's. In pixels
 # rather than stage microns so how close you have to click does not change with zoom.
 PICK_RADIUS_PX = 12
+
+# The field of view drawn around each marked position, in metres. A fixed size rather
+# than the current imaging settings: the box says how much sample a lamella occupies,
+# which does not change when somebody adjusts the HFW for the next overview -- and a box
+# that resized itself under a settings change would look like the positions had moved.
+# 100 um at the standard resolution's aspect, so it is the frame a normal image is.
+POSITION_FOV_WIDTH = 100e-6
+POSITION_FOV_HEIGHT = POSITION_FOV_WIDTH * (
+    DEFAULT_STANDARD_RESOLUTION_LIST[1] / DEFAULT_STANDARD_RESOLUTION_LIST[0]
+)
 
 
 # How many pixels the contrast limits are taken from. `auto_clim`'s own cap, and for
@@ -632,9 +646,19 @@ class FibsemOverviewWidget(QWidget):
         self.canvas.add_overlay(self.current_position_overlay)
 
         # Crosshairs rather than dots: a marked position is a point on the sample, and a
-        # filled dot covers the feature it is naming.
-        self.position_overlay = PointsOverlay(
-            color=SAVED_POSITION_COLOUR, marker="+", size=11
+        # filled dot covers the feature it is naming. Boxed with the field of view an
+        # image taken there would cover, so the marker carries a sense of scale -- on a
+        # canvas spanning millimetres a bare crosshair gives none, and "would these two
+        # lamellae land in one frame" is a question you cannot answer by eye without it.
+        #
+        # The current stage position above is deliberately left unboxed: it is where you
+        # are rather than something you are sizing up, and boxing it would double every
+        # lamella's box the moment you drove to one.
+        self.position_overlay = FieldOfViewOverlay(
+            color=SAVED_POSITION_COLOUR,
+            marker="+",
+            size=11,
+            extent=(POSITION_FOV_WIDTH, POSITION_FOV_HEIGHT),
         )
         self.canvas.add_overlay(self.position_overlay)
         # Flagged positions, on their own layer for the same reason the selection has
@@ -642,15 +666,21 @@ class FibsemOverviewWidget(QWidget):
         # layer here rather than collapsing it into the others -- a lamella marked
         # defective is one you should not be re-targeting, and the tab this replaces
         # said so in colour.
-        self.flagged_position_overlay = PointsOverlay(
-            color=SEMANTIC_WARNING_COLOR, marker="+", size=11
+        self.flagged_position_overlay = FieldOfViewOverlay(
+            color=SEMANTIC_WARNING_COLOR,
+            marker="+",
+            size=11,
+            extent=(POSITION_FOV_WIDTH, POSITION_FOV_HEIGHT),
         )
         self.canvas.add_overlay(self.flagged_position_overlay)
         # The selected position on its own layer rather than as a colour within the one
         # above: `PointsOverlay` paints every point the same. Added last, so it draws
         # over its unselected neighbours where markers crowd together.
-        self.selected_position_overlay = PointsOverlay(
-            color=SELECTED_POSITION_COLOUR, marker="+", size=15
+        self.selected_position_overlay = FieldOfViewOverlay(
+            color=SELECTED_POSITION_COLOUR,
+            marker="+",
+            size=15,
+            extent=(POSITION_FOV_WIDTH, POSITION_FOV_HEIGHT),
         )
         self.canvas.add_overlay(self.selected_position_overlay)
 
@@ -2414,8 +2444,16 @@ class FibsemOverviewWidget(QWidget):
     def _position_at(self, x: float, y: float) -> Optional[str]:
         """The marked position under a canvas point, or None.
 
-        Measured on screen, not in data units: at a wide zoom every marker would be
-        within any sensible micron radius of the click, and at a tight one none would be.
+        A click hits a position if it lands inside that position's field-of-view box
+        **or** within `PICK_RADIUS_PX` of its crosshair. The union rather than either
+        alone, because neither is reliably the bigger target: the box wins once you are
+        zoomed into a region, the fixed radius wins at whole-grid zoom where the box
+        shrinks below it -- see `FieldOfViewOverlay.covers`.
+
+        The radius is measured on screen, not in data units: at a wide zoom every marker
+        would be within any sensible micron radius of the click, and at a tight one none
+        would be. Nearest crosshair wins among the hits, which also settles overlapping
+        boxes -- and lamellae closer together than the field of view do overlap.
         """
         if not self.overlay_controls.is_visible(_OVERLAY_POSITIONS):
             # Turned off means gone, not merely invisible. `_refresh_position_markers`
@@ -2437,15 +2475,22 @@ class FibsemOverviewWidget(QWidget):
             logger.debug(f"Could not resolve the click for picking: {e}")
             return None
 
-        best_name, best_distance = None, float(PICK_RADIUS_PX)
+        best_name, best_distance = None, float("inf")
         for position in self._positions:
             if not position.name:
                 continue
             try:
-                point = transform.transform(frame.to_canvas(position))
+                centre = frame.to_canvas(position)
+                point = transform.transform(centre)
             except Exception:
                 continue
             distance = ((click[0] - point[0]) ** 2 + (click[1] - point[1]) ** 2) ** 0.5
+            # `centre` is in canvas units and `point` in screen pixels: the box is a
+            # fixed piece of sample, the radius a fixed piece of screen.
+            if distance >= PICK_RADIUS_PX and not self.position_overlay.covers(
+                centre, x, y
+            ):
+                continue
             if distance < best_distance:
                 best_name, best_distance = position.name, distance
         return best_name

@@ -17,13 +17,18 @@ from fibsem.ui.widgets.canvas.overlays.pattern_overlay import (
     PatternOverlay,
     ScanDirectionArrowOverlay,
 )
-from fibsem.ui.widgets.canvas.overlays.point_overlay import PointOverlay, PointsOverlay
+from fibsem.ui.widgets.canvas.overlays.point_overlay import (
+    FieldOfViewOverlay,
+    PointOverlay,
+    PointsOverlay,
+)
 from fibsem.ui.widgets.canvas.overlays.rect_overlay import RectOverlay
 from fibsem.ui.widgets.canvas.overlays.ruler_overlay import RulerOverlay
 
 __all__ = [
     "CanvasOverlay",
     "PointsOverlay",
+    "FieldOfViewOverlay",
     "PointOverlay",
     "RectOverlay",
     "RulerOverlay",

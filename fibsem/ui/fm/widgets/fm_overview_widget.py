@@ -72,7 +72,10 @@ from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
     MinimapShapesOverlay,
     ShapeSpec,
 )
-from fibsem.ui.widgets.canvas.overlays.point_overlay import PointsOverlay
+from fibsem.ui.widgets.canvas.overlays.point_overlay import (
+    FieldOfViewOverlay,
+    PointsOverlay,
+)
 from fibsem.ui.widgets.canvas.overlays.tile_grid_options_panel import (
     TileGridOptionsPanel,
 )
@@ -412,7 +415,13 @@ class FMOverviewWidget(QWidget):
         # Crosshairs rather than dots: a marked position is a point on the sample, and
         # a filled dot covers the feature it is naming. The gap in the middle is the
         # whole reason -- you can see what you marked.
-        self.position_overlay = PointsOverlay(
+        #
+        # Boxed with the camera's field of view, set in `_refresh_positions` once the
+        # projection is known, so a marker also says how much sample one frame covers.
+        # The current stage position above stays unboxed: it is where you are rather
+        # than something you are sizing up, and boxing it would double every lamella's
+        # box the moment you drove to one.
+        self.position_overlay = FieldOfViewOverlay(
             color=SAVED_POSITION_COLOUR, marker="+", size=11
         )
         self.canvas.canvas.add_overlay(self.position_overlay)
@@ -421,7 +430,7 @@ class FMOverviewWidget(QWidget):
         # one above: `PointsOverlay` paints every point the same, and one selected
         # marker is not worth teaching it per-point colours for. Added last, so it
         # draws over its unselected neighbours where markers crowd together.
-        self.selected_position_overlay = PointsOverlay(
+        self.selected_position_overlay = FieldOfViewOverlay(
             color=SELECTED_POSITION_COLOUR, marker="+", size=15
         )
         self.canvas.canvas.add_overlay(self.selected_position_overlay)
@@ -1625,8 +1634,29 @@ class FMOverviewWidget(QWidget):
         """
         return self.canvas.canvas.metres_to_canvas(*self._grid_offset())
 
+    def _sync_position_fov(self) -> None:
+        """Size the marked positions' boxes to one camera frame.
+
+        Off the kept projection rather than the camera: this runs on every position
+        refresh, and reading `camera.resolution` / `camera.pixel_size` is two
+        `active_channel()` scopes on the shared connection -- see :meth:`_projection`.
+        Neither changes except with binning, which a refresh does not do.
+
+        Leaves the boxes as they are when the camera geometry cannot be had, which
+        before the first read means no box at all: a crosshair with no frame around it
+        is honest, a frame at a guessed size is not.
+        """
+        projection = self._projection()
+        if projection is None:
+            return
+        height, width = projection.shape
+        pixel_size = projection.pixel_size
+        for overlay in (self.position_overlay, self.selected_position_overlay):
+            overlay.set_extent(width * pixel_size, height * pixel_size)
+
     def _refresh_positions(self) -> None:
         """Mark the stage positions in the canvas frame."""
+        self._sync_position_fov()
         frame = self._frame()
         if not self._positions or frame is None:
             self.position_overlay.set_points([])
@@ -1860,8 +1890,16 @@ class FMOverviewWidget(QWidget):
     def _position_at(self, x: float, y: float) -> Optional[str]:
         """The marked position under a canvas point, or None.
 
-        Measured on screen, not in data units: at a wide zoom every marker would be
-        within any sensible micron radius of the click, and at a tight one none would be.
+        A click hits a position if it lands inside that position's field-of-view box
+        **or** within `PICK_RADIUS_PX` of its crosshair. The union rather than either
+        alone, because neither is reliably the bigger target: the box wins once you are
+        zoomed into a region, the fixed radius wins at whole-grid zoom where the box
+        shrinks below it -- see `FieldOfViewOverlay.covers`.
+
+        The radius is measured on screen, not in data units: at a wide zoom every marker
+        would be within any sensible micron radius of the click, and at a tight one none
+        would be. Nearest crosshair wins among the hits, which also settles overlapping
+        boxes -- and lamellae closer together than one camera frame do overlap.
         """
         frame = self._frame()
         ax = getattr(self.canvas.canvas, "_ax", None)
@@ -1874,18 +1912,25 @@ class FMOverviewWidget(QWidget):
             logging.debug(f"Could not resolve the click for picking: {e}")
             return None
 
-        best_name, best_distance = None, float(self.PICK_RADIUS_PX)
+        best_name, best_distance = None, float("inf")
         for position in self._positions:
             name = position.name
             if not name:
                 continue
             try:
-                point = transform.transform(frame.to_canvas(position))
+                centre = frame.to_canvas(position)
+                point = transform.transform(centre)
             except Exception:
                 continue
             distance = (
                 (click[0] - point[0]) ** 2 + (click[1] - point[1]) ** 2
             ) ** 0.5
+            # `centre` is in canvas units and `point` in screen pixels: the box is a
+            # fixed piece of sample, the radius a fixed piece of screen.
+            if distance >= self.PICK_RADIUS_PX and not self.position_overlay.covers(
+                centre, x, y
+            ):
+                continue
             if distance < best_distance:
                 best_name, best_distance = name, distance
         return best_name
