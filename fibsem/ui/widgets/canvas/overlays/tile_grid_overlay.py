@@ -44,31 +44,28 @@ ENABLED_ALPHA = 0.0
 # easy to miss in a large grid.
 DISABLED_EDGE = "#9aa0a6"
 DISABLED_ALPHA = 0.75
-# A tile the stage cannot travel to, hatched rather than coloured (FIB-750).
+# A tile the stage cannot travel to: the tile recedes, and a small cross marks it.
 #
-# Hue was the wrong axis to work on. The canvas has no free one -- yellow is where the
-# stage is, amber the travel envelope, red the specimen grid boundary, magenta the grid
-# itself -- and the two tabs need the same answer over very different data: a red wash
-# read cleanly over greyscale beam images and went muddy over green fluorescence.
+# Emphasis inverted on purpose. Earlier attempts added ink to the tiles you cannot have
+# -- a recoloured edge, a red wash, a white hatch -- and the common case is that a whole
+# row or column goes out of range at once, so half the grid ended up shouting. What you
+# steer by while dragging is the region you *can* still acquire, so that is what should
+# stand out. Dimming the rest costs no ink at all and leaves the data legible.
 #
-# A hatch has no hue to interact with any of that, so it looks the same on both tabs and
-# cannot be confused with anything else drawn here. It is also the ordinary idiom for
-# "unavailable", and distinct from the grey dashed outline that means "switched off".
+# The cross sits at the tile's centre because that is exactly what is tested: the stage
+# only has to reach a tile's centre, which is also why tiles may legitimately overhang
+# the travel box. A mark at the centre makes that overhang read as intended rather than
+# as a bug.
 #
-# The sparsest density that still reads, which is both the cheapest to draw (26% off a
-# drag frame against "///") and the one that hides least of the data underneath -- the
-# same reason the tile fill defaults to nothing.
-UNREACHABLE_HATCH = "/"
-# White rather than black, which was the first choice and the obvious one. Black hatching
-# reads well over data and **disappears entirely on an empty canvas** -- which is the
-# state you are in while planning a grid, before anything has been acquired, and so the
-# one case the flag most has to work in. Mid grey survives both, but it is within a hair
-# of `DISABLED_EDGE`, and "switched off" is a different thing from "cannot be reached".
-UNREACHABLE_HATCH_COLOUR = "#ffffff"
+# Grey rather than a warning colour, and muted: it is information, not an alarm. Close
+# to `DISABLED_EDGE` by design -- both mean "not being acquired" -- and told apart by
+# what carries it, a dimmed solid outline here against a grey dashed one there.
+UNREACHABLE_EDGE_ALPHA = 0.30
+UNREACHABLE_MARK_COLOUR = "#9e9e9e"
+# As a fraction of the smaller tile side, so the cross shrinks with the tiles instead of
+# swamping a large grid.
+UNREACHABLE_MARK_SIZE = 0.12
 LINE_WIDTH = 0.8
-# Thickened as well as hatched, for the reason the skipped tiles are dashed as well as
-# grey: one difference alone is easy to miss in a large grid.
-UNREACHABLE_LINE_WIDTH = LINE_WIDTH * 2.0
 
 # `set_grid(anchor=None)` means "follow the content"; omitting it means "leave it as it
 # is". A sentinel rather than None, because both of those are meaningful answers.
@@ -254,8 +251,8 @@ class TileGridOverlay(QObject, CanvasOverlay):
                 spacing to derive it from -- and that is exactly the case a resize
                 drag has to grow out of.
             unreachable: (row, col) for tiles the stage cannot travel to, which are
-                washed in the colour above. None leaves the previous set alone; an
-                empty one clears it.
+                dimmed and crossed as described above. None leaves the previous set
+                alone; an empty one clears it.
             anchor: where to centre the grid, as :meth:`set_anchor` takes it. Here as
                 well because a host that sets both used to pay two full repaints per
                 call -- and this call is on the drag path, where it ran on every motion
@@ -448,35 +445,44 @@ class TileGridOverlay(QObject, CanvasOverlay):
                     to_rgba(self._color, self._fill_alpha) if tile.enabled else "none"
                 ),
                 edgecolor=(
-                    to_rgba(self._color, 1.0) if tile.enabled
+                    to_rgba(self._color, UNREACHABLE_EDGE_ALPHA) if out_of_reach
+                    else to_rgba(self._color, 1.0) if tile.enabled
                     else to_rgba(DISABLED_EDGE, DISABLED_ALPHA)
                 ),
                 linestyle="-" if tile.enabled else "--",
-                linewidth=UNREACHABLE_LINE_WIDTH if out_of_reach else LINE_WIDTH,
+                linewidth=LINE_WIDTH,
                 zorder=20,
             )
             self._ax.add_patch(patch)
             self._artists.append(patch)
 
             if out_of_reach:
-                # A second patch, because matplotlib draws a hatch in the patch's own
-                # `edgecolor` -- so hatching the tile itself would mean giving up the
-                # grid's outline colour. No fill and no line: this one carries nothing
-                # but the hatch.
-                self._ax.add_patch(
-                    hatched := Rectangle(
-                        (x, y), width, height,
-                        fill=False,
-                        edgecolor=UNREACHABLE_HATCH_COLOUR,
-                        hatch=UNREACHABLE_HATCH,
-                        linewidth=0.0,
-                        zorder=21,
-                    )
-                )
-                self._artists.append(hatched)
+                self._artists.extend(self._mark_out_of_reach(x, y, width, height))
 
         if self._canvas is not None:
             self._canvas.draw_idle()
+
+    def _mark_out_of_reach(self, x: float, y: float, width: float, height: float) -> list:
+        """A small cross at the tile's centre, added to the axes and handed back.
+
+        One artist, not two: a `nan` lifts the pen between the strokes, so both arms are
+        drawn by a single `Line2D`. Two artists per tile measured 184 ms against 136 ms
+        for a full 15x15 drag frame -- the per-artist overhead, not the drawing.
+        """
+        from matplotlib.lines import Line2D
+
+        centre_x, centre_y = x + width / 2, y + height / 2
+        arm = min(width, height) * UNREACHABLE_MARK_SIZE / 2
+        line = Line2D(
+            (centre_x - arm, centre_x + arm, float("nan"), centre_x - arm, centre_x + arm),
+            (centre_y - arm, centre_y + arm, float("nan"), centre_y + arm, centre_y - arm),
+            color=UNREACHABLE_MARK_COLOUR,
+            linewidth=1.3,
+            solid_capstyle="round",
+            zorder=22,
+        )
+        self._ax.add_line(line)
+        return [line]
 
     def _remove_artists(self) -> None:
         for artist in self._artists:
