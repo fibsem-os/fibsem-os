@@ -262,6 +262,16 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
         self._update_protocol_display()
         logging.info(f"Protocol loaded successfully from {protocol_path}")
 
+        # This button accepts a legacy file too, converting it on the way in --
+        # the same notice the explicit legacy button gives, so a converted
+        # protocol is never adopted silently. (FIB-663)
+        if loaded_protocol.converted_from_legacy:
+            QtWidgets.QMessageBox.information(
+                self,
+                "Legacy Protocol Converted",
+                "The legacy protocol has been successfully converted to the new task-based format."
+            )
+
     def _select_legacy_protocol(self):
         """Open dialog to select a legacy protocol file and convert it."""
         # Open file dialog at the protocol path
