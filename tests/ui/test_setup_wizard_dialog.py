@@ -417,6 +417,53 @@ def test_the_sample_comes_flat_when_the_stage_matches_the_pre_tilt(qapp, pre_til
         diagram.deleteLater()
 
 
+@pytest.mark.parametrize(
+    "pre_tilt, stage_tilt",
+    [(35.0, 35.0), (35.0, 12.0), (0.0, 0.0), (0.0, -23.0), (0.0, -128.0), (0.0, -180.0)],
+)
+def test_the_drawn_milling_angle_matches_the_codebase_formula(qapp, pre_tilt, stage_tilt):
+    """The diagram must not invent its own answer for a quantity the code already computes.
+
+    `convert_stage_tilt_to_milling_angle` is a signed linear expression, and an angle
+    between a beam and a plane is always acute -- so it is folded into [0, 90] before
+    comparing. Unmirrored only: at the FIB orientation the stage has turned 180 degrees,
+    which flips the pre-tilt's sign, and the formula does not model that.
+    """
+    import numpy as np
+
+    from fibsem.transformations import convert_stage_tilt_to_milling_angle
+    from fibsem.ui.widgets.setup_wizard_dialog import StageDiagram
+
+    diagram = StageDiagram(pre_tilt, stage_tilt)
+    try:
+        signed = np.degrees(
+            convert_stage_tilt_to_milling_angle(
+                np.radians(stage_tilt),
+                np.radians(pre_tilt),
+                np.radians(StageDiagram.FIB_ANGLE),
+            )
+        )
+        acute = 90.0 - abs(90.0 - (abs(signed) % 180.0))
+        assert diagram.milling_angle() == pytest.approx(acute, abs=1e-6)
+    finally:
+        diagram.deleteLater()
+
+
+def test_the_milling_orientation_is_the_configured_milling_angle(qapp):
+    """The MILLING orientation exists to put the sample at the milling angle, so the
+    diagram of it should read back the number that was asked for."""
+    from fibsem.ui.widgets.setup_wizard_dialog import StageDiagram
+
+    # Stage tilts read from microscope.orientations for a 35 deg shuttle and a
+    # compustage, both configured for the default 15 degree milling angle.
+    for pre_tilt, stage_tilt in ((35.0, 12.0), (0.0, -23.0)):
+        diagram = StageDiagram(pre_tilt, stage_tilt)
+        try:
+            assert diagram.milling_angle() == pytest.approx(15.0, abs=0.05)
+        finally:
+            diagram.deleteLater()
+
+
 def test_the_diagram_opens_on_the_flat_reference(qapp):
     """Before anything is read there is no stage tilt to draw, so it shows the position
     the pre-tilt can be checked at rather than a stage sitting at zero."""

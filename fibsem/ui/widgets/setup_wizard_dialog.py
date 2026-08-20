@@ -64,6 +64,10 @@ logger = logging.getLogger(__name__)
 
 OK_GREEN = "#4ec26a"
 FAIL_RED = "#e05252"
+# The fluorescence objective's barrel, which on a compustage looks *up* at the sample
+# from underneath -- at the FM orientation the stage has flipped the grid over. Black,
+# like the real thing, and outlined so it reads against a panel nearly as dark.
+FM_BARREL_COLOUR = "#0d0f12"
 
 # Painted on top of a panel, which already has the background and the border. Without
 # this every child label repaints the panel's rounded rectangle as a square one, since
@@ -281,24 +285,57 @@ class StageDiagram(QtWidgets.QWidget):
     FIB_COLOUR = "#e8a020"
     # Degrees from vertical, and drawn to the right of the SEM column.
     FIB_ANGLE = 52.0
+    # The offset FM objective's own axis. It coincides with the ion column today, but it
+    # is a separate mount and not obliged to: kept as its own constant so the day it
+    # differs is one edit here rather than a hunt through code that assumed they were
+    # the same number.
+    FM_ANGLE = 52.0
 
     def effective_stage_tilt(self) -> float:
         """The stage tilt to draw: what was read, or the SEM orientation."""
         return self._pre_tilt if self._stage_tilt is None else self._stage_tilt
 
+    def ramp_tilt(self) -> float:
+        """The shuttle's wedge, as this view sees it.
+
+        Negated by a half turn, because rotating the stage 180 degrees about its
+        vertical axis mirrors the whole profile left to right. That single sign is why
+        `column_tilt - shuttle_pre_tilt` is the tilt that squares the sample to the ion
+        beam: mirrored, the wedge adds to the stage tilt instead of cancelling it.
+        """
+        return -self._pre_tilt if self._mirrored else self._pre_tilt
+
     def surface_tilt(self) -> float:
         """Degrees the sample surface is turned clockwise on screen.
 
-        The shuttle's pre-tilt works *against* the stage tilt in this orientation, so
-        the two cancel at the flat position. Everything the diagram draws rotates by
-        this or by the stage tilt alone, so the sign lives in one place.
+        Unmirrored, the shuttle's pre-tilt works *against* the stage tilt, so the two
+        cancel at the SEM orientation. Everything the diagram draws rotates by this or
+        by the stage tilt alone, so the sign lives in one place.
         """
-        return self.effective_stage_tilt() - self._pre_tilt
+        return self.effective_stage_tilt() - self.ramp_tilt()
 
     def sample_normal(self) -> tuple:
         """The direction the sample faces, in screen coordinates (y down)."""
         angle = math.radians(self.surface_tilt())
         return (math.sin(angle), -math.cos(angle))
+
+    def milling_angle(self) -> float:
+        """The angle between the ion beam and the sample surface.
+
+        The quantity `convert_stage_tilt_to_milling_angle` computes as
+        `90 - column_tilt + stage_tilt - pretilt`. Taken from the drawn geometry rather
+        than that formula because the formula assumes the unmirrored frame: at the FIB
+        orientation the stage has turned 180 degrees, which flips the pre-tilt's sign,
+        and the formula would report 20 degrees for a beam that is actually square on.
+
+        Absolute, because a compustage mills the *back* of the grid -- there the beam is
+        normal to the surface from behind, which is still a 90 degree approach.
+        """
+        normal = self.sample_normal()
+        fib = self.beam_direction(self.FIB_ANGLE)
+        dot = normal[0] * fib[0] + normal[1] * fib[1]
+        between = math.degrees(math.acos(max(-1.0, min(1.0, dot))))
+        return abs(90.0 - between)
 
     @classmethod
     def beam_direction(cls, degrees_from_vertical: float) -> tuple:
@@ -306,13 +343,35 @@ class StageDiagram(QtWidgets.QWidget):
         angle = math.radians(degrees_from_vertical)
         return (math.sin(angle), -math.cos(angle))
 
-    def __init__(self, pre_tilt: float = 35.0, stage_tilt=None, parent=None):
+    def __init__(self, pre_tilt: float = 35.0, stage_tilt=None, mirrored: bool = False,
+                 show_fm: bool = False, orientation: str = "", parent=None):
         super().__init__(parent)
         self._pre_tilt = pre_tilt
         # None means nothing has been read yet, which is different from a stage that
         # was read at zero.
         self._stage_tilt = stage_tilt
+        # A half turn about the vertical stage axis is a left-right mirror in this
+        # view, which is what makes the FIB orientation drawable here at all -- see
+        # `ramp_tilt`. False everywhere the wizard uses this; the reference material
+        # is what needs the other orientations.
+        self._mirrored = mirrored
+        self._show_fm = show_fm
+        self._objective_inserted = True
+        # Set for an offset FM mount, where the stage translates in x to a separate
+        # station. None means the beams and the sample are at the same point.
+        self._station_offset_mm = None
+        self._orientation = orientation
         self.setMinimumHeight(212)
+
+    def set_orientation(self, name: str = "", stage_tilt=None, mirrored: bool = False,
+                        show_fm: bool = False, objective_inserted: bool = True) -> None:
+        """Show a named orientation, rather than only the SEM one."""
+        self._orientation = name
+        self._stage_tilt = stage_tilt
+        self._mirrored = mirrored
+        self._show_fm = show_fm
+        self._objective_inserted = objective_inserted
+        self.update()
 
     def set_pre_tilt(self, degrees: float) -> None:
         self._pre_tilt = float(degrees)
@@ -343,11 +402,18 @@ class StageDiagram(QtWidgets.QWidget):
         lines = [
             f"shuttle pre-tilt   {self._pre_tilt:g}°",
             f"stage tilt   {self.effective_stage_tilt():g}°",
-            "SEM orientation — sample square to the beam"
+            "sample square to the electron beam"
             if abs(total) < 0.05
             else f"{abs(total):g}° from the SEM orientation",
-            "FIB orientation is a half turn away",
         ]
+        # No FIB at an offset station, so no angle to it worth quoting.
+        if self._station_offset_mm is None:
+            lines.append(f"milling angle   {self.milling_angle():.0f}°   (FIB to sample)")
+        if self._orientation:
+            lines.insert(0, f"{self._orientation} orientation"
+                         + ("   ·   rotated 180°" if self._mirrored else ""))
+        else:
+            lines.append("FIB orientation is a half turn away")
         for index, line in enumerate(lines):
             painter.drawText(
                 QtCore.QRectF(12, 10 + index * 14, width - 24, 14),
@@ -358,9 +424,20 @@ class StageDiagram(QtWidgets.QWidget):
         # Beams first, so the shuttle drawn over them occludes whatever falls below the
         # sample surface. A beam that carries on through the holder reads as passing
         # into it rather than landing on it.
-        self._draw_beam(painter, cx, cy, 0, self.SEM_COLOUR, "SEM")
-        self._draw_beam(painter, cx, cy, self.FIB_ANGLE, self.FIB_COLOUR,
-                        f"FIB  {self.FIB_ANGLE:g}°")
+        if self._station_offset_mm is None:
+            self._draw_beam(painter, cx, cy, 0, self.SEM_COLOUR, "SEM")
+            self._draw_beam(painter, cx, cy, self.FIB_ANGLE, self.FIB_COLOUR,
+                            f"FIB  {self.FIB_ANGLE:g}°")
+            if self._show_fm:
+                self._draw_objective(painter, cx, cy, 0.0, from_below=True,
+                                     inserted=self._objective_inserted)
+        else:
+            # The columns are not here. Drawing them at the sample would put three
+            # instruments at one point when the stage has driven 50 mm away from two
+            # of them -- the whole thing this mount does.
+            self._draw_objective(painter, cx, cy, self.FM_ANGLE, from_below=False,
+                                 inserted=self._objective_inserted)
+            self._draw_station_offset(painter, cx, cy, width, height)
 
         # Everything below is drawn in the stage's frame, with the sample at the origin.
         # The shuttle sits *flat* on the plate and carries its pre-tilt in its own
@@ -373,7 +450,7 @@ class StageDiagram(QtWidgets.QWidget):
         painter.rotate(self.effective_stage_tilt())
 
         # The ramp, rising to the right by the pre-tilt, with the sample seated on it.
-        ramp = math.radians(self._pre_tilt)
+        ramp = math.radians(self.ramp_tilt())
         half = 26.0
         low = QtCore.QPointF(-half * math.cos(ramp), half * math.sin(ramp))
         high = QtCore.QPointF(half * math.cos(ramp), -half * math.sin(ramp))
@@ -402,7 +479,7 @@ class StageDiagram(QtWidgets.QWidget):
 
         # The grid, lying on the ramp rather than on top of the block.
         painter.save()
-        painter.rotate(-self._pre_tilt)
+        painter.rotate(-self.ramp_tilt())
         painter.setBrush(QtGui.QColor("#d9dde3"))
         painter.drawRoundedRect(QtCore.QRectF(-13, -4, 26, 4), 1, 1)
         painter.restore()
@@ -418,19 +495,25 @@ class StageDiagram(QtWidgets.QWidget):
             # dimension line over the part, which is what it is.
             painter.setPen(QtGui.QPen(QtGui.QColor(WEDGE_COLOUR), 1, Qt.DotLine))
             painter.setBrush(Qt.NoBrush)
-            painter.drawLine(low, QtCore.QPointF(low.x() + radius + 12, low.y()))
+            # A half turn swaps which end of the ramp is its foot, so the wedge has to
+            # move with it; drawn from the wrong end it floats off the holder entirely.
+            span = self.ramp_tilt()
+            foot = low if span >= 0 else high
+            start = 0.0 if span >= 0 else 180.0
+            reach = radius + 12 if span >= 0 else -(radius + 12)
+            painter.drawLine(foot, QtCore.QPointF(foot.x() + reach, foot.y()))
             painter.drawArc(
-                QtCore.QRectF(low.x() - radius, low.y() - radius, 2 * radius, 2 * radius),
-                0,
-                int(self._pre_tilt * 16),
+                QtCore.QRectF(foot.x() - radius, foot.y() - radius, 2 * radius, 2 * radius),
+                int(start * 16),
+                int(span * 16),
             )
             # Mapped out of the rotated frame, so the text itself stays upright -- a
             # label that tilts with the stage is the one thing here nobody can read.
-            middle = math.radians(self._pre_tilt / 2)
+            middle = math.radians(start + span / 2)
             label_at = painter.transform().map(
                 QtCore.QPointF(
-                    low.x() + math.cos(middle) * (radius + 14),
-                    low.y() - math.sin(middle) * (radius + 14),
+                    foot.x() + math.cos(middle) * (radius + 14),
+                    foot.y() - math.sin(middle) * (radius + 14),
                 )
             )
         painter.restore()
@@ -447,13 +530,98 @@ class StageDiagram(QtWidgets.QWidget):
             )
         painter.end()
 
+    def _draw_station_offset(self, painter, cx, cy, width, height) -> None:
+        """How far the stage drove to reach this station, along the viewing axis.
+
+        x points into the screen here, so the travel is straight away from the reader
+        and has no length in this view at all. An arrow across the picture would be the
+        one thing a side view cannot honestly draw -- it would read as sliding sideways.
+        So it is marked the way any drawing marks a vector going away: a circled cross,
+        the tail of an arrow seen from behind.
+        """
+        radius = 9.0
+        x = cx + 96.0
+        y = min(height - 30.0, cy + 58.0)
+        painter.setPen(QtGui.QPen(QtGui.QColor(TEXT_MUTED_COLOR), 1))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawEllipse(QtCore.QPointF(x, y), radius, radius)
+        span = radius * 0.62
+        painter.drawLine(QtCore.QPointF(x - span, y - span), QtCore.QPointF(x + span, y + span))
+        painter.drawLine(QtCore.QPointF(x - span, y + span), QtCore.QPointF(x + span, y - span))
+
+        font = painter.font()
+        font.setPointSize(8)
+        painter.setFont(font)
+        painter.drawText(
+            QtCore.QRectF(x - 150, y + radius + 4, 300, 26),
+            Qt.AlignHCenter | Qt.AlignTop,
+            f"≈{self._station_offset_mm:g} mm in x, into the page,\nfrom the SEM / FIB station",
+        )
+
+    def _draw_objective(self, painter, cx, cy, angle_degrees: float, from_below: bool,
+                        inserted: bool) -> None:
+        """The fluorescence objective, as a barrel rather than a beam.
+
+        It is a physical lens that travels along z, not a column firing from far away,
+        and its bulk is the part that matters: `FluorescenceObjective.position_changed`
+        notes that a guard suppresses stage z and r while the objective is inserted,
+        because moving then "moves the stage with the objective in the chamber". So the
+        gap between the front element and the sample is the quantity worth drawing.
+        """
+        gap = 18.0 if inserted else 46.0
+        length = 30.0
+        edge = QtGui.QColor(NEUTRAL_500)
+        glass = QtGui.QColor("#dfe5ec")
+        if not inserted:
+            edge.setAlpha(120)
+            glass.setAlpha(120)
+
+        painter.save()
+        painter.translate(cx, cy)
+        # Rotated onto the objective's own axis, which is not always the vertical: on an
+        # offset mount it comes in along the ion column's angle, so the sample -- which
+        # is normal to the FIB there -- faces it square on. `from_below` is the extra
+        # half turn a compustage needs, having flipped the grid over to meet it.
+        painter.rotate(angle_degrees + (180.0 if from_below else 0.0))
+        painter.setPen(QtGui.QPen(edge, 1))
+        painter.setBrush(QtGui.QColor(FM_BARREL_COLOUR))
+        painter.drawPolygon(QtGui.QPolygonF([
+            QtCore.QPointF(-7, -gap), QtCore.QPointF(7, -gap),
+            QtCore.QPointF(15, -gap - length), QtCore.QPointF(-15, -gap - length),
+        ]))
+        # The front element, so which end faces the sample is never in doubt.
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(glass)
+        painter.drawRect(QtCore.QRectF(-7, -gap - 3, 14, 3))
+        # The working distance, which is what a collision closes.
+        painter.setPen(QtGui.QPen(edge, 1, Qt.DotLine))
+        painter.drawLine(QtCore.QPointF(0, 0), QtCore.QPointF(0, -gap))
+        label_at = painter.transform().map(QtCore.QPointF(0, -gap - length - 20))
+        painter.restore()
+
+        font = painter.font()
+        font.setPointSize(8)
+        painter.setFont(font)
+        painter.setPen(QtGui.QColor(TEXT_MUTED_COLOR))
+        label = "FM objective" + ("" if inserted else "  (retracted)")
+        painter.drawText(
+            QtCore.QRectF(label_at.x() - 60, label_at.y() - 7, 120, 14),
+            Qt.AlignCenter, label,
+        )
+
     @staticmethod
-    def _draw_beam(painter, cx, cy, angle_degrees, colour, name) -> None:
+    def _draw_beam(painter, cx, cy, angle_degrees, colour, name,
+                   from_below: bool = False) -> None:
         painter.setPen(QtGui.QPen(QtGui.QColor(colour), 2))
         angle = math.radians(angle_degrees)
-        reach = min(118, cy - 24)
-        x2 = cx + math.sin(angle) * reach
-        y2 = cy - math.cos(angle) * reach
+        # Below means the objective looks up at the sample, which is where the FM sits
+        # once a compustage has turned the grid over: the same ray through the pivot,
+        # pointing the other way.
+        away = -1.0 if from_below else 1.0
+        room = (painter.device().height() - cy) if from_below else cy
+        reach = min(118, max(24.0, room - 24))
+        x2 = cx + away * math.sin(angle) * reach
+        y2 = cy - away * math.cos(angle) * reach
         painter.drawLine(QtCore.QPointF(x2, y2), QtCore.QPointF(cx, cy))
         # No arrow head. The shuttle is painted over these, so a head at the sample
         # would be buried in it -- the two lines converging and stopping at the surface
@@ -463,7 +631,8 @@ class StageDiagram(QtWidgets.QWidget):
         painter.setFont(font)
         painter.setPen(QtGui.QColor(colour))
         painter.drawText(
-            QtCore.QRectF(x2 - 34, y2 - 16, 68, 14), Qt.AlignCenter, name
+            QtCore.QRectF(x2 - 34, y2 + (2 if from_below else -16), 68, 14),
+            Qt.AlignCenter, name
         )
 
 
