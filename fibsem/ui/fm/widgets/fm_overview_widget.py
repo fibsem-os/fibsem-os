@@ -278,8 +278,9 @@ class FMOverviewWidget(QWidget):
         # standalone against a simulator as often as it runs inside an experiment, and
         # inventing a directory for those runs would scatter files through whatever
         # working directory it happened to be launched from. A host that has somewhere
-        # to put them says so -- see `set_save_directory`.
-        self._save_directory: Optional[str] = None
+        # to put them says so -- see `set_save_directory`. Held in the Output panel
+        # rather than here, so that editing the folder and being told one are the same
+        # thing; `_save_directory` reads it back for the callers that only want a path.
         self._destination: Optional[OverviewDestination] = None
         self._saved_path: Optional[str] = None
         # Whether a run is under way, and whether a host is allowing one to be started.
@@ -1112,8 +1113,18 @@ class FMOverviewWidget(QWidget):
 
         Told rather than discovered, because this widget knows nothing about
         experiments: it is handed a microscope, and its tests construct it that way.
+
+        The host still decides the default, and the Output panel is where it lands --
+        so being told a folder and choosing one are the same field, and a later
+        `set_save_directory` (loading another experiment) replaces a choice rather than
+        being ignored behind it. That is what the FIB/SEM tab does.
         """
-        self._save_directory = path
+        self.settings_widget.set_save_directory(path)
+
+    @property
+    def _save_directory(self) -> Optional[str]:
+        """Where a run would write, as the Output panel has it."""
+        return self.settings_widget.save_directory
 
     def set_sparse_selection_enabled(self, enabled: bool) -> None:
         """Offer planning an overview by selecting on a FIB/SEM one, or do not.
@@ -2317,7 +2328,13 @@ class FMOverviewWidget(QWidget):
         if self._save_directory is None:
             return None
         try:
-            return OverviewDestination.create(self._save_directory)
+            # Stamped by the panel, the way the FIB/SEM tab stamps its filename:
+            # the stem is a directory, so two runs sharing a name land on each
+            # other. `create` steps a taken name besides, which covers the case
+            # of two runs inside the same second.
+            return OverviewDestination.create(
+                self._save_directory, self.settings_widget.basename
+            )
         except OSError as e:
             logging.error(f"Cannot save into {self._save_directory}: {e}")
             notification_service.show_toast(

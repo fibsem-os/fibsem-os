@@ -17,6 +17,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QSizePolicy,
+    QLineEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -36,7 +37,15 @@ from fibsem.ui.widgets.overview_grid_settings_widget import (
     OverviewGridSettingsWidget,
 )
 from fibsem.ui.fm.widgets.z_parameters_widget import ZParametersWidget
-from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox
+from fibsem.ui.widgets.custom_widgets import (
+    QDirectoryLineEdit,
+    TitledPanel,
+    ValueComboBox,
+)
+from fibsem.ui.widgets.overview_acquisition_settings_widget import (
+    DEFAULT_OVERVIEW_FILENAME,
+    stamped_overview_name,
+)
 from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
 )
@@ -179,6 +188,29 @@ class FMOverviewSettingsWidget(QWidget):
         self.zstack_panel = TitledPanel("Z-Stack", content=zstack_content)
         self.zstack_panel.add_header_widget(self.check_zstack)
 
+        # Where a run lands. Same two fields and the same rule as the FIB/SEM tab:
+        # the box holds a base name and the run stamps it with the time it started, so
+        # two runs cannot land on each other. `OverviewDestination` steps a taken name
+        # besides, which covers two runs inside the same second.
+        self.path_edit = QDirectoryLineEdit()
+        self.path_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.filename_edit = QLineEdit(DEFAULT_OVERVIEW_FILENAME)
+        self.filename_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.label_destination = QLabel("")
+        self.label_destination.setStyleSheet(MUTED)
+
+        output_form = QFormLayout()
+        output_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        output_form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        output_form.setContentsMargins(6, 6, 6, 6)
+        output_form.setSpacing(6)
+        output_form.addRow("Folder", self.path_edit)
+        output_form.addRow("Name", self.filename_edit)
+        output_form.addRow("", self.label_destination)
+        output_content = QWidget()
+        output_content.setLayout(output_form)
+        self.output_panel = TitledPanel("Output", content=output_content)
+
         self.label_summary = QLabel()
         self.label_summary.setStyleSheet(MUTED)
         self.label_summary.setWordWrap(True)
@@ -194,6 +226,10 @@ class FMOverviewSettingsWidget(QWidget):
         # The trailing stretch below takes the slack instead, kept here rather than left
         # to the host so the panels stay put in any container.
         layout.addWidget(self.grid)
+        # Last, and folded: the folder is set by whoever owns the experiment and the
+        # name rarely changes, so this is the panel you open when you want something
+        # other than the default rather than one you touch each run.
+        layout.addWidget(self.output_panel)
         layout.addWidget(self.label_summary)
         layout.addStretch()
 
@@ -201,10 +237,14 @@ class FMOverviewSettingsWidget(QWidget):
         # set once and then left alone, so they start folded to keep the column short.
         self.focus_panel.collapse()
         self.zstack_panel.collapse()
+        self.output_panel.collapse()
 
         # One signal for all five: the shared panel resizes the mask with the grid and
         # reports every change through `changed`.
         self.grid.changed.connect(self._on_grid_changed)
+        self.filename_edit.textChanged.connect(self._refresh_destination)
+        self.path_edit.lineEdit.textChanged.connect(self._refresh_destination)
+        self._refresh_destination()
         self.check_zstack.stateChanged.connect(self._on_zstack_toggled)
         self.combo_autofocus_mode.currentIndexChanged.connect(self._on_autofocus_changed)
         self.combo_objective_start.currentIndexChanged.connect(self._on_any_change)
@@ -373,6 +413,40 @@ class FMOverviewSettingsWidget(QWidget):
         if not self.check_zstack.isChecked():
             return None
         return self.z_widget.z_parameters
+
+    # ── where a run lands ────────────────────────────────────────────────
+
+    def set_save_directory(self, path: Optional[str]) -> None:
+        """Where a run writes, as the host understands it.
+
+        A method rather than a box the host reaches into, matching the FIB/SEM tab: the
+        widget is handed a microscope and knows nothing about experiments, so the folder
+        arrives the same way the positions and the channels do.
+        """
+        self.path_edit.setText(str(path) if path else "")
+
+    @property
+    def save_directory(self) -> Optional[str]:
+        """The folder as it stands, which is the box rather than what the host last set:
+        a run goes where the field says, and the field is editable on purpose."""
+        return self.path_edit.text().strip() or None
+
+    @property
+    def basename(self) -> str:
+        """The name a run claims, stamped with the time it starts.
+
+        Empty falls back to the default rather than to an unnamed run: the stem is a
+        directory name, and `OverviewDestination` would otherwise be handed an empty
+        string to make a folder from.
+        """
+        return stamped_overview_name(
+            self.filename_edit.text().strip() or DEFAULT_OVERVIEW_FILENAME
+        )
+
+    def _refresh_destination(self) -> None:
+        """Say what the run will actually be called, since the box does not show it."""
+        name = self.filename_edit.text().strip() or DEFAULT_OVERVIEW_FILENAME
+        self.label_destination.setText(f"saved as {name}-HH-MM-SS")
 
     @property
     def parameters(self) -> OverviewParameters:
