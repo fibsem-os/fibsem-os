@@ -5151,3 +5151,41 @@ def test_a_check_that_cannot_run_does_not_hold_up_the_fm_dialog(
     assert len(dialogs) == 1, "the dialog did not open"
     assert dialogs[0].unreachable == []
     assert dialogs[0].button_start.isEnabled()
+
+
+def test_the_fm_canvas_flags_the_tiles_it_cannot_reach(qapp, grid_of):
+    """The other caller of the shared overlay, and the one where it bites hardest: a
+    compustage travels +/-999.9 um in x and only +/-377.8 um in y, so an 11x11 that
+    looks square and central runs out top and bottom (FIB-750)."""
+    widget = grid_of(3, 3)
+    assert widget.tile_grid_overlay._unreachable == set(), (
+        "a 3x3 was flagged, so this proves nothing"
+    )
+
+    widget = grid_of(11, 11)
+
+    assert widget.tile_grid_overlay._unreachable, "nothing was flagged"
+    assert widget.tile_grid_overlay._unreachable == set(
+        widget._unreachable(widget.settings_widget.parameters)
+    ), "the canvas and the dialog would disagree"
+
+
+def test_the_fm_grid_refresh_repaints_once(qapp, grid_of):
+    """Anchor and flags go over with the grid. Each setter repaints every tile patch,
+    and this runs on every motion event of a drag (FIB-751)."""
+    widget = grid_of(5, 5)
+    overlay = widget.tile_grid_overlay
+    redraws = []
+    original = overlay._redraw
+
+    def counting():
+        redraws.append(1)
+        original()
+
+    overlay._redraw = counting
+    try:
+        widget._refresh_tile_grid()
+    finally:
+        overlay._redraw = original
+
+    assert len(redraws) == 1, f"one refresh caused {len(redraws)} repaints"

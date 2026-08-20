@@ -2946,6 +2946,95 @@ class TestAGridTheStageCannotReach:
         assert not calls, "the dialog projected through the microscope"
 
 
+class TestTheGridSaysWhereItCannotGo:
+    """The dialog is a backstop; the canvas is where a grid can actually be fixed.
+
+    It already draws the travel envelope, so a grid dragged past it is visibly outside
+    and nothing said so. The tiles that cannot be reached are flagged as they are
+    dragged, in the warning colour the flagged-lamella markers use (FIB-750).
+    """
+
+    def _beyond_the_travel(self, widget, microscope):
+        """A canvas point far enough out in y that the grid overhangs the limits.
+
+        y rather than x because a compustage travels +/-999.9 um in x and only
+        +/-377.8 um in y, so y is where a central-looking grid runs out first.
+        """
+        frame = widget._frame()
+        limits = microscope._stage.limits
+        origin = frame.origin
+        beyond = FibsemStagePosition(
+            x=0.0, y=limits["y"].max * 0.9, z=origin.z, r=origin.r, t=origin.t
+        )
+        return frame.to_canvas(beyond)
+
+    def test_dragging_the_grid_past_the_travel_flags_the_tiles(
+        self, widget, microscope
+    ):
+        assert widget.tile_grid_overlay._unreachable == set(), (
+            "the grid started out flagged, so this proves nothing"
+        )
+
+        widget._on_grid_moved(*self._beyond_the_travel(widget, microscope))
+
+        assert widget.tile_grid_overlay._unreachable, "nothing was flagged"
+
+    def test_dragging_it_back_clears_them(self, widget, microscope):
+        """The flag has to keep up with the drag, not just appear during it -- one that
+        never goes away reads as broken rather than as informative."""
+        widget._on_grid_moved(*self._beyond_the_travel(widget, microscope))
+        assert widget.tile_grid_overlay._unreachable
+
+        widget.clear_target()
+
+        assert widget.tile_grid_overlay._unreachable == set()
+
+    def test_what_is_drawn_is_what_the_dialog_would_refuse(self, widget, microscope):
+        """One answer, drawn and stated. A canvas that flags a different set from the
+        one the dialog refuses is worse than a canvas that flags nothing."""
+        widget._on_grid_moved(*self._beyond_the_travel(widget, microscope))
+
+        drawn = widget.tile_grid_overlay._unreachable
+        assert drawn == set(widget._unreachable(widget._settings()))
+
+    def test_the_drag_reads_no_hardware(self, widget, microscope, monkeypatch):
+        """This runs on every motion event. `project_stable_move` re-reads the scan
+        rotation on every call -- 210 ms each, so a 5x5 would be five seconds of
+        instrument traffic per mouse move."""
+        calls = []
+        real = microscope.project_stable_move
+
+        def recording(*args, **kwargs):
+            calls.append(1)
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(microscope, "project_stable_move", recording)
+        widget._on_grid_moved(*self._beyond_the_travel(widget, microscope))
+
+        assert widget.tile_grid_overlay._unreachable, "the check did not run"
+        assert not calls, "the drag projected through the microscope"
+
+    def test_a_drag_repaints_the_canvas_once(self, widget, microscope):
+        """A repaint re-renders every placed image, not just the tiles -- measured at
+        169 ms per motion event with six overviews on the canvas. Doing it twice per
+        event was pure waste (FIB-751)."""
+        redraws = []
+        overlay = widget.tile_grid_overlay
+        original = overlay._redraw
+
+        def counting():
+            redraws.append(1)
+            original()
+
+        overlay._redraw = counting
+        try:
+            widget._on_grid_moved(*self._beyond_the_travel(widget, microscope))
+        finally:
+            overlay._redraw = original
+
+        assert len(redraws) == 1, f"one motion event caused {len(redraws)} repaints"
+
+
 class TestTheAcquisitionButtons:
     """`Cancel | Acquire Overview`, the fluorescence tab's arrangement."""
 

@@ -22,11 +22,10 @@ from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
 from fibsem.fm.planning import SparseOverviewPlan, plan_sparse_fm_overview, to_fm_pose
+from fibsem.imaging.tiling import geometry as tiling_geometry
 from fibsem.imaging.tiling.geometry import (
     PlaneRegion,
     compute_tile_grid_from_fov,
-    order_tiles,
-    validate_tile_stage_positions,
 )
 from fibsem.microscope import FibsemMicroscope
 from fibsem.projection import FMStageProjection, StageProjection
@@ -281,55 +280,36 @@ class FMTilePreviewWidget(QWidget):
     def _out_of_reach(self, tiles) -> List[Tuple[int, int]]:
         """Which of the tiles about to be acquired the stage cannot travel to.
 
-        Through the same two helpers the runner uses -- `order_tiles` to drop the
-        disabled ones, `validate_tile_stage_positions` to test what is left -- so the
-        dialog and the run cannot disagree about which grids are acquirable. Masking off
-        an unreachable corner is a legitimate way to fix one, and that only works if both
-        sides ask the question of the same tiles.
-
         Worth asking here rather than leaving to `raise_if_outside_stage_limits`, which
         refuses at acquire time. On a compustage the travel is +/-999.9 um in x and only
         +/-377.8 um in y, against a grid boundary of 1000 um radius, so a selection can
         sit well inside the grid and still be unreachable -- and it is a great deal
         cheaper to hear that while the region is still under the cursor.
-        """
-        step_x, step_y = self._step()
-        offset_x = (self._plan.cols - 1) * step_x / 2
-        offset_y = (self._plan.rows - 1) * step_y / 2
-        # Through the held projection, not `microscope.project_fm_stable_move`. The two
-        # agree to 1.4e-20 m -- the same arithmetic over the same geometry -- but the
-        # microscope's reads `fm.camera_tilt` and the camera transform on every call, at
-        # **216 ms each**. One per tile on a region change is half a minute of frozen UI
-        # for a 150 tile grid, and instrument traffic on a mouse event besides.
-        #
-        # The negated y is the convention crossing over: the layout above measures y
-        # upward, as `project_fm_stable_move` takes it, and a displayed plane measures it
-        # down. Verified against the live call rather than reasoned about.
-        positions = {
-            (tile.row, tile.col): self._projection.from_plane(
-                tile.dx - offset_x,
-                -(tile.dy + offset_y),
-                self._plan.centre_position,
-            )
-            for tile in tiles
-        }
-        limits = getattr(self.microscope._stage, "limits", None)
-        if not limits:
-            return []
-        # Any strategy: `order_tiles` changes the sequence and drops the disabled
-        # ones, and only the second half bears on whether a tile is reachable. Going
-        # through it anyway rather than filtering by hand, so the set asked about here
-        # is the set the runner will visit, by construction.
-        ordered = order_tiles(tiles, TileOrderStrategy.TYPEWRITER)
-        return validate_tile_stage_positions(
-            ordered, [positions[(t.row, t.col)] for t in ordered], limits
-        )
 
-    def _step(self) -> Tuple[float, float]:
-        """Distance between adjacent tile centres, in metres."""
-        return (
-            self._fov[0] * (1.0 - self._overlap),
-            self._fov[1] * (1.0 - self._overlap),
+        Through `unreachable_tiles`, which is this arithmetic lifted out when the
+        overview pre-flight dialogs came to need it too (FIB-741). It centres the grid
+        from the tiles' own extent rather than from a step size recomputed here, and
+        goes through `order_tiles` for the dropping, so every surface that asks this
+        question asks it of the same tiles as the runner.
+
+        The projection is the held one, not `microscope.project_fm_stable_move`. The two
+        agree to 1.4e-20 m -- the same arithmetic over the same geometry -- but the
+        microscope's reads `fm.camera_tilt` and the camera transform on every call, at
+        **216 ms each**. One per tile on a region change is half a minute of frozen UI
+        for a 150 tile grid, and instrument traffic on a mouse event besides.
+
+        Any strategy: `order_tiles` changes the sequence and drops the disabled ones,
+        and only the second half bears on whether a tile is reachable.
+        """
+        # Qualified: this class has a property of the same name, and a bare call would
+        # read as though it returned that.
+        return tiling_geometry.unreachable_tiles(
+            tiles,
+            TileOrderStrategy.TYPEWRITER,
+            lambda dx, dy: self._projection.from_plane(
+                dx, dy, self._plan.centre_position
+            ),
+            getattr(self.microscope._stage, "limits", None),
         )
 
     def _draw_stage_context(self) -> None:
