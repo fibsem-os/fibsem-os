@@ -329,6 +329,138 @@ def test_skipped_tiles_are_grey_regardless_of_the_grid_colour(qapp):
     assert len(hues) == 2, "skipped and acquired tiles should differ in colour"
 
 
+# ── tiles the stage cannot reach ─────────────────────────────────────────
+
+
+def _edge_hues(overlay):
+    return {tuple(round(c, 3) for c in patch.get_edgecolor()[:3]) for patch in overlay._artists}
+
+
+def test_an_unreachable_tile_is_washed_not_re_outlined(qapp):
+    """A fill, because the canvas has no free warm outline colour: yellow is the stage,
+    amber the travel envelope, red the grid boundary. The first attempt recoloured the
+    edge with the warning colour and came out indistinguishable from the travel box --
+    the one thing it must not look like, since that box is what these tiles are outside
+    of. The edge stays the grid's own, so the grid still reads as the grid."""
+    from matplotlib.colors import to_rgba
+
+    from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import UNREACHABLE_FILL
+
+    overlay, tiles = build(3, 3)
+    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE, unreachable=[(0, 0), (0, 1)])
+
+    wash = tuple(round(c, 3) for c in to_rgba(UNREACHABLE_FILL)[:3])
+    by_coord = {
+        (tile.row, tile.col): patch
+        for patch, tile in zip(overlay._artists, overlay._tiles)
+    }
+    for coord in ((0, 0), (0, 1)):
+        patch = by_coord[coord]
+        assert tuple(round(c, 3) for c in patch.get_facecolor()[:3]) == wash
+        assert patch.get_facecolor()[3] > 0, "the wash is transparent"
+        assert tuple(round(c, 3) for c in patch.get_edgecolor()[:3]) == tuple(
+            round(c, 3) for c in by_coord[(2, 2)].get_edgecolor()[:3]
+        ), "a flagged tile was re-outlined instead of washed"
+
+
+def test_an_unreachable_tile_is_thicker_as_well_as_amber(qapp):
+    """Colour alone is easy to miss in a large grid -- the same reason a skipped tile is
+    dashed as well as grey."""
+    overlay, tiles = build(3, 3)
+    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE, unreachable=[(1, 1)])
+
+    widths = {
+        (tile.row, tile.col): patch.get_linewidth()
+        for patch, tile in zip(overlay._artists, overlay._tiles)
+    }
+    assert widths[(1, 1)] > widths[(0, 0)]
+
+
+def test_a_tile_that_is_switched_off_is_not_also_flagged(qapp):
+    """Turning the tile off is what the flag is *asking* for, so a tile that is already
+    off must stop being flagged -- otherwise the grid never stops complaining about a
+    problem you have already fixed.
+
+    Compared against another switched-off tile rather than against the disabled colour:
+    the colour was never the thing at risk. Flagging a disabled tile leaves its edge
+    grey either way and shows up only in the line width -- which a colour assertion
+    reads straight past.
+    """
+    overlay, tiles = build(3, 3, mask=[[False, False, True]] + [[True] * 3] * 2)
+    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE, unreachable=[(0, 0)])
+
+    def described(coord):
+        patch = next(
+            patch for patch, tile in zip(overlay._artists, overlay._tiles)
+            if (tile.row, tile.col) == coord
+        )
+        return (
+            tuple(round(c, 3) for c in patch.get_edgecolor()),
+            tuple(round(c, 3) for c in patch.get_facecolor()),
+            patch.get_linewidth(),
+            patch.get_linestyle(),
+            patch.get_fill(),
+        )
+
+    assert described((0, 0)) == described((0, 1)), (
+        "a switched-off tile was drawn differently because it was also flagged"
+    )
+
+
+def test_passing_no_flags_leaves_the_previous_ones_alone(qapp):
+    """A host that never works reachability out draws exactly what it drew before, and
+    one that does is not made to re-send them on every unrelated redraw."""
+    overlay, tiles = build(3, 3)
+    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE, unreachable=[(0, 0)])
+    assert overlay._unreachable == {(0, 0)}
+
+    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE)
+    assert overlay._unreachable == {(0, 0)}, "the flags were dropped by an unrelated redraw"
+
+    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE, unreachable=[])
+    assert overlay._unreachable == set(), "an empty set must clear them"
+
+
+def test_clearing_the_grid_clears_the_flags(qapp):
+    """Left behind they would be re-applied to the next grid drawn, by row and column --
+    which is a different grid."""
+    overlay, tiles = build(3, 3)
+    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE, unreachable=[(0, 0)])
+    overlay.clear()
+    assert overlay._unreachable == set()
+
+
+# ── one repaint per refresh (FIB-751) ────────────────────────────────────
+
+
+def test_setting_the_anchor_with_the_grid_repaints_once(qapp):
+    """A host that sets both used to pay two full repaints, on a path that runs on every
+    motion event of a drag. Each repaint re-renders the whole canvas -- every placed
+    image, not just the tiles -- so the second one is not a rounding error."""
+    overlay, tiles = build(3, 3)
+    overlay._canvas.redraws = 0
+    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE, anchor=(10.0, 20.0))
+    assert overlay._canvas.redraws == 1
+
+    overlay._canvas.redraws = 0
+    overlay.set_anchor((10.0, 20.0))
+    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE)
+    assert overlay._canvas.redraws == 2, "the two-call form is what this replaces"
+
+
+def test_the_anchor_still_has_two_meanings(qapp):
+    """`None` means "follow the content"; omitting it means "leave it as it is". Both
+    are answers, which is why the default is a sentinel rather than None."""
+    overlay, tiles = build(3, 3)
+    overlay.set_anchor((10.0, 20.0))
+
+    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE)
+    assert overlay._anchor_point == (10.0, 20.0), "omitting the anchor moved the grid"
+
+    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE, anchor=None)
+    assert overlay._anchor_point is None, "None must go back to following the content"
+
+
 # ── resize by dragging an edge ───────────────────────────────────────────
 
 

@@ -56,7 +56,7 @@ from fibsem.ui.widgets.canvas.overlays.tile_grid_options_panel import (
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE, is_modality
 from fibsem.imaging.tiling import unreachable_tiles
-from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
+from fibsem.imaging.tiling.geometry import TilePosition, compute_tile_grid_from_fov
 from fibsem.ui.widgets.canvas.overlay_controls import (
     CanvasOverlayControls,
     CanvasPopover,
@@ -747,16 +747,22 @@ class FMOverviewWidget(QWidget):
         # pinned to the canvas origin, which is where the stage was the *first* time
         # anything was drawn: correct until the stage moved, and then quietly not.
         offset = self._grid_offset()
-        self.tile_grid_overlay.set_anchor(
-            self.canvas.canvas.metres_to_canvas(*offset)
-        )
 
+        # Anchor and flags handed over with the grid rather than set separately: this
+        # runs on every motion event of a drag, and each setter used to repaint every
+        # tile patch, so setting two of them cost two full repaints (FIB-751).
+        #
         # No `display_pixel_size`: the overlay reads it from the canvas at draw time.
         # Pinning it here would freeze the scale at whatever was displayed when the
         # settings last changed, and the image underneath changes without them -- the
         # live preview swaps in a decimated mosaic mid-run.
         self.tile_grid_overlay.set_grid(
-            tiles, (height, width), pixel_size, overlap=parameters.overlap
+            tiles,
+            (height, width),
+            pixel_size,
+            overlap=parameters.overlap,
+            unreachable=self._unreachable(parameters, tiles=tiles),
+            anchor=self.canvas.canvas.metres_to_canvas(*offset),
         )
         # Same camera geometry, so it can be drawn at the same time rather than
         # waiting for an image the tile grid does not wait for either.
@@ -2313,8 +2319,12 @@ class FMOverviewWidget(QWidget):
         self._worker = FunctionWorker(self._acquire_worker)
         self._worker.start()
 
-    def _unreachable(self, parameters: OverviewParameters) -> List[Tuple[int, int]]:
-        """Which tiles of the run about to be confirmed the stage cannot travel to.
+    def _unreachable(
+        self,
+        parameters: OverviewParameters,
+        tiles: Optional[List[TilePosition]] = None,
+    ) -> List[Tuple[int, int]]:
+        """Which tiles of the planned run the stage cannot travel to.
 
         The runner asks this too, but only once the worker has started -- after the
         dialog has been accepted, a directory has been made and the stage has begun
@@ -2332,6 +2342,10 @@ class FMOverviewWidget(QWidget):
         the authoritative refusal, so being wrong here fails open. The tile field of
         view comes from the settings panel while the runner reads its own -- they track
         the same camera, and a disagreement between them is exactly the mild direction.
+
+        Also asked on the drag path, where the grid it flags can still be moved --
+        `_refresh_tile_grid` passes the tiles it has just built rather than having them
+        computed twice.
         """
         try:
             fov = self.settings_widget._tile_fov
@@ -2341,16 +2355,17 @@ class FMOverviewWidget(QWidget):
             if fov is None or projection is None or centre is None or not limits:
                 return []
             height, width = projection.shape
-            tiles = compute_tile_grid_from_fov(
-                nrows=parameters.rows,
-                ncols=parameters.cols,
-                fov_x=fov[0],
-                fov_y=fov[1],
-                image_width=width,
-                image_height=height,
-                overlap=parameters.overlap,
-                mask=parameters.tile_mask,
-            )
+            if tiles is None:
+                tiles = compute_tile_grid_from_fov(
+                    nrows=parameters.rows,
+                    ncols=parameters.cols,
+                    fov_x=fov[0],
+                    fov_y=fov[1],
+                    image_width=width,
+                    image_height=height,
+                    overlap=parameters.overlap,
+                    mask=parameters.tile_mask,
+                )
             return unreachable_tiles(
                 tiles,
                 parameters.tile_order,

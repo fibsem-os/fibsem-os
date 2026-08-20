@@ -2049,7 +2049,10 @@ class FibsemOverviewWidget(QWidget):
             self.tile_grid_overlay.clear()
             return
 
-        self.tile_grid_overlay.set_anchor(anchor)
+        # Anchor and flags handed over with the grid rather than set separately: this
+        # runs on every motion event of a drag, and each setter used to repaint every
+        # tile patch, so setting two of them cost two full repaints (FIB-751).
+        #
         # No `display_pixel_size`: the overlay reads it off the canvas at draw time, so
         # the grid keeps describing the image underneath it when that image changes --
         # which it does mid-run, as tiles land.
@@ -2058,6 +2061,8 @@ class FibsemOverviewWidget(QWidget):
             (height, width),
             settings.image_settings.hfw / width,
             overlap=settings.overlap,
+            unreachable=self._unreachable(settings, tiles=tiles),
+            anchor=anchor,
         )
 
     def _may_edit_the_plan(self) -> bool:
@@ -2722,8 +2727,12 @@ class FibsemOverviewWidget(QWidget):
         )
         return dialog.exec_() == QDialog.Accepted
 
-    def _unreachable(self, settings: OverviewAcquisitionSettings) -> List[Tuple[int, int]]:
-        """Which tiles of the run about to be confirmed the stage cannot travel to.
+    def _unreachable(
+        self,
+        settings: OverviewAcquisitionSettings,
+        tiles: Optional[List["tiled.TilePosition"]] = None,
+    ) -> List[Tuple[int, int]]:
+        """Which tiles of the planned run the stage cannot travel to.
 
         The runner asks this too, in `_compute_grid` -- but that runs on the worker,
         after the dialog has been accepted, so the sequence a user gets is: read the
@@ -2742,6 +2751,11 @@ class FibsemOverviewWidget(QWidget):
         Best effort, like the disk estimate on the fluorescence dialog: a check that
         cannot run leaves the dialog without the warning rather than refusing to open
         it. The runner keeps the authoritative refusal, so being wrong here fails open.
+
+        Also asked on the drag path, where the grid it flags can still be moved --
+        `_refresh_tile_grid` passes the tiles it has just built rather than having them
+        computed twice. Affordable there: 0.45 ms for a 3x3 and 9.3 ms for the largest
+        grid the spin boxes allow, against a redraw already costing several times that.
         """
         try:
             projection = self._projection(self.acquisition_view)
@@ -2749,8 +2763,10 @@ class FibsemOverviewWidget(QWidget):
             limits = getattr(self.microscope._stage, "limits", None)
             if projection is None or centre is None or not limits:
                 return []
+            if tiles is None:
+                tiles = tiled.compute_tile_grid(settings, mask=settings.tile_mask)
             return unreachable_tiles(
-                tiled.compute_tile_grid(settings, mask=settings.tile_mask),
+                tiles,
                 settings.tile_order,
                 lambda dx, dy: projection.from_plane(dx, dy, centre),
                 limits,

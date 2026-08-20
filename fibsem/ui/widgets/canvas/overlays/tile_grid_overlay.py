@@ -18,12 +18,13 @@ is absorbed into the stage moves, not into where the tiles appear.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Iterable, List, Optional, Sequence, Tuple
 
 from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.imaging.tiling.geometry import TilePosition
+from fibsem.ui.tokens import SEMANTIC_ERROR_HOVER_COLOR
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
@@ -44,7 +45,28 @@ ENABLED_ALPHA = 0.0
 # easy to miss in a large grid.
 DISABLED_EDGE = "#9aa0a6"
 DISABLED_ALPHA = 0.75
+# A tile the stage cannot travel to, drawn as a wash over the tile rather than as a
+# recoloured outline (FIB-750).
+#
+# Not a new hue, because the canvas has no free warm one: yellow is where the stage is,
+# amber is the travel envelope, red is the specimen grid boundary. The first attempt
+# used the warning colour the flagged-lamella markers use, and on the canvas it was
+# indistinguishable from the travel box -- which is the one thing it must not be
+# confused with, since the box is exactly what the flagged tiles are outside of.
+#
+# A *fill* is a different visual class from every one of those outlines, so it reads on
+# its own terms whatever hue it takes. The tile keeps the grid's own edge colour, so the
+# grid still reads as the grid; only the wash says something is wrong. Thickened as
+# well, for the reason the skipped tiles are dashed as well as grey: one difference
+# alone is easy to miss in a large grid.
+UNREACHABLE_FILL = SEMANTIC_ERROR_HOVER_COLOR
+UNREACHABLE_ALPHA = 0.28
 LINE_WIDTH = 0.8
+UNREACHABLE_LINE_WIDTH = LINE_WIDTH * 2.0
+
+# `set_grid(anchor=None)` means "follow the content"; omitting it means "leave it as it
+# is". A sentinel rather than None, because both of those are meaningful answers.
+_UNSET = object()
 
 # Grab zone for an edge drag, as a fraction of a tile. Proportional rather than a
 # fixed pixel count so it stays usable however far the view is zoomed out.
@@ -85,6 +107,9 @@ class TileGridOverlay(QObject, CanvasOverlay):
         self._tile_pixel_size: float = 0.0
         self._display_pixel_size: Optional[float] = None
         self._overlap: float = 0.0
+        # (row, col) for tiles the stage cannot travel to. A set, and empty by default:
+        # a host that never works it out draws exactly what it drew before.
+        self._unreachable: set = set()
         self._color: str = ENABLED_EDGE
         self._fill_alpha: float = ENABLED_ALPHA
         self._visible: bool = True
@@ -181,8 +206,14 @@ class TileGridOverlay(QObject, CanvasOverlay):
         Anchoring explicitly also lets the grid be drawn before anything is acquired,
         which is when a planned grid is most useful.
         """
-        self._anchor_point = None if centre is None else (float(centre[0]), float(centre[1]))
+        self._set_anchor_point(centre)
         self._redraw()
+
+    def _set_anchor_point(self, centre: Optional[Tuple[float, float]]) -> None:
+        """Store the anchor without repainting, so `set_grid` can do both in one."""
+        self._anchor_point = (
+            None if centre is None else (float(centre[0]), float(centre[1]))
+        )
 
     def _anchor(self) -> Optional[Tuple[float, float]]:
         """Where the grid is centred, or None if there is nothing to centre it on."""
@@ -200,6 +231,8 @@ class TileGridOverlay(QObject, CanvasOverlay):
         tile_pixel_size: float,
         display_pixel_size: Optional[float] = None,
         overlap: float = 0.0,
+        unreachable: Optional[Iterable[Tuple[int, int]]] = None,
+        anchor: Optional[Tuple[float, float]] = _UNSET,
     ) -> None:
         """Set the grid to draw.
 
@@ -214,16 +247,31 @@ class TileGridOverlay(QObject, CanvasOverlay):
                 the tile spacing, because a single-row or single-column grid has no
                 spacing to derive it from -- and that is exactly the case a resize
                 drag has to grow out of.
+            unreachable: (row, col) for tiles the stage cannot travel to, which are
+                washed in the colour above. None leaves the previous set alone; an
+                empty one clears it.
+            anchor: where to centre the grid, as :meth:`set_anchor` takes it. Here as
+                well because a host that sets both used to pay two full repaints per
+                call -- and this call is on the drag path, where it ran on every motion
+                event (FIB-751). Omitted leaves the anchor as it is; None restores
+                following the content.
         """
         self._tiles = list(tiles)
         self._tile_shape = tile_shape
         self._tile_pixel_size = tile_pixel_size
         self._display_pixel_size = display_pixel_size
         self._overlap = overlap
+        if unreachable is not None:
+            self._unreachable = {(int(r), int(c)) for r, c in unreachable}
+        if anchor is not _UNSET:
+            self._set_anchor_point(anchor)
         self._redraw()
 
     def clear(self) -> None:
         self._tiles = []
+        # The flags go with them. Left behind they would be re-applied to whatever grid
+        # was drawn next, by row and column, which is a different grid.
+        self._unreachable = set()
         self._redraw()
 
     def set_color(self, color: str) -> None:
@@ -379,6 +427,10 @@ class TileGridOverlay(QObject, CanvasOverlay):
 
         for tile in self._tiles:
             x, y, width, height = self._rect_for(tile)
+            # Only tiles that will actually be visited. A masked-off tile is not going
+            # anywhere, so flagging it would be asking you to turn off something already
+            # off -- and the check that produces the set drops them for the same reason.
+            out_of_reach = tile.enabled and (tile.row, tile.col) in self._unreachable
             # Alpha is baked into the face colour rather than set on the patch:
             # `alpha=` applies to the edge as well, which drew the outlines at the
             # fill's opacity and left them all but invisible -- so the grid could only
@@ -387,14 +439,16 @@ class TileGridOverlay(QObject, CanvasOverlay):
                 (x, y), width, height,
                 fill=tile.enabled,
                 facecolor=(
-                    to_rgba(self._color, self._fill_alpha) if tile.enabled else "none"
+                    to_rgba(UNREACHABLE_FILL, UNREACHABLE_ALPHA) if out_of_reach
+                    else to_rgba(self._color, self._fill_alpha) if tile.enabled
+                    else "none"
                 ),
                 edgecolor=(
                     to_rgba(self._color, 1.0) if tile.enabled
                     else to_rgba(DISABLED_EDGE, DISABLED_ALPHA)
                 ),
                 linestyle="-" if tile.enabled else "--",
-                linewidth=LINE_WIDTH,
+                linewidth=UNREACHABLE_LINE_WIDTH if out_of_reach else LINE_WIDTH,
                 zorder=20,
             )
             self._ax.add_patch(patch)
