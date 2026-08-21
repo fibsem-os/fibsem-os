@@ -89,16 +89,20 @@ jobs:
       run: |
         set -euo pipefail
         base=$(git merge-base origin/main HEAD)
-        git diff --name-only --diff-filter=d "$base" HEAD -- '*.py' > changed.txt
-        count=$(wc -l < changed.txt | tr -d ' ')
+        # mktemp, not a file in the repo root: this script is meant to be
+        # runnable locally too, and it should not leave anything behind.
+        changed=$(mktemp)
+        trap 'rm -f "$changed"' EXIT
+        git diff --name-only --diff-filter=d "$base" HEAD -- '*.py' > "$changed"
+        count=$(wc -l < "$changed" | tr -d ' ')
         echo "python files changed against $base: $count"
         if [ "$count" -eq 0 ]; then
           echo "no python files changed; nothing to check"
           exit 0
         fi
-        sed 's/^/  /' changed.txt
+        sed 's/^/  /' "$changed"
         # NUL-separated: a path with a space would otherwise split into two.
-        if ! tr '\n' '\0' < changed.txt | xargs -0 ruff format --check --; then
+        if ! tr '\n' '\0' < "$changed" | xargs -0 ruff format --check --; then
           echo
           echo "To fix, from the repo root:"
           echo "  ruff format \$(git diff --name-only --diff-filter=d \$(git merge-base origin/main HEAD) HEAD -- '*.py')"
