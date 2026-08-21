@@ -107,6 +107,7 @@ from fibsem.ui.tokens import (
 )
 from fibsem.ui.widgets import preflight
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
+from fibsem.ui.widgets.connection_dialog import connect_to_microscope_dialog
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 from fibsem.utils import format_duration
@@ -124,6 +125,8 @@ warnings.filterwarnings(
 # enough that a default name -- "AutoLamella-" plus a date stamp -- is never elided;
 # the point of the button is to say which experiment is open.
 EXPERIMENT_MENU_MAX_WIDTH = 360
+# The connection chip: a manufacturer and an address, and no more room than that.
+CONNECTION_CHIP_MAX_WIDTH = 220
 
 # Icons sat on a button, rather than in a menu, are drawn at this size.
 BUTTON_ICON_SIZE = 16
@@ -474,6 +477,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # menu (see create_notification_button), where the icons do the work of
         # telling create from load at a glance. Qt hides action icons in menus on
         # macOS unless each action asks for them, hence set_menu_icon.
+        # Connecting had no menu entry at all -- the Connection tab was the only
+        # door, which is what made that tab impossible to remove (FIB-775).
+        self.action_connect_microscope = QAction("Connect to Microscope...", self)
+        set_menu_icon(self.action_connect_microscope, "mdi:connection")
+        self.action_connect_microscope.triggered.connect(self._on_connect_microscope)
+
         self.action_new_experiment = QAction("New Experiment", self)
         set_menu_icon(self.action_new_experiment, "mdi:plus")
         self.action_new_experiment.triggered.connect(self._on_new_experiment)
@@ -497,6 +506,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_exit = QAction("Exit", self)
         self.action_exit.triggered.connect(self.close)  # type: ignore
 
+        file_menu.addAction(self.action_connect_microscope)
+        file_menu.addSeparator()
         file_menu.addAction(self.action_new_experiment)
         file_menu.addAction(self.action_load_experiment)
         file_menu.addAction(self.action_open_experiment_directory)
@@ -934,6 +945,25 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.toast_manager.notification_bell.add_notification(
                 message, notification_type
             )
+
+    def _on_connect_microscope(self):
+        """Connect from the dialog, then hand the session to the system widget.
+
+        The widget stays the one place that owns the connection: everything else in
+        the application follows its `connected_signal`, so routing through it means
+        the dialog needs to know nothing about who cares.
+        """
+        if self.autolamella_ui is None:
+            return
+
+        microscope, settings = connect_to_microscope_dialog(parent=self)
+        if microscope is None:
+            return
+
+        system_widget = self.autolamella_ui.system_widget
+        system_widget.microscope = microscope
+        system_widget.settings = settings
+        system_widget.update_ui()
 
     def _on_new_experiment(self):
         """Handle New Experiment action."""
@@ -1520,6 +1550,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.microscope.spot_burn_progress_signal.connect(
                 self._on_spot_burn_progress
             )
+        self._update_connection_chip()
         self._update_experiment_header()
         self._update_instructions()
 
@@ -1844,6 +1875,48 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             events.changed.connect(self._refresh_overview_positions)
         self._lamella_list_experiment = experiment
 
+    def _update_connection_chip(self):
+        """Name the instrument this session attached to, or offer to attach one.
+
+        Identity, not liveness. Nothing watches the link -- `connected_signal` is
+        emitted off `bool(self.microscope)`, a Python reference (FIB-777) -- so a
+        chip claiming "Connected" would keep claiming it through a pulled cable.
+        What it connected to is a fact established once, and it does not decay.
+        """
+        if not self._connection_chip_enabled:
+            return
+
+        autolamella_ui = getattr(self, "autolamella_ui", None)
+        microscope = autolamella_ui.microscope if autolamella_ui else None
+
+        if microscope is None:
+            # The same words as the Connection tab's button and the File menu
+            # entry: three doors to one action should not each name it differently.
+            self.btn_connection.setText("Connect to Microscope")
+            self.btn_connection.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
+            self.btn_connection.setToolTip("Choose a configuration and connect")
+            return
+
+        # `system.info` is a stored record, not a question put to the instrument.
+        info = microscope.system.info
+        self.btn_connection.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        self.btn_connection.setToolTip(
+            f"{info.manufacturer} {info.model} at {info.ip_address}\n"
+            f"Serial number: {info.serial_number}\n"
+            "Click to change the connection."
+        )
+
+        label = f"{info.manufacturer}  {info.ip_address}"
+        self.btn_connection.setText(label)
+        overflow = self.btn_connection.sizeHint().width() - CONNECTION_CHIP_MAX_WIDTH
+        if overflow > 0:
+            metrics = self.btn_connection.fontMetrics()
+            self.btn_connection.setText(
+                metrics.elidedText(
+                    label, Qt.ElideRight, metrics.horizontalAdvance(label) - overflow
+                )
+            )
+
     def _update_experiment_header(self):
         """Show either the create/load buttons or the experiment menu, never both.
 
@@ -1858,10 +1931,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             autolamella_ui is not None and autolamella_ui.microscope is not None
         )
 
-        self.btn_create_experiment.setEnabled(is_connected)
-        self.btn_load_experiment.setEnabled(is_connected)
-        self.btn_create_experiment.setVisible(experiment is None)
-        self.btn_load_experiment.setVisible(experiment is None)
+        # With the chip, neither button is on screen before there is a microscope:
+        # a greyed-out pair beside a Connect chip is the same spent chrome the
+        # loaded state used to carry. Without it there is nothing else in the header
+        # to connect from, so they stay visible-but-disabled as they were. Both
+        # branches go when the flag does (FIB-775).
+        show = experiment is None and (
+            is_connected or not self._connection_chip_enabled
+        )
+        for button in (self.btn_create_experiment, self.btn_load_experiment):
+            button.setVisible(show)
+            button.setEnabled(experiment is None and is_connected)
 
         self.btn_experiment_menu.setVisible(experiment is not None)
         if experiment is None:
@@ -1908,6 +1988,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.btn_load_experiment.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.btn_load_experiment.clicked.connect(self._on_load_experiment)
 
+        # Which instrument this session is attached to, and the way back to the
+        # connection dialog -- see _update_connection_chip. Behind a flag while the
+        # Connection tab is still how people connect (FIB-775); the dialog itself is
+        # not gated, so File -> Connect to Microscope reaches it either way.
+        self._connection_chip_enabled = self._preferences.features.connection_chip
+        self.btn_connection = QPushButton()
+        self.btn_connection.setMaximumWidth(CONNECTION_CHIP_MAX_WIDTH)
+        self.btn_connection.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        self.btn_connection.clicked.connect(self._on_connect_microscope)
+
         # The experiment name, once there is one, is itself the control that reaches
         # the create/load actions -- see _update_experiment_header.
         self.btn_experiment_menu = QPushButton()
@@ -1933,6 +2023,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.toast_manager.set_notification_bell(self.notification_bell)
 
         # Add widgets to layout
+        if self._connection_chip_enabled:
+            button_layout.addWidget(self.btn_connection)
         button_layout.addWidget(self.btn_experiment_menu)
         button_layout.addWidget(self.btn_create_experiment)
         button_layout.addWidget(self.btn_load_experiment)
@@ -1940,6 +2032,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # Add to tab widget corner
         self.tab_widget.setCornerWidget(button_widget)
+
+        # The chip has a state before anything connects, and only the connect
+        # handler would otherwise ever set one.
+        self._update_connection_chip()
 
     def add_protocol_editor_tab(self):
         """Add the protocol editor as a separate tab with its own viewer."""

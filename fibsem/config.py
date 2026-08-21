@@ -372,6 +372,7 @@ class DisplayPreferences:
     guided_setup_dismissed: bool = False
 
 
+
 @dataclass
 class FeatureFlags:
     coincidence_milling_enabled: bool = False
@@ -388,6 +389,17 @@ class FeatureFlags:
     #
     # Deleted when the tab replaces the napari one, not kept as a preference.
     overview_canvas_tab: bool = False
+    # The connection chip in the tab-corner header, and the experiment buttons
+    # waiting for a microscope alongside it. Off while the Connection tab is still
+    # how people connect: this is the header half of FIB-775, landing ahead of the
+    # tab removal so it can have bench time first.
+    #
+    # The dialog it opens is NOT gated -- File -> Connect to Microscope reaches it
+    # either way, which is how it gets exercised while this is off.
+    #
+    # A staging flag like `overview_canvas_tab`, and it goes the same way: deleted
+    # when the chip replaces the tab, not kept as a preference.
+    connection_chip: bool = False
     # Planning a sparse fluorescence overview by drawing regions on a FIB/SEM one.
     # Off while it has had no bench time: it decides where an expensive acquisition
     # goes, and the geometry it rests on is only checkable against real data
@@ -403,6 +415,7 @@ class FeatureFlags:
     # a configuration file plus two registry entries. Until it has had bench time on
     # real instruments, that offer should be made deliberately rather than by default.
     guided_setup_enabled: bool = False
+
 
 
 @dataclass

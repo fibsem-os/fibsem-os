@@ -1,0 +1,119 @@
+"""Connecting from a dialog, and what happens when it does not work.
+
+The Connection tab was the only way to connect and the only place that action
+existed — no menu offered it — which is what made the tab impossible to remove
+(FIB-775). This dialog is the other door, and the states that matter are the ones
+the tab handled badly: choosing without knowing what a configuration points at,
+and a failure that leaves the application running but useless.
+
+The Demo microscope is real here. Only the failure is simulated, because there is
+no way to ask a working connection to fail.
+"""
+
+from __future__ import annotations
+
+import os
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+import pytest
+
+pytest.importorskip("PyQt5")
+
+from PyQt5.QtWidgets import QDialog  # noqa: E402
+
+from fibsem import config as cfg  # noqa: E402
+from fibsem import utils  # noqa: E402
+from fibsem.ui.widgets.connection_dialog import ConnectionDialog  # noqa: E402
+
+
+@pytest.fixture
+def dialog(qapp):
+    d = ConnectionDialog()
+    # Shown, not exec_'d: a child of a hidden window reports `isVisible() == False`
+    # whatever its own flag says, so "the message is shown" would pass without the
+    # code doing anything. exec_ would block the test on the event loop.
+    d.show()
+    yield d
+    if d.microscope is not None:
+        d.microscope.disconnect()
+    d.deleteLater()
+
+
+def test_it_offers_the_configurations_and_defaults_to_the_default(dialog):
+    listed = [
+        dialog.configuration_combo.itemText(i)
+        for i in range(dialog.configuration_combo.count())
+    ]
+
+    assert listed == list(cfg.USER_CONFIGURATIONS)
+    assert dialog.configuration_combo.currentText() == cfg.DEFAULT_CONFIGURATION_NAME
+
+
+def test_it_says_what_the_configuration_points_at_before_connecting(dialog):
+    """Read off the file, not the instrument — nothing is connected yet.
+
+    The tab offered a name and a Connect button, so which instrument a name meant
+    was something you found out by connecting to it.
+    """
+    settings = utils.load_microscope_configuration(dialog.configuration_path())
+
+    assert dialog.microscope is None
+    assert dialog.manufacturer_label.text() == settings.system.info.manufacturer
+    assert dialog.address_label.text() == settings.system.info.ip_address
+
+
+def test_dismissing_leaves_the_session_empty(dialog):
+    """Dismissable on purpose: a modal that cannot be closed makes the application
+    impossible to open without an instrument, and preferences and the logs are
+    reasons to do that. It says "Not now" rather than "Work offline" because there
+    is no offline mode -- creating and loading an experiment are both disabled
+    without a microscope."""
+    dialog.offline_button.click()
+
+    assert dialog.result() == QDialog.Rejected
+    assert dialog.microscope is None
+    assert dialog.settings is None
+
+
+def test_connecting_holds_the_session_and_accepts(dialog):
+    dialog.connect_to_microscope()
+
+    assert dialog.result() == QDialog.Accepted
+    assert dialog.microscope is not None
+    assert dialog.settings is not None
+
+
+def test_a_configuration_that_resolves_nowhere_is_reported(dialog):
+    """Selecting a name with no registered path used to take the application down."""
+    dialog.configuration_combo.addItem("a-configuration-that-was-deleted")
+    dialog.configuration_combo.setCurrentText("a-configuration-that-was-deleted")
+
+    assert dialog.configuration_path() is None
+    assert not dialog.connect_button.isEnabled()
+
+    dialog.connect_to_microscope()
+
+    assert dialog.message_label.isVisible()
+    assert "could not be found" in dialog.message_label.text()
+    assert dialog.result() != QDialog.Accepted
+
+
+def test_a_failure_stays_in_the_dialog(dialog, monkeypatch):
+    """The reason, and a retry — not a closed dialog and a dead application."""
+
+    def _refuse(*args, **kwargs):
+        raise ConnectionError("connection timed out after 30s")
+
+    monkeypatch.setattr(utils, "setup_session", _refuse)
+
+    dialog.connect_to_microscope()
+
+    assert dialog.isVisible() or dialog.result() != QDialog.Accepted
+    assert dialog.microscope is None
+    assert "Could not reach" in dialog.message_label.text()
+    assert "timed out" in dialog.message_label.text()
+    assert dialog.connect_button.text() == "Retry"
+    # And usable again, rather than left disabled by the attempt.
+    assert dialog.connect_button.isEnabled()
+    assert dialog.configuration_combo.isEnabled()
