@@ -70,7 +70,7 @@ _COL_TASK, _COL_WHAT, _COL_TAGS = range(3)
 
 # Small. At the sizes a chip is drawn elsewhere it is the loudest thing in the
 # row, and there are two or three of them per row here.
-_CHIP_SIZE = 9
+_CHIP_SIZE = 10
 
 _ALL_PURPOSES = "All purposes"
 
@@ -87,7 +87,19 @@ _SOURCE_LABEL = {
 # Description cell: margins here, and the font set programmatically below. A
 # stylesheet font-size never reaches QWidget.font(), so metrics taken from a
 # stylesheet-styled label measure the wrong face.
-_DESC_MARGINS = (12, 9, 14, 9)
+_DESC_MARGINS = (12, 7, 14, 7)
+
+# The padding QTableWidget::item carries, as a constant rather than a literal
+# inside the stylesheet below. A row is taller than the widget it holds by
+# twice the padding plus the separator border, and a row sized without
+# allowing for all of it clips the last line off the description -- the
+# border alone is a one-pixel shortfall, which is enough. Interpolated into the QSS *and* used in the
+# arithmetic, so the two cannot drift -- the earlier version measured it at
+# runtime, which read zero before the first layout and compounded after it.
+_ITEM_PADDING_V = 7
+_ITEM_PADDING_H = 10
+_ITEM_BORDER = 1
+_ROW_CHROME = 2 * _ITEM_PADDING_V + _ITEM_BORDER
 
 _TABLE_STYLE = f"""
 QTableWidget {{
@@ -106,7 +118,10 @@ QHeaderView::section {{
     padding: 6px 10px;
     font-size: 11px;
 }}
-QTableWidget::item {{ padding: 8px 10px; border-bottom: 1px solid #31353f; }}
+QTableWidget::item {{
+    padding: {_ITEM_PADDING_V}px {_ITEM_PADDING_H}px;
+    border-bottom: {_ITEM_BORDER}px solid #31353f;
+}}
 QTableWidget::item:selected {{
     background-color: #2d3947;
     color: {TEXT_STRONG_COLOR};
@@ -263,6 +278,12 @@ class AddTaskDialog(QDialog):
 
         self.name_field = QLineEdit()
         self.name_field.setStyleSheet(_FIELD_STYLE)
+        # A task name is a handful of words. Stretching the field to the width
+        # of a four-column table makes the footer read as a separate, emptier
+        # dialog stuck to the bottom of this one. Fixed rather than capped:
+        # beside a stretch, a capped field collapses to its size hint and
+        # scrolls the very text it is meant to show.
+        self.name_field.setFixedWidth(360)
         # The sentence the old dialog was missing: "Task Name:" never said the
         # name is the protocol's key, which is why it read as a duplicate of the
         # type rather than as a decision.
@@ -272,7 +293,11 @@ class AddTaskDialog(QDialog):
         )
         self.name_field.textChanged.connect(self._validate)
         self.name_field.returnPressed.connect(self._on_return_pressed)
-        layout.addWidget(self.name_field)
+        name_row = QHBoxLayout()
+        name_row.setContentsMargins(0, 0, 0, 0)
+        name_row.addWidget(self.name_field)
+        name_row.addStretch(1)
+        layout.addLayout(name_row)
 
         self.error_label = QLabel()
         style_with_tooltip(self.error_label, f"font-size: 11px; color: {ERROR_COLOR};")
@@ -326,8 +351,8 @@ class AddTaskDialog(QDialog):
     def _task_cell(self, task_type: str, display_name: str, info) -> QWidget:
         widget = _transparent(QWidget())
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(12, 9, 10, 9)
-        layout.setSpacing(3)
+        layout.setContentsMargins(12, 6, 10, 6)
+        layout.setSpacing(1)
 
         name = QLabel(display_name)
         style_with_tooltip(
@@ -374,11 +399,11 @@ class AddTaskDialog(QDialog):
     def _chips_cell(self, tags: Tuple[str, ...]) -> QWidget:
         widget = _transparent(QWidget())
         layout = QHBoxLayout(widget)
-        layout.setContentsMargins(10, 9, 10, 9)
+        layout.setContentsMargins(10, 7, 10, 7)
         layout.setSpacing(4)
         layout.setAlignment(Qt.AlignTop)
         for tag in tags:
-            layout.addWidget(chip(tag, TEXT_MUTED_COLOR, font_size=_CHIP_SIZE))
+            layout.addWidget(chip(tag, TEXT_COLOR, font_size=_CHIP_SIZE))
         layout.addStretch(1)
         return widget
 
@@ -476,12 +501,27 @@ class AddTaskDialog(QDialog):
                 row += 1
 
         self._rebuild_tag_filter(grouped)
+        self._fit_tag_column()
         self.table.blockSignals(False)
         self._refresh_visibility()
         if keep is not None and keep in self.task_types:
             self.select(keep)
         elif self.selected_task_type is None:
             self._select_first_visible()
+
+    def _fit_tag_column(self) -> None:
+        """Widen the tag column to the widest row of chips.
+
+        ResizeToContents is no use here: it measures the item's size hint, and
+        these cells hold widgets over empty items. Too narrow and the chips do
+        not elide, they overlap.
+        """
+        widths = [
+            self.table.cellWidget(row, _COL_TAGS).sizeHint().width()
+            for row in self._rows
+            if self.table.cellWidget(row, _COL_TAGS) is not None
+        ]
+        self.table.setColumnWidth(_COL_TAGS, max(widths, default=120) + 8)
 
     def _rebuild_tag_filter(self, grouped) -> None:
         """Every tag any offered task declares, not only the headings."""
@@ -583,7 +623,7 @@ class AddTaskDialog(QDialog):
                 cell = self.table.cellWidget(row, _COL_WHAT)
                 label = cell.property("_label")
                 _, top, _, bottom = _DESC_MARGINS
-                chrome = max(0, self.table.rowHeight(row) - cell.height())
+                chrome = _ROW_CHROME
                 needed = label.heightForWidth(label.width()) + top + bottom + chrome
                 others = [
                     self.table.cellWidget(row, c).sizeHint().height() + chrome
