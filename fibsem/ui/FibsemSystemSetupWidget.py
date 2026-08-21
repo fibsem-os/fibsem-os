@@ -33,6 +33,11 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
 
         self.microscope: Optional[FibsemMicroscope] = None
         self.settings: Optional[MicroscopeSettings] = None
+        # Why the last attempt failed, or None if the last thing that happened was not
+        # a failure. Held rather than only toasted: toasts are off by default
+        # (`display.toasts_enabled`), so a toast alone turns the crash this guards
+        # against into silence, which is not much of an improvement.
+        self._last_connection_error: Optional[str] = None
 
         # grid layout
         self.gridLayout = QtWidgets.QGridLayout(self)
@@ -241,6 +246,9 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         )
 
         self._label_status_subtitle = QtWidgets.QLabel("")
+        # Wrapped, because this now carries the reason a connection failed -- a full
+        # sentence from the backend rather than a two-word status.
+        self._label_status_subtitle.setWordWrap(True)
         self._label_status_subtitle.setStyleSheet(
             f"background-color: transparent; color: {NEUTRAL_500}; font-size: 10px; border: none;"
         )
@@ -384,9 +392,34 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         is_microscope_connected = bool(self.microscope)
 
         if is_microscope_connected:
-            self.microscope.disconnect()
+            try:
+                self.microscope.disconnect()
+            except Exception as e:
+                # Same reasoning as the connect path below: an exception escaping this
+                # slot is a process abort rather than an error message (FIB-329). A
+                # disconnect can fail for ordinary reasons -- the instrument went away,
+                # the client is already dead -- and none of them are worth losing the
+                # application over.
+                #
+                # Logged rather than only toasted, because a client that would not
+                # close is a leak, and the log is where anyone would look for it.
+                logging.error(f"Could not cleanly disconnect the microscope: {e}")
+                # Phrased as one outcome, not two. The tab *does* drop to disconnected
+                # a line below, so "Disconnect failed" beside a disconnected tab reads
+                # as a contradiction; what actually happened is that we let go of a
+                # client that would not close.
+                notification_service.show_toast(
+                    f"Disconnected, but the client did not close cleanly: {e}", "error"
+                )
+            # Cleared either way, and outside the try for that reason. The request was
+            # to disconnect; holding a client that could not be closed would leave the
+            # tab offering to disconnect something it can no longer reach, with no way
+            # back to a working connection.
             self.microscope, self.settings = None, None
         else:
+            # Cleared before the attempt, so a retry never shows the previous reason
+            # beside a connection that is still being made.
+            self._last_connection_error = None
             notification_service.show_toast("Connecting to microscope...", "info")
 
             configuration_path = self.load_configuration(None)
@@ -396,14 +429,31 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
                 return
 
             # connect
-            self.microscope, self.settings = utils.setup_session(
-                config_path=configuration_path,
-            )
-
-            # user notification
-            msg = f"Connected to microscope at {self.microscope.system.info.ip_address}"
-            logging.info(msg)
-            notification_service.show_toast(msg, "info")
+            try:
+                self.microscope, self.settings = utils.setup_session(
+                    config_path=configuration_path,
+                )
+            except Exception as e:
+                # Reported, not raised. This runs as a Qt slot, and PyQt5 turns an
+                # unhandled exception in a slot into qFatal -- the entire application
+                # aborts, leaving the traceback and nothing else (FIB-329). Failing to
+                # connect is an ordinary outcome here rather than a defect: the vendor
+                # API may not be installed, the instrument may be off, the address may
+                # belong to a different bay.
+                #
+                # Broad on purpose. The backends raise whatever their own SDK raises,
+                # and the point is that *nothing* from this call reaches Qt -- a
+                # narrower except would leave the abort in place for the exception
+                # nobody predicted, which is the one that will happen.
+                self.microscope, self.settings = None, None
+                self._last_connection_error = str(e)
+                logging.error(f"Could not connect to the microscope: {e}")
+                notification_service.show_toast(f"Could not connect: {e}", "error")
+            else:
+                # user notification
+                msg = f"Connected to microscope at {self.microscope.system.info.ip_address}"
+                logging.info(msg)
+                notification_service.show_toast(msg, "info")
 
         self.update_ui()
 
@@ -457,11 +507,22 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
             )
             self.disconnected_signal.emit()
 
+            # "Not connected" and "tried and failed" are different states, and the
+            # difference is exactly what someone needs. The card says which, and it is
+            # on screen regardless of whether toasts are enabled.
+            failed = self._last_connection_error is not None
             self._label_status_icon.setPixmap(
-                fibsem_icon("mdi:close-circle", color="#f44336").pixmap(20, 20)
+                fibsem_icon(
+                    "mdi:alert-circle" if failed else "mdi:close-circle",
+                    color="#f44336",
+                ).pixmap(20, 20)
             )
-            self._label_status_title.setText("Not Connected")
-            self._label_status_subtitle.setText("No microscope connected")
+            self._label_status_title.setText(
+                "Connection Failed" if failed else "Not Connected"
+            )
+            self._label_status_subtitle.setText(
+                self._last_connection_error or "No microscope connected"
+            )
             self._button_disconnect.setVisible(False)
 
 
