@@ -58,10 +58,12 @@ def test_it_says_what_the_configuration_points_at_before_connecting(dialog):
     was something you found out by connecting to it.
     """
     settings = utils.load_microscope_configuration(dialog.configuration_path())
+    info = settings.system.info
 
     assert dialog.microscope is None
-    assert dialog.manufacturer_label.text() == settings.system.info.manufacturer
-    assert dialog.address_label.text() == settings.system.info.ip_address
+    assert dialog.details_title.text() == "No microscope connected"
+    assert info.manufacturer in dialog.details_subtitle.text()
+    assert info.ip_address in dialog.details_subtitle.text()
 
 
 def test_dismissing_leaves_the_session_empty(dialog):
@@ -157,8 +159,13 @@ def test_it_shows_what_is_connected(connected_dialog):
     """Not the same dialog worded as though nothing had happened yet."""
     info = connected_dialog.microscope.system.info
 
-    assert info.manufacturer in connected_dialog.title_label.text()
-    assert info.ip_address in connected_dialog.title_label.text()
+    assert info.manufacturer in connected_dialog.details_subtitle.text()
+    assert info.ip_address in connected_dialog.details_subtitle.text()
+    # The panel names the instrument, the window bar says what the dialog is, and
+    # the heading says what to do in it. Nothing says any of it twice.
+    assert connected_dialog.windowTitle() == "Connect to Microscope"
+    assert connected_dialog.title_label.text() == "Select Configuration"
+    assert info.manufacturer not in connected_dialog.title_label.text()
     assert connected_dialog.disconnect_button.isVisible()
     # Reconnect, because connecting now means dropping the session in progress.
     assert connected_dialog.connect_button.text() == "Reconnect"
@@ -261,3 +268,27 @@ def test_losing_the_session_mid_workflow_says_what_it_will_break(qapp, monkeypat
     finally:
         microscope.disconnect()
         d.deleteLater()
+
+
+def test_the_details_panel_reports_the_connection(connected_dialog):
+    """Reported as the Connection tab's card reports it, tick included.
+
+    Deliberate: this panel describes the outcome of a connection that was
+    established, in a dialog someone opened to look at it. The header chip in #515
+    stays wordless about the link for a different reason -- it is on screen for
+    hours, and nothing watches the connection (FIB-777).
+    """
+    info = connected_dialog.microscope.system.info
+
+    assert connected_dialog.details_title.text() == "Microscope connected"
+    assert info.manufacturer in connected_dialog.details_subtitle.text()
+    assert info.ip_address in connected_dialog.details_subtitle.text()
+    assert info.serial_number in connected_dialog.details_subtitle.toolTip()
+
+
+def test_a_configuration_that_resolves_nowhere_shows_in_the_panel(dialog):
+    dialog.configuration_combo.addItem("a-configuration-that-was-deleted")
+    dialog.configuration_combo.setCurrentText("a-configuration-that-was-deleted")
+
+    assert dialog.details_title.text() == "No configuration"
+    assert "could not be found" in dialog.details_subtitle.text()

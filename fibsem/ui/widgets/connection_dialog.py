@@ -25,7 +25,6 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QDialog,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -34,7 +33,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-import fibsem
 from fibsem import config as cfg
 from fibsem import utils
 from fibsem.microscope import FibsemMicroscope
@@ -47,6 +45,7 @@ from fibsem.ui.stylesheets import (
 from fibsem.ui.tokens import (
     BORDER_COLOR,
     ERROR_COLOR,
+    OK_COLOR,
     PANEL_COLOR,
     SURFACE_COLOR,
     TEXT_MUTED_COLOR,
@@ -84,6 +83,9 @@ class ConnectionDialog(QDialog):
                 it is using it -- but it is not allowed quietly.
         """
         super().__init__(parent)
+        # The window bar already says what the dialog is; the heading inside says
+        # what to do in it, and neither repeats the other.
+        self.setWindowTitle("Connect to Microscope")
         self.setModal(True)
         self.setMinimumWidth(DIALOG_WIDTH)
 
@@ -99,14 +101,9 @@ class ConnectionDialog(QDialog):
         layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(10)
 
-        self.title_label = QLabel()
+        self.title_label = QLabel("Select Configuration")
         self.title_label.setStyleSheet(f"color: {TEXT_STRONG_COLOR}; font-size: 14px;")
-        # The plain version, not `get_version_string()` -- its git-describe suffix
-        # belongs in Help > About, not on the first thing a session sees.
-        version = QLabel(f"AutoLamella {fibsem.__version__}")
-        version.setStyleSheet(f"color: {TEXT_MUTED_COLOR}; font-size: 12px;")
         layout.addWidget(self.title_label)
-        layout.addWidget(version)
 
         layout.addWidget(self._build_configuration_row())
         layout.addWidget(self._build_details_panel())
@@ -131,10 +128,8 @@ class ConnectionDialog(QDialog):
         row_layout.setContentsMargins(0, 0, 0, 0)
         row_layout.setSpacing(6)
 
-        label = QLabel("Configuration")
-        label.setStyleSheet(f"color: {TEXT_MUTED_COLOR}; font-size: 11px;")
-        row_layout.addWidget(label)
-
+        # No "Configuration" label in front of it: the heading above already says
+        # Select Configuration, and the combo box holds configuration names.
         self.configuration_combo = QComboBox()
         self.configuration_combo.currentTextChanged.connect(
             self._on_configuration_changed
@@ -154,34 +149,55 @@ class ConnectionDialog(QDialog):
 
         The tab never said: it offered a name and a Connect button, so which
         instrument a name meant was something you learned by connecting to it.
+
+        Laid out as the Connection tab's status card is -- framed panel, icon,
+        bold line, muted line, and its green tick on a connection that succeeded --
+        so this reads as part of the application rather than a second way of saying
+        the same thing.
         """
         frame = QFrame()
-        frame.setStyleSheet(
-            f"background: {PANEL_COLOR}; border: 1px solid {BORDER_COLOR}; "
-            "border-radius: 4px;"
-        )
-        frame_layout = QGridLayout(frame)
-        frame_layout.setContentsMargins(10, 8, 10, 8)
-        frame_layout.setHorizontalSpacing(12)
-        frame_layout.setVerticalSpacing(2)
+        frame.setObjectName("frame_connection_details")
+        frame.setStyleSheet(f"""
+            QFrame#frame_connection_details {{
+                background-color: {PANEL_COLOR};
+                border-radius: 6px;
+                border: 1px solid {BORDER_COLOR};
+            }}
+        """)
 
-        self.manufacturer_label = QLabel()
-        self.address_label = QLabel()
-        # A grid rather than tab stops in one label: the columns have to line up
-        # whatever the manufacturer is called.
-        for row, (name, value) in enumerate(
-            (("Manufacturer", self.manufacturer_label), ("Address", self.address_label))
-        ):
-            key = QLabel(name)
-            for label in (key, value):
-                label.setStyleSheet(
-                    f"color: {TEXT_MUTED_COLOR}; font-size: 11px; border: none;"
-                )
-            frame_layout.addWidget(key, row, 0)
-            frame_layout.addWidget(value, row, 1)
-        frame_layout.setColumnStretch(1, 1)
+        frame_layout = QHBoxLayout(frame)
+        frame_layout.setContentsMargins(12, 12, 12, 12)
+        frame_layout.setSpacing(10)
+
+        self.details_icon = QLabel()
+        self.details_icon.setStyleSheet("border: none;")
+        self.details_icon.setFixedSize(20, 20)
+        frame_layout.addWidget(self.details_icon)
+
+        text_layout = QVBoxLayout()
+        text_layout.setSpacing(2)
+        self.details_title = QLabel()
+        self.details_title.setStyleSheet(
+            f"background-color: transparent; color: {TEXT_STRONG_COLOR}; "
+            "font-weight: bold; font-size: 11px; border: none;"
+        )
+        self.details_subtitle = QLabel()
+        self.details_subtitle.setStyleSheet(
+            f"background-color: transparent; color: {TEXT_MUTED_COLOR}; "
+            "font-size: 10px; border: none;"
+        )
+        text_layout.addWidget(self.details_title)
+        text_layout.addWidget(self.details_subtitle)
+        frame_layout.addLayout(text_layout)
+        frame_layout.addStretch()
 
         return frame
+
+    def _set_details(self, title: str, subtitle: str, icon: str, colour: str) -> None:
+        """Fill the panel, in the Connection tab's own status-card language."""
+        self.details_icon.setPixmap(fibsem_icon(icon, color=colour).pixmap(20, 20))
+        self.details_title.setText(title)
+        self.details_subtitle.setText(subtitle)
 
     def _build_buttons(self) -> QHBoxLayout:
         buttons = QHBoxLayout()
@@ -239,10 +255,9 @@ class ConnectionDialog(QDialog):
         Reads the file, not the microscope -- there is nothing connected yet, and
         the whole point is to say where Connect is about to go.
         """
-        manufacturer, address = self._describe_configuration()
-        self.manufacturer_label.setText(manufacturer)
-        self.address_label.setText(address)
-        self.connect_button.setEnabled(self.configuration_path() is not None)
+        resolves = self.configuration_path() is not None
+        self.connect_button.setEnabled(resolves)
+        self._refresh_details()
 
     def _describe_configuration(self) -> Tuple[str, str]:
         path = self.configuration_path()
@@ -271,6 +286,40 @@ class ConnectionDialog(QDialog):
 
     # ── connecting ──────────────────────────────────────────────────────────
 
+    def _refresh_details(self) -> None:
+        """Say what is attached, or where Connect is about to go."""
+        if self.microscope is not None:
+            # A green tick, as the Connection tab's card has: the session was
+            # established, and reporting that outcome is what this panel is for.
+            # (The header chip in #515 stays wordless about it for a different
+            # reason -- it is on screen for hours, and nothing watches the link.)
+            info = self.microscope.system.info
+            self._set_details(
+                "Microscope connected",
+                f"{info.manufacturer} {info.model} at {info.ip_address}".strip(),
+                "mdi:check-circle",
+                OK_COLOR,
+            )
+            self.details_subtitle.setToolTip(f"Serial number: {info.serial_number}")
+            return
+
+        if self.configuration_path() is None:
+            self._set_details(
+                "No configuration",
+                f"{self.configuration_combo.currentText()} could not be found",
+                "mdi:alert-circle",
+                ERROR_COLOR,
+            )
+            return
+
+        manufacturer, address = self._describe_configuration()
+        self._set_details(
+            "No microscope connected",
+            f"{manufacturer} at {address}",
+            "mdi:close-circle",
+            TEXT_MUTED_COLOR,
+        )
+
     def _apply_connection_state(self) -> None:
         """Two states, one dialog: nothing connected, or something already is.
 
@@ -282,9 +331,9 @@ class ConnectionDialog(QDialog):
 
         self.disconnect_button.setVisible(connected)
         self.offline_button.setText("Close" if connected else "Not now")
+        self._refresh_details()
 
         if not connected:
-            self.title_label.setText("Connect to microscope")
             self.connect_button.setText("Connect")
             self.offline_button.setToolTip(
                 "Start without a microscope. Most of the application stays "
@@ -292,10 +341,6 @@ class ConnectionDialog(QDialog):
             )
             return
 
-        info = self.microscope.system.info
-        self.title_label.setText(
-            f"Connected to {info.manufacturer} at {info.ip_address}"
-        )
         # Reconnect, not Connect: with a session in progress this drops it and takes
         # the selected configuration instead, and the button should say so.
         self.connect_button.setText("Reconnect")
