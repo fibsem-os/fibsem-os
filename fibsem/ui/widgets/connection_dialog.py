@@ -34,12 +34,13 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import config as cfg
-from fibsem import utils
+from fibsem import guided_setup, utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import MicroscopeSettings
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
+    PRIMARY_COLOR,
     SECONDARY_BUTTON_STYLESHEET,
 )
 from fibsem.ui.tokens import (
@@ -105,6 +106,9 @@ class ConnectionDialog(QDialog):
         self.title_label.setStyleSheet(f"color: {TEXT_STRONG_COLOR}; font-size: 14px;")
         layout.addWidget(self.title_label)
 
+        # Above the configuration row on purpose: on a fresh install there is no
+        # configuration worth choosing yet, and the walkthrough is what makes one.
+        layout.addWidget(self._build_first_run_offer())
         layout.addWidget(self._build_configuration_row())
         layout.addWidget(self._build_details_panel())
 
@@ -119,8 +123,129 @@ class ConnectionDialog(QDialog):
 
         self._populate_configurations()
         self._apply_connection_state()
+        self.refresh_first_run_offer()
 
     # ── construction ────────────────────────────────────────────────────────
+
+    def _build_first_run_offer(self) -> QFrame:
+        """The guided-setup offer, which used to live on the Connection tab.
+
+        It came with the tab (FIB-740, #472) and would have gone with it: a fresh
+        install would have been left with Tools > Guided Setup, which is not
+        somewhere a first-time user thinks to look. This dialog is what they reach
+        first instead, so the offer follows it here.
+        """
+        frame = QFrame()
+        frame.setObjectName("frame_first_run")
+        frame.setStyleSheet(f"""
+            QFrame#frame_first_run {{
+                background-color: {PANEL_COLOR};
+                border-radius: 6px;
+                border: 1px solid {PRIMARY_COLOR};
+            }}
+        """)
+        frame_layout = QHBoxLayout(frame)
+        frame_layout.setContentsMargins(12, 10, 8, 10)
+        frame_layout.setSpacing(10)
+
+        icon = QLabel()
+        icon.setStyleSheet("background: transparent; border: none;")
+        icon.setFixedSize(20, 20)
+        icon.setPixmap(fibsem_icon("mdi:auto-fix", color=PRIMARY_COLOR).pixmap(20, 20))
+        frame_layout.addWidget(icon, 0, Qt.AlignTop)
+
+        text = QVBoxLayout()
+        text.setSpacing(2)
+        title = QLabel("First time here?")
+        title.setStyleSheet(
+            f"background: transparent; border: none; color: {PRIMARY_COLOR}; "
+            "font-weight: bold; font-size: 11px;"
+        )
+        subtitle = QLabel(
+            "A guided walkthrough that configures fibsemOS to work with your "
+            "microscope."
+        )
+        subtitle.setWordWrap(True)
+        subtitle.setStyleSheet(
+            f"background: transparent; border: none; color: {TEXT_MUTED_COLOR}; "
+            "font-size: 10px;"
+        )
+        text.addWidget(title)
+        text.addWidget(subtitle)
+        frame_layout.addLayout(text, 1)
+
+        self.guided_setup_button = QPushButton("Start Guided Setup")
+        self.guided_setup_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {PRIMARY_COLOR};
+                border: 1px solid {PRIMARY_COLOR};
+                border-radius: 4px;
+                padding: 5px 12px;
+                font-size: 11px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{ background-color: rgba(0, 122, 204, 0.20); }}
+        """)
+        self.guided_setup_button.clicked.connect(self.run_guided_setup)
+        frame_layout.addWidget(self.guided_setup_button, 0, Qt.AlignVCenter)
+
+        self.dismiss_first_run_button = QToolButton()
+        self.dismiss_first_run_button.setIcon(
+            fibsem_icon("mdi:close", color=TEXT_MUTED_COLOR)
+        )
+        self.dismiss_first_run_button.setToolTip("Do not offer this again")
+        self.dismiss_first_run_button.setAutoRaise(True)
+        self.dismiss_first_run_button.setStyleSheet(
+            "border: none; background: transparent;"
+        )
+        self.dismiss_first_run_button.clicked.connect(self._dismiss_first_run)
+        frame_layout.addWidget(self.dismiss_first_run_button, 0, Qt.AlignTop)
+
+        self.first_run_frame = frame
+        frame.setVisible(False)
+        return frame
+
+    def refresh_first_run_offer(self, preferences=None) -> None:
+        """Show the offer when the flag is on, nothing is configured, and it stands.
+
+        The same three conditions the Connection tab applied, and separate for the
+        same reason: the flag lives in the file whose absence means "fresh install",
+        so folding the first two together suppresses the offer it enables.
+        """
+        if preferences is None:
+            preferences = cfg.load_user_preferences()
+        self.first_run_frame.setVisible(
+            preferences.features.guided_setup_enabled
+            and not preferences.display.guided_setup_dismissed
+            and guided_setup.is_first_run()
+        )
+
+    def _dismiss_first_run(self) -> None:
+        """Hide the offer, and record that it was declined."""
+        self.first_run_frame.setVisible(False)
+        guided_setup.dismiss_first_run()
+
+    def run_guided_setup(self) -> Optional[str]:
+        """Open the wizard, then select whatever it saved.
+
+        The live microscope is handed over so the wizard can read the stage without
+        opening a second client against the same instrument.
+        """
+        from fibsem.ui.widgets.guided_setup_dialog import open_guided_setup
+
+        name = open_guided_setup(parent=self, microscope=self.microscope)
+        if name is None:
+            # Backing out is not declining, so the offer stays where it was.
+            return None
+
+        # Finishing writes the file `is_first_run` reads, so the offer goes now
+        # rather than at the next start -- and the new configuration is the one
+        # this dialog should be pointing at.
+        self._populate_configurations()
+        self.configuration_combo.setCurrentText(name)
+        self.refresh_first_run_offer()
+        return name
 
     def _build_configuration_row(self) -> QWidget:
         row = QWidget()
