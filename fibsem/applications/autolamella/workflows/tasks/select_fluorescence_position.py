@@ -71,9 +71,6 @@ class SelectFluorescencePositionTask(AutoLamellaTask):
 
         # Move stage to the saved stage position and objective position
         self.log_status_message("MOVE_TO_POSITION", "Moving to Position...")
-        self.microscope.fm.acquisition_progress_signal.emit(
-            {"state": "moving", "task": f"{self.task_name}"}
-        )
         self.microscope.safe_absolute_stage_movement(stage_position)
 
         # move objective to saved position
