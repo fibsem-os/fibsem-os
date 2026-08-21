@@ -16,8 +16,8 @@ import warnings
 from datetime import datetime
 
 import napari
-from PyQt5.QtCore import QSize, Qt, QTimer
-from PyQt5.QtGui import QIcon, QKeySequence, QPainter, QPixmap
+from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
@@ -125,9 +125,6 @@ warnings.filterwarnings(
 # the point of the button is to say which experiment is open.
 EXPERIMENT_MENU_MAX_WIDTH = 360
 
-# Icons sat on a button, rather than in a menu, are drawn at this size.
-BUTTON_ICON_SIZE = 16
-
 
 def experiment_tooltip(experiment: Experiment) -> str:
     """The hover card for the tab-corner experiment button.
@@ -172,28 +169,6 @@ def experiment_tooltip(experiment: Experiment) -> str:
         f"<div style='color: {TEXT_MUTED_COLOR}; margin-top: 4px;'>"
         f"{html.escape(str(experiment.path))}</div>"
     )
-
-
-def set_button_icon(button: QPushButton, key: str, gap: int = 5) -> None:
-    """Put an icon on a button with breathing room between it and the text.
-
-    Qt spaces a button's icon from its label by about four pixels and offers no way
-    to ask for more, which next to a name reads as the two being squashed together.
-    Padding the pixmap on its right buys the rest -- and the icon size has to grow
-    with the padding, or Qt scales the wider pixmap back into the old box and
-    shrinks the glyph instead of moving the text.
-    """
-    pixmap = fibsem_icon(key, color=GRAY_ICON_COLOR).pixmap(BUTTON_ICON_SIZE, BUTTON_ICON_SIZE)
-    ratio = pixmap.devicePixelRatio() or 1.0
-    padded = QPixmap(pixmap.width() + round(gap * ratio), pixmap.height())
-    padded.setDevicePixelRatio(ratio)
-    padded.fill(Qt.transparent)
-    painter = QPainter(padded)
-    painter.drawPixmap(0, 0, pixmap)
-    painter.end()
-
-    button.setIcon(QIcon(padded))
-    button.setIconSize(QSize(BUTTON_ICON_SIZE + gap, BUTTON_ICON_SIZE))
 
 
 def set_menu_icon(action: QAction, key: str) -> None:
@@ -1851,7 +1826,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # The experiment name, once there is one, is itself the control that reaches
         # the create/load actions -- see _update_experiment_header.
         self.btn_experiment_menu = QPushButton()
-        set_button_icon(self.btn_experiment_menu, "mdi:flask-outline")
         self.btn_experiment_menu.setStyleSheet(MENU_BUTTON_STYLESHEET)
         self.btn_experiment_menu.setMaximumWidth(EXPERIMENT_MENU_MAX_WIDTH)
         # Hug the name. A QPushButton's default policy lets it grow to fill the
