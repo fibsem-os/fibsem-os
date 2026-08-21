@@ -29,30 +29,34 @@ from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, QFileLineEdit
 # ---------------------------------------------------------------------------
 
 # Display
-_LBL_SOUND         = "Enable Sound Notifications"
-_TIP_SOUND         = "Play an audio alert when the workflow requires the user's attention."
-_LBL_TOASTS        = "Enable Toast Notifications"
-_TIP_TOASTS        = "Show brief pop-up messages in the corner of the screen for workflow events."
-_LBL_BORDER        = "Enable Workflow Border"
-_TIP_BORDER        = "Highlight the viewport border while an automated workflow is running."
-_LBL_CARD_MODE     = "Lamella Card Layout"
-_TIP_CARD_MODE     = (
+_LBL_SOUND = "Enable Sound Notifications"
+_TIP_SOUND = "Play an audio alert when the workflow requires the user's attention."
+_LBL_TOASTS = "Enable Toast Notifications"
+_TIP_TOASTS = (
+    "Show brief pop-up messages in the corner of the screen for workflow events."
+)
+_LBL_BORDER = "Enable Workflow Border"
+_TIP_BORDER = "Highlight the viewport border while an automated workflow is running."
+_LBL_CARD_MODE = "Lamella Card Layout"
+_TIP_CARD_MODE = (
     "How each lamella is drawn in the Lamella tab's strip: a large thumbnail, a "
     "compact row, or a single line with no thumbnail."
 )
-_LBL_DEV_MODE      = "Enable Development Mode"
-_TIP_DEV_MODE      = "Show advanced developer tools and diagnostic menus. Intended for developers only."
+_LBL_DEV_MODE = "Enable Development Mode"
+_TIP_DEV_MODE = (
+    "Show advanced developer tools and diagnostic menus. Intended for developers only."
+)
 
 # Features
-_LBL_COINCIDENCE   = "Enable Coincidence Milling Viewer"
-_TIP_COINCIDENCE   = (
+_LBL_COINCIDENCE = "Enable Coincidence Milling Viewer"
+_TIP_COINCIDENCE = (
     "Enable the coincidence milling viewer for simultaneous FIB milling and FM acquisition. "
     "Restricted to ThermoFisher Arctis with the modified sample holder."
 )
 _LBL_SAMPLE_HOLDER = "Enable Sample Holder Widget"
 _TIP_SAMPLE_HOLDER = "Show the sample holder navigation widget in the main interface."
-_LBL_BUG_REPORT    = "Enable Bug Reporter"
-_TIP_BUG_REPORT    = (
+_LBL_BUG_REPORT = "Enable Bug Reporter"
+_TIP_BUG_REPORT = (
     "Show the 'Report an Issue...' option in the Help menu, for reporting bugs and "
     "optionally submitting experiment data privately to the maintainers."
 )
@@ -69,30 +73,44 @@ _TIP_OVERVIEW_CANVAS = (
     "Tiles are placed where they were acquired rather than stitched first. Still being "
     "finished, and it drives the same microscope as the Overview tab it will replace."
 )
-_LBL_SCRIPTS       = "Enable User Scripts"
-_TIP_SCRIPTS       = (
+_LBL_GUIDED_SETUP = "Enable Guided Setup"
+_TIP_GUIDED_SETUP = (
+    "Offer a guided walkthrough on the Connection tab of a fresh install that "
+    "configures fibsemOS to work with your microscope, and add Tools > Guided Setup. "
+    "It writes a new configuration file rather than "
+    "editing the one you are using, so it is non-destructive — but it is still being "
+    "finished, and it has not had bench time on every instrument."
+)
+_LBL_SCRIPTS = "Enable User Scripts"
+_TIP_SCRIPTS = (
     "Show Tools > Scripts, for running your own .py files against the open "
     "experiment. A script has the same access to the microscope as the application "
     "itself and none of its safety checks — nothing validates what it does."
 )
 
 # Experiment defaults
-_LBL_EXP_DIR       = "Default Experiment Directory"
-_TIP_EXP_DIR       = "Directory where new experiments will be saved. Pre-fills the directory field when creating a new experiment."
-_LBL_EXP_PROTOCOL  = "Default Protocol File"
-_TIP_EXP_PROTOCOL  = "Protocol file (.yaml) to load automatically when creating a new experiment."
-_LBL_EXP_USER      = "Default User"
-_TIP_EXP_USER      = "User name pre-filled in the metadata fields when creating a new experiment."
-_LBL_EXP_PROJECT   = "Default Project"
-_TIP_EXP_PROJECT   = "Project name pre-filled in the metadata fields when creating a new experiment."
-_LBL_EXP_ORG       = "Default Organisation"
-_TIP_EXP_ORG       = "Organisation name pre-filled in the metadata fields when creating a new experiment."
+_LBL_EXP_DIR = "Default Experiment Directory"
+_TIP_EXP_DIR = "Directory where new experiments will be saved. Pre-fills the directory field when creating a new experiment."
+_LBL_EXP_PROTOCOL = "Default Protocol File"
+_TIP_EXP_PROTOCOL = (
+    "Protocol file (.yaml) to load automatically when creating a new experiment."
+)
+_LBL_EXP_USER = "Default User"
+_TIP_EXP_USER = (
+    "User name pre-filled in the metadata fields when creating a new experiment."
+)
+_LBL_EXP_PROJECT = "Default Project"
+_TIP_EXP_PROJECT = (
+    "Project name pre-filled in the metadata fields when creating a new experiment."
+)
+_LBL_EXP_ORG = "Default Organisation"
+_TIP_EXP_ORG = "Organisation name pre-filled in the metadata fields when creating a new experiment."
 
 # Movement
-_LBL_ACQ_SEM       = "Acquire SEM After Stage Movement"
-_TIP_ACQ_SEM       = "Automatically acquire a new SEM image after each stage movement."
-_LBL_ACQ_FIB       = "Acquire FIB After Stage Movement"
-_TIP_ACQ_FIB       = "Automatically acquire a new FIB image after each stage movement."
+_LBL_ACQ_SEM = "Acquire SEM After Stage Movement"
+_TIP_ACQ_SEM = "Automatically acquire a new SEM image after each stage movement."
+_LBL_ACQ_FIB = "Acquire FIB After Stage Movement"
+_TIP_ACQ_FIB = "Automatically acquire a new FIB image after each stage movement."
 
 
 class PreferencesDialog(QDialog):
@@ -107,7 +125,9 @@ class PreferencesDialog(QDialog):
         self._load_from_preferences(preferences)
         # Connected after loading, so opening this dialog with a flag already on does
         # not fire its warning.
-        self._chk_coincidence_milling.toggled.connect(self._on_coincidence_milling_toggled)
+        self._chk_coincidence_milling.toggled.connect(
+            self._on_coincidence_milling_toggled
+        )
         self._chk_scripts.toggled.connect(self._on_scripts_toggled)
 
     def _setup_ui(self):
@@ -168,12 +188,15 @@ class PreferencesDialog(QDialog):
         self._chk_overview_canvas.setToolTip(_TIP_OVERVIEW_CANVAS)
         self._chk_sparse_fm = QCheckBox()
         self._chk_sparse_fm.setToolTip(_TIP_SPARSE_FM)
+        self._chk_guided_setup = QCheckBox()
+        self._chk_guided_setup.setToolTip(_TIP_GUIDED_SETUP)
         features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
         features_form.addRow(_LBL_SAMPLE_HOLDER, self._chk_sample_holder)
         features_form.addRow(_LBL_BUG_REPORT, self._chk_bug_report)
         features_form.addRow(_LBL_SCRIPTS, self._chk_scripts)
         features_form.addRow(_LBL_OVERVIEW_CANVAS, self._chk_overview_canvas)
         features_form.addRow(_LBL_SPARSE_FM, self._chk_sparse_fm)
+        features_form.addRow(_LBL_GUIDED_SETUP, self._chk_guided_setup)
         self._stack.addWidget(features_page)
 
         # --- Experiment Defaults ---
@@ -247,6 +270,7 @@ class PreferencesDialog(QDialog):
         self._chk_scripts.setChecked(f.scripts_enabled)
         self._chk_overview_canvas.setChecked(f.overview_canvas_tab)
         self._chk_sparse_fm.setChecked(f.sparse_fm_selection)
+        self._chk_guided_setup.setChecked(f.guided_setup_enabled)
 
         e = prefs.experiment
         self._dir_experiment.setText(e.default_experiment_directory)
@@ -319,6 +343,7 @@ class PreferencesDialog(QDialog):
                 scripts_enabled=self._chk_scripts.isChecked(),
                 overview_canvas_tab=self._chk_overview_canvas.isChecked(),
                 sparse_fm_selection=self._chk_sparse_fm.isChecked(),
+                guided_setup_enabled=self._chk_guided_setup.isChecked(),
             ),
             movement=MovementPreferences(
                 acquire_sem_after_stage_movement=self._chk_acquire_sem.isChecked(),
