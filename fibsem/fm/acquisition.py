@@ -1,14 +1,11 @@
 import logging
-import math
 import os
 import threading
 import time
 from copy import deepcopy
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Tuple, Union
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
-import matplotlib.patches as patches
-import matplotlib.pyplot as plt
 import numpy as np
 
 from fibsem import utils
@@ -31,9 +28,7 @@ from fibsem.fm.timing import (
     estimate_tileset_acquisition_time,
 )
 from fibsem.imaging.reduce import (
-    PREVIEW_MAX_DIMENSION,
     PreviewMosaic,
-    downsample,
 )
 from fibsem.imaging.tiling.geometry import (
     TilePosition,
@@ -46,6 +41,7 @@ from fibsem.structures import BeamType, FibsemStagePosition, TileOrderStrategy
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
+
 
 def acquire_channels(
     microscope: FluorescenceMicroscope,
@@ -62,13 +58,15 @@ def acquire_channels(
         # Same payload shape `acquire_z_stack` emits, minus the z fields. Without it a
         # multi-channel acquisition was silent, so anything watching progress within a
         # tile had nothing to show unless a z-stack happened to be enabled.
-        microscope.acquisition_progress_signal.emit({
-            "state": "acquiring",
-            "task": "channels",
-            "channel": channel.name,
-            "channel_index": i + 1,
-            "total_channels": len(channel_settings),
-        })
+        microscope.acquisition_progress_signal.emit(
+            {
+                "state": "acquiring",
+                "task": "channels",
+                "channel": channel.name,
+                "channel_index": i + 1,
+                "total_channels": len(channel_settings),
+            }
+        )
 
         # Check for cancellation before each channel
         if stop_event and stop_event.is_set():
@@ -106,24 +104,30 @@ def acquire_z_stack(
             z_level_images: List[List[FluorescenceImage]] = []
             for j, z in enumerate(z_positions):
                 if stop_event and stop_event.is_set():
-                    logging.info("Z-stack acquisition cancelled before z-level acquisition")
+                    logging.info(
+                        "Z-stack acquisition cancelled before z-level acquisition"
+                    )
                     microscope.objective.move_absolute(z_init)
                     return None
 
                 microscope.objective.move_absolute(z)
                 ch_images: List[FluorescenceImage] = []
                 for i, ch in enumerate(channel_settings):
-                    microscope.acquisition_progress_signal.emit({
-                        "state": "acquiring",
-                        "task": "z-stack",
-                        "channel": ch.name,
-                        "channel_index": i + 1,
-                        "total_channels": len(channel_settings),
-                        "zlevel": j + 1,
-                        "total_zlevels": len(z_positions),
-                    })
+                    microscope.acquisition_progress_signal.emit(
+                        {
+                            "state": "acquiring",
+                            "task": "z-stack",
+                            "channel": ch.name,
+                            "channel_index": i + 1,
+                            "total_channels": len(channel_settings),
+                            "zlevel": j + 1,
+                            "total_zlevels": len(z_positions),
+                        }
+                    )
                     if stop_event and stop_event.is_set():
-                        logging.info("Z-stack acquisition cancelled during z-level acquisition")
+                        logging.info(
+                            "Z-stack acquisition cancelled during z-level acquisition"
+                        )
                         microscope.objective.move_absolute(z_init)
                         return None
                     ch_images.append(microscope.acquire_image(channel_settings=ch))
@@ -137,21 +141,25 @@ def acquire_z_stack(
             # Channel-wise (default): for each channel, acquire all z-planes
             for i, ch in enumerate(channel_settings):
                 if stop_event and stop_event.is_set():
-                    logging.info("Z-stack acquisition cancelled before channel acquisition")
+                    logging.info(
+                        "Z-stack acquisition cancelled before channel acquisition"
+                    )
                     microscope.objective.move_absolute(z_init)
                     return None
 
                 ch_images = []
                 for j, z in enumerate(z_positions):
-                    microscope.acquisition_progress_signal.emit({
-                        "state": "acquiring",
-                        "task": "z-stack",
-                        "channel": ch.name,
-                        "channel_index": i + 1,
-                        "total_channels": len(channel_settings),
-                        "zlevel": j + 1,
-                        "total_zlevels": len(z_positions),
-                    })
+                    microscope.acquisition_progress_signal.emit(
+                        {
+                            "state": "acquiring",
+                            "task": "z-stack",
+                            "channel": ch.name,
+                            "channel_index": i + 1,
+                            "total_channels": len(channel_settings),
+                            "zlevel": j + 1,
+                            "total_zlevels": len(z_positions),
+                        }
+                    )
                     if stop_event and stop_event.is_set():
                         logging.info("Z-stack acquisition cancelled during z-stack")
                         microscope.objective.move_absolute(z_init)
@@ -189,7 +197,9 @@ def acquire_image(
         raise ValueError("Microscope parent is not set. Cannot start acquisition.")
 
     if not microscope.has_valid_orientation():
-        raise ValueError(f"Stage is not in valid orientation ({microscope.parent.get_stage_orientation()!r}). Cannot start acquisition.")
+        raise ValueError(
+            f"Stage is not in valid orientation ({microscope.parent.get_stage_orientation()!r}). Cannot start acquisition."
+        )
 
     if zparams is not None:
         # Acquire Z-stack if zparams is provided
@@ -214,8 +224,9 @@ def acquire_image(
 
     return image
 
+
 def acquire_at_positions(
-    microscope: 'FibsemMicroscope',
+    microscope: "FibsemMicroscope",
     positions: List[FMStagePosition],
     channel_settings: Union[ChannelSettings, List[ChannelSettings]],
     zparams: Optional[ZParameters] = None,
@@ -254,7 +265,9 @@ def acquire_at_positions(
             "Fluorescence microscope not initialized in the FibsemMicroscope instance"
         )
     if not microscope.fm.has_valid_orientation():
-        raise ValueError(f"Stage is not in valid orientation ({microscope.get_stage_orientation()!r}). Cannot start acquisition.")
+        raise ValueError(
+            f"Stage is not in valid orientation ({microscope.get_stage_orientation()!r}). Cannot start acquisition."
+        )
 
     if not positions:
         raise ValueError("Positions list cannot be empty")
@@ -269,17 +282,20 @@ def acquire_at_positions(
     acquisition_start_time = time.time()
 
     # Emit initial acquisition progress signal
-    microscope.fm.acquisition_progress_signal.emit({"state": "acquiring", 
-                                                    "task": "multi-position",
-                                                    "position": "null",
-                                                    "current": 1,
-                                                    "total": len(positions),
-                                                    "estimated_total_time": total_estimated_time,
-                                                    "estimated_remaining_time": total_estimated_time,})
+    microscope.fm.acquisition_progress_signal.emit(
+        {
+            "state": "acquiring",
+            "task": "multi-position",
+            "position": "null",
+            "current": 1,
+            "total": len(positions),
+            "estimated_total_time": total_estimated_time,
+            "estimated_remaining_time": total_estimated_time,
+        }
+    )
 
     images: List[FluorescenceImage] = []
     for i, fm_pos in enumerate(positions):
-
         # Check for cancellation before each position
         if stop_event and stop_event.is_set():
             logging.info("Multi-position acquisition cancelled")
@@ -291,26 +307,35 @@ def acquire_at_positions(
         current_position = i + 1
         total_positions = len(positions)
         # Emit progress signal before starting position acquisition
-        microscope.fm.acquisition_progress_signal.emit({"state": "acquiring", 
-                                                        "task": "multi-position",
-                                                       "position": fm_pos.name,
-                                                       "current": current_position,
-                                                       "total": total_positions,
-                                                    #    "estimated_total_time": total_estimated_time,
-                                                    #    "estimated_remaining_time": estimated_remaining_time,
-                                                    #    "elapsed_time": elapsed_time,
-                                                       })
+        microscope.fm.acquisition_progress_signal.emit(
+            {
+                "state": "acquiring",
+                "task": "multi-position",
+                "position": fm_pos.name,
+                "current": current_position,
+                "total": total_positions,
+                #    "estimated_total_time": total_estimated_time,
+                #    "estimated_remaining_time": estimated_remaining_time,
+                #    "elapsed_time": elapsed_time,
+            }
+        )
 
         # Move stage to the saved stage position and objective position
         if microscope.get_stage_orientation(fm_pos.stage_position) not in ["SEM", "FM"]:
-            raise ValueError(f"Stage Position {fm_pos.name} is not in valid orientation: {fm_pos.stage_position}")
-        microscope.fm.acquisition_progress_signal.emit({"state": "moving", "task": "multi-position"})
+            raise ValueError(
+                f"Stage Position {fm_pos.name} is not in valid orientation: {fm_pos.stage_position}"
+            )
+        microscope.fm.acquisition_progress_signal.emit(
+            {"state": "moving", "task": "multi-position"}
+        )
         microscope.safe_absolute_stage_movement(fm_pos.stage_position)
         microscope.fm.objective.move_absolute(fm_pos.objective_position)
 
         # Run autofocus if requested
         if use_autofocus:
-            result = run_autofocus(microscope.fm, channel_settings[0], stop_event=stop_event)
+            result = run_autofocus(
+                microscope.fm, channel_settings[0], stop_event=stop_event
+            )
             if result is None:
                 logging.info("Multi-position acquisition cancelled during autofocus")
                 return images
@@ -329,15 +354,19 @@ def acquire_at_positions(
             filename = os.path.join(position_dir, basename)
 
         # Acquire image
-        image = acquire_image(microscope=microscope.fm,
-                              channel_settings=channel_settings,
-                              zparams=zparams,
-                              stop_event=stop_event,
-                              filename=filename)
+        image = acquire_image(
+            microscope=microscope.fm,
+            channel_settings=channel_settings,
+            zparams=zparams,
+            stop_event=stop_event,
+            filename=filename,
+        )
 
         # Check if acquisition was cancelled
         if image is None:
-            logging.info("Multi-position acquisition cancelled during image acquisition")
+            logging.info(
+                "Multi-position acquisition cancelled during image acquisition"
+            )
             return images
 
         image.metadata.description = f"{fm_pos.name}-{image.metadata.acquisition_date}"
@@ -347,25 +376,32 @@ def acquire_at_positions(
         elapsed_time = time.time() - acquisition_start_time
         if current_position > 1:
             time_per_position = elapsed_time / (current_position - 1)
-            estimated_remaining_time = time_per_position * (total_positions - current_position)
+            estimated_remaining_time = time_per_position * (
+                total_positions - current_position
+            )
         else:
             estimated_remaining_time = total_estimated_time
 
-        microscope.fm.acquisition_progress_signal.emit({"state": "acquiring", 
-                                                        "task": "multi-position",
-                                                       "position": fm_pos.name,
-                                                       "current": current_position,
-                                                       "total": total_positions,
-                                                       "estimated_total_time": total_estimated_time,
-                                                       "estimated_remaining_time": estimated_remaining_time,
-                                                       "elapsed_time": elapsed_time,})
+        microscope.fm.acquisition_progress_signal.emit(
+            {
+                "state": "acquiring",
+                "task": "multi-position",
+                "position": fm_pos.name,
+                "current": current_position,
+                "total": total_positions,
+                "estimated_total_time": total_estimated_time,
+                "estimated_remaining_time": estimated_remaining_time,
+                "elapsed_time": elapsed_time,
+            }
+        )
 
     microscope.fm.acquisition_progress_signal.emit({"state": "finished"})
 
     return images
 
+
 def run_tileset_autofocus(
-    microscope: 'FibsemMicroscope',
+    microscope: "FibsemMicroscope",
     channel_settings: Optional[ChannelSettings],
     autofocus_settings: AutoFocusSettings,
     stop_event: Optional[threading.Event] = None,
@@ -406,8 +442,6 @@ def run_tileset_autofocus(
     except Exception as e:
         logging.warning(f"Auto-focus failed: {e}")
         return False
-
-
 
 
 def _to_channel_planes(data: np.ndarray, n_channels: int) -> np.ndarray:
@@ -531,7 +565,7 @@ class FMTiledAcquisitionRunner:
 
     def __init__(
         self,
-        microscope: 'FibsemMicroscope',
+        microscope: "FibsemMicroscope",
         channel_settings: Union[ChannelSettings, List[ChannelSettings]],
         overview_parameters: OverviewParameters,
         zparams: Optional[ZParameters] = None,
@@ -666,10 +700,14 @@ class FMTiledAcquisitionRunner:
         # A spiral revisits rows non-sequentially, so "autofocus on each new row" would
         # fire almost every tile and still leave stale focus in between. Promote it, as
         # the beam runner does.
-        if (self._autofocus_mode is AutoFocusMode.EACH_ROW
-                and self._tile_order is TileOrderStrategy.SPIRAL):
+        if (
+            self._autofocus_mode is AutoFocusMode.EACH_ROW
+            and self._tile_order is TileOrderStrategy.SPIRAL
+        ):
             self._autofocus_mode = AutoFocusMode.EACH_TILE
-            logging.info("EACH_ROW autofocus upgraded to EACH_TILE for SPIRAL tile order")
+            logging.info(
+                "EACH_ROW autofocus upgraded to EACH_TILE for SPIRAL tile order"
+            )
 
         # Full grid, holes included: the canvas is the whole grid whatever the mask.
         self.tileset = [[None] * self._cols for _ in range(self._rows)]
@@ -709,8 +747,11 @@ class FMTiledAcquisitionRunner:
         self._setup_autofocus()
 
         time_estimates = estimate_tileset_acquisition_time(
-            self.channel_settings, (self._rows, self._cols), self.zparams,
-            self._autofocus_mode, tile_mask=self._tile_mask,
+            self.channel_settings,
+            (self._rows, self._cols),
+            self.zparams,
+            self._autofocus_mode,
+            tile_mask=self._tile_mask,
         )
         self._total_estimated_time = time_estimates["total_time"]
         self._acquisition_start_time = time.time()
@@ -894,12 +935,16 @@ class FMTiledAcquisitionRunner:
         #
         # `total` counts tiles that will actually be acquired, not grid cells -- a
         # progress bar that stops at 9/25 on a successful sparse run reads as a failure.
-        self._emit({
-            "state": "acquiring", "task": "tileset",
-            "counter": 0, "total": len(self._ordered),
-            "estimated_total_time": self._total_estimated_time,
-            "estimated_remaining_time": self._total_estimated_time,
-        })
+        self._emit(
+            {
+                "state": "acquiring",
+                "task": "tileset",
+                "counter": 0,
+                "total": len(self._ordered),
+                "estimated_total_time": self._total_estimated_time,
+                "estimated_remaining_time": self._total_estimated_time,
+            }
+        )
 
     def _init_preview_canvas(self) -> None:
         """Allocate the live mosaic that tiles are painted into as they arrive.
@@ -937,7 +982,9 @@ class FMTiledAcquisitionRunner:
                 data = data[: self._preview.canvas.shape[0]]
             self._preview.paint(data, tile.canvas_x, tile.canvas_y)
         except Exception as e:  # pragma: no cover - preview is never load-bearing
-            logging.debug(f"Could not paint tile ({tile.row}, {tile.col}) into preview: {e}")
+            logging.debug(
+                f"Could not paint tile ({tile.row}, {tile.col}) into preview: {e}"
+            )
 
     def _autofocus_if_mode(self, mode: AutoFocusMode) -> None:
         """Run autofocus when the configured mode matches.
@@ -983,7 +1030,9 @@ class FMTiledAcquisitionRunner:
         self._n_acquired = 0
         for tile in self._ordered:
             # Check before moving, so a cancel skips the travel entirely.
-            raise_if_cancelled(self.stop_event, "Tileset acquisition cancelled by user.")
+            raise_if_cancelled(
+                self.stop_event, "Tileset acquisition cancelled by user."
+            )
 
             if tile.row != prev_row:
                 prev_row = tile.row
@@ -1059,7 +1108,8 @@ class FMTiledAcquisitionRunner:
             "zparameters": self.zparams.to_dict() if self.zparams is not None else None,
             "autofocus_settings": (
                 self.autofocus_settings.to_dict()
-                if self.autofocus_settings is not None else None
+                if self.autofocus_settings is not None
+                else None
             ),
             "channel_settings": [ch.to_dict() for ch in self.channel_settings],
         }
@@ -1114,26 +1164,32 @@ class FMTiledAcquisitionRunner:
         copy does not show.
         """
         estimated_total, estimated_remaining, elapsed = self._time_estimate()
-        self._emit({
-            "state": "tile", "task": "tileset",
-            "row": tile.row, "col": tile.col,
-            "total_rows": self._rows, "total_cols": self._cols,
-            # **Tiles completed**, which is what `counter` means on this signal -- the
-            # beam tiler increments and then emits, so its count has always meant this.
-            # The fluorescence side used to say it twice per tile with two meanings: the
-            # tile *starting* before the acquisition and the tally after. One key cannot
-            # be both, and a consumer choosing between them got a bar that changed scale
-            # at every boundary (FIB-736, FIB-739).
-            "counter": self._n_acquired, "total": len(self._ordered),
-            # The estimate rides with the count rather than with the announcement below,
-            # so one payload carries the whole picture and a consumer never has to
-            # assemble progress from two.
-            "estimated_total_time": estimated_total,
-            "estimated_remaining_time": estimated_remaining,
-            "elapsed_time": elapsed,
-            "image": self._preview.canvas.copy(),
-            "preview_stride": self._preview.stride,
-        })
+        self._emit(
+            {
+                "state": "tile",
+                "task": "tileset",
+                "row": tile.row,
+                "col": tile.col,
+                "total_rows": self._rows,
+                "total_cols": self._cols,
+                # **Tiles completed**, which is what `counter` means on this signal -- the
+                # beam tiler increments and then emits, so its count has always meant this.
+                # The fluorescence side used to say it twice per tile with two meanings: the
+                # tile *starting* before the acquisition and the tally after. One key cannot
+                # be both, and a consumer choosing between them got a bar that changed scale
+                # at every boundary (FIB-736, FIB-739).
+                "counter": self._n_acquired,
+                "total": len(self._ordered),
+                # The estimate rides with the count rather than with the announcement below,
+                # so one payload carries the whole picture and a consumer never has to
+                # assemble progress from two.
+                "estimated_total_time": estimated_total,
+                "estimated_remaining_time": estimated_remaining,
+                "elapsed_time": elapsed,
+                "image": self._preview.canvas.copy(),
+                "preview_stride": self._preview.stride,
+            }
+        )
 
     def _time_estimate(self):
         """`(total, remaining, elapsed)` for the run, from what it has done so far.
@@ -1165,15 +1221,20 @@ class FMTiledAcquisitionRunner:
         "Moving stage…" label the previous payload put up. The progress arrives after
         the tile, with the preview.
         """
-        self._emit({
-            "state": "acquiring", "task": "tileset",
-            "row": row + 1, "col": col + 1,
-            "total_rows": self._rows, "total_cols": self._cols,
-        })
+        self._emit(
+            {
+                "state": "acquiring",
+                "task": "tileset",
+                "row": row + 1,
+                "col": col + 1,
+                "total_rows": self._rows,
+                "total_cols": self._cols,
+            }
+        )
 
 
 def acquire_tileset(
-    microscope: 'FibsemMicroscope',
+    microscope: "FibsemMicroscope",
     channel_settings: Union[ChannelSettings, List[ChannelSettings]],
     overview_parameters: OverviewParameters,
     zparams: Optional[ZParameters] = None,
@@ -1323,7 +1384,9 @@ def stitch_tileset(
     mosaic_width = effective_tile_width * (cols - 1) + tile_width
     mosaic_height = effective_tile_height * (rows - 1) + tile_height
 
-    logging.info(f"Tile size: {tile_height}x{tile_width}, Mosaic size: {mosaic_height}x{mosaic_width}")
+    logging.info(
+        f"Tile size: {tile_height}x{tile_width}, Mosaic size: {mosaic_height}x{mosaic_width}"
+    )
     logging.info(f"Channels: {nc_channels}, Z-planes: {nz_planes}")
 
     # Initialize mosaic array with proper dimensions (C, Z, Y, X)
@@ -1400,8 +1463,9 @@ def stitch_tileset(
     logging.info(f"Stitching complete: {mosaic_height}x{mosaic_width} mosaic created")
     return stitched_image
 
+
 def acquire_and_stitch_tileset(
-    microscope: 'FibsemMicroscope',
+    microscope: "FibsemMicroscope",
     channel_settings: Union[ChannelSettings, List[ChannelSettings]],
     overview_parameters: OverviewParameters,
     zparams: Optional[ZParameters] = None,
@@ -1435,14 +1499,17 @@ def acquire_and_stitch_tileset(
         channel_settings = [channel_settings]
 
     destination = (
-        OverviewDestination.create(save_directory) if save_directory is not None else None
+        OverviewDestination.create(save_directory)
+        if save_directory is not None
+        else None
     )
     tiles_directory = destination.tiles_directory if destination is not None else None
 
-
     # Check if zparams is provided when z-stack is requested
     if zparams is None and overview_parameters.use_zstack:
-        raise ValueError("Z-stack requested in overview parameters but no zparams provided")
+        raise ValueError(
+            "Z-stack requested in overview parameters but no zparams provided"
+        )
 
     # acquire the tileset
     # A cancel is now signalled explicitly rather than inferred from the result. The
@@ -1473,7 +1540,7 @@ def acquire_and_stitch_tileset(
 
 
 def acquire_multiple_overviews(
-    microscope: 'FibsemMicroscope',
+    microscope: "FibsemMicroscope",
     positions: List[FMStagePosition],
     channel_settings: Union[ChannelSettings, List[ChannelSettings]],
     overview_parameters: OverviewParameters,
@@ -1516,7 +1583,7 @@ def acquire_multiple_overviews(
         >>> pos2 = FMStagePosition(name="Region2", stage_position=stage_pos2, objective_position=0.013)
         >>> positions = [pos1, pos2]
         >>>
-        >>> # Define channel settings and overview parameters  
+        >>> # Define channel settings and overview parameters
         >>> channel = ChannelSettings(name="DAPI", excitation_wavelength=365,
         ...                          emission_wavelength=450, power=50, exposure_time=0.1)
         >>> overview_params = OverviewParameters(rows=3, cols=3, overlap=0.1)
@@ -1611,7 +1678,7 @@ def acquire_multiple_overviews(
 
 
 def convert_grid_positions_to_stage_positions(
-    microscope: 'FibsemMicroscope',
+    microscope: "FibsemMicroscope",
     positions: List[Tuple[float, float]],
     beam_type: BeamType = BeamType.ELECTRON,
     base_position: Optional[FibsemStagePosition] = None,

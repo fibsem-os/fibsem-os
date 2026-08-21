@@ -5,7 +5,7 @@ import re
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from enum import Enum
-from typing import Any, List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import tifffile as tff
@@ -71,8 +71,9 @@ from fibsem.structures import (  # noqa: F401
 
 class ZStackOrder(Enum):
     """Acquisition order for z-stack."""
-    CHANNEL = "channel"   # default: for each channel, acquire all z-planes
-    Z_LEVEL = "z_level"   # for each z-plane, acquire all channels
+
+    CHANNEL = "channel"  # default: for each channel, acquire all z-planes
+    Z_LEVEL = "z_level"  # for each z-plane, acquire all channels
 
 
 BINNING_MAP = {
@@ -89,11 +90,15 @@ _UNIT_TO_METERS = {
     UnitsLength.METER: 1.0,
 }
 
-def _convert_length_to_meters(value: Optional[float], unit: Optional[UnitsLength]) -> Optional[float]:
+
+def _convert_length_to_meters(
+    value: Optional[float], unit: Optional[UnitsLength]
+) -> Optional[float]:
     """Convert an OME length value to meters if both value and unit are present."""
     if value is None:
         return None
     return value * _UNIT_TO_METERS.get(unit, 1.0)
+
 
 def _color_to_hex(color: Optional[Color]) -> str:
     """Convert OME Color to a hex string understood by the FM viewer."""
@@ -104,6 +109,7 @@ def _color_to_hex(color: Optional[Color]) -> str:
         return f"#{r:02X}{g:02X}{b:02X}"
     except Exception:
         return "gray"
+
 
 def safe_ome_from_tiff(filename: str) -> OMEMetadata:
     """Parse OME metadata from TIFF file, handling potential known issues with the OME XML.
@@ -128,6 +134,7 @@ def safe_ome_from_tiff(filename: str) -> OMEMetadata:
         ome_xml = re.sub(r"<Filter\b[^>]*/>", "", ome_xml)
         ome = from_xml(ome_xml)
     return ome
+
 
 @dataclass
 class FMStagePosition:
@@ -218,7 +225,7 @@ class ChannelSettings:
     name: str = "Channel-01"
     excitation_wavelength: float = 550  # nm
     emission_wavelength: Optional[Union[str, float]] = None  # nm
-    power: float = 0.01 # %
+    power: float = 0.01  # %
     exposure_time: float = 0.001  # seconds
     color: str = "gray"
     gain: float = 0.0
@@ -237,9 +244,13 @@ class ChannelSettings:
         if self.emission_wavelength is None:
             emission_str = "Reflection"
         else:
-            emission_str = f"{self.emission_wavelength}nm" if isinstance(self.emission_wavelength, float) else self.emission_wavelength
+            emission_str = (
+                f"{self.emission_wavelength}nm"
+                if isinstance(self.emission_wavelength, float)
+                else self.emission_wavelength
+            )
 
-        return f"{self.name} ({self.excitation_wavelength:.0f}nm → {emission_str}) P:{self.power*100:.1f}%, EXP:{self.exposure_time * 1000:.1f}ms"
+        return f"{self.name} ({self.excitation_wavelength:.0f}nm → {emission_str}) P:{self.power * 100:.1f}%, EXP:{self.exposure_time * 1000:.1f}ms"
 
     @property
     def pretty(self) -> str:
@@ -285,7 +296,7 @@ class ZParameters:
         z_positions = np.arange(
             start=z_init + self.zmin,
             stop=z_init + self.zmax + self.zstep * 0.5,
-            step=self.zstep
+            step=self.zstep,
         )
 
         return z_positions.tolist()
@@ -314,7 +325,9 @@ class ZParameters:
         if num_planes <= 1:
             return "Z-Stack: Single plane acquisition"
 
-        order_str = "channel-wise" if self.order == ZStackOrder.CHANNEL else "z-level-wise"
+        order_str = (
+            "channel-wise" if self.order == ZStackOrder.CHANNEL else "z-level-wise"
+        )
         return f"Z-Stack: {num_planes} planes ({self.zmin * 1e6:.1f}μm to {self.zmax * 1e6:.1f}μm, step {self.zstep * 1e6:.1f}μm, {order_str})"
 
 
@@ -1142,7 +1155,9 @@ class FluorescenceImage:
             pixel_size_y=pixel_size,
             resolution=resolution,
             channels=channels,
-            z_positions=[i * pixel_size for i in range(zlevels)] if zlevels > 1 else None,
+            z_positions=[i * pixel_size for i in range(zlevels)]
+            if zlevels > 1
+            else None,
         )
 
         return FluorescenceImage(data=data, metadata=metadata)
@@ -1387,9 +1402,9 @@ class FluorescenceImageMetadata:
                 else None
             ),
         )
-    
+
     @classmethod
-    def from_ome(cls, ome: OMEMetadata) -> 'FluorescenceImageMetadata':
+    def from_ome(cls, ome: OMEMetadata) -> "FluorescenceImageMetadata":
         """Convert OME metadata to FluorescenceImageMetadata with availability checks.
 
         For importing images from **external software**. `load` prefers the
@@ -1411,10 +1426,11 @@ class FluorescenceImageMetadata:
 
         if pixels_md is None:
             raise ValueError("OME metadata contains no pixel information")
-        
+
         # Pixel sizes (convert to meters where possible)
         pixel_size_x = _convert_length_to_meters(
-            pixels_md.physical_size_x, pixels_md.physical_size_x_unit)
+            pixels_md.physical_size_x, pixels_md.physical_size_x_unit
+        )
         pixel_size_y = _convert_length_to_meters(
             pixels_md.physical_size_y, pixels_md.physical_size_y_unit
         )
@@ -1465,9 +1481,7 @@ class FluorescenceImageMetadata:
             )
 
         # Use z positions only if we have at least two valid entries
-        valid_z_positions = (
-            z_positions if len(z_positions) >= 2 else None
-        )
+        valid_z_positions = z_positions if len(z_positions) >= 2 else None
 
         # Build channel metadata with fallbacks
         channels_md: List[FluorescenceChannelMetadata] = []
@@ -1584,7 +1598,8 @@ class OverviewParameters:
             "tile_order": self.tile_order.value,
             "objective_start": self.objective_start.value,
             # plain bools: np.bool_ does not survive yaml.safe_dump
-            "tile_mask": None if self.tile_mask is None
+            "tile_mask": None
+            if self.tile_mask is None
             else [[bool(v) for v in row] for row in self.tile_mask],
         }
 
@@ -1597,11 +1612,15 @@ class OverviewParameters:
             cols=ddict.get("cols", 3),
             overlap=ddict.get("overlap", 0.1),
             use_zstack=ddict.get("use_zstack", False),
-            autofocus_mode=AutoFocusMode(ddict.get("autofocus_mode", AutoFocusMode.NONE.value)),
+            autofocus_mode=AutoFocusMode(
+                ddict.get("autofocus_mode", AutoFocusMode.NONE.value)
+            ),
             tile_order=TileOrderStrategy(
                 ddict.get("tile_order", TileOrderStrategy.TYPEWRITER.value)
             ),
-            tile_mask=None if mask is None else [[bool(v) for v in row] for row in mask],
+            tile_mask=None
+            if mask is None
+            else [[bool(v) for v in row] for row in mask],
             # Defaulted, not required: every overview saved before this existed started
             # from wherever the objective was, so that is what its parameters mean.
             objective_start=ObjectiveStartPosition(
@@ -1620,7 +1639,8 @@ class OverviewParameters:
 @dataclass
 class CameraSettings:
     """Camera settings for fluorescence microscopy acquisition."""
-    gain: float = 0.01 # 1%
+
+    gain: float = 0.01  # 1%
     offset: float = 0.0
     binning: int = 1
     transform: CameraImageTransform = CameraImageTransform.NONE
@@ -1682,9 +1702,7 @@ class FluorescenceConfiguration:
                 ddict["autofocus_settings"]
             )
         if ddict.get("camera_settings"):
-            camera_settings = CameraSettings.from_dict(
-                ddict["camera_settings"]
-            )
+            camera_settings = CameraSettings.from_dict(ddict["camera_settings"])
         else:
             camera_settings = CameraSettings()
 
@@ -1722,9 +1740,7 @@ class FluorescenceConfiguration:
         # Write to YAML file
         with open(filename, "w") as f:
             yaml.dump(
-                config_dict, f, 
-                default_flow_style=False, 
-                indent=4, sort_keys=False
+                config_dict, f, default_flow_style=False, indent=4, sort_keys=False
             )
 
         logging.info(f"FM configuration exported to: {filename}")
