@@ -372,7 +372,6 @@ class DisplayPreferences:
     guided_setup_dismissed: bool = False
 
 
-
 @dataclass
 class FeatureFlags:
     coincidence_milling_enabled: bool = False
@@ -415,7 +414,6 @@ class FeatureFlags:
     # a configuration file plus two registry entries. Until it has had bench time on
     # real instruments, that offer should be made deliberately rather than by default.
     guided_setup_enabled: bool = False
-
 
 
 @dataclass
