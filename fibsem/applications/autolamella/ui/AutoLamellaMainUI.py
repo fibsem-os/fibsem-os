@@ -961,6 +961,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             parent=self,
             microscope=system_widget.microscope,
             settings=system_widget.settings,
+            workflow_running=self.autolamella_ui.is_workflow_running,
         )
         if not result.changed:
             return

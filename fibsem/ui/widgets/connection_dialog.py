@@ -52,7 +52,7 @@ from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
-from fibsem.ui.utils import open_existing_file_dialog
+from fibsem.ui.utils import message_box_ui, open_existing_file_dialog
 
 DIALOG_WIDTH = 400
 
@@ -70,6 +70,7 @@ class ConnectionDialog(QDialog):
         parent: Optional[QWidget] = None,
         microscope: Optional[FibsemMicroscope] = None,
         settings: Optional[MicroscopeSettings] = None,
+        workflow_running: bool = False,
     ) -> None:
         """
         Args:
@@ -77,6 +78,10 @@ class ConnectionDialog(QDialog):
                 is reached from the header chip as well as from an empty start, and
                 changing the connection is most of what it is for once something is
                 connected.
+            workflow_running: whether the instrument is in the middle of doing
+                something. Disconnecting is still allowed -- an instrument that has
+                already gone away needs releasing precisely when a workflow thinks
+                it is using it -- but it is not allowed quietly.
         """
         super().__init__(parent)
         self.setModal(True)
@@ -84,6 +89,7 @@ class ConnectionDialog(QDialog):
 
         self.microscope = microscope
         self.settings = settings
+        self._workflow_running = workflow_running
         # Whether the session handed in is not the session handed back. Tells
         # "closed without touching anything" from "disconnected", which look
         # identical if the answer is only ever a microscope-or-None.
@@ -300,6 +306,9 @@ class ConnectionDialog(QDialog):
         if self.microscope is None:
             return
 
+        if not self._confirm_losing_the_session("Disconnect from"):
+            return
+
         try:
             self.microscope.disconnect()
         except Exception as e:  # a failed teardown still ends the session here
@@ -308,6 +317,24 @@ class ConnectionDialog(QDialog):
         self.microscope, self.settings = None, None
         self.changed = True
         self.accept()
+
+    def _confirm_losing_the_session(self, verb: str) -> bool:
+        """Ask before the session in progress ends.
+
+        Both paths here end it: disconnecting outright, and reconnecting, which
+        drops the old one to take the selected configuration. Neither is undoable
+        from this dialog, and mid-workflow both pull the instrument out from under
+        whatever is running -- so the question is the same one, worded for whichever
+        button was pressed.
+        """
+        info = self.microscope.system.info
+        text = f"{verb} {info.manufacturer} at {info.ip_address}?"
+        if self._workflow_running:
+            text += (
+                "\n\nA workflow is running. This will not stop it cleanly, and "
+                "anything it has not finished will fail."
+            )
+        return message_box_ui(title=f"{verb} microscope?", text=text, parent=self)
 
     def connect_to_microscope(self) -> None:
         path = self.configuration_path()
@@ -323,8 +350,13 @@ class ConnectionDialog(QDialog):
         self._set_busy(True, f"Connecting to {address}…")
 
         # A reconnect is a disconnect and a connect. Leaving the old session open
-        # would hold the instrument against the new one.
+        # would hold the instrument against the new one -- and losing it is worth
+        # the same question as losing it deliberately.
         if self.microscope is not None:
+            if not self._confirm_losing_the_session("Reconnect to"):
+                self._set_busy(False)
+                self._show_message("", is_error=False)
+                return
             try:
                 self.microscope.disconnect()
             except Exception as e:
@@ -392,9 +424,15 @@ def connect_to_microscope_dialog(
     parent: Optional[QWidget] = None,
     microscope: Optional[FibsemMicroscope] = None,
     settings: Optional[MicroscopeSettings] = None,
+    workflow_running: bool = False,
 ) -> ConnectionResult:
     """Offer the connection, starting from whatever session is already in progress."""
-    dialog = ConnectionDialog(parent=parent, microscope=microscope, settings=settings)
+    dialog = ConnectionDialog(
+        parent=parent,
+        microscope=microscope,
+        settings=settings,
+        workflow_running=workflow_running,
+    )
     dialog.exec_()
     if not dialog.changed:
         return ConnectionResult(False, microscope, settings)

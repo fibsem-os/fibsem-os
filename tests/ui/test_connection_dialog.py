@@ -24,6 +24,7 @@ from PyQt5.QtWidgets import QDialog  # noqa: E402
 
 from fibsem import config as cfg  # noqa: E402
 from fibsem import utils  # noqa: E402
+from fibsem.ui.widgets import connection_dialog  # noqa: E402
 from fibsem.ui.widgets.connection_dialog import ConnectionDialog  # noqa: E402
 
 
@@ -122,6 +123,24 @@ def test_a_failure_stays_in_the_dialog(dialog, monkeypatch):
 # ── opened with a session already in progress ───────────────────────────────
 
 
+def _answer_disconnect(monkeypatch, confirmed: bool) -> None:
+    """Answer the confirmation. A modal cannot be clicked from a test."""
+    monkeypatch.setattr(connection_dialog, "message_box_ui", lambda *a, **k: confirmed)
+
+
+def _record_question(monkeypatch) -> dict:
+    """Capture what the confirmation asked, and decline it."""
+    asked: dict = {}
+
+    def _decline(title, text, parent=None, **kwargs):
+        asked["title"] = title
+        asked["text"] = text
+        return False
+
+    monkeypatch.setattr(connection_dialog, "message_box_ui", _decline)
+    return asked
+
+
 @pytest.fixture
 def connected_dialog(qapp):
     """The dialog as the header chip opens it: something is already connected."""
@@ -146,7 +165,9 @@ def test_it_shows_what_is_connected(connected_dialog):
     assert connected_dialog.offline_button.text() == "Close"
 
 
-def test_disconnecting_ends_the_session_and_says_so(connected_dialog):
+def test_disconnecting_ends_the_session_and_says_so(connected_dialog, monkeypatch):
+    _answer_disconnect(monkeypatch, True)
+
     connected_dialog.disconnect_button.click()
 
     assert connected_dialog.microscope is None
@@ -165,8 +186,9 @@ def test_closing_changes_nothing(connected_dialog):
     assert connected_dialog.microscope is microscope
 
 
-def test_reconnecting_replaces_the_session(connected_dialog):
+def test_reconnecting_replaces_the_session(connected_dialog, monkeypatch):
     """The old one is released first: leaving it open holds the instrument."""
+    _answer_disconnect(monkeypatch, True)
     original = connected_dialog.microscope
 
     connected_dialog.connect_to_microscope()
@@ -193,3 +215,49 @@ def test_a_disconnected_dialog_offers_no_disconnect(dialog):
     assert not dialog.disconnect_button.isVisible()
     assert dialog.connect_button.text() == "Connect"
     assert dialog.offline_button.text() == "Not now"
+
+
+def test_disconnecting_asks_first(connected_dialog, monkeypatch):
+    """Not undoable from here, so it is not done quietly."""
+    asked = _record_question(monkeypatch)
+    microscope = connected_dialog.microscope
+
+    connected_dialog.disconnect_button.click()
+
+    info = microscope.system.info
+    assert info.ip_address in asked["text"]
+    # Declined, so nothing happened at all.
+    assert connected_dialog.microscope is microscope
+    assert connected_dialog.changed is False
+
+
+def test_declining_a_reconnect_keeps_the_session(connected_dialog, monkeypatch):
+    """Reconnecting ends the session too, so it asks the same question.
+
+    Saying no must leave the old microscope in place, not half-dropped.
+    """
+    _answer_disconnect(monkeypatch, False)
+    original = connected_dialog.microscope
+
+    connected_dialog.connect_to_microscope()
+
+    assert connected_dialog.microscope is original
+    assert connected_dialog.changed is False
+
+
+def test_losing_the_session_mid_workflow_says_what_it_will_break(qapp, monkeypatch):
+    """Still allowed -- an instrument that has already gone needs releasing exactly
+    when a workflow believes it is using it -- but the warning has to say so."""
+    asked = _record_question(monkeypatch)
+
+    microscope, settings = utils.setup_session(manufacturer="Demo")
+    d = ConnectionDialog(
+        microscope=microscope, settings=settings, workflow_running=True
+    )
+    d.show()
+    try:
+        d.disconnect_button.click()
+        assert "workflow is running" in asked["text"].lower()
+    finally:
+        microscope.disconnect()
+        d.deleteLater()
