@@ -375,11 +375,12 @@ class FMOverviewWidget(QWidget):
         self.overlay_controls = CanvasOverlayControls(
             list(stage_context.CONTEXT_OVERLAY_ENTRIES)
         )
-        self.overlay_controls.toggled.connect(
-            lambda *_: self._refresh_stage_metadata()
-        )
+        self.overlay_controls.toggled.connect(lambda *_: self._refresh_stage_metadata())
         self.btn_overlays = self.canvas.canvas.add_toolbar_button(
-            "mdi:eye-outline", "Overlays", self._toggle_overlays, checkable=True,
+            "mdi:eye-outline",
+            "Overlays",
+            self._toggle_overlays,
+            checkable=True,
         )
         self.overlay_popover = CanvasPopover(
             self.overlay_controls, parent=self.canvas.canvas
@@ -450,9 +451,7 @@ class FMOverviewWidget(QWidget):
         self.channel_widget = FluorescenceMultiChannelWidget(self.fm, channels)
         # Every overview setting lives in one widget, z-stack included, so their order
         # is decided in one place rather than split across two.
-        self.settings_widget = FMOverviewSettingsWidget(
-            channel_settings=channels
-        )
+        self.settings_widget = FMOverviewSettingsWidget(channel_settings=channels)
 
         controls = QWidget()
         self._controls_layout = QVBoxLayout(controls)
@@ -652,7 +651,9 @@ class FMOverviewWidget(QWidget):
         try:
             pixel_size_x, pixel_size_y = self.fm.camera.pixel_size
             width, height = self.fm.camera.resolution
-            self.settings_widget.set_tile_fov(width * pixel_size_x, height * pixel_size_y)
+            self.settings_widget.set_tile_fov(
+                width * pixel_size_x, height * pixel_size_y
+            )
         except Exception as e:
             logging.debug(f"Could not read the camera field of view: {e}")
 
@@ -1007,7 +1008,9 @@ class FMOverviewWidget(QWidget):
             image = FluorescenceImage.load(path)
         except Exception as e:
             logging.error(f"Could not load an overview from {path}: {e}")
-            notification_service.show_toast(f"Could not load that overview.\n{e}", "error")
+            notification_service.show_toast(
+                f"Could not load that overview.\n{e}", "error"
+            )
             return None
 
         # Placed even without a geometry, but said out loud. `_offset_of` falls back to
@@ -1015,7 +1018,9 @@ class FMOverviewWidget(QWidget):
         # taken -- and an overview silently in the wrong place is worse than one you
         # have been told to distrust. Anything acquired before FIB-416 is this case.
         if FMStageProjection.from_image(image) is None:
-            logging.warning(f"Overview {path} has no recorded geometry; placing at the origin.")
+            logging.warning(
+                f"Overview {path} has no recorded geometry; placing at the origin."
+            )
             notification_service.show_toast(
                 "That overview has no recorded geometry, so it cannot be placed where "
                 "it was taken. Showing it at the canvas origin.",
@@ -1100,9 +1105,7 @@ class FMOverviewWidget(QWidget):
             logging.debug(f"Could not place the image in stage space: {e}")
             return (0.0, 0.0)
 
-    def _offset_from_origin(
-        self, position: FibsemStagePosition
-    ) -> Tuple[float, float]:
+    def _offset_from_origin(self, position: FibsemStagePosition) -> Tuple[float, float]:
         """Where a stage position sits relative to the canvas origin, in metres.
 
         The live-position counterpart of :meth:`_offset_of`, which answers the same
@@ -1118,7 +1121,9 @@ class FMOverviewWidget(QWidget):
             logging.debug(f"Could not place {position} in the canvas frame: {e}")
             return (0.0, 0.0)
 
-    def add_settings_section(self, title: str, widget: QWidget, first: bool = True) -> None:
+    def add_settings_section(
+        self, title: str, widget: QWidget, first: bool = True
+    ) -> None:
         """Put a host's own controls in the settings column, under *title*.
 
         Part of the host contract, alongside `set_positions` and `set_save_directory`,
@@ -1142,7 +1147,9 @@ class FMOverviewWidget(QWidget):
             self._controls_layout.insertWidget(0, section)
         else:
             # -1 is the stretch added in `_init_ui`; stay above it.
-            self._controls_layout.insertWidget(self._controls_layout.count() - 1, section)
+            self._controls_layout.insertWidget(
+                self._controls_layout.count() - 1, section
+            )
 
     def set_positions(self, positions: List[FibsemStagePosition]) -> None:
         """Stage positions to mark on the overview, e.g. saved lamella positions.
@@ -1407,8 +1414,11 @@ class FMOverviewWidget(QWidget):
         if current is None:
             return origin
         return FibsemStagePosition(
-            x=origin.x, y=origin.y, z=origin.z,
-            r=current.r, t=current.t,
+            x=origin.x,
+            y=origin.y,
+            z=origin.z,
+            r=current.r,
+            t=current.t,
             coordinate_system=origin.coordinate_system,
         )
 
@@ -1430,13 +1440,17 @@ class FMOverviewWidget(QWidget):
         if frame is None:
             self.stage_overlay.set_shapes([])
             return
-        self.stage_overlay.set_shapes(stage_context.context_shapes(
-            self.microscope, frame,
-            limits=self.overlay_controls.is_visible(stage_context.OVERLAY_LIMITS),
-            boundaries=self.overlay_controls.is_visible(
-                stage_context.OVERLAY_BOUNDARIES),
-            slots=self.overlay_controls.is_visible(stage_context.OVERLAY_SLOTS),
-        ))
+        self.stage_overlay.set_shapes(
+            stage_context.context_shapes(
+                self.microscope,
+                frame,
+                limits=self.overlay_controls.is_visible(stage_context.OVERLAY_LIMITS),
+                boundaries=self.overlay_controls.is_visible(
+                    stage_context.OVERLAY_BOUNDARIES
+                ),
+                slots=self.overlay_controls.is_visible(stage_context.OVERLAY_SLOTS),
+            )
+        )
 
     def _refresh_current_position(self) -> None:
         """Mark where the stage is now."""
@@ -1931,9 +1945,7 @@ class FMOverviewWidget(QWidget):
                 point = transform.transform(centre)
             except Exception:
                 continue
-            distance = (
-                (click[0] - point[0]) ** 2 + (click[1] - point[1]) ** 2
-            ) ** 0.5
+            distance = ((click[0] - point[0]) ** 2 + (click[1] - point[1]) ** 2) ** 0.5
             # `centre` is in canvas units and `point` in screen pixels: the box is a
             # fixed piece of sample, the radius a fixed piece of screen.
             if distance >= self.PICK_RADIUS_PX and not self.position_overlay.covers(
@@ -2313,7 +2325,10 @@ class FMOverviewWidget(QWidget):
         # pose -- the button is not the guard, and a host calling this directly, or a
         # stage that moved between the click and here, is exactly what this is for.
         if not self.at_acquisition_orientation():
-            where, needed = self._where_the_stage_is(), self._where_the_stage_needs_to_be()
+            where, needed = (
+                self._where_the_stage_is(),
+                self._where_the_stage_needs_to_be(),
+            )
             logging.warning(
                 f"Cannot acquire an overview: the stage is at {where}, and an overview "
                 f"needs to be at {needed}."
@@ -2346,8 +2361,10 @@ class FMOverviewWidget(QWidget):
             self.status.setText(f"Objective is {state.lower()}.")
             return
 
-        if (parameters.objective_start is ObjectiveStartPosition.FOCUS
-                and self.fm.objective.focus_position is None):
+        if (
+            parameters.objective_start is ObjectiveStartPosition.FOCUS
+            and self.fm.objective.focus_position is None
+        ):
             message = (
                 "This overview is set to start from the saved focus position, but none "
                 "has been saved. Set one with 'Set Focus Position', or start from the "
@@ -2412,7 +2429,9 @@ class FMOverviewWidget(QWidget):
             centre_position=self._target,
             # None when no save directory has been set -- the standalone default. The
             # runner writes each tile as it lands, so a cancelled run keeps what it got.
-            save_directory=self._destination.tiles_directory if self._destination else None,
+            save_directory=self._destination.tiles_directory
+            if self._destination
+            else None,
         )
         self._worker = FunctionWorker(self._acquire_worker)
         self._worker.start()
@@ -2710,12 +2729,15 @@ class FMOverviewWidget(QWidget):
         # counted and nothing more -- otherwise it reads "Tile 4/9 — 4/9".
         message = "Tiles"
         if remaining:
-            self.progress_tiles.update_progress(ProgressUpdate.combined(
-                current=current, total=total,
-                remaining_seconds=remaining,
-                total_seconds=payload.get("estimated_total_time", 0.0),
-                message=message,
-            ))
+            self.progress_tiles.update_progress(
+                ProgressUpdate.combined(
+                    current=current,
+                    total=total,
+                    remaining_seconds=remaining,
+                    total_seconds=payload.get("estimated_total_time", 0.0),
+                    message=message,
+                )
+            )
         else:
             self.progress_tiles.update_progress(
                 ProgressUpdate.numeric(current=current, total=total, message=message)
@@ -2735,8 +2757,11 @@ class FMOverviewWidget(QWidget):
                 # Say which pass, so a coarse sweep followed by a fine one does not
                 # look like the same bar inexplicably starting over.
                 total_passes = payload.get("total_passes", 1)
-                which = (f" {payload.get('pass_index', 1)}/{total_passes}"
-                         if total_passes > 1 else "")
+                which = (
+                    f" {payload.get('pass_index', 1)}/{total_passes}"
+                    if total_passes > 1
+                    else ""
+                )
                 return ProgressUpdate.numeric(
                     current=zlevel, total=total_z, message=f"{channel} focus{which}"
                 )
@@ -2846,7 +2871,9 @@ class FMOverviewWidget(QWidget):
             self.canvas.canvas.remove_image(PREVIEW_KEY)
             shape = self._mosaic.data.shape
             suffix, tooltip = self._describe_save()
-            self.status.setText(f"Overview acquired — {shape[-1]} × {shape[-2]} px{suffix}")
+            self.status.setText(
+                f"Overview acquired — {shape[-1]} × {shape[-2]} px{suffix}"
+            )
             self.status.setToolTip(tooltip)
             self.progress_tiles.update_progress(ProgressUpdate.done())
             self.progress_tiles.show()
