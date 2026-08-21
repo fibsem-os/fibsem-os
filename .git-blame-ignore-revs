@@ -1,0 +1,15 @@
+# Revisions to skip when running `git blame`.
+#
+# Only whole-tree mechanical rewrites belong here: a commit that changed
+# formatting or import order and nothing else. Never add a commit that changed
+# behaviour, or blame will hide the change that matters.
+#
+# GitHub reads this file automatically. For local use, once per clone:
+#
+#     git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# Note this repository squash-merges, so the SHA to record is the one that lands
+# on main, not the SHA on the pull request branch. Add it in a follow-up commit
+# after the merge.
+
+# [refactor] Format the tree with ruff format (#TBD)
