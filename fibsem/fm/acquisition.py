@@ -10,7 +10,7 @@ import numpy as np
 
 from fibsem import utils
 from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
-from fibsem.fm.calibration import run_autofocus, run_coarse_fine_autofocus
+from fibsem.fm.calibration import run_coarse_fine_autofocus
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import (
     AutoFocusMode,
@@ -23,10 +23,7 @@ from fibsem.fm.structures import (
     ZParameters,
     ZStackOrder,
 )
-from fibsem.fm.timing import (
-    estimate_positions_acquisition_time,
-    estimate_tileset_acquisition_time,
-)
+from fibsem.fm.timing import estimate_tileset_acquisition_time
 from fibsem.imaging.reduce import (
     PreviewMosaic,
 )
@@ -223,181 +220,6 @@ def acquire_image(
     microscope.acquisition_progress_signal.emit({"state": "finished"})
 
     return image
-
-
-def acquire_at_positions(
-    microscope: "FibsemMicroscope",
-    positions: List[FMStagePosition],
-    channel_settings: Union[ChannelSettings, List[ChannelSettings]],
-    zparams: Optional[ZParameters] = None,
-    use_autofocus: bool = False,
-    save_directory: Optional[str] = None,
-    stop_event: Optional[threading.Event] = None,
-) -> List[FluorescenceImage]:
-    """Acquire fluorescence images at specified FMStagePosition locations.
-    This function moves both the stage and objective to each specified position and
-    acquires images for the given channel settings. If zparams is provided, a Z-stack
-    will be acquired at each position.
-    Args:
-        microscope: The fluorescence microscope instance
-        positions: List of FMStagePosition objects defining where to acquire images
-        channel_settings: Single channel or list of channels to acquire
-        zparams: ZParameters for Z-stack acquisition (optional)
-        use_autofocus: Whether to run autofocus at each position (default: False)
-        save_directory: Directory to save images in. If provided,
-                       creates subdirectories for each position (default: None)
-        stop_event: Threading event to signal cancellation (optional)
-    Returns:
-        List of FluorescenceImage objects containing the acquired images
-    Raises:
-        ValueError: If positions is empty or contains invalid stage positions
-    Example:
-        >>> stage_pos = FibsemStagePosition(x=0, y=0, z=0, name="pos1")
-        >>> fm_pos = FMStagePosition(name="Position-01", stage_position=stage_pos, objective_position=0.012)
-        >>> positions = [fm_pos]
-        >>> channel = ChannelSettings(name="DAPI", excitation_wavelength=365,
-        ...                          emission_wavelength=450, power=0.5, exposure_time=0.1)
-        >>> images = acquire_at_positions(microscope, positions, channel,
-        ...                              save_directory="/data/experiment")
-    """
-    if microscope.fm is None:
-        raise ValueError(
-            "Fluorescence microscope not initialized in the FibsemMicroscope instance"
-        )
-    if not microscope.fm.has_valid_orientation():
-        raise ValueError(
-            f"Stage is not in valid orientation ({microscope.get_stage_orientation()!r}). Cannot start acquisition."
-        )
-
-    if not positions:
-        raise ValueError("Positions list cannot be empty")
-    if not isinstance(channel_settings, list):
-        channel_settings = [channel_settings]
-
-    # Calculate time estimates for the entire multi-position acquisition
-    time_estimates = estimate_positions_acquisition_time(
-        channel_settings, len(positions), zparams, use_autofocus
-    )
-    total_estimated_time = time_estimates["total_time"]
-    acquisition_start_time = time.time()
-
-    # Emit initial acquisition progress signal
-    microscope.fm.acquisition_progress_signal.emit(
-        {
-            "state": "acquiring",
-            "task": "multi-position",
-            "position": "null",
-            "current": 1,
-            "total": len(positions),
-            "estimated_total_time": total_estimated_time,
-            "estimated_remaining_time": total_estimated_time,
-        }
-    )
-
-    images: List[FluorescenceImage] = []
-    for i, fm_pos in enumerate(positions):
-        # Check for cancellation before each position
-        if stop_event and stop_event.is_set():
-            logging.info("Multi-position acquisition cancelled")
-            return images
-
-        logging.info(f"Acquiring at position {i + 1}/{len(positions)}: {fm_pos.name}")
-
-        # Calculate remaining time estimate based on progress
-        current_position = i + 1
-        total_positions = len(positions)
-        # Emit progress signal before starting position acquisition
-        microscope.fm.acquisition_progress_signal.emit(
-            {
-                "state": "acquiring",
-                "task": "multi-position",
-                "position": fm_pos.name,
-                "current": current_position,
-                "total": total_positions,
-                #    "estimated_total_time": total_estimated_time,
-                #    "estimated_remaining_time": estimated_remaining_time,
-                #    "elapsed_time": elapsed_time,
-            }
-        )
-
-        # Move stage to the saved stage position and objective position
-        if microscope.get_stage_orientation(fm_pos.stage_position) not in ["SEM", "FM"]:
-            raise ValueError(
-                f"Stage Position {fm_pos.name} is not in valid orientation: {fm_pos.stage_position}"
-            )
-        microscope.fm.acquisition_progress_signal.emit(
-            {"state": "moving", "task": "multi-position"}
-        )
-        microscope.safe_absolute_stage_movement(fm_pos.stage_position)
-        microscope.fm.objective.move_absolute(fm_pos.objective_position)
-
-        # Run autofocus if requested
-        if use_autofocus:
-            result = run_autofocus(
-                microscope.fm, channel_settings[0], stop_event=stop_event
-            )
-            if result is None:
-                logging.info("Multi-position acquisition cancelled during autofocus")
-                return images
-
-        # create filename/path if requested
-        filename = None
-        if save_directory is not None:
-            # Create position-specific subdirectory
-            position_name = fm_pos.name or f"position_{i + 1:03d}"
-            position_dir = os.path.join(save_directory, position_name)
-            os.makedirs(position_dir, exist_ok=True)
-
-            # Generate timestamp-based filename
-            timestamp = utils.current_timestamp_v3(timeonly=True)
-            basename = f"{position_name}-zstack-{timestamp}.ome.tiff"
-            filename = os.path.join(position_dir, basename)
-
-        # Acquire image
-        image = acquire_image(
-            microscope=microscope.fm,
-            channel_settings=channel_settings,
-            zparams=zparams,
-            stop_event=stop_event,
-            filename=filename,
-        )
-
-        # Check if acquisition was cancelled
-        if image is None:
-            logging.info(
-                "Multi-position acquisition cancelled during image acquisition"
-            )
-            return images
-
-        image.metadata.description = f"{fm_pos.name}-{image.metadata.acquisition_date}"
-        images.append(image)
-
-        # Calculate remaining time estimate based on progress
-        elapsed_time = time.time() - acquisition_start_time
-        if current_position > 1:
-            time_per_position = elapsed_time / (current_position - 1)
-            estimated_remaining_time = time_per_position * (
-                total_positions - current_position
-            )
-        else:
-            estimated_remaining_time = total_estimated_time
-
-        microscope.fm.acquisition_progress_signal.emit(
-            {
-                "state": "acquiring",
-                "task": "multi-position",
-                "position": fm_pos.name,
-                "current": current_position,
-                "total": total_positions,
-                "estimated_total_time": total_estimated_time,
-                "estimated_remaining_time": estimated_remaining_time,
-                "elapsed_time": elapsed_time,
-            }
-        )
-
-    microscope.fm.acquisition_progress_signal.emit({"state": "finished"})
-
-    return images
 
 
 def run_tileset_autofocus(
