@@ -631,19 +631,20 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # the callout there appears once and is dismissible, so without this entry a
         # second microscope could never be set up through it.
         tools_menu.addSeparator()
-        self.action_setup_wizard = QAction("Setup Wizard...", self)
-        # NoRole, or macOS steals it. Qt's default MenuRole is TextHeuristicRole, and
-        # the heuristic scans the text for "about", "config", "preference", "options",
-        # "setting" and "setup" -- so "Setup Wizard..." is read as a preferences item
-        # and moved into the application menu, where it displaces Edit -> Preferences
-        # and opens the wizard instead. Nothing about the connection is wrong; the
-        # action is simply no longer in the menu it was added to.
-        self.action_setup_wizard.setMenuRole(QAction.NoRole)
-        self.action_setup_wizard.setToolTip(
-            "Configure a microscope connection step by step"
+        self.action_guided_setup = QAction("Guided Setup...", self)
+        # NoRole stays even though "Guided Setup..." clears the trap by itself. Qt's
+        # default MenuRole is TextHeuristicRole, and the heuristic moves any action
+        # whose text *starts with* "about", "config", "preference", "options",
+        # "setting" or "setup" into the application menu. That is how the earlier name,
+        # "Setup Wizard...", displaced Edit -> Preferences and opened this instead --
+        # nothing about the connection was wrong, the action was simply no longer in
+        # the menu it had been added to. This name is safe; the next one might not be.
+        self.action_guided_setup.setMenuRole(QAction.NoRole)
+        self.action_guided_setup.setToolTip(
+            "A guided walkthrough that configures fibsemOS to work with your microscope"
         )
-        self.action_setup_wizard.triggered.connect(self._on_setup_wizard)
-        tools_menu.addAction(self.action_setup_wizard)
+        self.action_guided_setup.triggered.connect(self._on_guided_setup)
+        tools_menu.addAction(self.action_guided_setup)
 
         self.action_show_plugins = QAction("Plugins...", self)
         self.action_show_plugins.setToolTip(
@@ -880,11 +881,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._preferences.features.scripts_enabled
             or self.script_menu_controller.runner.is_running
         )
-        # Tools -> Setup Wizard, and the offer for it on the connection tab. Both go
+        # Tools -> Guided Setup, and the offer for it on the connection tab. Both go
         # together: hiding one and leaving the other would mean a fresh install is
         # invited to run something the menu says does not exist.
-        self.action_setup_wizard.setVisible(
-            self._preferences.features.setup_wizard_enabled
+        self.action_guided_setup.setVisible(
+            self._preferences.features.guided_setup_enabled
         )
         # getattr because this also runs from the preferences dialog, and the tab it
         # reaches into is built by AutoLamellaUI rather than here.
@@ -976,15 +977,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             parent=self,
         )
 
-    def _on_setup_wizard(self):
-        """Run the microscope setup wizard.
+    def _on_guided_setup(self):
+        """Run the microscope guided setup.
 
         Delegated to the connection tab rather than opened here, so that whatever the
         wizard saves is selected in the one combo box that decides what the next
         connection uses -- and so the live microscope is handed over, rather than the
         wizard opening a second client against the same instrument.
         """
-        self.autolamella_ui.system_widget.run_setup_wizard()
+        self.autolamella_ui.system_widget.run_guided_setup()
 
     def _on_show_plugins(self):
         """Open the read-only listing of registered extensions."""

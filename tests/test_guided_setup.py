@@ -1,4 +1,4 @@
-"""What the setup wizard writes, tested without Qt.
+"""What the guided setup writes, tested without Qt.
 
 CI installs ``.[test]``, not ``.[ui]``, so every test that imports PyQt5 is skipped
 there. The wizard's file-writing half is the half worth protecting -- it creates a
@@ -12,7 +12,7 @@ import pytest
 import yaml
 
 from fibsem import config as cfg
-from fibsem import setup_wizard as wizard
+from fibsem import guided_setup as wizard
 
 
 @pytest.fixture
@@ -23,7 +23,9 @@ def isolated_registry(tmp_path, monkeypatch):
     the developer's real ``user-configurations.yaml`` and could change which
     configuration their application opens with.
     """
-    configurations = {"default-configuration": {"path": cfg.MICROSCOPE_CONFIGURATION_PATH}}
+    configurations = {
+        "default-configuration": {"path": cfg.MICROSCOPE_CONFIGURATION_PATH}
+    }
     monkeypatch.setattr(cfg, "USER_CONFIGURATIONS", configurations)
     monkeypatch.setattr(
         cfg,
@@ -86,7 +88,6 @@ def test_address_follows_the_computer_not_the_model_file():
     """
     assert wizard.default_address(wizard.LOCATION_SUPPORT) == cfg.DEFAULT_IP_ADDRESS
     assert wizard.default_address(wizard.LOCATION_MICROSCOPE) == "localhost"
-    assert wizard.default_address(wizard.LOCATION_OFFLINE) == ""
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +114,7 @@ def test_a_pre_tilted_shuttle_system_still_has_to_ask():
 
 
 def test_start_blank_still_has_to_ask():
-    assert wizard.SetupChoices(model_key="other").stage_is_editable
+    assert wizard.SetupChoices(model_key="tfs-other").stage_is_editable
 
 
 def test_the_shipped_values_are_offered_as_a_starting_point():
@@ -147,19 +148,97 @@ def test_the_derived_opposite_matches_what_each_model_ships():
         assert config["stage"]["rotation_180"] == float(shipped["rotation_180"]), key
 
 
-def test_offline_does_not_skip_the_stage_step():
+def test_the_simulator_does_not_skip_the_stage_step():
     """A simulated instrument still has a pre-tilt, and should behave like the real one."""
     choices = wizard.SetupChoices(
-        model_key="other", location_key=wizard.LOCATION_OFFLINE
+        manufacturer_key=wizard.MANUFACTURER_SIMULATOR, model_key="sim-demo"
     )
+    assert choices.is_simulator
     assert choices.stage_is_editable
 
 
-def test_offline_closes_the_manufacturer_question():
-    blank = wizard.SetupChoices(model_key="other")
-    assert blank.needs_manufacturer
-    blank.location_key = wizard.LOCATION_OFFLINE
-    assert not blank.needs_manufacturer
+def test_the_simulator_closes_the_connection_question():
+    """There is no address to reach, so the step explains instead of asking."""
+    simulated = wizard.SetupChoices(
+        manufacturer_key=wizard.MANUFACTURER_SIMULATOR, model_key="sim-demo"
+    )
+    assert not simulated.connection_is_editable
+    real = wizard.SetupChoices(
+        manufacturer_key=wizard.MANUFACTURER_THERMO, model_key="tfs-hydra"
+    )
+    assert real.connection_is_editable
+
+
+def test_every_manufacturer_offers_at_least_one_instrument():
+    """Picking a manufacturer selects its first instrument, so an empty list would
+    leave the step with nothing chosen and Next still enabled."""
+    for manufacturer in wizard.MANUFACTURERS:
+        assert wizard.models_for(manufacturer.key), manufacturer.key
+
+
+def test_every_instrument_belongs_to_an_offered_manufacturer():
+    keys = {m.key for m in wizard.MANUFACTURERS}
+    for model in wizard.MICROSCOPE_MODELS:
+        assert model.manufacturer_key in keys, model.key
+
+
+def test_each_manufacturer_names_its_own_control_software():
+    """Naming both would name one piece of software the reader does not have."""
+    assert wizard.get_manufacturer(wizard.MANUFACTURER_THERMO).control_software == "xT"
+    assert (
+        wizard.get_manufacturer(wizard.MANUFACTURER_TESCAN).control_software
+        == "Essence"
+    )
+    # The simulator has no vendor software, so it falls back to the generic phrase
+    # rather than naming somebody else's product.
+    simulator = wizard.get_manufacturer(wizard.MANUFACTURER_SIMULATOR)
+    assert simulator.control_software == "the microscope control software"
+
+
+def test_the_microscope_pc_card_names_the_chosen_manufacturers_software():
+    card = wizard.get_location(wizard.LOCATION_MICROSCOPE)
+    thermo = wizard.location_summary(
+        card, wizard.get_manufacturer(wizard.MANUFACTURER_THERMO)
+    )
+    tescan = wizard.location_summary(
+        card, wizard.get_manufacturer(wizard.MANUFACTURER_TESCAN)
+    )
+    assert "xT" in thermo and "Essence" not in thermo
+    assert "Essence" in tescan and "xT" not in tescan
+    # No placeholder should ever reach the screen as literal braces.
+    for location in wizard.COMPUTER_LOCATIONS:
+        for manufacturer in wizard.MANUFACTURERS:
+            assert "{" not in wizard.location_summary(location, manufacturer)
+
+
+def test_the_raw_coordinate_caution_appears_only_where_it_is_true():
+    """``microscope.py`` drives an ordinary ThermoFisher stage in RAW but a compustage
+    in SPECIMEN, so the caution must not follow the manufacturer alone."""
+    ordinary = wizard.SetupChoices(
+        manufacturer_key=wizard.MANUFACTURER_THERMO, model_key="tfs-hydra"
+    )
+    assert wizard.STAGE_COORDINATE_SYSTEM in ordinary.stage_coordinate_note
+    assert "xT" in ordinary.stage_coordinate_note
+
+    compustage = wizard.SetupChoices(
+        manufacturer_key=wizard.MANUFACTURER_THERMO, model_key="tfs-arctis"
+    )
+    assert compustage.stage_coordinate_note == ""
+
+    for manufacturer_key in (wizard.MANUFACTURER_TESCAN, wizard.MANUFACTURER_SIMULATOR):
+        model = wizard.models_for(manufacturer_key)[0]
+        choices = wizard.SetupChoices(
+            manufacturer_key=manufacturer_key, model_key=model.key
+        )
+        assert choices.stage_coordinate_note == "", manufacturer_key
+
+
+def test_only_the_simulator_needs_no_vendor_api():
+    """The label on the step is driven by this, so a manufacturer that quietly lost
+    its module name would start claiming there is nothing to install."""
+    for manufacturer in wizard.MANUFACTURERS:
+        needs_api = wizard.api_is_installed(manufacturer) is not None
+        assert needs_api is not manufacturer.is_simulator, manufacturer.key
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +262,9 @@ def test_a_recognised_model_keeps_its_shipped_stage_values():
 
 def test_a_supplied_rotation_reference_derives_its_opposite():
     config = wizard.build_configuration(
-        wizard.SetupChoices(model_key="other", rotation_reference=250.0, name="Bench")
+        wizard.SetupChoices(
+            model_key="tfs-other", rotation_reference=250.0, name="Bench"
+        )
     )
     assert config["stage"]["rotation_reference"] == 250.0
     assert config["stage"]["rotation_180"] == 70.0
@@ -194,31 +275,34 @@ def test_the_name_becomes_the_configurations_name():
     assert config["info"]["name"] == "Arctis Bay 2"
 
 
-def test_offline_forces_the_simulator_whatever_else_was_chosen():
+def test_the_simulator_manufacturer_writes_a_demo_configuration():
     choices = wizard.SetupChoices(
-        model_key="tfs-arctis",
-        location_key=wizard.LOCATION_OFFLINE,
-        manufacturer="Thermo",
+        manufacturer_key=wizard.MANUFACTURER_SIMULATOR,
+        model_key="sim-demo",
         address="",
     )
     config = wizard.build_configuration(choices)
     assert config["info"]["manufacturer"] == "Demo"
 
 
-def test_an_offline_arctis_is_a_compustage():
+def test_a_simulated_arctis_is_a_compustage():
     """The simulator overwrites ``info.model``, so only the flag survives to be read."""
     config = wizard.build_configuration(
         wizard.SetupChoices(
-            model_key="tfs-arctis", location_key=wizard.LOCATION_OFFLINE, address=""
+            manufacturer_key=wizard.MANUFACTURER_SIMULATOR,
+            model_key="sim-arctis",
+            address="",
         )
     )
     assert config["sim"]["is_compustage"] is True
 
 
-def test_an_offline_hydra_is_not_a_compustage():
+def test_the_demo_microscope_is_not_a_compustage():
     config = wizard.build_configuration(
         wizard.SetupChoices(
-            model_key="tfs-hydra", location_key=wizard.LOCATION_OFFLINE, address=""
+            manufacturer_key=wizard.MANUFACTURER_SIMULATOR,
+            model_key="sim-demo",
+            address="",
         )
     )
     assert config["sim"]["is_compustage"] is False
@@ -233,17 +317,47 @@ def test_a_real_configuration_gains_no_simulator_block():
     assert "is_compustage" not in config.get("sim", {})
 
 
-def test_the_blank_start_takes_its_column_tilts_from_the_manufacturer():
-    """Its base file is a Demo configuration, so its ion column tilt is Thermo's.
+def test_the_generic_base_takes_its_manufacturer_from_the_first_step():
+    """The generic base is a Demo configuration file.
 
-    Column tilt is geometry -- every projection between the two beams runs through it
-    -- so a Tescan set up from the blank start must not inherit 52 degrees.
+    Taken at face value it would write ``manufacturer: Demo`` and a setup that can
+    never reach an instrument. The manufacturer chosen in step one overrides it.
     """
     config = wizard.build_configuration(
-        wizard.SetupChoices(model_key="other", manufacturer="Tescan", name="Bench")
+        wizard.SetupChoices(
+            manufacturer_key=wizard.MANUFACTURER_THERMO,
+            model_key="tfs-other",
+            name="Bench",
+        )
     )
-    assert config["info"]["manufacturer"] == "Tescan"
-    assert config["ion"]["column_tilt"] == 55
+    assert config["info"]["manufacturer"] == "Thermo"
+
+
+def test_every_shipped_file_already_agrees_with_its_manufacturers_column_tilts():
+    """``build_configuration`` applies the manufacturer's column tilts unconditionally.
+
+    That is only safe because it is a no-op for every shipped file. If one ever
+    disagreed, the wizard would silently overwrite a value someone chose deliberately
+    -- and column tilt is geometry, so it would mis-place patterns without ever
+    looking like a configuration problem.
+    """
+    from fibsem import utils
+
+    for model in wizard.MICROSCOPE_MODELS:
+        shipped = utils.load_yaml(model.path)
+        defaults = cfg.DEFAULT_CONFIGURATION_VALUES[model.manufacturer.config_value]
+        built = wizard.build_configuration(
+            wizard.SetupChoices(
+                manufacturer_key=model.manufacturer_key, model_key=model.key
+            )
+        )
+        assert built["ion"]["column_tilt"] == defaults["ion-column-tilt"], model.key
+        # The generic base is the one file deliberately allowed to differ, because it
+        # is a Demo configuration standing in for someone else's instrument.
+        if model.filename != "microscope-configuration.yaml":
+            assert shipped["ion"]["column_tilt"] == defaults["ion-column-tilt"], (
+                model.key
+            )
 
 
 def test_a_recognised_model_keeps_its_own_column_tilt():
@@ -376,10 +490,14 @@ def test_a_taken_name_is_reported_as_the_name_it_actually_got(isolated_registry)
     """``register_configuration`` suffixes rather than refusing, so the caller has to
     use the name it returns -- selecting the one that was typed would find nothing."""
     wizard.apply_setup(
-        wizard.SetupChoices(name="Bay 2", configuration_directory=str(isolated_registry))
+        wizard.SetupChoices(
+            name="Bay 2", configuration_directory=str(isolated_registry)
+        )
     )
     second = wizard.apply_setup(
-        wizard.SetupChoices(name="Bay 2", configuration_directory=str(isolated_registry))
+        wizard.SetupChoices(
+            name="Bay 2", configuration_directory=str(isolated_registry)
+        )
     )
     assert second.configuration_name != "Bay 2"
     assert second.configuration_name in cfg.USER_CONFIGURATIONS
@@ -395,8 +513,8 @@ def test_the_written_configuration_loads_back_as_settings(isolated_registry):
 
     result = wizard.apply_setup(
         wizard.SetupChoices(
-            model_key="tfs-arctis",
-            location_key=wizard.LOCATION_OFFLINE,
+            manufacturer_key=wizard.MANUFACTURER_SIMULATOR,
+            model_key="sim-arctis",
             address="",
             name="Sim Rig",
             configuration_directory=str(isolated_registry),
@@ -415,7 +533,9 @@ def test_the_written_configuration_loads_back_as_settings(isolated_registry):
 def test_first_run_is_the_absence_of_a_registered_configuration(isolated_registry):
     assert wizard.is_first_run()
     wizard.apply_setup(
-        wizard.SetupChoices(name="Bay 2", configuration_directory=str(isolated_registry))
+        wizard.SetupChoices(
+            name="Bay 2", configuration_directory=str(isolated_registry)
+        )
     )
     assert os.path.exists(cfg.USER_CONFIGURATIONS_PATH)
     assert not wizard.is_first_run()
@@ -433,7 +553,7 @@ def test_writing_preferences_does_not_end_the_first_run(isolated_registry):
     assert wizard.is_first_run()
 
     preferences = cfg.load_user_preferences()
-    preferences.features.setup_wizard_enabled = True
+    preferences.features.guided_setup_enabled = True
     cfg.save_user_preferences(preferences)
 
     assert os.path.exists(cfg.USER_PREFERENCES_PATH)
@@ -448,7 +568,9 @@ def test_finishing_the_wizard_ends_the_first_run(isolated_registry):
     """
     assert wizard.is_first_run()
     wizard.apply_setup(
-        wizard.SetupChoices(name="Bay 2", configuration_directory=str(isolated_registry))
+        wizard.SetupChoices(
+            name="Bay 2", configuration_directory=str(isolated_registry)
+        )
     )
     assert not wizard.is_first_run()
 
@@ -470,4 +592,4 @@ def test_dismissal_keeps_the_preferences_that_were_already_there(isolated_regist
 
     wizard.dismiss_first_run()
     assert cfg.load_user_preferences().experiment.user == "someone"
-    assert cfg.load_user_preferences().display.setup_wizard_dismissed
+    assert cfg.load_user_preferences().display.guided_setup_dismissed

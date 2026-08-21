@@ -1,4 +1,4 @@
-"""The first-run setup wizard: from a fresh install to a configuration that connects.
+"""The first-run guided setup: from a fresh install to a configuration that connects.
 
 Five steps for everybody; the Arctis is shown the third rather than asked it:
 
@@ -16,7 +16,7 @@ Five steps for everybody; the Arctis is shown the third rather than asked it:
 4. **Folders**.
 5. **Review and save**.
 
-The answers live in :mod:`fibsem.setup_wizard`, which is Qt-free and does the writing.
+The answers live in :mod:`fibsem.guided_setup`, which is Qt-free and does the writing.
 This module is the collection of them and nothing else.
 
 Connections are never opened alongside an existing one. If the application is already
@@ -37,10 +37,11 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from fibsem import config as cfg
-from fibsem import setup_wizard as wizard
-from fibsem.setup_wizard import (
-    AVAILABLE_MANUFACTURERS,
+from fibsem import guided_setup as wizard
+from fibsem.guided_setup import (
     COMPUTER_LOCATIONS,
+    MANUFACTURER_ICON,
+    MANUFACTURERS,
     MICROSCOPE_MODELS,
     MODEL_ICON,
     SetupChoices,
@@ -56,6 +57,7 @@ from fibsem.ui.tokens import (
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
+    WARN_COLOR,
 )
 from fibsem.ui.utils import install_wheel_blocker_recursive
 from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, QFileLineEdit
@@ -114,6 +116,20 @@ STEP_SUBTITLES = [
 # ---------------------------------------------------------------------------
 
 
+def _label_style(size: int, color: str, bold: bool = False) -> str:
+    """The full rule for a label, so recolouring one cannot drop the rest.
+
+    Qt stylesheets replace wholesale rather than merge, so a later
+    ``setStyleSheet("color: ...")`` silently takes the font size and the panel
+    background with it. Anything that recolours a label after the fact builds its rule
+    from here.
+    """
+    return (
+        f"{ON_PANEL} color: {color}; font-size: {size}px;"
+        f"{' font-weight: bold;' if bold else ''}"
+    )
+
+
 def _label(
     text: str,
     size: int = 11,
@@ -123,11 +139,26 @@ def _label(
 ) -> QtWidgets.QLabel:
     label = QtWidgets.QLabel(text)
     label.setWordWrap(wrap)
-    label.setStyleSheet(
-        f"{ON_PANEL} color: {color}; font-size: {size}px;"
-        f"{' font-weight: bold;' if bold else ''}"
-    )
+    label.setStyleSheet(_label_style(size, color, bold))
     return label
+
+
+def _disable_default_buttons(root: QtWidgets.QWidget) -> None:
+    """Stop Return anywhere in the dialog from pressing a button.
+
+    Typing a rotation and hitting Return should commit the number, not leave the step.
+    Qt disagrees by default: a QDialog gives Return to its default button, and failing
+    that to the first button whose ``autoDefault`` is set -- which is every QPushButton
+    in a dialog unless told otherwise. So a value typed and confirmed the way people
+    confirm values silently advanced a step, and on the last step it went further than
+    that and saved.
+
+    Both flags have to be cleared, and on every button rather than on Next alone:
+    clearing ``default`` only hands the keypress to the next auto-default button along.
+    """
+    for button in root.findChildren(QtWidgets.QPushButton):
+        button.setAutoDefault(False)
+        button.setDefault(False)
 
 
 def _panel(name: str = "wizardPanel") -> QtWidgets.QFrame:
@@ -185,6 +216,14 @@ class ChoiceCard(QtWidgets.QFrame):
     def is_selected(self) -> bool:
         return self._selected
 
+    def set_summary(self, summary: str) -> None:
+        """Replace the card's subtitle after construction.
+
+        The Microscope PC card names the manufacturer's own control software, which is
+        not known until the step before it has been answered.
+        """
+        self._summary.setText(summary)
+
     def set_selected(self, selected: bool) -> None:
         self._selected = bool(selected)
         border = PRIMARY_COLOR if selected else BORDER_COLOR
@@ -200,7 +239,9 @@ class ChoiceCard(QtWidgets.QFrame):
         )
         if self._icon_name:
             colour = PRIMARY_COLOR if selected else NEUTRAL_500
-            self._icon.setPixmap(fibsem_icon(self._icon_name, color=colour).pixmap(22, 22))
+            self._icon.setPixmap(
+                fibsem_icon(self._icon_name, color=colour).pixmap(22, 22)
+            )
         if selected:
             self._tick.setPixmap(
                 fibsem_icon("mdi:check-circle", color=PRIMARY_COLOR).pixmap(18, 18)
@@ -265,12 +306,18 @@ class StageDiagram(QtWidgets.QWidget):
     the one thing on the step a user can check their real stage against, so it has to
     be checking the value they actually entered.
 
-    **This is the SEM orientation**, which also covers MILLING. ``microscope.py``
-    defines the three: SEM is ``rotation_reference`` with the stage at
-    ``shuttle_pre_tilt``; MILLING shares that rotation and differs only in tilt; FIB is
-    ``rotation_180`` -- a half turn, which reverses the pre-tilt's sense relative to the
-    beams. So SEM and MILLING are the same side view and FIB cannot be, which is why
-    the readout says so rather than letting the picture imply otherwise.
+    **This is the SEM orientation.** ``microscope.py`` defines the three: SEM is
+    ``rotation_reference`` with the stage at ``shuttle_pre_tilt``; MILLING keeps that
+    rotation and turns the sample off flat; FIB is ``rotation_180`` -- a half turn,
+    which reverses the pre-tilt's sense relative to the beams. So SEM and MILLING are
+    the same side view at different tilts, and FIB cannot be the same view at all,
+    which is why the readout says so rather than letting the picture imply otherwise.
+
+    MILLING is not one angle. ``FibsemStageSettings.milling_angle`` merely *defaults*
+    to 15, and ``_update_orientations`` re-derives the tilt from whatever it currently
+    is -- set it to 12 and the stage goes somewhere else and is still at the MILLING
+    orientation. Nothing here hardcodes a milling angle: the readout measures it off
+    the drawn geometry, so the picture follows the number rather than assuming one.
 
     The SEM orientation is drawn because it is the checkable one: set the stage to your
     pre-tilt and the sample comes flat, square to the electron beam. Someone can hold
@@ -343,8 +390,15 @@ class StageDiagram(QtWidgets.QWidget):
         angle = math.radians(degrees_from_vertical)
         return (math.sin(angle), -math.cos(angle))
 
-    def __init__(self, pre_tilt: float = 35.0, stage_tilt=None, mirrored: bool = False,
-                 show_fm: bool = False, orientation: str = "", parent=None):
+    def __init__(
+        self,
+        pre_tilt: float = 35.0,
+        stage_tilt=None,
+        mirrored: bool = False,
+        show_fm: bool = False,
+        orientation: str = "",
+        parent=None,
+    ):
         super().__init__(parent)
         self._pre_tilt = pre_tilt
         # None means nothing has been read yet, which is different from a stage that
@@ -363,8 +417,14 @@ class StageDiagram(QtWidgets.QWidget):
         self._orientation = orientation
         self.setMinimumHeight(212)
 
-    def set_orientation(self, name: str = "", stage_tilt=None, mirrored: bool = False,
-                        show_fm: bool = False, objective_inserted: bool = True) -> None:
+    def set_orientation(
+        self,
+        name: str = "",
+        stage_tilt=None,
+        mirrored: bool = False,
+        show_fm: bool = False,
+        objective_inserted: bool = True,
+    ) -> None:
         """Show a named orientation, rather than only the SEM one."""
         self._orientation = name
         self._stage_tilt = stage_tilt
@@ -408,10 +468,15 @@ class StageDiagram(QtWidgets.QWidget):
         ]
         # No FIB at an offset station, so no angle to it worth quoting.
         if self._station_offset_mm is None:
-            lines.append(f"milling angle   {self.milling_angle():.0f}°   (FIB to sample)")
+            lines.append(
+                f"milling angle   {self.milling_angle():.0f}°   (FIB to sample)"
+            )
         if self._orientation:
-            lines.insert(0, f"{self._orientation} orientation"
-                         + ("   ·   rotated 180°" if self._mirrored else ""))
+            lines.insert(
+                0,
+                f"{self._orientation} orientation"
+                + ("   ·   rotated 180°" if self._mirrored else ""),
+            )
         else:
             lines.append("FIB orientation is a half turn away")
         for index, line in enumerate(lines):
@@ -426,17 +491,35 @@ class StageDiagram(QtWidgets.QWidget):
         # into it rather than landing on it.
         if self._station_offset_mm is None:
             self._draw_beam(painter, cx, cy, 0, self.SEM_COLOUR, "SEM")
-            self._draw_beam(painter, cx, cy, self.FIB_ANGLE, self.FIB_COLOUR,
-                            f"FIB  {self.FIB_ANGLE:g}°")
+            self._draw_beam(
+                painter,
+                cx,
+                cy,
+                self.FIB_ANGLE,
+                self.FIB_COLOUR,
+                f"FIB  {self.FIB_ANGLE:g}°",
+            )
             if self._show_fm:
-                self._draw_objective(painter, cx, cy, 0.0, from_below=True,
-                                     inserted=self._objective_inserted)
+                self._draw_objective(
+                    painter,
+                    cx,
+                    cy,
+                    0.0,
+                    from_below=True,
+                    inserted=self._objective_inserted,
+                )
         else:
             # The columns are not here. Drawing them at the sample would put three
             # instruments at one point when the stage has driven 50 mm away from two
             # of them -- the whole thing this mount does.
-            self._draw_objective(painter, cx, cy, self.FM_ANGLE, from_below=False,
-                                 inserted=self._objective_inserted)
+            self._draw_objective(
+                painter,
+                cx,
+                cy,
+                self.FM_ANGLE,
+                from_below=False,
+                inserted=self._objective_inserted,
+            )
             self._draw_station_offset(painter, cx, cy, width, height)
 
         # Everything below is drawn in the stage's frame, with the sample at the origin.
@@ -462,14 +545,16 @@ class StageDiagram(QtWidgets.QWidget):
         painter.setPen(QtGui.QPen(QtGui.QColor(NEUTRAL_500), 1, Qt.DashLine))
         painter.drawLine(-95, int(plate_y) + 8, 95, int(plate_y) + 8)
 
-        body = QtGui.QPolygonF([
-            QtCore.QPointF(front_x, plate_y),
-            QtCore.QPointF(front_x, low.y()),
-            low,
-            high,
-            QtCore.QPointF(back_x, high.y()),
-            QtCore.QPointF(back_x, plate_y),
-        ])
+        body = QtGui.QPolygonF(
+            [
+                QtCore.QPointF(front_x, plate_y),
+                QtCore.QPointF(front_x, low.y()),
+                low,
+                high,
+                QtCore.QPointF(back_x, high.y()),
+                QtCore.QPointF(back_x, plate_y),
+            ]
+        )
         gradient = QtGui.QLinearGradient(front_x, 0, back_x, 0)
         gradient.setColorAt(0, QtGui.QColor(PRIMARY_COLOR))
         gradient.setColorAt(1, QtGui.QColor("#0a5c9e"))
@@ -503,7 +588,9 @@ class StageDiagram(QtWidgets.QWidget):
             reach = radius + 12 if span >= 0 else -(radius + 12)
             painter.drawLine(foot, QtCore.QPointF(foot.x() + reach, foot.y()))
             painter.drawArc(
-                QtCore.QRectF(foot.x() - radius, foot.y() - radius, 2 * radius, 2 * radius),
+                QtCore.QRectF(
+                    foot.x() - radius, foot.y() - radius, 2 * radius, 2 * radius
+                ),
                 int(start * 16),
                 int(span * 16),
             )
@@ -546,8 +633,12 @@ class StageDiagram(QtWidgets.QWidget):
         painter.setBrush(Qt.NoBrush)
         painter.drawEllipse(QtCore.QPointF(x, y), radius, radius)
         span = radius * 0.62
-        painter.drawLine(QtCore.QPointF(x - span, y - span), QtCore.QPointF(x + span, y + span))
-        painter.drawLine(QtCore.QPointF(x - span, y + span), QtCore.QPointF(x + span, y - span))
+        painter.drawLine(
+            QtCore.QPointF(x - span, y - span), QtCore.QPointF(x + span, y + span)
+        )
+        painter.drawLine(
+            QtCore.QPointF(x - span, y + span), QtCore.QPointF(x + span, y - span)
+        )
 
         font = painter.font()
         font.setPointSize(8)
@@ -558,8 +649,9 @@ class StageDiagram(QtWidgets.QWidget):
             f"≈{self._station_offset_mm:g} mm in x, into the page,\nfrom the SEM / FIB station",
         )
 
-    def _draw_objective(self, painter, cx, cy, angle_degrees: float, from_below: bool,
-                        inserted: bool) -> None:
+    def _draw_objective(
+        self, painter, cx, cy, angle_degrees: float, from_below: bool, inserted: bool
+    ) -> None:
         """The fluorescence objective, as a barrel rather than a beam.
 
         It is a physical lens that travels along z, not a column firing from far away,
@@ -585,10 +677,16 @@ class StageDiagram(QtWidgets.QWidget):
         painter.rotate(angle_degrees + (180.0 if from_below else 0.0))
         painter.setPen(QtGui.QPen(edge, 1))
         painter.setBrush(QtGui.QColor(FM_BARREL_COLOUR))
-        painter.drawPolygon(QtGui.QPolygonF([
-            QtCore.QPointF(-7, -gap), QtCore.QPointF(7, -gap),
-            QtCore.QPointF(15, -gap - length), QtCore.QPointF(-15, -gap - length),
-        ]))
+        painter.drawPolygon(
+            QtGui.QPolygonF(
+                [
+                    QtCore.QPointF(-7, -gap),
+                    QtCore.QPointF(7, -gap),
+                    QtCore.QPointF(15, -gap - length),
+                    QtCore.QPointF(-15, -gap - length),
+                ]
+            )
+        )
         # The front element, so which end faces the sample is never in doubt.
         painter.setPen(Qt.NoPen)
         painter.setBrush(glass)
@@ -606,12 +704,14 @@ class StageDiagram(QtWidgets.QWidget):
         label = "FM objective" + ("" if inserted else "  (retracted)")
         painter.drawText(
             QtCore.QRectF(label_at.x() - 60, label_at.y() - 7, 120, 14),
-            Qt.AlignCenter, label,
+            Qt.AlignCenter,
+            label,
         )
 
     @staticmethod
-    def _draw_beam(painter, cx, cy, angle_degrees, colour, name,
-                   from_below: bool = False) -> None:
+    def _draw_beam(
+        painter, cx, cy, angle_degrees, colour, name, from_below: bool = False
+    ) -> None:
         painter.setPen(QtGui.QPen(QtGui.QColor(colour), 2))
         angle = math.radians(angle_degrees)
         # Below means the objective looks up at the sample, which is where the FM sits
@@ -632,15 +732,24 @@ class StageDiagram(QtWidgets.QWidget):
         painter.setPen(QtGui.QColor(colour))
         painter.drawText(
             QtCore.QRectF(x2 - 34, y2 + (2 if from_below else -16), 68, 14),
-            Qt.AlignCenter, name
+            Qt.AlignCenter,
+            name,
         )
 
 
 class _RailRow(QtWidgets.QWidget):
-    """One step in the left-hand rail."""
+    """One step in the left-hand rail.
+
+    Clickable, but only backwards -- see ``set_navigable``. The rail is the only thing
+    on screen that shows where you are in a sequence, so it is the thing people try to
+    click to get back to somewhere they have been.
+    """
+
+    clicked = pyqtSignal()
 
     def __init__(self, index: int, title: str, parent=None) -> None:
         super().__init__(parent)
+        self._navigable = False
         row = QtWidgets.QHBoxLayout(self)
         row.setContentsMargins(0, 4, 0, 4)
         row.setSpacing(9)
@@ -659,6 +768,23 @@ class _RailRow(QtWidgets.QWidget):
         column.addWidget(self._title)
         column.addWidget(self._note)
         row.addLayout(column, 1)
+
+    def set_navigable(self, navigable: bool) -> None:
+        """Whether clicking this row goes to its step.
+
+        Only steps already visited are navigable. Jumping *forward* would skip the
+        read that happens on leaving a step, so the review would be built from answers
+        the intervening steps never contributed to -- and the point of the review is
+        that it shows what will actually be written.
+        """
+        self._navigable = bool(navigable)
+        self.setCursor(Qt.PointingHandCursor if navigable else Qt.ArrowCursor)
+
+    def mousePressEvent(self, event) -> None:
+        if self._navigable and event.button() == Qt.LeftButton:
+            self.clicked.emit()
+            return
+        super().mousePressEvent(event)
 
     def set_state(self, state: str, note: str = "") -> None:
         """``current``, ``done``, ``skipped`` or ``pending``."""
@@ -688,8 +814,8 @@ class _RailRow(QtWidgets.QWidget):
 # ---------------------------------------------------------------------------
 
 
-class SetupWizardDialog(QtWidgets.QDialog):
-    """Collects the answers in :class:`~fibsem.setup_wizard.SetupChoices` and saves them.
+class GuidedSetupDialog(QtWidgets.QDialog):
+    """Collects the answers in :class:`~fibsem.guided_setup.SetupChoices` and saves them.
 
     ``configuration_saved`` carries the *registered* name, which is not always the name
     that was typed -- ``register_configuration`` suffixes a collision rather than
@@ -773,6 +899,7 @@ class SetupWizardDialog(QtWidgets.QDialog):
         # when the page scrolls past it is worse here than anywhere: the rotation
         # reference is a number nobody re-checks after typing it once.
         install_wheel_blocker_recursive(self)
+        _disable_default_buttons(self)
 
         # Once the stage controls exist. The first _select_model runs while step 1 is
         # still being built, so its prefill had nothing to write into.
@@ -793,6 +920,7 @@ class SetupWizardDialog(QtWidgets.QDialog):
         self._rail_rows: List[_RailRow] = []
         for index, title in enumerate(STEP_TITLES):
             row = _RailRow(index, title)
+            row.clicked.connect(lambda index=index: self._go_back_to_step(index))
             self._rail_rows.append(row)
             column.addWidget(row)
         column.addStretch()
@@ -815,7 +943,9 @@ class SetupWizardDialog(QtWidgets.QDialog):
 
         self.button_next = QtWidgets.QPushButton("Next")
         self.button_next.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
-        self.button_next.setDefault(True)
+        # Deliberately not setDefault(True) -- see _disable_default_buttons. Next is
+        # the primary action by colour, not by catching Return from whatever field
+        # someone is in the middle of typing.
         self.button_next.clicked.connect(self._on_next)
         footer.addWidget(self.button_next)
         return footer
@@ -828,29 +958,35 @@ class SetupWizardDialog(QtWidgets.QDialog):
         column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(8)
 
+        # Manufacturer first. It is the question people can always answer, and it
+        # settles both the column tilts and which vendor API has to be installed --
+        # neither of which the instrument list alone could decide.
+        column.addWidget(_label("Manufacturer", 11, TEXT_COLOR))
+        self._manufacturer_cards = {}
+        for manufacturer in MANUFACTURERS:
+            card = ChoiceCard(
+                manufacturer.label, manufacturer.summary, MANUFACTURER_ICON
+            )
+            card.clicked.connect(
+                lambda key=manufacturer.key: self._select_manufacturer(key)
+            )
+            self._manufacturer_cards[manufacturer.key] = card
+            column.addWidget(card)
+
+        self._instrument_caption = _label("Instrument", 11, TEXT_COLOR)
+        self._instrument_caption.setContentsMargins(0, 8, 0, 0)
+        column.addWidget(self._instrument_caption)
+
+        # Every instrument gets a card, and the ones belonging to other manufacturers
+        # are hidden rather than rebuilt. Rebuilding the list on every manufacturer
+        # click means destroying widgets a signal may still be in the middle of, which
+        # is a crash rather than a glitch; hiding is the boring option.
         self._model_cards = {}
         for model in MICROSCOPE_MODELS:
             card = ChoiceCard(model.label, model.summary, MODEL_ICON)
             card.clicked.connect(lambda key=model.key: self._select_model(key))
             self._model_cards[model.key] = card
             column.addWidget(card)
-
-        # Only asked when the model does not answer it. Shown rather than hidden when
-        # inapplicable would be a second layout to get wrong; the row simply appears.
-        self._manufacturer_row = QtWidgets.QWidget()
-        row = QtWidgets.QHBoxLayout(self._manufacturer_row)
-        row.setContentsMargins(0, 4, 0, 0)
-        row.setSpacing(8)
-        caption = _label("Manufacturer", 11, TEXT_COLOR)
-        caption.setFixedWidth(120)
-        self._manufacturer_combo = QtWidgets.QComboBox()
-        self._manufacturer_combo.addItems(AVAILABLE_MANUFACTURERS)
-        self._manufacturer_combo.setCurrentText(cfg.DEFAULT_MANUFACTURER)
-        self._manufacturer_combo.setFixedWidth(180)
-        row.addWidget(caption)
-        row.addWidget(self._manufacturer_combo)
-        row.addStretch()
-        column.addWidget(self._manufacturer_row)
 
         column.addWidget(
             _label(
@@ -862,15 +998,69 @@ class SetupWizardDialog(QtWidgets.QDialog):
                 wrap=True,
             )
         )
+        # What has to be installed for the choice above to be able to connect. Checked
+        # on this computer rather than stated in general, because "you will need
+        # AutoScript" is not news to someone who already has it, while "AutoScript was
+        # not found here" is the whole problem stated at the moment it can still be
+        # acted on -- rather than at connect time, three steps later.
+        self._api_note = _label("", 10, TEXT_MUTED_COLOR, wrap=True)
+        column.addWidget(self._api_note)
         column.addStretch()
-        self._select_model(self.choices.model_key)
+        self._select_manufacturer(self.choices.manufacturer_key)
         return page
+
+    def _select_manufacturer(self, key: str) -> None:
+        """Choose a manufacturer, and with it the instruments on offer.
+
+        Always lands on an instrument: the previous choice if it belongs to this
+        manufacturer, otherwise the first one listed. Leaving the instrument unset
+        would let Next proceed with a model from the manufacturer just abandoned.
+        """
+        self.choices.manufacturer_key = key
+        for card_key, card in self._manufacturer_cards.items():
+            card.set_selected(card_key == key)
+
+        models = wizard.models_for(key)
+        offered = {model.key for model in models}
+        for card_key, card in self._model_cards.items():
+            card.setVisible(card_key in offered)
+
+        if self.choices.model_key not in offered:
+            self._select_model(models[0].key)
+        else:
+            self._select_model(self.choices.model_key)
+
+    def _update_api_note(self) -> None:
+        manufacturer = self.choices.manufacturer
+        installed = wizard.api_is_installed(manufacturer)
+        if installed is None:
+            self._api_note.setText(
+                "The simulator is built in — there is nothing else to install."
+            )
+            self._api_note.setStyleSheet(_label_style(10, TEXT_MUTED_COLOR))
+            return
+        if installed:
+            self._api_note.setText(
+                f"{manufacturer.api_label} is installed on this computer."
+            )
+            self._api_note.setStyleSheet(_label_style(10, TEXT_MUTED_COLOR))
+            return
+        # Not fatal, and deliberately not blocking: the configuration this wizard
+        # writes is still correct and still worth saving, and the API can be installed
+        # afterwards. What it must not do is let the connection fail later with nothing
+        # pointing back at this step.
+        self._api_note.setText(
+            f"{manufacturer.api_label} was not found on this computer. "
+            f"Connecting to a {manufacturer.label} instrument needs it installed; "
+            "setup can still be finished, and the configuration saved, without it."
+        )
+        self._api_note.setStyleSheet(_label_style(10, WARN_COLOR))
 
     def _select_model(self, key: str) -> None:
         self.choices.model_key = key
         for card_key, card in self._model_cards.items():
             card.set_selected(card_key == key)
-        self._manufacturer_row.setVisible(not wizard.get_model(key).knows_manufacturer)
+        self._update_api_note()
         if self.choices.stage_is_readonly:
             # Answers to a question this model no longer asks. Left in place they would
             # be written anyway -- and for a compustage, whose shipped pair is rotation
@@ -883,6 +1073,10 @@ class SetupWizardDialog(QtWidgets.QDialog):
         if hasattr(self, "_stage_note"):
             self._stage_note.setText("")
         self._update_stage_controls()
+        # Guarded because step 1 is built before step 2, and this runs once during
+        # construction to select the default.
+        if hasattr(self, "_address_edit"):
+            self._update_connection_controls()
         self._update_rail()
 
     def _prefill_stage_from_model(self) -> None:
@@ -910,7 +1104,11 @@ class SetupWizardDialog(QtWidgets.QDialog):
 
         self._location_cards = {}
         for location in COMPUTER_LOCATIONS:
-            card = ChoiceCard(location.label, location.summary, location.icon)
+            card = ChoiceCard(
+                location.label,
+                wizard.location_summary(location, self.choices.manufacturer),
+                location.icon,
+            )
             card.clicked.connect(lambda key=location.key: self._select_location(key))
             self._location_cards[location.key] = card
             column.addWidget(card)
@@ -947,26 +1145,48 @@ class SetupWizardDialog(QtWidgets.QDialog):
         self.choices.location_key = key
         for card_key, card in self._location_cards.items():
             card.set_selected(card_key == key)
+        self._update_connection_controls()
 
-        offline = key == wizard.LOCATION_OFFLINE
-        self._address_edit.setText(wizard.default_address(key))
-        self._address_edit.setEnabled(not offline)
-        self._address_edit.setPlaceholderText("not needed offline" if offline else "")
+    def _update_connection_controls(self) -> None:
+        """Show the connection step as asking, or as already answered.
+
+        The simulator answers it: there is no address to reach and nothing to test.
+        The cards and the field stay on screen, disabled, for the same reason the
+        compustage's stage step does -- an answered question reads as an answer, an
+        absent one reads as an omission.
+        """
+        simulated = self.choices.is_simulator
+        manufacturer = self.choices.manufacturer
+        for key, card in self._location_cards.items():
+            card.setEnabled(not simulated)
+            # "alongside xT" rather than "alongside xT or Essence", which names one
+            # piece of software the reader does not have.
+            card.set_summary(
+                wizard.location_summary(wizard.get_location(key), manufacturer)
+            )
+
+        self._address_edit.setText(
+            "" if simulated else wizard.default_address(self.choices.location_key)
+        )
+        self._address_edit.setEnabled(not simulated)
+        self._address_edit.setPlaceholderText(
+            "no address to reach" if simulated else ""
+        )
         self._address_hint.setText(
             ""
-            if offline
+            if simulated
             else "Prefilled from the choice above. On the microscope PC itself this "
             "would be localhost."
         )
-        self.button_test.setEnabled(not offline and self._external_microscope is None)
+        self.button_test.setEnabled(not simulated and self._external_microscope is None)
 
-        if offline:
+        if simulated:
             self._connection_status.show_status(
                 "mdi:cloud-off-outline",
                 TEXT_MUTED_COLOR,
                 "Simulator",
-                "No instrument to reach. Stage settings come from the configuration "
-                "you picked, and everything runs against the simulator.",
+                "Nothing to reach. You chose the simulator, so this step has no "
+                "address to collect and no connection to prove.",
             )
         elif self._external_microscope is not None:
             # Defensively read: this paints a status card from a slot, where an
@@ -1004,7 +1224,12 @@ class SetupWizardDialog(QtWidgets.QDialog):
             f"Reaching {self.choices.address or 'the instrument'}.",
         )
 
-        self._worker = FunctionWorker(self._connect, self._current_manufacturer())
+        # The manufacturer is always known now -- it was the first question -- so the
+        # test connects as what the configuration will say, rather than as whatever the
+        # shipped starting file happened to name.
+        self._worker = FunctionWorker(
+            self._connect, self.choices.manufacturer.config_value
+        )
         self._worker.returned.connect(self._on_connected)
         self._worker.errored.connect(self._on_connect_failed)
         self._worker.start()
@@ -1094,13 +1319,21 @@ class SetupWizardDialog(QtWidgets.QDialog):
         read_layout.addLayout(row)
         self._stage_note = _label("", 10, TEXT_MUTED_COLOR, wrap=True)
         read_layout.addWidget(self._stage_note)
+        # Its own label rather than sharing ``_stage_note``, which carries transient
+        # results -- a read, an error, a prompt to connect. This one is a standing
+        # caution about the frame the numbers are in, and it must not be cleared by
+        # the next thing that happens to have something to say.
+        self._coordinate_note = _label("", 10, WARN_COLOR, wrap=True)
+        read_layout.addWidget(self._coordinate_note)
         column.addWidget(read)
 
         tilt = _panel()
         tilt_layout = QtWidgets.QVBoxLayout(tilt)
         tilt_layout.setContentsMargins(14, 12, 14, 12)
         tilt_layout.setSpacing(8)
-        tilt_layout.addWidget(_label("Shuttle pre-tilt", 12, TEXT_STRONG_COLOR, bold=True))
+        tilt_layout.addWidget(
+            _label("Shuttle pre-tilt", 12, TEXT_STRONG_COLOR, bold=True)
+        )
         self._pre_tilt_blurb = _label("", 10, TEXT_MUTED_COLOR, wrap=True)
         tilt_layout.addWidget(self._pre_tilt_blurb)
         self._pre_tilt_spin = QtWidgets.QDoubleSpinBox()
@@ -1156,6 +1389,10 @@ class SetupWizardDialog(QtWidgets.QDialog):
         editable = self.choices.stage_is_editable
         self._rotation_spin.setEnabled(editable)
         self._pre_tilt_spin.setEnabled(editable)
+        # Empty for anything the caution would not be true of -- a compustage is driven
+        # in SPECIMEN rather than RAW, and Tescan and the simulator have no xT to
+        # disagree with.
+        self._coordinate_note.setText(self.choices.stage_coordinate_note)
         if not editable:
             self.button_read_stage.setEnabled(False)
             self._rotation_blurb.setText(
@@ -1346,7 +1583,12 @@ class SetupWizardDialog(QtWidgets.QDialog):
         except Exception as e:  # pragma: no cover - unreadable shipped file
             logger.warning(f"Could not build the configuration summary: {e}")
             self._summary_layout.addWidget(
-                _label(f"Could not read the base configuration: {e}", 11, FAIL_RED, wrap=True)
+                _label(
+                    f"Could not read the base configuration: {e}",
+                    11,
+                    FAIL_RED,
+                    wrap=True,
+                )
             )
             return
 
@@ -1355,16 +1597,35 @@ class SetupWizardDialog(QtWidgets.QDialog):
         # "from the shipped configuration" is said rather than left implicit: a value
         # nobody typed still ends up in the file, and it should be visible that it was
         # chosen for them rather than by them.
-        from_file = " (from the shipped configuration)" if self.choices.stage_is_readonly else ""
+        from_file = (
+            " (from the shipped configuration)"
+            if self.choices.stage_is_readonly
+            else ""
+        )
         rows = [
-            ("Microscope", self.choices.model.label),
-            ("Computer", self.choices.location.label),
-            ("Address", info.get("ip_address") or "not used offline"),
+            # Read back from the built configuration rather than from the card that was
+            # clicked: this screen's job is to show what is about to be written, and
+            # "Thermo" is what the file will say.
             ("Manufacturer", info.get("manufacturer", "")),
+            ("Microscope", self.choices.model.label),
+            (
+                "Computer",
+                "not applicable"
+                if self.choices.is_simulator
+                else self.choices.location.label,
+            ),
+            (
+                "Address",
+                info.get("ip_address") or "none — running against the simulator",
+            ),
             (
                 "Reference rotation",
                 f"{float(stage.get('rotation_reference', 0)):.2f}°"
-                + (f" ({self._stage_read})" if self._stage_read and self.choices.stage_is_editable else from_file),
+                + (
+                    f" ({self._stage_read})"
+                    if self._stage_read and self.choices.stage_is_editable
+                    else from_file
+                ),
             ),
             (
                 "Shuttle pre-tilt",
@@ -1415,11 +1676,14 @@ class SetupWizardDialog(QtWidgets.QDialog):
         for index, row in enumerate(self._rail_rows):
             # The note travels with the step whatever state it is in, because it says
             # something about the step rather than about where you are in the wizard.
-            note = (
-                "set by the configuration"
-                if index == STEP_STAGE and self.choices.stage_is_readonly
-                else ""
-            )
+            note = ""
+            if index == STEP_STAGE and self.choices.stage_is_readonly:
+                note = "set by the configuration"
+            elif index == STEP_CONNECTION and self.choices.is_simulator:
+                note = "nothing to reach"
+            # Only what is behind you can be clicked. A step you have not reached has
+            # nothing to go back to.
+            row.set_navigable(index < self._index)
             if self._is_skipped(index):
                 row.set_state("skipped", note)
             elif index == self._index:
@@ -1454,6 +1718,22 @@ class SetupWizardDialog(QtWidgets.QDialog):
         if index >= STEP_MICROSCOPE:
             self._show_step(index)
 
+    def _go_back_to_step(self, index: int) -> None:
+        """Jump straight to an earlier step from the rail.
+
+        Backwards only, and guarded here rather than trusted from the caller: the rail
+        row that emitted this is only navigable while it is behind the current step,
+        but the two are updated from different places and a forward jump would skip
+        the steps in between.
+
+        Deliberately does not read the current step's controls, matching Back. Widgets
+        keep what was typed, so nothing is lost -- the value simply is not written into
+        ``choices`` until the step is left forwards.
+        """
+        if index < STEP_MICROSCOPE or index >= self._index:
+            return
+        self._show_step(index)
+
     def _on_next(self) -> None:
         self._read_current_step()
         if self._index == STEP_REVIEW:
@@ -1469,16 +1749,14 @@ class SetupWizardDialog(QtWidgets.QDialog):
         On leaving rather than on every keystroke: the review step is built from
         ``choices``, so it only has to be right at the moment it is read.
         """
-        if self._index == STEP_MICROSCOPE:
-            self.choices.manufacturer = (
-                self._manufacturer_combo.currentText()
-                if self.choices.needs_manufacturer
-                else None
+        if self._index == STEP_CONNECTION:
+            # The simulator has no address, and the field is disabled rather than
+            # cleared-and-enabled, so read it only when the step actually asked.
+            self.choices.address = (
+                self._address_edit.text().strip()
+                if self.choices.connection_is_editable
+                else ""
             )
-        elif self._index == STEP_CONNECTION:
-            self.choices.address = self._address_edit.text().strip()
-            if self.choices.is_offline:
-                self.choices.address = ""
         elif self._index == STEP_STAGE and self.choices.stage_is_editable:
             # Only when the step asked. Reading the disabled controls back would turn
             # "the wizard did not ask" into "the user answered 0", and the derivation
@@ -1487,19 +1765,14 @@ class SetupWizardDialog(QtWidgets.QDialog):
             self.choices.rotation_reference = self._rotation_spin.value()
             self.choices.shuttle_pre_tilt = self._pre_tilt_spin.value()
         elif self._index == STEP_FOLDERS:
-            self.choices.configuration_directory = self._configuration_dir.text().strip()
+            self.choices.configuration_directory = (
+                self._configuration_dir.text().strip()
+            )
             self.choices.experiment_directory = self._experiment_dir.text().strip()
             self.choices.protocol_path = self._protocol_file.text().strip()
         elif self._index == STEP_REVIEW:
             self.choices.name = self._name_edit.text().strip()
             self.choices.set_as_default = self._default_check.isChecked()
-
-    def _current_manufacturer(self) -> Optional[str]:
-        if self.choices.is_offline:
-            return "Demo"
-        if self.choices.needs_manufacturer:
-            return self._manufacturer_combo.currentText()
-        return None
 
     # -- finishing ----------------------------------------------------------
 
@@ -1517,7 +1790,7 @@ class SetupWizardDialog(QtWidgets.QDialog):
         try:
             result = wizard.apply_setup(self.choices)
         except Exception as e:
-            logger.error(f"Setup wizard could not save the configuration: {e}")
+            logger.error(f"Guided setup could not save the configuration: {e}")
             QtWidgets.QMessageBox.critical(
                 self,
                 "Could not save the configuration",
@@ -1526,9 +1799,8 @@ class SetupWizardDialog(QtWidgets.QDialog):
             )
             return
 
-        message = (
-            f"Saved {result.configuration_name} to {result.path}."
-            + ("\n\nIt is now the default configuration." if result.is_default else "")
+        message = f"Saved {result.configuration_name} to {result.path}." + (
+            "\n\nIt is now the default configuration." if result.is_default else ""
         )
         if result.warnings:
             message += "\n\n" + "\n".join(result.warnings)
@@ -1561,9 +1833,9 @@ class SetupWizardDialog(QtWidgets.QDialog):
         super().done(result)
 
 
-def open_setup_wizard(parent=None, microscope=None) -> Optional[str]:
+def open_guided_setup(parent=None, microscope=None) -> Optional[str]:
     """Run the wizard modally; return the saved configuration name, or None."""
-    dialog = SetupWizardDialog(parent=parent, microscope=microscope)
+    dialog = GuidedSetupDialog(parent=parent, microscope=microscope)
     saved: List[str] = []
     dialog.configuration_saved.connect(saved.append)
     dialog.exec_()
@@ -1576,7 +1848,7 @@ def main():  # pragma: no cover - manual harness
 
     app = QtWidgets.QApplication(sys.argv)
     app.setStyleSheet(stylesheets.NAPARI_STYLE)
-    print(open_setup_wizard())
+    print(open_guided_setup())
     sys.exit(0)
 
 
