@@ -35,9 +35,11 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     Lamella,
 )
 from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (  # noqa: E402
+    BUTTON_ICON_SIZE,
     EXPERIMENT_MENU_MAX_WIDTH,
     AutoLamellaSingleWindowUI,
     experiment_tooltip,
+    set_button_icon,
 )
 
 
@@ -229,3 +231,24 @@ class TestExperimentTooltip:
 
         assert "a&lt;b&gt;&amp;c" in tip
         assert "<b>&c" not in tip
+
+
+def test_button_icon_size_grows_with_its_padding(qapp):
+    """The icon box has to widen by the gap, or the glyph shrinks instead.
+
+    Qt scales a button's icon into `iconSize`, so padding the pixmap without
+    widening that box squeezes the drawing back down rather than pushing the text
+    across -- a failure that looks like a slightly small icon and nothing else.
+    """
+    button = QPushButton("Experiment")
+
+    set_button_icon(button, "mdi:flask-outline", gap=5)
+
+    assert button.iconSize().width() == BUTTON_ICON_SIZE + 5
+    assert button.iconSize().height() == BUTTON_ICON_SIZE
+    # The glyph itself keeps its square, with the gap as transparent padding.
+    drawn = button.icon().pixmap(button.iconSize())
+    ratio = drawn.devicePixelRatio() or 1.0
+    assert round(drawn.width() / ratio) == BUTTON_ICON_SIZE + 5
+    assert round(drawn.height() / ratio) == BUTTON_ICON_SIZE
+    button.deleteLater()

@@ -244,9 +244,14 @@ SECONDARY_BUTTON_STYLESHEET = f"""
 # A QPushButton that opens a menu. Qt stops drawing the native menu arrow as soon
 # as the button carries a stylesheet, so the chevron has to be put back by hand --
 # without it the control looks like a plain button and nothing says it opens.
+#
+# The contents are left-aligned because the chevron is pinned to the right edge:
+# centred, a button wider than its label splits the slack evenly and pushes the
+# label away from the left padding, which reads as a gap rather than as balance.
 MENU_BUTTON_STYLESHEET = SECONDARY_BUTTON_STYLESHEET + """
     QPushButton {
-        padding-right: 24px;
+        text-align: left;
+        padding-right: 20px;
     }
     QPushButton::menu-indicator {
         image: url("__ICONS_DIR__/chevron_down.svg");
