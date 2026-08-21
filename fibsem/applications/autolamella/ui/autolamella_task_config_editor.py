@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.applications.autolamella.ui.add_task_dialog import AddTaskDialog
 from fibsem.applications.autolamella.ui.autolamella_fluorescence_acquisition_task_config_widget import (
     AutoLamellaFluorescenceAcquisitionTaskConfigWidget,
 )
@@ -80,8 +81,8 @@ if TYPE_CHECKING:
     from fibsem.structures import ReferenceImageParameters
 
 
-class AddTaskDialog(QDialog):
-    """Dialog for adding a new task to the protocol."""
+class _LegacyAddTaskDialog(QDialog):
+    """Superseded by add_task_dialog.AddTaskDialog; removed in the next commit."""
 
     def __init__(
         self, existing_task_config: Dict[str, Any], parent: Optional[QWidget] = None
@@ -639,7 +640,11 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
     def _on_add_task_clicked(self):
         """Show dialog to add a new task."""
-        dialog = AddTaskDialog(self.experiment.task_protocol.task_config, parent=self)  # type: ignore
+        dialog = AddTaskDialog(
+            self.experiment.task_protocol.task_config,  # type: ignore[arg-type]
+            lamella_count=len(self.experiment.positions),
+            parent=self,
+        )
         if dialog.exec_() == QDialog.Accepted:
             task_type, task_name = dialog.get_task_info()
             if task_type and task_name:
