@@ -14,6 +14,10 @@ import fibsem.constants as constants
 from fibsem.microscope import FibsemMicroscope
 
 TESCAN_API_AVAILABLE = False
+# Read through this rather than importing tescanautomation yourself: the guarded
+# import below is also what strips the SDK's PySide6 GUI modules out of
+# sys.modules, and that has to have happened first.
+TESCAN_API_VERSION: Optional[str] = None
 TESCAN_BEAM_READY_TIMEOUT = 60                     # Max time in seconds to wait for the beam to become ready (busy-wait when using Tescanautomation API)
 TESCAN_PRESERVE_SETTINGS_ON_PRESET_CHANGE = True   # Restore rotation/FOV/shift across preset changes, if false, use the values stored in the preset
 SPOT_BURN_POLL_INTERVAL = 1                        # Seconds between DrawBeam status polls while a spot is exposing
@@ -37,6 +41,10 @@ try:
     sys.modules.pop("tescanautomation.pyside6gui.workflow_private")
     sys.modules.pop("PySide6.QtCore")
     TESCAN_API_AVAILABLE = True
+    # getattr, not attribute access: this runs inside the try, so an SDK build
+    # without __version__ would otherwise be caught below and disable the whole
+    # Tescan backend over a missing version string.
+    TESCAN_API_VERSION = getattr(tescanautomation, "__version__", None)
 except Exception as e:
     logging.debug(f"Automation (TESCAN) not installed. {e}")
 
