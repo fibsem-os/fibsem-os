@@ -72,3 +72,4 @@ jobs:
     - run: python -m pip install ruff==0.16.3
     # --output-format=github annotates the diff instead of only failing the job.
     - run: ruff check --output-format=github .
+    - run: ruff format --check .
