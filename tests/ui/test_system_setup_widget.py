@@ -116,6 +116,42 @@ def test_an_unexpected_failure_is_caught_too(widget, monkeypatch, toasts):
     assert widget.microscope is None
 
 
+def test_a_failed_connection_is_visible_without_toasts(widget, monkeypatch, toasts):
+    """Toasts are off by default (`display.toasts_enabled`), and `show_toast`
+    deliberately does not reach notification history -- so a toast alone would turn
+    the crash this guards against into silence. The status card is always on screen.
+    """
+    _fail_to_connect(monkeypatch, Exception(AUTOSCRIPT_MISSING))
+    monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: "/some/path.yaml")
+
+    widget.connect_to_microscope()
+
+    # "Not connected" and "tried and failed" are different states, and the difference
+    # is the whole of what someone needs here.
+    assert widget._label_status_title.text() == "Connection Failed"
+    assert "not installed" in widget._label_status_subtitle.text()
+
+
+def test_a_retry_does_not_show_the_previous_reason(widget, monkeypatch, toasts):
+    """Stale text beside a connection being made reads as a fresh failure."""
+    _fail_to_connect(monkeypatch, Exception(AUTOSCRIPT_MISSING))
+    monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: "/some/path.yaml")
+    widget.connect_to_microscope()
+    assert widget._label_status_title.text() == "Connection Failed"
+
+    # A configuration that is never selected returns before connecting at all.
+    monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: None)
+    widget.connect_to_microscope()
+
+    assert widget._last_connection_error is None
+
+
+def test_a_never_attempted_connection_says_so_plainly(widget):
+    """Nothing has failed yet, so the card must not imply something has."""
+    assert widget._label_status_title.text() == "Not Connected"
+    assert widget._label_status_subtitle.text() == "No microscope connected"
+
+
 def test_a_failed_disconnect_does_not_escape_the_slot(widget, toasts):
     """Disconnecting can fail for ordinary reasons -- the instrument went away, the
     client is already dead -- and none are worth losing the application over."""

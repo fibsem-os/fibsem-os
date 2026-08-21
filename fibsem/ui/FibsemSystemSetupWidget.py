@@ -33,6 +33,11 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
 
         self.microscope: Optional[FibsemMicroscope] = None
         self.settings: Optional[MicroscopeSettings] = None
+        # Why the last attempt failed, or None if the last thing that happened was not
+        # a failure. Held rather than only toasted: toasts are off by default
+        # (`display.toasts_enabled`), so a toast alone turns the crash this guards
+        # against into silence, which is not much of an improvement.
+        self._last_connection_error: Optional[str] = None
 
         # grid layout
         self.gridLayout = QtWidgets.QGridLayout(self)
@@ -241,6 +246,9 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         )
 
         self._label_status_subtitle = QtWidgets.QLabel("")
+        # Wrapped, because this now carries the reason a connection failed -- a full
+        # sentence from the backend rather than a two-word status.
+        self._label_status_subtitle.setWordWrap(True)
         self._label_status_subtitle.setStyleSheet(
             f"background-color: transparent; color: {NEUTRAL_500}; font-size: 10px; border: none;"
         )
@@ -409,6 +417,9 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
             # back to a working connection.
             self.microscope, self.settings = None, None
         else:
+            # Cleared before the attempt, so a retry never shows the previous reason
+            # beside a connection that is still being made.
+            self._last_connection_error = None
             notification_service.show_toast("Connecting to microscope...", "info")
 
             configuration_path = self.load_configuration(None)
@@ -435,6 +446,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
                 # narrower except would leave the abort in place for the exception
                 # nobody predicted, which is the one that will happen.
                 self.microscope, self.settings = None, None
+                self._last_connection_error = str(e)
                 logging.error(f"Could not connect to the microscope: {e}")
                 notification_service.show_toast(f"Could not connect: {e}", "error")
             else:
@@ -495,11 +507,22 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
             )
             self.disconnected_signal.emit()
 
+            # "Not connected" and "tried and failed" are different states, and the
+            # difference is exactly what someone needs. The card says which, and it is
+            # on screen regardless of whether toasts are enabled.
+            failed = self._last_connection_error is not None
             self._label_status_icon.setPixmap(
-                fibsem_icon("mdi:close-circle", color="#f44336").pixmap(20, 20)
+                fibsem_icon(
+                    "mdi:alert-circle" if failed else "mdi:close-circle",
+                    color="#f44336",
+                ).pixmap(20, 20)
             )
-            self._label_status_title.setText("Not Connected")
-            self._label_status_subtitle.setText("No microscope connected")
+            self._label_status_title.setText(
+                "Connection Failed" if failed else "Not Connected"
+            )
+            self._label_status_subtitle.setText(
+                self._last_connection_error or "No microscope connected"
+            )
             self._button_disconnect.setVisible(False)
 
 
