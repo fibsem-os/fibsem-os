@@ -1422,12 +1422,18 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         is_connected = self.autolamella_ui.microscope is not None
         experiment = self.autolamella_ui.experiment
         is_experiment_loaded = experiment is not None
+        # Carried here from the panel, which used to render the same ladder into a
+        # label of its own: an experiment with no protocol cannot run anything, and
+        # this was the one rung the status bar did not have.
+        is_protocol_loaded = self.autolamella_ui.protocol is not None
         has_positions = is_experiment_loaded and len(experiment.positions) > 0
 
         if not is_connected:
             msg = INSTRUCTIONS["NOT_CONNECTED"]
         elif not is_experiment_loaded:
             msg = INSTRUCTIONS["NO_EXPERIMENT"]
+        elif not is_protocol_loaded:
+            msg = INSTRUCTIONS["NO_PROTOCOL"]
         elif not has_positions:
             msg = INSTRUCTIONS["NO_LAMELLA"]
         else:
