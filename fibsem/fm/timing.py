@@ -120,7 +120,8 @@ def estimate_autofocus_time(
     channel = None
     if autofocus_settings.channel_name:
         channel = next(
-            (c for c in channel_settings if c.name == autofocus_settings.channel_name), None
+            (c for c in channel_settings if c.name == autofocus_settings.channel_name),
+            None,
         )
     if channel is None:
         channel = channel_settings[0]
