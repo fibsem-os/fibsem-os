@@ -17,6 +17,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
+from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QLabel
 
 from fibsem.fm.structures import (
@@ -1333,14 +1334,36 @@ def test_the_marker_lands_where_an_image_acquired_there_is_placed(
 # ── canvas interaction ───────────────────────────────────────────────────
 
 
-class _SynchronousWorker:
-    """Stands in for FunctionWorker so a test can see the outcome, not a thread."""
+class _SynchronousWorker(QObject):
+    """Stands in for FunctionWorker so a test can see the outcome, not a thread.
+
+    Mirrors the whole signal contract, not the subset the code under test happened to
+    use when this was written: `started`, then `returned` or `errored`, then always
+    `finished`. The exception is caught and re-emitted rather than propagated, which is
+    what the real worker does -- a stub that let it escape would make the caller's error
+    handling untestable, and a stub missing the signals altogether is what made
+    `move_to`'s failure path unreachable from a test at all (FIB-765).
+    """
+
+    started = pyqtSignal()
+    returned = pyqtSignal(object)
+    errored = pyqtSignal(object)
+    finished = pyqtSignal()
 
     def __init__(self, fn, *args, **kwargs):
+        super().__init__()
         self.fn, self.args, self.kwargs = fn, args, kwargs
 
     def start(self):
-        self.fn(*self.args, **self.kwargs)
+        self.started.emit()
+        try:
+            result = self.fn(*self.args, **self.kwargs)
+        except Exception as error:
+            self.errored.emit(error)
+        else:
+            self.returned.emit(result)
+        finally:
+            self.finished.emit()
 
     def is_alive(self):
         return False

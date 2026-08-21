@@ -299,6 +299,9 @@ class FMOverviewWidget(QWidget):
         # re-enable a tab whose acquisition is still going, nor the reverse. See
         # `_apply_enabled_state`, which is the only thing that reads them.
         self._running = False
+        # Set by `_on_move_errored` so `_on_move_finished`, which always runs, knows
+        # not to clear a message the failure has just put up.
+        self._move_failed: bool = False
         self._lock_reason = "a workflow is running"
         self._interactive = True
 
@@ -2047,6 +2050,8 @@ class FMOverviewWidget(QWidget):
 
         self.status.setText(f"Moving to {self._describe(position)}…")
         worker = FunctionWorker(self._move_worker, position)
+        worker.errored.connect(self._on_move_errored)
+        worker.finished.connect(self._on_move_finished)
         worker.start()
 
     def _on_canvas_right_clicked(self, x: float, y: float, modifiers=None) -> None:
@@ -2146,18 +2151,50 @@ class FMOverviewWidget(QWidget):
         return target
 
     def _move_worker(self, target: FibsemStagePosition) -> None:
-        """Runs off the GUI thread. Only signals may cross back."""
+        """Runs off the GUI thread. Only signals may cross back.
+
+        The exception is deliberately not caught. `FunctionWorker` logs it with a
+        traceback and re-emits it as `errored` on the GUI thread, which is the only way
+        the widget can tell a failed move from a finished one -- swallowing it here left
+        the status line reading "Moving to …" for the rest of the session (FIB-765).
+        """
         try:
             self.microscope.safe_absolute_stage_movement(target)
-        except Exception as e:
-            logging.error(f"Could not move the stage: {e}", exc_info=True)
-        # Publishes the new position through `stage_position_changed`, which is what
-        # re-marks it -- rather than assuming the stage arrived exactly where it was
-        # asked to, which on a real instrument it does not.
-        try:
-            self.microscope.get_stage_position()
-        except Exception as e:
-            logging.debug(f"Could not confirm the stage position after moving: {e}")
+        finally:
+            # In a `finally`, so it runs on the failing path too: a move that stopped
+            # part-way has still left the stage somewhere, and the marker should say
+            # where rather than where it set off from.
+            #
+            # Publishes the new position through `stage_position_changed`, which is what
+            # re-marks it -- rather than assuming the stage arrived exactly where it was
+            # asked to, which on a real instrument it does not.
+            try:
+                self.microscope.get_stage_position()
+            except Exception as e:
+                logging.debug(f"Could not confirm the stage position after moving: {e}")
+
+    def _on_move_errored(self, error: object) -> None:
+        """The stage did not get there. Say that, rather than leaving "Moving to …" up."""
+        self._move_failed = True
+        self.status.setText(f"Could not move the stage: {error}")
+        notification_service.show_toast("Could not move the stage.", "error")
+
+    def _on_move_finished(self) -> None:
+        """Always runs, after `errored` when there was one.
+
+        A failure has already put its own message up and that should stand; only a
+        success replaces the "Moving to …" line. What it is replaced with is where the
+        stage actually got to, read back by the worker rather than assumed from the
+        target.
+        """
+        if self._move_failed:
+            self._move_failed = False
+            return
+        position = self._current_stage_position()
+        if position is None:
+            self.status.setText("Moved.")
+            return
+        self.status.setText(f"At {self._describe(position)}")
 
     def _on_grid_move(self, x: float, y: float) -> None:
         """The grid was dragged: plan the next overview around the point it landed on.
