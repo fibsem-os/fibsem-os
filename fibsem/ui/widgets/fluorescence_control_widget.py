@@ -303,8 +303,13 @@ class FMControlWidget(QWidget):
         # Debounced auto-save of the FM working state on any settings change, so
         # edits persist even if the app is force-killed before closeEvent runs.
         from superqt.utils import qdebounced
-        self._autosave_fm_configuration = qdebounced(self.save_fm_configuration, timeout=1000)
-        self.channelSettingsWidget.settings_changed.connect(self._on_fm_settings_changed)
+
+        self._autosave_fm_configuration = qdebounced(
+            self.save_fm_configuration, timeout=1000
+        )
+        self.channelSettingsWidget.settings_changed.connect(
+            self._on_fm_settings_changed
+        )
         self.cameraWidget.settings_changed.connect(self._on_fm_settings_changed)
         self.autofocusWidget.settings_changed.connect(self._on_fm_settings_changed)
         self.zParametersWidget.settings_changed.connect(self._on_fm_settings_changed)
@@ -326,7 +331,9 @@ class FMControlWidget(QWidget):
             # canvas outlives this widget, so a leaked connection would drive a stale
             # stage move through a destroyed widget
             self._fm_canvas = controller.fm_canvas
-            self._fm_canvas.canvas_double_clicked.connect(self._on_canvas_fm_double_click)
+            self._fm_canvas.canvas_double_clicked.connect(
+                self._on_canvas_fm_double_click
+            )
             self._fm_canvas.canvas_scrolled.connect(
                 self.objectiveControlWidget._on_canvas_scroll
             )
@@ -370,8 +377,14 @@ class FMControlWidget(QWidget):
 
         if self._fm_canvas is not None:
             for signal, slot in (
-                (self._fm_canvas.canvas_double_clicked, self._on_canvas_fm_double_click),
-                (self._fm_canvas.canvas_scrolled, self.objectiveControlWidget._on_canvas_scroll),
+                (
+                    self._fm_canvas.canvas_double_clicked,
+                    self._on_canvas_fm_double_click,
+                ),
+                (
+                    self._fm_canvas.canvas_scrolled,
+                    self.objectiveControlWidget._on_canvas_scroll,
+                ),
             ):
                 try:
                     signal.disconnect(slot)
@@ -562,8 +575,11 @@ class FMControlWidget(QWidget):
                 # and says which pass, so a coarse sweep followed by a fine one does
                 # not look like the same bar inexplicably starting over.
                 total_passes = progress.get("total_passes", 1)
-                which = (f" · pass {progress.get('pass_index', 1)}/{total_passes}"
-                         if total_passes > 1 else "")
+                which = (
+                    f" · pass {progress.get('pass_index', 1)}/{total_passes}"
+                    if total_passes > 1
+                    else ""
+                )
                 label = f"Focus {progress_zlevels}/{progress_total_zlevels}{which}"
             else:
                 label = f"Z-level {progress_zlevels}/{progress_total_zlevels}"
@@ -1003,8 +1019,9 @@ class FMControlWidget(QWidget):
         """Worker thread for auto-focus."""
         try:
             ranges = ", ".join(
-                f"{p.search_range*1e6:.1f}µm/{p.step_size*1e6:.1f}µm"
-                for p in autofocus_settings.passes if p.enabled
+                f"{p.search_range * 1e6:.1f}µm/{p.step_size * 1e6:.1f}µm"
+                for p in autofocus_settings.passes
+                if p.enabled
             )
             logging.info(
                 f"Running auto-focus: {len(autofocus_settings.passes)} pass(es) [{ranges}], "
@@ -1102,6 +1119,7 @@ class FMControlWidget(QWidget):
         if self.microscope.fm is None:
             return
         from fibsem.fm.config import save_fm_configuration
+
         try:
             save_fm_configuration(self._build_fluorescence_configuration())
         except Exception as e:
