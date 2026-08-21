@@ -132,7 +132,10 @@ from fibsem.structures import (
     RangeLimit,
     SystemSettings,
 )
-from fibsem.transformations import get_stage_tilt_from_milling_angle
+from fibsem.transformations import (
+    get_stage_tilt_from_milling_angle,
+    inverse_view_corrected_dy,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -1418,6 +1421,23 @@ class FibsemMicroscope(ABC):
 
         Inverse of :meth:`_view_corrected_stage_movement`.
 
+        Deferred to :func:`fibsem.transformations.inverse_view_corrected_dy` rather than
+        derived here. This method used to carry its own copy of the trigonometry, as did
+        `imaging/tiling/reprojection.py`, so one decision about the geometry lived in
+        three places and only stayed consistent by everyone editing all three. They now
+        share the one implementation, which is what `transformations` was extracted for.
+
+        Two consequences, both wanted:
+
+        * **No hardware read for the orientation.** The old copy asked
+          `get_stage_orientation()` to decide whether a compustage was at the FIB pose;
+          the shared version derives it from the pose it was handed. The stage position
+          is still read here, because "the current pose" is this method's contract.
+        * **The compustage FIB test gains the rotation term** the live path always had
+          and the tiled copy lacked (FIB-500). Only reachable poses matter and none
+          change: a compustage has no rotation axis, so the combinations that differ --
+          tilt -128 with a non-zero rotation -- cannot be produced by any acquisition.
+
         Args:
             dy: actual y stage movement
             dz: actual z stage movement
@@ -1426,75 +1446,15 @@ class FibsemMicroscope(ABC):
         Returns:
             float: expected_y input that would produce the given dy, dz movements
         """
-
-        # all angles in radians
-        sem_column_tilt = np.deg2rad(self.system.electron.column_tilt)
-
-        stage_pretilt = np.deg2rad(self.system.stage.shuttle_pre_tilt)
-
-        stage_rotation_flat_to_eb = np.deg2rad(
-            self.system.stage.rotation_reference
-        ) % (2 * np.pi)
-        stage_rotation_flat_to_ion = np.deg2rad(
-            self.system.stage.rotation_180
-        ) % (2 * np.pi)
-
-        # current stage position
-        current_stage_position = self.get_stage_position()
-        stage_rotation = current_stage_position.r % (2 * np.pi) if current_stage_position.r is not None else 0.0
-        stage_tilt = current_stage_position.t if current_stage_position.t is not None else 0.0
-
-        # Handle compustage case. This mirrors the forward's sign handling: it flips
-        # expected_y once for compustage, then a second time at the FIB orientation,
-        # so the two flips cancel there. The sign is +/-1, hence self-inverse, and is
-        # applied to the recovered expected_y below.
-        compustage_sign = 1.0
-        if self.stage_is_compustage:
-            compustage_sign = -1.0
-            stage_tilt += np.pi
-
-        PRETILT_SIGN = 1.0
-        # pretilt angle depends on rotation
-        from fibsem import movement
-        if movement.rotation_angle_is_smaller(stage_rotation, stage_rotation_flat_to_eb, atol=5):
-            PRETILT_SIGN = 1.0
-        if movement.rotation_angle_is_smaller(stage_rotation, stage_rotation_flat_to_ion, atol=5):
-            PRETILT_SIGN = -1.0
-
-        if self.stage_is_compustage and self.get_stage_orientation() == "FIB":
-            compustage_sign = 1.0  # the forward's second flip cancels the first
-            PRETILT_SIGN = -1.0
-
-        corrected_pretilt_angle = PRETILT_SIGN * (stage_pretilt + sem_column_tilt)
-
-        # perspective tilt adjustment
-        perspective_tilt_adjustment = -corrected_pretilt_angle - view_tilt
-
-        # Reverse the calculations from the forward function:
-        # Forward: y_move = y_sample_move * cos(corrected_pretilt_angle)
-        # Forward: z_move = -y_sample_move * sin(corrected_pretilt_angle)
-        # Therefore: y_sample_move can be calculated from either dy or dz
-
-        # Calculate y_sample_move from dy and dz (should be consistent)
-        cos_pretilt = np.cos(corrected_pretilt_angle)
-        sin_pretilt = np.sin(corrected_pretilt_angle)
-
-        if abs(cos_pretilt) > abs(sin_pretilt):
-            # Use dy calculation when cos component is larger
-            y_sample_move = dy / cos_pretilt
-        else:
-            # Use dz calculation when sin component is larger
-            y_sample_move = -dz / sin_pretilt
-
-        # Reverse: expected_y = y_sample_move * cos(stage_tilt + perspective_tilt_adjustment)
-        expected_y = y_sample_move * np.cos(stage_tilt + perspective_tilt_adjustment)
-
-        # Apply compustage correction if needed
-        if self.stage_is_compustage:
-            expected_y *= compustage_sign
-
-        return expected_y
-
+        position = self.get_stage_position()
+        return inverse_view_corrected_dy(
+            dy=dy,
+            dz=dz,
+            view_tilt=view_tilt,
+            geometry=self.hardware_geometry(),
+            stage_rotation=position.r if position.r is not None else 0.0,
+            stage_tilt=position.t if position.t is not None else 0.0,
+        )
     def _fm_image_to_stage_delta(self, dx: float, dy: float) -> Tuple[float, float]:
         """Map a displacement in the displayed FM image onto stage axes.
 

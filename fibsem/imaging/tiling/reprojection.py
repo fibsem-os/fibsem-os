@@ -22,6 +22,7 @@ from fibsem.structures import (
     FibsemStagePosition,
     Point,
 )
+from fibsem.transformations import inverse_view_corrected_dy
 
 
 def calculate_reprojected_stage_position(image: FibsemImage, pos: FibsemStagePosition) -> Point:
@@ -271,113 +272,61 @@ def _inverse_y_corrected_stage_movement(
     dz: float,
     beam_type: BeamType = BeamType.ELECTRON,
 ) -> float:
-        """
-        Calculate the expected_y input from dy, dz stage movements and beam_type.
-        This is the inverse of _y_corrected_stage_movement.
+    """Recover the in-image y-displacement from a y/z stage movement, off an image.
 
-        Args:
-            dy (float): actual y stage movement
-            dz (float): actual z stage movement  
-            beam_type (BeamType, optional): beam_type used. Defaults to BeamType.ELECTRON.
+    The inverse of `_y_corrected_stage_movement`, answered from the image's own
+    metadata rather than a live instrument -- so a saved overview projects as it was
+    taken.
 
-        Returns:
-            float: expected_y input that would produce the given dy, dz movements
-        """
-        if image.metadata is None or image.metadata.hardware_geometry is None:
-            raise ValueError("Image metadata or hardware geometry is not set. Cannot calculate inverse y corrected stage movement.")
+    Deferred to :func:`fibsem.transformations.inverse_view_corrected_dy` rather than
+    derived here. This function used to carry its own copy of the trigonometry, as did
+    `FibsemMicroscope._inverse_view_corrected_stage_movement`, so one decision about the
+    geometry lived in three places and only stayed consistent by everyone editing all
+    three.
 
-        # Tescan stages have a different geometry (z below the tilt axis), so the inverse
-        # is a separate derivation, not the compustage-aware path below. Match
-        # case-insensitively: a live scope reports "TESCAN", config/saved images "Tescan".
-        # (band-aid string check, tracked in FIB-300)
-        system_info = image.metadata.system_info
-        if system_info is not None and system_info.manufacturer.upper() == "TESCAN":
-            return _inverse_y_corrected_stage_movement_tescan(image, dy=dy, dz=dz, beam_type=beam_type)
+    That is also what closes FIB-500. The copy that lived here decided the compustage
+    FIB orientation from tilt alone, where the live path and `fm/reprojection.py` both
+    also require the rotation to match the reference. Sharing one implementation makes
+    all three agree by construction rather than by three edits. The six combinations
+    that change are tilt -128 with a non-zero rotation, where the sign inverts -- and a
+    compustage has no rotation axis, so no acquisition can produce them.
 
-        geometry = image.metadata.hardware_geometry
+    Args:
+        image: the image whose geometry and pose the projection is taken from.
+        dy: actual y stage movement
+        dz: actual z stage movement
+        beam_type: beam the image was acquired with. Defaults to ELECTRON.
 
-        # all angles in radians
-        sem_column_tilt = np.deg2rad(geometry.column_tilt)
-        fib_column_tilt = np.deg2rad(geometry.fib_column_tilt)
+    Returns:
+        float: expected_y input that would produce the given dy, dz movements
+    """
+    if image.metadata is None or image.metadata.hardware_geometry is None:
+        raise ValueError("Image metadata or hardware geometry is not set. Cannot calculate inverse y corrected stage movement.")
 
-        stage_pretilt = np.deg2rad(geometry.shuttle_pre_tilt)
+    # Tescan stages have a different geometry (z below the tilt axis), so the inverse
+    # is a separate derivation, not the compustage-aware path below. Match
+    # case-insensitively: a live scope reports "TESCAN", config/saved images "Tescan".
+    # (band-aid string check, tracked in FIB-300)
+    system_info = image.metadata.system_info
+    if system_info is not None and system_info.manufacturer.upper() == "TESCAN":
+        return _inverse_y_corrected_stage_movement_tescan(image, dy=dy, dz=dz, beam_type=beam_type)
 
-        stage_rotation_flat_to_eb = np.deg2rad(geometry.rotation_reference) % (2 * np.pi)
-        stage_rotation_flat_to_ion = np.deg2rad(geometry.rotation_180) % (2 * np.pi)
-
-        # current stage position
-        current_stage_position = image.metadata.stage_position
-        stage_rotation = current_stage_position.r % (2 * np.pi) if current_stage_position.r is not None else 0.0
-        stage_tilt = current_stage_position.t if current_stage_position.t is not None else 0.0
-
-        # Handle compustage case. This mirrors FibsemMicroscope._view_corrected_stage_movement:
-        # the forward flips expected_y once for compustage, then a second time at the FIB
-        # orientation, so the two cancel there. Determined from metadata rather than a live
-        # microscope; for the compustage the rotation is always 0, so the orientation is
-        # fixed by the tilt alone (FIB sits at column_tilt - pretilt - 180, i.e. ~-128 deg,
-        # and the FM pose at -180 deg).
-        #
-        # NOTE: this differs from the live path and from fm/reprojection.py, which both
-        # also require the rotation to match the reference before calling a pose FIB.
-        # Deliberately left alone here so FIB-481 is a pure restructuring with no
-        # numerical difference; the divergence is FIB-500. It is latent -- a compustage
-        # image cannot carry a non-zero rotation, so the two versions only disagree
-        # about poses no acquisition can produce.
-        compustage_sign = 1.0
-        is_fib_orientation = False
-        if geometry.is_compustage:
-            fib_orientation_tilt = np.deg2rad(
-                geometry.fib_column_tilt - geometry.shuttle_pre_tilt - 180
-            )
-            is_fib_orientation = bool(
-                np.isclose(stage_tilt, fib_orientation_tilt, atol=0.1)
-            )
-            compustage_sign = 1.0 if is_fib_orientation else -1.0
-            stage_tilt += np.pi
-
-        PRETILT_SIGN = 1.0
-        # pretilt angle depends on rotation
-        if movement.rotation_angle_is_smaller(stage_rotation, stage_rotation_flat_to_eb, atol=5):
-            PRETILT_SIGN = 1.0
-        if movement.rotation_angle_is_smaller(stage_rotation, stage_rotation_flat_to_ion, atol=5):
-            PRETILT_SIGN = -1.0
-
-        if is_fib_orientation:
-            PRETILT_SIGN = -1.0
-
-        corrected_pretilt_angle = PRETILT_SIGN * (stage_pretilt + sem_column_tilt)
-
-        # perspective tilt adjustment
-        if beam_type == BeamType.ELECTRON:
-            perspective_tilt_adjustment = -corrected_pretilt_angle
-        elif beam_type == BeamType.ION:
-            perspective_tilt_adjustment = (-corrected_pretilt_angle - fib_column_tilt)
-
-        # Reverse the calculations from the forward function:
-        # Forward: y_move = y_sample_move * cos(corrected_pretilt_angle)
-        # Forward: z_move = -y_sample_move * sin(corrected_pretilt_angle)
-        # Therefore: y_sample_move can be calculated from either dy or dz
-
-        # Calculate y_sample_move from dy and dz (should be consistent)
-        cos_pretilt = np.cos(corrected_pretilt_angle)
-        sin_pretilt = np.sin(corrected_pretilt_angle)
-        
-        if abs(cos_pretilt) > abs(sin_pretilt):
-            # Use dy calculation when cos component is larger
-            y_sample_move = dy / cos_pretilt
-        else:
-            # Use dz calculation when sin component is larger
-            y_sample_move = -dz / sin_pretilt
-
-        # Reverse: expected_y = y_sample_move * cos(stage_tilt + perspective_tilt_adjustment)
-        expected_y = y_sample_move * np.cos(stage_tilt + perspective_tilt_adjustment)
-
-        # Apply compustage correction if needed
-        if geometry.is_compustage:
-            expected_y *= compustage_sign
-
-        return expected_y
-
+    geometry = image.metadata.hardware_geometry
+    position = image.metadata.stage_position
+    # The ion column's tilt is the view tilt for a FIB image; the electron column is the
+    # reference axis and so contributes none. Same rule as `_beam_view_tilt` on the live
+    # microscope, read from the image's geometry instead of the instrument.
+    view_tilt = (
+        np.deg2rad(geometry.fib_column_tilt) if beam_type is BeamType.ION else 0.0
+    )
+    return inverse_view_corrected_dy(
+        dy=dy,
+        dz=dz,
+        view_tilt=view_tilt,
+        geometry=geometry,
+        stage_rotation=position.r if position.r is not None else 0.0,
+        stage_tilt=position.t if position.t is not None else 0.0,
+    )
 
 def _inverse_y_corrected_stage_movement_tescan(
     image: FibsemImage,
