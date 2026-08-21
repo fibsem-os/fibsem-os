@@ -81,6 +81,13 @@ _TIP_GUIDED_SETUP = (
     "editing the one you are using, so it is non-destructive — but it is still being "
     "finished, and it has not had bench time on every instrument."
 )
+_LBL_CONNECTION_CHIP = "Enable Connection Chip"
+_TIP_CONNECTION_CHIP = (
+    "Show the connected instrument in the tab bar, beside the experiment, and add "
+    "File > Connect to Microscope, which opens a dialog for connecting, "
+    "reconnecting and disconnecting. The Connection tab still works and is still "
+    "where connecting happens; this is the header half of replacing it."
+)
 _LBL_SCRIPTS = "Enable User Scripts"
 _TIP_SCRIPTS = (
     "Show Tools > Scripts, for running your own .py files against the open "
@@ -190,6 +197,8 @@ class PreferencesDialog(QDialog):
         self._chk_sparse_fm.setToolTip(_TIP_SPARSE_FM)
         self._chk_guided_setup = QCheckBox()
         self._chk_guided_setup.setToolTip(_TIP_GUIDED_SETUP)
+        self._chk_connection_chip = QCheckBox()
+        self._chk_connection_chip.setToolTip(_TIP_CONNECTION_CHIP)
         features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
         features_form.addRow(_LBL_SAMPLE_HOLDER, self._chk_sample_holder)
         features_form.addRow(_LBL_BUG_REPORT, self._chk_bug_report)
@@ -197,6 +206,7 @@ class PreferencesDialog(QDialog):
         features_form.addRow(_LBL_OVERVIEW_CANVAS, self._chk_overview_canvas)
         features_form.addRow(_LBL_SPARSE_FM, self._chk_sparse_fm)
         features_form.addRow(_LBL_GUIDED_SETUP, self._chk_guided_setup)
+        features_form.addRow(_LBL_CONNECTION_CHIP, self._chk_connection_chip)
         self._stack.addWidget(features_page)
 
         # --- Experiment Defaults ---
@@ -271,6 +281,7 @@ class PreferencesDialog(QDialog):
         self._chk_overview_canvas.setChecked(f.overview_canvas_tab)
         self._chk_sparse_fm.setChecked(f.sparse_fm_selection)
         self._chk_guided_setup.setChecked(f.guided_setup_enabled)
+        self._chk_connection_chip.setChecked(f.connection_chip)
 
         e = prefs.experiment
         self._dir_experiment.setText(e.default_experiment_directory)
@@ -342,6 +353,7 @@ class PreferencesDialog(QDialog):
                 bug_report_enabled=self._chk_bug_report.isChecked(),
                 scripts_enabled=self._chk_scripts.isChecked(),
                 overview_canvas_tab=self._chk_overview_canvas.isChecked(),
+                connection_chip=self._chk_connection_chip.isChecked(),
                 sparse_fm_selection=self._chk_sparse_fm.isChecked(),
                 guided_setup_enabled=self._chk_guided_setup.isChecked(),
             ),
