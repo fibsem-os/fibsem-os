@@ -1949,9 +1949,22 @@ class AutoLamellaUI(QMainWindow):
                 fluorescence_channel_settings
             )
 
-        # instruction message
+        # Instruction message. Read with `.get`, not indexed: this signal has no
+        # declared contract, and 12 of its 13 emit sites pass an opaque variable, so
+        # what a payload carries is not knowable without running it. Every emitter in
+        # this repository sends `msg` today -- but a raise here does not degrade a
+        # label, it aborts the process. PyQt5 calls `qFatal()` on any exception that
+        # escapes a slot invoked from C++, which a queued signal from the workflow
+        # thread is, and the abort takes the run with it and reaches no logfile
+        # (FIB-329, FIB-402). It has happened: a queue edit put a payload without
+        # `msg` on this signal and killed the app on every queue action.
+        #
+        # The default is `""` rather than a placeholder because an empty message
+        # already means something here: `set_instructions_msg` hides the label, which
+        # is what one emit site sends `{"msg": ""}` deliberately to do. A payload
+        # carrying no message is an update about something other than the prompt.
         self.set_instructions_msg(
-            info["msg"], info.get("pos", None), info.get("neg", None)
+            info.get("msg", ""), info.get("pos", None), info.get("neg", None)
         )
         self.set_current_workflow_message(info.get("workflow_info", None))
 
