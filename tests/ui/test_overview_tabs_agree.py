@@ -13,6 +13,7 @@ context. And the specimen grid's radius was the same 1000 µm under two names in
 Run directly:
     python -m pytest tests/ui/test_overview_tabs_agree.py
 """
+
 from __future__ import annotations
 
 import ast
@@ -26,7 +27,13 @@ BEAM = REPO_ROOT / "fibsem" / "ui" / "widgets" / "overview_widget.py"
 FM = REPO_ROOT / "fibsem" / "ui" / "fm" / "widgets" / "fm_overview_widget.py"
 TOKENS = REPO_ROOT / "fibsem" / "ui" / "tokens.py"
 OVERLAYS = (
-    REPO_ROOT / "fibsem" / "ui" / "widgets" / "canvas" / "overlays" / "minimap_overlays.py"
+    REPO_ROOT
+    / "fibsem"
+    / "ui"
+    / "widgets"
+    / "canvas"
+    / "overlays"
+    / "minimap_overlays.py"
 )
 
 # What both tabs draw of the sample holder, and where the one definition lives.
@@ -42,7 +49,10 @@ HEX_LITERAL = re.compile(r'"#[0-9a-fA-F]{6}"')
 
 @pytest.fixture(scope="module")
 def sources():
-    return {"beam": BEAM.read_text(encoding="utf-8"), "fm": FM.read_text(encoding="utf-8")}
+    return {
+        "beam": BEAM.read_text(encoding="utf-8"),
+        "fm": FM.read_text(encoding="utf-8"),
+    }
 
 
 def _assigned_names(source: str) -> set:
@@ -97,7 +107,10 @@ def test_the_grid_radius_is_defined_once():
     overlays = OVERLAYS.read_text(encoding="utf-8")
     assert re.search(r"^GRID_BOUNDARY_RADIUS_M\s*=", overlays, re.M)
 
-    for tab, source in (("beam", BEAM.read_text(encoding="utf-8")), ("fm", FM.read_text(encoding="utf-8"))):
+    for tab, source in (
+        ("beam", BEAM.read_text(encoding="utf-8")),
+        ("fm", FM.read_text(encoding="utf-8")),
+    ):
         assigned = _assigned_names(source)
         strays = {n for n in assigned if "GRID_RADIUS" in n or "BOUNDARY_RADIUS" in n}
         assert not strays, f"{tab} defines its own grid radius: {strays}"
@@ -159,4 +172,87 @@ def test_the_fluorescence_tab_sizes_nothing_with_frame_length():
     assert "frame.length(" not in FM.read_text(encoding="utf-8"), (
         "the fluorescence tab sizes something with frame.length(); if it lies on the "
         "sample surface it wants stage_context.canvas_span()"
+    )
+
+
+# ── the settings column is stacked the same way on both tabs ─────────────────
+
+
+def _added_widgets(source: str) -> dict:
+    """Every ``addWidget`` call, keyed by the function that makes it.
+
+    Returns ``{function_name: [(lineno, described_argument), ...]}`` in source order.
+    The argument is described rather than evaluated: ``self.status`` becomes
+    ``"self.status"`` and a bare local becomes its name, which is all the ordering
+    questions below need.
+    """
+
+    def describe(node):
+        if isinstance(node, ast.Attribute):
+            return f"{describe(node.value)}.{node.attr}"
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Call):
+            return describe(node.func)
+        return ""
+
+    calls: dict = {}
+    tree = ast.parse(source)
+    for function in ast.walk(tree):
+        if not isinstance(function, ast.FunctionDef):
+            continue
+        found = [
+            (node.lineno, describe(node.args[0]))
+            for node in ast.walk(function)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "addWidget"
+            and node.args
+        ]
+        if found:
+            calls[function.name] = sorted(found)
+    return calls
+
+
+def _action_column(source: str) -> list:
+    """The arguments of the layout that stacks the acquire buttons, in order.
+
+    Located by finding the function that adds the `buttons` container, since both tabs
+    build one and neither adds it anywhere else.
+    """
+    for _, added in _added_widgets(source).items():
+        names = [name for _, name in added]
+        if "buttons" in names:
+            return names
+    raise AssertionError("neither tab appears to lay out its acquire buttons")
+
+
+@pytest.mark.parametrize("tab", ["beam", "fm"])
+def test_the_status_is_above_the_acquire_button(tab, sources):
+    """Both tabs report a stage move on their status label (FIB-765), and reported it in
+    opposite places: below the button on the FIB/SEM side, above it on the fluorescence
+    one. Same message, mirrored layout.
+
+    Above, so the button is the last thing in the column -- the ordinary place for a
+    commit action, and it means the button does not shift as the readouts above it
+    appear and disappear through a run.
+    """
+    column = _action_column(sources[tab])
+    status = next(name for name in column if name.endswith(("status", "label_status")))
+
+    assert column.index(status) < column.index("buttons"), (
+        f"the {tab} tab puts its status below the acquire button: {column}"
+    )
+
+
+@pytest.mark.parametrize("tab", ["beam", "fm"])
+def test_the_progress_is_above_the_acquire_button(tab, sources):
+    """Same argument, and the one that keeps the two readouts together: a progress bar
+    on one side of the button and a status line on the other is the worst of the three
+    arrangements, whichever side each ends up on."""
+    column = _action_column(sources[tab])
+    progress = next(name for name in column if "progress" in name)
+
+    assert column.index(progress) < column.index("buttons"), (
+        f"the {tab} tab puts its progress below the acquire button: {column}"
     )
