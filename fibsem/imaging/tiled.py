@@ -2,25 +2,20 @@ from __future__ import annotations
 
 import datetime
 import logging
-import math
 import os
 import threading
 from copy import deepcopy
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
-import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.figure import Figure
 
 from fibsem import acquire, conversions
 from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
 from fibsem.constants import DATETIME_FILE
-from fibsem.conversions import is_inside_image_bounds
 
 # Moved to the `tiling` package (FIB-390); re-exported so existing importers and the
 # public API are unaffected. `fibsem/imaging/__init__.py` star-imports this module.
-from fibsem.imaging.reduce import PreviewMosaic, downsample
+from fibsem.imaging.reduce import PreviewMosaic
 from fibsem.imaging.tiling.geometry import (  # noqa: E402,F401
     TilePosition,
     _spiral_order,  # noqa: E402,F401
@@ -50,7 +45,6 @@ from fibsem.imaging.tiling.reprojection import (  # noqa: E402,F401
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     AutoFocusMode,
-    BeamType,
     FibsemImage,
     FibsemImageMetadata,
     FibsemStagePosition,
@@ -75,6 +69,7 @@ def _check_cancelled(stop_event: Optional[threading.Event]) -> None:
 
 
 ##### TILED ACQUISITION
+
 
 class TiledAcquisitionRunner:
     """Orchestrates a tiled image acquisition as a series of discrete phases.
@@ -167,14 +162,16 @@ class TiledAcquisitionRunner:
         terminal *outcome* would collide on "finished" while meaning something else.
         """
         total_tiles = self.settings.n_enabled_tiles
-        self.microscope.tiled_acquisition_signal.emit({
-            "modality": MODALITY_BEAM,
-            "msg": message,
-            "counter": getattr(self, "_n_tiles_acquired", 0),
-            "total": total_tiles,
-            "finished": True,
-            "outcome": outcome,
-        })
+        self.microscope.tiled_acquisition_signal.emit(
+            {
+                "modality": MODALITY_BEAM,
+                "msg": message,
+                "counter": getattr(self, "_n_tiles_acquired", 0),
+                "total": total_tiles,
+                "finished": True,
+                "outcome": outcome,
+            }
+        )
 
     def run_and_stitch(self) -> FibsemImage:
         """Acquire all tiles and return the stitched FibsemImage."""
@@ -203,12 +200,14 @@ class TiledAcquisitionRunner:
         self._image_settings = image_settings
 
         # notify the UI immediately so the progress bar appears before the first move
-        self.microscope.tiled_acquisition_signal.emit({
-            "modality": MODALITY_BEAM,
-            "msg": "Computing Tile Positions",
-            "counter": 0,
-            "total": self.settings.n_enabled_tiles,
-        })
+        self.microscope.tiled_acquisition_signal.emit(
+            {
+                "modality": MODALITY_BEAM,
+                "msg": "Computing Tile Positions",
+                "counter": 0,
+                "total": self.settings.n_enabled_tiles,
+            }
+        )
 
     def _compute_grid(self) -> None:
         """Compute tile order and pre-project every stage position from the grid centre.
@@ -261,7 +260,7 @@ class TiledAcquisitionRunner:
         grid_offset_y = (settings.nrows - 1) * self._dy_step / 2
 
         # stitched canvas
-        eff_w = max(1, int(round(image_width  * (1 - overlap))))
+        eff_w = max(1, int(round(image_width * (1 - overlap))))
         eff_h = max(1, int(round(image_height * (1 - overlap))))
         full_w = eff_w * (settings.ncols - 1) + image_width
         full_h = eff_h * (settings.nrows - 1) + image_height
@@ -269,7 +268,9 @@ class TiledAcquisitionRunner:
         self._mosaic_metadata = self._build_mosaic_metadata(full_w, full_h)
         self._init_preview(full_w, full_h)
 
-        logging.info(f"Tiled acquisition centre position: {self._centre_position.pretty}")
+        logging.info(
+            f"Tiled acquisition centre position: {self._centre_position.pretty}"
+        )
 
         self._tile_stage_positions = [
             self.microscope.project_stable_move(
@@ -289,9 +290,14 @@ class TiledAcquisitionRunner:
 
         # EACH_ROW is not well-defined for SPIRAL (rows are revisited non-sequentially),
         # so promote it to EACH_TILE so focus is always fresh.
-        if self._af_mode is AutoFocusMode.EACH_ROW and settings.tile_order is TileOrderStrategy.SPIRAL:
+        if (
+            self._af_mode is AutoFocusMode.EACH_ROW
+            and settings.tile_order is TileOrderStrategy.SPIRAL
+        ):
             self._af_mode = AutoFocusMode.EACH_TILE
-            logging.info("EACH_ROW autofocus upgraded to EACH_TILE for SPIRAL tile order")
+            logging.info(
+                "EACH_ROW autofocus upgraded to EACH_TILE for SPIRAL tile order"
+            )
 
     def _build_mosaic_metadata(self, full_w: int, full_h: int) -> FibsemImageMetadata:
         """The mosaic's metadata, built before the first tile rather than after the last.
@@ -378,7 +384,8 @@ class TiledAcquisitionRunner:
         )
         metadata.image_settings = deepcopy(self._mosaic_metadata.image_settings)
         metadata.image_settings.resolution = (
-            self._preview.canvas.shape[1], self._preview.canvas.shape[0],
+            self._preview.canvas.shape[1],
+            self._preview.canvas.shape[0],
         )
         return FibsemImage(data=self._preview.canvas.copy(), metadata=metadata)
 
@@ -399,7 +406,9 @@ class TiledAcquisitionRunner:
 
             logging.info(f"Tile ({tile.row}, {tile.col}) — target: {stage_pos.pretty}")
             self.microscope.safe_absolute_stage_movement(stage_pos)
-            logging.info(f"Tile ({tile.row}, {tile.col}) — actual: {self.microscope.get_stage_position().pretty}")
+            logging.info(
+                f"Tile ({tile.row}, {tile.col}) — actual: {self.microscope.get_stage_position().pretty}"
+            )
 
             # check after moving in case cancel was requested during the move
             _check_cancelled(self.stop_event)
@@ -422,33 +431,35 @@ class TiledAcquisitionRunner:
 
             # stitch tile into canvas (overlapping regions are overwritten by later tiles)
             self._canvas[
-                tile.canvas_y:tile.canvas_y + image_height,
-                tile.canvas_x:tile.canvas_x + image_width,
+                tile.canvas_y : tile.canvas_y + image_height,
+                tile.canvas_x : tile.canvas_x + image_width,
             ] = image.filtered_data
 
             self._paint_preview(tile, image)
             self._n_tiles_acquired += 1
-            self.microscope.tiled_acquisition_signal.emit({
-                "modality": MODALITY_BEAM,
-                "msg": "Tile Collected",
-                "i": tile.row,
-                "j": tile.col,
-                "n_rows": self.settings.nrows,
-                "n_cols": self.settings.ncols,
-                "image": self._canvas,
-                # The mosaic so far, decimated, and carrying metadata -- so a
-                # real-space display can place it as one image rather than assembling
-                # tiles of its own. One artist per run instead of one per tile, which
-                # is what stops the canvas slowing down as tilesets accumulate
-                # (FIB-627).
-                #
-                # Additive, and `image` above is deliberately untouched: the napari
-                # minimap assigns it straight into a layer, so it has to stay a bare
-                # array until that tab goes.
-                "preview": self._preview_image(),
-                "counter": self._n_tiles_acquired,
-                "total": total_tiles,
-            })
+            self.microscope.tiled_acquisition_signal.emit(
+                {
+                    "modality": MODALITY_BEAM,
+                    "msg": "Tile Collected",
+                    "i": tile.row,
+                    "j": tile.col,
+                    "n_rows": self.settings.nrows,
+                    "n_cols": self.settings.ncols,
+                    "image": self._canvas,
+                    # The mosaic so far, decimated, and carrying metadata -- so a
+                    # real-space display can place it as one image rather than assembling
+                    # tiles of its own. One artist per run instead of one per tile, which
+                    # is what stops the canvas slowing down as tilesets accumulate
+                    # (FIB-627).
+                    #
+                    # Additive, and `image` above is deliberately untouched: the napari
+                    # minimap assigns it straight into a layer, so it has to stay a bare
+                    # array until that tab goes.
+                    "preview": self._preview_image(),
+                    "counter": self._n_tiles_acquired,
+                    "total": total_tiles,
+                }
+            )
 
     def _acquire_tile(self, tile: TilePosition) -> FibsemImage:
         """Acquire one tile — focus-stack or plain image."""
@@ -468,7 +479,9 @@ class TiledAcquisitionRunner:
 
         signal = self.microscope.tiled_acquisition_signal
         total_tiles = self.settings.n_enabled_tiles
-        signal.emit({"msg": "Stitching Tiles", "counter": total_tiles, "total": total_tiles})
+        signal.emit(
+            {"msg": "Stitching Tiles", "counter": total_tiles, "total": total_tiles}
+        )
         # The metadata `_compute_grid` built, not a patched copy of the first tile's.
         # deepcopy so the stitched image gets its own snapshot rather than sharing the
         # runner's, which the preview also hands out.
@@ -487,7 +500,14 @@ class TiledAcquisitionRunner:
         filename = os.path.join(image.metadata.image_settings.path, self._prev_label)  # type: ignore
         image.save(filename)
 
-        signal.emit({"msg": "Done", "counter": total_tiles, "total": total_tiles, "finished": True})
+        signal.emit(
+            {
+                "msg": "Done",
+                "counter": total_tiles,
+                "total": total_tiles,
+                "finished": True,
+            }
+        )
         return image
 
     # ── helpers ──────────────────────────────────────────────────────────
@@ -547,6 +567,7 @@ def tiled_image_acquisition_and_stitch(
         microscope, settings, stop_event, centre_position=centre_position
     ).run_and_stitch()
 
+
 ##### REPROJECTION
 # TODO: move these to fibsem.imaging.reprojection?
 
@@ -578,6 +599,7 @@ def convert_image_coord_to_stage_position(
 
     return stage_position
 
+
 def convert_image_coordinates_to_stage_positions(
     microscope: FibsemMicroscope, image: FibsemImage, coords: List[Tuple[float, float]]
 ) -> List[FibsemStagePosition]:
@@ -598,6 +620,5 @@ def convert_image_coordinates_to_stage_positions(
         stage_positions.append(stage_position)
     return stage_positions
 
+
 ##### THERMO ONLY
-
-
