@@ -149,15 +149,16 @@ except Exception as e:
 
 
 # instructions
+# What to do next, shown in the window's status bar. Each names something visible
+# on screen at the moment it is shown -- three of these used to name menus that do
+# not exist ("Connection ->", "Experiment ->" are not menus; the File entries are
+# "New Experiment" and "Load Experiment"), which is worse than saying nothing.
 INSTRUCTIONS = {
-    "NOT_CONNECTED": "Please connect to the microscope (Connection -> Connect to Microscope).",
-    "NO_EXPERIMENT": "Please create or load an experiment (File -> Create / Load Experiment)",
-    "NO_PROTOCOL": "Please load a protocol (File -> Load Protocol).",
-    "NO_LAMELLA": "Please Add Lamella Positions (Experiment -> Add Lamella).",
-    "TRENCH_READY": "Trench Positions Selected. Ready to Run Waffle Trench.",
-    "UNDERCUT_READY": "Undercut Positions Selected. Ready to Run Waffle Undercut.",
-    "LAMELLA_READY": "Lamella Positions Selected. Ready to Run Setup AutoLamella.",
-    "AUTOLAMELLA_READY": "Lamella Positions Selected. Ready to Run AutoLamella.",
+    "NOT_CONNECTED": "Connect to the microscope to begin.",
+    "NO_EXPERIMENT": "Create or load an experiment to begin.",
+    "NO_PROTOCOL": "Load a protocol for this experiment (File \u2192 Load Protocol).",
+    "NO_LAMELLA": "Add a lamella position with + in the lamella list.",
+    "AUTOLAMELLA_READY": "Ready to run. Choose lamella and tasks in the Workflow tab.",
 }
 
 
