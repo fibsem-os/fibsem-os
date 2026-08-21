@@ -58,10 +58,12 @@ def test_it_says_what_the_configuration_points_at_before_connecting(dialog):
     was something you found out by connecting to it.
     """
     settings = utils.load_microscope_configuration(dialog.configuration_path())
+    info = settings.system.info
 
     assert dialog.microscope is None
-    assert dialog.manufacturer_label.text() == settings.system.info.manufacturer
-    assert dialog.address_label.text() == settings.system.info.ip_address
+    assert dialog.details_title.text() == "No microscope connected"
+    assert info.manufacturer in dialog.details_subtitle.text()
+    assert info.ip_address in dialog.details_subtitle.text()
 
 
 def test_dismissing_leaves_the_session_empty(dialog):
@@ -157,8 +159,11 @@ def test_it_shows_what_is_connected(connected_dialog):
     """Not the same dialog worded as though nothing had happened yet."""
     info = connected_dialog.microscope.system.info
 
-    assert info.manufacturer in connected_dialog.title_label.text()
-    assert info.ip_address in connected_dialog.title_label.text()
+    assert info.manufacturer in connected_dialog.details_title.text()
+    assert info.ip_address in connected_dialog.details_subtitle.text()
+    # The panel names it; the title says what the dialog is for, once.
+    assert connected_dialog.title_label.text() == "Microscope connection"
+    assert info.manufacturer not in connected_dialog.title_label.text()
     assert connected_dialog.disconnect_button.isVisible()
     # Reconnect, because connecting now means dropping the session in progress.
     assert connected_dialog.connect_button.text() == "Reconnect"
@@ -261,3 +266,27 @@ def test_losing_the_session_mid_workflow_says_what_it_will_break(qapp, monkeypat
     finally:
         microscope.disconnect()
         d.deleteLater()
+
+
+def test_the_details_panel_never_claims_the_link_is_up(connected_dialog):
+    """The Connection tab's card says "Microscope Connected" over a green tick.
+
+    This deliberately does not. Nothing watches the link (FIB-777), so with a
+    session opened hours ago that tick asserts something nobody has checked. The
+    other direction is safe: with no microscope there is nothing to be wrong about,
+    which is why the disconnected panel does say so outright.
+    """
+    text = (
+        connected_dialog.details_title.text() + connected_dialog.details_subtitle.text()
+    ).lower()
+
+    assert "connected" not in text
+    assert "online" not in text
+
+
+def test_a_configuration_that_resolves_nowhere_shows_in_the_panel(dialog):
+    dialog.configuration_combo.addItem("a-configuration-that-was-deleted")
+    dialog.configuration_combo.setCurrentText("a-configuration-that-was-deleted")
+
+    assert dialog.details_title.text() == "No configuration"
+    assert "could not be found" in dialog.details_subtitle.text()
