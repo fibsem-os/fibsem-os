@@ -25,6 +25,7 @@ from PyQt5.QtWidgets import (
     QSizePolicy,
     QSpacerItem,
     QTabWidget,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -59,6 +60,7 @@ from fibsem.ui import (
 from fibsem.ui import utils as fui
 from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
 from fibsem.ui.fm.widgets import FMImageViewerWidget
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.threading import FunctionWorker
 
 if (
@@ -289,6 +291,7 @@ class AutoLamellaUI(QMainWindow):
         self.pushButton_no = QPushButton("No")
 
         self.gridLayout.addWidget(self.tabWidget, 1, 0, 1, 2)
+        self.gridLayout.addWidget(self._build_empty_state(), 1, 0, 1, 2)
         self.gridLayout.addWidget(self.label_workflow_information, 2, 0, 1, 2)
         self.gridLayout.addWidget(self.label_instructions, 3, 0, 1, 2)
         self.gridLayout.addWidget(self.pushButton_yes, 4, 0)
@@ -296,6 +299,50 @@ class AutoLamellaUI(QMainWindow):
 
         self.setCentralWidget(self.centralwidget)
         self.tabWidget.setCurrentIndex(0)
+
+    def _build_empty_state(self) -> QWidget:
+        """What the panel shows when it has no tabs to show.
+
+        Every tab here needs a microscope: the Experiment tab is hidden until one
+        is connected, and the rest are only built at connection time. Before the
+        Connection tab was removed it filled this space itself, so a panel with
+        nothing in it is new -- and an empty panel reads as something having gone
+        wrong rather than as something not having happened yet.
+
+        Deliberately no Connect button. The header carries one, and the status bar
+        already says what to do; a third would be the same action in three places.
+        """
+        self.empty_state = QWidget()
+        layout = QVBoxLayout(self.empty_state)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(8)
+
+        icon = QLabel()
+        icon.setPixmap(
+            fibsem_icon("mdi:connection", color=stylesheets.TEXT_MUTED_COLOR).pixmap(
+                32, 32
+            )
+        )
+        icon.setAlignment(Qt.AlignCenter)
+        layout.addWidget(icon)
+
+        message = QLabel("No microscope connected")
+        message.setAlignment(Qt.AlignCenter)
+        message.setStyleSheet(
+            f"color: {stylesheets.TEXT_MUTED_COLOR}; font-size: 12px;"
+        )
+        layout.addWidget(message)
+
+        self.empty_state.setVisible(False)
+        return self.empty_state
+
+    def _update_empty_state(self) -> None:
+        """Swap the placeholder in when the tab widget has nothing left to show."""
+        has_a_tab = any(
+            self.tabWidget.isTabVisible(i) for i in range(self.tabWidget.count())
+        )
+        self.tabWidget.setVisible(has_a_tab)
+        self.empty_state.setVisible(not has_a_tab)
 
     @property
     def protocol(self) -> Optional[AutoLamellaTaskProtocol]:
@@ -1109,6 +1156,10 @@ class AutoLamellaUI(QMainWindow):
         if self.det_widget is not None:
             idx = self.tabWidget.indexOf(self.det_widget)
             self.tabWidget.setTabVisible(idx, False)  # hide detection tab for now
+
+        # After the visibility rules above, and after the connection-time tabs are
+        # built, so it sees the same tab set the user does.
+        self._update_empty_state()
 
         if is_experiment_loaded and self.experiment is not None:
             self.lamella_list.setEnabled(has_lamella)
