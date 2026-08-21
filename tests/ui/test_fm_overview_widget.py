@@ -297,9 +297,11 @@ def test_without_a_format_fn_the_built_in_rendering_still_applies(qapp):
 
 # ── progress bars ────────────────────────────────────────────────────────
 #
-# One signal carries both scales: the tileset runner's tile counter, and -- from
-# inside each tile -- `acquire_z_stack` / `acquire_channels`. `task` decides which
-# bar a payload drives, so a payload must never move both.
+# Two signals, two scales, one bar each: the tileset runner's tile counter on
+# `tiled_acquisition_signal`, and -- from inside each tile -- `acquire_z_stack` /
+# `acquire_channels` on the detector's own. A payload must never move both bars,
+# which is now a property of *which handler it reaches* rather than of a `task`
+# key both producers happen to agree on.
 
 
 class _Router:
@@ -310,8 +312,8 @@ class _Router:
         self.progress_tile_detail = FibsemProgressWidget()
         self.status = QLabel()
 
-    _apply_progress = FMOverviewWidget._apply_progress
     _apply_tile_progress = FMOverviewWidget._apply_tile_progress
+    _apply_fm_progress = FMOverviewWidget._apply_fm_progress
     _tile_detail_update = FMOverviewWidget._tile_detail_update
 
     def _show_preview(self, payload):
@@ -328,7 +330,7 @@ def _bar(widget):
 def test_a_tileset_payload_moves_only_the_tile_bar(qapp):
     router = _Router()
 
-    router._apply_progress({
+    router._apply_tile_progress({
         "modality": "fluorescence", "state": "acquiring", "task": "tileset", "counter": 4, "total": 9,
     })
 
@@ -341,7 +343,7 @@ def test_a_tileset_payload_moves_only_the_tile_bar(qapp):
 def test_a_zstack_payload_moves_only_the_detail_bar(qapp):
     router = _Router()
 
-    router._apply_progress({
+    router._apply_fm_progress({
         "state": "acquiring", "task": "z-stack", "channel": "GFP",
         "zlevel": 7, "total_zlevels": 21,
     })
@@ -356,7 +358,7 @@ def test_a_channels_payload_drives_the_detail_bar_too(qapp):
     """Without this the second bar is dead on every run that is not z-stacked."""
     router = _Router()
 
-    router._apply_progress({
+    router._apply_fm_progress({
         "state": "acquiring", "task": "channels", "channel": "RFP",
         "channel_index": 2, "total_channels": 3,
     })
@@ -371,12 +373,12 @@ def test_a_completed_tile_leaves_the_detail_bar_alone(qapp):
     -- a flicker for the length of the run. The next tile overwrites it a moment later
     anyway, so the stale count is never seen."""
     router = _Router()
-    router._apply_progress({
+    router._apply_fm_progress({
         "state": "acquiring", "task": "z-stack", "channel": "GFP",
         "zlevel": 21, "total_zlevels": 21,
     })
 
-    router._apply_progress({
+    router._apply_tile_progress({
         "modality": "fluorescence", "state": "tile", "task": "tileset", "current": 1, "total": 9,
     })
 
@@ -384,9 +386,32 @@ def test_a_completed_tile_leaves_the_detail_bar_alone(qapp):
 
 
 def test_an_unknown_task_moves_nothing(qapp):
+    """The detector reports whatever it is doing, tileset or not.
+
+    A workflow task driving the FM while this tab is open emits its own task name, and
+    `finished` arrives with no task at all. Neither describes the tile being taken.
+    """
     router = _Router()
 
-    router._apply_progress({"state": "acquiring", "task": "something-else"})
+    router._apply_fm_progress({"state": "acquiring", "task": "something-else"})
+    router._apply_fm_progress({"state": "finished"})
+
+    assert not router.progress_tiles.isVisible()
+    assert not router.progress_tile_detail.isVisible()
+
+
+def test_a_beam_payload_moves_neither_bar(qapp):
+    """The other half of the same invariant, on the other handler.
+
+    `tiled_acquisition_signal` has two producers. Ignored today even without the
+    modality check -- beam payloads carry no `task` -- but that is an accident of
+    vocabulary, not a decision.
+    """
+    router = _Router()
+
+    router._apply_tile_progress({
+        "modality": "beam", "counter": 8, "total": 9, "msg": "Tile Collected",
+    })
 
     assert not router.progress_tiles.isVisible()
     assert not router.progress_tile_detail.isVisible()
@@ -395,7 +420,7 @@ def test_an_unknown_task_moves_nothing(qapp):
 def test_the_estimate_is_shown_when_the_payload_carries_one(qapp):
     router = _Router()
 
-    router._apply_progress({
+    router._apply_tile_progress({
         "modality": "fluorescence", "state": "acquiring", "task": "tileset", "counter": 2, "total": 9,
         "estimated_remaining_time": 134.0, "estimated_total_time": 180.0,
     })
@@ -410,11 +435,11 @@ def test_a_stage_move_does_not_fill_the_bar(qapp):
     goes to the status label.
     """
     router = _Router()
-    router._apply_progress({
+    router._apply_tile_progress({
         "modality": "fluorescence", "state": "acquiring", "task": "tileset", "counter": 3, "total": 9,
     })
 
-    router._apply_progress({"modality": "fluorescence", "state": "moving", "task": "tileset"})
+    router._apply_tile_progress({"modality": "fluorescence", "state": "moving", "task": "tileset"})
 
     assert (_bar(router.progress_tiles).value(),
             _bar(router.progress_tiles).maximum()) == (3, 9)
@@ -439,11 +464,11 @@ def test_the_end_of_a_run_is_not_silent(qapp, state, label):
     impression these phases exist to correct.
     """
     router = _Router()
-    router._apply_progress({
+    router._apply_tile_progress({
         "modality": "fluorescence", "state": "acquiring", "task": "tileset", "counter": 9, "total": 9,
     })
 
-    router._apply_progress(
+    router._apply_tile_progress(
         {"modality": "fluorescence", "state": state, "task": "tileset"}
     )
 
@@ -455,10 +480,10 @@ def test_the_end_of_a_run_is_not_silent(qapp, state, label):
 def test_a_phase_label_is_cleared_by_the_next_tile(qapp):
     """Otherwise "Stitching tiles…" would still be on screen through the next run."""
     router = _Router()
-    router._apply_progress({"modality": "fluorescence", "state": "saving", "task": "tileset"})
+    router._apply_tile_progress({"modality": "fluorescence", "state": "saving", "task": "tileset"})
     assert router.status.text() == "Saving overview…"
 
-    router._apply_progress({
+    router._apply_tile_progress({
         "modality": "fluorescence", "state": "acquiring", "task": "tileset", "counter": 1, "total": 9,
     })
     assert router.status.text() == ""
@@ -4929,7 +4954,7 @@ def test_the_worker_announces_the_save_before_it_writes(qapp, overview_widget, t
 def test_a_tileset_payload_reaches_the_real_widget(qapp, overview_widget):
     """The wiring, not the rendering.
 
-    Every other test here drives `_apply_progress` directly, which covers what the
+    Every other test here drives `_apply_tile_progress` directly, which covers what the
     widget *does* with a payload and nothing about whether one arrives. The tileset
     moved to `tiled_acquisition_signal` (FIB-725), so the subscription is precisely what
     changed — and a broken one leaves this tab's own bar dead for a whole run with no
@@ -4943,6 +4968,45 @@ def test_a_tileset_payload_reaches_the_real_widget(qapp, overview_widget):
     qapp.processEvents()
 
     assert "4 / 9" in _bar(widget.progress_tiles).format()
+
+
+def test_an_fm_payload_reaches_the_real_widget(qapp, overview_widget):
+    """The other subscription, for the same reason as the one above.
+
+    The two scales arrive on two signals and are handled by two slots, so each
+    subscription can break on its own. This one going quiet leaves the within-tile bar
+    dead for a whole run -- visible only as a bar that never moves, which reads as a
+    slow acquisition rather than as a bug.
+    """
+    widget = overview_widget
+    widget.fm.acquisition_progress_signal.emit({
+        "state": "acquiring", "task": "z-stack", "channel": "GFP",
+        "zlevel": 7, "total_zlevels": 21,
+    })
+    qapp.processEvents()
+
+    assert "7 / 21" in _bar(widget.progress_tile_detail).format()
+
+
+def test_closing_disconnects_both_progress_signals(qapp, overview_widget):
+    """Both psygnals outlive the widget, so both must be dropped on the way out.
+
+    `tiled_acquisition_signal` was subscribed when the tileset moved onto it (FIB-725)
+    and never added to the teardown list, which the list's own comment claims is
+    exhaustive. Emitting into a closed tab from a beam run elsewhere in the application
+    is the segfault that list exists to prevent.
+    """
+    widget = overview_widget
+    widget.close()
+    qapp.processEvents()
+
+    for signal, slot_name in (
+        (widget.microscope.tiled_acquisition_signal, "_on_tile_progress"),
+        (widget.fm.acquisition_progress_signal, "_on_fm_progress"),
+    ):
+        assert not any(slot_name in repr(s) for s in signal._slots), (
+            f"{slot_name} still connected after close"
+        )
 
 
 def test_a_beam_run_does_not_drive_the_fluorescence_bar(qapp, overview_widget):
@@ -4984,7 +5048,7 @@ def test_the_announcement_payload_does_not_redraw_the_tile_bar(qapp):
     counts at all, which settles both.
     """
     router = _Router()
-    router._apply_progress({
+    router._apply_tile_progress({
         "modality": "fluorescence", "state": "tile", "task": "tileset",
         "counter": 2, "total": 4,
         "estimated_remaining_time": 18.0, "estimated_total_time": 24.0,
@@ -4993,7 +5057,7 @@ def test_the_announcement_payload_does_not_redraw_the_tile_bar(qapp):
               _bar(router.progress_tiles).maximum(),
               _bar(router.progress_tiles).format())
 
-    router._apply_progress({
+    router._apply_tile_progress({
         "modality": "fluorescence", "state": "acquiring", "task": "tileset",
         "row": 2, "col": 3, "total_rows": 2, "total_cols": 2,
     })
@@ -5015,7 +5079,7 @@ def test_the_preview_is_still_shown(qapp):
         "modality": "fluorescence", "state": "tile", "task": "tileset",
         "counter": 2, "total": 4,
     }
-    router._apply_progress(payload)
+    router._apply_tile_progress(payload)
 
     assert shown == [payload]
 

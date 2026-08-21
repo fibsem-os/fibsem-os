@@ -213,12 +213,16 @@ class FMOverviewWidget(QWidget):
     position_selected = pyqtSignal(str)
 
     # Internal hop from the acquisition thread to the GUI thread. The microscope's
-    # progress signal is a psygnal, which calls its callbacks synchronously on
+    # progress signals are psygnals, which call their callbacks synchronously on
     # whichever thread emitted -- here, the worker. Touching widgets from there is a
     # cross-thread GUI access (Qt says so: "Cannot set parent, new parent is in a
     # different thread"). Re-emitting as a Qt signal gets it queued onto the GUI
     # thread, because this widget lives there.
-    _progress_received = pyqtSignal(dict)
+    #
+    # One per source, because the two describe different things at different scales and
+    # each drives its own bar: the run as a whole, and the tile currently being taken.
+    _tile_progress_received = pyqtSignal(dict)
+    _fm_progress_received = pyqtSignal(dict)
     # Same hop for stage moves: `stage_position_changed` is a psygnal, so it fires
     # on whichever thread moved the stage -- a worker, during an acquisition.
     _stage_moved = pyqtSignal(object)
@@ -302,16 +306,21 @@ class FMOverviewWidget(QWidget):
         self._sync_tile_fov()
         self._on_settings_changed()
 
-        self._progress_received.connect(self._apply_progress)
-        # Two scales, two signals now. The tileset -- tile n of N, the mosaic so far,
-        # and how the run ended -- reports on `tiled_acquisition_signal` beside the beam
-        # tiler's, because it is the same event (FIB-725). The work *inside* a tile
-        # stays on the detector's own progress signal, which is where a z-stack, a
+        self._tile_progress_received.connect(self._apply_tile_progress)
+        self._fm_progress_received.connect(self._apply_fm_progress)
+        # Two scales, two signals, two handlers. The tileset -- tile n of N, the mosaic
+        # so far, and how the run ended -- reports on `tiled_acquisition_signal` beside
+        # the beam tiler's, because it is the same event (FIB-725). The work *inside* a
+        # tile stays on the detector's own progress signal, which is where a z-stack, a
         # channel acquisition and an autofocus sweep report from whether or not a
-        # tileset is running. `_apply_progress` still sorts them; it just no longer has
-        # to sort them out of one stream.
-        self.microscope.tiled_acquisition_signal.connect(self._on_progress)
-        self.fm.acquisition_progress_signal.connect(self._on_progress)
+        # tileset is running.
+        #
+        # They were briefly merged into one slot that sorted them back apart by `task`.
+        # Sorting a stream that arrived already sorted is work with a failure mode and
+        # no benefit: a payload reaching the wrong bar is a mislabelled run, and the
+        # only thing keeping them apart was a vocabulary neither producer declares.
+        self.microscope.tiled_acquisition_signal.connect(self._on_tile_progress)
+        self.fm.acquisition_progress_signal.connect(self._on_fm_progress)
         self._stage_moved.connect(self._on_stage_moved)
         # A plain bound method, not `self._stage_moved.emit`, matching how the progress
         # signal is subscribed just above. psygnal holds bound methods weakly and drops
@@ -1812,7 +1821,7 @@ class FMOverviewWidget(QWidget):
     def _on_stage_signal(self, position: FibsemStagePosition) -> None:
         """Called by psygnal, on whichever thread polled. Touches no widgets.
 
-        The counterpart of :meth:`_on_progress`, and a real method rather than the Qt
+        The counterpart of :meth:`_on_tile_progress`, and a real method rather than the
         signal's `emit` for a reason beyond symmetry -- see the note where it is
         connected.
         """
@@ -2520,7 +2529,7 @@ class FMOverviewWidget(QWidget):
     def _emit_terminal(self, state: str, outcome: str, error: str = "") -> None:
         """Say how the run ended, in both vocabularies.
 
-        `state` is this widget's own -- `_apply_progress` and `_finish` branch on it,
+        `state` is this widget's own -- `_apply_tile_progress` and `_finish` branch on it,
         and it distinguishes "the mosaic is saved" from the runner's "the tiles are in".
 
         `finished` and `outcome` are the shared signal's, which the beam tiler has used
@@ -2622,37 +2631,45 @@ class FMOverviewWidget(QWidget):
 
     # ── progress ─────────────────────────────────────────────────────────
 
-    def _on_progress(self, payload: dict) -> None:
+    def _on_tile_progress(self, payload: dict) -> None:
         """Called by psygnal, on whichever thread emitted. Touches no widgets."""
-        self._progress_received.emit(payload)
+        self._tile_progress_received.emit(payload)
 
-    def _apply_progress(self, payload: dict) -> None:
-        """Runs on the GUI thread, queued via `_progress_received`.
+    def _on_fm_progress(self, payload: dict) -> None:
+        """Called by psygnal, on whichever thread emitted. Touches no widgets."""
+        self._fm_progress_received.emit(payload)
 
-        One signal carries both scales -- the tileset runner's and, from inside each
-        tile, `acquire_z_stack`/`acquire_channels` -- so `task` decides which bar a
-        payload belongs to. Anything else is ignored rather than shown twice.
+    def _apply_fm_progress(self, payload: dict) -> None:
+        """The tile currently being taken, on the detail bar.
+
+        Runs on the GUI thread, queued via `_fm_progress_received`. The detector's
+        progress signal reports whatever it is doing, tileset or not, so the tasks this
+        bar can render are named rather than assumed: everything else on it -- a
+        workflow task announcing a stage move, a `finished` with no task -- describes
+        something this widget is not showing, and is dropped rather than rendered as a
+        bar with nothing in it.
         """
+        if payload.get("task") in ("z-stack", "channels", "autofocus"):
+            self.progress_tile_detail.update_progress(self._tile_detail_update(payload))
+
+    def _apply_tile_progress(self, payload: dict) -> None:
+        """The run as a whole, on the tile bar.
+
+        Runs on the GUI thread, queued via `_tile_progress_received`.
+        """
+        if not is_modality(payload, MODALITY_FLUORESCENCE):
+            # A beam run, on the signal this shares with the beam tiler. Checked before
+            # anything else, terminal states included: the two tilers write into
+            # different canvases and different bars, and the only payload this widget
+            # has any business acting on is its own (FIB-725).
+            return
+
         state = payload.get("state")
 
         if state in ("overview-finished", "overview-cancelled", "overview-failed"):
             self._finish(state, payload.get("error"))
             return
 
-        task = payload.get("task")
-        if task == "tileset":
-            if not is_modality(payload, MODALITY_FLUORESCENCE):
-                # A beam run, on the signal this now shares with the beam tiler. It is
-                # ignored today even without this -- beam payloads carry no `task` -- but
-                # that is an accident of vocabulary, not a decision, and the beam tiler
-                # gaining a `task` key would be an entirely reasonable thing for it to
-                # do (FIB-725).
-                return
-            self._apply_tile_progress(payload, state)
-        elif task in ("z-stack", "channels", "autofocus"):
-            self.progress_tile_detail.update_progress(self._tile_detail_update(payload))
-
-    def _apply_tile_progress(self, payload: dict, state: Optional[str]) -> None:
         label = PHASE_LABELS.get(state or "")
         if label is not None:
             # Deliberately not `indeterminate`: that paints a *full* bar with a
@@ -2860,7 +2877,9 @@ class FMOverviewWidget(QWidget):
         # writes into freed memory. Closing the tab and then moving the stage from
         # anywhere else in the application was a hard segfault, not an exception.
         for signal, slot in (
-            (self.fm.acquisition_progress_signal, self._on_progress),
+            (self.fm.acquisition_progress_signal, self._on_fm_progress),
+            # Subscribed since FIB-725 and never in this list either.
+            (self.microscope.tiled_acquisition_signal, self._on_tile_progress),
             (self.microscope.stage_position_changed, self._on_stage_signal),
             (self.fm.objective.position_changed, self._on_objective_moved),
             # Subscribed since FIB-441 and never in this list, though the comment above
