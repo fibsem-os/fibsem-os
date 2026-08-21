@@ -13,6 +13,7 @@ argument that lets the drift be closed without a hardware check.
 Run directly:
     python -m pytest tests/test_projection_paths_agree.py
 """
+
 from __future__ import annotations
 
 import ast
@@ -53,7 +54,9 @@ def microscope():
     return scope
 
 
-def _image_at(microscope, beam_type: BeamType, pose: FibsemStagePosition) -> FibsemImage:
+def _image_at(
+    microscope, beam_type: BeamType, pose: FibsemStagePosition
+) -> FibsemImage:
     """An image carrying *pose* and the instrument's geometry, for the metadata path."""
     image = FibsemImage.generate_blank_image(resolution=(64, 64), hfw=100e-6)
     image.data = np.zeros((64, 64), dtype=np.uint8)
@@ -112,7 +115,9 @@ class TestTheThreePathsAgree:
                 _shared(microscope, beam_type, live, dy, dz), abs=1e-15
             ), f"live path differs at t={tilt_deg}, {beam_type.name}, ({dy}, {dz})"
 
-    def test_the_live_path_does_not_read_the_orientation_from_hardware(self, microscope):
+    def test_the_live_path_does_not_read_the_orientation_from_hardware(
+        self, microscope
+    ):
         """It used to ask `get_stage_orientation()` to decide the compustage FIB pose.
 
         The shared implementation derives that from the pose it is handed, which is one
@@ -146,13 +151,18 @@ class TestTheCompustageFibDivergenceIsClosed:
         self, microscope, beam_type, rotation_deg
     ):
         pose = FibsemStagePosition(
-            x=0.0, y=0.0, z=0.0,
-            r=np.deg2rad(rotation_deg), t=np.deg2rad(-128.0),
+            x=0.0,
+            y=0.0,
+            z=0.0,
+            r=np.deg2rad(rotation_deg),
+            t=np.deg2rad(-128.0),
         )
         image = _image_at(microscope, beam_type, pose)
         assert _inverse_y_corrected_stage_movement(
             image, dy=12e-6, dz=-5e-6, beam_type=beam_type
-        ) == pytest.approx(_shared(microscope, beam_type, pose, 12e-6, -5e-6), abs=1e-15)
+        ) == pytest.approx(
+            _shared(microscope, beam_type, pose, 12e-6, -5e-6), abs=1e-15
+        )
 
 
 class TestARotatedCompustagePoseIsUnreachable:
@@ -196,7 +206,8 @@ class TestARotatedCompustagePoseIsUnreachable:
             and isinstance(node.test, ast.Call)
             and getattr(node.test.func, "id", None) == "isinstance"
             and any(
-                getattr(arg, "id", None) == "CompustagePosition" for arg in node.test.args
+                getattr(arg, "id", None) == "CompustagePosition"
+                for arg in node.test.args
             )
         )
         call = next(
