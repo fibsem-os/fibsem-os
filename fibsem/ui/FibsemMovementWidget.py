@@ -1,4 +1,3 @@
-
 import logging
 from functools import partial
 from typing import Optional
@@ -26,7 +25,15 @@ from fibsem.ui.stylesheets import (
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
 
-INSTRUCTIONS_TEXT = """Instructions: Double Click to Move. Alt + Double Click to Move Vertically"""
+INSTRUCTIONS_TEXT = (
+    """Instructions: Double Click to Move. Alt + Double Click to Move Vertically"""
+)
+
+# What every path says once the stage has arrived and the images are being retaken.
+# A constant rather than three string literals: the three movement paths had drifted
+# to "updating images", "taking new images" and, on the orientation path, nothing at
+# all -- so the same phase looked different depending on how the move was started.
+ACQUIRING_IMAGES = "Acquiring images…"
 
 
 class FibsemMovementWidget(QtWidgets.QWidget):
@@ -41,8 +48,12 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self._setup_ui()
         self.parent = parent
 
-        if not hasattr(parent, 'image_widget') or not isinstance(parent.image_widget, FibsemImageSettingsWidget):
-            raise ValueError("Parent must have an 'image_widget' attribute of type FibsemImageSettingsWidget")
+        if not hasattr(parent, "image_widget") or not isinstance(
+            parent.image_widget, FibsemImageSettingsWidget
+        ):
+            raise ValueError(
+                "Parent must have an 'image_widget' attribute of type FibsemImageSettingsWidget"
+            )
 
         self.microscope = microscope
         self.image_widget: FibsemImageSettingsWidget = parent.image_widget
@@ -111,7 +122,9 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.doubleSpinBox_movement_stage_rotation = QtWidgets.QDoubleSpinBox()
         self.doubleSpinBox_movement_stage_rotation.setMinimum(-360.0)
         self.doubleSpinBox_movement_stage_rotation.setMaximum(360.0)
-        self.doubleSpinBox_movement_stage_rotation.setSuffix(f" {constants.DEGREE_SYMBOL}")
+        self.doubleSpinBox_movement_stage_rotation.setSuffix(
+            f" {constants.DEGREE_SYMBOL}"
+        )
         self.gridLayout_3.addWidget(self.label_movement_stage_rotation, 3, 0)
         self.gridLayout_3.addWidget(self.doubleSpinBox_movement_stage_rotation, 3, 1)
 
@@ -124,13 +137,19 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.pushButton_move = QtWidgets.QPushButton("Move to Position")
         self.gridLayout_3.addWidget(self.pushButton_move, 5, 0, 1, 2)
 
-        self.pushButton_move_to_sem_orientation = QtWidgets.QPushButton("Move Flat to ELECTRON Beam")
-        self.pushButton_move_to_fib_orientation = QtWidgets.QPushButton("Move Flat to ION Beam")
+        self.pushButton_move_to_sem_orientation = QtWidgets.QPushButton(
+            "Move Flat to ELECTRON Beam"
+        )
+        self.pushButton_move_to_fib_orientation = QtWidgets.QPushButton(
+            "Move Flat to ION Beam"
+        )
         self.gridLayout_3.addWidget(self.pushButton_move_to_sem_orientation, 6, 0)
         self.gridLayout_3.addWidget(self.pushButton_move_to_fib_orientation, 6, 1)
 
         self.doubleSpinBox_milling_angle = QtWidgets.QDoubleSpinBox()
-        self.pushButton_move_to_milling_angle = QtWidgets.QPushButton("Move to Milling Angle")
+        self.pushButton_move_to_milling_angle = QtWidgets.QPushButton(
+            "Move to Milling Angle"
+        )
         self.gridLayout_3.addWidget(self.doubleSpinBox_milling_angle, 7, 0)
         self.gridLayout_3.addWidget(self.pushButton_move_to_milling_angle, 7, 1)
 
@@ -138,8 +157,12 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.label_movement_instructions.setWordWrap(True)
         self.gridLayout_3.addWidget(self.label_movement_instructions, 8, 0, 1, 2)
 
-        self.btn_refresh_stage = IconToolButton(icon="mdi:refresh", tooltip="Refresh stage position")
-        self.stage_panel = TitledPanel("Stage Movement", content=stage_content, collapsible=False)
+        self.btn_refresh_stage = IconToolButton(
+            icon="mdi:refresh", tooltip="Refresh stage position"
+        )
+        self.stage_panel = TitledPanel(
+            "Stage Movement", content=stage_content, collapsible=False
+        )
         self.stage_panel.add_header_widget(self.btn_refresh_stage)
         self.gridLayout_2.addWidget(self.stage_panel, 0, 0)
 
@@ -147,8 +170,11 @@ class FibsemMovementWidget(QtWidgets.QWidget):
 
         # --- Panel: Saved Positions ---
         from fibsem.ui.widgets.saved_position_widget import SavedPositionListWidget
+
         self.saved_positions_widget = SavedPositionListWidget(microscope=None)
-        self.saved_positions_panel = TitledPanel("Saved Positions", content=self.saved_positions_widget, collapsible=True)
+        self.saved_positions_panel = TitledPanel(
+            "Saved Positions", content=self.saved_positions_widget, collapsible=True
+        )
         self.gridLayout_2.addWidget(self.saved_positions_panel, 2, 0)
 
         self._move_buttons = [
@@ -160,17 +186,23 @@ class FibsemMovementWidget(QtWidgets.QWidget):
 
         # Bottom spacer (row 4 — row 3 reserved for optional sample holder widget)
         self.gridLayout_2.addItem(
-            QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding),
-            4, 0,
+            QtWidgets.QSpacerItem(
+                20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding
+            ),
+            4,
+            0,
         )
 
     def setup_connections(self):
 
-
         # buttons
         self.pushButton_move.clicked.connect(lambda: self.move_to_position(None))
-        self.pushButton_move_to_fib_orientation.clicked.connect(lambda: self.move_to_orientation("FIB"))
-        self.pushButton_move_to_sem_orientation.clicked.connect(lambda: self.move_to_orientation("SEM"))
+        self.pushButton_move_to_fib_orientation.clicked.connect(
+            lambda: self.move_to_orientation("FIB")
+        )
+        self.pushButton_move_to_sem_orientation.clicked.connect(
+            lambda: self.move_to_orientation("SEM")
+        )
         self.btn_refresh_stage.clicked.connect(lambda: self.update_ui(None))
 
         # register mouse callbacks — one canvas per beam. The canvases are app-lifetime
@@ -202,31 +234,50 @@ class FibsemMovementWidget(QtWidgets.QWidget):
 
         # signals
         self.movement_progress_signal.connect(self.handle_movement_progress_update)
-        self.image_widget.acquisition_progress_signal.connect(self.handle_acquisition_update)
+        self.image_widget.acquisition_progress_signal.connect(
+            self.handle_acquisition_update
+        )
 
         stage_limits = self.microscope._stage.limits
-        xlimits = stage_limits['x']
-        ylimits = stage_limits['y']
-        zlimits = stage_limits['z']
-        tlimits = stage_limits['t']
+        xlimits = stage_limits["x"]
+        ylimits = stage_limits["y"]
+        zlimits = stage_limits["z"]
+        tlimits = stage_limits["t"]
 
         self.doubleSpinBox_movement_stage_tilt.setMinimum(tlimits.min)
         self.doubleSpinBox_movement_stage_tilt.setMaximum(tlimits.max)
-        self.doubleSpinBox_movement_stage_x.setMinimum(xlimits.min * constants.SI_TO_MILLI)
-        self.doubleSpinBox_movement_stage_x.setMaximum(xlimits.max * constants.SI_TO_MILLI)
-        self.doubleSpinBox_movement_stage_y.setMinimum(ylimits.min * constants.SI_TO_MILLI)
-        self.doubleSpinBox_movement_stage_y.setMaximum(ylimits.max * constants.SI_TO_MILLI)
-        self.doubleSpinBox_movement_stage_z.setMinimum(zlimits.min * constants.SI_TO_MILLI)
-        self.doubleSpinBox_movement_stage_z.setMaximum(zlimits.max * constants.SI_TO_MILLI)
+        self.doubleSpinBox_movement_stage_x.setMinimum(
+            xlimits.min * constants.SI_TO_MILLI
+        )
+        self.doubleSpinBox_movement_stage_x.setMaximum(
+            xlimits.max * constants.SI_TO_MILLI
+        )
+        self.doubleSpinBox_movement_stage_y.setMinimum(
+            ylimits.min * constants.SI_TO_MILLI
+        )
+        self.doubleSpinBox_movement_stage_y.setMaximum(
+            ylimits.max * constants.SI_TO_MILLI
+        )
+        self.doubleSpinBox_movement_stage_z.setMinimum(
+            zlimits.min * constants.SI_TO_MILLI
+        )
+        self.doubleSpinBox_movement_stage_z.setMaximum(
+            zlimits.max * constants.SI_TO_MILLI
+        )
 
         # set custom tilt limits for the compustage
         if self.microscope.stage_is_compustage:
-
             # NOTE: these values are expressed in mm in the UI, hence the conversion
             # set x, y, z step sizes to be 1 um
-            self.doubleSpinBox_movement_stage_x.setSingleStep(1e-6 * constants.SI_TO_MILLI)
-            self.doubleSpinBox_movement_stage_y.setSingleStep(1e-6 * constants.SI_TO_MILLI)
-            self.doubleSpinBox_movement_stage_z.setSingleStep(1e-6 * constants.SI_TO_MILLI)
+            self.doubleSpinBox_movement_stage_x.setSingleStep(
+                1e-6 * constants.SI_TO_MILLI
+            )
+            self.doubleSpinBox_movement_stage_y.setSingleStep(
+                1e-6 * constants.SI_TO_MILLI
+            )
+            self.doubleSpinBox_movement_stage_z.setSingleStep(
+                1e-6 * constants.SI_TO_MILLI
+            )
 
             # hide rotation control for compustage
             self.label_movement_stage_rotation.setVisible(False)
@@ -234,8 +285,12 @@ class FibsemMovementWidget(QtWidgets.QWidget):
 
         # stylesheets
         self.pushButton_move.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
-        self.pushButton_move_to_fib_orientation.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
-        self.pushButton_move_to_sem_orientation.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_move_to_fib_orientation.setStyleSheet(
+            SECONDARY_BUTTON_STYLESHEET
+        )
+        self.pushButton_move_to_sem_orientation.setStyleSheet(
+            SECONDARY_BUTTON_STYLESHEET
+        )
         self.pushButton_move_to_milling_angle.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
 
         # display orientation values on tooltips
@@ -249,15 +304,23 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.pushButton_move_to_milling_angle.setToolTip(milling.pretty_orientation)
 
         # milling angle controls
-        self.doubleSpinBox_milling_angle.setValue(self.microscope.system.stage.milling_angle) # deg
+        self.doubleSpinBox_milling_angle.setValue(
+            self.microscope.system.stage.milling_angle
+        )  # deg
         self.doubleSpinBox_milling_angle.setSuffix(constants.DEGREE_SYMBOL)
         self.doubleSpinBox_milling_angle.setSingleStep(1.0)
         self.doubleSpinBox_milling_angle.setDecimals(1)
         self.doubleSpinBox_milling_angle.setRange(0, 45)
-        self.doubleSpinBox_milling_angle.setToolTip("The milling angle is the difference between the stage and the fib viewing angle.")
+        self.doubleSpinBox_milling_angle.setToolTip(
+            "The milling angle is the difference between the stage and the fib viewing angle."
+        )
         self.doubleSpinBox_milling_angle.setKeyboardTracking(False)
-        self.doubleSpinBox_milling_angle.valueChanged.connect(self._update_milling_angle)
-        self.pushButton_move_to_milling_angle.clicked.connect(lambda: self.move_to_orientation("MILLING"))
+        self.doubleSpinBox_milling_angle.valueChanged.connect(
+            self._update_milling_angle
+        )
+        self.pushButton_move_to_milling_angle.clicked.connect(
+            lambda: self.move_to_orientation("MILLING")
+        )
 
         # set degree symbols for rotation and tilt
         self.doubleSpinBox_movement_stage_rotation.setSuffix(constants.DEGREE_SYMBOL)
@@ -273,6 +336,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
 
         if cfg.FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED:
             from fibsem.ui.widgets.sample_holder_widget import SampleHolderWidget
+
             self.sample_holder_widget = SampleHolderWidget(microscope=self.microscope)
             self.sample_holder_widget.set_holder(self.microscope._stage.holder)
             self.gridLayout_2.addWidget(self.sample_holder_widget, 3, 0)
@@ -302,19 +366,35 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         # No disabled branch: both sheets carry a :disabled rule, so setEnabled
         # above is what greys these out.
         for btn in self._move_buttons:
-            btn.setStyleSheet(PRIMARY_BUTTON_STYLESHEET if btn is self.pushButton_move
-                              else SECONDARY_BUTTON_STYLESHEET)
+            btn.setStyleSheet(
+                PRIMARY_BUTTON_STYLESHEET
+                if btn is self.pushButton_move
+                else SECONDARY_BUTTON_STYLESHEET
+            )
 
     def handle_movement_progress_update(self, ddict: dict) -> None:
-        """Handle movement progress updates from the microscope"""
+        """Handle movement progress updates from the microscope.
 
+        Shown in the instructions label rather than as toasts. These messages bracket
+        a blocking move -- one click-to-move emits four of them inside ~45 ms -- so as
+        popups they stack into a wall that says nothing the moving stage and the
+        refreshing images do not already show. A label carries the same words for the
+        duration of the move, which is when they are worth reading.
+
+        They are invisible today because `display.toasts_enabled` defaults to False.
+        That default should change, and this is what has to be true first.
+        """
         msg = ddict.get("msg", None)
         if msg is not None:
             logging.debug(msg)
-            notification_service.show_toast(msg)
+            self.label_movement_instructions.setText(msg)
 
         is_finished = ddict.get("finished", False)
         if is_finished:
+            # Restored, or the last progress line sits there afterwards as though the
+            # stage were still moving. Every path reaches here: each worker connects
+            # `finished` to `move_stage_finished`, which emits this.
+            self.label_movement_instructions.setText(INSTRUCTIONS_TEXT)
             self._update_position_readout()
 
     def _update_position_readout(
@@ -337,10 +417,18 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         if stage_position is None:
             stage_position = self.microscope.get_stage_position()
 
-        self.doubleSpinBox_movement_stage_x.setValue(stage_position.x * constants.SI_TO_MILLI)
-        self.doubleSpinBox_movement_stage_y.setValue(stage_position.y * constants.SI_TO_MILLI)
-        self.doubleSpinBox_movement_stage_z.setValue(stage_position.z * constants.SI_TO_MILLI)
-        self.doubleSpinBox_movement_stage_rotation.setValue(np.degrees(stage_position.r))
+        self.doubleSpinBox_movement_stage_x.setValue(
+            stage_position.x * constants.SI_TO_MILLI
+        )
+        self.doubleSpinBox_movement_stage_y.setValue(
+            stage_position.y * constants.SI_TO_MILLI
+        )
+        self.doubleSpinBox_movement_stage_z.setValue(
+            stage_position.z * constants.SI_TO_MILLI
+        )
+        self.doubleSpinBox_movement_stage_rotation.setValue(
+            np.degrees(stage_position.r)
+        )
         self.doubleSpinBox_movement_stage_tilt.setValue(np.degrees(stage_position.t))
 
         # update the current position label
@@ -349,9 +437,12 @@ class FibsemMovementWidget(QtWidgets.QWidget):
     @ensure_main_thread
     def update_ui_after_movement(self, retake: bool = True):
         # disable taking images after movement here
-        if (retake is False or self.microscope.is_acquiring or
-            self.microscope.fm is not None and
-            self.microscope.fm.objective.state == "Inserted"):
+        if (
+            retake is False
+            or self.microscope.is_acquiring
+            or self.microscope.fm is not None
+            and self.microscope.fm.objective.state == "Inserted"
+        ):
             self.update_ui()
             return
         prefs = cfg.load_user_preferences()
@@ -369,7 +460,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
 
     def _update_milling_angle(self):
         """Update the milling angle in the microscope and the UI"""
-        milling_angle = self.doubleSpinBox_milling_angle.value() # deg
+        milling_angle = self.doubleSpinBox_milling_angle.value()  # deg
         self.microscope.set_milling_angle(milling_angle)
 
         # refresh tooltip and overlay
@@ -377,7 +468,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.pushButton_move_to_milling_angle.setToolTip(milling.pretty_orientation)
         self._update_position_readout()
 
-#### MOVEMENT
+    #### MOVEMENT
 
     def move_to_position(self, stage_position: Optional[FibsemStagePosition] = None):
         """Move the stage to the position specified in the UI"""
@@ -391,13 +482,15 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         worker = self.absolute_movement_worker(stage_position=stage_position)
         worker.finished.connect(self.move_stage_finished)
         worker.start()
-    
+
     @thread_worker
     def absolute_movement_worker(self, stage_position: FibsemStagePosition) -> None:
         """Worker function to move the stage to the specified position"""
-        self.movement_progress_signal.emit({"msg": f"Moving to {stage_position.pretty}"})
+        self.movement_progress_signal.emit(
+            {"msg": f"Moving to {stage_position.pretty}…"}
+        )
         self.microscope.safe_absolute_stage_movement(stage_position)
-        self.movement_progress_signal.emit({"msg": "Move finished, taking new images"})
+        self.movement_progress_signal.emit({"msg": ACQUIRING_IMAGES})
         self.update_ui_after_movement()
 
     def move_stage_finished(self):
@@ -449,21 +542,40 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         """
         movement_mode = "Vertical" if vertical_move else "Stable"
 
-        logging.debug({
-            "msg": "stage_movement",                    # message type
-            "movement_mode": movement_mode,             # movement mode
-            "beam_type": beam_type.name,                # beam type
-            "dm": point.to_dict(),                      # shift in microscope coordinates
-            "coords": coords,                           # coords in image coordinates
-        })
+        logging.debug(
+            {
+                "msg": "stage_movement",  # message type
+                "movement_mode": movement_mode,  # movement mode
+                "beam_type": beam_type.name,  # beam type
+                "dm": point.to_dict(),  # shift in microscope coordinates
+                "coords": coords,  # coords in image coordinates
+            }
+        )
 
-        self.movement_progress_signal.emit({"msg": "Moving stage..."})
+        # Which kind of move, because they are different operations and the user chose
+        # between them: a plain double-click moves laterally, Alt + double-click moves
+        # along the beam axis to hold eucentricity. "Vertically" rather than
+        # "eucentric" so the message matches the words already on screen in
+        # INSTRUCTIONS_TEXT.
+        self.movement_progress_signal.emit(
+            {
+                "msg": "Moving the stage vertically…"
+                if vertical_move
+                else "Moving the stage…"
+            }
+        )
         # eucentric is only supported for ION beam
         if beam_type is BeamType.ION and vertical_move:
             self.microscope.vertical_move(dx=point.x, dy=point.y)
-        elif beam_type is BeamType.ELECTRON and vertical_move and hasattr(self.microscope, "move_coincident_from_sem"):
+        elif (
+            beam_type is BeamType.ELECTRON
+            and vertical_move
+            and hasattr(self.microscope, "move_coincident_from_sem")
+        ):
             # move coincident from SEM
-            self.microscope.move_coincident_from_sem(dx=0, dy=point.y) # TMP: disable dx for now
+            self.microscope.move_coincident_from_sem(
+                dx=0, dy=point.y
+            )  # TMP: disable dx for now
         else:
             # corrected stage movement
             self.microscope.stable_move(
@@ -471,10 +583,12 @@ class FibsemMovementWidget(QtWidgets.QWidget):
                 dy=point.y,
                 beam_type=beam_type,
             )
-        self.movement_progress_signal.emit({"msg": "Move finished, updating UI"})
+        self.movement_progress_signal.emit({"msg": ACQUIRING_IMAGES})
         self.update_ui_after_movement()
 
-    def _on_canvas_double_click(self, beam_type: BeamType, x: float, y: float, modifiers) -> None:
+    def _on_canvas_double_click(
+        self, beam_type: BeamType, x: float, y: float, modifiers
+    ) -> None:
         """Canvas double-click -> move stage."""
         if not self._click_to_move_available():
             return
@@ -484,7 +598,9 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         worker.start()
 
     @thread_worker
-    def _canvas_double_click_worker(self, beam_type: BeamType, x: float, y: float, modifiers):
+    def _canvas_double_click_worker(
+        self, beam_type: BeamType, x: float, y: float, modifiers
+    ):
         """Thread worker for quad-view double-clicks (one image per canvas).
 
         ``x, y`` are already beam-local, full-resolution image pixels — the canvas emits
@@ -492,8 +608,13 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         """
         if "Shift" in modifiers:
             return
-        if hasattr(self.parent, "milling_widget") and self.parent.milling_widget.is_milling:
-            notification_service.show_toast("Cannot move stage while milling is in progress.")
+        if (
+            hasattr(self.parent, "milling_widget")
+            and self.parent.milling_widget.is_milling
+        ):
+            notification_service.show_toast(
+                "Cannot move stage while milling is in progress."
+            )
             return
         image = (
             self.image_widget.eb_image
@@ -506,7 +627,6 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         h, w = image.data.shape[:2]
         if not (0 <= x < w and 0 <= y < h):
             return  # click landed outside the image area
-        self.movement_progress_signal.emit({"msg": "Click to move in progress..."})
         point = conversions.image_to_microscope_image_coordinates(
             coord=Point(x=x, y=y),
             image=image.data,
@@ -516,7 +636,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
             beam_type, point, "Alt" in modifiers, coords={"x": x, "y": y}
         )
 
-    def move_to_orientation(self, orientation: str)-> None:
+    def move_to_orientation(self, orientation: str) -> None:
         """Move to the specifed orientation"""
         if orientation not in ["SEM", "FIB", "MILLING"]:
             raise ValueError(f"Invalid orientation: {orientation}")
@@ -528,7 +648,11 @@ class FibsemMovementWidget(QtWidgets.QWidget):
     @thread_worker
     def move_to_orientation_worker(self, orientation: str) -> None:
         """Threaded worker function to move the stage to the specified orientation"""
-        self.movement_progress_signal.emit({"msg": f"Moving to {orientation} orientation..."})
+        self.movement_progress_signal.emit(
+            {"msg": f"Moving to the {orientation} orientation…"}
+        )
         self.microscope.move_to_orientation(orientation)
+        # The orientation path never said this, so the label sat on "Moving to the SEM
+        # orientation…" while the move had finished and the images were being retaken.
+        self.movement_progress_signal.emit({"msg": ACQUIRING_IMAGES})
         self.update_ui_after_movement()
-
