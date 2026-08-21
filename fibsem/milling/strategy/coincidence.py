@@ -5,15 +5,13 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from queue import Queue
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
-import tifffile as tff
 from psygnal import Signal
 
 from fibsem import constants
-from fibsem.fm.structures import ChannelSettings, FluorescenceImage, ZParameters
+from fibsem.fm.structures import FluorescenceImage
 from fibsem.microscope import FibsemMicroscope
 from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.milling import (
@@ -107,7 +105,9 @@ class CoincidenceMillingStrategyConfig(MillingStrategyConfig):
     )
     bbox: Optional[FibsemRectangle] = field(
         default=None,
-        metadata=field_meta(hidden=True),  # set interactively via the FM ROI, not a form control
+        metadata=field_meta(
+            hidden=True
+        ),  # set interactively via the FM ROI, not a form control
     )  # reduced area for intensity monitoring
     # oscillation parameters
 
@@ -361,9 +361,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
 
             # unsupervised runs: automatically stop on intensity drop
             if not self.config.supervised and self._drop_detected:
-                logging.info(
-                    "Unsupervised: intensity drop detected. Stopping milling."
-                )
+                logging.info("Unsupervised: intensity drop detected. Stopping milling.")
                 self.microscope.stop_milling()
                 break
 
