@@ -102,7 +102,12 @@ jobs:
         fi
         sed 's/^/  /' "$changed"
         # NUL-separated: a path with a space would otherwise split into two.
-        if ! tr '\n' '\0' < "$changed" | xargs -0 ruff format --check --; then
+        # --force-exclude is required, not optional: ruff ignores `exclude` for
+        # paths named explicitly on the command line, and this step names every
+        # path explicitly. Without it, editing a vendored or otherwise excluded
+        # file would still be told to reformat it.
+        if ! tr '\n' '\0' < "$changed" \
+             | xargs -0 ruff format --check --force-exclude --; then
           echo
           echo "To fix, from the repo root:"
           echo "  ruff format \$(git diff --name-only --diff-filter=d \$(git merge-base origin/main HEAD) HEAD -- '*.py')"

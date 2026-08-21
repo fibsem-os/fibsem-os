@@ -142,6 +142,12 @@ filterwarnings = [
 # infers py38, so the two can never drift apart.
 extend-exclude = [
     "external",
+    # Vendored upstream: pyto, by Vladan Lucic (MPI of Biochemistry). Linting or
+    # formatting it would make it undiffable against upstream, and its findings
+    # are not ours to fix -- points.py:59 has a live `unitx`/`units` typo that
+    # belongs upstream, not in a local patch. Excluding it drops 14 F401, 17
+    # E701, 11 F841 and 6 F821 that no one here was ever going to action.
+    "fibsem/correlation/pyto",
     # Ruff rewrites notebooks in place, re-sorting imports inside the cell JSON.
     # Whether the notebooks are in scope is a separate question to this config.
     "**/*.ipynb",
