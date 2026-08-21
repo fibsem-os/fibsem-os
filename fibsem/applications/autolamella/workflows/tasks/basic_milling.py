@@ -1,4 +1,3 @@
-
 ######## BASIC MILLING TASK DEFINITIONS ########
 
 from copy import deepcopy
@@ -16,6 +15,7 @@ from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 @dataclass
 class BasicMillingTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the BasicMillingTask."""
+
     task_type: ClassVar[str] = "BASIC_MILLING"
     display_name: ClassVar[str] = "Basic Milling"
 
@@ -26,6 +26,7 @@ class BasicMillingTaskConfig(AutoLamellaTaskConfig):
 
 class BasicMillingTask(AutoLamellaTask):
     """A simple milling task that moves to the lamella position, runs milling, and takes reference images."""
+
     config: BasicMillingTaskConfig
     config_cls: ClassVar[Type[BasicMillingTaskConfig]] = BasicMillingTaskConfig
 
@@ -42,8 +43,10 @@ class BasicMillingTask(AutoLamellaTask):
 
         for key, milling_task_config in self.config.milling.items():
             milling_task_config.acquisition.imaging.path = self.lamella.path
-            milling_task_config = self.update_milling_config_ui( milling_task_config)
+            milling_task_config = self.update_milling_config_ui(milling_task_config)
             self.config.milling[key] = deepcopy(milling_task_config)
 
-        self.log_status_message("ACQUIRE_REFERENCE_IMAGES", "Acquiring Reference Images...")
+        self.log_status_message(
+            "ACQUIRE_REFERENCE_IMAGES", "Acquiring Reference Images..."
+        )
         self._acquire_set_of_reference_images(image_settings)
