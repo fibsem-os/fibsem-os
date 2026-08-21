@@ -1,26 +1,27 @@
-"""A task row states what it waits for, on the same line as its name.
+"""A task row states what it waits for, in a column of its own.
 
 Every row used to carry a second line, and on most it read "No requirements" — an
 absence restated once per task, which buried the two or three rows that actually
 declare a dependency. Blanking that line was not enough on its own: the name sits
 at the top of a two-line block, so a row without a sub-line reads as a name
-floating above a gap. One line puts every name on the same baseline.
+floating above a gap.
 
-The dependency list is elided to a fixed budget, because a task waiting on four
-others produced a label wider than the row and Qt cut it off mid-word. The row's
-tooltip carries the full list.
+One line each, and the dependency in a fixed-width right-aligned column, so the
+entries end on the same edge and read downwards as a column rather than being
+hunted for wherever each name happens to stop.
 """
 
 from __future__ import annotations
 
 import os
-import re
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
 pytest.importorskip("PyQt5")
+
+from PyQt5.QtCore import Qt  # noqa: E402
 
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskDescription,
@@ -29,8 +30,6 @@ from fibsem.applications.autolamella.ui.workflow_config_widget import (  # noqa:
     REQUIRES_MAX_WIDTH,
     WorkflowTaskRowWidget,
 )
-
-TAGS = re.compile(r"<[^>]+>")
 
 
 def _row(name: str, requires: list[str]) -> WorkflowTaskRowWidget:
@@ -41,23 +40,20 @@ def _row(name: str, requires: list[str]) -> WorkflowTaskRowWidget:
     )
 
 
-def _rendered(row: WorkflowTaskRowWidget) -> str:
-    """What the label actually reads, with the markup stripped."""
-    return TAGS.sub("", row.name_label.text())
-
-
-def test_a_task_with_no_requirements_says_only_its_name(qapp):
+def test_a_task_with_no_requirements_leaves_the_column_empty(qapp):
     row = _row("Mill Fiducial", [])
 
-    assert _rendered(row) == "Mill Fiducial"
+    assert row.name_label.text() == "Mill Fiducial"
+    assert row.requires_label.text() == ""
 
     row.deleteLater()
 
 
-def test_a_task_with_a_requirement_names_it_after_the_task(qapp):
+def test_a_task_with_a_requirement_names_it(qapp):
     row = _row("Rough Milling", ["Mill Fiducial"])
 
-    assert _rendered(row) == "Rough Milling after Mill Fiducial"
+    assert row.name_label.text() == "Rough Milling"
+    assert row.requires_label.text() == "after Mill Fiducial"
 
     row.deleteLater()
 
@@ -65,30 +61,34 @@ def test_a_task_with_a_requirement_names_it_after_the_task(qapp):
 def test_several_requirements_are_listed(qapp):
     row = _row("Polishing", ["Mill Fiducial", "Rough Milling"])
 
-    assert _rendered(row) == "Polishing after Mill Fiducial, Rough Milling"
+    assert row.requires_label.text() == "after Mill Fiducial, Rough Milling"
 
     row.deleteLater()
 
 
-def test_rows_sit_on_one_baseline_either_way(qapp):
-    """The point of the single line: no row is taller, and no name is higher.
+def test_the_column_is_the_same_width_and_edge_on_every_row(qapp):
+    """The point of the column: entries end on one edge, so they read downwards.
 
-    Two labels stacked would put the name at the top of the block on every row
-    that has no dependency, which is most of them.
+    A suffix that simply followed the name would start and end wherever that name
+    happened to stop, which is what makes a list of them hard to scan.
     """
-    without = _row("Mill Fiducial", [])
-    with_one = _row("Rough Milling", ["Mill Fiducial"])
+    rows = [
+        _row("Mill Fiducial", []),
+        _row("Rough Milling", ["Mill Fiducial"]),
+        _row("A Considerably Longer Task Name", ["Rough Milling"]),
+    ]
 
-    assert without.sizeHint().height() == with_one.sizeHint().height()
-    # One label, so there is no second line for the name to sit above.
-    assert not hasattr(without, "requires_label")
+    assert {r.requires_label.width() for r in rows} == {REQUIRES_MAX_WIDTH}
+    assert all(r.requires_label.alignment() & Qt.AlignRight for r in rows)
+    # And no row is taller than another for having something in the column.
+    assert len({r.sizeHint().height() for r in rows}) == 1
 
-    without.deleteLater()
-    with_one.deleteLater()
+    for r in rows:
+        r.deleteLater()
 
 
 def test_a_long_dependency_list_is_elided_not_clipped(qapp):
-    """Four dependencies made the label wider than the row, and Qt cut it mid-word."""
+    """Four dependencies overflowed the row, and Qt cut the text off mid-word."""
     requires = [
         "Setup Lamella Position",
         "Spot Burn Fiducial",
@@ -97,27 +97,20 @@ def test_a_long_dependency_list_is_elided_not_clipped(qapp):
     ]
     row = _row("Final Polishing Pass", requires)
 
-    rendered = _rendered(row)
-    assert "…" in rendered
-    assert rendered.startswith("Final Polishing Pass after Setup Lamella Position")
-    # Bounded by the budget plus the name, rather than by however long the list is.
-    name_only = _row("Final Polishing Pass", [])
-    assert (
-        row.name_label.sizeHint().width()
-        <= name_only.sizeHint().width() + REQUIRES_MAX_WIDTH
-    )
+    text = row.requires_label.text()
+    assert "…" in text
+    assert text.startswith("after Setup Lamella Position")
     # Nothing is lost: the whole list is one hover away.
     assert row.toolTip() == "Requires: " + ", ".join(requires)
 
     row.deleteLater()
-    name_only.deleteLater()
 
 
-def test_a_task_name_cannot_inject_markup(qapp):
-    """Names come from the protocol, and the label is rich text."""
+def test_a_task_name_cannot_render_as_markup(qapp):
+    """Names come from the protocol, and QLabel on AutoText would interpret them."""
     row = _row("Mill <b>Fiducial</b> & Co", [])
 
-    assert "&lt;b&gt;" in row.name_label.text()
-    assert "<b>" not in row.name_label.text()
+    assert row.name_label.textFormat() == Qt.PlainText
+    assert row.name_label.text() == "Mill <b>Fiducial</b> & Co"
 
     row.deleteLater()

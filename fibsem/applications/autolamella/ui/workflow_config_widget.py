@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import html
 from typing import Dict, List, Optional
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
@@ -38,11 +37,12 @@ from fibsem.ui.tokens import (
 from fibsem.ui.widgets.custom_widgets import IconToolButton
 
 _NAME_MIN_WIDTH = 180
-# The dependency suffix: present, but never competing with the name it follows,
-# and never wider than this -- past it the row clips the text mid-word.
+# The dependency column: present, but never competing with the name it belongs to.
+# Fixed width, so the entries line up down the list and the text elides inside it
+# rather than the row clipping it mid-word.
 REQUIRES_COLOUR = NEUTRAL_700
 REQUIRES_FONT_PX = 10
-REQUIRES_MAX_WIDTH = 190
+REQUIRES_MAX_WIDTH = 170
 _BTN_SIZE = QSize(32, 32)
 _ROW_HEIGHT = 40
 _BTN_SPACER_WIDTH = (
@@ -77,28 +77,21 @@ def _supervise_icon(task: AutoLamellaTaskDescription) -> tuple[str, str, str]:
     return "mdi:lightning-bolt-circle", stylesheets.AUTOMATED_COLOR, "Automated"
 
 
-def _name_markup(task: AutoLamellaTaskDescription, font: QFont) -> str:
-    """The task's name, and what it waits for, on one line.
+def _requires_text(task: AutoLamellaTaskDescription, font: QFont) -> str:
+    """What the task waits for, sized to the column that holds it.
 
-    Nothing where a task has no dependency: "No requirements" under every row was
-    what buried the two or three that have one.
+    Empty where a task has no dependency: "No requirements" on every row was what
+    buried the two or three that have one.
 
-    The dependency list is elided to a fixed budget rather than left to run: a task
-    waiting on four others produced a label wider than the row, which Qt then cut
-    off mid-word. The row's tooltip carries the full list either way. Escaped
-    because task names come from the protocol and this is rich text.
+    Elided rather than left to run. A task waiting on four others produced a label
+    wider than the row, and Qt cut it off mid-word; the row's tooltip carries the
+    full list.
     """
-    name = html.escape(task.name)
     if not task.requires:
-        return name
-
-    small = QFont(font)
-    small.setPixelSize(REQUIRES_FONT_PX)
-    after = QFontMetrics(small).elidedText(
-        ", ".join(task.requires), Qt.ElideRight, REQUIRES_MAX_WIDTH
+        return ""
+    return QFontMetrics(font).elidedText(
+        "after " + ", ".join(task.requires), Qt.ElideRight, REQUIRES_MAX_WIDTH
     )
-    style = f"color: {REQUIRES_COLOUR}; font-size: {REQUIRES_FONT_PX}px;"
-    return f'{name} <span style="{style}">after {html.escape(after)}</span>'
 
 
 class WorkflowTaskRowWidget(QWidget):
@@ -128,14 +121,29 @@ class WorkflowTaskRowWidget(QWidget):
 
         # One line, not a name over a requirements line. The second line was blank
         # on most rows -- every task without a dependency -- and a name sitting at
-        # the top of a two-line block reads as floating above a gap. Inline, every
-        # name shares a baseline and the dependency stays attached to its task.
+        # the top of a two-line block reads as floating above a gap.
         self.name_label = QLabel()
         self.name_label.setMinimumWidth(_NAME_MIN_WIDTH)
+        # Task names come from the protocol, and a QLabel left on AutoText renders
+        # anything that looks like markup as markup.
+        self.name_label.setTextFormat(Qt.PlainText)
         self.name_label.setStyleSheet("background: transparent;")
         layout.addWidget(self.name_label)
 
         layout.addStretch(1)
+
+        # Its own column, right-aligned at a fixed width, so the dependencies line
+        # up down the list and can be read as a column rather than hunted for at
+        # whatever point each name happens to end.
+        self.requires_label = QLabel()
+        self.requires_label.setFixedWidth(REQUIRES_MAX_WIDTH)
+        self.requires_label.setTextFormat(Qt.PlainText)
+        self.requires_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.requires_label.setStyleSheet(
+            f"background: transparent; color: {REQUIRES_COLOUR}; "
+            f"font-size: {REQUIRES_FONT_PX}px;"
+        )
+        layout.addWidget(self.requires_label)
 
         self.btn_schedule = QToolButton()
         self.btn_schedule.setFixedSize(_BTN_SIZE)
@@ -193,7 +201,9 @@ class WorkflowTaskRowWidget(QWidget):
     def refresh(self) -> None:
         """Re-read all display fields from the stored task."""
         self.name_label.setText(self.task.name)
-        self.name_label.setText(_name_markup(self.task, self.name_label.font()))
+        self.requires_label.setText(
+            _requires_text(self.task, self.requires_label.font())
+        )
         self.setToolTip(
             "Requires: " + ", ".join(self.task.requires) if self.task.requires else ""
         )
