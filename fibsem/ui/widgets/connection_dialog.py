@@ -33,7 +33,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-import fibsem
 from fibsem import config as cfg
 from fibsem import utils
 from fibsem.microscope import FibsemMicroscope
@@ -101,12 +100,7 @@ class ConnectionDialog(QDialog):
 
         self.title_label = QLabel()
         self.title_label.setStyleSheet(f"color: {TEXT_STRONG_COLOR}; font-size: 14px;")
-        # The plain version, not `get_version_string()` -- its git-describe suffix
-        # belongs in Help > About, not on the first thing a session sees.
-        version = QLabel(f"AutoLamella {fibsem.__version__}")
-        version.setStyleSheet(f"color: {TEXT_MUTED_COLOR}; font-size: 12px;")
         layout.addWidget(self.title_label)
-        layout.addWidget(version)
 
         layout.addWidget(self._build_configuration_row())
         layout.addWidget(self._build_details_panel())
