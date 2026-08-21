@@ -241,6 +241,23 @@ SECONDARY_BUTTON_STYLESHEET = f"""
     }}
 """
 
+# A QPushButton that opens a menu. Qt stops drawing the native menu arrow as soon
+# as the button carries a stylesheet, so the chevron has to be put back by hand --
+# without it the control looks like a plain button and nothing says it opens.
+MENU_BUTTON_STYLESHEET = SECONDARY_BUTTON_STYLESHEET + """
+    QPushButton {
+        padding-right: 24px;
+    }
+    QPushButton::menu-indicator {
+        image: url("__ICONS_DIR__/chevron_down.svg");
+        subcontrol-origin: padding;
+        subcontrol-position: center right;
+        width: 10px;
+        height: 10px;
+        right: 8px;
+    }
+""".replace("__ICONS_DIR__", _ICONS_DIR)
+
 MESSAGE_BOX_STYLESHEET = f"""
     QMessageBox {{
         background-color: {SURFACE_COLOR};
