@@ -1556,7 +1556,7 @@ def _autofocus_payloads(microscope, monkeypatch, mode):
     _record_tile_positions(microscope, monkeypatch)
     seen = []
     microscope.fm.acquisition_progress_signal.connect(
-        lambda d: seen.append(d) if d.get("task") == "autofocus" else None
+        lambda d: seen.append(d) if d.get("operation") == "autofocus" else None
     )
     acquisition.FMTiledAcquisitionRunner(
         microscope=microscope,
@@ -1608,7 +1608,7 @@ def test_a_cancelled_sweep_does_not_start_the_next_pass(fm_microscope, monkeypat
     # Still the detector's signal: an autofocus sweep is work *inside* a tile, which is
     # the scale that stayed there when the tileset moved to `tiled_acquisition_signal`.
     fm_microscope.fm.acquisition_progress_signal.connect(
-        lambda d: seen.append(d) if d.get("task") == "autofocus" else None
+        lambda d: seen.append(d) if d.get("operation") == "autofocus" else None
     )
 
     def cancel_during_the_first_pass(*args, **kwargs):

@@ -29,7 +29,7 @@ from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget, _Demo
 # a live slot to touch.
 PROGRESS = {
     "state": "acquiring",
-    "task": "z-stack",
+    "operation": "z-stack",
     "channel": "DAPI",
     "channel_index": 1,
     "total_channels": 1,

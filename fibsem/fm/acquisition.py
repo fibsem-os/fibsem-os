@@ -58,7 +58,7 @@ def acquire_channels(
         microscope.acquisition_progress_signal.emit(
             {
                 "state": "acquiring",
-                "task": "channels",
+                "operation": "channels",
                 "channel": channel.name,
                 "channel_index": i + 1,
                 "total_channels": len(channel_settings),
@@ -113,7 +113,7 @@ def acquire_z_stack(
                     microscope.acquisition_progress_signal.emit(
                         {
                             "state": "acquiring",
-                            "task": "z-stack",
+                            "operation": "z-stack",
                             "channel": ch.name,
                             "channel_index": i + 1,
                             "total_channels": len(channel_settings),
@@ -149,7 +149,7 @@ def acquire_z_stack(
                     microscope.acquisition_progress_signal.emit(
                         {
                             "state": "acquiring",
-                            "task": "z-stack",
+                            "operation": "z-stack",
                             "channel": ch.name,
                             "channel_index": i + 1,
                             "total_channels": len(channel_settings),
