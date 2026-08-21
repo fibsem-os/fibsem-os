@@ -156,7 +156,7 @@ def run_autofocus(
             # the whole sweep -- which on per-tile autofocus is most of the run.
             microscope.acquisition_progress_signal.emit({
                 "state": "acquiring",
-                "task": "autofocus",
+                "operation": "autofocus",
                 "channel": channel_settings.name if channel_settings is not None else "",
                 "zlevel": i + 1,
                 "total_zlevels": len(z_positions),
