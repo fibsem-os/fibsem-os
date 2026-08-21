@@ -264,9 +264,6 @@ class MillCoincidentTask(AutoLamellaTask):
             basename = f"{self.lamella.name}-coincidence-final-{timestamp}.ome.tiff"
             filename = os.path.join(self.lamella.path, basename)
 
-            self.microscope.fm.acquisition_progress_signal.emit(
-                {"state": "acquiring", "task": f"{self.task_name}"}
-            )
             image = acquire_image(
                 microscope=self.microscope.fm,
                 channel_settings=fm_config.channel_settings,

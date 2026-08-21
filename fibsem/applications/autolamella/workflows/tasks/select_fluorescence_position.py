@@ -63,7 +63,6 @@ class SelectFluorescencePositionTask(AutoLamellaTask):
 
         # Acquire image
         self.log_status_message("ACQUIRE_FLUORESCENCE_IMAGE", "Acquiring Fluorescence Image...")
-        self.microscope.fm.acquisition_progress_signal.emit({"state": "acquiring", "task": f"{self.task_name}"})
         self.microscope.fm.acquire_image()
 
         if self.validate:

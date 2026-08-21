@@ -127,7 +127,6 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
 
         # Acquire image
         self.log_status_message("ACQUIRE_FLUORESCENCE_IMAGE", "Acquiring Fluorescence Image...")
-        self.microscope.fm.acquisition_progress_signal.emit({"state": "acquiring", "task": f"{self.task_name}"})
         image = acquire_image(microscope=self.microscope.fm,
                                 channel_settings=self.config.channel_settings,
                                 zparams=self.config.zparams,
@@ -178,7 +177,6 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
         af_display = (f"Autofocus: {autofocus_channel.name} "
                       f"[{af_settings.method.value}], {len(af_settings.passes)} pass(es)")
         self.log_status_message("AUTOFOCUS", af_display)
-        self.microscope.fm.acquisition_progress_signal.emit({"state": "autofocusing", "task": f"{self.task_name}"}) # type: ignore
         # Query: pass in channel settings so we are certain the channel is correct
         result = run_coarse_fine_autofocus(
                 self.microscope.fm,
