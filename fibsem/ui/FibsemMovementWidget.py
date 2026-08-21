@@ -29,6 +29,12 @@ INSTRUCTIONS_TEXT = (
     """Instructions: Double Click to Move. Alt + Double Click to Move Vertically"""
 )
 
+# What every path says once the stage has arrived and the images are being retaken.
+# A constant rather than three string literals: the three movement paths had drifted
+# to "updating images", "taking new images" and, on the orientation path, nothing at
+# all -- so the same phase looked different depending on how the move was started.
+ACQUIRING_IMAGES = "Acquiring images…"
+
 
 class FibsemMovementWidget(QtWidgets.QWidget):
     movement_progress_signal = QtCore.pyqtSignal(dict)
@@ -481,10 +487,10 @@ class FibsemMovementWidget(QtWidgets.QWidget):
     def absolute_movement_worker(self, stage_position: FibsemStagePosition) -> None:
         """Worker function to move the stage to the specified position"""
         self.movement_progress_signal.emit(
-            {"msg": f"Moving to {stage_position.pretty}"}
+            {"msg": f"Moving to {stage_position.pretty}…"}
         )
         self.microscope.safe_absolute_stage_movement(stage_position)
-        self.movement_progress_signal.emit({"msg": "Move finished, taking new images"})
+        self.movement_progress_signal.emit({"msg": ACQUIRING_IMAGES})
         self.update_ui_after_movement()
 
     def move_stage_finished(self):
@@ -546,7 +552,18 @@ class FibsemMovementWidget(QtWidgets.QWidget):
             }
         )
 
-        self.movement_progress_signal.emit({"msg": "Moving stage..."})
+        # Which kind of move, because they are different operations and the user chose
+        # between them: a plain double-click moves laterally, Alt + double-click moves
+        # along the beam axis to hold eucentricity. "Vertically" rather than
+        # "eucentric" so the message matches the words already on screen in
+        # INSTRUCTIONS_TEXT.
+        self.movement_progress_signal.emit(
+            {
+                "msg": "Moving the stage vertically…"
+                if vertical_move
+                else "Moving the stage…"
+            }
+        )
         # eucentric is only supported for ION beam
         if beam_type is BeamType.ION and vertical_move:
             self.microscope.vertical_move(dx=point.x, dy=point.y)
@@ -566,7 +583,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
                 dy=point.y,
                 beam_type=beam_type,
             )
-        self.movement_progress_signal.emit({"msg": "Move finished, updating images..."})
+        self.movement_progress_signal.emit({"msg": ACQUIRING_IMAGES})
         self.update_ui_after_movement()
 
     def _on_canvas_double_click(
@@ -610,7 +627,6 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         h, w = image.data.shape[:2]
         if not (0 <= x < w and 0 <= y < h):
             return  # click landed outside the image area
-        self.movement_progress_signal.emit({"msg": "Click to move in progress..."})
         point = conversions.image_to_microscope_image_coordinates(
             coord=Point(x=x, y=y),
             image=image.data,
@@ -633,7 +649,10 @@ class FibsemMovementWidget(QtWidgets.QWidget):
     def move_to_orientation_worker(self, orientation: str) -> None:
         """Threaded worker function to move the stage to the specified orientation"""
         self.movement_progress_signal.emit(
-            {"msg": f"Moving to {orientation} orientation..."}
+            {"msg": f"Moving to the {orientation} orientation…"}
         )
         self.microscope.move_to_orientation(orientation)
+        # The orientation path never said this, so the label sat on "Moving to the SEM
+        # orientation…" while the move had finished and the images were being retaken.
+        self.movement_progress_signal.emit({"msg": ACQUIRING_IMAGES})
         self.update_ui_after_movement()
