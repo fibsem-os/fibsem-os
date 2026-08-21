@@ -2,25 +2,20 @@ from __future__ import annotations
 
 import datetime
 import logging
-import math
 import os
 import threading
 from copy import deepcopy
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
-import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.figure import Figure
 
 from fibsem import acquire, conversions
 from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
 from fibsem.constants import DATETIME_FILE
-from fibsem.conversions import is_inside_image_bounds
 
 # Moved to the `tiling` package (FIB-390); re-exported so existing importers and the
 # public API are unaffected. `fibsem/imaging/__init__.py` star-imports this module.
-from fibsem.imaging.reduce import PreviewMosaic, downsample
+from fibsem.imaging.reduce import PreviewMosaic
 from fibsem.imaging.tiling.geometry import (  # noqa: E402,F401
     TilePosition,
     _spiral_order,  # noqa: E402,F401
@@ -50,7 +45,6 @@ from fibsem.imaging.tiling.reprojection import (  # noqa: E402,F401
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     AutoFocusMode,
-    BeamType,
     FibsemImage,
     FibsemImageMetadata,
     FibsemStagePosition,

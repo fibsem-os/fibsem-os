@@ -5,7 +5,6 @@ from dataclasses import asdict, dataclass, field, fields
 from functools import cached_property
 from typing import (
     Any,
-    ClassVar,
     Dict,
     Generic,
     List,

@@ -32,7 +32,6 @@ it was before this existed.
 
 from __future__ import annotations
 
-from typing import Optional
 
 # The beam tiler: SEM or FIB, since no consumer distinguishes them -- both draw into the
 # same overview.

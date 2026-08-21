@@ -7,7 +7,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-from fibsem.imaging.drawing import draw_crosshair, draw_image_overlays, draw_scalebar
+from fibsem.imaging.drawing import draw_image_overlays
 
 
 def _arr_to_pixmap(arr: np.ndarray) -> QPixmap:

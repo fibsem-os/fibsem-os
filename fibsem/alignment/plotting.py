@@ -11,7 +11,6 @@ from fibsem.structures import ImageSettings
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
-    from matplotlib.figure import Figure
 
     from fibsem.alignment import AlignmentDifferential, AlignmentIteration
     from fibsem.structures import FibsemImage
@@ -29,7 +28,6 @@ def _plot_image_with_crosshair(ax: Axes, data: np.ndarray, title: str) -> None:
 
 def _alignment_save_path(ref_image: FibsemImage) -> tuple:
     """Return (ref_path, prefix, ts) for saving alignment plots."""
-    from datetime import datetime
 
     from fibsem.alignment import ALIGNMENT_SUBDIR
 

@@ -1,14 +1,11 @@
 import logging
-import math
 import os
 import threading
 import time
 from copy import deepcopy
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Tuple, Union
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
-import matplotlib.patches as patches
-import matplotlib.pyplot as plt
 import numpy as np
 
 from fibsem import utils
@@ -31,9 +28,7 @@ from fibsem.fm.timing import (
     estimate_tileset_acquisition_time,
 )
 from fibsem.imaging.reduce import (
-    PREVIEW_MAX_DIMENSION,
     PreviewMosaic,
-    downsample,
 )
 from fibsem.imaging.tiling.geometry import (
     TilePosition,

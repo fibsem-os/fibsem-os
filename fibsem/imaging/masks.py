@@ -1,6 +1,5 @@
 import numpy as np
 import scipy.ndimage as ndi
-from PIL import Image, ImageDraw
 
 from fibsem import conversions
 from fibsem.imaging import utils as image_utils

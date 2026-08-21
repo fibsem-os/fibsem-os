@@ -14,7 +14,7 @@ import torch.nn.functional as F
 from huggingface_hub import HfApi, hf_hub_download, scan_cache_dir
 
 from fibsem import config as cfg
-from fibsem.segmentation.config import CLASS_COLORS, CLASS_COLORS_RGB, CLASS_LABELS
+from fibsem.segmentation.config import CLASS_COLORS, CLASS_LABELS
 
 
 # helper functions

@@ -1,14 +1,9 @@
 
-import os
 
 # TODO: actually implement this
-from abc import ABC
-from pathlib import Path
-from typing import List, Optional
 
 import numpy as np
 import torch
-from huggingface_hub import hf_hub_download
 
 from fibsem.segmentation import _nnunet as nnunet
 from fibsem.segmentation import config as scfg

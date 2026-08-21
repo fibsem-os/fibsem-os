@@ -1,7 +1,7 @@
 import logging
 import threading
 from contextlib import contextmanager
-from typing import Any, Dict, Literal, Optional, Tuple, Union
+from typing import Literal, Optional, Tuple, Union
 
 import numpy as np
 from autoscript_sdb_microscope_client.enumerations import (
@@ -9,10 +9,8 @@ from autoscript_sdb_microscope_client.enumerations import (
     CameraFilterType,
     ImagingDevice,
     ImagingState,
-    RetractableDeviceState,
 )
 from autoscript_sdb_microscope_client.structures import (
-    GetImageSettings,
     GrabFrameSettings,
 )
 

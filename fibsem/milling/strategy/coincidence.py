@@ -5,15 +5,13 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from queue import Queue
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
-import tifffile as tff
 from psygnal import Signal
 
 from fibsem import constants
-from fibsem.fm.structures import ChannelSettings, FluorescenceImage, ZParameters
+from fibsem.fm.structures import FluorescenceImage
 from fibsem.microscope import FibsemMicroscope
 from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.milling import (

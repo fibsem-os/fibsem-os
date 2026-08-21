@@ -9,7 +9,6 @@ import dask.array as da
 import numpy as np
 import tifffile as tff
 import torch
-from PIL import Image
 from torch.utils.data import DataLoader, Dataset, SubsetRandomSampler
 from torchvision import transforms
 

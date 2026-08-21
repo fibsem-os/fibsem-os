@@ -3,7 +3,6 @@
 import argparse
 import glob
 import os
-import time
 
 # import matplotlib.pyplot as plt
 import numpy as np
@@ -15,7 +14,7 @@ import yaml
 import zarr
 from PIL import Image
 
-from fibsem.segmentation import dataset, utils, validate_config
+from fibsem.segmentation import utils, validate_config
 
 
 def inference(images, output_dir, model, model_path, device, WANDB=False):

@@ -12,7 +12,6 @@ import onnxruntime
 import PIL.Image
 from onnxruntime import InferenceSession
 from skimage.util.shape import view_as_windows
-from tqdm import tqdm
 
 from fibsem.segmentation.utils import decode_segmap_v2, download_checkpoint
 
