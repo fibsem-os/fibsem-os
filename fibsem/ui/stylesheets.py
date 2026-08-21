@@ -248,10 +248,16 @@ SECONDARY_BUTTON_STYLESHEET = f"""
 # The contents are left-aligned because the chevron is pinned to the right edge:
 # centred, a button wider than its label splits the slack evenly and pushes the
 # label away from the left padding, which reads as a gap rather than as balance.
+#
+# padding-right is 16 rather than the chevron's own 18 because Qt has *already*
+# reserved room for a menu indicator inside the contents rect -- about 10px, whether
+# or not a stylesheet draws its own. Padding chosen to clear the chevron therefore
+# pays for that gutter twice, which put 30px between the label and the arrow against
+# 12px on the other side. 16 leaves 8 before the chevron and 8 after it.
 MENU_BUTTON_STYLESHEET = SECONDARY_BUTTON_STYLESHEET + """
     QPushButton {
         text-align: left;
-        padding-right: 20px;
+        padding-right: 16px;
     }
     QPushButton::menu-indicator {
         image: url("__ICONS_DIR__/chevron_down.svg");
