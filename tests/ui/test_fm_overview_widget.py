@@ -3979,6 +3979,12 @@ def test_the_pick_radius_is_screen_space(qapp, interactive_widget):
     before = (ax.get_xlim(), ax.get_ylim())
     # 80 um away from the marker, in stage terms
     near = frame.to_canvas(_named("probe", 200e-6, 90e-6))
+    # ...and outside its field-of-view box, or the box would pick it at every zoom and
+    # this would be testing nothing. 80 um clears a 102 um camera frame by 29 um; a
+    # coarser binning would not, and this says so rather than failing further down.
+    assert not widget.position_overlay.covers(
+        frame.to_canvas(_named("Lamella-01", 120e-6, 90e-6)), *near
+    ), "the probe is inside the box, so the radius is not what is being measured"
 
     ax.set_xlim(-50000, 50000)
     ax.set_ylim(-50000, 50000)

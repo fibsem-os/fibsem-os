@@ -1,6 +1,7 @@
 """Static + interactive scatter-point overlays for FibsemImageCanvas.
 
 ``PointsOverlay`` — non-interactive scatter markers with optional labels.
+``FieldOfViewOverlay`` — the same, plus the field of view each point covers.
 ``PointOverlay`` — interactive points (select / drag / delete / add).
 """
 
@@ -103,36 +104,211 @@ class PointsOverlay(CanvasOverlay):
     def _draw(self):
         if self._ax is None:
             return
-        edge_color, edge_width = self._marker_edge()
-        for i, (x, y) in enumerate(self._points, 1):
-            (line,) = self._ax.plot(
-                x,
-                y,
-                marker=self._marker,
-                markersize=self._size,
-                color=self._color,
-                markeredgecolor=edge_color,
-                markeredgewidth=edge_width,
-                linestyle="none",
-                zorder=8,
-            )
-            self._artists.append(line)
-            label = None
-            if self._labels is not None and i <= len(self._labels):
-                label = self._labels[i - 1]
-            elif self._label_prefix:
-                label = f"{self._label_prefix}{i}"
+        for index, (x, y) in enumerate(self._points):
+            self._draw_marker(x, y)
+            label = self._label_for(index)
             if label:
-                ann = self._ax.annotate(
-                    label,
-                    xy=(x, y),
-                    xytext=(6, 4),
-                    textcoords="offset points",
-                    color=self._color,
-                    fontsize=8,
-                    zorder=9,
-                )
-                self._artists.append(ann)
+                self._draw_label(label, x, y)
+
+    def _label_for(self, index: int) -> Optional[str]:
+        """The text for the point at *index* (0-based), or None for none.
+
+        `labels` takes precedence over `label_prefix` -- see :meth:`set_points`. An
+        empty string is a label that draws nothing, which is how a caller marks a
+        point it wants unnamed without giving up labels for the rest.
+        """
+        if self._labels is not None and index < len(self._labels):
+            return self._labels[index]
+        if self._label_prefix:
+            return f"{self._label_prefix}{index + 1}"
+        return None
+
+    def _draw_marker(self, x: float, y: float) -> None:
+        """Draw the glyph for one point.
+
+        Split out of :meth:`_draw` so a subclass can add to what a point is drawn as
+        without restating the loop or the label rules -- see
+        :class:`FieldOfViewOverlay`.
+        """
+        edge_color, edge_width = self._marker_edge()
+        (line,) = self._ax.plot(
+            x,
+            y,
+            marker=self._marker,
+            markersize=self._size,
+            color=self._color,
+            markeredgecolor=edge_color,
+            markeredgewidth=edge_width,
+            linestyle="none",
+            zorder=8,
+        )
+        self._artists.append(line)
+
+    def _draw_label(self, label: str, x: float, y: float) -> None:
+        """Name the point at *x*, *y* -- beside the glyph, offset clear of it."""
+        ann = self._ax.annotate(
+            label,
+            xy=(x, y),
+            xytext=(6, 4),
+            textcoords="offset points",
+            color=self._color,
+            fontsize=8,
+            zorder=9,
+        )
+        self._artists.append(ann)
+
+
+# How the field-of-view box is drawn. Deliberately light: the box is context for the
+# marker, not the subject. At full weight its edge competes with the magenta lattice
+# behind it -- gridbars on the beam tab, the planned tile grid on either -- and the box
+# reads as part of that grid rather than as one position.
+FOV_BOX_LINEWIDTH = 0.6
+FOV_LABEL_FONTSIZE = 6.5
+
+
+class FieldOfViewOverlay(PointsOverlay):
+    """Points drawn with the field of view each one stands for.
+
+    A crosshair says where a position is. It does not say how much of the sample an
+    image taken there would cover, which on an overview spanning millimetres is the
+    thing actually being judged -- whether two lamellae would land in one frame,
+    whether a marker sits far enough inside a grid square to mill.
+
+    The extent is held in **metres** and converted at draw time rather than stored in
+    canvas units. The canvas scale is not fixed: it arrives with the first image, and
+    the fluorescence tab sets it from the camera before then -- so a box stored in
+    canvas units would silently come to mean a different number of microns. The
+    conversion is `metres_to_canvas`, a straight division by the reference pixel size:
+    the box is a frame in the plane being *displayed*, not a shape lying on the tilted
+    sample, so the surface foreshortening correction must not be applied to it -- doing
+    that to something in this frame is what made an overlay 3.9x too tall (FIB-615).
+
+    With no extent, or before the canvas has a scale, this draws exactly what
+    :class:`PointsOverlay` draws: the crosshair and a label beside it.
+    """
+
+    def __init__(self, *args, extent: Optional[Tuple[float, float]] = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._extent = self._as_extent(extent)
+
+    @staticmethod
+    def _as_extent(extent) -> Optional[Tuple[float, float]]:
+        """*extent* as a positive (width, height) in metres, or None for no box."""
+        if not extent:
+            return None
+        width, height = extent
+        if not width or not height or width <= 0 or height <= 0:
+            return None
+        return (float(width), float(height))
+
+    def set_extent(self, width: Optional[float], height: Optional[float]) -> None:
+        """Set the field of view every point covers, in metres.
+
+        A no-op when it is the size already held. Hosts call this from the same
+        refresh that redraws the markers, which on the fluorescence tab runs on
+        settings changes and stage moves; repainting a canvas to tell it what it
+        already knows is the cost that made the grid drag stutter (FIB-752).
+        """
+        extent = self._as_extent((width, height))
+        if extent == self._extent:
+            return
+        self._extent = extent
+        self._remove_artists()
+        self._draw()
+        if self._canvas is not None:
+            self._canvas.draw_idle()
+
+    def half_extent_canvas(self) -> Optional[Tuple[float, float]]:
+        """Half the box's width and height in canvas units, or None for no box.
+
+        Public because picking needs it. A click inside the box selects the position
+        it belongs to, and the box you can hit has to be the box you can see -- so both
+        come from here rather than from two callers doing the same division.
+        """
+        if self._extent is None or self._canvas is None:
+            return None
+        to_canvas = getattr(self._canvas, "metres_to_canvas", None)
+        if to_canvas is None:  # not a real-space canvas; nothing to scale against
+            return None
+        width, height = to_canvas(*self._extent)
+        # (0, 0) is what `metres_to_canvas` answers before the canvas has a scale.
+        if width <= 0 or height <= 0:
+            return None
+        return width / 2, height / 2
+
+    def covers(self, point: Tuple[float, float], x: float, y: float) -> bool:
+        """Whether the box drawn around *point* contains the canvas point (x, y).
+
+        For picking: clicking anywhere inside a position's field of view should select
+        it. The box tested here is the box drawn -- both come from
+        :meth:`half_extent_canvas` -- so what you can hit cannot drift from what you
+        can see.
+
+        False when there is no box, which leaves a caller's own hit radius as the only
+        target. That is why picking should treat this as a *union* with the radius
+        rather than a replacement for it: the box is not always the bigger target. A
+        100 um box is under 24 px tall past ~2.8 um per screen pixel, which on a
+        ~1000 px canvas is a field of about 2.8 mm -- roughly a whole grid, i.e. the
+        view with the most markers in it. Picking by box alone would make them harder
+        to hit exactly there.
+        """
+        half = self.half_extent_canvas()
+        if half is None:
+            return False
+        half_w, half_h = half
+        return abs(x - point[0]) <= half_w and abs(y - point[1]) <= half_h
+
+    def _draw_marker(self, x: float, y: float) -> None:
+        """The crosshair, and the frame an image taken there would cover."""
+        super()._draw_marker(x, y)
+        half = self.half_extent_canvas()
+        if half is None:
+            return
+        from matplotlib.patches import Rectangle
+
+        half_w, half_h = half
+        box = Rectangle(
+            (x - half_w, y - half_h),
+            2 * half_w,
+            2 * half_h,
+            fill=False,
+            edgecolor=self._color,
+            linewidth=FOV_BOX_LINEWIDTH,
+            # Under the marker so the crosshair stays legible where a neighbouring
+            # box crosses it, and over the stage context (zorder 4) beneath.
+            zorder=7,
+        )
+        self._ax.add_patch(box)
+        self._artists.append(box)
+
+    def _draw_label(self, label: str, x: float, y: float) -> None:
+        """Name the position above the top-left corner of its box.
+
+        Beside the crosshair -- where :class:`PointsOverlay` puts it -- lands the text
+        inside the box, over the sample the box exists to show. Above and outside keeps
+        both readable, and lines the names up along the top edges where several boxes
+        sit at similar heights.
+
+        The y axis is inverted (image convention, origin upper), so the top edge is at
+        the *smaller* y.
+        """
+        half = self.half_extent_canvas()
+        if half is None:
+            super()._draw_label(label, x, y)
+            return
+        half_w, half_h = half
+        ann = self._ax.annotate(
+            label,
+            xy=(x - half_w, y - half_h),
+            xytext=(0, 2),
+            textcoords="offset points",
+            color=self._color,
+            fontsize=FOV_LABEL_FONTSIZE,
+            ha="left",
+            va="bottom",
+            zorder=9,
+        )
+        self._artists.append(ann)
 
 
 _PICK_RADIUS_PX = 12  # screen-space hit radius for point picking
