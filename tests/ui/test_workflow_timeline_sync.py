@@ -472,10 +472,18 @@ def test_task_status_still_goes_out_on_the_workflow_signal(manager):
     assert manager.parent_ui.queue_changes == []
 
 
-def test_every_workflow_update_carries_the_key_its_other_slot_requires(manager):
-    """AutoLamellaUI.handle_workflow_update reads info["msg"] with no default, and
-    PyQt5 aborts the process on an exception escaping a slot. Every payload put on
-    this signal has to satisfy that, whoever emits it."""
+def test_every_workflow_update_carries_a_message(manager):
+    """The prompt is this signal's main job, so a payload should say what to show.
+
+    This used to be load-bearing against a crash: `handle_workflow_update` indexed
+    `info["msg"]`, and PyQt5 aborts the process on an exception escaping a slot, so
+    an emitter that forgot the key killed the app. That handler now reads it with a
+    default and a payload without one clears the prompt, which is a real outcome
+    rather than a fallback -- see `tests/ui/test_workflow_update_payload.py`.
+
+    Kept because the invariant is still worth holding at this end: every payload
+    *these* emitters put on the signal is about the prompt, and one that silently
+    blanked it would be a bug here rather than a crash there."""
     item = manager.queue.next()
     emit(manager, item, Status.InProgress)
     manager.queue.mark_done(item, Status.Completed)
