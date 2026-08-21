@@ -157,7 +157,10 @@ INSTRUCTIONS = {
     "NOT_CONNECTED": "Connect to the microscope to begin.",
     "NO_EXPERIMENT": "Create or load an experiment to begin.",
     "NO_PROTOCOL": "Load a protocol for this experiment (File \u2192 Load Protocol).",
-    "NO_LAMELLA": "Add a lamella position with + in the lamella list.",
+    "NO_LAMELLA": (
+        "Add a lamella position with + in the lamella list, "
+        "or mark one on the Overview tab."
+    ),
     "AUTOLAMELLA_READY": "Ready to run. Choose lamella and tasks in the Workflow tab.",
 }
 
