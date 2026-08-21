@@ -178,3 +178,45 @@ def test_with_the_flag_off_nothing_changes(host_without_chip, microscope):
     host._update_experiment_header()
     assert not host.btn_create_experiment.isHidden()
     assert host.btn_create_experiment.isEnabled()
+
+
+def test_the_menu_entry_is_gated_too(qapp):
+    """Nothing offers the dialog until the flag is on, so a release carrying this
+    changes nothing a user can see.
+
+    The window cannot be constructed offscreen, so the menu builder is read: the
+    Connect action has to be added inside a test on the flag, not at the top level
+    of the File menu.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    tree = ast.parse(
+        textwrap.dedent(inspect.getsource(AutoLamellaSingleWindowUI._create_menu_bar))
+    )
+
+    def _adds_connect(node) -> bool:
+        return any(
+            isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "addAction"
+            and n.args
+            and isinstance(n.args[0], ast.Attribute)
+            and n.args[0].attr == "action_connect_microscope"
+            for n in ast.walk(node)
+        )
+
+    assert _adds_connect(tree), "sanity: the Connect action is not added at all"
+
+    guarded = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.If) and _adds_connect(node)
+    ]
+    assert guarded, "the Connect menu entry is added unconditionally"
+    assert any(
+        isinstance(n, ast.Attribute) and n.attr == "_connection_chip_enabled"
+        for node in guarded
+        for n in ast.walk(node.test)
+    ), "the Connect menu entry is guarded, but not on the connection chip flag"

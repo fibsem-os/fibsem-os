@@ -83,8 +83,9 @@ _TIP_GUIDED_SETUP = (
 )
 _LBL_CONNECTION_CHIP = "Enable Connection Chip"
 _TIP_CONNECTION_CHIP = (
-    "Show the connected instrument in the tab bar, beside the experiment, and open "
-    "the connection dialog from it. The Connection tab still works and is still "
+    "Show the connected instrument in the tab bar, beside the experiment, and add "
+    "File > Connect to Microscope, which opens a dialog for connecting, "
+    "reconnecting and disconnecting. The Connection tab still works and is still "
     "where connecting happens; this is the header half of replacing it."
 )
 _LBL_SCRIPTS = "Enable User Scripts"

@@ -436,6 +436,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._preferences = fibsem_cfg.load_user_preferences()
         fibsem_cfg.apply_feature_flags(self._preferences)
 
+        # Read once, here, because both the menu entry and the header chip are gated
+        # on it and the menu is built before the tabs are.
+        self._connection_chip_enabled = self._preferences.features.connection_chip
+
         # User attention tracking
         self._user_interaction_sound_played = False  # Track if sound was played
         self._sound_enabled = self._preferences.display.sound_enabled
@@ -478,7 +482,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # telling create from load at a glance. Qt hides action icons in menus on
         # macOS unless each action asks for them, hence set_menu_icon.
         # Connecting had no menu entry at all -- the Connection tab was the only
-        # door, which is what made that tab impossible to remove (FIB-775).
+        # door, which is what made that tab impossible to remove (FIB-775). Built
+        # unconditionally, offered only when the feature flag is on: see below.
         self.action_connect_microscope = QAction("Connect to Microscope...", self)
         set_menu_icon(self.action_connect_microscope, "mdi:connection")
         self.action_connect_microscope.triggered.connect(self._on_connect_microscope)
@@ -506,8 +511,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_exit = QAction("Exit", self)
         self.action_exit.triggered.connect(self.close)  # type: ignore
 
-        file_menu.addAction(self.action_connect_microscope)
-        file_menu.addSeparator()
+        # Behind the same flag as the chip. The action is built either way -- it is
+        # the thing the tab removal will depend on -- but nothing offers it until
+        # the feature is switched on, so a release carrying this changes nothing.
+        if self._connection_chip_enabled:
+            file_menu.addAction(self.action_connect_microscope)
+            file_menu.addSeparator()
         file_menu.addAction(self.action_new_experiment)
         file_menu.addAction(self.action_load_experiment)
         file_menu.addAction(self.action_open_experiment_directory)
@@ -2000,7 +2009,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # connection dialog -- see _update_connection_chip. Behind a flag while the
         # Connection tab is still how people connect (FIB-775); the dialog itself is
         # not gated, so File -> Connect to Microscope reaches it either way.
-        self._connection_chip_enabled = self._preferences.features.connection_chip
         self.btn_connection = QPushButton()
         self.btn_connection.setMaximumWidth(CONNECTION_CHIP_MAX_WIDTH)
         self.btn_connection.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
