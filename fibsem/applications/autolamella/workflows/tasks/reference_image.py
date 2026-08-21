@@ -1,4 +1,3 @@
-
 ######## REFERENCE IMAGE TASK DEFINITIONS ########
 
 from dataclasses import dataclass, field
@@ -14,22 +13,31 @@ from fibsem.structures import field_meta
 @dataclass
 class AcquireReferenceImageConfig(AutoLamellaTaskConfig):
     """Configuration for the AcquireReferenceImageTask."""
+
     task_type: ClassVar[str] = "ACQUIRE_REFERENCE_IMAGE"
     display_name: ClassVar[str] = "Acquire Reference Image"
     orientation: Literal["SEM", "FIB", "MILLING"] = field(
         default="MILLING",
-        metadata=field_meta(tooltip="The orientation to acquire reference images in (SEM, FIB, MILLING)", items=("SEM", "FIB", "MILLING")),
-    ) # change to pose?
+        metadata=field_meta(
+            tooltip="The orientation to acquire reference images in (SEM, FIB, MILLING)",
+            items=("SEM", "FIB", "MILLING"),
+        ),
+    )  # change to pose?
     filename: Optional[str] = field(
         default=None,
-        metadata=field_meta(tooltip="Custom filename for reference images. If None, auto-generates from last completed task name and timestamp."),
+        metadata=field_meta(
+            tooltip="Custom filename for reference images. If None, auto-generates from last completed task name and timestamp."
+        ),
     )
 
 
 class AcquireReferenceImageTask(AutoLamellaTask):
     """Task to acquire reference image with specified settings."""
+
     config: AcquireReferenceImageConfig
-    config_cls: ClassVar[Type[AcquireReferenceImageConfig]] = AcquireReferenceImageConfig
+    config_cls: ClassVar[Type[AcquireReferenceImageConfig]] = (
+        AcquireReferenceImageConfig
+    )
 
     def _run(self) -> None:
         """Run the task to acquire reference image with the specified settings."""
@@ -38,16 +46,19 @@ class AcquireReferenceImageTask(AutoLamellaTask):
         self._move_to_milling_pose()
 
         if self.validate:
-            ask_user(self.parent_ui,
-                    msg=f"Acquire reference image for {self.lamella.name}. Press continue when ready.",
-                    pos="Continue"
-                    )
+            ask_user(
+                self.parent_ui,
+                msg=f"Acquire reference image for {self.lamella.name}. Press continue when ready.",
+                pos="Continue",
+            )
 
         # bookkeeping
         image_settings = self.config.imaging
         image_settings.path = self.lamella.path
 
-        self.log_status_message("ACQUIRE_REFERENCE_IMAGE", "Acquiring Reference Image...")
+        self.log_status_message(
+            "ACQUIRE_REFERENCE_IMAGE", "Acquiring Reference Image..."
+        )
 
         # acquire reference images — use config filename if provided, else use last completed task name
         if self.config.filename is not None:
@@ -63,6 +74,6 @@ class AcquireReferenceImageTask(AutoLamellaTask):
         # default rule reads the role off the filename and would file a named set
         # under "other", which is right for a task grabbing an extra set mid-run and
         # wrong here -- it hid these images from the review panel entirely (FIB-579).
-        self._acquire_set_of_reference_images(image_settings=image_settings,
-                                              filename=filename,
-                                              phase="final")
+        self._acquire_set_of_reference_images(
+            image_settings=image_settings, filename=filename, phase="final"
+        )
