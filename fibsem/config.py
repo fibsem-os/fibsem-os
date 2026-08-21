@@ -394,7 +394,7 @@ class FeatureFlags:
     # (FIB-597). Staging, like the flag above -- deleted when it ships, not kept.
     sparse_fm_selection: bool = False
     # The first-run guided setup: the callout on the connection tab, and Tools ->
-    # Setup Wizard (FIB-740). A staging flag, like the two above, and it goes the same
+    # Guided Setup (FIB-740). A staging flag, like the two above, and it goes the same
     # way -- deleted once the wizard is the route a new install takes, not kept as a
     # preference.
     #

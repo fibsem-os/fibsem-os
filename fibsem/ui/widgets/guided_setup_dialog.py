@@ -116,6 +116,25 @@ STEP_SUBTITLES = [
 # ---------------------------------------------------------------------------
 
 
+def _tint(hex_colour: str, alpha: float) -> str:
+    """A translucent version of a token colour, for a fill that sits over a panel.
+
+    Derived from the token rather than hand-mixed into an opaque hex, so it follows
+    the palette instead of drifting from it. The previous selected-card fill was a
+    fixed ``#12293d``, which is roughly a tenth of the primary blue but with the red
+    channel pulled *below* the panel's -- darker and more saturated than a real tint,
+    which is what made it read as heavily as it did.
+    """
+    r, g, b = (int(hex_colour[i : i + 2], 16) for i in (1, 3, 5))
+    return f"rgba({r}, {g}, {b}, {alpha})"
+
+
+# Two cards are selected at once on the first step -- a manufacturer and one of its
+# instruments -- so the fill lands twice on one screen. The border and the tick carry
+# the selection; the fill only has to say "this group has an answer".
+SELECTED_TINT = _tint(PRIMARY_COLOR, 0.08)
+
+
 def _label_style(size: int, color: str, bold: bool = False) -> str:
     """The full rule for a label, so recolouring one cannot drop the rest.
 
@@ -227,7 +246,7 @@ class ChoiceCard(QtWidgets.QFrame):
     def set_selected(self, selected: bool) -> None:
         self._selected = bool(selected)
         border = PRIMARY_COLOR if selected else BORDER_COLOR
-        fill = "#12293d" if selected else PANEL_COLOR
+        fill = SELECTED_TINT if selected else PANEL_COLOR
         self.setStyleSheet(
             f"QFrame#choiceCard {{ background: {fill};"
             f" border: {2 if selected else 1}px solid {border}; border-radius: 6px; }}"
