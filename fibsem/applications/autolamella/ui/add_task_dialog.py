@@ -484,7 +484,7 @@ class AddTaskDialog(QDialog):
                     self._task_cell(task_type, task_cls.config_cls.display_name, info),
                 )
                 self.table.setCellWidget(
-                    row, _COL_WHAT, self._description_cell(info.summary)
+                    row, _COL_WHAT, self._description_cell(info.description)
                 )
                 self.table.setCellWidget(
                     row, _COL_TAGS, self._chips_cell(info.tags[1:])
@@ -555,7 +555,7 @@ class AddTaskDialog(QDialog):
             # Match the identifier and every tag as well as the visible text:
             # someone reading a protocol.yaml or a traceback has the TASK_TYPE.
             haystack = " ".join(
-                [display_name, task_type, info.summary, *info.tags]
+                [display_name, task_type, info.description, *info.tags]
             ).lower()
             hidden = bool(query) and query not in haystack
             if wanted_tag and wanted_tag not in info.tags:

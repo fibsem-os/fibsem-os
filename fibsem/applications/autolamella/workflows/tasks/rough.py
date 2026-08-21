@@ -62,10 +62,8 @@ class MillRoughTaskConfig(AutoLamellaTaskConfig):
 
     info: ClassVar[TaskInfo] = TaskInfo(
         description=(
-            "Thins the lamella towards its target thickness. The coarse milling "
-            "steps: aligns to the fiducial by beam shift first, and can "
-            "re-acquire the alignment reference afterwards so later tasks start "
-            "from a fresh one."
+            "Mill the lamella towards the target thickness and mill stress "
+            "relief features. Aligns before milling."
         ),
         tags=("On-grid milling",),
         level=TASK_LEVEL_RECOMMENDED,

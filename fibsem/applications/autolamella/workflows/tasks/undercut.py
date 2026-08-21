@@ -47,9 +47,8 @@ class MillUndercutTaskConfig(AutoLamellaTaskConfig):
     display_name: ClassVar[str] = "Undercut Milling"
     info: ClassVar[TaskInfo] = TaskInfo(
         description=(
-            "Cuts beneath the lamella to free it from the bulk below. Tilts to "
-            "the undercut angle and aligns to the trench at each step, using "
-            "feature detection to keep the cut on target."
+            "Iteratively tilts the stage down to exposure and mill the "
+            "underside of the bulk sample."
         ),
         tags=("Waffle milling",),
         level=TASK_LEVEL_RECOMMENDED,

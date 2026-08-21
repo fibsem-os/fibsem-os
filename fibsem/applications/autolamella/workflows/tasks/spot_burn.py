@@ -34,9 +34,8 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
     display_name: ClassVar[str] = "Spot Burn Fiducial"
     info: ClassVar[TaskInfo] = TaskInfo(
         description=(
-            "Burns small marks with the ion beam for correlating fluorescence "
-            "with the FIB view. Uses coordinates you choose, can autofocus "
-            "first, and runs unattended or hands off to the spot-burn editor."
+            "Burn small marks with the ion beam at chosen coordinates, for "
+            "correlating fluorescence with the FIB view. Can autofocus first."
         ),
         tags=("Correlation", "Alignment"),
         level=TASK_LEVEL_STANDARD,

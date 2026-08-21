@@ -54,9 +54,8 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
     display_name: ClassVar[str] = "Select Lamella Position"
     info: ClassVar[TaskInfo] = TaskInfo(
         description=(
-            "Asks you to confirm where the lamella will be milled. Moves to the "
-            "milling angle, optionally autofocusing both beams, and saves the "
-            "position you settle on."
+            "Move to the lamella milling position, and confirm the microscope "
+            "state, point of interest, and alignment area."
         ),
         tags=("On-grid milling", "Alignment", "Positioning"),
         level=TASK_LEVEL_RECOMMENDED,

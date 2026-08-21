@@ -250,18 +250,6 @@ class TaskInfo:
             )
 
     @property
-    def summary(self) -> str:
-        """The lead sentence -- what a list or table cell shows.
-
-        Descriptions are written so the first sentence stands alone, which makes
-        this a deliberate summary rather than a truncation. The rest is detail
-        for a tooltip or a detail pane.
-        """
-        if not self.description:
-            return ""
-        return self.description.split(". ")[0].rstrip(".") + "."
-
-    @property
     def is_deprecated(self) -> bool:
         return bool(self.deprecated)
 

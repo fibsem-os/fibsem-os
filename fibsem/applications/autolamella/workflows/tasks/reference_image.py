@@ -22,9 +22,8 @@ class AcquireReferenceImageConfig(AutoLamellaTaskConfig):
     display_name: ClassVar[str] = "Acquire Reference Image"
     info: ClassVar[TaskInfo] = TaskInfo(
         description=(
-            "Acquires reference images at the current position. Saved against "
-            "the lamella, to record state between milling steps and to give a "
-            "later alignment something to align to."
+            "Acquire reference images at the current position and save them "
+            "against the lamella."
         ),
         tags=("Imaging", "Alignment"),
         level=TASK_LEVEL_RECOMMENDED,

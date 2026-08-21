@@ -24,9 +24,8 @@ class BasicMillingTaskConfig(AutoLamellaTaskConfig):
     display_name: ClassVar[str] = "Basic Milling"
     info: ClassVar[TaskInfo] = TaskInfo(
         description=(
-            "Runs whatever milling stages it is given, with no alignment. The "
-            "escape hatch for a pattern none of the named milling tasks cover; "
-            "moves to the lamella and mills, with no feature detection."
+            "Run whatever milling stages it is given, with no alignment and no "
+            "feature detection."
         ),
         tags=("Custom",),
         order=100,

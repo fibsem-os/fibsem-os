@@ -266,7 +266,7 @@ class TestTooltip:
         assert "MILL_TRENCH" in tip, "the identifier lives here now, not in the row"
         assert "Built-in" in tip
         assert "Waffle milling" in tip
-        assert "pedestal" in tip, "the full description, not just the summary"
+        assert "high current" in tip
 
     def test_every_cell_in_a_row_carries_it(self, dialog):
         """Hovering anywhere on the row should explain the row."""
