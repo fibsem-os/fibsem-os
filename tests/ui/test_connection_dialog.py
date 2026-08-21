@@ -117,3 +117,79 @@ def test_a_failure_stays_in_the_dialog(dialog, monkeypatch):
     # And usable again, rather than left disabled by the attempt.
     assert dialog.connect_button.isEnabled()
     assert dialog.configuration_combo.isEnabled()
+
+
+# ── opened with a session already in progress ───────────────────────────────
+
+
+@pytest.fixture
+def connected_dialog(qapp):
+    """The dialog as the header chip opens it: something is already connected."""
+    microscope, settings = utils.setup_session(manufacturer="Demo")
+    d = ConnectionDialog(microscope=microscope, settings=settings)
+    d.show()
+    yield d
+    if d.microscope is not None:
+        d.microscope.disconnect()
+    d.deleteLater()
+
+
+def test_it_shows_what_is_connected(connected_dialog):
+    """Not the same dialog worded as though nothing had happened yet."""
+    info = connected_dialog.microscope.system.info
+
+    assert info.manufacturer in connected_dialog.title_label.text()
+    assert info.ip_address in connected_dialog.title_label.text()
+    assert connected_dialog.disconnect_button.isVisible()
+    # Reconnect, because connecting now means dropping the session in progress.
+    assert connected_dialog.connect_button.text() == "Reconnect"
+    assert connected_dialog.offline_button.text() == "Close"
+
+
+def test_disconnecting_ends_the_session_and_says_so(connected_dialog):
+    connected_dialog.disconnect_button.click()
+
+    assert connected_dialog.microscope is None
+    assert connected_dialog.settings is None
+    # The part a caller acts on: a disconnect and a cancel both end with no
+    # microscope, and only one of them should be applied.
+    assert connected_dialog.changed is True
+
+
+def test_closing_changes_nothing(connected_dialog):
+    microscope = connected_dialog.microscope
+
+    connected_dialog.offline_button.click()
+
+    assert connected_dialog.changed is False
+    assert connected_dialog.microscope is microscope
+
+
+def test_reconnecting_replaces_the_session(connected_dialog):
+    """The old one is released first: leaving it open holds the instrument."""
+    original = connected_dialog.microscope
+
+    connected_dialog.connect_to_microscope()
+
+    assert connected_dialog.changed is True
+    assert connected_dialog.microscope is not None
+    assert connected_dialog.microscope is not original
+
+
+def test_the_helper_reports_no_change_when_nothing_happened(qapp):
+    """A cancel must not read as a disconnect, or the caller drops the session."""
+    from fibsem.ui.widgets.connection_dialog import ConnectionResult
+
+    microscope, settings = utils.setup_session(manufacturer="Demo")
+    try:
+        result = ConnectionResult(False, microscope, settings)
+        assert result.changed is False
+        assert result.microscope is microscope
+    finally:
+        microscope.disconnect()
+
+
+def test_a_disconnected_dialog_offers_no_disconnect(dialog):
+    assert not dialog.disconnect_button.isVisible()
+    assert dialog.connect_button.text() == "Connect"
+    assert dialog.offline_button.text() == "Not now"

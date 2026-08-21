@@ -956,13 +956,20 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if self.autolamella_ui is None:
             return
 
-        microscope, settings = connect_to_microscope_dialog(parent=self)
-        if microscope is None:
+        system_widget = self.autolamella_ui.system_widget
+        result = connect_to_microscope_dialog(
+            parent=self,
+            microscope=system_widget.microscope,
+            settings=system_widget.settings,
+        )
+        if not result.changed:
             return
 
-        system_widget = self.autolamella_ui.system_widget
-        system_widget.microscope = microscope
-        system_widget.settings = settings
+        # Including a disconnect, where the new session is None. Handing that back
+        # through the widget is what tells the rest of the application, which
+        # follows its signals rather than knowing about this dialog.
+        system_widget.microscope = result.microscope
+        system_widget.settings = result.settings
         system_widget.update_ui()
 
     def _on_new_experiment(self):
