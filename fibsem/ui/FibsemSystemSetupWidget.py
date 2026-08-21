@@ -384,7 +384,29 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         is_microscope_connected = bool(self.microscope)
 
         if is_microscope_connected:
-            self.microscope.disconnect()
+            try:
+                self.microscope.disconnect()
+            except Exception as e:
+                # Same reasoning as the connect path below: an exception escaping this
+                # slot is a process abort rather than an error message (FIB-329). A
+                # disconnect can fail for ordinary reasons -- the instrument went away,
+                # the client is already dead -- and none of them are worth losing the
+                # application over.
+                #
+                # Logged rather than only toasted, because a client that would not
+                # close is a leak, and the log is where anyone would look for it.
+                logging.error(f"Could not cleanly disconnect the microscope: {e}")
+                # Phrased as one outcome, not two. The tab *does* drop to disconnected
+                # a line below, so "Disconnect failed" beside a disconnected tab reads
+                # as a contradiction; what actually happened is that we let go of a
+                # client that would not close.
+                notification_service.show_toast(
+                    f"Disconnected, but the client did not close cleanly: {e}", "error"
+                )
+            # Cleared either way, and outside the try for that reason. The request was
+            # to disconnect; holding a client that could not be closed would leave the
+            # tab offering to disconnect something it can no longer reach, with no way
+            # back to a working connection.
             self.microscope, self.settings = None, None
         else:
             notification_service.show_toast("Connecting to microscope...", "info")
@@ -396,14 +418,30 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
                 return
 
             # connect
-            self.microscope, self.settings = utils.setup_session(
-                config_path=configuration_path,
-            )
-
-            # user notification
-            msg = f"Connected to microscope at {self.microscope.system.info.ip_address}"
-            logging.info(msg)
-            notification_service.show_toast(msg, "info")
+            try:
+                self.microscope, self.settings = utils.setup_session(
+                    config_path=configuration_path,
+                )
+            except Exception as e:
+                # Reported, not raised. This runs as a Qt slot, and PyQt5 turns an
+                # unhandled exception in a slot into qFatal -- the entire application
+                # aborts, leaving the traceback and nothing else (FIB-329). Failing to
+                # connect is an ordinary outcome here rather than a defect: the vendor
+                # API may not be installed, the instrument may be off, the address may
+                # belong to a different bay.
+                #
+                # Broad on purpose. The backends raise whatever their own SDK raises,
+                # and the point is that *nothing* from this call reaches Qt -- a
+                # narrower except would leave the abort in place for the exception
+                # nobody predicted, which is the one that will happen.
+                self.microscope, self.settings = None, None
+                logging.error(f"Could not connect to the microscope: {e}")
+                notification_service.show_toast(f"Could not connect: {e}", "error")
+            else:
+                # user notification
+                msg = f"Connected to microscope at {self.microscope.system.info.ip_address}"
+                logging.info(msg)
+                notification_service.show_toast(msg, "info")
 
         self.update_ui()
 
