@@ -951,9 +951,17 @@ class FibsemOverviewWidget(QWidget):
         buttons_layout.addWidget(self.button_cancel)
         buttons_layout.addWidget(self.button_acquire, stretch=1)
 
-        layout.addWidget(buttons)
+        # Readouts first, the action last. The fluorescence tab stacks its column the
+        # same way, and the two saying the same thing in opposite places is the drift
+        # this pair keeps producing -- they had already diverged over *which* surface
+        # reports a stage move (FIB-765), and this is the same argument about where.
+        #
+        # Acquire being the last thing in the column is also the ordinary convention for
+        # a commit action, and it means the button does not move as the readouts above
+        # it appear and disappear through a run.
         layout.addWidget(self.progress)
         layout.addWidget(self.label_status)
+        layout.addWidget(buttons)
         return panel
 
     def _overlay_panel(self) -> QWidget:
