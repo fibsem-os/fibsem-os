@@ -195,6 +195,11 @@ class AutoLamellaUI(QMainWindow):
         self.microscope: Optional[FibsemMicroscope] = None
         self.settings: Optional[MicroscopeSettings] = None
 
+        # Read here rather than taken from parent_ui: this widget is constructed
+        # with parent_ui=None in tests, and the tab it gates is built in __init__.
+        self._connection_chip_enabled = (
+            fibsem_cfg.load_user_preferences().features.connection_chip
+        )
         self.system_widget = FibsemSystemSetupWidget(parent=self)
         self.image_widget: Optional[FibsemImageSettingsWidget] = None
         self.movement_widget: Optional[FibsemMovementWidget] = None
@@ -210,8 +215,18 @@ class AutoLamellaUI(QMainWindow):
         self.minimap_plot_widget.setWindowTitle("Minimap Plot")
         self.minimap_plot_widget.hide()
 
-        # add widgets to tabs
-        self.tabWidget.insertTab(0, self.system_widget, "Connection")
+        # add widgets to tabs.
+        #
+        # The Connection tab is a gate in a bar that otherwise means "the instrument
+        # needs you here now" -- it is the only tab that can never be a workflow
+        # step, and it sits at position 0, the default landing spot, for something
+        # done once a session. With the connection dialog on it has somewhere else
+        # to be reached from, so it goes (FIB-775).
+        #
+        # The widget itself stays either way: it owns the connection, and everything
+        # in the application follows its signals. Only the tab is conditional.
+        if not self._connection_chip_enabled:
+            self.tabWidget.insertTab(0, self.system_widget, "Connection")
 
         self.WAITING_FOR_USER_INTERACTION: bool = False
         # A run is active but nothing is executing -- today only during a
