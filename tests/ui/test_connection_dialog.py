@@ -161,8 +161,10 @@ def test_it_shows_what_is_connected(connected_dialog):
 
     assert info.manufacturer in connected_dialog.details_subtitle.text()
     assert info.ip_address in connected_dialog.details_subtitle.text()
-    # The panel names it; the title says what the dialog is for, once.
-    assert connected_dialog.title_label.text() == "Microscope connection"
+    # The panel names the instrument, the window bar says what the dialog is, and
+    # the heading says what to do in it. Nothing says any of it twice.
+    assert connected_dialog.windowTitle() == "Connect to Microscope"
+    assert connected_dialog.title_label.text() == "Select Configuration"
     assert info.manufacturer not in connected_dialog.title_label.text()
     assert connected_dialog.disconnect_button.isVisible()
     # Reconnect, because connecting now means dropping the session in progress.

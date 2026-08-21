@@ -83,6 +83,9 @@ class ConnectionDialog(QDialog):
                 it is using it -- but it is not allowed quietly.
         """
         super().__init__(parent)
+        # The window bar already says what the dialog is; the heading inside says
+        # what to do in it, and neither repeats the other.
+        self.setWindowTitle("Connect to Microscope")
         self.setModal(True)
         self.setMinimumWidth(DIALOG_WIDTH)
 
@@ -98,7 +101,7 @@ class ConnectionDialog(QDialog):
         layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(10)
 
-        self.title_label = QLabel()
+        self.title_label = QLabel("Select Configuration")
         self.title_label.setStyleSheet(f"color: {TEXT_STRONG_COLOR}; font-size: 14px;")
         layout.addWidget(self.title_label)
 
@@ -125,10 +128,8 @@ class ConnectionDialog(QDialog):
         row_layout.setContentsMargins(0, 0, 0, 0)
         row_layout.setSpacing(6)
 
-        label = QLabel("Configuration")
-        label.setStyleSheet(f"color: {TEXT_MUTED_COLOR}; font-size: 11px;")
-        row_layout.addWidget(label)
-
+        # No "Configuration" label in front of it: the heading above already says
+        # Select Configuration, and the combo box holds configuration names.
         self.configuration_combo = QComboBox()
         self.configuration_combo.currentTextChanged.connect(
             self._on_configuration_changed
@@ -333,7 +334,6 @@ class ConnectionDialog(QDialog):
         self._refresh_details()
 
         if not connected:
-            self.title_label.setText("Connect to microscope")
             self.connect_button.setText("Connect")
             self.offline_button.setToolTip(
                 "Start without a microscope. Most of the application stays "
@@ -341,10 +341,6 @@ class ConnectionDialog(QDialog):
             )
             return
 
-        # The panel below names the instrument; the title saying it too is the
-        # duplication this whole batch has been removing. It states what the dialog
-        # is for instead, which is the part that differs between the two states.
-        self.title_label.setText("Microscope connection")
         # Reconnect, not Connect: with a session in progress this drops it and takes
         # the selected configuration instead, and the button should say so.
         self.connect_button.setText("Reconnect")
