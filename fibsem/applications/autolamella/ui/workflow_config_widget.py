@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import html
 from typing import Dict, List, Optional
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
+from PyQt5.QtGui import QFont, QFontMetrics
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -36,6 +38,11 @@ from fibsem.ui.tokens import (
 from fibsem.ui.widgets.custom_widgets import IconToolButton
 
 _NAME_MIN_WIDTH = 180
+# The dependency suffix: present, but never competing with the name it follows,
+# and never wider than this -- past it the row clips the text mid-word.
+REQUIRES_COLOUR = NEUTRAL_700
+REQUIRES_FONT_PX = 10
+REQUIRES_MAX_WIDTH = 190
 _BTN_SIZE = QSize(32, 32)
 _ROW_HEIGHT = 40
 _BTN_SPACER_WIDTH = (
@@ -70,6 +77,30 @@ def _supervise_icon(task: AutoLamellaTaskDescription) -> tuple[str, str, str]:
     return "mdi:lightning-bolt-circle", stylesheets.AUTOMATED_COLOR, "Automated"
 
 
+def _name_markup(task: AutoLamellaTaskDescription, font: QFont) -> str:
+    """The task's name, and what it waits for, on one line.
+
+    Nothing where a task has no dependency: "No requirements" under every row was
+    what buried the two or three that have one.
+
+    The dependency list is elided to a fixed budget rather than left to run: a task
+    waiting on four others produced a label wider than the row, which Qt then cut
+    off mid-word. The row's tooltip carries the full list either way. Escaped
+    because task names come from the protocol and this is rich text.
+    """
+    name = html.escape(task.name)
+    if not task.requires:
+        return name
+
+    small = QFont(font)
+    small.setPixelSize(REQUIRES_FONT_PX)
+    after = QFontMetrics(small).elidedText(
+        ", ".join(task.requires), Qt.ElideRight, REQUIRES_MAX_WIDTH
+    )
+    style = f"color: {REQUIRES_COLOUR}; font-size: {REQUIRES_FONT_PX}px;"
+    return f'{name} <span style="{style}">after {html.escape(after)}</span>'
+
+
 class WorkflowTaskRowWidget(QWidget):
     supervised_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
     edit_clicked = pyqtSignal(object)  # AutoLamellaTaskDescription
@@ -95,22 +126,14 @@ class WorkflowTaskRowWidget(QWidget):
         self.checkbox.setStyleSheet("background: transparent;")
         layout.addWidget(self.checkbox)
 
-        name_col = QVBoxLayout()
-        name_col.setSpacing(1)
-        # name_col.setContentsMargins(0, 0, 0, 0)
-
+        # One line, not a name over a requirements line. The second line was blank
+        # on most rows -- every task without a dependency -- and a name sitting at
+        # the top of a two-line block reads as floating above a gap. Inline, every
+        # name shares a baseline and the dependency stays attached to its task.
         self.name_label = QLabel()
         self.name_label.setMinimumWidth(_NAME_MIN_WIDTH)
         self.name_label.setStyleSheet("background: transparent;")
-        name_col.addWidget(self.name_label)
-
-        self.requires_label = QLabel()
-        self.requires_label.setStyleSheet(
-            "background: transparent; color: #707070; font-size: 10px;"
-        )
-        name_col.addWidget(self.requires_label)
-
-        layout.addLayout(name_col)
+        layout.addWidget(self.name_label)
 
         layout.addStretch(1)
 
@@ -170,10 +193,10 @@ class WorkflowTaskRowWidget(QWidget):
     def refresh(self) -> None:
         """Re-read all display fields from the stored task."""
         self.name_label.setText(self.task.name)
-        # Blank, not "No requirements": restating an absence on every row is what
-        # buries the few rows that do declare a dependency. The label keeps its line
-        # rather than being hidden, so rows stay the same height down the list.
-        self.requires_label.setText(", ".join(self.task.requires))
+        self.name_label.setText(_name_markup(self.task, self.name_label.font()))
+        self.setToolTip(
+            "Requires: " + ", ".join(self.task.requires) if self.task.requires else ""
+        )
         icon_name, icon_color, tooltip = _supervise_icon(self.task)
         self.btn_supervise.setIcon(fibsem_icon(icon_name, color=icon_color))
         self.btn_supervise.setToolTip(tooltip)
