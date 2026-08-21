@@ -26,7 +26,9 @@ def _make_test_image(width: int = 512, height: int = 384) -> np.ndarray:
     img = ((np.sin(x / 30.0) * np.cos(y / 30.0) + 1) * 60 + 40).astype(np.uint8)
     # add some noise
     rng = np.random.default_rng(42)
-    img = np.clip(img.astype(np.int16) + rng.integers(-10, 10, img.shape), 0, 255).astype(np.uint8)
+    img = np.clip(
+        img.astype(np.int16) + rng.integers(-10, 10, img.shape), 0, 255
+    ).astype(np.uint8)
     return img
 
 
@@ -53,7 +55,7 @@ def main():
         row_layout = QHBoxLayout(row_widget)
         row_layout.setSpacing(16)
 
-        for title, pixel_size, kwargs in test_cases[i:i + 3]:
+        for title, pixel_size, kwargs in test_cases[i : i + 3]:
             img = _make_test_image()
 
             if pixel_size is not None:
@@ -65,7 +67,9 @@ def main():
             col_layout.setSpacing(4)
 
             title_label = QLabel(title)
-            title_label.setStyleSheet("color: #e0e0e0; font-size: 11px; font-weight: bold;")
+            title_label.setStyleSheet(
+                "color: #e0e0e0; font-size: 11px; font-weight: bold;"
+            )
             title_label.setAlignment(Qt.AlignCenter)
             col_layout.addWidget(title_label)
 

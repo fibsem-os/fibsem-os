@@ -18,7 +18,6 @@ PROB = 0.1
 
 transformations_input = transforms.Compose(
     [
-
         transforms.RandomRotation(ROT_ANGLE),
         transforms.RandomHorizontalFlip(p=PROB),
         transforms.RandomVerticalFlip(p=PROB),
@@ -34,28 +33,39 @@ transformations_target = transforms.Compose(
         transforms.RandomRotation(ROT_ANGLE),
         transforms.RandomHorizontalFlip(p=PROB),
         transforms.RandomVerticalFlip(p=PROB),
-
     ]
 )
 
 
 class SegmentationDataset(Dataset):
-    def __init__(self, images, masks, num_classes: int, transforms_input=None, transforms_target=None):
+    def __init__(
+        self,
+        images,
+        masks,
+        num_classes: int,
+        transforms_input=None,
+        transforms_target=None,
+    ):
         self.images = images
         self.masks = masks
         self.num_classes = num_classes
         self.transforms_input = transforms_input
         self.transforms_target = transforms_target
 
-        assert len(self.images) == len(self.masks), "Images and masks are not the same length"
-        assert self.transforms_target is not None if self.transforms_input is not None else True, "transforms_target must be provided if transforms_input is provided"
+        assert len(self.images) == len(self.masks), (
+            "Images and masks are not the same length"
+        )
+        assert (
+            self.transforms_target is not None
+            if self.transforms_input is not None
+            else True
+        ), "transforms_target must be provided if transforms_input is provided"
 
     def _set_seed(self, seed):
         random.seed(seed)
         torch.manual_seed(seed)
 
     def __getitem__(self, idx):
-
 
         image = np.asarray(self.images[idx])
         mask = np.asarray(self.masks[idx])
@@ -66,10 +76,9 @@ class SegmentationDataset(Dataset):
         # need to to transformation manually
         # mask = torch.tensor(mask).unsqueeze(0)
 
-        image = torch.tensor(image).unsqueeze(0) # TODO: validate this behaviour
+        image = torch.tensor(image).unsqueeze(0)  # TODO: validate this behaviour
         mask = torch.tensor(mask).unsqueeze(0)
-        
-    
+
         image_max_val = torch.iinfo(image.dtype).max
         if image.dtype not in [torch.uint8, torch.int16]:
             raise ValueError(f"Image dtype {image.dtype} not supported")
@@ -83,11 +92,12 @@ class SegmentationDataset(Dataset):
 
         # convert image to float32 scaled between 0-1
         image = image.float() / image_max_val
-                        
+
         return image, mask
 
     def __len__(self):
         return len(self.images)
+
 
 from pathlib import Path
 
@@ -112,12 +122,18 @@ def load_dask_dataset_v2(data_paths: List[Path], label_paths: List[Path]):
     return images, masks
 
 
-def preprocess_data(data_paths: List[Path], label_paths: List[Path], num_classes: int = 3, 
-                    batch_size: int = 1, val_split: float = 0.15, 
-                    _validate_dataset:bool = True, apply_transforms: bool = False):
-    
+def preprocess_data(
+    data_paths: List[Path],
+    label_paths: List[Path],
+    num_classes: int = 3,
+    batch_size: int = 1,
+    val_split: float = 0.15,
+    _validate_dataset: bool = True,
+    apply_transforms: bool = False,
+):
+
     # if _validate_dataset:
-        # validate_dataset(data_path, label_path)
+    # validate_dataset(data_path, label_path)
 
     if not isinstance(data_paths, list):
         data_paths = [data_paths]
@@ -125,7 +141,6 @@ def preprocess_data(data_paths: List[Path], label_paths: List[Path], num_classes
         label_paths = [label_paths]
 
     images, masks = load_dask_dataset_v2(data_paths, label_paths)
-
 
     print(f"Loading dataset from {len(data_paths)} paths: {images.shape[0]}")
     for path in data_paths:
@@ -139,14 +154,15 @@ def preprocess_data(data_paths: List[Path], label_paths: List[Path], num_classes
 
     transformations_input = transforms.Compose(
         [
-
             transforms.RandomRotation(ROT_ANGLE),
             transforms.RandomHorizontalFlip(p=PROB),
             transforms.RandomVerticalFlip(p=PROB),
             transforms.RandomAutocontrast(p=PROB),
             transforms.RandomEqualize(p=PROB),
             transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0)),
-            transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
+            transforms.ColorJitter(
+                brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1
+            ),
         ]
     )
 
@@ -155,15 +171,16 @@ def preprocess_data(data_paths: List[Path], label_paths: List[Path], num_classes
             transforms.RandomRotation(ROT_ANGLE),
             transforms.RandomHorizontalFlip(p=PROB),
             transforms.RandomVerticalFlip(p=PROB),
-
         ]
     )
 
     # load dataset
     seg_dataset = SegmentationDataset(
-        images, masks, num_classes, 
-        transforms_input=transformations_input, 
-        transforms_target=transformations_target
+        images,
+        masks,
+        num_classes,
+        transforms_input=transformations_input,
+        transforms_target=transformations_target,
     )
 
     # train/validation splits
@@ -192,12 +209,13 @@ def preprocess_data(data_paths: List[Path], label_paths: List[Path], num_classes
 
 # ref: https://towardsdatascience.com/pytorch-basics-sampling-samplers-2a0f29f0bf2a
 
+
 # Helper functions
 def validate_dataset(data_path: str, label_path: str):
     print("validating dataset...")
     # get data
     filenames = sorted(glob.glob(os.path.join(data_path, "*.tif*")))
-    labels = sorted(glob.glob(os.path.join(label_path,  "*.tif*")))
+    labels = sorted(glob.glob(os.path.join(label_path, "*.tif*")))
 
     # check length
     assert len(filenames) == len(labels), "Images and labels are not the same length"
@@ -208,7 +226,6 @@ def validate_dataset(data_path: str, label_path: str):
         img, label = tff.imread(fname), tff.imread(lfname)
 
         if (img.shape[0:2] != label.shape[0:2]) or (img.shape[0:2] != base_shape[0:2]):
-
             raise ValueError(
                 "invalid data, image shape is different to label shape",
                 i,
@@ -221,7 +238,6 @@ def validate_dataset(data_path: str, label_path: str):
             )
 
         if (img.ndim > 2) or (label.ndim > 2):
-
             raise ValueError(
                 "Image has too many dimensions, must be in 2D grayscale format.",
                 i,

@@ -70,6 +70,7 @@ class MillingStrategyConfig(ABC):
 
 class MillingStrategy(ABC, Generic[TMillingStrategyConfig]):
     """Abstract base class for different milling strategies"""
+
     name: str = "Milling Strategy"
     config_class: Type[TMillingStrategyConfig]
     selectable: bool = True
@@ -88,9 +89,13 @@ class MillingStrategy(ABC, Generic[TMillingStrategyConfig]):
     def summary(self) -> str:
         """Return a multi-line human-readable summary of the strategy and its config."""
         from fibsem.utils import format_value
+
         lines = [f"    Strategy: {self.name}"]
         for attr in self.config.required_attributes:
-            if attr in self.config._hidden_attributes or attr in self.config.advanced_attributes:
+            if (
+                attr in self.config._hidden_attributes
+                or attr in self.config.advanced_attributes
+            ):
                 continue
             val = getattr(self.config, attr)
             meta = self.config.field_metadata.get(attr, {})
@@ -99,12 +104,23 @@ class MillingStrategy(ABC, Generic[TMillingStrategyConfig]):
             if isinstance(val, float) and unit:
                 val_str = format_value(val, unit=unit, precision=1)
             else:
-                val_str = val.name if hasattr(val, "name") and not isinstance(val, float) else str(val)
+                val_str = (
+                    val.name
+                    if hasattr(val, "name") and not isinstance(val, float)
+                    else str(val)
+                )
             lines.append(f"        {label}: {val_str}")
         return "\n".join(lines)
 
     @abstractmethod
-    def run(self, microscope: FibsemMicroscope, stage: "FibsemMillingStage", asynch: bool = False, parent_ui = None, stop_event: Optional[threading.Event] = None) -> None:
+    def run(
+        self,
+        microscope: FibsemMicroscope,
+        stage: "FibsemMillingStage",
+        asynch: bool = False,
+        parent_ui=None,
+        stop_event: Optional[threading.Event] = None,
+    ) -> None:
         pass
 
 
@@ -127,14 +143,16 @@ class FibsemMillingStage:
     enabled: bool = True
     milling: FibsemMillingSettings = field(default_factory=FibsemMillingSettings)
     pattern: BasePattern = field(default_factory=DEFAULT_MILLING_PATTERN)
-    patterns: Optional[List[BasePattern]] = None # unused
+    patterns: Optional[List[BasePattern]] = None  # unused
     strategy: MillingStrategy[Any] = field(default_factory=get_strategy)
     alignment: MillingAlignment = field(default_factory=MillingAlignment)
-    imaging: ImageSettings = field(default_factory=ImageSettings) # settings for post-milling acquisition
+    imaging: ImageSettings = field(
+        default_factory=ImageSettings
+    )  # settings for post-milling acquisition
     reference_image: Optional[FibsemImage] = None
 
     def __post_init__(self):
-        
+
         if self.imaging.resolution is None:
             self.imaging.resolution = [1536, 1024]  # default resolution for imaging
         if self.imaging.hfw is None:
@@ -172,7 +190,7 @@ class FibsemMillingStage:
         alignment = data.get("alignment", {})
         imaging: dict = data.get("imaging", {})
         if imaging == {} or imaging.get("path", None) is None:
-            imaging["path"] = None # set to None if not explicitly set
+            imaging["path"] = None  # set to None if not explicitly set
         return cls(
             name=data["name"],
             num=data.get("num", 0),
@@ -188,24 +206,31 @@ class FibsemMillingStage:
     def estimated_time(self) -> float:
         return estimate_milling_time(self.pattern, self.milling.milling_current)
 
-    def run(self, microscope: FibsemMicroscope, asynch: bool = False, parent_ui = None) -> None:
+    def run(
+        self, microscope: FibsemMicroscope, asynch: bool = False, parent_ui=None
+    ) -> None:
         """Run the milling stage strategy on the given microscope."""
-        self.strategy.run(microscope=microscope, stage=self, asynch=asynch, parent_ui=parent_ui)
+        self.strategy.run(
+            microscope=microscope, stage=self, asynch=asynch, parent_ui=parent_ui
+        )
 
     @property
     def summary(self) -> str:
         """Return a multi-line human-readable summary of the milling stage parameters."""
-        return "\n".join([
-            self.name,
-            self.milling.summary(),
-            self.pattern.summary(),
-            self.strategy.summary(),
-        ])
+        return "\n".join(
+            [
+                self.name,
+                self.milling.summary(),
+                self.pattern.summary(),
+                self.strategy.summary(),
+            ]
+        )
 
     @property
     def pretty_name(self) -> str:
         """Return a pretty name for the milling stage, including the milling current."""
         from fibsem.utils import format_value
+
         milling_current = self.milling.milling_current
         mc = format_value(val=milling_current, unit="A", precision=1)
 
@@ -240,7 +265,9 @@ class FibsemMillingStage:
         return self.strategy.config == other.strategy.config
 
 
-def get_milling_stages(key: str, protocol: Dict[str, List[Dict[str, Any]]]) -> List[FibsemMillingStage]:
+def get_milling_stages(
+    key: str, protocol: Dict[str, List[Dict[str, Any]]]
+) -> List[FibsemMillingStage]:
     """Get the milling stages for specific key from the protocol.
     Args:
         key: the key to get the milling stages for
@@ -248,15 +275,20 @@ def get_milling_stages(key: str, protocol: Dict[str, List[Dict[str, Any]]]) -> L
     Returns:
         List[FibsemMillingStage]: the milling stages for the given key"""
     if key not in protocol:
-        raise ValueError(f"Key {key} not found in protocol. Available keys: {list(protocol.keys())}")
-    
+        raise ValueError(
+            f"Key {key} not found in protocol. Available keys: {list(protocol.keys())}"
+        )
+
     stages = []
     for stage_config in protocol[key]:
         stage = FibsemMillingStage.from_dict(stage_config)
         stages.append(stage)
     return stages
 
-def get_protocol_from_stages(stages: Union[FibsemMillingStage, List[FibsemMillingStage]]) -> List[Dict[str, Any]]:
+
+def get_protocol_from_stages(
+    stages: Union[FibsemMillingStage, List[FibsemMillingStage]],
+) -> List[Dict[str, Any]]:
     """Convert a list of milling stages to a protocol dictionary.
     Args:
         stages: the list of milling stages to convert
@@ -264,14 +296,14 @@ def get_protocol_from_stages(stages: Union[FibsemMillingStage, List[FibsemMillin
         List[Dict[str, Any]]: the protocol dictionary"""
     if not isinstance(stages, list):
         stages = [stages]
-    
+
     return deepcopy([stage.to_dict() for stage in stages])
 
 
 def estimate_milling_time(pattern: BasePattern, milling_current: float) -> float:
-    """Estimate the milling time for a given pattern and milling current. 
+    """Estimate the milling time for a given pattern and milling current.
     The time is calculated as the volume of the pattern divided by the sputter rate at the given current.
-    The sputter rate is taken from the microscope application files. 
+    The sputter rate is taken from the microscope application files.
     This is a rough estimate, as the actual milling time is calculated at milling time.
 
     Args:
@@ -289,20 +321,29 @@ def estimate_milling_time(pattern: BasePattern, milling_current: float) -> float
     sp_keys.sort(key=lambda x: abs(x - milling_current))
 
     # get the sputter rate for the closest key
-    sputter_rate = MILLING_SPUTTER_RATE[sp_keys[0]] # um3/s 
+    sputter_rate = MILLING_SPUTTER_RATE[sp_keys[0]]  # um3/s
 
     # scale the sputter rate based on the expected current
     sputter_rate = sputter_rate * (milling_current / sp_keys[0])
-    volume = pattern.volume # m3
+    volume = pattern.volume  # m3
 
-    if hasattr(pattern, "cross_section") and pattern.cross_section is CrossSectionPattern.CleaningCrossSection:
-        volume *= 0.66 # ccs is approx 2/3 of the volume of a rectangle
+    if (
+        hasattr(pattern, "cross_section")
+        and pattern.cross_section is CrossSectionPattern.CleaningCrossSection
+    ):
+        volume *= 0.66  # ccs is approx 2/3 of the volume of a rectangle
 
-    time = (volume *1e6**3) / sputter_rate
-    return time * 0.75 # QUERY: accuracy of this estimate?
+    time = (volume * 1e6**3) / sputter_rate
+    return time * 0.75  # QUERY: accuracy of this estimate?
+
 
 def estimate_total_milling_time(stages: List[FibsemMillingStage]) -> float:
     """Estimate the total milling time for a list of milling stages"""
     if not isinstance(stages, list):
         stages = [stages]
-    return sum([estimate_milling_time(stage.pattern, stage.milling.milling_current) for stage in stages])
+    return sum(
+        [
+            estimate_milling_time(stage.pattern, stage.milling.milling_current)
+            for stage in stages
+        ]
+    )
