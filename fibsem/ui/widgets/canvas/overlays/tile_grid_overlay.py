@@ -102,8 +102,8 @@ class TileGridOverlay(QObject, CanvasOverlay):
     state is how they drift apart.
     """
 
-    tile_toggled = pyqtSignal(int, int, bool)      # row, col, enabled
-    grid_resize_requested = pyqtSignal(int, int)   # rows, cols
+    tile_toggled = pyqtSignal(int, int, bool)  # row, col, enabled
+    grid_resize_requested = pyqtSignal(int, int)  # rows, cols
     grid_move_requested = pyqtSignal(float, float)  # new centre, canvas coordinates
     # A move or resize gesture has ended. For work a host wants to do once, at the end,
     # rather than on every motion event -- anything that repaints the whole canvas
@@ -114,7 +114,7 @@ class TileGridOverlay(QObject, CanvasOverlay):
     def __init__(self, parent: Optional[QObject] = None) -> None:
         QObject.__init__(self, parent)
         self._tiles: List[TilePosition] = []
-        self._tile_shape: Tuple[int, int] = (0, 0)     # (height, width) px
+        self._tile_shape: Tuple[int, int] = (0, 0)  # (height, width) px
         self._tile_pixel_size: float = 0.0
         self._display_pixel_size: Optional[float] = None
         self._overlap: float = 0.0
@@ -144,7 +144,9 @@ class TileGridOverlay(QObject, CanvasOverlay):
         # A press inside the grid, held until it resolves into a move or a tile click:
         # (press_px_x, press_px_y, press_x, press_y, anchor_x, anchor_y). The screen
         # coordinates drive the threshold, the data coordinates the displacement.
-        self._move_start: Optional[Tuple[float, float, float, float, float, float]] = None
+        self._move_start: Optional[Tuple[float, float, float, float, float, float]] = (
+            None
+        )
         self._move_active: bool = False
         # A paint drag: the value being swept in, the tile the press landed on, and the
         # tiles already given it. `_paint_value` doubles as "this press is a paint" --
@@ -437,7 +439,12 @@ class TileGridOverlay(QObject, CanvasOverlay):
 
     def _redraw(self) -> None:
         self._remove_artists()
-        if self._ax is None or not self._tiles or self._anchor() is None or not self._visible:
+        if (
+            self._ax is None
+            or not self._tiles
+            or self._anchor() is None
+            or not self._visible
+        ):
             # Still repaint: removing the artists takes them out of the axes, but the
             # canvas keeps showing the last render until it is asked to redraw -- so
             # returning early here left a hidden grid on screen.
@@ -470,14 +477,18 @@ class TileGridOverlay(QObject, CanvasOverlay):
             # fill's opacity and left them all but invisible -- so the grid could only
             # be seen by turning the fill up until it obscured the data.
             patch = Rectangle(
-                (x, y), width, height,
+                (x, y),
+                width,
+                height,
                 fill=tile.enabled,
                 facecolor=(
                     to_rgba(self._color, self._fill_alpha) if tile.enabled else "none"
                 ),
                 edgecolor=(
-                    to_rgba(self._color, UNREACHABLE_EDGE_ALPHA) if out_of_reach
-                    else to_rgba(self._color, 1.0) if tile.enabled
+                    to_rgba(self._color, UNREACHABLE_EDGE_ALPHA)
+                    if out_of_reach
+                    else to_rgba(self._color, 1.0)
+                    if tile.enabled
                     else to_rgba(DISABLED_EDGE, DISABLED_ALPHA)
                 ),
                 linestyle="-" if tile.enabled else "--",
@@ -516,8 +527,20 @@ class TileGridOverlay(QObject, CanvasOverlay):
         centre_x, centre_y = x + width / 2, y + height / 2
         arm = min(width, height) * UNREACHABLE_MARK_SIZE / 2
         line = Line2D(
-            (centre_x - arm, centre_x + arm, float("nan"), centre_x - arm, centre_x + arm),
-            (centre_y - arm, centre_y + arm, float("nan"), centre_y + arm, centre_y - arm),
+            (
+                centre_x - arm,
+                centre_x + arm,
+                float("nan"),
+                centre_x - arm,
+                centre_x + arm,
+            ),
+            (
+                centre_y - arm,
+                centre_y + arm,
+                float("nan"),
+                centre_y + arm,
+                centre_y - arm,
+            ),
             color=UNREACHABLE_MARK_COLOUR,
             linewidth=1.3,
             solid_capstyle="round",
@@ -734,7 +757,12 @@ class TileGridOverlay(QObject, CanvasOverlay):
         # Inside: held rather than acted on, because the same press starts both a move
         # and a tile toggle and only the pointer's next few pixels say which.
         self._move_start = (
-            event.x, event.y, event.xdata, event.ydata, anchor[0], anchor[1]
+            event.x,
+            event.y,
+            event.xdata,
+            event.ydata,
+            anchor[0],
+            anchor[1],
         )
         if self._painting(event):
             tile = self._tile_at(event.xdata, event.ydata)
@@ -865,13 +893,9 @@ class TileGridOverlay(QObject, CanvasOverlay):
         cols = max(t.col for t in self._tiles) + 1
 
         if horizontal:
-            cols = self._count_for(
-                abs(event.xdata - anchor[0]), tile_w * scale
-            )
+            cols = self._count_for(abs(event.xdata - anchor[0]), tile_w * scale)
         if vertical:
-            rows = self._count_for(
-                abs(event.ydata - anchor[1]), tile_h * scale
-            )
+            rows = self._count_for(abs(event.ydata - anchor[1]), tile_h * scale)
 
         self.grid_resize_requested.emit(rows, cols)
 
@@ -888,7 +912,7 @@ class TileGridOverlay(QObject, CanvasOverlay):
             return
         if not self._move_active:
             travelled = (event.x - press_x) ** 2 + (event.y - press_y) ** 2
-            if travelled < MOVE_DRAG_THRESHOLD_PX ** 2:
+            if travelled < MOVE_DRAG_THRESHOLD_PX**2:
                 return
             self._move_active = True
 
@@ -910,7 +934,7 @@ class TileGridOverlay(QObject, CanvasOverlay):
             return
         if not self._paint_active:
             travelled = (event.x - press_x) ** 2 + (event.y - press_y) ** 2
-            if travelled < MOVE_DRAG_THRESHOLD_PX ** 2:
+            if travelled < MOVE_DRAG_THRESHOLD_PX**2:
                 return
             # The move gesture's threshold, deliberately: a modified press that never
             # travels has to reach `_on_release` still looking like a click, so that

@@ -26,7 +26,9 @@ def recorder() -> "tuple[HookManager, List[HookContext]]":
     """A HookManager that records every event fired, in order."""
     fired: List[HookContext] = []
     manager = HookManager()
-    manager.register(FunctionHook(name="recorder", events=ALL_EVENTS, callback=fired.append))
+    manager.register(
+        FunctionHook(name="recorder", events=ALL_EVENTS, callback=fired.append)
+    )
     return manager, fired
 
 
@@ -57,6 +59,7 @@ def _events(fired: List[HookContext]) -> List[str]:
 # workflow_completed vs workflow_cancelled
 # ---------------------------------------------------------------------------
 
+
 def test_draining_the_queue_fires_workflow_completed(experiment, recorder):
     hook_manager, fired = recorder
     manager = _manager(experiment, hook_manager)
@@ -82,7 +85,9 @@ def test_stopping_fires_workflow_cancelled_not_completed(experiment, recorder):
 def test_stopping_midway_still_cancels(experiment, recorder):
     """Stop set while items remain: the queue does not drain, so this is a cancel."""
     hook_manager, fired = recorder
-    experiment.positions.append(Lamella(path=experiment.path, number=1, petname="lam-1"))
+    experiment.positions.append(
+        Lamella(path=experiment.path, number=1, petname="lam-1")
+    )
     manager = _manager(experiment, hook_manager)
     manager.stop()
 
@@ -94,6 +99,7 @@ def test_stopping_midway_still_cancels(experiment, recorder):
 # ---------------------------------------------------------------------------
 # task_skipped
 # ---------------------------------------------------------------------------
+
 
 def test_missing_lamella_fires_task_skipped(experiment, recorder, caplog):
     """A queue item naming a lamella that is not in the experiment used to be marked
@@ -150,6 +156,7 @@ def test_skip_fires_no_task_started_or_completed(experiment, recorder):
 # ---------------------------------------------------------------------------
 # closing status message
 # ---------------------------------------------------------------------------
+
 
 def _status_messages(monkeypatch) -> List[str]:
     """Capture the workflow_info strings the manager closes a run with."""

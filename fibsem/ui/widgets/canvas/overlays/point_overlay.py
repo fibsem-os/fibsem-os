@@ -596,7 +596,11 @@ class PointOverlay(QObject):
         if not self._points or not self._legend_label:
             return [], []
         handle = Line2D(
-            [], [], linestyle="None", marker=self._marker, markersize=9,
+            [],
+            [],
+            linestyle="None",
+            marker=self._marker,
+            markersize=9,
             color=self._color,
             markeredgewidth=(self._edge_width if self._edge_width is not None else 2.0),
             label=self._legend_label,
@@ -665,6 +669,7 @@ class PointOverlay(QObject):
         adds a fixed bump, so backward-compatible defaults are preserved when unset.
         """
         from matplotlib.lines import Line2D
+
         if self._point_marker(idx) in Line2D.filled_markers:
             base = self._edge_width if self._edge_width is not None else 0.8
             return "white", (base + 1.2 if selected else base)

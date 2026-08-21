@@ -129,7 +129,8 @@ def resolve_events(subscriptions: List[str]) -> List[str]:
 def unknown_subscriptions(subscriptions: List[str]) -> List[str]:
     """Names that are neither an event nor a group, and so will never match."""
     return [
-        name for name in (_event_name(s) for s in subscriptions)
+        name
+        for name in (_event_name(s) for s in subscriptions)
         if name not in KNOWN_SUBSCRIPTIONS
     ]
 
@@ -196,7 +197,8 @@ class HookContext:
         except Exception:
             logging.exception(
                 "Could not snapshot task_state for the %s hook; passing the live "
-                "object, which a deferred hook may see mutated", self.event,
+                "object, which a deferred hook may see mutated",
+                self.event,
             )
 
     @property
@@ -331,7 +333,9 @@ class NotificationHook(Hook):
         if self._notify:
             self._notify(message, self.notification_type)
         else:
-            logging.info(f"[NotificationHook] {self.notification_type.upper()}: {message}")
+            logging.info(
+                f"[NotificationHook] {self.notification_type.upper()}: {message}"
+            )
 
     def to_dict(self) -> dict:
         return {
@@ -363,6 +367,7 @@ def _safe_url(url: str) -> str:
     token -- so the host is as much as a log or an error message may carry.
     """
     from urllib.parse import urlparse
+
     parsed = urlparse(url)
     if not parsed.netloc:
         return "<invalid url>"
@@ -376,6 +381,7 @@ def _redact_url(text: str, url: str) -> str:
     /services/T.../B.../TOKEN" -- so replacing the whole URL is not enough.
     """
     from urllib.parse import urlparse
+
     parsed = urlparse(url)
     for secret in (url, parsed.path):
         if secret and len(secret) > 1:
@@ -388,6 +394,7 @@ def _validate_webhook_url(url: str) -> str:
     if not url:
         raise ValueError("WebhookHook: url must not be empty")
     from urllib.parse import urlparse
+
     scheme = urlparse(url).scheme.lower()
     if scheme not in _WEBHOOK_ALLOWED_SCHEMES:
         raise ValueError(
@@ -399,6 +406,7 @@ def _validate_webhook_url(url: str) -> str:
 @dataclass
 class WebhookHook(Hook):
     """Hook that POSTs a JSON payload to a URL. Fires in a daemon thread (non-blocking)."""
+
     url: str = ""
     method: str = "POST"
     timeout: int = 5
@@ -434,27 +442,28 @@ class WebhookHook(Hook):
         generic endpoint takes the structured event, Slack does not. See SlackHook.
         """
         return {
-                "event": context.event,
-                "task_name": context.task_name,
-                "task_type": context.task_type,
-                "item_name": context.item_name,
-                # Deprecated duplicate of item_name: the payload shipped in v0.5.1 with
-                # this key, so endpoints reading it keep working. Drop after v0.6.
-                "lamella_name": context.item_name,
-                "item_id": context.item_id,
-                "task_id": context.task_id,
-                "experiment_id": context.experiment_id,
-                "experiment_name": context.experiment_name,
-                "tasks_remaining": context.tasks_remaining,
-                "tasks_total": context.tasks_total,
-                "error": context.error,
-                "skip_reason": context.skip_reason,
-                "timestamp": context.timestamp,
+            "event": context.event,
+            "task_name": context.task_name,
+            "task_type": context.task_type,
+            "item_name": context.item_name,
+            # Deprecated duplicate of item_name: the payload shipped in v0.5.1 with
+            # this key, so endpoints reading it keep working. Drop after v0.6.
+            "lamella_name": context.item_name,
+            "item_id": context.item_id,
+            "task_id": context.task_id,
+            "experiment_id": context.experiment_id,
+            "experiment_name": context.experiment_name,
+            "tasks_remaining": context.tasks_remaining,
+            "tasks_total": context.tasks_total,
+            "error": context.error,
+            "skip_reason": context.skip_reason,
+            "timestamp": context.timestamp,
         }
 
     def _post(self, context: HookContext) -> None:
         try:
             import requests
+
             response = requests.request(
                 self.method, self.url, json=self._payload(context), timeout=self.timeout
             )
@@ -484,13 +493,20 @@ class WebhookHook(Hook):
             )
 
     def to_dict(self) -> dict:
-        return {**super().to_dict(), "url": self.url, "method": self.method, "timeout": self.timeout}
+        return {
+            **super().to_dict(),
+            "url": self.url,
+            "method": self.method,
+            "timeout": self.timeout,
+        }
 
     @classmethod
     def from_dict(cls, d: dict) -> "WebhookHook":
         method = d.get("method", "POST").upper()
         if method not in _WEBHOOK_ALLOWED_METHODS:
-            logging.warning(f"WebhookHook: invalid method '{method}', defaulting to POST")
+            logging.warning(
+                f"WebhookHook: invalid method '{method}', defaulting to POST"
+            )
             method = "POST"
         return cls(
             name=d.get("name", ""),
@@ -516,6 +532,7 @@ class SlackHook(WebhookHook):
     The same shape serves Discord with ``content`` instead of ``text``; each service
     that dictates its own body is a few lines here.
     """
+
     message_template: str = DEFAULT_MESSAGE_TEMPLATE
 
     def _payload(self, context: HookContext) -> dict:
@@ -536,7 +553,10 @@ class SlackHook(WebhookHook):
 @dataclass
 class FunctionHook(Hook):
     """Hook that calls a Python callable. Not serializable — registered in code only."""
-    callback: Optional[Callable[["HookContext"], None]] = field(default=None, repr=False)
+
+    callback: Optional[Callable[["HookContext"], None]] = field(
+        default=None, repr=False
+    )
 
     def run(self, context: HookContext) -> None:
         if self.callback:
@@ -598,7 +618,9 @@ class HookManager:
 
     def to_dict(self) -> dict:
         return {
-            "hooks": [h.to_dict() for h in self._hooks if h.__class__.__name__ in HOOK_TYPES]
+            "hooks": [
+                h.to_dict() for h in self._hooks if h.__class__.__name__ in HOOK_TYPES
+            ]
         }
 
     @classmethod

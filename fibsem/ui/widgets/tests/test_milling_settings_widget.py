@@ -3,6 +3,7 @@
 Run directly:
     python fibsem/ui/widgets/tests/test_milling_settings_widget.py
 """
+
 import sys
 
 from PyQt5.QtWidgets import (
@@ -72,8 +73,8 @@ def main() -> None:
 
     def on_settings_changed(s: FibsemMillingSettings) -> None:
         status.setText(
-            f"current={s.milling_current*1e12:.1f} pA  |  "
-            f"voltage={s.milling_voltage/1e3:.1f} kV  |  "
+            f"current={s.milling_current * 1e12:.1f} pA  |  "
+            f"voltage={s.milling_voltage / 1e3:.1f} kV  |  "
             f"mode={s.patterning_mode}"
         )
         print("Settings changed:", s.to_dict())

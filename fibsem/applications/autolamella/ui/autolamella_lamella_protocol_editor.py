@@ -87,6 +87,7 @@ _SAVE_DEBOUNCE_MS = 400
 POI_OVERLAY_ID = "poi"
 ALIGNMENT_OVERLAY_ID = "alignment_area"
 
+
 class AutoLamellaProtocolEditorWidget(QWidget):
     """A widget to edit the AutoLamella protocol."""
 
@@ -1182,7 +1183,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         text = self.line_edit_description.text()
         if lamella.description == text:
             return
-        lamella.description = text  # fires events.description -> updates read-only mirrors
+        lamella.description = (
+            text  # fires events.description -> updates read-only mirrors
+        )
         self._save_experiment()
 
     def _save_experiment(self):

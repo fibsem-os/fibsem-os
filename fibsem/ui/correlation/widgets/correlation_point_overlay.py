@@ -35,6 +35,7 @@ reordering. Index bookkeeping on removal — including shifting ``_selected`` �
 stays in the base, which is precisely the part a translation layer would have
 had to reimplement.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -57,17 +58,17 @@ if TYPE_CHECKING:
 # rather than to match the app palette — the same reasoning that keeps the
 # NEUTRAL_* ramp out of the tinted tokens.
 POINT_COLORS: Dict[PointType, str] = {
-    PointType.FIB:        "#00ff00",
-    PointType.FM:         "#00e5ff",
-    PointType.POI:        "#ff00ff",
-    PointType.SURFACE:    ORANGE_COLOR,
+    PointType.FIB: "#00ff00",
+    PointType.FM: "#00e5ff",
+    PointType.POI: "#ff00ff",
+    PointType.SURFACE: ORANGE_COLOR,
     PointType.SURFACE_FM: "#ffea00",
 }
 POINT_MARKERS: Dict[PointType, str] = {
-    PointType.FIB:        "o",
-    PointType.FM:         "o",
-    PointType.POI:        "o",
-    PointType.SURFACE:    "+",
+    PointType.FIB: "o",
+    PointType.FM: "o",
+    PointType.POI: "o",
+    PointType.SURFACE: "+",
     PointType.SURFACE_FM: "+",
 }
 MARKER_SIZE = 5.0  # the base draws the selected marker at size * 1.4 = 7.0
@@ -110,7 +111,8 @@ def legend_handle(
 
     edge_color, edge_width = marker_edge(color, marker, hollow)
     return Line2D(
-        [], [],
+        [],
+        [],
         marker=marker,
         markersize=7,
         color=color,
@@ -196,7 +198,9 @@ class CorrelationPointOverlay(PointOverlay):
 
     def selected_coordinate(self) -> Optional[Coordinate]:
         idx = self._selected
-        return self._coords[idx] if idx is not None and idx < len(self._coords) else None
+        return (
+            self._coords[idx] if idx is not None and idx < len(self._coords) else None
+        )
 
     def set_selected_coordinate(self, coord: Optional[Coordinate]) -> None:
         """Select by identity. Silent, like the base's ``set_selected``."""
@@ -634,7 +638,8 @@ class CorrelationResultOverlay(CanvasOverlay):
         edge_color, edge_width = marker_edge(group.color, group.marker, group.hollow)
         for i, (x, y) in enumerate(group.points, start=1):
             (line,) = self._ax.plot(
-                x, y,
+                x,
+                y,
                 marker=group.marker,
                 markersize=group.size,
                 color=group.color,

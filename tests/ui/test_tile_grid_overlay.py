@@ -5,6 +5,7 @@ if it disagrees with where tiles actually land it is worse than not drawing one.
 placed from the same `canvas_x/canvas_y` that `stitch_tileset` pastes with, and these
 tests hold it to that rather than to a second derivation of the same arithmetic.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -47,10 +48,10 @@ class _FakeCanvas:
     def draw_idle(self):
         self.redraws += 1
 
-    def setCursor(self, cursor):   # noqa: N802 - mirrors the Qt API
+    def setCursor(self, cursor):  # noqa: N802 - mirrors the Qt API
         self.cursor = cursor
 
-    def unsetCursor(self):         # noqa: N802 - mirrors the Qt API
+    def unsetCursor(self):  # noqa: N802 - mirrors the Qt API
         self.cursor = None
 
     def set_view_margin(self, margin):
@@ -192,8 +193,8 @@ def test_a_click_in_an_overlap_picks_the_nearer_tile(qapp):
     rx, _, _, _ = overlay._rect_for(right)
     seam_y = ly + lh / 2
 
-    just_left = overlay._tile_at(rx + 1, seam_y)          # inside both, nearer `left`
-    just_right = overlay._tile_at(lx + lw - 1, seam_y)    # inside both, nearer `right`
+    just_left = overlay._tile_at(rx + 1, seam_y)  # inside both, nearer `left`
+    just_right = overlay._tile_at(lx + lw - 1, seam_y)  # inside both, nearer `right`
 
     assert (just_left.row, just_left.col) == (1, 0)
     assert (just_right.row, just_right.col) == (1, 1)
@@ -238,7 +239,9 @@ def test_a_differing_display_pixel_size_rescales_the_grid(qapp):
     overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE)
     full = overlay._rect_for(tiles[0])[2]
 
-    overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE, display_pixel_size=PIXEL_SIZE * 2)
+    overlay.set_grid(
+        tiles, (HEIGHT, WIDTH), PIXEL_SIZE, display_pixel_size=PIXEL_SIZE * 2
+    )
     half = overlay._rect_for(tiles[0])[2]
 
     assert half == pytest.approx(full / 2)
@@ -248,9 +251,9 @@ def test_disabled_tiles_keep_their_place_in_the_grid(qapp):
     """A skipped tile still defines the extent and the layout -- it is simply not
     acquired -- so removing it must not shift its neighbours."""
     dense, _ = build(3, 3)
-    sparse, tiles = build(3, 3, mask=[[True, True, True],
-                                      [True, False, True],
-                                      [True, True, True]])
+    sparse, tiles = build(
+        3, 3, mask=[[True, True, True], [True, False, True], [True, True, True]]
+    )
 
     centre = next(t for t in tiles if (t.row, t.col) == (1, 1))
     assert centre.enabled is False
@@ -309,7 +312,7 @@ def test_the_scale_follows_the_canvas_pixel_size(qapp):
     very image it describes."""
 
     overlay, _ = build(3, 3)
-    overlay._display_pixel_size = None      # not pinned -> read from the canvas
+    overlay._display_pixel_size = None  # not pinned -> read from the canvas
     overlay._canvas._pixel_size = PIXEL_SIZE * 2
 
     assert overlay._scale() == pytest.approx(0.5)
@@ -333,7 +336,10 @@ def test_skipped_tiles_are_grey_regardless_of_the_grid_colour(qapp):
 
 
 def _edge_hues(overlay):
-    return {tuple(round(c, 3) for c in patch.get_edgecolor()[:3]) for patch in overlay._artists}
+    return {
+        tuple(round(c, 3) for c in patch.get_edgecolor()[:3])
+        for patch in overlay._artists
+    }
 
 
 def _is_mark(artist):
@@ -407,7 +413,9 @@ def test_the_cross_scales_with_the_tiles(qapp):
     import math
 
     xs = [v for v in _marks(overlay)[0].get_xdata() if not math.isnan(v)]
-    assert max(xs) - min(xs) == pytest.approx(min(width, height) * UNREACHABLE_MARK_SIZE)
+    assert max(xs) - min(xs) == pytest.approx(
+        min(width, height) * UNREACHABLE_MARK_SIZE
+    )
 
 
 def test_a_reachable_tile_is_not_marked(qapp):
@@ -453,7 +461,9 @@ def test_passing_no_flags_leaves_the_previous_ones_alone(qapp):
     assert overlay._unreachable == {(0, 0)}
 
     overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE)
-    assert overlay._unreachable == {(0, 0)}, "the flags were dropped by an unrelated redraw"
+    assert overlay._unreachable == {(0, 0)}, (
+        "the flags were dropped by an unrelated redraw"
+    )
 
     overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE, unreachable=[])
     assert overlay._unreachable == set(), "an empty set must clear them"
@@ -635,7 +645,7 @@ def test_the_background_is_dropped_when_the_canvas_bounds_change(qapp):
 def test_a_canvas_that_cannot_blit_still_gets_its_grid(qapp):
     """Not every host is a matplotlib canvas. Falling back costs a frame's efficiency;
     failing would cost the frame."""
-    overlay, tiles = build(3, 3)          # the plain fake, with no blit calls
+    overlay, tiles = build(3, 3)  # the plain fake, with no blit calls
     overlay._move_active = True
 
     overlay.set_grid(tiles, (HEIGHT, WIDTH), PIXEL_SIZE)
@@ -756,8 +766,8 @@ def test_a_click_is_not_the_end_of_a_drag(qapp):
 def _edges(overlay):
     span_w, span_h = overlay._extent()
     return (
-        overlay._rect.cx + span_w / 2,   # right
-        overlay._rect.cy + span_h / 2,   # bottom
+        overlay._rect.cx + span_w / 2,  # right
+        overlay._rect.cy + span_h / 2,  # bottom
     )
 
 
@@ -769,7 +779,7 @@ def test_only_the_outer_edges_grab(qapp):
 
     assert overlay._edge_at(right, overlay._rect.cy) == (True, False)
     assert overlay._edge_at(overlay._rect.cx, bottom) == (False, True)
-    assert overlay._edge_at(right, bottom) == (True, True)      # corner: both axes
+    assert overlay._edge_at(right, bottom) == (True, True)  # corner: both axes
     assert overlay._edge_at(overlay._rect.cx, overlay._rect.cy) is None
 
 
@@ -1286,7 +1296,9 @@ def test_a_shift_click_that_never_travels_is_an_ordinary_toggle(qapp):
     overlay._on_drag(_event(overlay, *point, px=MOVE_DRAG_THRESHOLD_PX - 1, py=0.0))
     overlay._on_release(_event(overlay, *point))
 
-    assert painted == [], "a modified click must still wait out the double-click interval"
+    assert painted == [], (
+        "a modified click must still wait out the double-click interval"
+    )
     _flush_toggle(overlay)
     assert painted == [(1, 1, False)]
 
@@ -1297,10 +1309,13 @@ def test_a_paint_does_not_also_toggle_the_tile_it_ends_on(qapp):
     painted = []
     overlay.tile_toggled.connect(lambda r, c, e: painted.append((r, c, e)))
 
-    _sweep(overlay, [
-        _tile_centre(overlay, tiles, 1, 0),
-        _tile_centre(overlay, tiles, 1, 1),
-    ])
+    _sweep(
+        overlay,
+        [
+            _tile_centre(overlay, tiles, 1, 0),
+            _tile_centre(overlay, tiles, 1, 1),
+        ],
+    )
 
     assert painted == [(1, 0, False), (1, 1, False)]
 

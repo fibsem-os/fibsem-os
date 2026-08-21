@@ -35,13 +35,14 @@ class _Uncopyable:
 # the task_state snapshot
 # ---------------------------------------------------------------------------
 
+
 def test_the_context_snapshots_task_state():
     """The producer reuses one state object per run, so a hook that defers work would
     otherwise read whatever the *next* task has since written into it."""
     live = _MutableState(status="InProgress")
 
     context = HookContext(event=HookEvent.TASK_STARTED, task_state=live)
-    live.status = "Completed"          # the next task moves on
+    live.status = "Completed"  # the next task moves on
     live.outputs.append("later.tif")
 
     assert context.task_state.status == "InProgress"
@@ -74,6 +75,7 @@ def test_no_task_state_is_fine():
 # ---------------------------------------------------------------------------
 # identity and progress
 # ---------------------------------------------------------------------------
+
 
 def _ctx(**kwargs) -> HookContext:
     defaults = dict(

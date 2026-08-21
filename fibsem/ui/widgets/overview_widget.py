@@ -415,8 +415,13 @@ class OverviewRecord:
     given, and both overviews use the same list.
     """
 
-    def __init__(self, record_id: str, label: str, keys: List[str],
-                 view: Optional["OverviewView"] = None) -> None:
+    def __init__(
+        self,
+        record_id: str,
+        label: str,
+        keys: List[str],
+        view: Optional["OverviewView"] = None,
+    ) -> None:
         self.id = record_id
         self.label = label
         self.keys = list(keys)
@@ -612,8 +617,10 @@ class FibsemOverviewWidget(QWidget):
         # would emphasise the seams rather than hide them. Selecting one image to adjust
         # is the later half of FIB-415, and needs a selection the canvas has not got.
         self.btn_contrast = self.canvas.add_toolbar_button(
-            "mdi:contrast-circle", "Contrast and gamma",
-            self._toggle_contrast, checkable=True,
+            "mdi:contrast-circle",
+            "Contrast and gamma",
+            self._toggle_contrast,
+            checkable=True,
         )
         self.contrast_control = ContrastGammaControl(self.canvas)
         self.contrast_control.changed.connect(self._reapply_contrast)
@@ -745,11 +752,13 @@ class FibsemOverviewWidget(QWidget):
         # Ordered as they sit on the canvas, outermost first: where the stage can go,
         # then the holder's grids, then the marks inside them. Grid bars last because
         # they are a lattice over everything and the two controls under them are theirs.
-        self.overlay_controls = CanvasOverlayControls([
-            *stage_context.CONTEXT_OVERLAY_ENTRIES,
-            (_OVERLAY_POSITIONS, "Saved positions", True),
-            (_OVERLAY_GRIDBARS, "Grid bars", False),
-        ])
+        self.overlay_controls = CanvasOverlayControls(
+            [
+                *stage_context.CONTEXT_OVERLAY_ENTRIES,
+                (_OVERLAY_POSITIONS, "Saved positions", True),
+                (_OVERLAY_GRIDBARS, "Grid bars", False),
+            ]
+        )
         self.overlay_controls.toggled.connect(self._on_overlay_toggled)
         self.spin_gridbar_spacing = ValueSpinBox(
             suffix=" um", minimum=1.0, maximum=10000.0, step=10.0, decimals=1
@@ -774,7 +783,10 @@ class FibsemOverviewWidget(QWidget):
         # other toolbar buttons because it holds the controls above, which have to exist
         # first.
         self.btn_overlays = self.canvas.add_toolbar_button(
-            "mdi:eye-outline", "Overlays", self._toggle_overlays, checkable=True,
+            "mdi:eye-outline",
+            "Overlays",
+            self._toggle_overlays,
+            checkable=True,
         )
         self.overlay_popover = CanvasPopover(self._overlay_panel(), parent=self.canvas)
 
@@ -785,7 +797,10 @@ class FibsemOverviewWidget(QWidget):
         # class as the FM tab now that it lives beside the overlay it configures, so the
         # two tabs cannot drift apart on the one overlay they both draw.
         self.btn_tile_grid = self.canvas.add_toolbar_button(
-            "mdi:grid", "Tile grid", self._toggle_tile_grid_panel, checkable=True,
+            "mdi:grid",
+            "Tile grid",
+            self._toggle_tile_grid_panel,
+            checkable=True,
         )
         self.tile_grid_panel = TileGridOptionsPanel(self)
         self.tile_grid_panel.hide()
@@ -1208,7 +1223,9 @@ class FibsemOverviewWidget(QWidget):
             return BeamType.ELECTRON
         return settings.image_settings.beam_type
 
-    def add_settings_section(self, title: str, widget: QWidget, first: bool = True) -> None:
+    def add_settings_section(
+        self, title: str, widget: QWidget, first: bool = True
+    ) -> None:
         """Let a host put its own section in the settings column.
 
         In the column rather than beside it: a host's section is usually the subject of
@@ -1562,14 +1579,21 @@ class FibsemOverviewWidget(QWidget):
 
     # ── placing images ───────────────────────────────────────────────────
 
-    def place_image(self, image: FibsemImage, key: Optional[str] = None,
-                    zorder: Optional[float] = None) -> Optional[str]:
+    def place_image(
+        self,
+        image: FibsemImage,
+        key: Optional[str] = None,
+        zorder: Optional[float] = None,
+    ) -> Optional[str]:
         """Put one image on the canvas where it was acquired. See :meth:`_place`."""
         return self._place(image, key=key, zorder=zorder)[0]
 
-    def _place(self, image: FibsemImage, key: Optional[str] = None,
-               zorder: Optional[float] = None
-               ) -> Tuple[Optional[str], Optional["_PlacedTile"]]:
+    def _place(
+        self,
+        image: FibsemImage,
+        key: Optional[str] = None,
+        zorder: Optional[float] = None,
+    ) -> Tuple[Optional[str], Optional["_PlacedTile"]]:
         """Put one image on the canvas, and hand back the tile that was stored for it.
 
         The tile comes back because a caller that keeps a *record* needs the same one:
@@ -1657,7 +1681,9 @@ class FibsemOverviewWidget(QWidget):
         y0 = min(max(0, int(np.floor(region.top * height))), height - 1)
         x1 = min(width, max(int(np.ceil(region.right * width)), x0 + 1))
         y1 = min(height, max(int(np.ceil(region.bottom * height)), y0 + 1))
-        curve = None if self.contrast_control.is_default() else self.contrast_control.apply
+        curve = (
+            None if self.contrast_control.is_default() else self.contrast_control.apply
+        )
         drawn = _as_colour_and_coverage(
             downsample(grey[y0:y1, x0:x1], max_px),
             downsample_mask(acquired[y0:y1, x0:x1], max_px),
@@ -1689,8 +1715,11 @@ class FibsemOverviewWidget(QWidget):
         self.canvas.refresh_detail(force=True)
 
     def _place_on_canvas(
-        self, tile: "_PlacedTile", view: "OverviewView",
-        key: Optional[str] = None, zorder: Optional[float] = None,
+        self,
+        tile: "_PlacedTile",
+        view: "OverviewView",
+        key: Optional[str] = None,
+        zorder: Optional[float] = None,
     ) -> Optional[str]:
         """Draw a stored tile in *view*. Shared by first placement and re-placement.
 
@@ -1707,8 +1736,12 @@ class FibsemOverviewWidget(QWidget):
             logger.debug(f"Could not place an image: {e}")
             return None
         return self.canvas.add_image(
-            self._for_display(tile), centre=centre, pixel_size=tile.pixel_size,
-            key=key, zorder=zorder, covers=tile.covers,
+            self._for_display(tile),
+            centre=centre,
+            pixel_size=tile.pixel_size,
+            key=key,
+            zorder=zorder,
+            covers=tile.covers,
             # Bound to this tile, and the canvas holds it for as long as the image is
             # placed -- so a contrast change reaches every placed image without walking
             # the records, which would miss the acquisition preview, the one thing on
@@ -1735,7 +1768,9 @@ class FibsemOverviewWidget(QWidget):
                 "warning",
             )
             return None
-        record = OverviewRecord(record_id, os.path.basename(record_id), [key], view=view)
+        record = OverviewRecord(
+            record_id, os.path.basename(record_id), [key], view=view
+        )
         record.pixel_size = self._pixel_size_of(image)
         record.images.append(tile)
         self._records[record_id] = record
@@ -1919,8 +1954,9 @@ class FibsemOverviewWidget(QWidget):
             image = FibsemImage.load(path)
         except Exception as e:
             logger.error(f"Could not load {path}: {e}")
-            notification_service.show_toast(f"Could not load {os.path.basename(path)}.",
-                                            "error")
+            notification_service.show_toast(
+                f"Could not load {os.path.basename(path)}.", "error"
+            )
             return None
         return self.set_image(image)
 
@@ -1964,12 +2000,15 @@ class FibsemOverviewWidget(QWidget):
             self.context_overlay.set_shapes([])
             return
 
-        self.context_overlay.set_shapes(stage_context.context_shapes(
-            self.microscope, frame,
-            limits=self.overlay_controls.is_visible(_OVERLAY_LIMITS),
-            boundaries=self.overlay_controls.is_visible(_OVERLAY_BOUNDARIES),
-            slots=self.overlay_controls.is_visible(_OVERLAY_SLOTS),
-        ))
+        self.context_overlay.set_shapes(
+            stage_context.context_shapes(
+                self.microscope,
+                frame,
+                limits=self.overlay_controls.is_visible(_OVERLAY_LIMITS),
+                boundaries=self.overlay_controls.is_visible(_OVERLAY_BOUNDARIES),
+                slots=self.overlay_controls.is_visible(_OVERLAY_SLOTS),
+            )
+        )
         self._declare_working_area(frame)
         self._refresh_tile_grid()
         self._refresh_stage_info()
@@ -2289,8 +2328,11 @@ class FibsemOverviewWidget(QWidget):
             return
 
         if not self.overlay_controls.is_visible(_OVERLAY_POSITIONS):
-            for overlay in (self.position_overlay, self.flagged_position_overlay,
-                            self.selected_position_overlay):
+            for overlay in (
+                self.position_overlay,
+                self.flagged_position_overlay,
+                self.selected_position_overlay,
+            ):
                 overlay.set_points([])
             if self._stage_position is not None:
                 try:
@@ -2303,7 +2345,9 @@ class FibsemOverviewWidget(QWidget):
 
         if self._stage_position is not None:
             try:
-                self.current_position_overlay.set_points([frame.to_canvas(self._stage_position)])
+                self.current_position_overlay.set_points(
+                    [frame.to_canvas(self._stage_position)]
+                )
             except Exception as e:
                 logger.debug(f"Could not mark the current stage position: {e}")
 
@@ -2603,9 +2647,7 @@ class FibsemOverviewWidget(QWidget):
             return None
         return target
 
-    def _posed_like_the_stage(
-        self, target: FibsemStagePosition
-    ) -> FibsemStagePosition:
+    def _posed_like_the_stage(self, target: FibsemStagePosition) -> FibsemStagePosition:
         """A resolved position, wearing the pose the stage is actually in.
 
         Neither steering nor planning reorients. A point on the canvas says *where on

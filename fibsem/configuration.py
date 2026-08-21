@@ -1,4 +1,3 @@
-
 import argparse
 import os
 
@@ -17,7 +16,7 @@ def get_column_tilt(manufacturer: str, beam: str) -> int:
         raise ValueError(f"Unknown beam: {beam}")
 
     return DEFAULT_CONFIGURATION_VALUES[manufacturer][beam]
-    
+
 
 def generate_configuration(user_config: dict) -> dict:
     # load yaml
@@ -35,12 +34,18 @@ def generate_configuration(user_config: dict) -> dict:
     config["stage"]["shuttle_pre_tilt"] = user_config["shuttle-pre-tilt"]
 
     # electron
-    config["electron"]["eucentric_height"] = user_config["electron-beam-eucentric-height"]
-    config["electron"]["column_tilt"] = get_column_tilt(config["info"]["manufacturer"], "electron")
+    config["electron"]["eucentric_height"] = user_config[
+        "electron-beam-eucentric-height"
+    ]
+    config["electron"]["column_tilt"] = get_column_tilt(
+        config["info"]["manufacturer"], "electron"
+    )
 
     # ion
     config["ion"]["eucentric_height"] = user_config["ion-beam-eucentric-height"]
-    config["ion"]["column_tilt"] = get_column_tilt(config["info"]["manufacturer"], "ion")
+    config["ion"]["column_tilt"] = get_column_tilt(
+        config["info"]["manufacturer"], "ion"
+    )
 
     return config
 
@@ -49,7 +54,6 @@ def get_user_config() -> dict:
 
     # enter name
     name = input("Enter configuration name: ")
-    
 
     # enter ip address
     ip_address = input("Enter microscope PC IP address: ")
@@ -57,7 +61,9 @@ def get_user_config() -> dict:
 
     # enter manufacturer
     manufacturer = input("Enter microscope manufacturer (Thermo, Tescan, Demo): ")
-    assert manufacturer in ["Thermo", "Tescan", "Demo"], "Unknown manufacturer. Must be Thermo, Tescan or Demo"
+    assert manufacturer in ["Thermo", "Tescan", "Demo"], (
+        "Unknown manufacturer. Must be Thermo, Tescan or Demo"
+    )
 
     # enter rotation reference
     rotation_reference = input("Enter rotation reference (degrees): ")
@@ -67,28 +73,31 @@ def get_user_config() -> dict:
     shuttle_pre_tilt = float(shuttle_pre_tilt)
 
     # enter electron beam eucentric height
-    electron_beam_eucentric_height = input("Enter electron beam eucentric height (metres): ")
+    electron_beam_eucentric_height = input(
+        "Enter electron beam eucentric height (metres): "
+    )
     electron_beam_eucentric_height = float(electron_beam_eucentric_height)
 
     # enter ion beam eucentric height
     ion_beam_eucentric_height = input("Enter ion beam eucentric height (metres): ")
     ion_beam_eucentric_height = float(ion_beam_eucentric_height)
-    
+
     # generate configuration
     user_config = {
-        "name":                           name,                          # a descriptive name for your configuration 
-        "ip_address":                     ip_address,                    # the ip address of the microscope PC
-        "manufacturer":                   manufacturer,                  # the microscope manufactuer, Thermo, Tescan or Demo                       
-        "rotation-reference":             rotation_reference,            # the reference rotation value (rotation when loading)  [degrees]
-        "shuttle-pre-tilt":               shuttle_pre_tilt,              # the pre-tilt of the shuttle                           [degrees]
-        "electron-beam-eucentric-height": electron_beam_eucentric_height,# the eucentric height of the electron beam             [metres]
-        "ion-beam-eucentric-height":      ion_beam_eucentric_height,     # the eucentric height of the ion beam                  [metres]
+        "name": name,  # a descriptive name for your configuration
+        "ip_address": ip_address,  # the ip address of the microscope PC
+        "manufacturer": manufacturer,  # the microscope manufactuer, Thermo, Tescan or Demo
+        "rotation-reference": rotation_reference,  # the reference rotation value (rotation when loading)  [degrees]
+        "shuttle-pre-tilt": shuttle_pre_tilt,  # the pre-tilt of the shuttle                           [degrees]
+        "electron-beam-eucentric-height": electron_beam_eucentric_height,  # the eucentric height of the electron beam             [metres]
+        "ion-beam-eucentric-height": ion_beam_eucentric_height,  # the eucentric height of the ion beam                  [metres]
     }
     return user_config
 
+
 def save_configuration(config: dict, path: str):
     """Save a configuration to a yaml file."""
-    
+
     # save yaml
     filename = os.path.join(path, f"{config['info']['name']}.yaml")
     with open(filename, "w") as f:
@@ -99,11 +108,15 @@ def save_configuration(config: dict, path: str):
 
 def gen_config_cli(path: str = None):
     """Generate a configuration from the command line."""
-    
-    parser = argparse.ArgumentParser(description="Generate a configuration from the command line.")
-    parser.add_argument("--path", type=str, help="The path to save the configuration to.")
+
+    parser = argparse.ArgumentParser(
+        description="Generate a configuration from the command line."
+    )
+    parser.add_argument(
+        "--path", type=str, help="The path to save the configuration to."
+    )
     args = parser.parse_args()
-    
+
     if path is None:
         path = args.path
 
@@ -114,7 +127,7 @@ def gen_config_cli(path: str = None):
     print("fibsemOS Configuration Generator\n")
 
     user_config = get_user_config()
-    
+
     print(f"\nGenerating configuration: {user_config['name']}")
     config = generate_configuration(user_config)
     print("Configuration generated successfully.")

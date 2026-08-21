@@ -12,9 +12,10 @@ from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 
 try:
     from fibsem.ui.FibsemEmbeddedDetectionWidget import FibsemEmbeddedDetectionUI
+
     DETECTION_AVAILABLE = True
 except ImportError:
     DETECTION_AVAILABLE = False
     import logging
-    logging.debug("Could not import FibsemEmbeddedDetectionWidget")
 
+    logging.debug("Could not import FibsemEmbeddedDetectionWidget")

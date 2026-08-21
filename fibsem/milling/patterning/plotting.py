@@ -67,7 +67,9 @@ OVERLAP_PROPERTIES = {
 
 
 def _rect_pattern_to_image_pixels(
-    pattern: Union[FibsemRectangleSettings, FibsemBitmapSettings], pixel_size: float, image_shape: Tuple[int, int]
+    pattern: Union[FibsemRectangleSettings, FibsemBitmapSettings],
+    pixel_size: float,
+    image_shape: Tuple[int, int],
 ) -> Tuple[float, float, float, float]:
     """Convert rectangle pattern to image pixel coordinates.
     Args:
@@ -92,6 +94,7 @@ def _rect_pattern_to_image_pixels(
     height = height / pixel_size
 
     return centre.x, centre.y, width, height
+
 
 def _circle_pattern_to_image_pixels(
     pattern: FibsemCircleSettings, pixel_size: float, image_shape: Tuple[int, int]
@@ -121,6 +124,7 @@ def _circle_pattern_to_image_pixels(
     inner_radius_px = max(0, (radius - thickness) / pixel_size) if thickness > 0 else 0
 
     return centre.x, centre.y, radius_px, inner_radius_px, start_angle, end_angle
+
 
 def _line_pattern_to_image_pixels(
     pattern: FibsemLineSettings, pixel_size: float, image_shape: Tuple[int, int]
@@ -152,6 +156,7 @@ def _line_pattern_to_image_pixels(
     )
 
     return start.x, start.y, end.x, end.y
+
 
 def _polygon_pattern_to_image_pixels(
     pattern: FibsemPolygonSettings, pixel_size: float, image_shape: Tuple[int, int]
@@ -237,7 +242,6 @@ def _add_circle_mpl(
 
     if shape.is_exclusion:
         colour = "black"
-
 
     if inner_radius_px > 0:
         # annulus/ring pattern
@@ -434,17 +438,16 @@ def _add_polygon_mpl(
     pixel_size = image.metadata.pixel_size.x
     image_shape = image.data.shape
     pixel_vertices = _polygon_pattern_to_image_pixels(shape, pixel_size, image_shape)
-    
 
     patch = mpatches.Polygon(
-            pixel_vertices,
-            closed=True,
-            linewidth=PROPERTIES["line_width"],
-            edgecolor=colour,
-            facecolor=colour,
-            alpha=PROPERTIES["opacity"],
-            zorder=zorder,
-        )
+        pixel_vertices,
+        closed=True,
+        linewidth=PROPERTIES["line_width"],
+        edgecolor=colour,
+        facecolor=colour,
+        alpha=PROPERTIES["opacity"],
+        zorder=zorder,
+    )
 
     ax.add_patch(patch)
 
@@ -474,15 +477,20 @@ def _add_overlaps_mpl(
     """
     if len(milling_stages) < 2:
         return None
-    
+
     overlap_patches = []
-    
+
     # Create masks for each pattern
     pattern_masks = []
     for stage in milling_stages:
-        stage_mask = create_pattern_mask(stage.pattern, image.data.shape, pixelsize=image.metadata.pixel_size.x, include_exclusions=False)
+        stage_mask = create_pattern_mask(
+            stage.pattern,
+            image.data.shape,
+            pixelsize=image.metadata.pixel_size.x,
+            include_exclusions=False,
+        )
         pattern_masks.append(stage_mask)
-    
+
     # Find overlaps between patterns
     for i in range(len(pattern_masks)):
         for j in range(i + 1, len(pattern_masks)):
@@ -491,10 +499,13 @@ def _add_overlaps_mpl(
                 # Create contour patches for overlap regions
                 try:
                     import skimage.measure
+
                     contours = skimage.measure.find_contours(overlap.astype(float), 0.5)
-                    
+
                     for contour in contours:
-                        if len(contour) > 3:  # Only create patches for significant overlaps
+                        if (
+                            len(contour) > 3
+                        ):  # Only create patches for significant overlaps
                             # Swap x,y coordinates for matplotlib (contour gives row,col)
                             contour_xy = contour[:, [1, 0]]
                             patch = mpatches.Polygon(
@@ -513,7 +524,7 @@ def _add_overlaps_mpl(
                     if len(overlap_coords[0]) > 0:
                         y_min, y_max = overlap_coords[0].min(), overlap_coords[0].max()
                         x_min, x_max = overlap_coords[1].min(), overlap_coords[1].max()
-                        
+
                         patch = mpatches.Rectangle(
                             (x_min, y_min),
                             x_max - x_min,
@@ -617,11 +628,11 @@ def draw_milling_patterns(
             extra_parts.append(stage.milling.preset)
         if show_depth:
             # Get depth from pattern
-            depth_m = getattr(pattern, 'depth', None)
+            depth_m = getattr(pattern, "depth", None)
             if depth_m is not None:
                 depth_um = depth_m * 1e6  # Convert from meters to microns
                 extra_parts.append(f"{depth_um:.1f}μm")
-        
+
         extra = ", ".join(extra_parts)
 
         # Get all shapes from the pattern
@@ -748,13 +759,16 @@ def draw_milling_patterns(
 
     return fig, ax
 
+
 # Plotting utilities for drawing pattern as numpy arrays
+
 
 @dataclass
 class DrawnPattern:
     pattern: np.ndarray
     position: Point
     is_exclusion: bool
+
 
 def _create_annulus_shape(width, height, inner_radius, outer_radius):
     # Create a grid of coordinates
@@ -763,10 +777,17 @@ def _create_annulus_shape(width, height, inner_radius, outer_radius):
     X, Y = np.meshgrid(x, y)
     distance = np.sqrt(X**2 + Y**2)
     # Generate the donut shape
-    donut = np.logical_and(distance <= outer_radius, distance >= inner_radius).astype(int)
+    donut = np.logical_and(distance <= outer_radius, distance >= inner_radius).astype(
+        int
+    )
     return donut
 
-def draw_annulus_shape(pattern_settings: FibsemCircleSettings, image_shape: Tuple[int, int], pixelsize: float) -> DrawnPattern:
+
+def draw_annulus_shape(
+    pattern_settings: FibsemCircleSettings,
+    image_shape: Tuple[int, int],
+    pixelsize: float,
+) -> DrawnPattern:
     """Convert an annulus pattern to a np array. Note: annulus can only be plotted as image
     Args:
         pattern_settings: FibsemCircleSettings: Annulus pattern settings.
@@ -775,7 +796,7 @@ def draw_annulus_shape(pattern_settings: FibsemCircleSettings, image_shape: Tupl
     Returns:
         DrawnPattern: Annulus shape in image.
     """
-    
+
     # image parameters (centre, pixel size)
     icy, icx = get_image_pixel_centre(image_shape)
     pixelsize_x, pixelsize_y = pixelsize, pixelsize
@@ -786,15 +807,15 @@ def draw_annulus_shape(pattern_settings: FibsemCircleSettings, image_shape: Tupl
     center_x = pattern_settings.centre_x
     center_y = pattern_settings.centre_y
 
-    radius_px = radius / pixelsize_x # isotropic
+    radius_px = radius / pixelsize_x  # isotropic
     shape = int(2 * radius_px)
-    inner_radius_ratio = 0 # full circle
+    inner_radius_ratio = 0  # full circle
     if not np.isclose(thickness, 0):
-        inner_radius_ratio = (radius - thickness)/radius
-   
-    annulus_shape = _create_annulus_shape(width=shape, height=shape, 
-                                          inner_radius=inner_radius_ratio, 
-                                          outer_radius=1)
+        inner_radius_ratio = (radius - thickness) / radius
+
+    annulus_shape = _create_annulus_shape(
+        width=shape, height=shape, inner_radius=inner_radius_ratio, outer_radius=1
+    )
 
     # get pattern centre in image coordinates
     pattern_centre_x = int(icx + center_x / pixelsize_x)
@@ -802,9 +823,16 @@ def draw_annulus_shape(pattern_settings: FibsemCircleSettings, image_shape: Tupl
 
     pos = Point(x=pattern_centre_x, y=pattern_centre_y)
 
-    return DrawnPattern(pattern=annulus_shape, position=pos, is_exclusion=pattern_settings.is_exclusion)
+    return DrawnPattern(
+        pattern=annulus_shape, position=pos, is_exclusion=pattern_settings.is_exclusion
+    )
 
-def draw_rectangle_shape(pattern_settings: FibsemRectangleSettings, image_shape: Tuple[int, int], pixelsize: float) -> DrawnPattern:
+
+def draw_rectangle_shape(
+    pattern_settings: FibsemRectangleSettings,
+    image_shape: Tuple[int, int],
+    pixelsize: float,
+) -> DrawnPattern:
     """Convert a rectangle pattern to a np array with rotation support.
     Args:
         pattern_settings: FibsemRectangleSettings: Rectangle pattern settings.
@@ -839,17 +867,19 @@ def draw_rectangle_shape(pattern_settings: FibsemRectangleSettings, image_shape:
     if not np.isclose(rotation, 0):
         # Convert radians to degrees for scipy
         rotation_degrees = np.degrees(rotation)
-        
+
         # Rotate the shape, reshape=True to accommodate the rotated rectangle
         shape = rotate(shape, rotation_degrees, reshape=True, order=1, prefilter=False)
-        
+
         # Convert back to binary (rotation may introduce intermediate values)
         shape = (shape > 0.5).astype(float)
 
     # get pattern centre in image coordinates
     pos = Point(x=cx, y=cy)
 
-    return DrawnPattern(pattern=shape, position=pos, is_exclusion=pattern_settings.is_exclusion)
+    return DrawnPattern(
+        pattern=shape, position=pos, is_exclusion=pattern_settings.is_exclusion
+    )
 
 
 def draw_bitmap_shape(
@@ -933,7 +963,11 @@ def draw_line_shape(
     return DrawnPattern(pattern=shape, position=pos, is_exclusion=False)
 
 
-def draw_polygon_shape(pattern_settings: FibsemPolygonSettings, image_shape: Tuple[int, int], pixelsize: float) -> DrawnPattern:
+def draw_polygon_shape(
+    pattern_settings: FibsemPolygonSettings,
+    image_shape: Tuple[int, int],
+    pixelsize: float,
+) -> DrawnPattern:
     """Convert a polygon pattern to a np array.
     Args:
         pattern_settings: FibsemPolygonSettings: Polygon pattern settings.
@@ -953,42 +987,47 @@ def draw_polygon_shape(pattern_settings: FibsemPolygonSettings, image_shape: Tup
     for vertex in pattern_settings.vertices:
         # position in metres from image centre
         pmx, pmy = vertex[0] / pixelsize_x, vertex[1] / pixelsize_y
-        
+
         # convert to image coordinates
         px = icx + pmx
         py = icy - pmy
-        
+
         vertices_px.append((px, py))
-    
+
     vertices_px = np.array(vertices_px)
-    
+
     # Find bounding box of polygon
     min_x, min_y = np.floor(vertices_px.min(axis=0)).astype(int)
     max_x, max_y = np.ceil(vertices_px.max(axis=0)).astype(int)
-    
+
     # Create shape array with some padding
     padding = 2
     shape_width = max_x - min_x + 2 * padding
     shape_height = max_y - min_y + 2 * padding
-    
+
     # Offset vertices to shape coordinates
     vertices_shape = vertices_px - [min_x - padding, min_y - padding]
-    
+
     # Create the polygon mask
     shape = np.zeros((shape_height, shape_width), dtype=float)
-    
+
     # Use skimage.draw.polygon to fill the polygon
     rr, cc = polygon(vertices_shape[:, 1], vertices_shape[:, 0], shape.shape)
     shape[rr, cc] = 1.0
-    
+
     # Calculate center position
     center_x = (min_x + max_x) // 2
     center_y = (min_y + max_y) // 2
     pos = Point(x=center_x, y=center_y)
 
-    return DrawnPattern(pattern=shape, position=pos, is_exclusion=pattern_settings.is_exclusion)
+    return DrawnPattern(
+        pattern=shape, position=pos, is_exclusion=pattern_settings.is_exclusion
+    )
 
-def draw_pattern_shape(ps: FibsemPatternSettings, image_shape: Tuple[int, int], pixelsize: float) -> DrawnPattern:
+
+def draw_pattern_shape(
+    ps: FibsemPatternSettings, image_shape: Tuple[int, int], pixelsize: float
+) -> DrawnPattern:
     if isinstance(ps, FibsemCircleSettings):
         return draw_annulus_shape(ps, image_shape, pixelsize)
     elif isinstance(ps, FibsemRectangleSettings):
@@ -1002,12 +1041,12 @@ def draw_pattern_shape(ps: FibsemPatternSettings, image_shape: Tuple[int, int], 
     else:
         raise ValueError(f"Unsupported shape type {type(ps)}")
 
-def draw_pattern_in_image(image: np.ndarray, 
-                          drawn_pattern: DrawnPattern) -> np.ndarray:
+
+def draw_pattern_in_image(image: np.ndarray, drawn_pattern: DrawnPattern) -> np.ndarray:
 
     pattern = drawn_pattern.pattern
     pos = drawn_pattern.position
-    
+
     # place the annulus shape in the image
     w = pattern.shape[1] // 2
     h = pattern.shape[0] // 2
@@ -1016,18 +1055,21 @@ def draw_pattern_in_image(image: np.ndarray,
     xmin, xmax = pos.x - w, pos.x + w
     ymin, ymax = pos.y - h, pos.y + h
     zero_image = np.zeros_like(image)
-    zero_image[ymin:ymax, xmin:xmax] = pattern[:2*h, :2*w].astype(bool)
+    zero_image[ymin:ymax, xmin:xmax] = pattern[: 2 * h, : 2 * w].astype(bool)
 
     # if the pattern is an exclusion, set the image to zero
     if drawn_pattern.is_exclusion:
         image[zero_image == 1] = 0
     else:
         # add the annulus shape to the image, clip to 1
-        image = np.clip(image+zero_image, 0, 1)
+        image = np.clip(image + zero_image, 0, 1)
 
     return image
 
-def compose_pattern_image(image: np.ndarray, drawn_patterns: List[DrawnPattern]) -> np.ndarray:
+
+def compose_pattern_image(
+    image: np.ndarray, drawn_patterns: List[DrawnPattern]
+) -> np.ndarray:
     """Create an image with annulus shapes."""
     # create an empty image
     pattern_image = np.zeros_like(image)
@@ -1044,27 +1086,29 @@ def compose_pattern_image(image: np.ndarray, drawn_patterns: List[DrawnPattern])
 
 def simple_example(stages: List[FibsemMillingStage], image: FibsemImage) -> plt.Figure:
     """Simple demonstration of masks and bounding boxes."""
-    
+
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-    
+
     # Plot 1: Show masks
-    ax1.imshow(image.data, cmap='gray', alpha=0.7)
+    ax1.imshow(image.data, cmap="gray", alpha=0.7)
     ax1.set_title("Pattern Masks")
-    
+
     for i, stage in enumerate(stages):
         # Create mask
-        mask = create_pattern_mask(stage.pattern, image.data.shape, pixelsize=image.metadata.pixel_size.x)
+        mask = create_pattern_mask(
+            stage.pattern, image.data.shape, pixelsize=image.metadata.pixel_size.x
+        )
 
         # Show mask as colored overlay
         masked = np.ma.masked_where(~mask, mask)
-        ax1.imshow(masked, alpha=0.6, cmap='gray', vmin=0, vmax=10)
+        ax1.imshow(masked, alpha=0.6, cmap="gray", vmin=0, vmax=10)
 
         print(f"{stage.name}: {np.sum(mask)} pixels")
-    
+
     # Plot 2: Show bounding boxes
-    ax2.imshow(image.data, cmap='gray')
+    ax2.imshow(image.data, cmap="gray")
     ax2.set_title("Bounding Boxes")
-    
+
     for i, stage in enumerate(stages):
         # Get bounding box
         x_min, y_min, x_max, y_max = get_pattern_bounding_box(stage.pattern, image)
@@ -1072,24 +1116,39 @@ def simple_example(stages: List[FibsemMillingStage], image: FibsemImage) -> plt.
         if (x_min, y_min, x_max, y_max) != (0, 0, 0, 0):
             # Draw bounding box using COLOURS from plotting.py
             bbox = mpatches.Rectangle(
-                (x_min, y_min), x_max - x_min, y_max - y_min,
-                linewidth=2, edgecolor=COLOURS[i % len(COLOURS)], facecolor='none'
+                (x_min, y_min),
+                x_max - x_min,
+                y_max - y_min,
+                linewidth=2,
+                edgecolor=COLOURS[i % len(COLOURS)],
+                facecolor="none",
             )
             ax2.add_patch(bbox)
-            ax2.text(x_min, y_min-5, stage.name, color=COLOURS[i % len(COLOURS)], fontsize=9)
+            ax2.text(
+                x_min,
+                y_min - 5,
+                stage.name,
+                color=COLOURS[i % len(COLOURS)],
+                fontsize=9,
+            )
 
     # Add combined bounding box
     patterns = [stage.pattern for stage in stages]
     x_min, y_min, x_max, y_max = get_patterns_bounding_box(patterns, image)
     if (x_min, y_min, x_max, y_max) != (0, 0, 0, 0):
         combined_bbox = mpatches.Rectangle(
-            (x_min, y_min), x_max - x_min, y_max - y_min,
-            linewidth=3, edgecolor='black', facecolor='none', linestyle='--'
+            (x_min, y_min),
+            x_max - x_min,
+            y_max - y_min,
+            linewidth=3,
+            edgecolor="black",
+            facecolor="none",
+            linestyle="--",
         )
         ax2.add_patch(combined_bbox)
-        ax2.text(x_min, y_max+10, 'Combined', color='black', fontweight='bold')
-    
+        ax2.text(x_min, y_max + 10, "Combined", color="black", fontweight="bold")
+
     plt.tight_layout()
     plt.show()
-    
+
     return fig

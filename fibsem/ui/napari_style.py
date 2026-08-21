@@ -8,6 +8,7 @@ Imported and re-exported by ``fibsem.ui.stylesheets``, so both
 ``from fibsem.ui.stylesheets import NAPARI_STYLE`` and
 ``stylesheets.NAPARI_STYLE`` keep working.
 """
+
 import os as _os
 
 from fibsem.ui.tokens import (

@@ -212,7 +212,9 @@ def test_fluorescence_applies_the_same_guards_as_reference_images(tmp_path):
         outputs={"fluorescence": ["stack.ome.tiff", "stack.ome.tiff", "gone.ome.tiff"]},
     )
 
-    assert fluorescence_images(lamella, task) == [str(Path(lamella.path, "stack.ome.tiff"))]
+    assert fluorescence_images(lamella, task) == [
+        str(Path(lamella.path, "stack.ome.tiff"))
+    ]
 
 
 def test_reference_and_fluorescence_are_separate(tmp_path):
@@ -227,8 +229,12 @@ def test_reference_and_fluorescence_are_separate(tmp_path):
         },
     )
 
-    assert final_reference_images(lamella, task) == [str(Path(lamella.path, CONVENTIONAL[0]))]
-    assert fluorescence_images(lamella, task) == [str(Path(lamella.path, "stack.ome.tiff"))]
+    assert final_reference_images(lamella, task) == [
+        str(Path(lamella.path, CONVENTIONAL[0]))
+    ]
+    assert fluorescence_images(lamella, task) == [
+        str(Path(lamella.path, "stack.ome.tiff"))
+    ]
 
 
 # accumulation across repeated runs of the same task
@@ -240,8 +246,12 @@ def test_repeated_runs_accumulate_distinct_fluorescence_stacks(tmp_path):
     silently hide every earlier acquisition."""
     lamella = _lamella(tmp_path)
     _write(lamella, ["lam-zstack-10-00-00.ome.tiff", "lam-zstack-11-00-00.ome.tiff"])
-    first = AutoLamellaTaskState(name="Acquire", outputs={"fluorescence": ["lam-zstack-10-00-00.ome.tiff"]})
-    second = AutoLamellaTaskState(name="Acquire", outputs={"fluorescence": ["lam-zstack-11-00-00.ome.tiff"]})
+    first = AutoLamellaTaskState(
+        name="Acquire", outputs={"fluorescence": ["lam-zstack-10-00-00.ome.tiff"]}
+    )
+    second = AutoLamellaTaskState(
+        name="Acquire", outputs={"fluorescence": ["lam-zstack-11-00-00.ome.tiff"]}
+    )
 
     found = fluorescence_images(lamella, first, second)
 
@@ -267,7 +277,9 @@ def test_repeated_runs_collapse_when_the_files_are_overwritten(tmp_path):
     first = AutoLamellaTaskState(name="MillRough", outputs=dict(outputs))
     second = AutoLamellaTaskState(name="MillRough", outputs=dict(outputs))
 
-    assert final_reference_images(lamella, first, second) == final_reference_images(lamella, first)
+    assert final_reference_images(lamella, first, second) == final_reference_images(
+        lamella, first
+    )
 
 
 def test_the_glob_fallback_yields_one_set_however_many_runs(tmp_path):

@@ -8,6 +8,7 @@ changed, since _fit_view previously read the image artist's extent directly.
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_canvas_base.py
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -296,7 +297,8 @@ class TestTheLiveChipClearsTheToolbar:
 
         chip = c._live_badge.geometry()
         clashes = [
-            b for b in c._overlay_buttons
+            b
+            for b in c._overlay_buttons
             if not b.isHidden() and chip.intersects(b.geometry())
         ]
 

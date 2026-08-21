@@ -4,7 +4,9 @@ import pytest
 
 import fibsem.config as fconfig
 
-SIM_ARCTIS_CONFIG_PATH = os.path.join(fconfig.CONFIG_PATH, "sim-arctis-configuration.yaml")
+SIM_ARCTIS_CONFIG_PATH = os.path.join(
+    fconfig.CONFIG_PATH, "sim-arctis-configuration.yaml"
+)
 
 
 @pytest.fixture(autouse=True, scope="session")

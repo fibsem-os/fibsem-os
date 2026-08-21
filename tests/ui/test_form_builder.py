@@ -54,7 +54,9 @@ def test_a_point_field_is_dispatched_on_its_type_not_its_name(qapp):
     pattern with an equivalent field could not get the two-spinbox row no matter
     what it declared. Nothing here is named "point".
     """
-    control = build_control(meta(type=Point, scale=1e6, unit="m"), Point(x=1e-6, y=-2e-6))
+    control = build_control(
+        meta(type=Point, scale=1e6, unit="m"), Point(x=1e-6, y=-2e-6)
+    )
 
     spinboxes = control.widget.findChildren(ValueSpinBox)
     assert len(spinboxes) == 2
@@ -156,7 +158,9 @@ def test_the_fallback_range_fills_in_undeclared_bounds(qapp):
     passes the bounds it already had, so a form's ranges do not change just
     because the builder is now shared.
     """
-    control = build_control(meta(type=float), 0.0, defaults=FormDefaults(float_range=(-1e10, 1e10)))
+    control = build_control(
+        meta(type=float), 0.0, defaults=FormDefaults(float_range=(-1e10, 1e10))
+    )
 
     assert (control.widget.minimum(), control.widget.maximum()) == (-1e10, 1e10)
 
@@ -187,7 +191,8 @@ def test_dynamic_items_are_resolved_through_the_caller(qapp):
 def test_dynamic_items_fall_back_to_the_current_value(qapp):
     """No resolver, or nothing cached: the field still shows what it holds."""
     control = build_control(
-        meta(items="dynamic", microscope_parameter="scan_direction", type=str), "TopToBottom"
+        meta(items="dynamic", microscope_parameter="scan_direction", type=str),
+        "TopToBottom",
     )
 
     assert control.read() == "TopToBottom"

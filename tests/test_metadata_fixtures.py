@@ -85,7 +85,9 @@ def test_reprojection_geometry_is_readable(name: str) -> None:
 
 
 @pytest.mark.parametrize("name,model,compustage,via", FIXTURES)
-def test_compustage_detection(name: str, model: str, compustage: bool, via: str) -> None:
+def test_compustage_detection(
+    name: str, model: str, compustage: bool, via: str
+) -> None:
     """The migration guard: v6 records compustage, v5-and-earlier had it inferred.
 
     The answer must not change. `via` records which arm of the old expression fired --
@@ -168,7 +170,9 @@ def test_compustage_angles_are_recovered_as_zero_not_absent() -> None:
     ) == (35.0, 110, 290)
 
 
-@pytest.mark.parametrize("missing", ["stage", "electron", "ion", "manipulator", "gis", "info"])
+@pytest.mark.parametrize(
+    "missing", ["stage", "electron", "ion", "manipulator", "gis", "info"]
+)
 def test_system_settings_from_dict_is_not_a_safe_migration_path(missing: str) -> None:
     """`SystemSettings.from_dict` is bracket-indexed throughout, so it raises rather
     than degrading when a key is absent.

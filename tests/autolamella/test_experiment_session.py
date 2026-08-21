@@ -202,9 +202,7 @@ def test_registering_again_records_the_later_session(
     assert experiment.session.system.software_version == "9.9-after-the-upgrade"
 
 
-def test_registering_persists_it(
-    microscope: FibsemMicroscope, tmp_path: Path
-) -> None:
+def test_registering_persists_it(microscope: FibsemMicroscope, tmp_path: Path) -> None:
     """The value of this record is that it is *in experiment.yaml*.
 
     Leaving it to whatever saves next is how FIB-490 lost every failed task, so
@@ -237,9 +235,7 @@ def test_registering_does_not_conjure_a_file(
     assert experiment.session is not None
 
 
-def test_it_survives_a_round_trip(
-    microscope: FibsemMicroscope, tmp_path: Path
-) -> None:
+def test_it_survives_a_round_trip(microscope: FibsemMicroscope, tmp_path: Path) -> None:
     experiment = _experiment(tmp_path, metadata={"user": "Dr Someone"})
     experiment.save()
     experiment.register_metadata(microscope)

@@ -31,12 +31,13 @@ from fibsem.ui.widgets.drag_distance import _fmt_distance, _MeasureOverlayBase
 try:
     from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
     from matplotlib.figure import Figure
+
     _MPL = True
 except ImportError:
     _MPL = False
 
-_LINE_COLOR = QColor(255, 140, 0, 230)   # orange
-_TEXT_BG    = QColor(20, 20, 20, 180)
+_LINE_COLOR = QColor(255, 140, 0, 230)  # orange
+_TEXT_BG = QColor(20, 20, 20, 180)
 _DOT_R = 5
 
 
@@ -54,7 +55,7 @@ class _ProfilePlotWidget(QtWidgets.QWidget):
 
         if _MPL:
             self._fig = Figure(figsize=(4, 1.8), facecolor=NEUTRAL_900)
-            self._ax  = self._fig.add_subplot(111)
+            self._ax = self._fig.add_subplot(111)
             self._canvas = FigureCanvasQTAgg(self._fig)
             layout.addWidget(self._canvas)
             self._style_axes()
@@ -172,15 +173,19 @@ class ProfileLineOverlay(_MeasureOverlayBase):
         painter.setBrush(_LINE_COLOR)
         painter.setPen(Qt.NoPen)
         for px, py in [(x1, y1), (x2, y2)]:
-            painter.drawEllipse(px - _DOT_R, py - _DOT_R,
-                                _DOT_R * 2, _DOT_R * 2)
+            painter.drawEllipse(px - _DOT_R, py - _DOT_R, _DOT_R * 2, _DOT_R * 2)
 
         # Distance label
         dx, dy = x2 - x1, y2 - y1
         length = math.hypot(dx, dy) or 1
-        self._draw_label(painter, self._fmt(length),
-                         (x1 + x2) / 2, (y1 + y2) / 2,
-                         _LINE_COLOR, offset_y=-18)
+        self._draw_label(
+            painter,
+            self._fmt(length),
+            (x1 + x2) / 2,
+            (y1 + y2) / 2,
+            _LINE_COLOR,
+            offset_y=-18,
+        )
 
         painter.end()
 
@@ -216,11 +221,14 @@ class ProfileLineOverlay(_MeasureOverlayBase):
             distances = np.linspace(0, real_length, num_samples)
             # Pick best SI unit
             if real_length < 1e-6:
-                distances *= 1e9;  unit = "nm"
+                distances *= 1e9
+                unit = "nm"
             elif real_length < 1e-3:
-                distances *= 1e6;  unit = "µm"
+                distances *= 1e6
+                unit = "µm"
             else:
-                distances *= 1e3;  unit = "mm"
+                distances *= 1e3
+                unit = "mm"
         else:
             distances = np.linspace(0, pixel_length, num_samples)
             unit = "px"

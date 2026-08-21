@@ -34,9 +34,12 @@ def _stage(current: float = 2e-9, **pattern) -> FibsemMillingStage:
 
 # ── image_cost ───────────────────────────────────────────────────────────────
 
+
 def test_image_cost_adds_the_fixed_overhead_to_the_scan():
     img = _imaging()
-    assert timing.image_cost(img) == pytest.approx(img.estimated_time + timing.IMAGE_OVERHEAD_S)
+    assert timing.image_cost(img) == pytest.approx(
+        img.estimated_time + timing.IMAGE_OVERHEAD_S
+    )
 
 
 def test_image_cost_scales_with_count():
@@ -59,19 +62,30 @@ def test_image_overhead_dominates_at_typical_settings():
 
 # ── reference_image_cost ─────────────────────────────────────────────────────
 
+
 def test_reference_image_cost_counts_every_fov_and_beam():
     params = ReferenceImageParameters(
         imaging=_imaging(),
-        acquire_image1=True, acquire_image2=True,
-        acquire_sem=True, acquire_fib=True,
+        acquire_image1=True,
+        acquire_image2=True,
+        acquire_sem=True,
+        acquire_fib=True,
     )
-    assert timing.reference_image_cost(params) == pytest.approx(timing.image_cost(params.imaging, 4))
+    assert timing.reference_image_cost(params) == pytest.approx(
+        timing.image_cost(params.imaging, 4)
+    )
 
 
 def test_reference_image_cost_drops_deselected_beams():
-    both = ReferenceImageParameters(imaging=_imaging(), acquire_sem=True, acquire_fib=True)
-    one = ReferenceImageParameters(imaging=_imaging(), acquire_sem=True, acquire_fib=False)
-    assert timing.reference_image_cost(one) == pytest.approx(timing.reference_image_cost(both) / 2)
+    both = ReferenceImageParameters(
+        imaging=_imaging(), acquire_sem=True, acquire_fib=True
+    )
+    one = ReferenceImageParameters(
+        imaging=_imaging(), acquire_sem=True, acquire_fib=False
+    )
+    assert timing.reference_image_cost(one) == pytest.approx(
+        timing.reference_image_cost(both) / 2
+    )
 
 
 def test_reference_image_cost_exceeds_the_scan_only_estimate():
@@ -86,12 +100,15 @@ def test_reference_image_cost_of_nothing_is_zero():
 
 # ── stage_move_cost ──────────────────────────────────────────────────────────
 
+
 def test_stage_move_cost_scales_with_count():
     assert timing.stage_move_cost(3) == pytest.approx(3 * timing.STAGE_MOVE_ABSOLUTE_S)
 
 
 def test_relative_moves_are_cheaper_than_absolute():
-    assert timing.stage_move_cost(1, absolute=False) < timing.stage_move_cost(1, absolute=True)
+    assert timing.stage_move_cost(1, absolute=False) < timing.stage_move_cost(
+        1, absolute=True
+    )
 
 
 def test_no_move_costs_nothing():
@@ -99,6 +116,7 @@ def test_no_move_costs_nothing():
 
 
 # ── alignment_cost ───────────────────────────────────────────────────────────
+
 
 def test_alignment_costs_two_passes_of_steps_plus_one_frames():
     """A stage configured for 3 steps acquired 4 frames per pass, and ran two passes --
@@ -123,15 +141,23 @@ def test_alignment_frames_are_cheaper_than_full_frames():
 
 
 def test_disabled_alignment_costs_nothing():
-    assert timing.alignment_cost(MillingAlignment(enabled=False, steps=3, imaging=_imaging())) == 0.0
+    assert (
+        timing.alignment_cost(
+            MillingAlignment(enabled=False, steps=3, imaging=_imaging())
+        )
+        == 0.0
+    )
     assert timing.alignment_cost(None) == 0.0
 
 
 # ── milling_cost ─────────────────────────────────────────────────────────────
 
+
 def test_milling_cost_sums_the_stages():
     a, b = _stage(), _stage(current=7.6e-9)
-    assert timing.milling_cost([a, b]) == pytest.approx(a.estimated_time + b.estimated_time)
+    assert timing.milling_cost([a, b]) == pytest.approx(
+        a.estimated_time + b.estimated_time
+    )
 
 
 def test_milling_cost_ignores_disabled_stages():
@@ -139,7 +165,9 @@ def test_milling_cost_ignores_disabled_stages():
     task config's own estimate had to be corrected to follow (FIB-687)."""
     enabled, disabled = _stage(), _stage(current=7.6e-9)
     disabled.enabled = False
-    assert timing.milling_cost([enabled, disabled]) == pytest.approx(enabled.estimated_time)
+    assert timing.milling_cost([enabled, disabled]) == pytest.approx(
+        enabled.estimated_time
+    )
 
 
 def test_milling_cost_of_nothing_is_zero():
@@ -149,9 +177,12 @@ def test_milling_cost_of_nothing_is_zero():
 
 # ── milling_task_cost ────────────────────────────────────────────────────────
 
+
 def test_milling_task_cost_includes_alignment_and_acquisition():
     stage = _stage()
-    acq = MillingTaskAcquisitionSettings(acquire_sem=True, acquire_fib=False, imaging=_imaging())
+    acq = MillingTaskAcquisitionSettings(
+        acquire_sem=True, acquire_fib=False, imaging=_imaging()
+    )
     cfg = FibsemMillingTaskConfig(stages=[stage], acquisition=acq)
     cfg.alignment = MillingAlignment(enabled=True, steps=2, imaging=_imaging())
 
@@ -167,7 +198,10 @@ def test_milling_task_cost_includes_alignment_and_acquisition():
 def test_milling_task_cost_counts_the_final_refresh_image():
     """A task that acquires nothing of its own still ends with one FIB image."""
     acq = MillingTaskAcquisitionSettings(
-        acquire_sem=False, acquire_fib=False, acquire_final_image=True, imaging=_imaging()
+        acquire_sem=False,
+        acquire_fib=False,
+        acquire_final_image=True,
+        imaging=_imaging(),
     )
     cfg = FibsemMillingTaskConfig(stages=[_stage()], acquisition=acq)
     cfg.alignment = MillingAlignment(enabled=False)

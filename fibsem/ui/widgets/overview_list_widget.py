@@ -9,6 +9,7 @@ lives — the lamella list shows and hides its buttons for every row at once thr
 `_btn_visible`, because there the choice is which *columns* the table has. Here it is
 per row and follows the pointer, so a resting list stays quiet.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, List, Optional
@@ -91,7 +92,9 @@ class OverviewRowWidget(QWidget):
         self.btn_visible.toggled.connect(
             lambda hidden: self.visibility_toggled.emit(self.record_id, not hidden)
         )
-        self.btn_remove.clicked.connect(lambda: self.remove_clicked.emit(self.record_id))
+        self.btn_remove.clicked.connect(
+            lambda: self.remove_clicked.emit(self.record_id)
+        )
 
         self._selected = False
         # Through `refresh` rather than setting the resting state by hand, so a row

@@ -6,6 +6,7 @@ hidden by default and revealed via :meth:`set_pass_editing_enabled`.
 
 Backed directly by ``AutoFocusSettings.passes`` (list of ``FocusSweepPass``).
 """
+
 from __future__ import annotations
 
 from typing import List, Optional
@@ -35,9 +36,9 @@ _BTN_SIZE = 28
 
 # fixed widths for column alignment between the pass rows and the
 # method/channel controls below.
-_CHECK_W = 28      # enabled checkbox column
-_STEPS_W = 56      # right-hand "Steps" count column
-_LABEL_W = 110     # "Focus Method" / "Focus Channel" label column
+_CHECK_W = 28  # enabled checkbox column
+_STEPS_W = 56  # right-hand "Steps" count column
+_LABEL_W = 110  # "Focus Method" / "Focus Channel" label column
 
 # spinbox configuration (values shown in µm, stored in metres)
 _RANGE_CFG = dict(suffix="µm", minimum=1.0, maximum=2000.0, step=1.0, decimals=1)
@@ -52,13 +53,16 @@ _DEFAULT_FINE = dict(search_range=10e-6, step_size=1e-6)
 # Pass row
 # ---------------------------------------------------------------------------
 
+
 class _PassRowWidget(QWidget):
     """One sweep pass: enabled checkbox + range + step + remove button."""
 
     changed = pyqtSignal()
     remove_clicked = pyqtSignal(object)  # _PassRowWidget
 
-    def __init__(self, sweep_pass: FocusSweepPass, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self, sweep_pass: FocusSweepPass, parent: Optional[QWidget] = None
+    ) -> None:
         super().__init__(parent)
         self.sweep_pass = sweep_pass
 
@@ -76,7 +80,9 @@ class _PassRowWidget(QWidget):
         self.range_spin.setValue(sweep_pass.search_range * _M_TO_UM)
         layout.addWidget(self.range_spin, 1)
 
-        self.step_spin = ValueSpinBox(tooltip="Step size between positions", **_STEP_CFG)
+        self.step_spin = ValueSpinBox(
+            tooltip="Step size between positions", **_STEP_CFG
+        )
         self.step_spin.setValue(sweep_pass.step_size * _M_TO_UM)
         layout.addWidget(self.step_spin, 1)
 
@@ -128,6 +134,7 @@ class _PassRowWidget(QWidget):
 # Header
 # ---------------------------------------------------------------------------
 
+
 class _PassListHeader(QWidget):
     add_clicked = pyqtSignal()
 
@@ -158,7 +165,9 @@ class _PassListHeader(QWidget):
         lbl_steps.setToolTip("Number of positions sampled per pass")
         layout.addWidget(lbl_steps)
 
-        self.btn_add = IconToolButton(icon="mdi:plus", tooltip="Add pass", size=_BTN_SIZE)
+        self.btn_add = IconToolButton(
+            icon="mdi:plus", tooltip="Add pass", size=_BTN_SIZE
+        )
         self.btn_add.setVisible(False)
         layout.addWidget(self.btn_add)
 
@@ -171,6 +180,7 @@ class _PassListHeader(QWidget):
 # ---------------------------------------------------------------------------
 # Main widget
 # ---------------------------------------------------------------------------
+
 
 class AutofocusWidget(QWidget):
     """Dynamic multi-pass autofocus settings widget.
@@ -235,13 +245,17 @@ class AutofocusWidget(QWidget):
             self.comboBox_method.addItem(method.value.title(), method)
         self._sync_method_combo()
         self.comboBox_method.currentIndexChanged.connect(self._on_method_changed)
-        layout.addLayout(self._aligned_control_row("Focus Method", self.comboBox_method))
+        layout.addLayout(
+            self._aligned_control_row("Focus Method", self.comboBox_method)
+        )
 
         self.comboBox_channel = ValueComboBox()
         self.comboBox_channel.setToolTip("Channel to use for autofocus")
         self._update_channel_list()
         self.comboBox_channel.currentIndexChanged.connect(self._on_channel_changed)
-        layout.addLayout(self._aligned_control_row("Focus Channel", self.comboBox_channel))
+        layout.addLayout(
+            self._aligned_control_row("Focus Channel", self.comboBox_channel)
+        )
 
     def _aligned_control_row(self, label_text: str, control: QWidget) -> QHBoxLayout:
         """Build a labelled control row: a fixed-width label followed by the
@@ -367,9 +381,15 @@ class AutofocusWidget(QWidget):
         if len(self.autofocus_settings.passes) >= self.MAX_PASSES:
             return
         # copy the last pass as a sensible starting point
-        src = self.autofocus_settings.passes[-1] if self.autofocus_settings.passes else FocusSweepPass(**_DEFAULT_FINE)
+        src = (
+            self.autofocus_settings.passes[-1]
+            if self.autofocus_settings.passes
+            else FocusSweepPass(**_DEFAULT_FINE)
+        )
         self.autofocus_settings.passes.append(
-            FocusSweepPass(search_range=src.search_range, step_size=src.step_size, enabled=True)
+            FocusSweepPass(
+                search_range=src.search_range, step_size=src.step_size, enabled=True
+            )
         )
         self._rebuild_rows()
         self._emit_settings_changed()

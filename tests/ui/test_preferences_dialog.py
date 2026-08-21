@@ -10,6 +10,7 @@ So these tests drive the dialog's own load/save round trip rather than looking f
 attributes by name: what matters is that a value put in comes back out, not that some
 particular widget exists.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

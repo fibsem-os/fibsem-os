@@ -8,6 +8,7 @@ an index<->identity translation layer would have broken.
 The tail of the file covers CorrelationResultOverlay, the static sibling that
 carries a correlation result's reprojected markers.
 """
+
 import sys
 
 import numpy as np
@@ -223,11 +224,13 @@ def test_clear_drops_both_lists():
 def test_legend_shows_one_entry_per_type_on_screen():
     """The base draws a single swatch; correlation's points are heterogeneous and
     the colour is the only thing telling a FIB point from a POI."""
-    _, ov = _attached([
-        _coord(10, 10, PointType.FIB),
-        _coord(20, 20, PointType.POI),
-        _coord(30, 30, PointType.FIB),  # a second FIB must not add a second entry
-    ])
+    _, ov = _attached(
+        [
+            _coord(10, 10, PointType.FIB),
+            _coord(20, 20, PointType.POI),
+            _coord(30, 30, PointType.FIB),  # a second FIB must not add a second entry
+        ]
+    )
     handles, labels = ov._legend_entries()
     assert labels == ["FIB", "POI"]
     assert len(handles) == 2
@@ -464,14 +467,21 @@ def test_the_datum_row_keeps_up_with_a_drag():
 def _add_reprojected(results):
     results.add_points(
         [(70.0, 65.0), (125.0, 95.0)],
-        color="#ff4444", label_prefix="E", size=4, legend_label="FM reprojected (E)",
+        color="#ff4444",
+        label_prefix="E",
+        size=4,
+        legend_label="FM reprojected (E)",
     )
 
 
 def _add_ghost(results):
     results.add_points(
         [(150.0, 150.0)],
-        color="#ff00ff", size=7, alpha=0.7, show_labels=False, hollow=True,
+        color="#ff00ff",
+        size=7,
+        alpha=0.7,
+        show_labels=False,
+        hollow=True,
         legend_label="POI uncorrected",
     )
 
@@ -536,7 +546,9 @@ def test_a_new_image_discards_the_result():
 
     assert results._groups == []
     assert results._artists == []
-    assert _drawn_legend(points) == ["FIB"]  # the picked point survives, the result does not
+    assert _drawn_legend(points) == [
+        "FIB"
+    ]  # the picked point survives, the result does not
 
 
 def test_hiding_the_legend_hides_the_result_entries_too():

@@ -106,9 +106,7 @@ def test_a_flat_channel_renders_black():
     data, so a uniformly-bright channel composites to black. Worth knowing before
     someone reports a blank image on a saturated acquisition.
     """
-    flat = FMLayer(
-        name="flat", data=np.full((4, 4), 500, dtype=np.uint16), color="red"
-    )
+    flat = FMLayer(name="flat", data=np.full((4, 4), 500, dtype=np.uint16), color="red")
     assert composite_fm_layers([flat]).max() == 0
 
 
@@ -154,6 +152,7 @@ def _render(*images) -> np.ndarray:
     canvas needs Qt.
     """
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -199,7 +198,9 @@ def test_it_shows_the_overview_underneath_where_this_one_has_nothing():
     unacquired = np.s_[:24]  # the top half, in rendered pixels
     assert opaque[unacquired].max() == 0, "expected today's behaviour: black"
     np.testing.assert_allclose(
-        layered[unacquired], alone[unacquired], atol=1.0,
+        layered[unacquired],
+        alone[unacquired],
+        atol=1.0,
         err_msg="the overview beneath is not showing through",
     )
 

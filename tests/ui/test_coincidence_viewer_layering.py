@@ -14,6 +14,7 @@ Driven through the real widget rather than a stub: the raise has to happen after
 result is recorded and the finished signal is emitted, and only the real method has
 that order in it.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -125,9 +126,7 @@ def test_it_leaves_alone_a_window_the_operator_moved_to(viewer_widget, monkeypat
     monkeypatch.setattr(
         type(viewer_widget), "raise_", lambda self: calls.append(self), raising=False
     )
-    monkeypatch.setattr(
-        QApplication, "activeWindow", staticmethod(lambda: elsewhere)
-    )
+    monkeypatch.setattr(QApplication, "activeWindow", staticmethod(lambda: elsewhere))
 
     viewer_widget._finalize_milling_ui()
 

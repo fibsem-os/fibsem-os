@@ -10,6 +10,7 @@ The normalized↔pixel conversion and the ``editable`` toggle mirror the
 ``VolumeSEMAcquisitionCanvas``) so the two converge — that branch's per-canvas
 alignment logic can drop down to this overlay when it rebases.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional

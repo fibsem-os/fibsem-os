@@ -32,13 +32,16 @@ def make_synthetic_result(n_positions=25, image_shape=(256, 256), pass_index=0):
         img = rng.integers(0, 256, image_shape, dtype=np.uint8)
         blur_radius = int((1 - sharpness) * 8) * 2 + 1
         from scipy.ndimage import uniform_filter
+
         blurred = uniform_filter(img.astype(float), size=blur_radius).astype(np.uint8)
-        iterations.append(AutoFocusIteration(
-            working_distance=float(z),
-            focus_score=float(score),
-            pass_index=pass_index,
-            image=blurred,
-        ))
+        iterations.append(
+            AutoFocusIteration(
+                working_distance=float(z),
+                focus_score=float(score),
+                pass_index=pass_index,
+                image=blurred,
+            )
+        )
 
     best = iterations[best_idx]
     return AutoFocusResult(

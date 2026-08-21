@@ -27,7 +27,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
     connected_signal = pyqtSignal()
     disconnected_signal = pyqtSignal()
 
-    def __init__(self, parent: Optional[QtWidgets.QWidget]=None):
+    def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent=parent)
 
         self.microscope: Optional[FibsemMicroscope] = None
@@ -35,8 +35,12 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
 
         # grid layout
         self.gridLayout = QtWidgets.QGridLayout(self)
-        self.pushButton_connect_to_microscope = QtWidgets.QPushButton("Connect To Microscope")
-        self.pushButton_apply_configuration = QtWidgets.QPushButton("Apply Microscope Configuration")
+        self.pushButton_connect_to_microscope = QtWidgets.QPushButton(
+            "Connect To Microscope"
+        )
+        self.pushButton_apply_configuration = QtWidgets.QPushButton(
+            "Apply Microscope Configuration"
+        )
         self.comboBox_configuration = ValueComboBox()
         self.toolButton_import_configuration = QtWidgets.QToolButton()
         self.label_connection_status = QtWidgets.QLabel("No Connected")
@@ -51,8 +55,13 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         self.gridLayout.addWidget(self.label_connection_status, 3, 0, 1, 3)
         self.gridLayout.addWidget(self.label_connection_information, 4, 0, 1, 3)
         self.gridLayout.addItem(
-            QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding),
-            5, 0, 1, 3
+            QtWidgets.QSpacerItem(
+                20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding
+            ),
+            5,
+            0,
+            1,
+            3,
         )
 
         # hide the old status labels and replace with a card
@@ -125,19 +134,33 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
     def setup_connections(self):
 
         # connection
-        self.pushButton_connect_to_microscope.clicked.connect(self.connect_to_microscope)
+        self.pushButton_connect_to_microscope.clicked.connect(
+            self.connect_to_microscope
+        )
 
         # configuration
         self.comboBox_configuration.addItems(cfg.USER_CONFIGURATIONS.keys())
         self.comboBox_configuration.setCurrentText(cfg.DEFAULT_CONFIGURATION_NAME)
-        self.comboBox_configuration.currentTextChanged.connect(lambda: self.load_configuration(None))
-        self.toolButton_import_configuration.clicked.connect(self.import_configuration_from_file)
+        self.comboBox_configuration.currentTextChanged.connect(
+            lambda: self.load_configuration(None)
+        )
+        self.toolButton_import_configuration.clicked.connect(
+            self.import_configuration_from_file
+        )
 
-        self.pushButton_apply_configuration.clicked.connect(lambda: self.apply_microscope_configuration(None))
-        self.pushButton_apply_configuration.setToolTip("Apply configuration can take some time. Please make sure the microscope beams are both on.")
-        self.toolButton_import_configuration.setIcon(fibsem_icon("mdi:add", color=NEUTRAL_500))
+        self.pushButton_apply_configuration.clicked.connect(
+            lambda: self.apply_microscope_configuration(None)
+        )
+        self.pushButton_apply_configuration.setToolTip(
+            "Apply configuration can take some time. Please make sure the microscope beams are both on."
+        )
+        self.toolButton_import_configuration.setIcon(
+            fibsem_icon("mdi:add", color=NEUTRAL_500)
+        )
 
-    def load_configuration(self, configuration_name: Optional[str] = None) -> Optional[str]:
+    def load_configuration(
+        self, configuration_name: Optional[str] = None
+    ) -> Optional[str]:
         if configuration_name is None:
             configuration_name = self.comboBox_configuration.currentText()
 
@@ -148,15 +171,21 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         configuration_path = configuration.get("path") if configuration else None
 
         if configuration_path is None:
-            notification_service.show_toast(f"Configuration {configuration_name} not found.", "error")
+            notification_service.show_toast(
+                f"Configuration {configuration_name} not found.", "error"
+            )
             return None
 
         # load the configuration
         try:
             self.settings = utils.load_microscope_configuration(configuration_path)
         except Exception as e:
-            logging.warning(f"Unable to load configuration {configuration_name} from {configuration_path}: {e}")
-            notification_service.show_toast(f"Unable to load configuration {configuration_name}: {e}", "error")
+            logging.warning(
+                f"Unable to load configuration {configuration_name} from {configuration_path}: {e}"
+            )
+            notification_service.show_toast(
+                f"Unable to load configuration {configuration_name}: {e}", "error"
+            )
             return None
 
         pprint(self.settings.to_dict()["info"])
@@ -165,14 +194,17 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
 
     def import_configuration_from_file(self):
 
-        path = open_existing_file_dialog(msg="Select microscope configuration file",
+        path = open_existing_file_dialog(
+            msg="Select microscope configuration file",
             path=cfg.CONFIG_PATH,
             _filter="YAML (*.yaml *.yml)",
-            parent=self
+            parent=self,
         )
 
         if path == "":
-            notification_service.show_toast("No file selected. Configuration not loaded.", "error")
+            notification_service.show_toast(
+                "No file selected. Configuration not loaded.", "error"
+            )
             return
 
         # TODO: validate configuration
@@ -187,7 +219,9 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         # already seen; re-importing a known one shouldn't re-prompt.
         if configuration_name not in known_names:
             msg = "Would you like to make this the default configuration?"
-            ret = message_box_ui(text=msg, title="Set default configuration?", parent=self)
+            ret = message_box_ui(
+                text=msg, title="Set default configuration?", parent=self
+            )
 
             if ret:
                 cfg.set_default_configuration(configuration_name=configuration_name)
@@ -214,7 +248,6 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
             self.microscope.disconnect()
             self.microscope, self.settings = None, None
         else:
-
             notification_service.show_toast("Connecting to microscope...", "info")
 
             configuration_path = self.load_configuration(None)
@@ -235,8 +268,9 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
 
         self.update_ui()
 
-
-    def apply_microscope_configuration(self, system_settings: Optional[SystemSettings] = None):
+    def apply_microscope_configuration(
+        self, system_settings: Optional[SystemSettings] = None
+    ):
         """Apply the microscope configuration to the microscope."""
 
         if self.microscope is None:
@@ -250,16 +284,22 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
 
         is_microscope_connected = bool(self.microscope)
         self.pushButton_apply_configuration.setVisible(is_microscope_connected)
-        self.pushButton_apply_configuration.setEnabled(is_microscope_connected and cfg.APPLY_CONFIGURATION_ENABLED)
+        self.pushButton_apply_configuration.setEnabled(
+            is_microscope_connected and cfg.APPLY_CONFIGURATION_ENABLED
+        )
 
         if is_microscope_connected:
             self.pushButton_connect_to_microscope.setVisible(False)
-            self.pushButton_apply_configuration.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+            self.pushButton_apply_configuration.setStyleSheet(
+                stylesheets.SECONDARY_BUTTON_STYLESHEET
+            )
             self.connected_signal.emit()
 
             info = self.microscope.system.info
             self._label_status_icon.setPixmap(
-                fibsem_icon("mdi:check-circle", color=stylesheets.GREEN_COLOR).pixmap(20, 20)
+                fibsem_icon("mdi:check-circle", color=stylesheets.GREEN_COLOR).pixmap(
+                    20, 20
+                )
             )
             self._label_status_title.setText("Microscope Connected")
             self._label_status_subtitle.setText(
@@ -270,8 +310,12 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         else:
             self.pushButton_connect_to_microscope.setVisible(True)
             self.pushButton_connect_to_microscope.setText("Connect To Microscope")
-            self.pushButton_connect_to_microscope.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
-            self.pushButton_apply_configuration.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+            self.pushButton_connect_to_microscope.setStyleSheet(
+                stylesheets.PRIMARY_BUTTON_STYLESHEET
+            )
+            self.pushButton_apply_configuration.setStyleSheet(
+                stylesheets.SECONDARY_BUTTON_STYLESHEET
+            )
             self.disconnected_signal.emit()
 
             self._label_status_icon.setPixmap(

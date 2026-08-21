@@ -141,7 +141,7 @@ class OverviewImageWidget(QWidget):
     - Export the final image
     """
 
-    def __init__(self, parent: Optional['AutoLamellaUI'] = None):
+    def __init__(self, parent: Optional["AutoLamellaUI"] = None):
         """Initialize the overview image widget.
 
         Args:
@@ -149,8 +149,8 @@ class OverviewImageWidget(QWidget):
         """
         super().__init__(parent)
         self.parent_widget = parent
-        self.experiment: Optional['Experiment'] = None
-        self.overview_image: Optional['FibsemImage'] = None
+        self.experiment: Optional["Experiment"] = None
+        self.overview_image: Optional["FibsemImage"] = None
         self.current_figure: Optional[Figure] = None
         self.marker_color = QColor("cyan")
         self.stage_positions = []
@@ -182,7 +182,9 @@ class OverviewImageWidget(QWidget):
 
         # Marker color
         self.color_label = QLabel("●")
-        self.color_label.setStyleSheet(f"color: {self.marker_color.name()}; font-size: 20px;")
+        self.color_label.setStyleSheet(
+            f"color: {self.marker_color.name()}; font-size: 20px;"
+        )
         self.color_button = QPushButton("Choose Color")
         self.color_button.setStyleSheet(BUTTON_STYLESHEET)
         self.color_button.clicked.connect(self._on_color_button_clicked)
@@ -229,7 +231,9 @@ class OverviewImageWidget(QWidget):
         display_layout.addRow("Show Descriptions", self.show_descriptions_checkbox)
         display_layout.addRow("Show Scalebar", self.show_scalebar_checkbox)
 
-        display_group = TitledPanel("Display Options", content=display_content, collapsible=False)
+        display_group = TitledPanel(
+            "Display Options", content=display_content, collapsible=False
+        )
 
         # Connect signals to update preview on change
         self.text_size_spinbox.valueChanged.connect(self._on_preview_clicked)
@@ -238,7 +242,6 @@ class OverviewImageWidget(QWidget):
         self.show_descriptions_checkbox.stateChanged.connect(self._on_preview_clicked)
         self.show_scalebar_checkbox.stateChanged.connect(self._on_preview_clicked)
         self.title_textbox.editingFinished.connect(self._on_preview_clicked)
-
 
         # Preview canvas
         self.canvas = None
@@ -362,7 +365,12 @@ class OverviewImageWidget(QWidget):
         if self.canvas is None:
             return
 
-        for attr in ("_scroll_cid", "_pan_press_cid", "_pan_release_cid", "_pan_motion_cid"):
+        for attr in (
+            "_scroll_cid",
+            "_pan_press_cid",
+            "_pan_release_cid",
+            "_pan_motion_cid",
+        ):
             cid = getattr(self, attr)
             if cid is None:
                 continue
@@ -382,10 +390,18 @@ class OverviewImageWidget(QWidget):
         if self.canvas is None:
             return
 
-        self._scroll_cid = self.canvas.mpl_connect("scroll_event", self._on_canvas_scroll)
-        self._pan_press_cid = self.canvas.mpl_connect("button_press_event", self._on_canvas_press)
-        self._pan_release_cid = self.canvas.mpl_connect("button_release_event", self._on_canvas_release)
-        self._pan_motion_cid = self.canvas.mpl_connect("motion_notify_event", self._on_canvas_motion)
+        self._scroll_cid = self.canvas.mpl_connect(
+            "scroll_event", self._on_canvas_scroll
+        )
+        self._pan_press_cid = self.canvas.mpl_connect(
+            "button_press_event", self._on_canvas_press
+        )
+        self._pan_release_cid = self.canvas.mpl_connect(
+            "button_release_event", self._on_canvas_release
+        )
+        self._pan_motion_cid = self.canvas.mpl_connect(
+            "motion_notify_event", self._on_canvas_motion
+        )
 
     def _on_canvas_scroll(self, event):
         """Handle scroll-wheel events to zoom in/out."""
@@ -429,7 +445,12 @@ class OverviewImageWidget(QWidget):
 
     def _on_canvas_press(self, event):
         """Start a pan gesture when the left mouse button is pressed."""
-        if event.button != 1 or event.inaxes is None or event.xdata is None or event.ydata is None:
+        if (
+            event.button != 1
+            or event.inaxes is None
+            or event.xdata is None
+            or event.ydata is None
+        ):
             return
 
         self._pan_active = True
@@ -491,7 +512,7 @@ class OverviewImageWidget(QWidget):
 
         self.canvas.draw_idle()
 
-    def set_experiment(self, experiment: 'Experiment'):
+    def set_experiment(self, experiment: "Experiment"):
         """Set the experiment to use for generating overview images.
 
         Args:
@@ -499,11 +520,9 @@ class OverviewImageWidget(QWidget):
         """
         self.experiment = experiment
 
-
         if experiment is not None:
             self.info_label.setText(
-                f"Experiment: {experiment.name} | "
-                f"{len(experiment.positions)} lamellae"
+                f"Experiment: {experiment.name} | {len(experiment.positions)} lamellae"
             )
             self.title_textbox.setText(f"Experiment: {self.experiment.name}")
             self.title_textbox.setCursorPosition(0)
@@ -528,7 +547,7 @@ class OverviewImageWidget(QWidget):
             self,
             "Select Overview Image",
             start_dir,
-            "TIFF Files (*.tif *.tiff);;All Files (*.*)"
+            "TIFF Files (*.tif *.tiff);;All Files (*.*)",
         )
 
         if file_path:
@@ -550,11 +569,7 @@ class OverviewImageWidget(QWidget):
 
     def _on_color_button_clicked(self):
         """Handle color button click to select marker color."""
-        color = QColorDialog.getColor(
-            self.marker_color,
-            self,
-            "Select Marker Color"
-        )
+        color = QColorDialog.getColor(self.marker_color, self, "Select Marker Color")
 
         if color.isValid():
             self.marker_color = color
@@ -572,7 +587,6 @@ class OverviewImageWidget(QWidget):
             return
 
         try:
-
             # Get settings
             show_names = self.show_names_checkbox.isChecked()
             show_descriptions = self.show_descriptions_checkbox.isChecked()
@@ -582,7 +596,9 @@ class OverviewImageWidget(QWidget):
             markersize = self.markersize_spinbox.value()
 
             # lamella name -> free-text description, for the optional subtitle
-            descriptions = {lam.name: lam.description for lam in self.experiment.positions}
+            descriptions = {
+                lam.name: lam.description for lam in self.experiment.positions
+            }
 
             if not self.stage_positions:
                 self.info_label.setText("Warning: No positions found for MILLING state")
@@ -602,7 +618,7 @@ class OverviewImageWidget(QWidget):
                 show_names=show_names,
                 show_descriptions=show_descriptions,
                 descriptions=descriptions,
-                figsize=(15, 15)
+                figsize=(15, 15),
             )
 
             # Add title
@@ -621,6 +637,7 @@ class OverviewImageWidget(QWidget):
         except Exception as e:
             logging.error(f"Error generating preview: {e}")
             import traceback
+
             traceback.print_exc()
             self.info_label.setText(f"Error: {str(e)}")
             self._create_empty_canvas()
@@ -628,7 +645,9 @@ class OverviewImageWidget(QWidget):
     def _on_save_clicked(self):
         """Save the overview image by opening a save file dialog."""
         if self.current_figure is None:
-            self.info_label.setText("Error: No preview to save. Generate preview first.")
+            self.info_label.setText(
+                "Error: No preview to save. Generate preview first."
+            )
             return
 
         if self.overview_image is None or self.experiment is None:
@@ -640,10 +659,7 @@ class OverviewImageWidget(QWidget):
         start_filename = os.path.join(str(self.experiment.path), default_name)
 
         output_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save Overview Image",
-            start_filename,
-            "PNG Files (*.png);;"
+            self, "Save Overview Image", start_filename, "PNG Files (*.png);;"
         )
 
         if not output_path:
@@ -657,7 +673,9 @@ class OverviewImageWidget(QWidget):
                 self._title_artist.set_color("black")
 
             # Save the current figure directly
-            self.current_figure.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
+            self.current_figure.savefig(
+                output_path, dpi=300, bbox_inches="tight", facecolor="white"
+            )
 
             logging.info(f"Saved overview image to: {output_path}")
             self.info_label.setText(f"Saved to: {output_path}")
@@ -665,6 +683,7 @@ class OverviewImageWidget(QWidget):
         except Exception as e:
             logging.error(f"Error saving image: {e}")
             import traceback
+
             traceback.print_exc()
             self.info_label.setText(f"Error saving: {str(e)}")
         finally:
@@ -672,8 +691,9 @@ class OverviewImageWidget(QWidget):
                 self._title_artist.set_color(original_title_color)
 
 
-def create_overview_image_widget(experiment: 'Experiment',
-                                  parent: Optional['AutoLamellaUI'] = None) -> QDialog:
+def create_overview_image_widget(
+    experiment: "Experiment", parent: Optional["AutoLamellaUI"] = None
+) -> QDialog:
     """Create and initialize an OverviewImageWidget wrapped in a dialog.
 
     Args:
@@ -699,6 +719,7 @@ def create_overview_image_widget(experiment: 'Experiment',
     dialog.setLayout(layout)
 
     return dialog
+
 
 # TODO: add more options for customization (scalebar size, font type, etc.)
 # - show only completed lamellae

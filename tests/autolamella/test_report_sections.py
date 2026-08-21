@@ -32,12 +32,22 @@ from fibsem.applications.autolamella.structures import (
 _FIBSEM = Path(__file__).resolve().parents[2] / "fibsem"
 _REPORTING = _FIBSEM / "applications" / "autolamella" / "tools" / "reporting.py"
 _DATA = _FIBSEM / "applications" / "autolamella" / "tools" / "data.py"
-_WIDGET = _FIBSEM / "applications" / "autolamella" / "ui" / "autolamella_generate_report_widget.py"
+_WIDGET = (
+    _FIBSEM
+    / "applications"
+    / "autolamella"
+    / "ui"
+    / "autolamella_generate_report_widget.py"
+)
 
 
 def _report_sections() -> set:
     """The section names generate_report2 builds its defaults from."""
-    block = _REPORTING.read_text(encoding="utf-8").split("REPORT_SECTIONS = (", 1)[1].split(")", 1)[0]
+    block = (
+        _REPORTING.read_text(encoding="utf-8")
+        .split("REPORT_SECTIONS = (", 1)[1]
+        .split(")", 1)[0]
+    )
     return set(re.findall(r'"(\w+)"', block))
 
 
@@ -50,7 +60,11 @@ def _widget_section_keys() -> set:
 
 def _workflow_rename_keys() -> set:
     """The columns format_pretty_dataframes renames on the workflow frame."""
-    block = _DATA.read_text(encoding="utf-8").split("# WORKFLOW", 1)[1].split("# TASK HISTORY", 1)[0]
+    block = (
+        _DATA.read_text(encoding="utf-8")
+        .split("# WORKFLOW", 1)[1]
+        .split("# TASK HISTORY", 1)[0]
+    )
     return set(re.findall(r'"(\w+)":\s*"', block))
 
 

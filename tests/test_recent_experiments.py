@@ -14,7 +14,9 @@ def prefs_env(tmp_path, monkeypatch):
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     monkeypatch.setattr(cfg, "CONFIG_PATH", str(config_dir))
-    monkeypatch.setattr(cfg, "USER_PREFERENCES_PATH", str(config_dir / "user-preferences.yaml"))
+    monkeypatch.setattr(
+        cfg, "USER_PREFERENCES_PATH", str(config_dir / "user-preferences.yaml")
+    )
     return tmp_path
 
 
@@ -53,7 +55,9 @@ def test_record_truncates_to_max(prefs_env):
     recent = cfg.load_user_preferences().experiment.recent_experiments
     assert len(recent) == cfg.MAX_RECENT_EXPERIMENTS
     # Most recently recorded is first
-    assert recent[0] == os.path.normpath(str(prefs_env / f"e{cfg.MAX_RECENT_EXPERIMENTS + 4}" / "experiment.yaml"))
+    assert recent[0] == os.path.normpath(
+        str(prefs_env / f"e{cfg.MAX_RECENT_EXPERIMENTS + 4}" / "experiment.yaml")
+    )
 
 
 def test_record_ignores_empty_path(prefs_env):
@@ -62,7 +66,9 @@ def test_record_ignores_empty_path(prefs_env):
 
 
 def test_peek_reads_display_metadata(prefs_env):
-    path = _write_experiment(prefs_env / "meta", name="cool-experiment", created_at=1234.0, num_positions=3)
+    path = _write_experiment(
+        prefs_env / "meta", name="cool-experiment", created_at=1234.0, num_positions=3
+    )
     info = cfg.peek_experiment(path)
     assert info.name == "cool-experiment"
     assert info.created_at == 1234.0
@@ -87,8 +93,8 @@ def test_peek_corrupt_file_is_unavailable_but_exists(prefs_env):
         f.write("{ this is: not: valid yaml ]")
 
     info = cfg.peek_experiment(yaml_path)
-    assert info.exists is True       # kept, not silently pruned
-    assert info.available is False   # flagged so the UI can grey it out
+    assert info.exists is True  # kept, not silently pruned
+    assert info.available is False  # flagged so the UI can grey it out
 
 
 def test_get_recent_prunes_missing_and_persists(prefs_env):
@@ -101,7 +107,9 @@ def test_get_recent_prunes_missing_and_persists(prefs_env):
 
     assert [i.path for i in infos] == [os.path.normpath(good)]
     # Pruned list was persisted back to disk
-    assert cfg.load_user_preferences().experiment.recent_experiments == [os.path.normpath(good)]
+    assert cfg.load_user_preferences().experiment.recent_experiments == [
+        os.path.normpath(good)
+    ]
 
 
 def test_get_recent_keeps_corrupt_entries(prefs_env):
@@ -117,7 +125,9 @@ def test_get_recent_keeps_corrupt_entries(prefs_env):
     assert len(infos) == 1
     assert infos[0].available is False
     # corrupt-but-present entry is not pruned from preferences
-    assert cfg.load_user_preferences().experiment.recent_experiments == [os.path.normpath(yaml_path)]
+    assert cfg.load_user_preferences().experiment.recent_experiments == [
+        os.path.normpath(yaml_path)
+    ]
 
 
 def test_add_recent_experiment_mutates_without_saving(prefs_env):

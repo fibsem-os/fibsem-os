@@ -69,16 +69,17 @@ _HOOK_CLASSES: dict[str, Type[Hook]] = {
 }
 
 _TYPE_COLORS = {
-    "LoggingHook":      ACCENT_COLOR,
+    "LoggingHook": ACCENT_COLOR,
     "NotificationHook": stylesheets.GREEN_COLOR,
-    "WebhookHook":      stylesheets.ORANGE_COLOR,
-    "SlackHook":        "#a67cff",
+    "WebhookHook": stylesheets.ORANGE_COLOR,
+    "SlackHook": "#a67cff",
 }
 
 
 # ---------------------------------------------------------------------------
 # HookEditDialog
 # ---------------------------------------------------------------------------
+
 
 class HookEditDialog(QDialog):
     """Dialog for creating or editing a single hook.
@@ -87,13 +88,18 @@ class HookEditDialog(QDialog):
     Returns the configured hook via get_hook().
     """
 
-    def __init__(self, hook: Optional[Hook] = None,
-                 hook_cls: Optional[Type[Hook]] = None,
-                 parent=None):
+    def __init__(
+        self,
+        hook: Optional[Hook] = None,
+        hook_cls: Optional[Type[Hook]] = None,
+        parent=None,
+    ):
         super().__init__(parent)
         self._hook_cls = hook_cls or (type(hook) if hook else LoggingHook)
         self._hook = hook
-        self.setWindowTitle(f"{'Edit' if hook else 'Add'} {_HOOK_DISPLAY_NAMES.get(self._hook_cls.__name__, self._hook_cls.__name__)} Hook")
+        self.setWindowTitle(
+            f"{'Edit' if hook else 'Add'} {_HOOK_DISPLAY_NAMES.get(self._hook_cls.__name__, self._hook_cls.__name__)} Hook"
+        )
         self.setMinimumWidth(420)
         self._setup_ui()
         if hook:
@@ -130,12 +136,15 @@ class HookEditDialog(QDialog):
         for group_name in EVENT_GROUPS:
             chk = QCheckBox(group_name.replace("_", " "))
             chk.setToolTip(
-                "Currently covers: " + ", ".join(resolve_events([group_name]))
+                "Currently covers: "
+                + ", ".join(resolve_events([group_name]))
                 + "\nIncludes matching events added in future versions."
             )
             self._group_checks[group_name] = chk
             groups_layout.addWidget(chk)
-        layout.addWidget(TitledPanel("Event groups", content=groups_w, collapsible=False))
+        layout.addWidget(
+            TitledPanel("Event groups", content=groups_w, collapsible=False)
+        )
 
         # --- Events ---
         events_w = QWidget()
@@ -147,7 +156,9 @@ class HookEditDialog(QDialog):
             chk = QCheckBox(event.value)
             self._event_checks[event.value] = chk
             events_layout.addWidget(chk)
-        layout.addWidget(TitledPanel("Individual events", content=events_w, collapsible=False))
+        layout.addWidget(
+            TitledPanel("Individual events", content=events_w, collapsible=False)
+        )
 
         # --- Type-specific fields ---
         specific_w = QWidget()
@@ -207,11 +218,13 @@ class HookEditDialog(QDialog):
             self._specific_widgets["message_template"] = tmpl
 
         if self._specific_widgets:
-            layout.addWidget(TitledPanel(
-                _HOOK_DISPLAY_NAMES.get(cls_name, cls_name),
-                content=specific_w,
-                collapsible=False,
-            ))
+            layout.addWidget(
+                TitledPanel(
+                    _HOOK_DISPLAY_NAMES.get(cls_name, cls_name),
+                    content=specific_w,
+                    collapsible=False,
+                )
+            )
 
         # --- Buttons ---
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -235,7 +248,9 @@ class HookEditDialog(QDialog):
         if cls_name == "LoggingHook":
             self._specific_widgets["level"].setCurrentText(hook.level)
         elif cls_name == "NotificationHook":
-            self._specific_widgets["notification_type"].setCurrentText(hook.notification_type)
+            self._specific_widgets["notification_type"].setCurrentText(
+                hook.notification_type
+            )
             self._specific_widgets["message_template"].setText(hook.message_template)
         elif cls_name == "WebhookHook":
             self._specific_widgets["url"].setText(hook.url)
@@ -257,29 +272,39 @@ class HookEditDialog(QDialog):
 
         if cls_name == "LoggingHook":
             return LoggingHook(
-                name=name, enabled=enabled, events=events,
+                name=name,
+                enabled=enabled,
+                events=events,
                 level=self._specific_widgets["level"].currentText(),
             )
         elif cls_name == "NotificationHook":
             return NotificationHook(
-                name=name, enabled=enabled, events=events,
-                notification_type=self._specific_widgets["notification_type"].currentText(),
+                name=name,
+                enabled=enabled,
+                events=events,
+                notification_type=self._specific_widgets[
+                    "notification_type"
+                ].currentText(),
                 message_template=self._specific_widgets["message_template"].text()
-                    or DEFAULT_MESSAGE_TEMPLATE,
+                or DEFAULT_MESSAGE_TEMPLATE,
             )
         elif cls_name == "WebhookHook":
             return WebhookHook(
-                name=name, enabled=enabled, events=events,
+                name=name,
+                enabled=enabled,
+                events=events,
                 url=self._specific_widgets["url"].text().strip(),
                 method=self._specific_widgets["method"].currentText(),
                 timeout=self._specific_widgets["timeout"].value(),
             )
         elif cls_name == "SlackHook":
             return SlackHook(
-                name=name, enabled=enabled, events=events,
+                name=name,
+                enabled=enabled,
+                events=events,
                 url=self._specific_widgets["url"].text().strip(),
                 message_template=self._specific_widgets["message_template"].text()
-                    or DEFAULT_MESSAGE_TEMPLATE,
+                or DEFAULT_MESSAGE_TEMPLATE,
             )
         return LoggingHook(name=name, enabled=enabled, events=events)
 
@@ -287,6 +312,7 @@ class HookEditDialog(QDialog):
 # ---------------------------------------------------------------------------
 # Hook row widget
 # ---------------------------------------------------------------------------
+
 
 class _HookRowWidget(QWidget):
     """Single row in the hook list: enable toggle · name · type badge · events."""
@@ -320,7 +346,12 @@ class _HookRowWidget(QWidget):
         )
         layout.addWidget(type_lbl)
 
-        events_str = ", ".join(e.replace("task_", "").replace("workflow_", "wf_") for e in hook.events) or "no events"
+        events_str = (
+            ", ".join(
+                e.replace("task_", "").replace("workflow_", "wf_") for e in hook.events
+            )
+            or "no events"
+        )
         events_lbl = QLabel(events_str)
         events_lbl.setStyleSheet("color: #888; font-size: 11px;")
         layout.addWidget(events_lbl, 1)
@@ -333,6 +364,7 @@ class _HookRowWidget(QWidget):
 # ---------------------------------------------------------------------------
 # HookConfigWidget
 # ---------------------------------------------------------------------------
+
 
 class HookConfigWidget(QWidget):
     """List + add/edit/remove controls for a HookManager.
@@ -363,8 +395,12 @@ class HookConfigWidget(QWidget):
         bar_layout.setSpacing(4)
 
         self._btn_add = IconToolButton("mdi:plus", tooltip="Add hook", size=24)
-        self._btn_edit = IconToolButton("mdi:pencil-outline", tooltip="Edit selected hook", size=24)
-        self._btn_remove = IconToolButton("mdi:trash-can-outline", tooltip="Remove selected hook", size=24)
+        self._btn_edit = IconToolButton(
+            "mdi:pencil-outline", tooltip="Edit selected hook", size=24
+        )
+        self._btn_remove = IconToolButton(
+            "mdi:trash-can-outline", tooltip="Remove selected hook", size=24
+        )
 
         bar_layout.addWidget(self._btn_add)
         bar_layout.addWidget(self._btn_edit)
@@ -374,9 +410,11 @@ class HookConfigWidget(QWidget):
         # List
         self._list = QListWidget()
         self._list.setSpacing(2)
-        self._list.setStyleSheet(f"QListWidget {{ background: {CANVAS_BG}; border: none; }}"
-                                  "QListWidget::item { border-radius: 3px; }"
-                                  f"QListWidget::item:selected {{ background: {BORDER_COLOR}; }}")
+        self._list.setStyleSheet(
+            f"QListWidget {{ background: {CANVAS_BG}; border: none; }}"
+            "QListWidget::item { border-radius: 3px; }"
+            f"QListWidget::item:selected {{ background: {BORDER_COLOR}; }}"
+        )
 
         content = QWidget()
         content_layout = QVBoxLayout(content)
@@ -399,7 +437,9 @@ class HookConfigWidget(QWidget):
             if isinstance(hook, FunctionHook):
                 continue  # FunctionHooks are code-only, not shown
             row = _HookRowWidget(hook)
-            row.enabled_changed.connect(lambda _: self.hooks_changed.emit(self._manager._hooks))
+            row.enabled_changed.connect(
+                lambda _: self.hooks_changed.emit(self._manager._hooks)
+            )
             item = QListWidgetItem()
             item.setSizeHint(row.sizeHint())
             self._list.addItem(item)
@@ -425,7 +465,9 @@ class HookConfigWidget(QWidget):
         for cls_name, display in _HOOK_DISPLAY_NAMES.items():
             action = menu.addAction(display)
             action.setData(cls_name)
-        chosen = menu.exec_(self._btn_add.mapToGlobal(self._btn_add.rect().bottomLeft()))
+        chosen = menu.exec_(
+            self._btn_add.mapToGlobal(self._btn_add.rect().bottomLeft())
+        )
         if chosen is None:
             return
         cls = _HOOK_CLASSES[chosen.data()]
@@ -444,7 +486,9 @@ class HookConfigWidget(QWidget):
         if dlg.exec_() == QDialog.Accepted:
             new_hook = dlg.get_hook()
             # Preserve runtime-injected _notify if present
-            if isinstance(hook, NotificationHook) and isinstance(new_hook, NotificationHook):
+            if isinstance(hook, NotificationHook) and isinstance(
+                new_hook, NotificationHook
+            ):
                 new_hook._notify = hook._notify
             self._manager._hooks[idx] = new_hook
             self._refresh_list()

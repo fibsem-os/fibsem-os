@@ -4,6 +4,7 @@ from fibsem.segmentation._nnunet import convert_to_nnunet_dataset
 
 # Convert a fibsem dataset to nnunet format
 
+
 def main():
     parser = argparse.ArgumentParser(description="Convert a dataset to nnunet format")
     parser.add_argument("--data_path", type=str, help="path to data")

@@ -4,6 +4,7 @@ Modal dialog showing a summary of the tasks run in a single workflow run.
 Displays one row per (lamella, task) attempted in the run with status,
 completion time and duration, count chips and a primary OK button.
 """
+
 from typing import List, Optional
 
 import pandas as pd
@@ -120,7 +121,9 @@ class WorkflowSummaryDialog(QDialog):
         # header: title + meta line
         header_layout = QHBoxLayout()
         title_label = QLabel("Workflow summary")
-        title_label.setStyleSheet(f"font-size: 16px; font-weight: 500; color: {_TEXT_STRONG};")
+        title_label.setStyleSheet(
+            f"font-size: 16px; font-weight: 500; color: {_TEXT_STRONG};"
+        )
         header_layout.addWidget(title_label)
         header_layout.addStretch()
         meta_label = QLabel(self._format_meta(dataframe))
@@ -171,10 +174,14 @@ class WorkflowSummaryDialog(QDialog):
     @staticmethod
     def _make_chip(status: str, count: int) -> QLabel:
         """A pill label: coloured dot + 'N status'."""
-        dot_color, text_color = STATUS_BADGE_COLORS.get(status, (TEXT_MUTED_COLOR, "#aeb4b9"))
+        dot_color, text_color = STATUS_BADGE_COLORS.get(
+            status, (TEXT_MUTED_COLOR, "#aeb4b9")
+        )
         bg = QColor(dot_color)
         bg_rgba = f"rgba({bg.red()}, {bg.green()}, {bg.blue()}, 0.15)"
-        chip = QLabel(f'<span style="color:{dot_color};">&#9679;</span> {count} {status.lower()}')
+        chip = QLabel(
+            f'<span style="color:{dot_color};">&#9679;</span> {count} {status.lower()}'
+        )
         chip.setStyleSheet(
             f"background-color: {bg_rgba}; color: {text_color};"
             f"padding: 3px 10px; border-radius: 10px; font-size: 12px;"
@@ -275,10 +282,34 @@ def main():
 
     df = pd.DataFrame(
         [
-            {"lamella_name": "01-nice-mako", "task_name": "Setup Lamella Position", "task_status": "Completed", "completed_at": "01:37 PM", "duration": 24.0},
-            {"lamella_name": "02-awake-stork", "task_name": "Setup Lamella Position", "task_status": "Completed", "completed_at": "01:37 PM", "duration": 23.0},
-            {"lamella_name": "01-nice-mako", "task_name": "Mill Fiducial", "task_status": "Failed", "completed_at": "01:38 PM", "duration": 39.0},
-            {"lamella_name": "02-awake-stork", "task_name": "Mill Fiducial", "task_status": "Skipped", "completed_at": "", "duration": None},
+            {
+                "lamella_name": "01-nice-mako",
+                "task_name": "Setup Lamella Position",
+                "task_status": "Completed",
+                "completed_at": "01:37 PM",
+                "duration": 24.0,
+            },
+            {
+                "lamella_name": "02-awake-stork",
+                "task_name": "Setup Lamella Position",
+                "task_status": "Completed",
+                "completed_at": "01:37 PM",
+                "duration": 23.0,
+            },
+            {
+                "lamella_name": "01-nice-mako",
+                "task_name": "Mill Fiducial",
+                "task_status": "Failed",
+                "completed_at": "01:38 PM",
+                "duration": 39.0,
+            },
+            {
+                "lamella_name": "02-awake-stork",
+                "task_name": "Mill Fiducial",
+                "task_status": "Skipped",
+                "completed_at": "",
+                "duration": None,
+            },
         ]
     )
 

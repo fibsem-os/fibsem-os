@@ -1,4 +1,3 @@
-
 import numpy as np
 import pandas as pd
 
@@ -9,7 +8,6 @@ def _parse_health_monitor_data(path: str) -> pd.DataFrame:
     df = pd.read_csv(path, skiprows=5)
 
     # display(df)
-
 
     # header = system
     # row 0 = subsystem
@@ -24,7 +22,7 @@ def _parse_health_monitor_data(path: str) -> pd.DataFrame:
     df_headers = df.iloc[0:5, 2:]
     df_data = df.iloc[6:, :]
 
-    systems = df_headers.columns.values 
+    systems = df_headers.columns.values
     subsystems = df_headers.iloc[0, :].values
     components = df_headers.iloc[1, :].values
     parameters = df_headers.iloc[2, :].values
@@ -41,7 +39,9 @@ def _parse_health_monitor_data(path: str) -> pd.DataFrame:
 
     new_columns = ["Date", "Time"]
     new_columns_type = ["datetime64", "datetime64"]
-    for subsystem, component, parameter, unit, type in zip(subsystems, components, parameters, units, types):
+    for subsystem, component, parameter, unit, type in zip(
+        subsystems, components, parameters, units, types
+    ):
         new_columns.append(f"{subsystem}.{component}.{parameter} ({unit})")
         new_columns_type.append(type_map[type])
 
@@ -62,12 +62,10 @@ def _parse_health_monitor_data(path: str) -> pd.DataFrame:
 
     # drop Date and Time columns
     df_data = df_data.drop(columns=["Date", "Time"])
-    
 
     # print duplicate columns
     # drop duplicate columns
-    df_data = df_data.loc[:,~df_data.columns.duplicated()]
+    df_data = df_data.loc[:, ~df_data.columns.duplicated()]
     print(df_data.columns[df_data.columns.duplicated()])
 
-    
     return df_data

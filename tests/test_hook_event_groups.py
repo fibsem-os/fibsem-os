@@ -26,6 +26,7 @@ from fibsem.hooks import (
 # the property that makes groups worth having
 # ---------------------------------------------------------------------------
 
+
 def test_every_event_is_classified():
     """The requirement, not a nice-to-have: adding an event without deciding what it
     is must fail here rather than quietly break someone's notifications months later.
@@ -70,6 +71,7 @@ def test_cancellation_is_not_a_failure():
 # matching
 # ---------------------------------------------------------------------------
 
+
 def test_a_group_covers_its_events():
     assert covers_event(["any_failure"], HookEvent.TASK_FAILED)
     assert covers_event(["any_completion"], HookEvent.EXPERIMENT_COMPLETED)
@@ -99,8 +101,11 @@ def test_a_hook_subscribed_to_a_group_actually_fires():
         FunctionHook(name="any", events=["any_terminal"], callback=fired.append)
     )
 
-    for event in (HookEvent.TASK_STARTED, HookEvent.TASK_FAILED,
-                  HookEvent.EXPERIMENT_COMPLETED):
+    for event in (
+        HookEvent.TASK_STARTED,
+        HookEvent.TASK_FAILED,
+        HookEvent.EXPERIMENT_COMPLETED,
+    ):
         manager.fire(HookContext(event=event))
 
     assert [c.event for c in fired] == ["task_failed", "experiment_completed"]
@@ -121,6 +126,7 @@ def test_a_new_event_joins_its_group_without_touching_any_config(monkeypatch):
 # ---------------------------------------------------------------------------
 # display vs storage
 # ---------------------------------------------------------------------------
+
 
 def test_resolve_expands_a_group_for_display():
     resolved = resolve_events(["any_cancellation"])
@@ -147,6 +153,7 @@ def test_the_group_survives_serialization_unexpanded():
 # a name that will never match
 # ---------------------------------------------------------------------------
 
+
 def test_a_misspelled_subscription_warns(caplog):
     """It would otherwise match nothing, forever, without a word."""
     with caplog.at_level(logging.WARNING):
@@ -163,7 +170,9 @@ def test_a_valid_subscription_is_quiet(caplog):
 
 
 def test_unknown_subscriptions_reports_only_the_bad_ones():
-    assert unknown_subscriptions(["any_failure", "nope", HookEvent.TASK_FAILED]) == ["nope"]
+    assert unknown_subscriptions(["any_failure", "nope", HookEvent.TASK_FAILED]) == [
+        "nope"
+    ]
 
 
 def test_a_webhook_still_validates_its_own_fields():

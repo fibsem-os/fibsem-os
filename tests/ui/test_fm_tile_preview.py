@@ -6,6 +6,7 @@ the wrong pose still looks like a grid — the arithmetic behind that is pinned 
 because it is a preview inside a dialog and the stage must not move while someone is
 deciding where to look.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -106,9 +107,9 @@ def test_the_frame_is_posed_for_fluorescence_wherever_the_stage_is(microscope):
     )
     widget = FMTilePreviewWidget(microscope)
 
-    assert surface_foreshortening(
-        widget._projection, widget._origin
-    ) == pytest.approx(1.0, abs=1e-9)
+    assert surface_foreshortening(widget._projection, widget._origin) == pytest.approx(
+        1.0, abs=1e-9
+    )
 
 
 def test_the_drawn_grid_is_the_planned_grid(pane, microscope):
@@ -119,7 +120,9 @@ def test_the_drawn_grid_is_the_planned_grid(pane, microscope):
     assert plan is not None
     assert max(t.row for t in drawn) + 1 == plan.rows
     assert max(t.col for t in drawn) + 1 == plan.cols
-    assert [[t.enabled for t in drawn if t.row == r] for r in range(plan.rows)] == plan.mask
+    assert [
+        [t.enabled for t in drawn if t.row == r] for r in range(plan.rows)
+    ] == plan.mask
 
 
 def test_a_bigger_selection_needs_a_bigger_grid(pane, microscope):

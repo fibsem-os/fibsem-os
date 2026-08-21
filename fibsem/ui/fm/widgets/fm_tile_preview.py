@@ -333,18 +333,27 @@ class FMTilePreviewWidget(QWidget):
         # No `surface_foreshortening` term: these lie on the sample, and the sample is
         # square-on to the camera at the fluorescence pose. The beam pane, drawn from a
         # tilted view, does need it.
-        self.stage_overlay.set_shapes([
-            ShapeSpec(
-                kind="rect", cx=centre[0], cy=centre[1], color=STAGE_LIMITS_COLOUR,
-                width=frame.length(limits["x"].max - limits["x"].min),
-                height=frame.length(limits["y"].max - limits["y"].min),
-                label="Stage limits",
-            ),
-            ShapeSpec(
-                kind="circle", cx=centre[0], cy=centre[1], color=GRID_BOUNDARY_COLOUR,
-                radius=frame.length(GRID_BOUNDARY_RADIUS_M), label="Grid boundary",
-            ),
-        ])
+        self.stage_overlay.set_shapes(
+            [
+                ShapeSpec(
+                    kind="rect",
+                    cx=centre[0],
+                    cy=centre[1],
+                    color=STAGE_LIMITS_COLOUR,
+                    width=frame.length(limits["x"].max - limits["x"].min),
+                    height=frame.length(limits["y"].max - limits["y"].min),
+                    label="Stage limits",
+                ),
+                ShapeSpec(
+                    kind="circle",
+                    cx=centre[0],
+                    cy=centre[1],
+                    color=GRID_BOUNDARY_COLOUR,
+                    radius=frame.length(GRID_BOUNDARY_RADIUS_M),
+                    label="Grid boundary",
+                ),
+            ]
+        )
 
     # ── edits ────────────────────────────────────────────────────────────
 

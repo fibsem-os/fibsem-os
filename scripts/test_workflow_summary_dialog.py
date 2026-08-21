@@ -22,19 +22,57 @@ def sample_dataframe() -> pd.DataFrame:
     """A representative run summary: completed, failed and skipped tasks."""
     return pd.DataFrame(
         [
-            {"lamella_name": "lamella-01", "task_name": "Mill Trench", "task_status": "Completed", "completed_at": "10:31 AM", "duration": 182.4},
-            {"lamella_name": "lamella-01", "task_name": "Mill Undercut", "task_status": "Completed", "completed_at": "10:45 AM", "duration": 405.1},
-            {"lamella_name": "lamella-02", "task_name": "Mill Trench", "task_status": "Failed", "completed_at": "10:52 AM", "duration": 60.0},
-            {"lamella_name": "lamella-02", "task_name": "Mill Undercut", "task_status": "Skipped", "completed_at": "", "duration": None},
-            {"lamella_name": "lamella-03", "task_name": "Mill Trench", "task_status": "Completed", "completed_at": "11:05 AM", "duration": 175.9},
-            {"lamella_name": "lamella-03", "task_name": "Mill Undercut", "task_status": "Completed", "completed_at": "11:20 AM", "duration": 398.7},
+            {
+                "lamella_name": "lamella-01",
+                "task_name": "Mill Trench",
+                "task_status": "Completed",
+                "completed_at": "10:31 AM",
+                "duration": 182.4,
+            },
+            {
+                "lamella_name": "lamella-01",
+                "task_name": "Mill Undercut",
+                "task_status": "Completed",
+                "completed_at": "10:45 AM",
+                "duration": 405.1,
+            },
+            {
+                "lamella_name": "lamella-02",
+                "task_name": "Mill Trench",
+                "task_status": "Failed",
+                "completed_at": "10:52 AM",
+                "duration": 60.0,
+            },
+            {
+                "lamella_name": "lamella-02",
+                "task_name": "Mill Undercut",
+                "task_status": "Skipped",
+                "completed_at": "",
+                "duration": None,
+            },
+            {
+                "lamella_name": "lamella-03",
+                "task_name": "Mill Trench",
+                "task_status": "Completed",
+                "completed_at": "11:05 AM",
+                "duration": 175.9,
+            },
+            {
+                "lamella_name": "lamella-03",
+                "task_name": "Mill Undercut",
+                "task_status": "Completed",
+                "completed_at": "11:20 AM",
+                "duration": 398.7,
+            },
         ]
     )
 
 
 def main():
     parser = argparse.ArgumentParser(description="WorkflowSummaryDialog test runner")
-    parser.add_argument("--empty", action="store_true", help="show the dialog with no tasks")
+    parser.add_argument(
+        "--empty", action="store_true", help="show the dialog with no tasks"
+    )
     args = parser.parse_args()
 
     df = pd.DataFrame() if args.empty else sample_dataframe()

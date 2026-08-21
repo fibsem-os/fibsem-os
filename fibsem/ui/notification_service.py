@@ -29,7 +29,9 @@ def _get_service() -> _NotificationService:
     return _service
 
 
-def show(message: str, notification_type: str = "info", temporary: bool = False) -> None:
+def show(
+    message: str, notification_type: str = "info", temporary: bool = False
+) -> None:
     """Emit a toast. Persists to notification history by default (temporary=False).
 
     Use show_toast() for transient validation messages that should not appear in history.

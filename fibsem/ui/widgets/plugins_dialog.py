@@ -340,7 +340,9 @@ class PluginsDialog(QDialog):
 
         if self.rows:
             keys = [_key(e) for e in self.rows]
-            row = keys.index(_key(previous)) if previous and _key(previous) in keys else 0
+            row = (
+                keys.index(_key(previous)) if previous and _key(previous) in keys else 0
+            )
             self.table.selectRow(row)
         self._on_selection_changed()
 

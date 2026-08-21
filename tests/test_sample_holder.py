@@ -14,6 +14,7 @@ from fibsem.structures import FibsemStagePosition
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_position(name: str = "Slot-01") -> FibsemStagePosition:
     return FibsemStagePosition(name=name, x=1e-3, y=2e-3, z=3e-3)
 
@@ -27,6 +28,7 @@ def _make_holder(capacity: int = 2, name: str = "Test Holder") -> SampleHolder:
 # ---------------------------------------------------------------------------
 # SampleGrid
 # ---------------------------------------------------------------------------
+
 
 class TestSampleGrid:
     def test_defaults(self):
@@ -46,6 +48,7 @@ class TestSampleGrid:
 # GridSlot
 # ---------------------------------------------------------------------------
 
+
 class TestGridSlot:
     def test_roundtrip_empty(self):
         slot = GridSlot(name="Slot-01", index=0, position=_make_position())
@@ -56,7 +59,9 @@ class TestGridSlot:
 
     def test_roundtrip_with_grid(self):
         grid = SampleGrid(name="Grid-A", description="desc")
-        slot = GridSlot(name="Slot-01", index=0, position=_make_position(), loaded_grid=grid)
+        slot = GridSlot(
+            name="Slot-01", index=0, position=_make_position(), loaded_grid=grid
+        )
         slot2 = GridSlot.from_dict(slot.to_dict())
         assert slot2.loaded_grid is not None
         assert slot2.loaded_grid.name == "Grid-A"
@@ -66,6 +71,7 @@ class TestGridSlot:
 # ---------------------------------------------------------------------------
 # SampleHolder construction and properties
 # ---------------------------------------------------------------------------
+
 
 class TestSampleHolderConstruction:
     def test_defaults(self):
@@ -127,6 +133,7 @@ class TestSampleHolderConstruction:
 # _ensure_slots
 # ---------------------------------------------------------------------------
 
+
 class TestEnsureSlots:
     def test_creates_correct_count(self):
         h = _make_holder(capacity=3)
@@ -161,6 +168,7 @@ class TestEnsureSlots:
 # ---------------------------------------------------------------------------
 # Serialisation roundtrip
 # ---------------------------------------------------------------------------
+
 
 class TestSerialization:
     def test_to_dict_keys(self):
@@ -205,6 +213,7 @@ class TestSerialization:
 # save / load
 # ---------------------------------------------------------------------------
 
+
 class TestSaveLoad:
     def test_save_and_load(self, tmp_path):
         path = tmp_path / "holder.yaml"
@@ -226,6 +235,7 @@ class TestSaveLoad:
 # ---------------------------------------------------------------------------
 # Slot lookup helpers
 # ---------------------------------------------------------------------------
+
 
 class TestSlotLookup:
     def test_find_slot_for_grid(self):
@@ -256,6 +266,7 @@ class TestSlotLookup:
 # ---------------------------------------------------------------------------
 # _create_sample_stage
 # ---------------------------------------------------------------------------
+
 
 class TestCreateSampleStage:
     def test_compustage_returns_stage(self):
@@ -313,7 +324,12 @@ class TestCreateSampleStage:
 
     def test_non_compustage_falls_back_to_default(self, tmp_path, monkeypatch):
         import fibsem.microscopes._stage as stage_module
-        monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(tmp_path / "missing.yaml"))
+
+        monkeypatch.setattr(
+            stage_module,
+            "SAMPLE_HOLDER_CONFIGURATION_PATH",
+            str(tmp_path / "missing.yaml"),
+        )
         microscope, _ = utils.setup_session(manufacturer="Demo")
         microscope.stage_is_compustage = False
         stage = _create_sample_stage(microscope)
@@ -322,6 +338,7 @@ class TestCreateSampleStage:
 
     def test_non_compustage_loads_user_config_when_present(self, tmp_path, monkeypatch):
         import fibsem.microscopes._stage as stage_module
+
         path = tmp_path / "holder.yaml"
         h = SampleHolder(name="UserHolder", capacity=3)
         h._ensure_slots()

@@ -6,6 +6,7 @@ label built empty and filled later would have painted itself blank -- latent, si
 callers all passed the text to the constructor and never set it again. The surviving
 class is the overview's, whose behaviour these pin, plus the other's paint-time elide.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

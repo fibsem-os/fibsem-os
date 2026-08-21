@@ -1,4 +1,5 @@
 """Auto-contrast / brightness (ACB) for FIB-SEM images."""
+
 from __future__ import annotations
 
 import dataclasses
@@ -31,6 +32,7 @@ class AutoContrastBrightnessSettings:
     Soft targets (range_utilisation, contrast_ratio) are reported but do not
     block convergence.
     """
+
     n_iterations: int = 5
     brightness_step: float = 0.05
     contrast_step: float = 0.05
@@ -52,6 +54,7 @@ class AutoContrastBrightnessSettings:
 @dataclass
 class AutoContrastBrightnessIteration:
     """State captured at a single step of the hardware ACB loop."""
+
     brightness: float
     contrast: float
     stats: ImageStats
@@ -69,6 +72,7 @@ class AutoContrastBrightnessIteration:
     @classmethod
     def from_dict(cls, d: dict, result_dir: Path) -> "AutoContrastBrightnessIteration":
         from fibsem.structures import FibsemImage, ImageStats
+
         return cls(
             brightness=d["brightness"],
             contrast=d["contrast"],
@@ -80,6 +84,7 @@ class AutoContrastBrightnessIteration:
 @dataclass
 class AutoContrastBrightnessResult:
     """Result of a hardware ACB run, containing all per-iteration data."""
+
     image: FibsemImage
     stats: ImageStats
     converged: bool
@@ -92,6 +97,7 @@ class AutoContrastBrightnessResult:
 
     def plot(self, save_path: str = "acb.png") -> None:
         from fibsem.autofunctions.plotting import plot_acb_result
+
         plot_acb_result(self, save_path=save_path)
 
     def save(self, path: str = ".", name: str = "acb") -> Path:
@@ -153,10 +159,15 @@ class AutoContrastBrightnessResult:
         ]
 
         from fibsem.structures import FibsemImage, ImageStats
+
         final_image = FibsemImage.load(str(result_dir / "final.tif"))
         final_stats = ImageStats(**data["final_stats"])
         settings_data = data.get("settings")
-        settings = AutoContrastBrightnessSettings.from_dict(settings_data) if settings_data is not None else None
+        settings = (
+            AutoContrastBrightnessSettings.from_dict(settings_data)
+            if settings_data is not None
+            else None
+        )
 
         return cls(
             image=final_image,
@@ -201,7 +212,7 @@ def run_auto_contrast_brightness(
         beam_type=beam_type,
         autocontrast=False,
         save=False,
-        reduced_area=FibsemRectangle(0.25, 0.25, 0.5, 0.5)
+        reduced_area=FibsemRectangle(0.25, 0.25, 0.5, 0.5),
     )
 
     initial_brightness = microscope.get_detector_brightness(beam_type)
@@ -213,11 +224,22 @@ def run_auto_contrast_brightness(
     try:
         probe = microscope.acquire_image(image_settings=probe_settings)
         stats = probe.compute_stats()
-        iterations.append(AutoContrastBrightnessIteration(brightness=brightness, contrast=contrast, stats=stats, image=probe))
-        logger.debug("ACB iter 0: brightness=%.3f contrast=%.3f stats=[%s]", brightness, contrast, stats)
+        iterations.append(
+            AutoContrastBrightnessIteration(
+                brightness=brightness, contrast=contrast, stats=stats, image=probe
+            )
+        )
+        logger.debug(
+            "ACB iter 0: brightness=%.3f contrast=%.3f stats=[%s]",
+            brightness,
+            contrast,
+            stats,
+        )
 
         for i in range(settings.n_iterations):
-            if stats.converged(settings.mean_target, settings.mean_tolerance, settings.saturation_limit):
+            if stats.converged(
+                settings.mean_target, settings.mean_tolerance, settings.saturation_limit
+            ):
                 logger.debug("ACB converged at iteration %d", i)
                 break
 
@@ -236,13 +258,24 @@ def run_auto_contrast_brightness(
 
             probe = microscope.acquire_image(image_settings=probe_settings)
             stats = probe.compute_stats()
-            iterations.append(AutoContrastBrightnessIteration(brightness=brightness, contrast=contrast, stats=stats, image=probe))
+            iterations.append(
+                AutoContrastBrightnessIteration(
+                    brightness=brightness, contrast=contrast, stats=stats, image=probe
+                )
+            )
             logger.debug(
                 "ACB iter %d: brightness=%.3f contrast=%.3f stats=[%s]",
-                i + 1, brightness, contrast, stats,
+                i + 1,
+                brightness,
+                contrast,
+                stats,
             )
     except Exception:
-        logger.exception("ACB failed — restoring initial brightness=%.3f contrast=%.3f", initial_brightness, initial_contrast)
+        logger.exception(
+            "ACB failed — restoring initial brightness=%.3f contrast=%.3f",
+            initial_brightness,
+            initial_contrast,
+        )
         microscope.set_detector_brightness(initial_brightness, beam_type)
         microscope.set_detector_contrast(initial_contrast, beam_type)
         raise
@@ -250,7 +283,9 @@ def run_auto_contrast_brightness(
     return AutoContrastBrightnessResult(
         image=probe,
         stats=stats,
-        converged=stats.converged(settings.mean_target, settings.mean_tolerance, settings.saturation_limit),
+        converged=stats.converged(
+            settings.mean_target, settings.mean_tolerance, settings.saturation_limit
+        ),
         iterations=iterations,
         settings=settings,
     )

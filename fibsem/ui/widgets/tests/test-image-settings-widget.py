@@ -4,6 +4,7 @@ Quick test script for FibsemImageSettingsWidget with the new sub-widgets.
 Run with:
     python fibsem/ui/widgets/tests/test-image-settings-widget.py
 """
+
 import sys
 
 from PyQt5.QtCore import Qt
@@ -22,8 +23,11 @@ from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 
 class _MockMovementWidget:
     """Minimal stand-in for movement_widget used in _toggle_interactions."""
+
     def _toggle_interactions(self, enable: bool, caller: str = None):
-        print(f"[movement_widget] _toggle_interactions(enable={enable}, caller={caller})")
+        print(
+            f"[movement_widget] _toggle_interactions(enable={enable}, caller={caller})"
+        )
 
 
 class MockParent(QWidget):
@@ -32,6 +36,7 @@ class MockParent(QWidget):
     The widget resolves its display through ``view_controller`` on the parent — the
     shape standalone FibsemUI presents. It has no napari path left.
     """
+
     def __init__(self):
         super().__init__()
         self.view_controller = MicroscopeViewController(parent=self)
@@ -41,7 +46,9 @@ class MockParent(QWidget):
 def main():
     app = QApplication(sys.argv)
 
-    microscope, settings = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    microscope, settings = utils.setup_session(
+        manufacturer="Demo", ip_address="localhost"
+    )
     image_settings = settings.image
 
     parent = MockParent()
@@ -61,8 +68,8 @@ def main():
         print("\n--- ImageSettings ---")
         print(f"  beam_type:    {s.beam_type}")
         print(f"  resolution:   {s.resolution}")
-        print(f"  dwell_time:   {s.dwell_time*1e6:.2f} µs")
-        print(f"  hfw:          {s.hfw*1e6:.1f} µm")
+        print(f"  dwell_time:   {s.dwell_time * 1e6:.2f} µs")
+        print(f"  hfw:          {s.hfw * 1e6:.1f} µm")
         print(f"  save:         {s.save}")
         print(f"  autocontrast: {s.autocontrast}")
         print(f"  line_int:     {s.line_integration}")

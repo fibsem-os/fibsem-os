@@ -1,4 +1,5 @@
 """Auto charge neutralisation for FIB-SEM imaging."""
+
 from __future__ import annotations
 
 import logging

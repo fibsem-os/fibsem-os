@@ -65,7 +65,9 @@ def format_bytes(count: float) -> str:
     for unit, step in (("TB", 1e12), ("GB", 1e9), ("MB", 1e6), ("kB", 1e3)):
         if count >= step:
             value = count / step
-            return f"{value:.1f} {unit}" if unit in ("TB", "GB") else f"{value:.0f} {unit}"
+            return (
+                f"{value:.1f} {unit}" if unit in ("TB", "GB") else f"{value:.0f} {unit}"
+            )
     return f"{int(count)} B"
 
 

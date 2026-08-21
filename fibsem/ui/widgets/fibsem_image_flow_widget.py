@@ -38,7 +38,8 @@ def _arr_to_pixmap(arr: np.ndarray, w: int, h: int) -> QPixmap:
     ih, iw, _ = arr.shape
     qimg = QImage(arr.data, iw, ih, iw * 3, QImage.Format_RGB888)
     return QPixmap.fromImage(qimg).scaled(
-        w, h,
+        w,
+        h,
         Qt.AspectRatioMode.KeepAspectRatio,
         Qt.TransformationMode.SmoothTransformation,
     )
@@ -63,7 +64,8 @@ class _FullscreenDialog(QDialog):
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label.setStyleSheet("background: black;")
         scaled = pixmap.scaled(
-            self.width(), self.height(),
+            self.width(),
+            self.height(),
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
@@ -119,7 +121,9 @@ class FibsemImageCard(QWidget):
         if title:
             title_label = QLabel(title)
             title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            title_label.setStyleSheet(f"color: {NEUTRAL_300}; font-size: 11px; background: transparent;")
+            title_label.setStyleSheet(
+                f"color: {NEUTRAL_300}; font-size: 11px; background: transparent;"
+            )
             title_label.setFixedHeight(20)
             layout.addWidget(title_label)
 
@@ -150,7 +154,9 @@ class FibsemImageFlowWidget(QWidget):
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {SURFACE_COLOR}; }}")
+        self._scroll.setStyleSheet(
+            f"QScrollArea {{ border: none; background: {SURFACE_COLOR}; }}"
+        )
         outer.addWidget(self._scroll)
 
         self._content = QWidget()
@@ -163,7 +169,9 @@ class FibsemImageFlowWidget(QWidget):
 
         self._scroll.setWidget(self._content)
 
-    def set_images(self, images: List[FibsemImage], titles: Optional[List[str]] = None) -> None:
+    def set_images(
+        self, images: List[FibsemImage], titles: Optional[List[str]] = None
+    ) -> None:
         """Replace displayed images."""
         while self._flow.count():
             item = self._flow.takeAt(0)
@@ -180,6 +188,7 @@ class FibsemImageFlowWidget(QWidget):
 # ---------------------------------------------------------------------------
 # Standalone demo
 # ---------------------------------------------------------------------------
+
 
 def _make_demo_image(value: int, shape=(256, 256)) -> FibsemImage:
     """Create a fake grayscale FibsemImage filled with a gradient for demo."""

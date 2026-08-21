@@ -102,7 +102,9 @@ def test_the_stylesheets_import_and_render(rendered):
     # Loose on purpose: this is here to catch an import that produced nothing,
     # not to pin the count, which would need editing every time a sheet is
     # added or retired.
-    assert len(rendered) > 40, f"only {len(rendered)} constants -- did the import half-fail?"
+    assert len(rendered) > 40, (
+        f"only {len(rendered)} constants -- did the import half-fail?"
+    )
     assert rendered["NAPARI_STYLE"].strip().startswith("QWidget")
     assert "#" in rendered["BORDER_COLOR"]
 

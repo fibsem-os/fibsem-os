@@ -10,6 +10,7 @@ These helpers are called from workflow tasks that need hardware and a GUI, so no
 imports them under test and a plain signature mismatch is invisible until an operator hits
 it mid-run. Checking the call sites statically costs nothing and catches the whole class.
 """
+
 from __future__ import annotations
 
 import ast
@@ -26,7 +27,8 @@ from fibsem.applications.autolamella.workflows import ui as workflow_ui
 _HELPERS = {
     name: obj
     for name, obj in vars(workflow_ui).items()
-    if inspect.isfunction(obj) and not name.startswith("_")
+    if inspect.isfunction(obj)
+    and not name.startswith("_")
     and obj.__module__ == workflow_ui.__name__
 }
 
@@ -39,7 +41,9 @@ def _call_sites() -> List[Tuple[Path, int, str, ast.Call]]:
     for path in sorted(_TASKS_DIR.rglob("*.py")):
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
-        except SyntaxError:  # pragma: no cover - a broken file is another test's problem
+        except (
+            SyntaxError
+        ):  # pragma: no cover - a broken file is another test's problem
             continue
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):

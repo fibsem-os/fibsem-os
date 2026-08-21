@@ -28,6 +28,7 @@ Migration is a one-line import swap::
 This intentionally implements only the non-generator, bare-decorator subset. A generator body
 or ``@thread_worker(connect=...)`` will fail loudly rather than silently misbehave.
 """
+
 from __future__ import annotations
 
 import functools

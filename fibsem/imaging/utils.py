@@ -68,7 +68,9 @@ def apply_image_mask(img: FibsemImage, mask: np.ndarray) -> np.ndarray:
     return normalise_image(img) * mask
 
 
-def percentile_stretch(data: np.ndarray, clip_lo: float = 0.5, clip_hi: float = 99.5) -> np.ndarray:
+def percentile_stretch(
+    data: np.ndarray, clip_lo: float = 0.5, clip_hi: float = 99.5
+) -> np.ndarray:
     """Linearly stretch *data* so the [clip_lo, clip_hi] percentile range fills the full dtype range.
 
     Args:

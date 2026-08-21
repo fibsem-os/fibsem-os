@@ -108,7 +108,9 @@ def load_script(path: Path) -> DiscoveredScript:
 
     entrypoint = getattr(module, ENTRYPOINT, None)
     if not callable(entrypoint):
-        script.error = f"no {ENTRYPOINT}() function found — expected def {ENTRYPOINT}(ctx)"
+        script.error = (
+            f"no {ENTRYPOINT}() function found — expected def {ENTRYPOINT}(ctx)"
+        )
         return script
 
     doc = (module.__doc__ or "").strip()
@@ -117,7 +119,9 @@ def load_script(path: Path) -> DiscoveredScript:
     script.writes = bool(getattr(module, FLAG_WRITES, False))
     script.background = bool(getattr(module, FLAG_BACKGROUND, False))
     script.uses_microscope = bool(getattr(module, FLAG_USES_MICROSCOPE, False))
-    script.on_workflow_completed = bool(getattr(module, FLAG_ON_WORKFLOW_COMPLETED, False))
+    script.on_workflow_completed = bool(
+        getattr(module, FLAG_ON_WORKFLOW_COMPLETED, False)
+    )
     return script
 
 
@@ -171,11 +175,16 @@ def run_script(script: DiscoveredScript, ctx: Any) -> ScriptResult:
     persist anything by accident.
     """
     if not script.is_runnable:
-        return ScriptResult(script=script, error=RuntimeError(script.error or "not runnable"))
+        return ScriptResult(
+            script=script, error=RuntimeError(script.error or "not runnable")
+        )
 
     logging.info(
         "Running script %s (%s) writes=%s microscope=%s",
-        script.name, script.content_hash, script.writes, script.uses_microscope,
+        script.name,
+        script.content_hash,
+        script.writes,
+        script.uses_microscope,
     )
 
     result = ScriptResult(script=script)
@@ -183,7 +192,9 @@ def run_script(script: DiscoveredScript, ctx: Any) -> ScriptResult:
     # attributable. Restored afterwards so a reused context is not left modified.
     original_log = getattr(ctx, "log", None)
     if callable(original_log):
-        ctx.log = lambda message, _name=script.name: logging.info("[%s] %s", _name, message)
+        ctx.log = lambda message, _name=script.name: logging.info(
+            "[%s] %s", _name, message
+        )
     try:
         result.value = script._module.run(ctx)  # type: ignore[union-attr]
     except BaseException as e:  # noqa: BLE001 - deliberately broad, see docstring

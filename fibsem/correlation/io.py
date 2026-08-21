@@ -25,7 +25,10 @@ from fibsem.fm.structures import _UNIT_TO_METERS, FluorescenceImage, safe_ome_fr
 # TODO: migrate to FluorescenceImage, FibsemImage
 ############# PARSER FUNCTIONS #############
 
-def parse_coordinates(fib_coord_filename: str, fm_coord_filename: str) -> tuple[np.ndarray, np.ndarray]:
+
+def parse_coordinates(
+    fib_coord_filename: str, fm_coord_filename: str
+) -> tuple[np.ndarray, np.ndarray]:
     """Parse the coordinates from the old style coordinate files"""
 
     def parse_coordinate_file(filename: str, delimiter: str = "\t") -> list:
@@ -43,6 +46,7 @@ def parse_coordinates(fib_coord_filename: str, fm_coord_filename: str) -> tuple[
 
     return fib_coordinates, fm_coordinates
 
+
 def parse_metadata(filename: str) -> np.ndarray:
     """parse metadata from a tfs tiff file"""
     # TODO: replace this with real parser versions eventually
@@ -50,9 +54,10 @@ def parse_metadata(filename: str) -> np.ndarray:
     with tff.TiffFile(filename) as tif:
         for page in tif.pages:
             for tag in page.tags.values():
-                if tag.name == "FEI_HELIOS" or tag.code == 34682: # TFS_MD tag
+                if tag.name == "FEI_HELIOS" or tag.code == 34682:  # TFS_MD tag
                     md = tag.value
     return md
+
 
 def parse_ome_fibsem_image(filename: str) -> tuple[np.ndarray, float]:
     """Parse OME metadata from a FibsemImage"""
@@ -67,10 +72,12 @@ def parse_ome_fibsem_image(filename: str) -> tuple[np.ndarray, float]:
     pixel_size *= _UNIT_TO_METERS[pixel_size_unit]  # convert to SI
     return image, pixel_size
 
+
 def load_image_and_metadata(filename: str) -> tuple[np.ndarray, float]:
     """Load an image and its pixel size metadata from a file, trying multiple formats."""
     try:
         from fibsem.structures import FibsemImage
+
         image = FibsemImage.load(filename)
         if image.metadata is None:
             raise ValueError("Pixel size not found in FibsemImage metadata")
@@ -91,8 +98,9 @@ def load_image_and_metadata(filename: str) -> tuple[np.ndarray, float]:
             image = tff.imread(filename)
             pixel_size = None
             return None, None
- 
+
     return image, pixel_size
+
 
 def load_tfs_image(filename: str) -> Tuple[np.ndarray, float]:
     """Load a TFS image and extract the pixel size from the metadata"""
@@ -147,6 +155,7 @@ def load_tfs_image(filename: str) -> Tuple[np.ndarray, float]:
 
     return image, pixel_size
 
+
 def remove_metadata_bar(img: np.ndarray) -> np.ndarray:
     """Loop through the image, and check if the row is all zeros indicating the start of the metadata bar"""
 
@@ -159,7 +168,7 @@ def remove_metadata_bar(img: np.ndarray) -> np.ndarray:
 
 def load_and_parse_fib_image(filename: str) -> tuple[np.ndarray, float]:
     image, pixel_size = load_image_and_metadata(filename)
-    
+
     # from pprint import pprint
     # pprint(md)
 
@@ -167,25 +176,28 @@ def load_and_parse_fib_image(filename: str) -> tuple[np.ndarray, float]:
 
 
 RGB_TO_COLOUR = {
-        (255, 0, 0): "red",
-        (0, 255, 0): "green",
-        (0, 0, 255): "blue",
-        (255, 255, 0): "yellow",
-        (255, 0, 255): "magenta",
-        (0, 255, 255): "cyan",
-        (255, 255, 255): "gray",
-        (0, 0, 0): "black"
-    }
+    (255, 0, 0): "red",
+    (0, 255, 0): "green",
+    (0, 0, 255): "blue",
+    (255, 255, 0): "yellow",
+    (255, 0, 255): "magenta",
+    (0, 255, 255): "cyan",
+    (255, 255, 255): "gray",
+    (0, 0, 0): "black",
+}
 COLOUR_TO_RGB = {v: k for k, v in RGB_TO_COLOUR.items()}
 
 
 def rgb_to_color_name(rgb):
-    colors=  RGB_TO_COLOUR
+    colors = RGB_TO_COLOUR
 
     # Find the color with the minimum Euclidean distance
-    closest_color = min(colors.keys(), key=lambda color: sum((a-b)**2 for a, b in zip(rgb, color)))
+    closest_color = min(
+        colors.keys(), key=lambda color: sum((a - b) ** 2 for a, b in zip(rgb, color))
+    )
 
     return colors[closest_color]
+
 
 # TODO: migrate correlation package to use FluorescenceImage rather than this custom metadata...
 def load_and_parse_fm_image(path: str) -> Tuple[np.ndarray, dict]:
@@ -194,7 +206,9 @@ def load_and_parse_fm_image(path: str) -> Tuple[np.ndarray, dict]:
         image, metadata = _load_as_fluorescence_image(path)
         return image, metadata
     except Exception as e:
-        logging.debug(f"Failed to load as FluorescenceImage, retrying with legacy method: {e}")
+        logging.debug(
+            f"Failed to load as FluorescenceImage, retrying with legacy method: {e}"
+        )
 
     image = tff.imread(path)
 
@@ -208,7 +222,7 @@ def load_and_parse_fm_image(path: str) -> Tuple[np.ndarray, dict]:
         if not ome.images:
             raise ValueError("No images found in OME metadata")
         pixels_md = ome.images[0].pixels
-        pixel_size = pixels_md.physical_size_x # assume isotropic
+        pixel_size = pixels_md.physical_size_x  # assume isotropic
         zstep = pixels_md.physical_size_z
 
         # convert to SI (if required)
@@ -233,11 +247,13 @@ def load_and_parse_fm_image(path: str) -> Tuple[np.ndarray, dict]:
 
         xs, ys, zs = [], [], []
         for plane in pixels_md.planes:
-            xs.append(plane.position_x) # query unit?
+            xs.append(plane.position_x)  # query unit?
             ys.append(plane.position_y)
             zs.append(plane.position_z)
 
-            exposure_times[plane.the_c] = plane.exposure_time # assume constant for all planes
+            exposure_times[plane.the_c] = (
+                plane.exposure_time
+            )  # assume constant for all planes
 
         x = np.mean(xs, dtype=np.float32)
         y = np.mean(ys, dtype=np.float32)
@@ -249,13 +265,15 @@ def load_and_parse_fm_image(path: str) -> Tuple[np.ndarray, dict]:
     # this is required because tifffile does not always return the correct shape, when there is z=1
     if nc is not None:
         if image.shape != (nc, nz, ny, nx):
-            logging.warning(f"Image shape {image.shape} does not match metadata shape {(nc, nz, ny, nx)}")
+            logging.warning(
+                f"Image shape {image.shape} does not match metadata shape {(nc, nz, ny, nx)}"
+            )
             # reshape to match metadata shape
             image = image.reshape((nc, nz, ny, nx))
 
     # convert to 4D if necessary
     if image.ndim == 3:
-        image = np.expand_dims(image, axis=0) # TODO: make sure we reshape colour too
+        image = np.expand_dims(image, axis=0)  # TODO: make sure we reshape colour too
 
     if colours is None:
         colours = [(255, 255, 255) for _ in range(image.shape[0])]
@@ -264,12 +282,18 @@ def load_and_parse_fm_image(path: str) -> Tuple[np.ndarray, dict]:
 
     colours = [rgb_to_color_name(colour) for colour in colours]
 
-    return image, {"pixel_size": pixel_size, 
-                   "zstep": zstep, "colours": colours,
-                   "x": x, "y": y, "z": z, "exposure_time": exposure_times,
-                   "channel_names": channel_names,
-                   "ome": ome,
-                   }
+    return image, {
+        "pixel_size": pixel_size,
+        "zstep": zstep,
+        "colours": colours,
+        "x": x,
+        "y": y,
+        "z": z,
+        "exposure_time": exposure_times,
+        "channel_names": channel_names,
+        "ome": ome,
+    }
+
 
 def _load_as_fluorescence_image(path: str) -> Tuple[np.ndarray, dict]:
     fm_image = FluorescenceImage.load(path)
@@ -323,6 +347,7 @@ def _load_as_fluorescence_image(path: str) -> Tuple[np.ndarray, dict]:
         "ome": ome,
     }
 
+
 def get_z_plane_positions(pos_z: float, nz: int, zstep: float) -> np.ndarray:
     """Calculate the position of the z-planes based on the central plane position, number of planes, and z-step size.
     Assumes that the central plane is at pos_z, with half planes above and half below.
@@ -334,11 +359,12 @@ def get_z_plane_positions(pos_z: float, nz: int, zstep: float) -> np.ndarray:
     Returns:
         np.ndarray: Array of z-plane positions.
     """
-    z_positions = np.linspace(pos_z - (nz - 1) * zstep / 2,
-                            pos_z + (nz - 1) * zstep / 2,
-                            nz)
+    z_positions = np.linspace(
+        pos_z - (nz - 1) * zstep / 2, pos_z + (nz - 1) * zstep / 2, nz
+    )
     assert len(z_positions) == nz
     return z_positions
+
 
 def write_ome_tiff(image: np.ndarray, md: dict, filename: str) -> str:
     """Write OME-TIFF file with metadata.
@@ -362,8 +388,8 @@ def write_ome_tiff(image: np.ndarray, md: dict, filename: str) -> str:
     nc, nz, ny, nx = image.shape  # CZYX
     pos_x, pos_y = md["x"], md["y"]
     ome: OME = md["ome"]
-    zstep = md["zstep"]     # pixelsize_z
-    pos_z = md["z"]         # pos_z
+    zstep = md["zstep"]  # pixelsize_z
+    pos_z = md["z"]  # pos_z
 
     # compute z-plane positions
     z_positions = get_z_plane_positions(pos_z=pos_z, nz=nz, zstep=zstep)
@@ -374,14 +400,12 @@ def write_ome_tiff(image: np.ndarray, md: dict, filename: str) -> str:
 
     ifd = 0
     for c in range(nc):
-
         # Note: this might need to change
         ch = ome.images[0].pixels.channels[c]
         channels.append(ch)
 
         exposure_time = md["exposure_time"][c]
         for z in range(nz):
-
             plane = Plane(
                 the_z=z,
                 the_c=c,
@@ -399,7 +423,7 @@ def write_ome_tiff(image: np.ndarray, md: dict, filename: str) -> str:
             tiff_data = TiffData(ifd=ifd, first_c=c, first_z=z, plane_count=1)
             tiff_data_blocks.append(tiff_data)
 
-            ifd+= 1
+            ifd += 1
 
     dtype = image.dtype.name
     if image.dtype.name in "float32":
@@ -428,8 +452,8 @@ def write_ome_tiff(image: np.ndarray, md: dict, filename: str) -> str:
             physical_size_z_unit=UnitsLength.METER,
             channels=[ch for ch in ome.images[0].pixels.channels],
             planes=planes,
-            tiff_data_blocks=tiff_data_blocks
-        )
+            tiff_data_blocks=tiff_data_blocks,
+        ),
     )
 
     ome_md = OME(
@@ -443,7 +467,9 @@ def write_ome_tiff(image: np.ndarray, md: dict, filename: str) -> str:
     assert tff.OmeXml.validate(ome_xml), "OME XML is not valid"
 
     # reshape image to 5D for tifffile (CZYX -> TCZYX)
-    tifffile_image = image.reshape(1, image.shape[0], image.shape[1], image.shape[2], image.shape[3])
+    tifffile_image = image.reshape(
+        1, image.shape[0], image.shape[1], image.shape[2], image.shape[3]
+    )
 
     with tff.TiffWriter(filename) as tif:
         tif.write(data=tifffile_image, contiguous=True)

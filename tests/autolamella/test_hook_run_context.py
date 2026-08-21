@@ -128,7 +128,9 @@ def test_the_event_task_id_joins_to_the_task_history_entry(recorder, tmp_path):
     task = MillTrenchTask(
         microscope=microscope, config=MillTrenchTaskConfig(), lamella=lamella
     )
-    task.task_manager = type("_M", (), {"hook_manager": hook_manager, "is_stopped": False})()
+    task.task_manager = type(
+        "_M", (), {"hook_manager": hook_manager, "is_stopped": False}
+    )()
 
     task._run = lambda: (_ for _ in ()).throw(RuntimeError("stage timeout"))
     with pytest.raises(RuntimeError):

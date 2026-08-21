@@ -56,9 +56,7 @@ def main():
             f"dx={r.shift.x * 1e9:.1f}nm dy={r.shift.y * 1e9:.1f}nm  score={score:.3f}"
         )
 
-    fig = plot_multi_step_alignment(
-        ref, results, title="Test Alignment v2", save=False
-    )
+    fig = plot_multi_step_alignment(ref, results, title="Test Alignment v2", save=False)
     fig.savefig("/tmp/test_alignment_plot_v2.png", dpi=100)
     print("Saved → /tmp/test_alignment_plot_v2.png")
 

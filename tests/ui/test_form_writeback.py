@@ -104,7 +104,9 @@ def test_a_pattern_point_edit_reaches_the_pattern(qapp, microscope, axis):
     emitted = []
     widget.pattern_changed.connect(emitted.append)
 
-    x_control, y_control = _row(widget, "point").control.widget.findChildren(ValueSpinBox)
+    x_control, y_control = _row(widget, "point").control.widget.findChildren(
+        ValueSpinBox
+    )
     {"x": x_control, "y": y_control}[axis].setValue(5.0)
 
     assert emitted, f"editing the {axis} spinbox emitted nothing"

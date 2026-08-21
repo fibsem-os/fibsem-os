@@ -144,16 +144,22 @@ class LinePlotWidget(QWidget):
             btn.raise_()
             return btn
 
-        self._btn_reset_zoom = _obtn("mdi:fit-to-screen-outline", "Reset zoom / snap to live")
+        self._btn_reset_zoom = _obtn(
+            "mdi:fit-to-screen-outline", "Reset zoom / snap to live"
+        )
         self._btn_reset_zoom.clicked.connect(self._reset_view)
 
         self.reset_button = _obtn("mdi:refresh", "Reset chart (clear data)")
         self.reset_button.clicked.connect(self.reset_chart)
 
-        self.xaxis_button = _obtn("mdi:clock-outline", "Toggle X axis: Time / Sample index")
+        self.xaxis_button = _obtn(
+            "mdi:clock-outline", "Toggle X axis: Time / Sample index"
+        )
         self.xaxis_button.clicked.connect(self.toggle_xaxis_mode)
 
-        self.stats_button = _obtn("mdi:chart-bar", "Show / hide statistics", checkable=True)
+        self.stats_button = _obtn(
+            "mdi:chart-bar", "Show / hide statistics", checkable=True
+        )
         self.stats_button.clicked.connect(
             lambda checked: self.label_stats.setVisible(checked)
         )
@@ -164,8 +170,13 @@ class LinePlotWidget(QWidget):
         # Order: rightmost first → [reset_zoom, reset, xaxis, stats, pause]
         self._canvas_resize_filter = _CanvasOverlayFilter(
             self.canvas,
-            [self._btn_reset_zoom, self.reset_button, self.xaxis_button,
-             self.stats_button, self.pause_button],
+            [
+                self._btn_reset_zoom,
+                self.reset_button,
+                self.xaxis_button,
+                self.stats_button,
+                self.pause_button,
+            ],
         )
         self.canvas.installEventFilter(self._canvas_resize_filter)
 
@@ -511,11 +522,17 @@ class LinePlotWidget(QWidget):
         """Toggle between datetime and sample index x-axis."""
         self.use_datetime_axis = not self.use_datetime_axis
         if self.use_datetime_axis:
-            self.xaxis_button.setIcon(fibsem_icon("mdi:clock-outline", color=NEUTRAL_450))
-            self.xaxis_button.setToolTip("X axis: Time — click to switch to Sample index")
+            self.xaxis_button.setIcon(
+                fibsem_icon("mdi:clock-outline", color=NEUTRAL_450)
+            )
+            self.xaxis_button.setToolTip(
+                "X axis: Time — click to switch to Sample index"
+            )
         else:
             self.xaxis_button.setIcon(fibsem_icon("mdi:numeric", color=NEUTRAL_450))
-            self.xaxis_button.setToolTip("X axis: Sample index — click to switch to Time")
+            self.xaxis_button.setToolTip(
+                "X axis: Sample index — click to switch to Time"
+            )
 
         # Force axes re-setup and replot
         self.axes_setup_complete = False

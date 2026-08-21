@@ -74,6 +74,7 @@ class FormDefaults:
     step: Optional[float] = None
     decimals: Optional[int] = None
 
+
 # A point is an offset from the image centre, so it is signed by definition and
 # must never inherit a floor of zero. The pattern form carried this same pair as
 # a literal default before the row was generalised.
@@ -135,7 +136,7 @@ def effective_scale(metadata: dict) -> Optional[float]:
     """
     base = metadata.get("scale")
     dims = metadata.get("dimensions")
-    return (base ** dims) if (base and dims) else base
+    return (base**dims) if (base and dims) else base
 
 
 def display_suffix(metadata: dict) -> str:
@@ -175,7 +176,9 @@ def _combo(items: Sequence[Any], value: Any, metadata: dict) -> Control:
     )
 
 
-def _point(value: Point, metadata: dict, fallback: Optional[Tuple[float, float]]) -> Control:
+def _point(
+    value: Point, metadata: dict, fallback: Optional[Tuple[float, float]]
+) -> Control:
     """Two spinboxes for a Point-typed field.
 
     Dispatched on the declared `type`, not on the field being called "point", so
@@ -288,7 +291,9 @@ def _scalar_list(value: Any, annotation: Any) -> Control:
     item_type = item_types[0] if item_types else str
     control = QLineEdit()
     control.setPlaceholderText("Enter comma-separated values")
-    control.setText(", ".join(str(v) for v in value) if isinstance(value, list) else str(value))
+    control.setText(
+        ", ".join(str(v) for v in value) if isinstance(value, list) else str(value)
+    )
 
     def read() -> List[Any]:
         text = control.text().strip()
@@ -346,7 +351,9 @@ def build_control(
     kind = type_ if type_ is not None else annotation
 
     if items == "dynamic":
-        resolved = dynamic_items(metadata["microscope_parameter"]) if dynamic_items else None
+        resolved = (
+            dynamic_items(metadata["microscope_parameter"]) if dynamic_items else None
+        )
         return _combo(resolved if resolved else [value], value, metadata)
 
     if items:
@@ -405,7 +412,9 @@ def build_control(
         control.setValue(int(round(value * scale)))
         return Control(
             widget=control,
-            read=lambda: int(round(control.value() / scale)) if scale else control.value(),
+            read=lambda: (
+                int(round(control.value() / scale)) if scale else control.value()
+            ),
             write=lambda new: control.setValue(int(round(new * scale))),
             signals=(control.valueChanged,),
         )
@@ -418,7 +427,9 @@ def build_control(
             minimum,
             maximum,
             metadata.get("step") if metadata.get("step") is not None else defaults.step,
-            metadata.get("decimals") if metadata.get("decimals") is not None else defaults.decimals,
+            metadata.get("decimals")
+            if metadata.get("decimals") is not None
+            else defaults.decimals,
         )
         control.setValue(value * scale)
         return Control(
@@ -441,7 +452,9 @@ def build_control(
     if annotation is None:
         # A milling form, which has no annotation to fall back on: nothing here
         # can render this, and there is no value in showing it disabled.
-        logging.warning("No control for field of type %r (value %r)", type_, type(value))
+        logging.warning(
+            "No control for field of type %r (value %r)", type_, type(value)
+        )
         return None
 
     # Debug, not warning: the form says this itself, visibly and in the right

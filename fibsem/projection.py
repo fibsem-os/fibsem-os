@@ -76,10 +76,12 @@ def surface_foreshortening(
     every Arctis, and every test written against one -- and 22% at 35 degrees (FIB-657).
     """
     moved = projection.from_plane(0.0, _FORESHORTENING_PROBE, base)
-    travel = float(np.hypot(
-        (moved.y or 0.0) - (base.y or 0.0),
-        (moved.z or 0.0) - (base.z or 0.0),
-    ))
+    travel = float(
+        np.hypot(
+            (moved.y or 0.0) - (base.y or 0.0),
+            (moved.z or 0.0) - (base.z or 0.0),
+        )
+    )
     if not travel:
         return 1.0
     return _FORESHORTENING_PROBE / travel
@@ -290,9 +292,7 @@ class BeamStageProjection:
                 geometry=geometry,
                 beam_type=beam_type,
                 scan_rotation=beam.scan_rotation,
-                is_tescan=(
-                    info is not None and info.manufacturer.upper() == "TESCAN"
-                ),
+                is_tescan=(info is not None and info.manufacturer.upper() == "TESCAN"),
             )
         except Exception as e:
             logging.debug(f"Could not read the beam geometry from the image: {e}")
@@ -397,9 +397,7 @@ class BeamStageProjection:
             return 0.0
         return np.deg2rad(self.geometry.fib_column_tilt)
 
-    def _expected_y(
-        self, dy: float, dz: float, base: FibsemStagePosition
-    ) -> float:
+    def _expected_y(self, dy: float, dz: float, base: FibsemStagePosition) -> float:
         """The image-space y-displacement a y/z stage movement corresponds to."""
         if self.is_tescan:
             return inverse_y_corrected_stage_movement_tescan_from_geometry(

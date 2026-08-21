@@ -225,9 +225,7 @@ def plan_sparse_fm_overview(
         is_compustage=is_compustage,
     )
     plan = plan_grid_over_regions(fm_regions, fov_x, fov_y, overlap)
-    centre_position = fm_projection.from_plane(
-        plan.centre_dx, plan.centre_dy, fm_base
-    )
+    centre_position = fm_projection.from_plane(plan.centre_dx, plan.centre_dy, fm_base)
     # Re-expressed against the grid centre rather than the base the caller happened to
     # draw against, so the regions and the tiles are in one frame: the display draws both
     # together, and the drawing origin is the caller's business, not the plan's.

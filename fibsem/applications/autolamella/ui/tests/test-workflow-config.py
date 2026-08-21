@@ -1,4 +1,5 @@
 """Test script for WorkflowConfigWidget."""
+
 import sys
 
 from PyQt5.QtWidgets import (
@@ -27,11 +28,20 @@ SAMPLE_CONFIG = AutoLamellaWorkflowConfig(
     name="Standard Cryo-Lamella",
     description="Standard workflow for cryo-lamella preparation",
     tasks=[
-        AutoLamellaTaskDescription(name="Acquire Reference Image", supervise=True, required=True),
+        AutoLamellaTaskDescription(
+            name="Acquire Reference Image", supervise=True, required=True
+        ),
         AutoLamellaTaskDescription(name="Mill Trench", supervise=True, required=True),
         AutoLamellaTaskDescription(name="Mill Rough", supervise=False, required=True),
-        AutoLamellaTaskDescription(name="Mill Polishing", supervise=True, required=True, requires=["Mill Rough"]),
-        AutoLamellaTaskDescription(name="Acquire Final Image", supervise=False, required=False),
+        AutoLamellaTaskDescription(
+            name="Mill Polishing",
+            supervise=True,
+            required=True,
+            requires=["Mill Rough"],
+        ),
+        AutoLamellaTaskDescription(
+            name="Acquire Final Image", supervise=False, required=False
+        ),
     ],
 )
 
@@ -93,10 +103,10 @@ class TestWindow(QWidget):
         toggle_row = QHBoxLayout()
         toggle_row.setSpacing(6)
         for label, fn in [
-            ("Schedule",  self.workflow_widget.enable_schedule_button),
+            ("Schedule", self.workflow_widget.enable_schedule_button),
             ("Supervise", self.workflow_widget.enable_supervise_button),
-            ("Edit",      self.workflow_widget.enable_edit_button),
-            ("Remove",    self.workflow_widget.enable_remove_button),
+            ("Edit", self.workflow_widget.enable_edit_button),
+            ("Remove", self.workflow_widget.enable_remove_button),
         ]:
             cb = QCheckBox(label)
             cb.setChecked(True)
@@ -144,7 +154,9 @@ class TestWindow(QWidget):
     def _on_editor_apply(self, task: AutoLamellaTaskDescription) -> None:
         self.workflow_widget.refresh_task(task)
         self.editor.hide()
-        self._log(f"Applied: {task.name} | required={task.required} | requires={task.requires}")
+        self._log(
+            f"Applied: {task.name} | required={task.required} | requires={task.requires}"
+        )
 
     def _on_editor_cancel(self) -> None:
         self.editor.hide()
@@ -161,7 +173,7 @@ class TestWindow(QWidget):
             mode = "supervised" if t.supervise else "automated"
             req = ", ".join(t.requires) if t.requires else "—"
             opt = "" if t.required else " [optional]"
-            print(f"  {i+1}. {t.name}{opt}  |  {mode}  |  requires: {req}")
+            print(f"  {i + 1}. {t.name}{opt}  |  {mode}  |  requires: {req}")
         print("─────────────────────────────────────\n")
         self._log(f"Printed {len(tasks)} tasks to console")
 
@@ -169,16 +181,19 @@ class TestWindow(QWidget):
         tasks = self.workflow_widget.get_selected()
         print("\n── Selected ──────────────────────────")
         for i, t in enumerate(tasks):
-            print(f"  {i+1}. {t.name}")
+            print(f"  {i + 1}. {t.name}")
         print("─────────────────────────────────────\n")
         self._log(f"Printed {len(tasks)} selected tasks to console")
 
     def _add_task(self) -> None:
         import random
+
         verbs = ["Acquire", "Mill", "Align", "Inspect", "Record"]
         nouns = ["Fiducial", "Undercut", "Notch", "Overview", "Tilt Series"]
         name = f"{random.choice(verbs)} {random.choice(nouns)}"
-        requires = random.sample([t.name for t in self._config.tasks], k=random.randint(0, 2))
+        requires = random.sample(
+            [t.name for t in self._config.tasks], k=random.randint(0, 2)
+        )
         task = AutoLamellaTaskDescription(
             name=name,
             supervise=random.random() < 0.5,

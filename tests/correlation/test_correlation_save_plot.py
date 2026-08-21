@@ -9,6 +9,7 @@ These tests exist to keep that true. The one that earns its keep is the
 parametrised one: it renders the canvas in production today *and* the one it is
 being swapped to, through the same code path.
 """
+
 import sys
 
 import numpy as np

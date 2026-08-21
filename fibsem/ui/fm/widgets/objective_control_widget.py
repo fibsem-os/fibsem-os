@@ -95,7 +95,12 @@ class _InsertObjectiveDialog(QDialog):
 class ObjectiveControlWidget(QWidget):
     # parent is duck-typed: hosts optionally supply .viewer, .microscope,
     # ._view_controller() and .is_acquisition_active, all read behind guards.
-    def __init__(self, fm: FluorescenceMicroscope, parent: Optional[QWidget] = None, microscope=None):
+    def __init__(
+        self,
+        fm: FluorescenceMicroscope,
+        parent: Optional[QWidget] = None,
+        microscope=None,
+    ):
         super().__init__(parent)
         self.fm = fm
         self.parent_widget = parent
@@ -111,64 +116,125 @@ class ObjectiveControlWidget(QWidget):
         self.pushButton_insert_objective = QPushButton("Insert Objective", self)
         self.pushButton_retract_objective = QPushButton("Retract Objective", self)
         self.pushButton_refresh_position = QPushButton("Refresh Position Data", self)
-        self.pushButton_refresh_position.setToolTip("Refresh the objective position data from the microscope")
+        self.pushButton_refresh_position.setToolTip(
+            "Refresh the objective position data from the microscope"
+        )
         self.pushButton_refresh_position.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.pushButton_refresh_position.setVisible(False)
 
         # add focus position controls
         self.label_focus_position = QLabel("Focus Position", self)
         self.doubleSpinBox_focus_position = ValueSpinBox(parent=self)
-        self.doubleSpinBox_focus_position.setRange(self.fm.objective.limits[0] * METRE_TO_MICRON,
-                                                   self.fm.objective.limits[1] * METRE_TO_MICRON)
+        self.doubleSpinBox_focus_position.setRange(
+            self.fm.objective.limits[0] * METRE_TO_MICRON,
+            self.fm.objective.limits[1] * METRE_TO_MICRON,
+        )
         # Set initial value from objective's focus position if available
         if self.fm.objective.focus_position is not None:
-            self.doubleSpinBox_focus_position.setValue(self.fm.objective.focus_position * METRE_TO_MICRON)
+            self.doubleSpinBox_focus_position.setValue(
+                self.fm.objective.focus_position * METRE_TO_MICRON
+            )
         else:
             self.doubleSpinBox_focus_position.setValue(0.0)
-        self.doubleSpinBox_focus_position.setSingleStep(OBJECTIVE_CONFIG["position"]["step_size"])
-        self.doubleSpinBox_focus_position.setDecimals(OBJECTIVE_CONFIG["position"]["decimals"])
-        self.doubleSpinBox_focus_position.setSuffix(OBJECTIVE_CONFIG["position"]["suffix"])
-        self.doubleSpinBox_focus_position.setToolTip("Focus position in microns - set and move to autofocus position")
+        self.doubleSpinBox_focus_position.setSingleStep(
+            OBJECTIVE_CONFIG["position"]["step_size"]
+        )
+        self.doubleSpinBox_focus_position.setDecimals(
+            OBJECTIVE_CONFIG["position"]["decimals"]
+        )
+        self.doubleSpinBox_focus_position.setSuffix(
+            OBJECTIVE_CONFIG["position"]["suffix"]
+        )
+        self.doubleSpinBox_focus_position.setToolTip(
+            "Focus position in microns - set and move to autofocus position"
+        )
         self.doubleSpinBox_focus_position.setKeyboardTracking(False)
         self.pushButton_move_to_focus = QPushButton("Move to Focus Position", self)
-        self.pushButton_move_to_focus.setToolTip("Move objective to stored focus position")
+        self.pushButton_move_to_focus.setToolTip(
+            "Move objective to stored focus position"
+        )
         self.pushButton_set_focus_position = QPushButton("Set Focus Position", self)
-        self.pushButton_set_focus_position.setToolTip("Set current objective position as focus position")
+        self.pushButton_set_focus_position.setToolTip(
+            "Set current objective position as focus position"
+        )
 
         # add double spin box for objective position
         self.label_objective_control = QLabel("Current Position", self)
         self.label_objective_step_size = QLabel("Step Size", self)
         self.doubleSpinBox_objective_position = ValueSpinBox(parent=self)
-        self.doubleSpinBox_objective_position.setRange(self.fm.objective.limits[0] * METRE_TO_MICRON,
-                                                        self.fm.objective.limits[1] * METRE_TO_MICRON)
-        self.doubleSpinBox_objective_position.setValue(self.fm.objective.position * METRE_TO_MICRON)  # Convert m to µm
-        self.doubleSpinBox_objective_position.setSingleStep(OBJECTIVE_CONFIG["position"]["step_size"])
-        self.doubleSpinBox_objective_position.setDecimals(OBJECTIVE_CONFIG["position"]["decimals"])
-        self.doubleSpinBox_objective_position.setSuffix(OBJECTIVE_CONFIG["position"]["suffix"])
-        self.doubleSpinBox_objective_position.setToolTip(OBJECTIVE_CONFIG["position"]["tooltip"])
-        self.doubleSpinBox_objective_position.setKeyboardTracking(False)  # Disable keyboard tracking for immediate updates
+        self.doubleSpinBox_objective_position.setRange(
+            self.fm.objective.limits[0] * METRE_TO_MICRON,
+            self.fm.objective.limits[1] * METRE_TO_MICRON,
+        )
+        self.doubleSpinBox_objective_position.setValue(
+            self.fm.objective.position * METRE_TO_MICRON
+        )  # Convert m to µm
+        self.doubleSpinBox_objective_position.setSingleStep(
+            OBJECTIVE_CONFIG["position"]["step_size"]
+        )
+        self.doubleSpinBox_objective_position.setDecimals(
+            OBJECTIVE_CONFIG["position"]["decimals"]
+        )
+        self.doubleSpinBox_objective_position.setSuffix(
+            OBJECTIVE_CONFIG["position"]["suffix"]
+        )
+        self.doubleSpinBox_objective_position.setToolTip(
+            OBJECTIVE_CONFIG["position"]["tooltip"]
+        )
+        self.doubleSpinBox_objective_position.setKeyboardTracking(
+            False
+        )  # Disable keyboard tracking for immediate updates
         self.doubleSpinBox_objective_step_size = ValueSpinBox(parent=self)
-        self.doubleSpinBox_objective_step_size.setRange(*OBJECTIVE_CONFIG["step_size_control"]["range"])
-        self.doubleSpinBox_objective_step_size.setSingleStep(OBJECTIVE_CONFIG["step_size_control"]["step"])
-        self.doubleSpinBox_objective_step_size.setValue(OBJECTIVE_CONFIG["step_size_control"]["default"])
-        self.doubleSpinBox_objective_step_size.setDecimals(OBJECTIVE_CONFIG["step_size_control"]["decimals"])
-        self.doubleSpinBox_objective_step_size.setSuffix(OBJECTIVE_CONFIG["step_size_control"]["suffix"])
-        self.doubleSpinBox_objective_step_size.setToolTip(OBJECTIVE_CONFIG["step_size_control"]["tooltip"])
-        self.doubleSpinBox_objective_step_size.setKeyboardTracking(False)  # Disable keyboard tracking for immediate updates
+        self.doubleSpinBox_objective_step_size.setRange(
+            *OBJECTIVE_CONFIG["step_size_control"]["range"]
+        )
+        self.doubleSpinBox_objective_step_size.setSingleStep(
+            OBJECTIVE_CONFIG["step_size_control"]["step"]
+        )
+        self.doubleSpinBox_objective_step_size.setValue(
+            OBJECTIVE_CONFIG["step_size_control"]["default"]
+        )
+        self.doubleSpinBox_objective_step_size.setDecimals(
+            OBJECTIVE_CONFIG["step_size_control"]["decimals"]
+        )
+        self.doubleSpinBox_objective_step_size.setSuffix(
+            OBJECTIVE_CONFIG["step_size_control"]["suffix"]
+        )
+        self.doubleSpinBox_objective_step_size.setToolTip(
+            OBJECTIVE_CONFIG["step_size_control"]["tooltip"]
+        )
+        self.doubleSpinBox_objective_step_size.setKeyboardTracking(
+            False
+        )  # Disable keyboard tracking for immediate updates
 
         # add user-defined limit controls
         self.label_objective_limit = QLabel("Limit Position", self)
         self.doubleSpinBox_objective_limit = ValueSpinBox(parent=self)
-        self.doubleSpinBox_objective_limit.setRange(0.0, self.fm.objective.limits[1] * METRE_TO_MICRON)
-        self.doubleSpinBox_objective_limit.setValue(self.fm.objective.limit_position * METRE_TO_MICRON)
-        self.doubleSpinBox_objective_limit.setSingleStep(OBJECTIVE_CONFIG["position"]["step_size"])
-        self.doubleSpinBox_objective_limit.setDecimals(OBJECTIVE_CONFIG["position"]["decimals"])
-        self.doubleSpinBox_objective_limit.setSuffix(OBJECTIVE_CONFIG["position"]["suffix"])
-        self.doubleSpinBox_objective_limit.setToolTip("User-defined upper limit for objective position in microns")
+        self.doubleSpinBox_objective_limit.setRange(
+            0.0, self.fm.objective.limits[1] * METRE_TO_MICRON
+        )
+        self.doubleSpinBox_objective_limit.setValue(
+            self.fm.objective.limit_position * METRE_TO_MICRON
+        )
+        self.doubleSpinBox_objective_limit.setSingleStep(
+            OBJECTIVE_CONFIG["position"]["step_size"]
+        )
+        self.doubleSpinBox_objective_limit.setDecimals(
+            OBJECTIVE_CONFIG["position"]["decimals"]
+        )
+        self.doubleSpinBox_objective_limit.setSuffix(
+            OBJECTIVE_CONFIG["position"]["suffix"]
+        )
+        self.doubleSpinBox_objective_limit.setToolTip(
+            "User-defined upper limit for objective position in microns"
+        )
         self.doubleSpinBox_objective_limit.setKeyboardTracking(False)
 
         # instructions label
-        self.label_instructions = QLabel("Instructions: Use Shift + Mouse Wheel to move objective by the step size", self)
+        self.label_instructions = QLabel(
+            "Instructions: Use Shift + Mouse Wheel to move objective by the step size",
+            self,
+        )
         self.label_instructions.setStyleSheet("font-style: italic; color: gray;")
 
         # Create the layout
@@ -193,13 +259,23 @@ class ObjectiveControlWidget(QWidget):
         # connect signals
         self.pushButton_insert_objective.clicked.connect(self.insert_objective)
         self.pushButton_retract_objective.clicked.connect(self.retract_objective)
-        self.doubleSpinBox_focus_position.valueChanged.connect(self.on_focus_position_changed)
+        self.doubleSpinBox_focus_position.valueChanged.connect(
+            self.on_focus_position_changed
+        )
         self.pushButton_move_to_focus.clicked.connect(self.move_to_focus_position)
         self.pushButton_set_focus_position.clicked.connect(self.set_focus_position)
-        self.doubleSpinBox_objective_position.valueChanged.connect(self.on_objective_position_changed)
-        self.doubleSpinBox_objective_step_size.valueChanged.connect(lambda value: self.doubleSpinBox_objective_position.setSingleStep(value))
-        self.doubleSpinBox_objective_limit.valueChanged.connect(self.on_objective_limit_changed)
-        self.pushButton_refresh_position.clicked.connect(lambda: self.update_objective_position_labels(None))
+        self.doubleSpinBox_objective_position.valueChanged.connect(
+            self.on_objective_position_changed
+        )
+        self.doubleSpinBox_objective_step_size.valueChanged.connect(
+            lambda value: self.doubleSpinBox_objective_position.setSingleStep(value)
+        )
+        self.doubleSpinBox_objective_limit.valueChanged.connect(
+            self.on_objective_limit_changed
+        )
+        self.pushButton_refresh_position.clicked.connect(
+            lambda: self.update_objective_position_labels(None)
+        )
 
         # Moves this widget did not make -- an autofocus sweep, a z-stack, the overview
         # runner -- left the spinbox showing the position from before them. It only ever
@@ -240,12 +316,16 @@ class ObjectiveControlWidget(QWidget):
         # (FIB-628). Cleared in the completion slots, which run on the GUI thread.
         self._action_worker: Optional[FunctionWorker] = None
         self._wheel_moving_to_um: Optional[float] = None
-        self._execute_wheel_move = qdebounced(self._execute_wheel_move_impl, timeout=150)
+        self._execute_wheel_move = qdebounced(
+            self._execute_wheel_move_impl, timeout=150
+        )
 
         # `hasattr` is not enough once hosts go viewer-less — the attribute is still
         # there, holding None.
-        if (self.parent_widget is not None
-                and getattr(self.parent_widget, "viewer", None) is not None):
+        if (
+            self.parent_widget is not None
+            and getattr(self.parent_widget, "viewer", None) is not None
+        ):
             self.parent_widget.viewer.mouse_wheel_callbacks.append(self._on_mouse_wheel)
 
     def _set_objective_actions_enabled(self, enabled: bool) -> None:
@@ -421,7 +501,7 @@ class ObjectiveControlWidget(QWidget):
         ret = message_box_ui(
             title="Retract Objective",
             text="Are you sure you want to retract the objective?",
-            parent=self
+            parent=self,
         )
         if ret is False:
             logging.info("Objective retraction cancelled by user.")
@@ -440,19 +520,27 @@ class ObjectiveControlWidget(QWidget):
         self.fm.objective.retract()
         logging.info("Objective retracted.")
 
-    def update_objective_position_labels(self, objective_position: Optional[float] = None):
+    def update_objective_position_labels(
+        self, objective_position: Optional[float] = None
+    ):
         """Update the objective position input and label."""
         if objective_position is None:
             objective_position = self.fm.objective.position
-        self.doubleSpinBox_objective_position.blockSignals(True)  # Block signals to prevent recursion
-        self.doubleSpinBox_objective_position.setValue(objective_position * METRE_TO_MICRON)  # Convert m to µm
+        self.doubleSpinBox_objective_position.blockSignals(
+            True
+        )  # Block signals to prevent recursion
+        self.doubleSpinBox_objective_position.setValue(
+            objective_position * METRE_TO_MICRON
+        )  # Convert m to µm
         self.doubleSpinBox_objective_position.blockSignals(False)  # Unblock signals
 
         if self.parent_widget is not None:
             if getattr(self.parent_widget, "viewer", None) is not None:
-                update_text_overlay(self.parent_widget.viewer,
-                                    self.parent_widget.microscope,
-                                    objective_position=objective_position)  # TODO: migrate to objective_position_changed signal
+                update_text_overlay(
+                    self.parent_widget.viewer,
+                    self.parent_widget.microscope,
+                    objective_position=objective_position,
+                )  # TODO: migrate to objective_position_changed signal
             # quad-view info bar (OBJECTIVE on the FM canvas), via the controller
             controller = None
             try:
@@ -460,8 +548,9 @@ class ObjectiveControlWidget(QWidget):
             except Exception:
                 controller = None
             if controller is not None:
-                controller.update_info(self.parent_widget.microscope,
-                                       objective_position=objective_position)
+                controller.update_info(
+                    self.parent_widget.microscope, objective_position=objective_position
+                )
 
     @ensure_main_thread
     def _on_objective_moved(self, position: float, state: str) -> None:
@@ -513,15 +602,19 @@ class ObjectiveControlWidget(QWidget):
             self.update_objective_position_labels()
             return
 
-        is_large_change = abs(self.fm.objective.position - (position * MICRON_TO_METRE)) > 1e-3  # 1 mm threshold
+        is_large_change = (
+            abs(self.fm.objective.position - (position * MICRON_TO_METRE)) > 1e-3
+        )  # 1 mm threshold
 
         if is_large_change:
-            logging.info(f"Large change in objective position requested: {position:.1f} µm")
+            logging.info(
+                f"Large change in objective position requested: {position:.1f} µm"
+            )
 
             ret = message_box_ui(
                 title="Large Objective Movement",
                 text=f"Are you sure you want to move the objective position to {position:.1f} µm?",
-                parent=self
+                parent=self,
             )
 
             if ret is False:
@@ -575,13 +668,15 @@ class ObjectiveControlWidget(QWidget):
 
         # confirmation dialog for large movements
         current_position_um = self.fm.objective.position * METRE_TO_MICRON
-        is_large_change = abs(current_position_um - focus_position_um) > 1000.0  # 1 mm threshold
+        is_large_change = (
+            abs(current_position_um - focus_position_um) > 1000.0
+        )  # 1 mm threshold
 
         if is_large_change:
             ret = message_box_ui(
                 title="Move to Focus Position",
                 text=f"Move objective to focus position {focus_position_um:.1f} µm?",
-                parent=self
+                parent=self,
             )
             if ret is False:
                 logging.info("Move to focus position cancelled by user.")
@@ -590,9 +685,13 @@ class ObjectiveControlWidget(QWidget):
         logging.info(f"Moving objective to focus position: {focus_position_um:.1f} µm")
         try:
             self.fm.objective.move_absolute(self.fm.objective.focus_position)
-            logging.info(f"Objective moved to focus position: {focus_position_um:.1f} µm")
+            logging.info(
+                f"Objective moved to focus position: {focus_position_um:.1f} µm"
+            )
         except Exception as e:
-            logging.error(f"Failed to move objective to focus position: {e}", exc_info=e)
+            logging.error(
+                f"Failed to move objective to focus position: {e}", exc_info=e
+            )
             message_box_ui(
                 title="Objective Error",
                 text=f"Failed to move the objective:\n\n{e}",
@@ -633,7 +732,9 @@ class ObjectiveControlWidget(QWidget):
         Args:
             position (float): Focus position in meters.
         """
-        logging.info(f"Programmatically setting focus position to: {position * METRE_TO_MICRON:.1f} µm")
+        logging.info(
+            f"Programmatically setting focus position to: {position * METRE_TO_MICRON:.1f} µm"
+        )
         self.doubleSpinBox_focus_position.blockSignals(True)
         self.doubleSpinBox_focus_position.setValue(position * METRE_TO_MICRON)
         self.doubleSpinBox_focus_position.blockSignals(False)
@@ -644,7 +745,9 @@ class ObjectiveControlWidget(QWidget):
         Args:
             position (float): Limit position in meters.
         """
-        logging.info(f"Programmatically setting limit position to: {position * METRE_TO_MICRON:.1f} µm")
+        logging.info(
+            f"Programmatically setting limit position to: {position * METRE_TO_MICRON:.1f} µm"
+        )
         self.doubleSpinBox_objective_limit.blockSignals(True)
         self.doubleSpinBox_objective_limit.setValue(position * METRE_TO_MICRON)
         self.doubleSpinBox_objective_limit.blockSignals(False)
@@ -662,7 +765,7 @@ class ObjectiveControlWidget(QWidget):
             event.handled = False
             return
 
-        if 'Shift' not in event.modifiers:
+        if "Shift" not in event.modifiers:
             event.handled = False  # Let napari handle zooming if Shift is not pressed
             return
 
@@ -683,7 +786,11 @@ class ObjectiveControlWidget(QWidget):
 
         # Calculate step size based on wheel delta
         objective_step_size = self.doubleSpinBox_objective_step_size.value()  # µm
-        step_um = np.clip(objective_step_size * event.delta[1], -MAX_OBJECTIVE_STEP_SIZE_UM, MAX_OBJECTIVE_STEP_SIZE_UM)
+        step_um = np.clip(
+            objective_step_size * event.delta[1],
+            -MAX_OBJECTIVE_STEP_SIZE_UM,
+            MAX_OBJECTIVE_STEP_SIZE_UM,
+        )
 
         # Read current position from the spinbox (no hardware call)
         current_pos_um = self.doubleSpinBox_objective_position.value()
@@ -817,7 +924,9 @@ class ObjectiveControlWidget(QWidget):
         if self._wheel_target_um != self._wheel_moving_to_um:
             self._start_wheel_move()  # stale before it could be shown; do not write it
             return
-        self._wheel_moving_to_um = None  # the burst is over; the device owns the readout
+        self._wheel_moving_to_um = (
+            None  # the burst is over; the device owns the readout
+        )
         # Kept even though `position_changed` now drives the same labels (FIB-576):
         # that signal is skipped when the read behind it fails, by design, and this is
         # the path that always reports. Two label updates cost ~0.4 ms together.
@@ -871,9 +980,13 @@ class ObjectiveControlWidget(QWidget):
         except Exception:
             pass
         self._detach_wheel_worker()
-        if (self.parent_widget is not None
-                and getattr(self.parent_widget, "viewer", None) is not None):
+        if (
+            self.parent_widget is not None
+            and getattr(self.parent_widget, "viewer", None) is not None
+        ):
             try:
-                self.parent_widget.viewer.mouse_wheel_callbacks.remove(self._on_mouse_wheel)
+                self.parent_widget.viewer.mouse_wheel_callbacks.remove(
+                    self._on_mouse_wheel
+                )
             except (ValueError, RuntimeError):
                 pass

@@ -14,6 +14,7 @@ window, and the window's own wiring is checked structurally in
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python -m pytest tests/ui/test_overview_tab_host.py
 """
+
 from __future__ import annotations
 
 import os
@@ -58,7 +59,9 @@ def microscope():
     import fibsem.config as fibsem_config
 
     path = os.path.join(
-        os.path.dirname(fibsem_config.__file__), "config", "sim-arctis-configuration.yaml"
+        os.path.dirname(fibsem_config.__file__),
+        "config",
+        "sim-arctis-configuration.yaml",
     )
     scope, _ = utils.setup_session(manufacturer="Demo", config_path=path)
     assert scope.stage_is_compustage, "the config stopped being a compustage"
@@ -91,10 +94,14 @@ class _StubWindow:
         name = f"Lamella-{number:02d}"
         if stage_position is None:
             beam = self.microscope.get_orientation(MILLING_ORIENTATION)
-            stage_position = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=beam.r, t=beam.t)
+            stage_position = FibsemStagePosition(
+                x=0.0, y=0.0, z=0.0, r=beam.r, t=beam.t
+            )
         poses = build_lamella_poses(self.microscope, stage_position)
         lamella = Lamella(
-            petname=name, path=os.path.join(str(self.experiment.path), name), number=number
+            petname=name,
+            path=os.path.join(str(self.experiment.path), name),
+            number=number,
         )
         lamella.milling_pose = poses.milling
         lamella.fluorescence_pose = poses.fluorescence
@@ -222,7 +229,9 @@ class TestMovingAPosition:
         sync_fluorescence_pose(microscope, lamella)
         before = lamella.fluorescence_pose
         before_position = (
-            None if before is None else (before.stage_position.x, before.stage_position.y)
+            None
+            if before is None
+            else (before.stage_position.x, before.stage_position.y)
         )
 
         target = _at(microscope.get_stage_position(), dx=250e-6, dy=-125e-6)
@@ -334,7 +343,10 @@ class TestTheFlagOff:
         and connected here, and the tab still has to decline to build."""
         experiment = Experiment(path=tmp_path, name="overview-flag-off")
         os.makedirs(str(experiment.path), exist_ok=True)
-        signals = (microscope.tiled_acquisition_signal, microscope.stage_position_changed)
+        signals = (
+            microscope.tiled_acquisition_signal,
+            microscope.stage_position_changed,
+        )
         before = [len(s) for s in signals]
 
         tab = AutoLamellaOverviewTab(_StubWindow(microscope, experiment))
@@ -348,7 +360,10 @@ class TestTheFlagOff:
         )
 
     def test_turning_it_off_drops_what_was_built(self, tab, microscope):
-        signals = (microscope.tiled_acquisition_signal, microscope.stage_position_changed)
+        signals = (
+            microscope.tiled_acquisition_signal,
+            microscope.stage_position_changed,
+        )
         before = [len(s) for s in signals]
         tab.set_enabled(False)
         assert tab.overview is None
@@ -434,7 +449,9 @@ class TestItMarksTheFluorescenceSidePose:
         fm_tab.refresh_positions()
 
         assert fm_tab.overview._positions == []
-        assert [row.lamella.name for row in fm_tab.lamella_list._rows()] == [lamella.name]
+        assert [row.lamella.name for row in fm_tab.lamella_list._rows()] == [
+            lamella.name
+        ]
 
     def test_move_to_drives_to_the_fluorescence_pose(self, fm_tab, microscope):
         """Moving to the milling pose from here would swing the stage 180 degrees away

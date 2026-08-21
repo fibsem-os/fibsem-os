@@ -144,7 +144,9 @@ class TestTheStreamDrivesIt:
     def test_stopping_it_clears_the_panel(self, widget, controller):
         widget.fm.start_acquisition(channel_settings=widget.channel_settings)
         widget._update_acquisition_button_states()
-        assert _badge_on(controller, controller.fm_canvas), "never lit; nothing to clear"
+        assert _badge_on(controller, controller.fm_canvas), (
+            "never lit; nothing to clear"
+        )
 
         widget.fm.stop_acquisition()
         widget._update_acquisition_button_states()

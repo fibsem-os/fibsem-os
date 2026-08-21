@@ -35,8 +35,21 @@ from fibsem.structures import (
 from fibsem.ui.napari.properties import ALIGNMENT_LAYER_PROPERTIES
 
 # colour wheel
-COLOURS = ["yellow", "cyan", "magenta", "lime", "orange", "hotpink", "green", "blue", "red", "purple"]
-COLOURMAPS = {c: NapariColormap([to_rgba(c, alpha=0), to_rgba(c, alpha=1)]) for c in COLOURS}
+COLOURS = [
+    "yellow",
+    "cyan",
+    "magenta",
+    "lime",
+    "orange",
+    "hotpink",
+    "green",
+    "blue",
+    "red",
+    "purple",
+]
+COLOURMAPS = {
+    c: NapariColormap([to_rgba(c, alpha=0), to_rgba(c, alpha=1)]) for c in COLOURS
+}
 
 SHAPES_LAYER_PROPERTIES = {
     "edge_width": 0.5,
@@ -47,17 +60,31 @@ SHAPES_LAYER_PROPERTIES = {
 IMAGE_LAYER_PROPERTIES = {
     "blending": "additive",
     "opacity": 0.6,
-    "cmap": {0: "black", 1: COLOURS[0]} # override with colour wheel
+    "cmap": {0: "black", 1: COLOURS[0]},  # override with colour wheel
 }
 
 MILLING_ALIGNMENT_AREA_LAYER_NAME = "Alignment Area"
 MILLING_PATTERN_LAYER_NAME = "Milling Patterns"
 MILLING_FOV_LAYER_NAME = "Milling FOV"
 IMAGE_PATTERN_TYPES = ("bitmap",)
-IGNORE_SHAPES_LAYERS = ["ruler_line", "crosshair", "scalebar", "label", "overlay-shapes", "bbox", MILLING_FOV_LAYER_NAME, MILLING_ALIGNMENT_AREA_LAYER_NAME] # ignore these layers when removing all shapes
-STAGE_POSTIION_SHAPE_LAYERS = ["saved-stage-positions", "current-stage-position", "stage-position"] # for minimap
+IGNORE_SHAPES_LAYERS = [
+    "ruler_line",
+    "crosshair",
+    "scalebar",
+    "label",
+    "overlay-shapes",
+    "bbox",
+    MILLING_FOV_LAYER_NAME,
+    MILLING_ALIGNMENT_AREA_LAYER_NAME,
+]  # ignore these layers when removing all shapes
+STAGE_POSTIION_SHAPE_LAYERS = [
+    "saved-stage-positions",
+    "current-stage-position",
+    "stage-position",
+]  # for minimap
 IGNORE_SHAPES_LAYERS.extend(STAGE_POSTIION_SHAPE_LAYERS)
 CURRENT_PATTERN_LAYERS: Set[str] = set()
+
 
 def create_affine_matrix(
     scale: Tuple[float, float] = (1, 1),
@@ -98,12 +125,12 @@ def convert_pattern_to_napari_circle(
     if not isinstance(pattern_settings, FibsemCircleSettings):
         raise ValueError(f"Pattern is not a Circle: {pattern_settings}")
 
-
     # pattern to pixel coords
     r = int(pattern_settings.radius / pixelsize)
     centre = microscope_image_to_image_coordinates(
         Point(x=pattern_settings.centre_x, y=pattern_settings.centre_y),
-        shape, pixelsize,
+        shape,
+        pixelsize,
     )
     cx, cy = int(centre.x), int(centre.y)
 
@@ -124,7 +151,6 @@ def convert_pattern_to_napari_line(
 ) -> Tuple[np.ndarray, Dict[str, Any]]:
     if not isinstance(pattern_settings, FibsemLineSettings):
         raise ValueError(f"Pattern is not a Line: {pattern_settings}")
-
 
     # extract pattern information from settings
     start_x = pattern_settings.start_x
@@ -155,7 +181,6 @@ def convert_pattern_to_napari_rect(
 ) -> Tuple[np.ndarray, Dict[str, Any]]:
     if not isinstance(pattern_settings, FibsemRectangleSettings):
         raise ValueError(f"Pattern is not a Rectangle: {pattern_settings}")
-
 
     # extract pattern information from settings
     pattern_width = pattern_settings.width
@@ -232,7 +257,8 @@ def convert_bitmap_pattern_to_napari_image(
 ) -> Tuple[np.ndarray, Dict[str, Any]]:
     centre = microscope_image_to_image_coordinates(
         Point(x=pattern_settings.centre_x, y=pattern_settings.centre_y),
-        shape, pixelsize,
+        shape,
+        pixelsize,
     )
 
     resize_x = int(pattern_settings.width / pixelsize)
@@ -267,11 +293,13 @@ def convert_bitmap_pattern_to_napari_image(
         "translate": translation,
     }
 
-def convert_pattern_to_napari_polygon(pattern_settings: FibsemPolygonSettings, 
-                                      shape: Tuple[int, int], 
-                                      pixelsize: float, 
-                                      translation: Union[np.ndarray, Tuple[float, float]] = (0, 0),
-                                      ) -> Tuple[np.ndarray, Dict[str, Any]]:
+
+def convert_pattern_to_napari_polygon(
+    pattern_settings: FibsemPolygonSettings,
+    shape: Tuple[int, int],
+    pixelsize: float,
+    translation: Union[np.ndarray, Tuple[float, float]] = (0, 0),
+) -> Tuple[np.ndarray, Dict[str, Any]]:
     if not isinstance(pattern_settings, FibsemPolygonSettings):
         raise ValueError(f"Pattern is not a Polygon: {pattern_settings}")
 
@@ -292,6 +320,7 @@ def convert_pattern_to_napari_polygon(pattern_settings: FibsemPolygonSettings,
 
     return vertices, {"translate": translation}
 
+
 def remove_all_napari_shapes_layers(
     viewer: napari.Viewer,
     layer_type: Type[NapariLayer] = NapariShapesLayers,
@@ -304,11 +333,14 @@ def remove_all_napari_shapes_layers(
     for layer in viewer.layers:
         if layer.name in layers_to_ignore:
             continue
-        if isinstance(layer, layer_type) or any([layer_name == layer.name for layer_name in CURRENT_PATTERN_LAYERS]):
+        if isinstance(layer, layer_type) or any(
+            [layer_name == layer.name for layer_name in CURRENT_PATTERN_LAYERS]
+        ):
             layers_to_remove.append(layer)
     for layer in layers_to_remove:
         viewer.layers.remove(layer)  # Not removing the second layer?
         CURRENT_PATTERN_LAYERS.discard(layer.name)
+
 
 NAPARI_DRAWING_DICT = {
     FibsemRectangleSettings: (convert_pattern_to_napari_rect, "rectangle"),
@@ -357,7 +389,7 @@ class NapariPattern:
             pixelsize=pixelsize,
             translation=translation,
         )
-        
+
         if hasattr(pattern_settings, "is_exclusion") and pattern_settings.is_exclusion:
             colour = "black"
 
@@ -473,7 +505,7 @@ def draw_milling_patterns_in_napari(
 
     if all_napari_patterns:
         for i, (layer_name, patterns) in enumerate(all_napari_patterns.items()):
-            is_selected = (selected_index is not None and i == selected_index)
+            is_selected = selected_index is not None and i == selected_index
             image_list: List[NapariPattern] = []
             for pattern in patterns:
                 if pattern.shape_type in IMAGE_PATTERN_TYPES:
@@ -483,7 +515,9 @@ def draw_milling_patterns_in_napari(
                     shape_types.append(pattern.shape_type)
                     edge_colours.append(pattern.colour)
                     face_colours.append(pattern.colour)
-                    edge_widths.append(selected_edge_width if is_selected else edge_width)
+                    edge_widths.append(
+                        selected_edge_width if is_selected else edge_width
+                    )
 
             for shape in image_list:
                 # Napari applies translate before affine, which causes issues
@@ -564,6 +598,7 @@ def draw_milling_patterns_in_napari(
 
     return layer_name_list  # list of milling pattern layers
 
+
 def convert_point_to_napari(resolution: list, pixel_size: float, centre: Point):
     # `resolution` is [x, y] (structures.py: "resolution of the acquired image
     # in pixels, [x, y]"), the opposite order to a numpy `shape`. Swap it here
@@ -618,6 +653,7 @@ def validate_pattern_shape_placement(
 
     return True
 
+
 def is_pattern_placement_valid(pattern: BasePattern, image: FibsemImage) -> bool:
     """Check if the pattern is within the image bounds."""
 
@@ -660,7 +696,10 @@ def is_pattern_placement_valid(pattern: BasePattern, image: FibsemImage) -> bool
 
     return True
 
-def convert_reduced_area_to_napari_shape(reduced_area: FibsemRectangle, image_shape: Tuple[int, int]) -> np.ndarray:
+
+def convert_reduced_area_to_napari_shape(
+    reduced_area: FibsemRectangle, image_shape: Tuple[int, int]
+) -> np.ndarray:
     """Convert a reduced area to a napari shape."""
     x0 = reduced_area.left * image_shape[1]
     y0 = reduced_area.top * image_shape[0]
@@ -669,10 +708,13 @@ def convert_reduced_area_to_napari_shape(reduced_area: FibsemRectangle, image_sh
     data = [[y0, x0], [y0, x1], [y1, x1], [y1, x0]]
     return np.array(data)
 
-def convert_shape_to_image_area(shape: List[List[int]], image_shape: Tuple[int, int]) -> FibsemRectangle:
+
+def convert_shape_to_image_area(
+    shape: List[List[int]], image_shape: Tuple[int, int]
+) -> FibsemRectangle:
     """Convert a napari shape (rectangle) to  a FibsemRectangle expressed as a percentage of the image (reduced area)
     shape: the coordinates of the shape
-    image_shape: the shape of the image (usually the ion beam image)    
+    image_shape: the shape of the image (usually the ion beam image)
     """
     # get limits of rectangle
     y0, x0 = shape[0]
@@ -690,8 +732,10 @@ def convert_shape_to_image_area(shape: List[List[int]], image_shape: Tuple[int, 
     x0, x1 = min(x_coords), max(x_coords)
     y0, y1 = min(y_coords), max(y_coords)
 
-    logging.debug(f"convert shape data: {x0}, {x1}, {y0}, {y1}, fib shape: {image_shape}")
-        
+    logging.debug(
+        f"convert shape data: {x0}, {x1}, {y0}, {y1}, fib shape: {image_shape}"
+    )
+
     # convert to percentage of image
     x0 = float(x0 / image_shape[1])
     x1 = float(x1 / image_shape[1])

@@ -7,6 +7,7 @@ as a :class:`PointFitResult` and shown here for the user to accept or reject.
 The result type is list-ready: a batch fit (multiple selected points) produces
 a list of ``PointFitResult``, which a future summary dialog can present together.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -39,9 +40,9 @@ _UNCHANGED_EPS = 0.001
 
 
 class FitStatus(Enum):
-    OK = "ok"                # fit moved the point
+    OK = "ok"  # fit moved the point
     UNCHANGED = "unchanged"  # fit landed on (≈) the input position
-    ERROR = "error"          # fit raised / produced no position
+    ERROR = "error"  # fit raised / produced no position
 
 
 @dataclass
@@ -56,7 +57,7 @@ class PointFitResult:
     status: FitStatus
     message: Optional[str] = None
     channel_name: Optional[str] = None  # display label for `channel` (FM only)
-    detail: Optional[str] = None        # raw error, surfaced as a tooltip
+    detail: Optional[str] = None  # raw error, surfaced as a tooltip
     diagnostic: object = None  # FitDiagnostic; rendered on demand, not serialised
 
     @property
@@ -106,9 +107,9 @@ class PointFitResult:
 
 # (background, foreground) per status — napari-dark chips
 _STATUS_STYLE = {
-    FitStatus.OK:        ("#1b5e20", "#a5d6a7"),
+    FitStatus.OK: ("#1b5e20", "#a5d6a7"),
     FitStatus.UNCHANGED: ("#5d4037", "#ffcc80"),
-    FitStatus.ERROR:     ("#5a1f1f", "#ef9a9a"),
+    FitStatus.ERROR: ("#5a1f1f", "#ef9a9a"),
 }
 
 

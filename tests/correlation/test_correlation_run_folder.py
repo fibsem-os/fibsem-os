@@ -14,6 +14,7 @@ turned it into two real defects:
 
 Headless PyQt5, offscreen.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -236,7 +237,9 @@ def test_a_failed_save_is_reported(qapp, tmp_path, monkeypatch):
 
     w = _widget()
     monkeypatch.setattr(
-        type(w), "save_correlation", lambda self, path: (_ for _ in ()).throw(OSError("disk full"))
+        type(w),
+        "save_correlation",
+        lambda self, path: (_ for _ in ()).throw(OSError("disk full")),
     )
     w._on_save()  # must not raise
 
@@ -258,7 +261,9 @@ def test_a_failed_plot_save_is_reported(qapp, tmp_path, monkeypatch):
 
     w = _widget()
     monkeypatch.setattr(
-        type(w), "save_plot", lambda self, path=None: (_ for _ in ()).throw(OSError("disk full"))
+        type(w),
+        "save_plot",
+        lambda self, path=None: (_ for _ in ()).throw(OSError("disk full")),
     )
     w._on_save_plot_clicked()  # must not raise
 

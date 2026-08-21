@@ -131,7 +131,9 @@ class TestTheSlowPathIsUnchanged:
         imaging.active_view = 1  # a beam view — not ours
 
         with fm.active_channel():
-            assert imaging.active_view == FM_ACTIVE_VIEW, "the scope did not take the channel"
+            assert imaging.active_view == FM_ACTIVE_VIEW, (
+                "the scope did not take the channel"
+            )
 
         assert imaging.active_view == 1, "the scope did not put the beam view back"
 
@@ -202,18 +204,21 @@ class TestBothDriversHaveIt:
         ):
             tree = ast.parse((root / module).read_text(encoding="utf-8"))
             cls = next(
-                n for n in ast.walk(tree)
+                n
+                for n in ast.walk(tree)
                 if isinstance(n, ast.ClassDef) and n.name == cls_name
             )
             names = {n.name for n in cls.body if isinstance(n, ast.FunctionDef)}
             assert "_channel_is_ours" in names, f"{cls_name} lost its fast-path check"
 
             scope = next(
-                n for n in cls.body
+                n
+                for n in cls.body
                 if isinstance(n, ast.FunctionDef) and n.name == "active_channel"
             )
             calls = {
-                c.func.attr for c in ast.walk(scope)
+                c.func.attr
+                for c in ast.walk(scope)
                 if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
             }
             assert "_channel_is_ours" in calls, (

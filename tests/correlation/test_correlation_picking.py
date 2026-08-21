@@ -5,6 +5,7 @@ What is pinned here is the property the extraction exists for — that picking i
 not welded to one host — because that is the claim the FM side depends on and
 the one a future refactor could quietly break.
 """
+
 import sys
 
 import numpy as np
@@ -51,8 +52,11 @@ def _coord(x, y, pt=PointType.FIB):
 # ── the reason it was extracted ───────────────────────────────────────────
 
 
-@pytest.mark.parametrize("make_canvas", [_bare_canvas, _fm_canvas],
-                         ids=["FibsemImageCanvas", "FMCanvasWidget.canvas"])
+@pytest.mark.parametrize(
+    "make_canvas",
+    [_bare_canvas, _fm_canvas],
+    ids=["FibsemImageCanvas", "FMCanvasWidget.canvas"],
+)
 def test_picking_attaches_to_any_shared_canvas(make_canvas):
     """The FIB side puts this on a bare canvas, the FM side on FMCanvasWidget's.
     If it only worked on one, the FM display would need its own copy of the

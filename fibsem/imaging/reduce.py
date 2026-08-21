@@ -25,8 +25,7 @@ import math
 import cv2
 import numpy as np
 
-__all__ = ["downsample", "downsample_mask", "PreviewMosaic",
-           "PREVIEW_MAX_DIMENSION"]
+__all__ = ["downsample", "downsample_mask", "PreviewMosaic", "PREVIEW_MAX_DIMENSION"]
 
 
 # Element types `cv2.resize` accepts. Anything else takes the numpy path, which answers
@@ -195,8 +194,10 @@ class PreviewMosaic:
             max_px: longest side to decimate to.
         """
         self.stride = max(1, int(math.ceil(max(full_w, full_h) / max_px)))
-        shape = (int(math.ceil(full_h / self.stride)),
-                 int(math.ceil(full_w / self.stride)))
+        shape = (
+            int(math.ceil(full_h / self.stride)),
+            int(math.ceil(full_w / self.stride)),
+        )
         if channels is not None:
             shape = (int(channels),) + shape
         self.canvas = np.zeros(shape, dtype=dtype)
@@ -232,7 +233,7 @@ class PreviewMosaic:
             width = min(thumb.shape[1], target.shape[2] - x0)
             if height <= 0 or width <= 0:
                 return
-            target[index, y0:y0 + height, x0:x0 + width] = thumb[:height, :width]
+            target[index, y0 : y0 + height, x0 : x0 + width] = thumb[:height, :width]
 
     def describe(self) -> str:
         """One line for the log, the same on both sides."""

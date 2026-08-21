@@ -4,6 +4,7 @@ Collects a target z pixel size and interpolation method for
 :func:`fibsem.correlation.util.interpolate_fm_volume`. Interpolation only
 resamples z, so the natural default is the XY pixel size — an isotropic volume.
 """
+
 from __future__ import annotations
 
 from typing import Optional, Tuple
@@ -46,7 +47,9 @@ class InterpolateZDialog(QDialog):
     """Ask for a target z pixel size + method; expose them after ``exec_()``."""
 
     def __init__(
-        self, fm_image: FluorescenceImage, parent: Optional[QWidget] = None,
+        self,
+        fm_image: FluorescenceImage,
+        parent: Optional[QWidget] = None,
         fm_point_count: int = 0,
     ) -> None:
         super().__init__(parent)
@@ -91,7 +94,11 @@ class InterpolateZDialog(QDialog):
         form.addRow(self._chk_iso)
 
         self._spin_target = ValueSpinBox(
-            suffix="nm", minimum=1.0, maximum=100000.0, step=10.0, decimals=1,
+            suffix="nm",
+            minimum=1.0,
+            maximum=100000.0,
+            step=10.0,
+            decimals=1,
         )
         self._spin_target.setValue(self._xy * 1e9)
         self._spin_target.setEnabled(False)  # isotropic on by default
@@ -117,7 +124,9 @@ class InterpolateZDialog(QDialog):
 
             warn_icon = QLabel()
             warn_icon.setPixmap(
-                fibsem_icon("mdi:alert-circle-outline", color=_WARN_COLOR).pixmap(14, 14)
+                fibsem_icon("mdi:alert-circle-outline", color=_WARN_COLOR).pixmap(
+                    14, 14
+                )
             )
             warn_layout.addWidget(warn_icon, 0, Qt.AlignmentFlag.AlignTop)
 
@@ -172,9 +181,7 @@ class InterpolateZDialog(QDialog):
         new_nz = _estimate_slices(self._nz, self._z_step, target_m)
         gb = self._nc * new_nz * self._ny * self._nx * self._itemsize / 1e9
         iso = " · isotropic" if abs(target_m - self._xy) < 1e-12 else ""
-        self._preview.setText(
-            f"{self._nz} → {new_nz} slices{iso} · ~{gb:.1f} GB"
-        )
+        self._preview.setText(f"{self._nz} → {new_nz} slices{iso} · ~{gb:.1f} GB")
 
     # ------------------------------------------------------------------
     # Results (valid after exec_)

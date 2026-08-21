@@ -189,7 +189,8 @@ def test_channel_editor_offers_the_new_microscope_filters(qapp, editor_cls):
     expected = list(new.fm.filter_set.available_excitation_wavelengths)
     assert expected, "the fixture must offer some excitation wavelengths"
     assert [
-        detail.excitation_combo.itemData(i) for i in range(detail.excitation_combo.count())
+        detail.excitation_combo.itemData(i)
+        for i in range(detail.excitation_combo.count())
     ] == expected
     assert channels._list._excitation_items == expected
     assert channels._list._emission_items == list(

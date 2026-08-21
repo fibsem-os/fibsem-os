@@ -7,6 +7,7 @@ operate on the currently selected coordinate.
 Operates on a flat List[Coordinate]. Callers are responsible for
 flattening/reconstructing CorrelationInputData.
 """
+
 from __future__ import annotations
 
 from typing import Dict, List, Optional
@@ -53,10 +54,10 @@ _FITTED_ICON_COLOR = stylesheets.WHITE_ICON_COLOR
 _UNFITTED_ICON_COLOR = "#6b6f76"
 
 _POINT_TYPE_COLORS: Dict[PointType, str] = {
-    PointType.FIB:        "lime",
-    PointType.FM:         "cyan",
-    PointType.POI:        "magenta",
-    PointType.SURFACE:    "red",
+    PointType.FIB: "lime",
+    PointType.FM: "cyan",
+    PointType.POI: "magenta",
+    PointType.SURFACE: "red",
     PointType.SURFACE_FM: "yellow",
 }
 
@@ -88,7 +89,7 @@ def _name_col_width(point_type: Optional[PointType]) -> int:
     """
     label = f"{point_type.value if point_type else 'POINT'} 99"
     font = QApplication.font()  # the app-default family the label inherits...
-    font.setPixelSize(11)       # ...at the row/name label font-size
+    font.setPixelSize(11)  # ...at the row/name label font-size
     text_w = QFontMetrics(font).horizontalAdvance(label)
     return max(48, min(text_w + 14, _NAME_FIXED_WIDTH))  # +padding, clamped
 
@@ -96,6 +97,7 @@ def _name_col_width(point_type: Optional[PointType]) -> int:
 # ---------------------------------------------------------------------------
 # Draggable list
 # ---------------------------------------------------------------------------
+
 
 class _DraggableCoordinateList(QListWidget):
     """QListWidget with InternalMove drag-and-drop.
@@ -125,6 +127,7 @@ class _DraggableCoordinateList(QListWidget):
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
+
 
 class _CoordinateListHeader(QWidget):
     """Sticky dark header with column labels, a color indicator for the
@@ -206,12 +209,13 @@ class _CoordinateListHeader(QWidget):
 # Row widget
 # ---------------------------------------------------------------------------
 
+
 class CoordinateRowWidget(QWidget):
     """Single row: read-only name, xyz spinboxes, trash button."""
 
-    row_clicked        = pyqtSignal(object)              # Coordinate
+    row_clicked = pyqtSignal(object)  # Coordinate
     coordinate_changed = pyqtSignal(object, str, float)  # Coordinate, field, value
-    remove_clicked     = pyqtSignal(object)              # Coordinate
+    remove_clicked = pyqtSignal(object)  # Coordinate
 
     def __init__(
         self,
@@ -238,17 +242,23 @@ class CoordinateRowWidget(QWidget):
         layout.addWidget(self.name_label)
 
         # XYZ spinboxes
-        self.x_spin = ValueSpinBox(decimals=3, minimum=-1e6, maximum=1e6, step=0.001, no_buttons=True)
+        self.x_spin = ValueSpinBox(
+            decimals=3, minimum=-1e6, maximum=1e6, step=0.001, no_buttons=True
+        )
         self.x_spin.setFixedWidth(_SPIN_FIXED_WIDTH)
         self.x_spin.setToolTip("X coordinate")
         layout.addWidget(self.x_spin)
 
-        self.y_spin = ValueSpinBox(decimals=3, minimum=-1e6, maximum=1e6, step=0.001, no_buttons=True)
+        self.y_spin = ValueSpinBox(
+            decimals=3, minimum=-1e6, maximum=1e6, step=0.001, no_buttons=True
+        )
         self.y_spin.setFixedWidth(_SPIN_FIXED_WIDTH)
         self.y_spin.setToolTip("Y coordinate")
         layout.addWidget(self.y_spin)
 
-        self.z_spin = ValueSpinBox(decimals=3, minimum=-1e6, maximum=1e6, step=0.001, no_buttons=True)
+        self.z_spin = ValueSpinBox(
+            decimals=3, minimum=-1e6, maximum=1e6, step=0.001, no_buttons=True
+        )
         self.z_spin.setFixedWidth(_SPIN_FIXED_WIDTH)
         self.z_spin.setToolTip("Z coordinate")
         layout.addWidget(self.z_spin)
@@ -263,9 +273,9 @@ class CoordinateRowWidget(QWidget):
         # status column; the colour encodes the state (white = auto-fit and
         # confirmed, grey = manually placed). coord.fitted clears on a manual
         # edit. Pixmaps are pre-rendered once and swapped on refresh.
-        self._icon_fitted = fibsem_icon(
-            "mdi:target", color=_FITTED_ICON_COLOR
-        ).pixmap(QSize(14, 14))
+        self._icon_fitted = fibsem_icon("mdi:target", color=_FITTED_ICON_COLOR).pixmap(
+            QSize(14, 14)
+        )
         self._icon_unfitted = fibsem_icon(
             "mdi:target", color=_UNFITTED_ICON_COLOR
         ).pixmap(QSize(14, 14))
@@ -352,9 +362,7 @@ class CoordinateRowWidget(QWidget):
     def _update_fitted_icon(self) -> None:
         """Colour the always-visible indicator by fit state (green vs grey)."""
         fitted = bool(getattr(self.coord, "fitted", False))
-        self.fitted_icon.setPixmap(
-            self._icon_fitted if fitted else self._icon_unfitted
-        )
+        self.fitted_icon.setPixmap(self._icon_fitted if fitted else self._icon_unfitted)
         self.fitted_icon.setToolTip(
             "Auto-fit and confirmed" if fitted else "Manually placed (not auto-fit)"
         )
@@ -389,6 +397,7 @@ class CoordinateRowWidget(QWidget):
 # Main list widget
 # ---------------------------------------------------------------------------
 
+
 class CoordinateListWidget(QWidget):
     """Reorderable list of Coordinate objects.
 
@@ -404,11 +413,11 @@ class CoordinateListWidget(QWidget):
     refit_requested      : Coordinate — header refit button clicked
     """
 
-    coordinate_selected  = pyqtSignal(object)              # Coordinate
-    coordinate_changed   = pyqtSignal(object, str, float)  # Coordinate, field, value
-    coordinate_removed   = pyqtSignal(object)              # Coordinate
-    order_changed        = pyqtSignal(list)                # List[Coordinate]
-    refit_requested      = pyqtSignal(object)              # Coordinate
+    coordinate_selected = pyqtSignal(object)  # Coordinate
+    coordinate_changed = pyqtSignal(object, str, float)  # Coordinate, field, value
+    coordinate_removed = pyqtSignal(object)  # Coordinate
+    order_changed = pyqtSignal(list)  # List[Coordinate]
+    refit_requested = pyqtSignal(object)  # Coordinate
 
     def __init__(
         self,
@@ -422,7 +431,9 @@ class CoordinateListWidget(QWidget):
         self._x_max: Optional[float] = None
         self._y_max: Optional[float] = None
         self._z_max: Optional[float] = None
-        self._default_header_color = _POINT_TYPE_COLORS.get(point_type) if point_type else None
+        self._default_header_color = (
+            _POINT_TYPE_COLORS.get(point_type) if point_type else None
+        )
         self._name_width = _name_col_width(point_type)
 
         self._setup_ui()
@@ -454,7 +465,9 @@ class CoordinateListWidget(QWidget):
 
         self._empty_label = QLabel("No coordinates")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_label.setStyleSheet("color: #666; font-style: italic; padding: 8px;")
+        self._empty_label.setStyleSheet(
+            "color: #666; font-style: italic; padding: 8px;"
+        )
         self._empty_label.setVisible(True)
         layout.addWidget(self._empty_label)
 

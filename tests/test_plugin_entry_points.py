@@ -36,6 +36,7 @@ TASK_TYPE = "FIXTURE_TASK"
 CLASHING_PATTERN_NAME = "Rectangle"  # a built-in name the fixture claims on purpose
 FAILING_ENTRY_POINTS = ("wrong_base_class", "missing_module")  # declared to fail
 
+
 def _fixture_installed() -> bool:
     """Detect the fixture without importing it.
 
@@ -58,7 +59,9 @@ def _fixture_installed() -> bool:
     else:
         from importlib.metadata import entry_points
 
-    return any(ep.name == "fixture_pattern" for ep in entry_points(group="fibsem.patterns"))
+    return any(
+        ep.name == "fixture_pattern" for ep in entry_points(group="fibsem.patterns")
+    )
 
 
 _INSTALLED = _fixture_installed()
@@ -245,7 +248,9 @@ def test_load_records_carry_the_providing_distribution():
     """Which install a plugin came from, for a machine with several envs."""
     from fibsem.applications.autolamella.workflows.tasks import get_task_plugin_records
 
-    record = next(r for r in get_task_plugin_records() if r.entry_point == "fixture_task")
+    record = next(
+        r for r in get_task_plugin_records() if r.entry_point == "fixture_task"
+    )
     assert record.distribution == "fibsem-test-plugin"
     assert record.version == "0.0.0"
 

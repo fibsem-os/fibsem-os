@@ -157,9 +157,7 @@ class BugReportDialog(QDialog):
         self.pushButton_cancel = QPushButton("Cancel")
         self.pushButton_cancel.setAutoDefault(False)
 
-        self.button_box.addButton(
-            self.pushButton_github, QDialogButtonBox.ActionRole
-        )
+        self.button_box.addButton(self.pushButton_github, QDialogButtonBox.ActionRole)
         self.button_box.addButton(self.pushButton_email, QDialogButtonBox.AcceptRole)
         self.button_box.addButton(self.pushButton_cancel, QDialogButtonBox.RejectRole)
         self.pushButton_github.clicked.connect(self._on_report_github)

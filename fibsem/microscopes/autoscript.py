@@ -3,6 +3,7 @@
 This module contains all ThermoFisher AutoScript-specific conversion functions,
 isolated from the general fibsem data structures.
 """
+
 from __future__ import annotations
 
 import sys
@@ -25,7 +26,9 @@ THERMO_API_AVAILABLE = False
 
 try:
     sys.path.append(r"C:\Program Files\Thermo Scientific AutoScript")
-    sys.path.append(r"C:\Program Files\Enthought\Python\envs\AutoScript\Lib\site-packages")
+    sys.path.append(
+        r"C:\Program Files\Enthought\Python\envs\AutoScript\Lib\site-packages"
+    )
     sys.path.append(r"C:\Program Files\Python36\envs\AutoScript")
     sys.path.append(r"C:\Program Files\Python36\envs\AutoScript\Lib\site-packages")
     from autoscript_sdb_microscope_client.enumerations import CoordinateSystem
@@ -35,6 +38,7 @@ try:
         ManipulatorPosition,
         StagePosition,
     )
+
     THERMO_API_AVAILABLE = True
 except ImportError:
     pass
@@ -56,7 +60,9 @@ def stage_position_to_autoscript(
         ImportError: If AutoScript libraries are not available.
     """
     if not THERMO_API_AVAILABLE:
-        raise ImportError("AutoScript libraries not available. Cannot convert to AutoScript position.")
+        raise ImportError(
+            "AutoScript libraries not available. Cannot convert to AutoScript position."
+        )
 
     if compustage:
         return CompustagePosition(
@@ -92,7 +98,9 @@ def stage_position_from_autoscript(
         ImportError: If AutoScript libraries are not available.
     """
     if not THERMO_API_AVAILABLE:
-        raise ImportError("AutoScript libraries not available. Cannot convert from AutoScript position.")
+        raise ImportError(
+            "AutoScript libraries not available. Cannot convert from AutoScript position."
+        )
 
     from fibsem.structures import FibsemStagePosition
 
@@ -131,7 +139,9 @@ def manipulator_position_to_autoscript(
         ImportError: If AutoScript libraries are not available.
     """
     if not THERMO_API_AVAILABLE:
-        raise ImportError("AutoScript libraries not available. Cannot convert to AutoScript position.")
+        raise ImportError(
+            "AutoScript libraries not available. Cannot convert to AutoScript position."
+        )
 
     if position.coordinate_system == "RAW":
         coordinate_system = "Raw"
@@ -164,7 +174,9 @@ def manipulator_position_from_autoscript(
         ImportError: If AutoScript libraries are not available.
     """
     if not THERMO_API_AVAILABLE:
-        raise ImportError("AutoScript libraries not available. Cannot convert from AutoScript position.")
+        raise ImportError(
+            "AutoScript libraries not available. Cannot convert from AutoScript position."
+        )
 
     from fibsem.structures import FibsemManipulatorPosition
 
@@ -193,7 +205,9 @@ def image_settings_from_adorned_image(
         ImportError: If AutoScript libraries are not available.
     """
     if not THERMO_API_AVAILABLE:
-        raise ImportError("AutoScript libraries not available. Cannot convert from AdornedImage.")
+        raise ImportError(
+            "AutoScript libraries not available. Cannot convert from AdornedImage."
+        )
 
     from fibsem.structures import BeamType, ImageSettings
     from fibsem.utils import current_timestamp
@@ -235,7 +249,9 @@ def fibsem_image_from_adorned_image(
         ImportError: If AutoScript libraries are not available.
     """
     if not THERMO_API_AVAILABLE:
-        raise ImportError("AutoScript libraries not available. Cannot convert from AdornedImage.")
+        raise ImportError(
+            "AutoScript libraries not available. Cannot convert from AdornedImage."
+        )
 
     from fibsem.structures import (
         BeamSettings,
@@ -306,13 +322,19 @@ class AutoscriptManipulator:
         """Retract the manipulator."""
         self.parent.retract_manipulator()
 
-    def move_absolute(self, position: FibsemManipulatorPosition) -> FibsemManipulatorPosition:
+    def move_absolute(
+        self, position: FibsemManipulatorPosition
+    ) -> FibsemManipulatorPosition:
         pass
 
-    def move_relative(self, position: FibsemManipulatorPosition) -> FibsemManipulatorPosition:
+    def move_relative(
+        self, position: FibsemManipulatorPosition
+    ) -> FibsemManipulatorPosition:
         pass
 
-    def move_corrected(self, dx: float, dy: float, beam_type: BeamType) -> FibsemManipulatorPosition:
+    def move_corrected(
+        self, dx: float, dy: float, beam_type: BeamType
+    ) -> FibsemManipulatorPosition:
         pass
 
 
@@ -344,7 +366,6 @@ class AutoscriptSputterCoater:
     pass
 
 
-
 import time
 from typing import TYPE_CHECKING
 
@@ -355,9 +376,9 @@ from fibsem.structures import FibsemStagePosition
 
 class AutoscriptGISPort:
     port_name: str = "Pt dep"
-    zlimit: float = 4.0e-3 # RAW_COORDINATES
+    zlimit: float = 4.0e-3  # RAW_COORDINATES
 
-    def __init__(self, parent: 'ThermoMicroscope'):
+    def __init__(self, parent: "ThermoMicroscope"):
         self.parent = parent
 
         available_ports = self.parent.connection.gas.list_all_gis_ports()
@@ -376,13 +397,15 @@ class AutoscriptGISPort:
 
     def _move_to_safe_gis_position(self):
 
-        self.parent.move_stage_absolute(FibsemStagePosition(z=self.zlimit-500e-6))
+        self.parent.move_stage_absolute(FibsemStagePosition(z=self.zlimit - 500e-6))
 
     def _run_safety_check(self):
 
         stage_position = self.parent.get_stage_position()
         if stage_position.z > self.zlimit:
-            raise ValueError(f"Unable to insert gis at current z-position{stage_position.pretty}, {self.zlimit*1e3}mm")
+            raise ValueError(
+                f"Unable to insert gis at current z-position{stage_position.pretty}, {self.zlimit * 1e3}mm"
+            )
 
     def open(self):
         self._port.open()

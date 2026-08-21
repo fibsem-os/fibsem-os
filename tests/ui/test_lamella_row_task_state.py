@@ -86,7 +86,9 @@ class TestItDoesNotSubscribeAcrossThreads:
         # would only fail for someone running them locally on 3.8.
         connects = []
         for node in ast.walk(ast.parse(source)):
-            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            if not (
+                isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            ):
                 continue
             if node.func.attr != "connect":
                 continue

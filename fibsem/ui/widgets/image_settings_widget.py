@@ -52,10 +52,13 @@ WIDGET_CONFIG = {
 class ImageSettingsWidget(QWidget):
     settings_changed = pyqtSignal(ImageSettings)
 
-    def __init__(self, parent: Optional[QWidget] = None,
-                 show_advanced: bool = False,
-                 show_save: bool = False,
-                 always_save: bool = False):
+    def __init__(
+        self,
+        parent: Optional[QWidget] = None,
+        show_advanced: bool = False,
+        show_save: bool = False,
+        always_save: bool = False,
+    ):
         """Initialize the ImageSettings widget.
 
         Args:
@@ -201,7 +204,9 @@ class ImageSettingsWidget(QWidget):
         # Path
         self.path_label = QLabel("Path")
         self.path_edit = QDirectoryLineEdit()
-        self.path_edit.button_browse.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self.path_edit.button_browse.setStyleSheet(
+            stylesheets.TOOLBUTTON_ICON_STYLESHEET
+        )
         layout.addWidget(self.path_label, 9, 0)
         layout.addWidget(self.path_edit, 9, 1)
 
@@ -212,9 +217,12 @@ class ImageSettingsWidget(QWidget):
         layout.addWidget(self.filename_edit, 10, 1)
 
         self._save_widgets: list[QWidget] = [
-            self.save_image_label, self.save_image_check,
-            self.path_label, self.path_edit,
-            self.filename_label, self.filename_edit,
+            self.save_image_label,
+            self.save_image_check,
+            self.path_label,
+            self.path_edit,
+            self.filename_label,
+            self.filename_edit,
         ]
 
     def _connect_signals(self):
@@ -273,7 +281,12 @@ class ImageSettingsWidget(QWidget):
         """Enable/disable path and filename controls based on save_image checkbox."""
         enabled = self.save_image_check.isChecked()
         tooltip = "" if enabled else "Enable 'Save Image' to set path/filename"
-        for w in [self.path_label, self.path_edit, self.filename_label, self.filename_edit]:
+        for w in [
+            self.path_label,
+            self.path_edit,
+            self.filename_label,
+            self.filename_edit,
+        ]:
             w.setEnabled(enabled)
             w.setToolTip(tooltip)
 
@@ -282,7 +295,12 @@ class ImageSettingsWidget(QWidget):
         if self._always_save:
             self.save_image_label.setVisible(False)
             self.save_image_check.setVisible(False)
-            for w in [self.path_label, self.path_edit, self.filename_label, self.filename_edit]:
+            for w in [
+                self.path_label,
+                self.path_edit,
+                self.filename_label,
+                self.filename_edit,
+            ]:
                 w.setVisible(True)
                 w.setEnabled(True)
         else:
@@ -329,7 +347,9 @@ class ImageSettingsWidget(QWidget):
         """
         return self._show_advanced
 
-    def set_available_resolutions(self, resolutions: list, default: str | None = None) -> None:
+    def set_available_resolutions(
+        self, resolutions: list, default: str | None = None
+    ) -> None:
         """Replace the resolution combo items with a custom list.
 
         Args:
@@ -396,14 +416,18 @@ class ImageSettingsWidget(QWidget):
 
         # Update only the fields controlled by this widget
         self._settings.resolution = tuple(resolution) if resolution else (1536, 1024)
-        self._settings.dwell_time = self.dwell_time_spinbox.value() * MICRO_TO_SI  # Convert μs to s
+        self._settings.dwell_time = (
+            self.dwell_time_spinbox.value() * MICRO_TO_SI
+        )  # Convert μs to s
         self._settings.hfw = self.hfw_spinbox.value() * MICRO_TO_SI  # Convert μm to m
         self._settings.autocontrast = self.autocontrast_check.isChecked()
         self._settings.line_integration = line_integration
         self._settings.scan_interlacing = scan_interlacing
         self._settings.frame_integration = frame_integration
         self._settings.drift_correction = self.drift_correction_check.isChecked()
-        self._settings.save = True if self._always_save else self.save_image_check.isChecked()
+        self._settings.save = (
+            True if self._always_save else self.save_image_check.isChecked()
+        )
         self._settings.path = self.path_edit.text() or None
         self._settings.filename = self.filename_edit.text()
 

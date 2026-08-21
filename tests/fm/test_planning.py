@@ -80,7 +80,9 @@ def test_re_posing_keeps_the_translation_and_writes_the_orientation():
     """
     fm = FibsemStagePosition(r=0.0, t=np.deg2rad(-180))
     posed = to_fm_pose(
-        FibsemStagePosition(x=1e-3, y=2e-3, z=3e-3, r=np.deg2rad(90), t=np.deg2rad(-23)),
+        FibsemStagePosition(
+            x=1e-3, y=2e-3, z=3e-3, r=np.deg2rad(90), t=np.deg2rad(-23)
+        ),
         fm,
         is_compustage=True,
     )
@@ -90,7 +92,9 @@ def test_re_posing_keeps_the_translation_and_writes_the_orientation():
 
 def test_re_posing_does_not_mutate_what_it_was_given():
     original = FibsemStagePosition(x=1e-3, y=0.0, z=0.0, r=0.0, t=np.deg2rad(-23))
-    to_fm_pose(original, FibsemStagePosition(r=0.0, t=np.deg2rad(-180)), is_compustage=True)
+    to_fm_pose(
+        original, FibsemStagePosition(r=0.0, t=np.deg2rad(-180)), is_compustage=True
+    )
     assert original.t == np.deg2rad(-23)
 
 
@@ -126,8 +130,12 @@ def test_the_ion_view_at_the_milling_pose_is_foreshortened_against_the_camera(ge
     square = region(-5e-5, -5e-5, 5e-5, 5e-5)
 
     [projected] = project_regions_to_fm_plane(
-        [square], base, projection, geometry["fm_projection"],
-        geometry["fm_orientation"], is_compustage=True,
+        [square],
+        base,
+        projection,
+        geometry["fm_projection"],
+        geometry["fm_orientation"],
+        is_compustage=True,
     )
 
     # 1 / cos(stage_tilt - pre-tilt - view_tilt) at a -23 degree milling angle. Only the
@@ -145,8 +153,12 @@ def test_the_projected_shape_agrees_with_the_measured_foreshortening(geometry):
     square = region(-5e-5, -5e-5, 5e-5, 5e-5)
 
     [projected] = project_regions_to_fm_plane(
-        [square], base, projection, geometry["fm_projection"],
-        geometry["fm_orientation"], is_compustage=True,
+        [square],
+        base,
+        projection,
+        geometry["fm_projection"],
+        geometry["fm_orientation"],
+        is_compustage=True,
     )
 
     assert projected.height / square.height == pytest.approx(
@@ -161,8 +173,12 @@ def test_the_electron_view_at_its_own_pose_is_not_foreshortened(geometry):
     square = region(-5e-5, -5e-5, 5e-5, 5e-5)
 
     [projected] = project_regions_to_fm_plane(
-        [square], base, projection, geometry["fm_projection"],
-        geometry["fm_orientation"], is_compustage=True,
+        [square],
+        base,
+        projection,
+        geometry["fm_projection"],
+        geometry["fm_orientation"],
+        is_compustage=True,
     )
 
     assert projected.width == pytest.approx(square.width, rel=1e-6)
@@ -172,17 +188,28 @@ def test_the_electron_view_at_its_own_pose_is_not_foreshortened(geometry):
 # ── the plan ─────────────────────────────────────────────────────────────
 
 
-def make_plan(geometry, regions, orientation="MILLING", beam_type=BeamType.ION,
-              overlap=0.0):
+def make_plan(
+    geometry, regions, orientation="MILLING", beam_type=BeamType.ION, overlap=0.0
+):
     projection, base = beam_view(geometry["microscope"], beam_type, orientation)
     plan = plan_sparse_fm_overview(
-        regions, base, projection, geometry["fm_projection"],
-        geometry["fm_orientation"], fov_x=geometry["fov_x"],
-        fov_y=geometry["fov_y"], overlap=overlap, is_compustage=True,
+        regions,
+        base,
+        projection,
+        geometry["fm_projection"],
+        geometry["fm_orientation"],
+        fov_x=geometry["fov_x"],
+        fov_y=geometry["fov_y"],
+        overlap=overlap,
+        is_compustage=True,
     )
     fm_regions = project_regions_to_fm_plane(
-        regions, base, projection, geometry["fm_projection"],
-        geometry["fm_orientation"], is_compustage=True,
+        regions,
+        base,
+        projection,
+        geometry["fm_projection"],
+        geometry["fm_orientation"],
+        is_compustage=True,
     )
     return plan, fm_regions
 
@@ -282,8 +309,14 @@ def visited_tiles(geometry, plan, overlap=0.0):
     step_x, step_y = fov_x * (1 - overlap), fov_y * (1 - overlap)
 
     grid = compute_tile_grid_from_fov(
-        nrows=plan.rows, ncols=plan.cols, fov_x=fov_x, fov_y=fov_y,
-        image_width=width, image_height=height, overlap=overlap, mask=plan.mask,
+        nrows=plan.rows,
+        ncols=plan.cols,
+        fov_x=fov_x,
+        fov_y=fov_y,
+        image_width=width,
+        image_height=height,
+        overlap=overlap,
+        mask=plan.mask,
     )
     offset_x = (plan.cols - 1) * step_x / 2
     offset_y = (plan.rows - 1) * step_y / 2
@@ -309,8 +342,10 @@ def visited_tiles(geometry, plan, overlap=0.0):
 @pytest.mark.parametrize("overlap", [0.0, 0.1])
 def test_the_run_visits_exactly_the_tiles_that_touch_the_selection(geometry, overlap):
     fov = geometry["fov_x"]
-    regions = [region(0.0, 0.0, 1.5 * fov, 2.5 * fov),
-               region(4 * fov, 3 * fov, 5 * fov, 4 * fov)]
+    regions = [
+        region(0.0, 0.0, 1.5 * fov, 2.5 * fov),
+        region(4 * fov, 3 * fov, 5 * fov, 4 * fov),
+    ]
     plan, fm_regions = make_plan(geometry, regions, overlap=overlap)
 
     for rc, (footprint, enabled) in visited_tiles(geometry, plan, overlap).items():
@@ -383,7 +418,8 @@ def test_the_plans_centre_is_already_a_frame_origin(geometry, stage_pose):
 
 
 @pytest.mark.parametrize(
-    "stage_pose, factor", [("SEM", 1.000), ("MILLING", 1.086), ("FIB", 1.624), ("FM", 1.000)]
+    "stage_pose, factor",
+    [("SEM", 1.000), ("MILLING", 1.086), ("FIB", 1.624), ("FM", 1.000)],
 )
 def test_anchoring_on_the_live_stage_pose_foreshortens_every_tile(
     geometry, stage_pose, factor
@@ -399,9 +435,9 @@ def test_anchoring_on_the_live_stage_pose_foreshortens_every_tile(
     assert drawn == pytest.approx(factor, abs=1e-3)
     # ...and going through `to_fm_pose` removes it, from every one of them.
     fixed = to_fm_pose(live, geometry["fm_orientation"], is_compustage=True)
-    assert surface_foreshortening(
-        geometry["fm_projection"], fixed
-    ) == pytest.approx(1.0, abs=1e-9)
+    assert surface_foreshortening(geometry["fm_projection"], fixed) == pytest.approx(
+        1.0, abs=1e-9
+    )
 
 
 def test_tiles_land_identically_whatever_pose_the_stage_is_in(geometry):
@@ -418,7 +454,8 @@ def test_tiles_land_identically_whatever_pose_the_stage_is_in(geometry):
 
     placements = {
         geometry["fm_projection"].to_plane(
-            tile, to_fm_pose(posed(m, name), geometry["fm_orientation"], is_compustage=True)
+            tile,
+            to_fm_pose(posed(m, name), geometry["fm_orientation"], is_compustage=True),
         )
         for name in STAGE_POSES
     }

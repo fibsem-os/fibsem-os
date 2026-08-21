@@ -12,6 +12,7 @@ driven without a microscope.
 Waits here are tenths of a second. A test that really waited for a scheduled time
 would be measuring `time.sleep`.
 """
+
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Thread
@@ -41,8 +42,10 @@ def manager(tmp_path: Path) -> TaskManager:
     experiment = Experiment(path=tmp_path, name="test-exp")
     experiment.task_protocol = AutoLamellaTaskProtocol(
         workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[AutoLamellaTaskDescription(name=n, supervise=False, required=False)
-                   for n in TASKS]
+            tasks=[
+                AutoLamellaTaskDescription(name=n, supervise=False, required=False)
+                for n in TASKS
+            ]
         )
     )
     experiment.positions.append(
@@ -89,6 +92,7 @@ def elapsed_running(manager: TaskManager, **kwargs) -> float:
 
 
 # ── the wait always ends ──────────────────────────────────────────────────────
+
 
 def test_a_time_that_has_passed_does_not_wait(manager):
     """The common case after this feature went on by default: a protocol carrying a
@@ -143,6 +147,7 @@ def test_a_timezone_aware_time_does_not_raise(manager):
 
 # ── through the queue ─────────────────────────────────────────────────────────
 
+
 def test_an_unscheduled_task_runs_straight_away(manager):
     """No schedule is the default, and must stay the cheap path."""
     from time import monotonic
@@ -194,6 +199,7 @@ def test_stopping_during_a_wait_ends_the_run(manager):
 
 # ── the schedule survives the protocol file ───────────────────────────────────
 
+
 def test_a_schedule_round_trips_through_the_protocol():
     """It is stored in the task protocol yaml, so it has to serialise. `asdict` would
     otherwise hand yaml a datetime, which is why `to_dict` writes an isoformat."""
@@ -222,8 +228,9 @@ def test_the_workflow_config_finds_a_task_schedule():
     when = datetime(2026, 8, 13, 9, 30)
     config = AutoLamellaWorkflowConfig(
         tasks=[
-            AutoLamellaTaskDescription(name="Trench", supervise=False, required=True,
-                                       scheduled_at=when),
+            AutoLamellaTaskDescription(
+                name="Trench", supervise=False, required=True, scheduled_at=when
+            ),
             AutoLamellaTaskDescription(name="Undercut", supervise=False, required=True),
         ]
     )
@@ -234,6 +241,7 @@ def test_the_workflow_config_finds_a_task_schedule():
 
 
 # ── the border can tell a parked run from a running one (FIB-676) ─────────────
+
 
 class _Signal:
     """The one method `update_status_ui` calls on `workflow_update_signal`."""

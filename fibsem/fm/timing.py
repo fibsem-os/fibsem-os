@@ -120,7 +120,8 @@ def estimate_autofocus_time(
     channel = None
     if autofocus_settings.channel_name:
         channel = next(
-            (c for c in channel_settings if c.name == autofocus_settings.channel_name), None
+            (c for c in channel_settings if c.name == autofocus_settings.channel_name),
+            None,
         )
     if channel is None:
         channel = channel_settings[0]
@@ -422,12 +423,16 @@ def estimate_positions_acquisition_time(
     total_image_acquisition_time = position_acquisition_time * num_positions
 
     # Calculate total images
-    total_images = calculate_total_images_count(channel_settings, zparams) * num_positions
+    total_images = (
+        calculate_total_images_count(channel_settings, zparams) * num_positions
+    )
 
     # Calculate stage movement time (assuming we move between each position)
     # For n positions, we need (n-1) moves
     total_stage_moves = max(0, num_positions - 1)
-    total_stage_movement_time = total_stage_moves * DEFAULT_STAGE_MOVE_TIME # TODO: actually calculate the distance covered.
+    total_stage_movement_time = (
+        total_stage_moves * DEFAULT_STAGE_MOVE_TIME
+    )  # TODO: actually calculate the distance covered.
 
     # Calculate autofocus time
     autofocus_operations = num_positions if use_autofocus else 0
@@ -443,13 +448,17 @@ def estimate_positions_acquisition_time(
         "image_acquisition": {
             "time_per_position": position_acquisition_time,
             "total_time": total_image_acquisition_time,
-            "images_per_position": calculate_total_images_count(channel_settings, zparams),
+            "images_per_position": calculate_total_images_count(
+                channel_settings, zparams
+            ),
             "percentage": (total_image_acquisition_time / total_time * 100)
             if total_time > 0
             else 0,
         },
         "stage_movement": {
-            "moves_per_position": total_stage_moves / num_positions if num_positions > 0 else 0,
+            "moves_per_position": total_stage_moves / num_positions
+            if num_positions > 0
+            else 0,
             "total_moves": total_stage_moves,
             "time_per_move": DEFAULT_STAGE_MOVE_TIME,
             "total_time": total_stage_movement_time,

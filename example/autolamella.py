@@ -1,5 +1,3 @@
-
-
 import logging
 import os
 from dataclasses import dataclass
@@ -24,11 +22,12 @@ class Lamella:
     path: Path
     num: int
 
+
 def main():
-    
+
     microscope, settings = utils.setup_session(protocol_path=PROTOCOL_PATH)
 
-    # take a reference image    
+    # take a reference image
     settings.image.filename = "grid_reference"
     settings.image.beam_type = BeamType.ION
     settings.image.hfw = 900e-6
@@ -47,7 +46,6 @@ def main():
 
         # store lamella information
         if response.lower() in ["", "y", "yes"]:
-            
             # set filepaths
             path = os.path.join(base_path, f"{lamella_no:02d}")
             settings.image.path = path
@@ -58,7 +56,7 @@ def main():
                 state=microscope.get_microscope_state(),
                 reference_image=acquire.new_image(microscope, settings.image),
                 path=path,
-                num=lamella_no
+                num=lamella_no,
             )
             experiment.append(lamella)
             lamella_no += 1
@@ -73,11 +71,9 @@ def main():
     # mill (rough, polish)
     workflow_stages = ["mill_rough", "mill_polishing"]
     for stage_no, stage_name in enumerate(workflow_stages):
-        
         logging.info(f"Starting milling stage {stage_no}")
 
         for lamella in experiment:
-
             logging.info(f"Starting lamella {lamella.num:02d}")
 
             # return to lamella
@@ -85,15 +81,21 @@ def main():
 
             # realign
             alignment.beam_shift_alignment_v2(microscope, lamella.reference_image)
-                       
+
             if stage_no == 0:
-                microexpansion_stage = get_milling_stages("microexpansion", settings.protocol["milling"])
+                microexpansion_stage = get_milling_stages(
+                    "microexpansion", settings.protocol["milling"]
+                )
                 microexpansion_stage[0].run(microscope)
 
             # get trench milling pattern, and mill
-            milling_stages = get_milling_stages(stage_name, settings.protocol["milling"])
+            milling_stages = get_milling_stages(
+                stage_name, settings.protocol["milling"]
+            )
             for milling_stage in milling_stages:
-                logging.info(f"Running milling stage {milling_stage.name} for lamella {lamella.num:02d}")
+                logging.info(
+                    f"Running milling stage {milling_stage.name} for lamella {lamella.num:02d}"
+                )
                 milling_stage.run(microscope)
 
             # retake reference image

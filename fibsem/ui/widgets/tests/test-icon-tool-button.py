@@ -1,4 +1,5 @@
 """Test/demo script for IconToolButton — shows all usage patterns."""
+
 import sys
 
 from PyQt5.QtCore import Qt
@@ -17,8 +18,10 @@ from fibsem.ui.widgets.custom_widgets import IconToolButton
 
 def _section(title: str) -> QGroupBox:
     g = QGroupBox(title)
-    g.setStyleSheet("QGroupBox { color: #aaa; border: 1px solid #444; margin-top: 8px; padding: 8px; }"
-                    "QGroupBox::title { subcontrol-origin: margin; left: 8px; }")
+    g.setStyleSheet(
+        "QGroupBox { color: #aaa; border: 1px solid #444; margin-top: 8px; padding: 8px; }"
+        "QGroupBox::title { subcontrol-origin: margin; left: 8px; }"
+    )
     return g
 
 
@@ -52,12 +55,19 @@ class IconToolButtonDemo(QWidget):
         v1.setSpacing(6)
 
         btn_refresh = IconToolButton(icon="mdi:refresh", tooltip="Refresh")
-        btn_add     = IconToolButton(icon="mdi:plus", tooltip="Add item")
-        btn_trash   = IconToolButton(icon="mdi:trash-can-outline", tooltip="Delete")
-        btn_edit    = IconToolButton(icon="mdi:pencil", tooltip="Edit")
+        btn_add = IconToolButton(icon="mdi:plus", tooltip="Add item")
+        btn_trash = IconToolButton(icon="mdi:trash-can-outline", tooltip="Delete")
+        btn_edit = IconToolButton(icon="mdi:pencil", tooltip="Edit")
 
-        v1.addLayout(_row(btn_refresh, btn_add, btn_trash, btn_edit,
-                          label="refresh / plus / trash / pencil"))
+        v1.addLayout(
+            _row(
+                btn_refresh,
+                btn_add,
+                btn_trash,
+                btn_edit,
+                label="refresh / plus / trash / pencil",
+            )
+        )
         root.addWidget(g1)
 
         # ── 2. Checkable — enable/disable (checkbox style) ─────────────────
@@ -83,7 +93,7 @@ class IconToolButtonDemo(QWidget):
         )
 
         v2.addLayout(_row(btn_en_off, label="starts unchecked"))
-        v2.addLayout(_row(btn_en_on,  label="starts checked"))
+        v2.addLayout(_row(btn_en_on, label="starts checked"))
         root.addWidget(g2)
 
         # ── 3. Checkable — advanced/tune ──────────────────────────────────
@@ -107,7 +117,7 @@ class IconToolButtonDemo(QWidget):
             checked=True,
         )
 
-        v3.addLayout(_row(btn_adv,    label="starts unchecked"))
+        v3.addLayout(_row(btn_adv, label="starts unchecked"))
         v3.addLayout(_row(btn_adv_on, label="starts checked"))
         root.addWidget(g3)
 
@@ -132,8 +142,9 @@ class IconToolButtonDemo(QWidget):
         v5 = QVBoxLayout(g5)
         v5.setSpacing(6)
 
-        btn_count = IconToolButton(icon="mdi:numeric-3-box-outline", size=32,
-                                   tooltip="3 stages")
+        btn_count = IconToolButton(
+            icon="mdi:numeric-3-box-outline", size=32, tooltip="3 stages"
+        )
         btn_count.setEnabled(False)
 
         v5.addLayout(_row(btn_count, label="size=32, disabled (stage count)"))
@@ -151,12 +162,15 @@ class IconToolButtonDemo(QWidget):
             tooltip="Enable",
             checked_tooltip="Disable",
         )
-        btn_drive = IconToolButton(icon="mdi:swap-horizontal", tooltip="Toggle via set_icon_state()")
+        btn_drive = IconToolButton(
+            icon="mdi:swap-horizontal", tooltip="Toggle via set_icon_state()"
+        )
         btn_drive.clicked.connect(self._toggle_synced)
         self._synced_state = False
 
-        v6.addLayout(_row(self._btn_synced, btn_drive,
-                          label="left driven by set_icon_state()"))
+        v6.addLayout(
+            _row(self._btn_synced, btn_drive, label="left driven by set_icon_state()")
+        )
         root.addWidget(g6)
 
     def _toggle_synced(self):

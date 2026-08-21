@@ -17,6 +17,7 @@ which builds the tab against a live simulator.
 Run directly:
     python -m pytest tests/ui/test_overview_tab_wiring.py
 """
+
 from __future__ import annotations
 
 import ast
@@ -25,7 +26,14 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-WINDOW = REPO_ROOT / "fibsem" / "applications" / "autolamella" / "ui" / "AutoLamellaMainUI.py"
+WINDOW = (
+    REPO_ROOT
+    / "fibsem"
+    / "applications"
+    / "autolamella"
+    / "ui"
+    / "AutoLamellaMainUI.py"
+)
 
 # The tab the new one was modelled on, and the calls that keep it in step with the
 # window. Anything the fluorescence tab is told, the beam one has to be told too --
@@ -160,7 +168,9 @@ def test_the_new_tab_is_rebuilt_wherever_its_twin_is(self_calls):
     twin = self_calls.get("_refresh_fm_overview_microscope", set())
     new = self_calls.get("_apply_overview_canvas_visibility", set())
     assert twin, "the twin's builder is no longer called; this test is stale"
-    missing = {c for c in twin - new if "fm_overview" not in c and "overview_canvas" not in c}
+    missing = {
+        c for c in twin - new if "fm_overview" not in c and "overview_canvas" not in c
+    }
     assert not missing, (
         f"_apply_overview_canvas_visibility() is not called from {sorted(missing)}, "
         "where the fluorescence tab's builder is"
@@ -263,7 +273,8 @@ def test_the_done_state_in_the_status_bar_clears_itself(window_source):
 
     tree = ast.parse(window_source)
     handler = next(
-        node for node in ast.walk(tree)
+        node
+        for node in ast.walk(tree)
         if isinstance(node, ast.FunctionDef)
         and node.name == "_on_tile_acquisition_progress"
     )
@@ -279,14 +290,16 @@ def test_the_done_state_in_the_status_bar_clears_itself(window_source):
 UI_DIR = REPO_ROOT / "fibsem" / "applications" / "autolamella" / "ui"
 HOST_TABS = {
     "AutoLamellaOverviewTab": UI_DIR / "autolamella_overview_tab.py",
-    "AutoLamellaFluorescenceOverviewTab": UI_DIR / "autolamella_fluorescence_overview_tab.py",
+    "AutoLamellaFluorescenceOverviewTab": UI_DIR
+    / "autolamella_fluorescence_overview_tab.py",
 }
 
 
 def _class_def(path: Path, name: str) -> ast.ClassDef:
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    return next(n for n in ast.walk(tree)
-                if isinstance(n, ast.ClassDef) and n.name == name)
+    return next(
+        n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == name
+    )
 
 
 def test_the_two_host_tabs_share_one_base():
@@ -306,19 +319,34 @@ def test_the_two_host_tabs_share_one_base():
     one tab and derives both on the other, after asking. Those are different operations
     sharing a name.
     """
-    shared = {"is_available", "is_acquiring", "microscope", "experiment",
-              "refresh_experiment", "refresh_microscope", "refresh_positions",
-              "set_selected", "set_interactive", "_drop_overview",
-              "_on_list_selection", "_on_marker_clicked", "_on_move_to_requested",
-              "_on_add_requested", "_on_remove_requested"}
+    shared = {
+        "is_available",
+        "is_acquiring",
+        "microscope",
+        "experiment",
+        "refresh_experiment",
+        "refresh_microscope",
+        "refresh_positions",
+        "set_selected",
+        "set_interactive",
+        "_drop_overview",
+        "_on_list_selection",
+        "_on_marker_clicked",
+        "_on_move_to_requested",
+        "_on_add_requested",
+        "_on_remove_requested",
+    }
 
     for name, path in HOST_TABS.items():
         cls = _class_def(path, name)
         bases = {b.id for b in cls.bases if isinstance(b, ast.Name)}
         assert "AutoLamellaOverviewTabBase" in bases, f"{name} bases are {bases}"
 
-        defined = {n.name for n in cls.body
-                   if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        defined = {
+            n.name
+            for n in cls.body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
         again = defined & shared
         assert not again, (
             f"{name} defines {sorted(again)} again; the base is what stops the two tabs "
@@ -332,8 +360,13 @@ def test_the_two_host_tabs_share_one_base():
 
         # Both signals are declared once, on the base. A subclass redeclaring one
         # shadows it, and the window connects to whichever it happens to see first.
-        assigned = {t.id for n in cls.body if isinstance(n, ast.Assign)
-                    for t in n.targets if isinstance(t, ast.Name)}
+        assigned = {
+            t.id
+            for n in cls.body
+            if isinstance(n, ast.Assign)
+            for t in n.targets
+            if isinstance(t, ast.Name)
+        }
         assert not assigned & {"availability_changed", "lamella_selected"}, (
             f"{name} redeclares a signal the base owns"
         )
@@ -341,8 +374,13 @@ def test_the_two_host_tabs_share_one_base():
 
 def test_the_base_owns_the_signals_the_window_connects_to():
     base = _class_def(UI_DIR / "overview_tab_base.py", "AutoLamellaOverviewTabBase")
-    assigned = {t.id for n in base.body if isinstance(n, ast.Assign)
-                for t in n.targets if isinstance(t, ast.Name)}
+    assigned = {
+        t.id
+        for n in base.body
+        if isinstance(n, ast.Assign)
+        for t in n.targets
+        if isinstance(t, ast.Name)
+    }
     assert {"availability_changed", "lamella_selected"} <= assigned
 
 
@@ -364,8 +402,12 @@ def test_a_lamella_added_anywhere_reaches_both_canvases(window_source):
     """
     tree = ast.parse(window_source)
     handler = next(
-        (n for n in ast.walk(tree)
-         if isinstance(n, ast.FunctionDef) and n.name == "_refresh_overview_positions"),
+        (
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.FunctionDef)
+            and n.name == "_refresh_overview_positions"
+        ),
         None,
     )
     assert handler is not None, (
@@ -377,7 +419,9 @@ def test_a_lamella_added_anywhere_reaches_both_canvases(window_source):
     # `self.<tab>.refresh_positions` never appears as an attribute chain to walk.
     body = ast.get_source_segment(window_source, handler) or ""
     for tab in (TWIN, NEW):
-        assert tab in body, f"{tab} is not re-marked when the experiment's lamellae change"
+        assert tab in body, (
+            f"{tab} is not re-marked when the experiment's lamellae change"
+        )
     assert "refresh_positions" in body
 
     # And the handler has to be what the experiment's events actually reach.
@@ -400,6 +444,7 @@ def test_both_tabs_tell_the_window_when_they_start_acquiring(window_source):
             f"{tab} never tells the window it is acquiring, so the other overview is "
             "free to drive the stage during its run"
         )
-    assert window_source.count("acquiring_changed.connect(self._apply_overview_locks)") == 2, (
-        "the tabs report to something other than the one place that derives the lock"
-    )
+    assert (
+        window_source.count("acquiring_changed.connect(self._apply_overview_locks)")
+        == 2
+    ), "the tabs report to something other than the one place that derives the lock"

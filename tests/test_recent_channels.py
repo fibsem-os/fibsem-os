@@ -22,9 +22,14 @@ def recents_env(tmp_path, monkeypatch):
     return tmp_path
 
 
-def _channel(name="DAPI", excitation=405.0, emission=450.0, **kwargs) -> ChannelSettings:
+def _channel(
+    name="DAPI", excitation=405.0, emission=450.0, **kwargs
+) -> ChannelSettings:
     return ChannelSettings(
-        name=name, excitation_wavelength=excitation, emission_wavelength=emission, **kwargs
+        name=name,
+        excitation_wavelength=excitation,
+        emission_wavelength=emission,
+        **kwargs,
     )
 
 

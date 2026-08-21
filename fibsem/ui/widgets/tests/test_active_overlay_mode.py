@@ -9,6 +9,7 @@ toggle (top-right) appears, the overlay owns input, and the canvas's
 double-click / right-click signals are suppressed. Click the toolbar toggle to
 drop to Move (the two signals fire again, logged below) and back.
 """
+
 import sys
 
 import numpy as np
@@ -31,19 +32,29 @@ def main() -> None:
     win = QWidget()
     win.resize(820, 640)
     canvas = FibsemImageCanvas()
-    canvas.set_image(FibsemImage(data=(np.random.rand(512, 512) * 255).astype(np.uint8)))
+    canvas.set_image(
+        FibsemImage(data=(np.random.rand(512, 512) * 255).astype(np.uint8))
+    )
 
     overlay = PointOverlay(color="magenta", selected_color="cyan", marker="o", size=9)
     canvas.add_overlay(overlay)
 
-    log = QLabel("Move mode: double-click and right-click fire (stage move / milling menu).")
+    log = QLabel(
+        "Move mode: double-click and right-click fire (stage move / milling menu)."
+    )
     log.setWordWrap(True)
-    canvas.canvas_double_clicked.connect(lambda x, y, m: log.setText(f"double-click → STAGE MOVE @ ({x:.0f},{y:.0f})"))
-    canvas.canvas_right_clicked.connect(lambda x, y, m: log.setText(f"right-click → MILLING MENU @ ({x:.0f},{y:.0f})"))
+    canvas.canvas_double_clicked.connect(
+        lambda x, y, m: log.setText(f"double-click → STAGE MOVE @ ({x:.0f},{y:.0f})")
+    )
+    canvas.canvas_right_clicked.connect(
+        lambda x, y, m: log.setText(f"right-click → MILLING MENU @ ({x:.0f},{y:.0f})")
+    )
 
     btn_enter = QPushButton("Enter POI mode")
     btn_exit = QPushButton("Exit mode")
-    btn_enter.clicked.connect(lambda: canvas.enter_overlay_mode(overlay, "POI", icon="mdi:map-marker"))
+    btn_enter.clicked.connect(
+        lambda: canvas.enter_overlay_mode(overlay, "POI", icon="mdi:map-marker")
+    )
     btn_exit.clicked.connect(lambda: canvas.exit_overlay_mode(overlay))
 
     bar = QHBoxLayout()

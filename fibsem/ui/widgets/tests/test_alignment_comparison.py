@@ -16,6 +16,7 @@ Outputs:
     - /tmp/alignment_comparison.png  — debug plot (v2 layout)
     - /tmp/alignment_comparison_agreement.png — agreement scatter plot
 """
+
 from __future__ import annotations
 
 import argparse
@@ -56,18 +57,20 @@ def run_comparison(ref: FibsemImage, images: list[FibsemImage]) -> list[dict]:
         agree_y = abs(dy_v1 - dy_v2)
         agree_px = np.sqrt((agree_x / pixel_size) ** 2 + (agree_y / pixel_size) ** 2)
 
-        rows.append({
-            "i": i + 1,
-            "dx_v1_nm": dx_v1 * 1e9,
-            "dy_v1_nm": dy_v1 * 1e9,
-            "dx_v2_nm": dx_v2 * 1e9,
-            "dy_v2_nm": dy_v2 * 1e9,
-            "agree_px": agree_px,
-            "score": score,
-            "img": img,
-            "shift": Point(dx_v2, dy_v2),
-            "shift_px": Point(shift_x_px, shift_y_px),
-        })
+        rows.append(
+            {
+                "i": i + 1,
+                "dx_v1_nm": dx_v1 * 1e9,
+                "dy_v1_nm": dy_v1 * 1e9,
+                "dx_v2_nm": dx_v2 * 1e9,
+                "dy_v2_nm": dy_v2 * 1e9,
+                "agree_px": agree_px,
+                "score": score,
+                "img": img,
+                "shift": Point(dx_v2, dy_v2),
+                "shift_px": Point(shift_x_px, shift_y_px),
+            }
+        )
     return rows
 
 
@@ -92,8 +95,12 @@ def print_table(rows: list[dict], pixel_size: float) -> None:
     scores = [r["score"] for r in rows]
     agreements = [r["agree_px"] for r in rows]
     print()
-    print(f"  mean score:        {np.mean(scores):.3f}  (min {np.min(scores):.3f}, max {np.max(scores):.3f})")
-    print(f"  mean agreement:    {np.mean(agreements):.3f} px  (max {np.max(agreements):.3f} px)")
+    print(
+        f"  mean score:        {np.mean(scores):.3f}  (min {np.min(scores):.3f}, max {np.max(scores):.3f})"
+    )
+    print(
+        f"  mean agreement:    {np.mean(agreements):.3f} px  (max {np.max(agreements):.3f} px)"
+    )
 
 
 def plot_agreement(rows: list[dict], save_path: str) -> None:
@@ -108,7 +115,9 @@ def plot_agreement(rows: list[dict], save_path: str) -> None:
 
     # agreement per step
     ax = axes[0]
-    colours = ["green" if a < 1.0 else ("orange" if a < 2.0 else "red") for a in agreements]
+    colours = [
+        "green" if a < 1.0 else ("orange" if a < 2.0 else "red") for a in agreements
+    ]
     ax.bar(step_nums, agreements, color=colours)
     ax.axhline(1.0, color="gray", linestyle="--", linewidth=0.8, label="1 px")
     ax.set_xlabel("Image")
@@ -126,8 +135,13 @@ def plot_agreement(rows: list[dict], save_path: str) -> None:
     ax.set_ylabel("Disagreement (px)")
     ax.set_title("Score vs disagreement")
     for r in rows:
-        ax.annotate(str(r["i"]), (r["score"], r["agree_px"]),
-                    textcoords="offset points", xytext=(4, 4), fontsize=8)
+        ax.annotate(
+            str(r["i"]),
+            (r["score"], r["agree_px"]),
+            textcoords="offset points",
+            xytext=(4, 4),
+            fontsize=8,
+        )
 
     fig.tight_layout()
     fig.savefig(save_path, dpi=100)
@@ -135,10 +149,16 @@ def plot_agreement(rows: list[dict], save_path: str) -> None:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Compare alignment methods on real data.")
+    parser = argparse.ArgumentParser(
+        description="Compare alignment methods on real data."
+    )
     parser.add_argument("--ref", required=True, help="Path to reference .tif image")
-    parser.add_argument("--images", nargs="+", required=True,
-                        help="Paths to alignment .tif images, or a single directory")
+    parser.add_argument(
+        "--images",
+        nargs="+",
+        required=True,
+        help="Paths to alignment .tif images, or a single directory",
+    )
     args = parser.parse_args()
 
     # accept a directory as --images
@@ -170,7 +190,9 @@ def main():
         )
         for r in rows
     ]
-    fig = plot_multi_step_alignment(ref, results, title="Alignment comparison", save=False)
+    fig = plot_multi_step_alignment(
+        ref, results, title="Alignment comparison", save=False
+    )
     debug_path = "/tmp/alignment_comparison.png"
     fig.savefig(debug_path, dpi=100)
     print(f"Debug plot  → {debug_path}")

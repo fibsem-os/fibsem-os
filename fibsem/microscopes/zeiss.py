@@ -1,4 +1,3 @@
-
 from fibsem.microscope import FibsemMicroscope
 
 

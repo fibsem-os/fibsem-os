@@ -57,6 +57,7 @@ OBJECTIVE_START_LABELS = {
     ObjectiveStartPosition.FOCUS: "Saved focus position",
 }
 
+
 def format_objective_start(start, position: Optional[float]) -> str:
     """Label one start option, with what it currently means in millimetres.
 
@@ -101,7 +102,7 @@ class FMOverviewSettingsWidget(QWidget):
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
-        self._tile_fov: Optional[tuple] = None   # (fov_x, fov_y) metres, set externally
+        self._tile_fov: Optional[tuple] = None  # (fov_x, fov_y) metres, set externally
         # What the start options currently mean. None until a host says -- the standalone
         # settings widget has no microscope to ask.
         self._objective_current: Optional[float] = None
@@ -246,7 +247,9 @@ class FMOverviewSettingsWidget(QWidget):
         self.path_edit.lineEdit.textChanged.connect(self._refresh_destination)
         self._refresh_destination()
         self.check_zstack.stateChanged.connect(self._on_zstack_toggled)
-        self.combo_autofocus_mode.currentIndexChanged.connect(self._on_autofocus_changed)
+        self.combo_autofocus_mode.currentIndexChanged.connect(
+            self._on_autofocus_changed
+        )
         self.combo_objective_start.currentIndexChanged.connect(self._on_any_change)
         self.autofocus_widget.settings_changed.connect(self._on_any_change)
 
@@ -463,15 +466,19 @@ class FMOverviewSettingsWidget(QWidget):
 
     @parameters.setter
     def parameters(self, value: OverviewParameters) -> None:
-        widgets = (self.check_zstack, self.combo_autofocus_mode,
-                   self.combo_objective_start)
+        widgets = (
+            self.check_zstack,
+            self.combo_autofocus_mode,
+            self.combo_objective_start,
+        )
         for widget in widgets:
             widget.blockSignals(True)
         try:
             # The grid panel does its own blocking, so it is loaded outside this one --
             # `blockSignals` on the panel would not reach the boxes inside it anyway.
-            self.grid.apply(value.rows, value.cols, value.overlap,
-                            value.tile_order, value.tile_mask)
+            self.grid.apply(
+                value.rows, value.cols, value.overlap, value.tile_order, value.tile_mask
+            )
             self.check_zstack.setChecked(value.use_zstack)
             self.combo_autofocus_mode.set_value(value.autofocus_mode)
             self.combo_objective_start.set_value(value.objective_start)

@@ -4,6 +4,7 @@
 ``Correlation/<ts>/correlation.json`` folders the app already writes; ``latest``
 returns the newest. No Qt.
 """
+
 import os
 
 from fibsem.correlation.history import LamellaCorrelation
@@ -47,10 +48,10 @@ def test_discover_missing_or_empty_dir_has_no_runs(tmp_path):
 
 def test_discover_skips_unreadable_and_non_run_folders(tmp_path):
     _write_run(str(tmp_path), "2026-07-24-14-00-00", x=5.0)
-    os.makedirs(str(tmp_path / "empty-folder"))              # no correlation file
+    os.makedirs(str(tmp_path / "empty-folder"))  # no correlation file
     bad = tmp_path / "2026-07-25-08-00-00"
     bad.mkdir()
-    (bad / "correlation.json").write_text("{ not json")      # unreadable
+    (bad / "correlation.json").write_text("{ not json")  # unreadable
 
     hist = LamellaCorrelation.discover(str(tmp_path))
     assert [r.name for r in hist.runs] == ["2026-07-24-14-00-00"]  # the good one only

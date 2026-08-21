@@ -118,7 +118,9 @@ def reference_image_cost(
     """
     if params is None:
         return 0.0
-    n_fovs = sum([params.acquire_image1, params.acquire_image2]) if fovs is None else fovs
+    n_fovs = (
+        sum([params.acquire_image1, params.acquire_image2]) if fovs is None else fovs
+    )
     n_beams = sum([params.acquire_sem, params.acquire_fib])
     return image_cost(params.imaging, n_fovs * n_beams)
 

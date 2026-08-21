@@ -10,6 +10,7 @@ Driven by calling the method unbound against a stub, because its host is `AutoLa
 -- a napari-backed window that cannot be constructed headless. The spec it builds is the
 whole of what this pins, so the stub costs nothing in coverage.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

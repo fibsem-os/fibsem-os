@@ -9,12 +9,21 @@ from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
 # GUI Configuration Constants
 WIDGET_CONFIG = {
-    "enabled": {"default": True, "label": "Enable Initial Alignment",
-                "tooltip": "Align between imaging and milling current before starting milling"},
-    "use_contrast": {"default": True, "label": "Use Auto Contrast",
-                     "tooltip": "Autocontrast before acquiring alignment image"},
-    "use_autofocus": {"default": False, "label": "Use Auto Focus",
-                      "tooltip": "Autofocus before acquiring alignment image"},
+    "enabled": {
+        "default": True,
+        "label": "Enable Initial Alignment",
+        "tooltip": "Align between imaging and milling current before starting milling",
+    },
+    "use_contrast": {
+        "default": True,
+        "label": "Use Auto Contrast",
+        "tooltip": "Autocontrast before acquiring alignment image",
+    },
+    "use_autofocus": {
+        "default": False,
+        "label": "Use Auto Focus",
+        "tooltip": "Autofocus before acquiring alignment image",
+    },
     "steps": {"range": (1, 9), "default": 3},
 }
 
@@ -127,7 +136,7 @@ class FibsemMillingAlignmentWidget(QWidget):
 
     def _emit_settings_changed(self):
         """Emit the settings_changed signal with current settings.
-        
+
         Called whenever any control value changes to notify listeners
         of the updated MillingAlignment settings.
         """
@@ -187,7 +196,7 @@ class FibsemMillingAlignmentWidget(QWidget):
 
     def set_show_advanced(self, show_advanced: bool):
         """Set the visibility of advanced settings.
-        
+
         Args:
             show_advanced: True to show advanced settings, False to hide them
         """
@@ -196,14 +205,14 @@ class FibsemMillingAlignmentWidget(QWidget):
 
     def toggle_advanced(self):
         """Toggle the visibility of advanced settings.
-        
+
         Switches between showing and hiding the advanced controls.
         """
         self.set_show_advanced(not self._show_advanced)
 
     def get_show_advanced(self) -> bool:
         """Get the current advanced settings visibility state.
-        
+
         Returns:
             True if advanced settings are currently visible, False otherwise
         """

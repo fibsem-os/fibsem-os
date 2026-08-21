@@ -9,6 +9,7 @@ the config bridge the protocol editor's dialog relies on:
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_spot_burn_coordinates_widget.py
 """
+
 from __future__ import annotations
 
 import os
@@ -43,14 +44,19 @@ def _host(settings=None):
     """A widget + its own controller/canvas, as the protocol-editor dialog builds it."""
     view = LamellaEditorView()
     controller = MicroscopeViewController(view=view)
-    image = FibsemImage.generate_blank_image(resolution=_RESOLUTION, hfw=_HFW, random=False)
+    image = FibsemImage.generate_blank_image(
+        resolution=_RESOLUTION, hfw=_HFW, random=False
+    )
     controller.set_image(BeamType.ION, image)
-    w = SpotBurnCoordinatesWidget(controller=controller, beam=BeamType.ION, settings=settings)
+    w = SpotBurnCoordinatesWidget(
+        controller=controller, beam=BeamType.ION, settings=settings
+    )
     w.set_image_shape(image.data.shape)
     return w, controller, view, image
 
 
 # ── the config <-> settings bridge the dialog depends on ────────────────────
+
 
 def test_config_round_trips_through_settings():
     cfg = SpotBurnFiducialTaskConfig(
@@ -77,6 +83,7 @@ def test_apply_settings_preserves_unrelated_task_fields():
 
 # ── coordinates are relative to the frame, and the frame is not square ──────
 
+
 def test_normalised_coordinates_survive_a_non_square_frame():
     """x and y are normalised independently — a 3:2 frame must not skew them."""
     pts = [Point(0.25, 0.75), Point(0.9, 0.1)]
@@ -89,26 +96,32 @@ def test_normalised_coordinates_survive_a_non_square_frame():
 
 
 def test_overlay_receives_pixel_positions_scaled_by_each_axis():
-    w, controller, _, image = _host(settings=SpotBurnSettings(coordinates=[Point(0.25, 0.75)]))
+    w, controller, _, image = _host(
+        settings=SpotBurnSettings(coordinates=[Point(0.25, 0.75)])
+    )
     w.set_active(True)
     _app.processEvents()
     spec = controller._scene.fib.overlays[SpotBurnCoordinatesWidget.OVERLAY_ID]
     h, width = image.data.shape
-    (px, py), = spec.points
+    ((px, py),) = spec.points
     assert _close(px, 0.25 * width) and _close(py, 0.75 * h)
 
 
 # ── list <-> canvas sync ────────────────────────────────────────────────────
 
+
 def test_canvas_edit_writes_back_to_settings_and_emits():
-    w, controller, _, image = _host(settings=SpotBurnSettings(coordinates=[Point(0.2, 0.2)]))
+    w, controller, _, image = _host(
+        settings=SpotBurnSettings(coordinates=[Point(0.2, 0.2)])
+    )
     w.set_active(True)
     seen = []
     w.settings_changed.connect(seen.append)
     h, width = image.data.shape
     # simulate a drag + an add on the canvas
     controller.overlay_edited.emit(
-        BeamType.ION, SpotBurnCoordinatesWidget.OVERLAY_ID,
+        BeamType.ION,
+        SpotBurnCoordinatesWidget.OVERLAY_ID,
         [(0.4 * width, 0.6 * h), (0.8 * width, 0.1 * h)],
     )
     out = w.get_settings().coordinates
@@ -118,8 +131,11 @@ def test_canvas_edit_writes_back_to_settings_and_emits():
 
 
 def test_rows_mirror_the_coordinates():
-    w, _, _, _ = _host(settings=SpotBurnSettings(
-        coordinates=[Point(0.16, 0.45), Point(0.15, 0.45), Point(0.17, 0.45)]))
+    w, _, _, _ = _host(
+        settings=SpotBurnSettings(
+            coordinates=[Point(0.16, 0.45), Point(0.15, 0.45), Point(0.17, 0.45)]
+        )
+    )
     assert w._list.count() == 3
     w.set_settings(SpotBurnSettings(coordinates=[Point(0.5, 0.5)]))
     assert w._list.count() == 1
@@ -141,6 +157,7 @@ def test_rebuilding_rows_does_not_accumulate_widgets():
 
 # ── teardown ────────────────────────────────────────────────────────────────
 
+
 def test_hide_after_controller_is_gone_does_not_raise():
     """Qt gives no teardown ordering guarantee between the widget and the controller.
 
@@ -149,15 +166,19 @@ def test_hide_after_controller_is_gone_does_not_raise():
     """
     import sip
 
-    w, controller, view, _ = _host(settings=SpotBurnSettings(coordinates=[Point(0.3, 0.3)]))
+    w, controller, view, _ = _host(
+        settings=SpotBurnSettings(coordinates=[Point(0.3, 0.3)])
+    )
     w.set_active(True)
-    sip.delete(controller)          # controller dies first
+    sip.delete(controller)  # controller dies first
     assert sip.isdeleted(controller)
-    w.set_active(False)             # what hideEvent does — must not raise
+    w.set_active(False)  # what hideEvent does — must not raise
 
 
 def test_deactivate_removes_the_overlay():
-    w, controller, _, _ = _host(settings=SpotBurnSettings(coordinates=[Point(0.3, 0.3)]))
+    w, controller, _, _ = _host(
+        settings=SpotBurnSettings(coordinates=[Point(0.3, 0.3)])
+    )
     w.set_active(True)
     _app.processEvents()
     assert SpotBurnCoordinatesWidget.OVERLAY_ID in controller._scene.fib.overlays
@@ -168,13 +189,17 @@ def test_deactivate_removes_the_overlay():
 
 # ── layout: the list absorbs spare height, and survives a cramped host ──────
 
+
 def test_list_takes_the_spare_height():
     """The list used to be capped at 180px with no stretch, so a dozen-point pattern
     scrolled a six-row window while the panel below it sat empty."""
     from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
-    w, _, _, _ = _host(settings=SpotBurnSettings(
-        coordinates=[Point(0.1 * i, 0.1 * i) for i in range(1, 12)]))
+    w, _, _, _ = _host(
+        settings=SpotBurnSettings(
+            coordinates=[Point(0.1 * i, 0.1 * i) for i in range(1, 12)]
+        )
+    )
     host = QWidget()
     QVBoxLayout(host).addWidget(w, 1)
     host.resize(360, 800)
@@ -184,8 +209,10 @@ def test_list_takes_the_spare_height():
     assert w._list.height() > 400, w._list.height()
     # every row reachable without scrolling
     visible = sum(
-        1 for i in range(w._list.count())
-        if w._list.visualItemRect(w._list.item(i)).bottom() <= w._list.viewport().height()
+        1
+        for i in range(w._list.count())
+        if w._list.visualItemRect(w._list.item(i)).bottom()
+        <= w._list.viewport().height()
     )
     assert visible == w._list.count() == 11
 
@@ -194,8 +221,11 @@ def test_cramped_host_keeps_the_summary_and_a_usable_list():
     """The live spot-burn tab is short — the list must not eat the footer."""
     from PyQt5.QtWidgets import QPushButton, QVBoxLayout, QWidget
 
-    w, _, _, _ = _host(settings=SpotBurnSettings(
-        coordinates=[Point(0.1 * i, 0.1 * i) for i in range(1, 12)]))
+    w, _, _, _ = _host(
+        settings=SpotBurnSettings(
+            coordinates=[Point(0.1 * i, 0.1 * i) for i in range(1, 12)]
+        )
+    )
     host = QWidget()
     lay = QVBoxLayout(host)
     lay.addWidget(w, 1)
@@ -205,12 +235,13 @@ def test_cramped_host_keeps_the_summary_and_a_usable_list():
     host.show()
     for _ in range(8):
         _app.processEvents()
-    assert w._list.height() >= 100          # did not collapse
-    assert not w.label_summary.isHidden()   # footer survived
-    assert sibling.isVisible()              # and so did the host's own controls
+    assert w._list.height() >= 100  # did not collapse
+    assert not w.label_summary.isHidden()  # footer survived
+    assert sibling.isVisible()  # and so did the host's own controls
 
 
 # ── the protocol-editor dialog that hosts the widget ────────────────────────
+
 
 def _editor_stub(config):
     """The minimum of AutoLamellaProtocolTaskConfigEditor the dialog method touches."""
@@ -254,8 +285,9 @@ def test_dialog_does_not_leak_a_canvas_per_open():
     from PyQt5.QtCore import QCoreApplication, QEvent
     from PyQt5.QtWidgets import QDialog
 
-    host = _editor_stub(SpotBurnFiducialTaskConfig(task_name="T",
-                                                   coordinates=[Point(0.2, 0.2)]))
+    host = _editor_stub(
+        SpotBurnFiducialTaskConfig(task_name="T", coordinates=[Point(0.2, 0.2)])
+    )
     for _ in range(5):
         _open_dialog(host)
     # deleteLater posts a DeferredDelete event; processEvents alone will not deliver it
@@ -267,8 +299,9 @@ def test_dialog_does_not_leak_a_canvas_per_open():
 
 
 def test_cancel_leaves_the_config_untouched():
-    cfg = SpotBurnFiducialTaskConfig(task_name="T",
-                                     coordinates=[Point(0.2, 0.2), Point(0.4, 0.4)])
+    cfg = SpotBurnFiducialTaskConfig(
+        task_name="T", coordinates=[Point(0.2, 0.2), Point(0.4, 0.4)]
+    )
     before = [(p.x, p.y) for p in cfg.coordinates]
     host = _editor_stub(cfg)
 
@@ -282,7 +315,9 @@ def test_cancel_leaves_the_config_untouched():
 
     _open_dialog(host, on_exec=edit_then_cancel)
     assert [(p.x, p.y) for p in cfg.coordinates] == before
-    assert host.dirty == [] and host.saved == []  # nothing marked dirty, nothing written
+    assert (
+        host.dirty == [] and host.saved == []
+    )  # nothing marked dirty, nothing written
 
 
 def test_dialog_survives_a_malformed_protocol():

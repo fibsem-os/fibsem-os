@@ -52,9 +52,7 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
     """
 
     def __init__(
-        self,
-        experiment: Experiment,
-        parent: Optional[QtWidgets.QWidget] = None
+        self, experiment: Experiment, parent: Optional[QtWidgets.QWidget] = None
     ):
         super().__init__(parent)
 
@@ -105,7 +103,9 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
 
         exp_layout.addLayout(exp_form_layout)
 
-        exp_group = TitledPanel("Experiment Information", content=exp_content, collapsible=False)
+        exp_group = TitledPanel(
+            "Experiment Information", content=exp_content, collapsible=False
+        )
         main_layout.addWidget(exp_group)
 
         # Protocol Information
@@ -117,7 +117,9 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
         protocol_button_layout = QtWidgets.QHBoxLayout()
         protocol_button_layout.addStretch()
 
-        self.btn_select_legacy_protocol = QtWidgets.QPushButton("Select Legacy Protocol")
+        self.btn_select_legacy_protocol = QtWidgets.QPushButton(
+            "Select Legacy Protocol"
+        )
         self.btn_select_legacy_protocol.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         protocol_button_layout.addWidget(self.btn_select_legacy_protocol)
 
@@ -158,7 +160,9 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
         self.label_protocol_warning = QtWidgets.QLabel(
             "⚠ Warning: Loading a new protocol will overwrite the existing protocol in this experiment."
         )
-        self.label_protocol_warning.setStyleSheet("color: orange; font-style: italic; font-size: 10px;")
+        self.label_protocol_warning.setStyleSheet(
+            "color: orange; font-style: italic; font-size: 10px;"
+        )
         self.label_protocol_warning.setWordWrap(True)
         self.label_protocol_warning.setVisible(False)
         protocol_layout.addWidget(self.label_protocol_warning)
@@ -166,11 +170,15 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
         protocol_info_label = QtWidgets.QLabel(
             "Note: You will be able to edit the protocol after loading it into the experiment."
         )
-        protocol_info_label.setStyleSheet("color: gray; font-style: italic; font-size: 10px;")
+        protocol_info_label.setStyleSheet(
+            "color: gray; font-style: italic; font-size: 10px;"
+        )
         protocol_info_label.setWordWrap(True)
         protocol_layout.addWidget(protocol_info_label)
 
-        protocol_group = TitledPanel("Protocol Information", content=protocol_content, collapsible=False)
+        protocol_group = TitledPanel(
+            "Protocol Information", content=protocol_content, collapsible=False
+        )
         main_layout.addWidget(protocol_group)
 
         # Dialog buttons (OK/Cancel)
@@ -217,7 +225,9 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
             protocol_file_path = os.path.join(self.experiment.path, "protocol.yaml")
 
             self.protocol = existing_protocol
-            self.protocol_path = protocol_file_path if os.path.exists(protocol_file_path) else None
+            self.protocol_path = (
+                protocol_file_path if os.path.exists(protocol_file_path) else None
+            )
             self._initial_protocol_path = self.protocol_path
             self._initial_protocol_data = existing_protocol.to_dict()
             self._protocol_changed = False
@@ -249,7 +259,7 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
             QtWidgets.QMessageBox.critical(
                 self,
                 ERROR_INVALID_PROTOCOL_TITLE,
-                ERROR_INVALID_PROTOCOL_MSG.format(error=e)
+                ERROR_INVALID_PROTOCOL_MSG.format(error=e),
             )
             return
 
@@ -276,14 +286,16 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
 
         # Validate and convert the legacy protocol file
         try:
-            loaded_protocol = AutoLamellaTaskProtocol.load_from_old_protocol(Path(protocol_path))
+            loaded_protocol = AutoLamellaTaskProtocol.load_from_old_protocol(
+                Path(protocol_path)
+            )
         except Exception as e:
             logging.error(f"Failed to load legacy protocol: {e}")
             self.btn_ok.setEnabled(False)  # Keep OK button disabled on error
             QtWidgets.QMessageBox.critical(
                 self,
                 ERROR_INVALID_LEGACY_PROTOCOL_TITLE,
-                ERROR_INVALID_LEGACY_PROTOCOL_MSG.format(error=e)
+                ERROR_INVALID_LEGACY_PROTOCOL_MSG.format(error=e),
             )
             return
 
@@ -294,11 +306,13 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
             self.protocol_path = self._initial_protocol_path
         self.btn_ok.setEnabled(True)  # Enable OK button when new protocol is loaded
         self._update_protocol_display()
-        logging.info(f"Legacy protocol loaded and converted successfully from {protocol_path}")
+        logging.info(
+            f"Legacy protocol loaded and converted successfully from {protocol_path}"
+        )
         QtWidgets.QMessageBox.information(
             self,
             "Legacy Protocol Converted",
-            "The legacy protocol has been successfully converted to the new task-based format."
+            "The legacy protocol has been successfully converted to the new task-based format.",
         )
 
     def _update_protocol_display(self):
@@ -313,7 +327,9 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
 
         self.lineEdit_protocol_name.setText(self.protocol.name or "")
         self.lineEdit_protocol_description.setText(self.protocol.description or "")
-        display_path = self.protocol_path if self.protocol_path else "(Current protocol)"
+        display_path = (
+            self.protocol_path if self.protocol_path else "(Current protocol)"
+        )
         self.lineEdit_protocol_path.setText(display_path)
         self.lineEdit_protocol_path.setCursorPosition(0)
         self.lineEdit_protocol_tasks.setText(str(len(self.protocol.task_config)))
@@ -324,9 +340,7 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
         # Validate protocol
         if self.protocol is None:
             QtWidgets.QMessageBox.warning(
-                self,
-                ERROR_NO_PROTOCOL_TITLE,
-                ERROR_NO_PROTOCOL_MSG
+                self, ERROR_NO_PROTOCOL_TITLE, ERROR_NO_PROTOCOL_MSG
             )
             return
 
@@ -342,7 +356,7 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
                 QtWidgets.QMessageBox.critical(
                     self,
                     "Error Saving Protocol",
-                    f"Failed to save protocol to experiment directory:\n\n{e}"
+                    f"Failed to save protocol to experiment directory:\n\n{e}",
                 )
                 return
         else:
@@ -352,7 +366,9 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
 
         # Update internal state to match saved protocol
         self._initial_protocol_data = self.protocol.to_dict()
-        self._initial_protocol_path = protocol_save_path if should_save else self._initial_protocol_path
+        self._initial_protocol_path = (
+            protocol_save_path if should_save else self._initial_protocol_path
+        )
         self._protocol_changed = False
         if should_save:
             self.protocol_path = protocol_save_path
@@ -360,7 +376,9 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
             self.protocol_path = self._initial_protocol_path
         self._update_protocol_display()
 
-        logging.info(f"Protocol '{self.protocol.name}' loaded into experiment '{self.experiment.name}'")
+        logging.info(
+            f"Protocol '{self.protocol.name}' loaded into experiment '{self.experiment.name}'"
+        )
 
         # Accept the dialog
         self.accept()
@@ -378,13 +396,14 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
             return False
 
     def _update_warning_visibility(self) -> None:
-        show_warning = self._protocol_changed and self._initial_protocol_data is not None
+        show_warning = (
+            self._protocol_changed and self._initial_protocol_data is not None
+        )
         self.label_protocol_warning.setVisible(show_warning)
 
 
 def load_task_protocol_dialog(
-    experiment: Experiment,
-    parent: Optional[QtWidgets.QWidget] = None
+    experiment: Experiment, parent: Optional[QtWidgets.QWidget] = None
 ) -> Optional[AutoLamellaTaskProtocol]:
     """Create and execute the task protocol loading dialog.
 
@@ -423,10 +442,11 @@ def main():
 
     # Create a test experiment
     from fibsem.applications.autolamella.structures import Experiment
+
     experiment = Experiment.create(
         path=Path("/tmp"),
         name="Test Experiment",
-        metadata={"description": "Test experiment for protocol loading"}
+        metadata={"description": "Test experiment for protocol loading"},
     )
 
     # Use the standalone function to load protocol

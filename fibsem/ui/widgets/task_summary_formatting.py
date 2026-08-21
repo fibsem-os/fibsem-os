@@ -4,6 +4,7 @@ Shared formatting helpers for task summary / task history tables.
 Used by both TaskHistoryTableWidget (full experiment history) and
 WorkflowSummaryDialog (per-run summary) so the two stay visually consistent.
 """
+
 from typing import Callable, List, Optional
 
 import pandas as pd
@@ -71,8 +72,9 @@ def format_duration_short(seconds) -> str:
         return str(seconds)
 
 
-def prepare_summary_dataframe(df: Optional[pd.DataFrame],
-                              columns: Optional[List[str]] = None) -> Optional[pd.DataFrame]:
+def prepare_summary_dataframe(
+    df: Optional[pd.DataFrame], columns: Optional[List[str]] = None
+) -> Optional[pd.DataFrame]:
     """Select summary columns, format the duration column, and rename to display titles.
 
     Args:
@@ -103,6 +105,7 @@ def make_status_cell_formatter(df: pd.DataFrame) -> Callable[[int, int, object],
     The dataframe passed here must already use display titles (i.e. have a
     'Status' column), as produced by prepare_summary_dataframe.
     """
+
     def format_cell(row_idx: int, col_idx: int, value) -> dict:
         format_dict: dict = {}
         if "Status" in df.columns:

@@ -46,7 +46,9 @@ class Ui_MainWindow(object):
         self.actionCurrent_alignment = QtWidgets.QAction(MainWindow)
         self.actionCurrent_alignment.setObjectName("actionCurrent_alignment")
         self.actionManipulator_Positions_Calibration = QtWidgets.QAction(MainWindow)
-        self.actionManipulator_Positions_Calibration.setObjectName("actionManipulator_Positions_Calibration")
+        self.actionManipulator_Positions_Calibration.setObjectName(
+            "actionManipulator_Positions_Calibration"
+        )
         self.actionMinimap = QtWidgets.QAction(MainWindow)
         self.actionMinimap.setObjectName("actionMinimap")
         self.actionOpen_Minimap = QtWidgets.QAction(MainWindow)
@@ -66,8 +68,12 @@ class Ui_MainWindow(object):
         MainWindow.setWindowTitle(_translate("MainWindow", "MainWindow"))
         self.label_title.setText(_translate("MainWindow", "OpenFIBSEM"))
         self.menuTools.setTitle(_translate("MainWindow", "Tools"))
-        self.actionCurrent_alignment.setText(_translate("MainWindow", "Beam Current Alignment"))
-        self.actionManipulator_Positions_Calibration.setText(_translate("MainWindow", "Manipulator Callibration"))
+        self.actionCurrent_alignment.setText(
+            _translate("MainWindow", "Beam Current Alignment")
+        )
+        self.actionManipulator_Positions_Calibration.setText(
+            _translate("MainWindow", "Manipulator Callibration")
+        )
         self.actionMinimap.setText(_translate("MainWindow", "Minimap"))
         self.actionOpen_Minimap.setText(_translate("MainWindow", "Open Minimap"))
         self.actionImage_Viewer.setText(_translate("MainWindow", "Image Viewer"))

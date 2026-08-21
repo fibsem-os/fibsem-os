@@ -34,10 +34,10 @@ def load_projection(filepath: str) -> Tuple[np.ndarray, float]:
         (H, W, 3) uint8 RGB, and the pixel size in metres.
     """
     image = FluorescenceImage.load(filepath)
-    projected = image.data.max(axis=1)        # (C, Z, Y, X) -> (C, Y, X), a new array
+    projected = image.data.max(axis=1)  # (C, Z, Y, X) -> (C, Y, X), a new array
     channels = list(image.metadata.channels)
     pixel_size_x = image.metadata.pixel_size_x
-    del image                                  # drop the volume, keep the projection
+    del image  # drop the volume, keep the projection
 
     layers = []
     for index, plane in enumerate(projected):

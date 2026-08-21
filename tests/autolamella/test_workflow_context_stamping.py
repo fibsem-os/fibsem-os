@@ -73,7 +73,9 @@ def test_outside_a_workflow_there_is_no_item(microscope) -> None:
 def test_an_image_acquired_during_a_task_carries_both(microscope, lamella) -> None:
     captured = {}
 
-    task = _Task(microscope, lamella, body=lambda: captured.update(seen=_stamped(microscope)))
+    task = _Task(
+        microscope, lamella, body=lambda: captured.update(seen=_stamped(microscope))
+    )
     task.run()
 
     stamped = captured["seen"]
@@ -84,7 +86,9 @@ def test_an_image_acquired_during_a_task_carries_both(microscope, lamella) -> No
     assert stamped.task_name == "Test Task"
 
 
-def test_the_workflow_half_is_cleared_after_the_task_completes(microscope, lamella) -> None:
+def test_the_workflow_half_is_cleared_after_the_task_completes(
+    microscope, lamella
+) -> None:
     _Task(microscope, lamella).run()
 
     assert _stamped(microscope).item_id is None
@@ -137,7 +141,9 @@ def test_a_second_task_replaces_the_first(microscope, lamella) -> None:
     first.run()
 
     captured = {}
-    second = _Task(microscope, lamella, body=lambda: captured.update(seen=_stamped(microscope)))
+    second = _Task(
+        microscope, lamella, body=lambda: captured.update(seen=_stamped(microscope))
+    )
     second.run()
 
     assert captured["seen"].task_id == second.task_id

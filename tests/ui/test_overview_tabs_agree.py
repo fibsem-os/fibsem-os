@@ -13,6 +13,7 @@ context. And the specimen grid's radius was the same 1000 µm under two names in
 Run directly:
     python -m pytest tests/ui/test_overview_tabs_agree.py
 """
+
 from __future__ import annotations
 
 import ast
@@ -26,7 +27,13 @@ BEAM = REPO_ROOT / "fibsem" / "ui" / "widgets" / "overview_widget.py"
 FM = REPO_ROOT / "fibsem" / "ui" / "fm" / "widgets" / "fm_overview_widget.py"
 TOKENS = REPO_ROOT / "fibsem" / "ui" / "tokens.py"
 OVERLAYS = (
-    REPO_ROOT / "fibsem" / "ui" / "widgets" / "canvas" / "overlays" / "minimap_overlays.py"
+    REPO_ROOT
+    / "fibsem"
+    / "ui"
+    / "widgets"
+    / "canvas"
+    / "overlays"
+    / "minimap_overlays.py"
 )
 
 # What both tabs draw of the sample holder, and where the one definition lives.
@@ -42,7 +49,10 @@ HEX_LITERAL = re.compile(r'"#[0-9a-fA-F]{6}"')
 
 @pytest.fixture(scope="module")
 def sources():
-    return {"beam": BEAM.read_text(encoding="utf-8"), "fm": FM.read_text(encoding="utf-8")}
+    return {
+        "beam": BEAM.read_text(encoding="utf-8"),
+        "fm": FM.read_text(encoding="utf-8"),
+    }
 
 
 def _assigned_names(source: str) -> set:
@@ -97,7 +107,10 @@ def test_the_grid_radius_is_defined_once():
     overlays = OVERLAYS.read_text(encoding="utf-8")
     assert re.search(r"^GRID_BOUNDARY_RADIUS_M\s*=", overlays, re.M)
 
-    for tab, source in (("beam", BEAM.read_text(encoding="utf-8")), ("fm", FM.read_text(encoding="utf-8"))):
+    for tab, source in (
+        ("beam", BEAM.read_text(encoding="utf-8")),
+        ("fm", FM.read_text(encoding="utf-8")),
+    ):
         assigned = _assigned_names(source)
         strays = {n for n in assigned if "GRID_RADIUS" in n or "BOUNDARY_RADIUS" in n}
         assert not strays, f"{tab} defines its own grid radius: {strays}"

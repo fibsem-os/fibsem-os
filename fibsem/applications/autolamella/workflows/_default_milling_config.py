@@ -115,10 +115,17 @@ DEFAULT_MILLING_CONFIG[MILL_POLISHING_KEY] = FibsemMillingTaskConfig(
     stages=[
         FibsemMillingStage(
             name="Polishing Milling 01",
-            milling=FibsemMillingSettings(milling_current=60e-12, application_file="Si-ccs"),
-            pattern=TrenchPattern(width=9.0e-6, depth=4.0e-7, spacing=3.0e-7, 
-                                  upper_trench_height=0.7e-6, lower_trench_height=0.7e-6, 
-                                  cross_section=CrossSectionPattern.CleaningCrossSection),
+            milling=FibsemMillingSettings(
+                milling_current=60e-12, application_file="Si-ccs"
+            ),
+            pattern=TrenchPattern(
+                width=9.0e-6,
+                depth=4.0e-7,
+                spacing=3.0e-7,
+                upper_trench_height=0.7e-6,
+                lower_trench_height=0.7e-6,
+                cross_section=CrossSectionPattern.CleaningCrossSection,
+            ),
         )
     ],
 )

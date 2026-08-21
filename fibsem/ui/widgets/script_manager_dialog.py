@@ -193,11 +193,16 @@ class ScriptManagerDialog(QDialog):
         titles = QVBoxLayout()
         titles.setSpacing(2)
         self.title_label = QLabel("User scripts")
-        style_with_tooltip(self.title_label, f"font-size: {_FS_TITLE}px; font-weight: 500; color: {_TEXT_STRONG};")
+        style_with_tooltip(
+            self.title_label,
+            f"font-size: {_FS_TITLE}px; font-weight: 500; color: {_TEXT_STRONG};",
+        )
         # counts and location are meta, not the heading -- the heading says what
         # this dialog is, the line under it says what is currently in it.
         self.meta_label = QLabel()
-        style_with_tooltip(self.meta_label, f"font-size: {_FS_BODY}px; color: {_TEXT_MUTED};")
+        style_with_tooltip(
+            self.meta_label, f"font-size: {_FS_BODY}px; color: {_TEXT_MUTED};"
+        )
         self.meta_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.meta_label.setMinimumWidth(160)
         titles.addWidget(self.title_label)
@@ -235,25 +240,34 @@ class ScriptManagerDialog(QDialog):
         layout.addWidget(self.stack)
 
         self.detail_panel = detail_panel = QWidget()
-        style_with_tooltip(detail_panel, f"background-color: {_PANEL}; border: 1px solid {_BORDER}; border-radius: 6px;")
+        style_with_tooltip(
+            detail_panel,
+            f"background-color: {_PANEL}; border: 1px solid {_BORDER}; border-radius: 6px;",
+        )
         detail_layout = QHBoxLayout(detail_panel)
         detail_layout.setContentsMargins(11, 9, 11, 9)
         self.detail_label = QLabel()
         self.detail_label.setTextFormat(Qt.RichText)
-        style_with_tooltip(self.detail_label, f"border: none; font-size: {_FS_BODY}px; color: {_TEXT};")
+        style_with_tooltip(
+            self.detail_label, f"border: none; font-size: {_FS_BODY}px; color: {_TEXT};"
+        )
         # the consequence of running this sits opposite the facts about it, so it
         # reads as a warning rather than another line of metadata
         self.consequence_label = QLabel()
         self.consequence_label.setTextFormat(Qt.RichText)
         self.consequence_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        style_with_tooltip(self.consequence_label, f"border: none; font-size: {_FS_BODY}px;")
+        style_with_tooltip(
+            self.consequence_label, f"border: none; font-size: {_FS_BODY}px;"
+        )
         detail_layout.addWidget(self.detail_label, 1)
         detail_layout.addWidget(self.consequence_label, 0)
         layout.addWidget(detail_panel)
 
         footer = QHBoxLayout()
         self.hint_label = QLabel()
-        style_with_tooltip(self.hint_label, f"font-size: {_FS_BODY}px; color: {_TEXT_MUTED};")
+        style_with_tooltip(
+            self.hint_label, f"font-size: {_FS_BODY}px; color: {_TEXT_MUTED};"
+        )
         footer.addWidget(self.hint_label)
         footer.addStretch()
         close_button = QPushButton("Close")
@@ -273,21 +287,28 @@ class ScriptManagerDialog(QDialog):
         anything else in the dialog.
         """
         panel = QWidget()
-        style_with_tooltip(panel, f"background-color: {_PANEL}; border: 1px solid {_BORDER};"
-            f"border-radius: 6px;")
+        style_with_tooltip(
+            panel,
+            f"background-color: {_PANEL}; border: 1px solid {_BORDER};"
+            f"border-radius: 6px;",
+        )
         layout = QVBoxLayout(panel)
         layout.setAlignment(Qt.AlignCenter)
         layout.setSpacing(6)
 
         headline = QLabel("No scripts in this folder")
         headline.setAlignment(Qt.AlignCenter)
-        style_with_tooltip(headline, f"border: none; font-size: {_FS_NAME}px; color: {_TEXT};")
+        style_with_tooltip(
+            headline, f"border: none; font-size: {_FS_NAME}px; color: {_TEXT};"
+        )
         hint = QLabel(
             "Use New script… to start one from a template, "
             "or Change folder… to look somewhere else."
         )
         hint.setAlignment(Qt.AlignCenter)
-        style_with_tooltip(hint, f"border: none; font-size: {_FS_BODY}px; color: {_TEXT_MUTED};")
+        style_with_tooltip(
+            hint, f"border: none; font-size: {_FS_BODY}px; color: {_TEXT_MUTED};"
+        )
         # Says "repository" on purpose: examples/ is not shipped in the wheel, so a
         # pip-installed user will not find it on disk and would otherwise be told
         # only to write one from scratch. FIB-341 owns seeding them properly.
@@ -295,7 +316,9 @@ class ScriptManagerDialog(QDialog):
         examples.setTextFormat(Qt.RichText)
         examples.setAlignment(Qt.AlignCenter)
         examples.setWordWrap(True)
-        style_with_tooltip(examples, f"border: none; font-size: {_FS_BODY}px; color: {_TEXT_MUTED};")
+        style_with_tooltip(
+            examples, f"border: none; font-size: {_FS_BODY}px; color: {_TEXT_MUTED};"
+        )
         layout.addWidget(headline)
         layout.addWidget(hint)
         layout.addSpacing(4)
@@ -335,12 +358,18 @@ class ScriptManagerDialog(QDialog):
 
         summary = script.description if script.is_runnable else script.error
         name = ElidedLabel(script.name)
-        style_with_tooltip(name, f"font-family: Menlo, monospace; font-size: {_FS_NAME}px;"
+        style_with_tooltip(
+            name,
+            f"font-family: Menlo, monospace; font-size: {_FS_NAME}px;"
             f"background: transparent;"
-            f"color: {_TEXT_STRONG if script.is_runnable else _TEXT_MUTED};")
+            f"color: {_TEXT_STRONG if script.is_runnable else _TEXT_MUTED};",
+        )
         detail = ElidedLabel(summary)
-        style_with_tooltip(detail, f"font-size: {_FS_BODY}px; background: transparent;"
-            f"color: {_TEXT if script.is_runnable else _ERROR};")
+        style_with_tooltip(
+            detail,
+            f"font-size: {_FS_BODY}px; background: transparent;"
+            f"color: {_TEXT if script.is_runnable else _ERROR};",
+        )
         layout.addWidget(name)
         layout.addWidget(detail)
         # the summary is elided in the row, so the tooltip has to carry it in full
@@ -387,7 +416,11 @@ class ScriptManagerDialog(QDialog):
         The selected script is restored by name, so running one does not bounce
         the selection back to the top of the list.
         """
-        previous = self.selected_script().name if (keep_selection and self.selected_script()) else None
+        previous = (
+            self.selected_script().name
+            if (keep_selection and self.selected_script())
+            else None
+        )
 
         self.scripts = self.runner.discover()
         failed = sum(1 for s in self.scripts if not s.is_runnable)
@@ -486,7 +519,9 @@ class ScriptManagerDialog(QDialog):
 
         if script is None:
             empty = "" if not self.scripts else "No script selected."
-            self.detail_label.setText(f'<span style="color:{_TEXT_MUTED};">{empty}</span>')
+            self.detail_label.setText(
+                f'<span style="color:{_TEXT_MUTED};">{empty}</span>'
+            )
             self.consequence_label.setText("")
             self.run_button.setEnabled(False)
             self.hint_label.setText(reason)
@@ -520,12 +555,15 @@ class ScriptManagerDialog(QDialog):
                 )
         elif script.writes:
             consequence, colour, explain = (
-                "● Modifies and saves the experiment", _WRITES,
+                "● Modifies and saves the experiment",
+                _WRITES,
                 "This script changes the experiment and saves it when it finishes.",
             )
         else:
             consequence, colour, explain = (
-                "● Read-only", _TEXT_MUTED, "This script does not change anything.",
+                "● Read-only",
+                _TEXT_MUTED,
+                "This script does not change anything.",
             )
         if script.on_workflow_completed:
             # no chip for this any more, and the screen line has no room for it, so
@@ -537,7 +575,9 @@ class ScriptManagerDialog(QDialog):
         # chip(), this label was styled back in _build(), so by now font() has the
         # stylesheet size and needs no explicit setPixelSize.
         metrics = QFontMetrics(self.consequence_label.font())
-        self.consequence_label.setMinimumWidth(metrics.horizontalAdvance(consequence) + 10)
+        self.consequence_label.setMinimumWidth(
+            metrics.horizontalAdvance(consequence) + 10
+        )
         consequence = f'<span style="color:{colour};">{consequence}</span>'
         self.consequence_label.setText(consequence)
 
@@ -557,12 +597,16 @@ class ScriptManagerDialog(QDialog):
 
     def new_script(self) -> None:
         """Create a stub script in the current folder and reveal it."""
-        name, accepted = QInputDialog.getText(self, "New script", "File name:", text="my_script")
+        name, accepted = QInputDialog.getText(
+            self, "New script", "File name:", text="my_script"
+        )
         if not accepted or not name.strip():
             return
 
         directory = self.runner.scripts_directory()
-        path = directory / (name.strip() if name.strip().endswith(".py") else f"{name.strip()}.py")
+        path = directory / (
+            name.strip() if name.strip().endswith(".py") else f"{name.strip()}.py"
+        )
         if path.exists():
             self.runner.notify(f"{path.name} already exists.", "warning")
             return
@@ -599,10 +643,12 @@ class ScriptManagerDialog(QDialog):
 
     def _record_run(self, script: DiscoveredScript, result: ScriptResult) -> None:
         """Stamp the outcome once the script has actually finished."""
-        outcome = "cancelled" if isinstance(result.error, OperationCancelledError) else (
-            "ok" if result.ok else "failed"
+        outcome = (
+            "cancelled"
+            if isinstance(result.error, OperationCancelledError)
+            else ("ok" if result.ok else "failed")
         )
-        stamp = datetime.now().strftime(TIME_DISPLAY_AMPM_SHORT).lstrip('0').lower()
+        stamp = datetime.now().strftime(TIME_DISPLAY_AMPM_SHORT).lstrip("0").lower()
         self.last_run[script.name] = f"{stamp} {outcome}"
         self._sync_run_button()
         self.refresh()
@@ -622,7 +668,10 @@ class ScriptManagerDialog(QDialog):
             self.run_button.setEnabled(True)  # Stop must never be the disabled one
         # everything that would start a second run, or move the ground under the
         # one already going
-        for button in (self.new_script_button, self.change_folder_button,
-                       self.rescan_button):
+        for button in (
+            self.new_script_button,
+            self.change_folder_button,
+            self.rescan_button,
+        ):
             button.setEnabled(not running)
         self.table.setEnabled(not running)

@@ -16,6 +16,7 @@ one place to change.
 `is_stopped` keeps its own narrow meaning — should the *run* end — and only
 _run_queue's loop asks it.
 """
+
 from pathlib import Path
 from typing import Optional
 
@@ -36,8 +37,7 @@ def manager(tmp_path: Path) -> TaskManager:
     experiment.positions.append(
         Lamella(path=Path(experiment.path) / "L1", number=1, petname="L1")
     )
-    return TaskManager(microscope=NoMicroscope(), experiment=experiment,
-                       parent_ui=None)
+    return TaskManager(microscope=NoMicroscope(), experiment=experiment, parent_ui=None)
 
 
 class FakeUI:
@@ -48,6 +48,7 @@ class FakeUI:
 
 
 # ── The predicate ─────────────────────────────────────────────────────────────
+
 
 def test_nothing_aborts_a_manager_that_has_not_been_stopped(manager):
     assert manager.should_abort is False
@@ -64,6 +65,7 @@ def test_stopping_the_run_aborts_the_task_too(manager):
 
 
 # ── Both checks answer from it ────────────────────────────────────────────────
+
 
 def test_the_ui_check_follows_the_predicate(manager):
     ui = FakeUI(manager)
@@ -117,6 +119,7 @@ def test_the_two_checks_agree(manager):
 
 # ── Fallbacks for a task with no manager ──────────────────────────────────────
 
+
 def test_a_task_without_a_manager_falls_back_to_its_token():
     """A script or test driving a task directly has no manager to ask."""
     import threading
@@ -147,6 +150,7 @@ def test_the_ui_check_is_a_noop_headless():
 
 
 # ── What tasks are handed ─────────────────────────────────────────────────────
+
 
 def test_both_task_hierarchies_take_the_managers_token(manager):
     """GridTask is a parallel hierarchy with its own __init__, so it has to be

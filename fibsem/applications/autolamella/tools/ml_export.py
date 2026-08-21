@@ -35,6 +35,7 @@ that then failed is a useful hard negative, not data to discard.
 
 See FIB-305.
 """
+
 import argparse
 import glob
 import json
@@ -247,8 +248,14 @@ def rasterise_point(
 
     height, width = shape
     r = int(np.ceil(radius_px))
-    x0, x1 = max(0, int(np.floor(pixel_x)) - r), min(width, int(np.ceil(pixel_x)) + r + 1)
-    y0, y1 = max(0, int(np.floor(pixel_y)) - r), min(height, int(np.ceil(pixel_y)) + r + 1)
+    x0, x1 = (
+        max(0, int(np.floor(pixel_x)) - r),
+        min(width, int(np.ceil(pixel_x)) + r + 1),
+    )
+    y0, y1 = (
+        max(0, int(np.floor(pixel_y)) - r),
+        min(height, int(np.ceil(pixel_y)) + r + 1),
+    )
     if x0 >= x1 or y0 >= y1:
         return label
 

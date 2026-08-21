@@ -8,6 +8,7 @@ no warning at all while every test still passed.
 
 So this asserts on the toast actually arriving, not on the call not raising.
 """
+
 from __future__ import annotations
 
 import os
@@ -55,12 +56,15 @@ def test_a_failing_action_warns_the_user(_app, toasts):
 
     assert toasts, "a failing context-menu action produced no warning"
     message, kind = toasts[-1][0], toasts[-1][1]
-    assert "Move Patterns Here" in message, f"warning does not name the action: {message!r}"
+    assert "Move Patterns Here" in message, (
+        f"warning does not name the action: {message!r}"
+    )
     assert kind == "warning", f"expected a warning, got {kind!r}"
 
 
 def test_a_failing_action_does_not_propagate(_app, toasts):
     """The whole point of the try/except: one bad action must not break the caller."""
+
     def boom():
         raise RuntimeError("no")
 

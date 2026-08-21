@@ -26,8 +26,10 @@ def inference(images, output_dir, model, model_path, device, WANDB=False):
     # model.eval()
 
     # Inference
-    with torch.no_grad(): # TODO: move this down to only wrap the model inference
-        vol = tff.imread(os.path.join(images, "*.tif*"), aszarr=True) # loading folder of .tif into zarr array)
+    with torch.no_grad():  # TODO: move this down to only wrap the model inference
+        vol = tff.imread(
+            os.path.join(images, "*.tif*"), aszarr=True
+        )  # loading folder of .tif into zarr array)
         zarr_set = zarr.open(vol)
 
         filenames = sorted(glob.glob(os.path.join(images, "*.tif*")))
@@ -37,13 +39,13 @@ def inference(images, output_dir, model, model_path, device, WANDB=False):
             img = img.to(device)
             outputs = model(img[None, :, :, :].float())
             output_mask = utils.decode_output(outputs)
-            
-            output = Image.fromarray(output_mask) 
+
+            output = Image.fromarray(output_mask)
             path = os.path.join(output_dir, os.path.basename(fname).split(".")[0])
-            
+
             # if not os.path.exists(path):
             os.makedirs(path, exist_ok=True)
-            
+
             input_img = Image.fromarray(img.detach().cpu().squeeze().numpy())
             input_img.save(os.path.join(path, "input.tif"))
             output.save(os.path.join(path, "output.tif"))  # or 'test.tif'
@@ -57,6 +59,7 @@ def inference(images, output_dir, model, model_path, device, WANDB=False):
                 wandb.log({"image": wb_img, "mask": wb_mask})
 
         return outputs, output_mask
+
 
 if __name__ == "__main__":
     # command line arguments
@@ -72,7 +75,7 @@ if __name__ == "__main__":
     config_dir = args.config
 
     # NOTE: Setup your config.yml file
-    with open(config_dir, 'r') as f:
+    with open(config_dir, "r") as f:
         config = yaml.safe_load(f)
 
     print("Validating config file.")
@@ -87,19 +90,20 @@ if __name__ == "__main__":
     cuda = config["inference"]["cuda"]
     WANDB = config["inference"]["wandb"]
 
-
     model = smp.Unet(
-            encoder_name=config["inference"]["encoder"],
-            encoder_weights="imagenet",
-            in_channels=1,  # grayscale images
-            classes=config["inference"]["num_classes"],  # background, needle, lamella
-        )
+        encoder_name=config["inference"]["encoder"],
+        encoder_weights="imagenet",
+        in_channels=1,  # grayscale images
+        classes=config["inference"]["num_classes"],  # background, needle, lamella
+    )
 
     if WANDB:
         # weights and biases setup
-        wandb.init(project=config["inference"]["wandb_project"], entity=config["inference"]["wandb_entity"])
+        wandb.init(
+            project=config["inference"]["wandb_project"],
+            entity=config["inference"]["wandb_entity"],
+        )
 
     device = torch.device("cuda:0" if torch.cuda.is_available() and cuda else "cpu")
 
     inference(data_path, output_dir, model, model_weights, device, WANDB)
-    

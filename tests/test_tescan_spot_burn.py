@@ -28,6 +28,7 @@ RESOLUTION = (1536, 1024)  # (width, height)
 # fakes
 # --------------------------------------------------------------------------
 
+
 @dataclass
 class FakeDot:
     x: float
@@ -88,7 +89,9 @@ class FakeConnection:
         self.DrawBeam = FakeDrawBeam(busy_polls=busy_polls)
 
 
-def make_microscope(monkeypatch, busy_polls: int = 1, resolution: Tuple[int, int] = RESOLUTION):
+def make_microscope(
+    monkeypatch, busy_polls: int = 1, resolution: Tuple[int, int] = RESOLUTION
+):
     """Create a TescanMicroscope with the SDK and connection stubbed out."""
     microscope = object.__new__(TescanMicroscope)
     microscope.connection = FakeConnection(busy_polls=busy_polls)
@@ -115,8 +118,15 @@ def make_microscope(monkeypatch, busy_polls: int = 1, resolution: Tuple[int, int
     microscope.stop_milling = lambda: microscope.connection.DrawBeam.Stop()
 
     # the SDK names the driver imports are absent without the SDK installed
-    monkeypatch.setattr(tescan_module, "IEtching", lambda **kwargs: kwargs, raising=False)
-    monkeypatch.setattr(tescan_module, "DepthUnit", type("DepthUnit", (), {"Second": "Second"}), raising=False)
+    monkeypatch.setattr(
+        tescan_module, "IEtching", lambda **kwargs: kwargs, raising=False
+    )
+    monkeypatch.setattr(
+        tescan_module,
+        "DepthUnit",
+        type("DepthUnit", (), {"Second": "Second"}),
+        raising=False,
+    )
     monkeypatch.setattr(tescan_module.time, "sleep", lambda s: None)
 
     return microscope
@@ -132,25 +142,32 @@ def collect_progress(microscope) -> List[dict]:
 # coordinate conversion
 # --------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     "normalised, expected",
     [
-        (Point(0.5, 0.5), Point(0.0, 0.0)),          # centre
-        (Point(0.0, 0.5), Point(-HFW / 2, 0.0)),     # left edge
-        (Point(1.0, 0.5), Point(HFW / 2, 0.0)),      # right edge
+        (Point(0.5, 0.5), Point(0.0, 0.0)),  # centre
+        (Point(0.0, 0.5), Point(-HFW / 2, 0.0)),  # left edge
+        (Point(1.0, 0.5), Point(HFW / 2, 0.0)),  # right edge
     ],
 )
 def test_point_to_metres_maps_normalised_to_centre_origin(normalised, expected):
     """(0-1, top-left origin) -> metres from the image centre."""
-    got = TescanMicroscope._spot_burn_point_to_metres(normalised, hfw=HFW, resolution=RESOLUTION)
+    got = TescanMicroscope._spot_burn_point_to_metres(
+        normalised, hfw=HFW, resolution=RESOLUTION
+    )
     assert got.x == pytest.approx(expected.x)
     assert got.y == pytest.approx(expected.y)
 
 
 def test_point_to_metres_y_axis_points_up():
     """Image y grows downwards, DrawBeam y grows upwards, so the sign must flip."""
-    top = TescanMicroscope._spot_burn_point_to_metres(Point(0.5, 0.0), hfw=HFW, resolution=RESOLUTION)
-    bottom = TescanMicroscope._spot_burn_point_to_metres(Point(0.5, 1.0), hfw=HFW, resolution=RESOLUTION)
+    top = TescanMicroscope._spot_burn_point_to_metres(
+        Point(0.5, 0.0), hfw=HFW, resolution=RESOLUTION
+    )
+    bottom = TescanMicroscope._spot_burn_point_to_metres(
+        Point(0.5, 1.0), hfw=HFW, resolution=RESOLUTION
+    )
     assert top.y > 0
     assert bottom.y < 0
     assert top.y == pytest.approx(-bottom.y)
@@ -159,13 +176,16 @@ def test_point_to_metres_y_axis_points_up():
 def test_point_to_metres_uses_pixel_aspect_not_hfw_for_y():
     """y extent is hfw scaled by the pixel aspect ratio, not hfw itself."""
     width, height = RESOLUTION
-    bottom = TescanMicroscope._spot_burn_point_to_metres(Point(0.5, 1.0), hfw=HFW, resolution=RESOLUTION)
+    bottom = TescanMicroscope._spot_burn_point_to_metres(
+        Point(0.5, 1.0), hfw=HFW, resolution=RESOLUTION
+    )
     assert bottom.y == pytest.approx(-(HFW / width) * (height / 2))
 
 
 # --------------------------------------------------------------------------
 # exposure
 # --------------------------------------------------------------------------
+
 
 def test_all_points_go_into_one_layer_as_timed_dots(monkeypatch):
     """A single layer holds one time-based dot per point."""
@@ -194,7 +214,12 @@ def test_layer_is_loaded_started_and_unloaded_once(monkeypatch):
     m.run_spot_burn(coordinates=[Point(0.5, 0.5), Point(0.4, 0.4)], exposure_time=1.0)
 
     # leading UnloadLayer clears any layer left loaded by a previous job
-    assert m.connection.DrawBeam.calls == ["UnloadLayer", "LoadLayer", "Start", "UnloadLayer"]
+    assert m.connection.DrawBeam.calls == [
+        "UnloadLayer",
+        "LoadLayer",
+        "Start",
+        "UnloadLayer",
+    ]
 
 
 def test_beam_is_prepared_once(monkeypatch):
@@ -242,6 +267,7 @@ def test_layer_settings_use_the_spot_burn_preset_and_configured_defaults(monkeyp
 # cancellation
 # --------------------------------------------------------------------------
 
+
 def test_stop_event_during_exposure_stops_the_exposition(monkeypatch):
     """Cancelling mid-exposure must stop DrawBeam and still unload the layer."""
     m = make_microscope(monkeypatch, busy_polls=10)
@@ -272,6 +298,7 @@ def test_stop_event_during_exposure_stops_the_exposition(monkeypatch):
 # progress + validation
 # --------------------------------------------------------------------------
 
+
 def test_progress_uses_the_milling_progress_shape(monkeypatch):
     """Progress is reported exactly as run_milling reports it."""
     m = make_microscope(monkeypatch, busy_polls=2)
@@ -282,7 +309,11 @@ def test_progress_uses_the_milling_progress_shape(monkeypatch):
     assert events, "expected at least one progress update"
     progress = events[0]["progress"]
     assert set(progress) == {
-        "state", "milling_state", "start_time", "estimated_time", "remaining_time"
+        "state",
+        "milling_state",
+        "start_time",
+        "estimated_time",
+        "remaining_time",
     }
     assert progress["state"] == "update"
     assert progress["estimated_time"] == 4.0  # 2 points x 2s
@@ -307,7 +338,9 @@ def test_electron_beam_is_rejected(monkeypatch):
     m = make_microscope(monkeypatch)
     with pytest.raises(ValueError, match="ion beam"):
         m.run_spot_burn(
-            coordinates=[Point(0.5, 0.5)], exposure_time=1.0, beam_type=BeamType.ELECTRON
+            coordinates=[Point(0.5, 0.5)],
+            exposure_time=1.0,
+            beam_type=BeamType.ELECTRON,
         )
 
 

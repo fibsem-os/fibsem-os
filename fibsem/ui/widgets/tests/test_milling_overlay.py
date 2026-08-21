@@ -7,6 +7,7 @@ Shows a few milling stages drawn on a blank FIB canvas — one colour per stage,
 each with a crosshair at its point-of-interest. "Toggle patterns" clears / re-shows
 them to demonstrate that the overlay draws nothing when there is no milling.
 """
+
 import sys
 
 from PyQt5.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget
@@ -34,9 +35,16 @@ def build_stages():
     return [
         _stage("Trench", TrenchPattern(), 0, 0),
         _stage("Rect top", RectanglePattern(width=12e-6, height=5e-6), 0, 16),
-        _stage("Rotated", RectanglePattern(width=10e-6, height=3e-6, rotation=25), -22, -2),
+        _stage(
+            "Rotated", RectanglePattern(width=10e-6, height=3e-6, rotation=25), -22, -2
+        ),
         _stage("Circle", CirclePattern(radius=4e-6), 20, 10),
-        _stage("Line", LinePattern(start_x=-8e-6, end_x=8e-6, start_y=-16e-6, end_y=-16e-6), 0, 0),
+        _stage(
+            "Line",
+            LinePattern(start_x=-8e-6, end_x=8e-6, start_y=-16e-6, end_y=-16e-6),
+            0,
+            0,
+        ),
     ]
 
 
@@ -54,8 +62,8 @@ class MillingOverlayTest(QWidget):
         self.canvas.add_overlay(self.overlay)
 
         stages = build_stages()
-        self.fg = stages[:3]          # foreground (coloured); one is "selected"
-        self.bg = stages[3:]          # background (drawn black)
+        self.fg = stages[:3]  # foreground (coloured); one is "selected"
+        self.bg = stages[3:]  # background (drawn black)
         self.selected = 0
         self._shown = True
         self._render()

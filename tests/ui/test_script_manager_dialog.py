@@ -14,6 +14,7 @@ from fibsem.ui.widgets.script_runner import ScriptRunner  # noqa: E402
 @pytest.fixture
 def qapp():
     from PyQt5.QtWidgets import QApplication
+
     yield QApplication.instance() or QApplication([])
 
 
@@ -27,6 +28,7 @@ class FakeContext:
 
     def raise_if_cancelled(self):
         from fibsem.cancellation import raise_if_cancelled
+
         raise_if_cancelled(self.stop_event)
 
 
@@ -145,6 +147,7 @@ def test_a_plain_data_script_gets_no_type_chip(qapp, tmp_path):
     dialog = _dialog(tmp_path, context=FakeContext())
 
     from PyQt5.QtWidgets import QLabel
+
     cell = dialog.table.cellWidget(0, 1)
 
     assert cell.findChildren(QLabel) == []
@@ -154,8 +157,11 @@ def test_a_plain_data_script_gets_no_type_chip(qapp, tmp_path):
 def test_a_microscope_script_that_also_writes_admits_to_both(qapp, tmp_path):
     """Only the worse of the two fits on the line, so the tooltip is the only place
     the second half can be stated -- and it was silently dropped."""
-    _write(tmp_path, "both.py",
-           "uses_microscope = True\nwrites = True\ndef run(ctx):\n    pass\n")
+    _write(
+        tmp_path,
+        "both.py",
+        "uses_microscope = True\nwrites = True\ndef run(ctx):\n    pass\n",
+    )
     dialog = _dialog(tmp_path, context=FakeContext())
     dialog.table.selectRow(0)
 
@@ -201,6 +207,7 @@ def test_an_empty_folder_says_how_to_start_where_you_are_looking(qapp, tmp_path)
     dialog = _dialog(tmp_path, context=FakeContext())
 
     from PyQt5.QtWidgets import QLabel
+
     shown = dialog.stack.currentWidget()
     text = " ".join(label.text() for label in shown.findChildren(QLabel))
 
@@ -218,6 +225,7 @@ def test_the_empty_state_points_at_the_worked_examples(qapp, tmp_path):
     dialog = _dialog(tmp_path, context=FakeContext())
 
     from PyQt5.QtWidgets import QLabel
+
     text = " ".join(
         label.text() for label in dialog.stack.currentWidget().findChildren(QLabel)
     )
@@ -291,12 +299,15 @@ def test_a_microscope_script_can_be_run_and_says_what_it_will_do(qapp, tmp_path)
 def test_run_becomes_stop_while_a_script_is_running(qapp, tmp_path):
     """A microscope script runs for minutes. Without this the dialog looks idle
     and the only way to stop it is to kill the app."""
-    _write(tmp_path, "slow.py",
-           "uses_microscope = True\n"
-           "def run(ctx):\n"
-           "    ctx.stop_event.wait(3)\n"
-           "    ctx.raise_if_cancelled()\n"
-           "    return 'ran to completion'\n")
+    _write(
+        tmp_path,
+        "slow.py",
+        "uses_microscope = True\n"
+        "def run(ctx):\n"
+        "    ctx.stop_event.wait(3)\n"
+        "    ctx.raise_if_cancelled()\n"
+        "    return 'ran to completion'\n",
+    )
     dialog = _dialog(tmp_path, context=FakeContext())
     dialog.table.selectRow(0)
 
@@ -505,6 +516,7 @@ def test_a_long_description_elides_instead_of_clipping(qapp, tmp_path):
     dialog.grab()  # forces the paint pass that does the eliding
 
     from PyQt5.QtWidgets import QLabel
+
     label = dialog.table.cellWidget(0, 0).findChildren(QLabel)[1]
     # `QLabel.text`, not `ElidedLabel.text`: the latter returns what was set, so that a
     # caller can tell whether a line is theirs to overwrite. What is *drawn* is the
@@ -528,6 +540,7 @@ def test_the_auto_flag_gets_no_chip_but_is_still_explained(qapp, tmp_path):
     dialog.table.selectRow(0)
 
     from PyQt5.QtWidgets import QLabel
+
     assert dialog.table.cellWidget(0, 1).findChildren(QLabel) == []
     assert "not run automatically yet" in dialog.table.cellWidget(0, 1).toolTip()
     assert "not run automatically yet" in dialog.consequence_label.toolTip()
@@ -536,11 +549,15 @@ def test_the_auto_flag_gets_no_chip_but_is_still_explained(qapp, tmp_path):
 def test_chips_are_text_only(qapp, tmp_path):
     """The dot separated nothing once every chip carried one, and it cost width in
     a column that has to fit more than one. Colour and the pill do the work."""
-    _write(tmp_path, "s.py",
-           "writes = True\non_workflow_completed = True\ndef run(ctx):\n    pass\n")
+    _write(
+        tmp_path,
+        "s.py",
+        "writes = True\non_workflow_completed = True\ndef run(ctx):\n    pass\n",
+    )
     dialog = _dialog(tmp_path, context=FakeContext())
 
     from PyQt5.QtWidgets import QLabel
+
     chips = dialog.table.cellWidget(0, 1).findChildren(QLabel)
 
     assert [chip.text() for chip in chips] == ["Writes"]
@@ -550,8 +567,11 @@ def test_the_type_column_fits_the_widest_row_of_chips(qapp, tmp_path):
     """A fixed width clips as soon as a script declares more than one flag, and
     ResizeToContents is no help -- it measures the item, not the cell widget."""
     _write(tmp_path, "plain.py", "def run(ctx):\n    pass\n")
-    _write(tmp_path, "loaded.py",
-           "writes = True\non_workflow_completed = True\ndef run(ctx):\n    pass\n")
+    _write(
+        tmp_path,
+        "loaded.py",
+        "writes = True\non_workflow_completed = True\ndef run(ctx):\n    pass\n",
+    )
     dialog = _dialog(tmp_path, context=FakeContext())
     dialog.show()
 
@@ -580,7 +600,11 @@ def test_no_widget_swallows_its_own_tooltip(qapp, tmp_path):
     """
     from PyQt5.QtWidgets import QWidget
 
-    _write(tmp_path, "demo.py", '"""A demo script.\n\nReads the experiment.\n"""\ndef run(ctx):\n    pass\n')
+    _write(
+        tmp_path,
+        "demo.py",
+        '"""A demo script.\n\nReads the experiment.\n"""\ndef run(ctx):\n    pass\n',
+    )
     dialog = _dialog(tmp_path, context=FakeContext())
 
     offenders = [

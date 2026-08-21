@@ -47,7 +47,9 @@ def _pose(microscope, *, compustage, pretilt_deg, rotation_deg, tilt_deg):
     microscope.system.stage.shuttle_pre_tilt = pretilt_deg
     microscope._update_orientations()
     position = FibsemStagePosition(
-        x=0.0, y=0.0, z=0.0,
+        x=0.0,
+        y=0.0,
+        z=0.0,
         r=np.deg2rad(rotation_deg),
         t=np.deg2rad(tilt_deg),
     )
@@ -82,8 +84,11 @@ class TestParityWithTheLiveMicroscope:
         self, microscope, compustage, pretilt, rot, tilt, camera_tilt, monkeypatch
     ):
         position = _pose(
-            microscope, compustage=compustage, pretilt_deg=pretilt,
-            rotation_deg=rot, tilt_deg=tilt,
+            microscope,
+            compustage=compustage,
+            pretilt_deg=pretilt,
+            rotation_deg=rot,
+            tilt_deg=tilt,
         )
         monkeypatch.setattr(
             type(microscope.fm), "camera_tilt", property(lambda self: camera_tilt)
@@ -93,7 +98,8 @@ class TestParityWithTheLiveMicroscope:
             dy=12e-6, dz=-3e-6, view_tilt=np.deg2rad(camera_tilt)
         )
         pure = inverse_view_corrected_dy(
-            dy=12e-6, dz=-3e-6,
+            dy=12e-6,
+            dz=-3e-6,
             view_tilt=np.deg2rad(microscope.fm.camera_tilt),
             geometry=microscope.fm_image_geometry(),
             stage_rotation=position.r,
@@ -110,8 +116,11 @@ class TestParityWithTheLiveMicroscope:
         """The forward direction is what actually moves the stage, so a click resolved
         by the pure path has to agree with it exactly -- not merely closely."""
         position = _pose(
-            microscope, compustage=compustage, pretilt_deg=pretilt,
-            rotation_deg=rot, tilt_deg=tilt,
+            microscope,
+            compustage=compustage,
+            pretilt_deg=pretilt,
+            rotation_deg=rot,
+            tilt_deg=tilt,
         )
         monkeypatch.setattr(
             type(microscope.fm), "camera_tilt", property(lambda self: camera_tilt)
@@ -131,13 +140,18 @@ class TestParityWithTheLiveMicroscope:
         assert dy == pytest.approx(live.y, abs=1e-18)
         assert dz == pytest.approx(live.z, abs=1e-18)
 
-    def test_an_unreachable_compustage_rotation_does_not_flip_the_sign(self, microscope):
+    def test_an_unreachable_compustage_rotation_does_not_flip_the_sign(
+        self, microscope
+    ):
         """Regression: keying the FIB orientation on tilt alone disagreed with the live
         path at a rotated compustage. No physical run can reach that pose, which is
         exactly why the disagreement would have survived."""
         position = _pose(
-            microscope, compustage=True, pretilt_deg=0,
-            rotation_deg=180, tilt_deg=-128,
+            microscope,
+            compustage=True,
+            pretilt_deg=0,
+            rotation_deg=180,
+            tilt_deg=-128,
         )
         assert microscope.get_stage_orientation() != "FIB", "pose assumption drifted"
 
@@ -145,7 +159,8 @@ class TestParityWithTheLiveMicroscope:
             dy=12e-6, dz=-3e-6, view_tilt=np.deg2rad(microscope.fm.camera_tilt)
         )
         pure = inverse_view_corrected_dy(
-            dy=12e-6, dz=-3e-6,
+            dy=12e-6,
+            dz=-3e-6,
             view_tilt=np.deg2rad(microscope.fm.camera_tilt),
             geometry=microscope.fm_image_geometry(),
             stage_rotation=position.r,
@@ -164,19 +179,28 @@ class TestRoundTrip:
         self, microscope, compustage, pretilt, rot, tilt, transform
     ):
         base = _pose(
-            microscope, compustage=compustage, pretilt_deg=pretilt,
-            rotation_deg=rot, tilt_deg=tilt,
+            microscope,
+            compustage=compustage,
+            pretilt_deg=pretilt,
+            rotation_deg=rot,
+            tilt_deg=tilt,
         )
         microscope.fm.set_image_transform(transform)
 
         for pixel in [(512, 512), (0, 0), (1023, 40), (300, 900)]:
             point = Point(x=float(pixel[0]), y=float(pixel[1]))
             position = project_image_point(
-                point, base, PIXEL_SIZE, SHAPE,
+                point,
+                base,
+                PIXEL_SIZE,
+                SHAPE,
                 microscope.fm_image_geometry(),
             )
             back = project_stage_position(
-                position, base, PIXEL_SIZE, SHAPE,
+                position,
+                base,
+                PIXEL_SIZE,
+                SHAPE,
                 microscope.fm_image_geometry(),
             )
 
@@ -201,7 +225,10 @@ class TestRoundTrip:
             microscope, compustage=True, pretilt_deg=0, rotation_deg=0, tilt_deg=-180
         )
         far = project_image_point(
-            Point(x=-4000.0, y=-4000.0), base, PIXEL_SIZE, SHAPE,
+            Point(x=-4000.0, y=-4000.0),
+            base,
+            PIXEL_SIZE,
+            SHAPE,
             microscope.fm_image_geometry(),
         )
         point = project_stage_position(
@@ -214,9 +241,7 @@ class TestRoundTrip:
 
 class TestGeometryIsRecorded:
     def test_an_acquired_image_carries_the_geometry(self, microscope):
-        _pose(
-            microscope, compustage=True, pretilt_deg=0, rotation_deg=0, tilt_deg=-180
-        )
+        _pose(microscope, compustage=True, pretilt_deg=0, rotation_deg=0, tilt_deg=-180)
         microscope.fm.set_image_transform(CameraImageTransform.FLIP_XY)
 
         image = microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
@@ -230,9 +255,14 @@ class TestGeometryIsRecorded:
     @pytest.mark.parametrize("transform", TRANSFORMS)
     def test_geometry_round_trips_through_a_dict(self, transform):
         geometry = FibsemHardwareGeometry(
-            transform=transform, camera_tilt=90.0, column_tilt=0.0,
-            fib_column_tilt=52.0, shuttle_pre_tilt=35.0,
-            rotation_reference=10.0, rotation_180=190.0, is_compustage=True,
+            transform=transform,
+            camera_tilt=90.0,
+            column_tilt=0.0,
+            fib_column_tilt=52.0,
+            shuttle_pre_tilt=35.0,
+            rotation_reference=10.0,
+            rotation_180=190.0,
+            is_compustage=True,
         )
 
         assert FibsemHardwareGeometry.from_dict(geometry.to_dict()) == geometry
@@ -241,9 +271,7 @@ class TestGeometryIsRecorded:
 class TestReprojectionOntoAnImage:
     @pytest.fixture()
     def image(self, microscope):
-        _pose(
-            microscope, compustage=True, pretilt_deg=0, rotation_deg=0, tilt_deg=-180
-        )
+        _pose(microscope, compustage=True, pretilt_deg=0, rotation_deg=0, tilt_deg=-180)
         microscope.fm.set_image_transform(CameraImageTransform.NONE)
         return microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
 
@@ -254,8 +282,11 @@ class TestReprojectionOntoAnImage:
         expected = reproject_stage_positions_onto_fm_image(image, [base])
 
         _pose(
-            microscope, compustage=False, pretilt_deg=35,
-            rotation_deg=180, tilt_deg=25,
+            microscope,
+            compustage=False,
+            pretilt_deg=35,
+            rotation_deg=180,
+            tilt_deg=25,
         )
         microscope.fm.set_image_transform(CameraImageTransform.FLIP_XY)
         after = reproject_stage_positions_onto_fm_image(image, [base])
@@ -280,9 +311,14 @@ class TestReprojectionOntoAnImage:
         )
 
         assert len(reproject_stage_positions_onto_fm_image(image, [base, outside])) == 2
-        assert len(
-            reproject_stage_positions_onto_fm_image(image, [base, outside], bound=True)
-        ) == 1
+        assert (
+            len(
+                reproject_stage_positions_onto_fm_image(
+                    image, [base, outside], bound=True
+                )
+            )
+            == 1
+        )
 
     def test_an_image_without_geometry_raises_rather_than_guessing(self, image):
         """Images written before the geometry was recorded. A marker in the wrong place
@@ -305,8 +341,10 @@ def test_the_pure_projection_needs_no_microscope():
     """The whole point of the split: reprojection must work on a loaded file with no
     instrument attached, which is how it will usually be used."""
     geometry = FibsemHardwareGeometry(
-        transform=CameraImageTransform.NONE, camera_tilt=180.0,
-        is_compustage=True, shuttle_pre_tilt=0.0,
+        transform=CameraImageTransform.NONE,
+        camera_tilt=180.0,
+        is_compustage=True,
+        shuttle_pre_tilt=0.0,
     )
     base = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=np.deg2rad(-180))
 
@@ -321,15 +359,11 @@ class TestBothDirectionsFromAnImageAlone:
 
     @pytest.fixture()
     def image(self, microscope):
-        _pose(
-            microscope, compustage=True, pretilt_deg=0, rotation_deg=0, tilt_deg=-180
-        )
+        _pose(microscope, compustage=True, pretilt_deg=0, rotation_deg=0, tilt_deg=-180)
         microscope.fm.set_image_transform(CameraImageTransform.FLIP_XY)
         return microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
 
-    @pytest.mark.parametrize(
-        "pixel", [(512, 512), (0, 0), (900, 120), (-300, 1500)]
-    )
+    @pytest.mark.parametrize("pixel", [(512, 512), (0, 0), (900, 120), (-300, 1500)])
     def test_pixel_to_stage_and_back(self, image, pixel):
         point = Point(x=float(pixel[0]), y=float(pixel[1]))
 
@@ -344,8 +378,11 @@ class TestBothDirectionsFromAnImageAlone:
         expected = stage_position_from_fm_image(image, point)
 
         _pose(
-            microscope, compustage=False, pretilt_deg=35,
-            rotation_deg=180, tilt_deg=25,
+            microscope,
+            compustage=False,
+            pretilt_deg=35,
+            rotation_deg=180,
+            tilt_deg=25,
         )
         microscope.fm.set_image_transform(CameraImageTransform.NONE)
         after = stage_position_from_fm_image(image, point)

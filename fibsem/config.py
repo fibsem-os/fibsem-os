@@ -84,9 +84,12 @@ DEFAULT_STANDARD_RESOLUTION_LIST = [
 ]
 SQUARE_RESOLUTIONS_ZIP = list(zip(SQUARE_RESOLUTIONS, SQUARE_RESOLUTIONS_LIST))
 STANDARD_RESOLUTIONS_ZIP = list(zip(STANDARD_RESOLUTIONS, STANDARD_RESOLUTIONS_LIST))
-AVAILABLE_RESOLUTIONS_ZIP = list(zip(AVAILABLE_RESOLUTIONS, [
-    [int(x) for x in r.split("x")] for r in AVAILABLE_RESOLUTIONS
-]))
+AVAILABLE_RESOLUTIONS_ZIP = list(
+    zip(
+        AVAILABLE_RESOLUTIONS,
+        [[int(x) for x in r.split("x")] for r in AVAILABLE_RESOLUTIONS],
+    )
+)
 
 
 BASE_PATH = os.path.dirname(fibsem.__path__[0])
@@ -102,12 +105,16 @@ MICROSCOPE_CONFIGURATION_PATH = os.path.join(
     CONFIG_PATH, "microscope-configuration.yaml"
 )
 # fluorescence settings persistence
-FM_CONFIGURATION_PATH = os.path.join(CONFIG_PATH, "fm-configuration.yaml")  # working state
-FM_RECENT_CHANNELS_PATH = os.path.join(CONFIG_PATH, "fm-recent-channels.yaml")  # recently-used channels
-COINCIDENCE_MILLING_CONFIG_PATH = os.path.join(CONFIG_PATH, "coincidence-milling-config.yaml")  # milling default
-SAMPLE_HOLDER_CONFIGURATION_PATH = os.path.join(
-    CONFIG_PATH, "sample-holder.yaml"
-)
+FM_CONFIGURATION_PATH = os.path.join(
+    CONFIG_PATH, "fm-configuration.yaml"
+)  # working state
+FM_RECENT_CHANNELS_PATH = os.path.join(
+    CONFIG_PATH, "fm-recent-channels.yaml"
+)  # recently-used channels
+COINCIDENCE_MILLING_CONFIG_PATH = os.path.join(
+    CONFIG_PATH, "coincidence-milling-config.yaml"
+)  # milling default
+SAMPLE_HOLDER_CONFIGURATION_PATH = os.path.join(CONFIG_PATH, "sample-holder.yaml")
 DEFAULT_SAMPLE_HOLDER_CONFIGURATION_PATH = os.path.join(
     CONFIG_PATH, "default-sample-holder.yaml"
 )
@@ -141,21 +148,23 @@ def load_yaml(fname):
 
     return config
 
+
 AVAILABLE_MANUFACTURERS = ["Thermo", "Tescan", "Demo"]
 DEFAULT_MANUFACTURER = "Thermo"
 DEFAULT_IP_ADDRESS = "192.168.0.1"
 SUPPORTED_PLASMA_GASES = ["Argon", "Oxygen", "Nitrogen", "Xenon"]
 
+
 def get_default_user_config() -> dict:
     """Return the default configuration."""
     return {
-        "name":                           "default-configuration",       # a descriptive name for your configuration 
-        "ip_address":                     DEFAULT_IP_ADDRESS,            # the ip address of the microscope PC
-        "manufacturer":                   DEFAULT_MANUFACTURER,          # the microscope manufactuer, Thermo, Tescan or Demo                       
-        "rotation-reference":             0,                             # the reference rotation value (rotation when loading)  [degrees]
-        "shuttle-pre-tilt":               35,                            # the pre-tilt of the shuttle                           [degrees]
-        "electron-beam-eucentric-height": 7.0e-3,                        # the eucentric height of the electron beam             [metres]
-        "ion-beam-eucentric-height":      16.5e-3,                       # the eucentric height of the ion beam                  [metres]
+        "name": "default-configuration",  # a descriptive name for your configuration
+        "ip_address": DEFAULT_IP_ADDRESS,  # the ip address of the microscope PC
+        "manufacturer": DEFAULT_MANUFACTURER,  # the microscope manufactuer, Thermo, Tescan or Demo
+        "rotation-reference": 0,  # the reference rotation value (rotation when loading)  [degrees]
+        "shuttle-pre-tilt": 35,  # the pre-tilt of the shuttle                           [degrees]
+        "electron-beam-eucentric-height": 7.0e-3,  # the eucentric height of the electron beam             [metres]
+        "ion-beam-eucentric-height": 16.5e-3,  # the eucentric height of the ion beam                  [metres]
     }
 
 
@@ -175,19 +184,22 @@ DEFAULT_CONFIGURATION_PATH = USER_CONFIGURATIONS[DEFAULT_CONFIGURATION_NAME]["pa
 
 
 if DEFAULT_CONFIGURATION_PATH is None:
-    USER_CONFIGURATIONS[DEFAULT_CONFIGURATION_NAME][
-        "path"
-    ] = MICROSCOPE_CONFIGURATION_PATH
+    USER_CONFIGURATIONS[DEFAULT_CONFIGURATION_NAME]["path"] = (
+        MICROSCOPE_CONFIGURATION_PATH
+    )
     DEFAULT_CONFIGURATION_PATH = MICROSCOPE_CONFIGURATION_PATH
 
 if not os.path.exists(DEFAULT_CONFIGURATION_PATH):
     DEFAULT_CONFIGURATION_NAME = "default-configuration"
-    USER_CONFIGURATIONS[DEFAULT_CONFIGURATION_NAME][
-        "path"
-    ] = MICROSCOPE_CONFIGURATION_PATH
+    USER_CONFIGURATIONS[DEFAULT_CONFIGURATION_NAME]["path"] = (
+        MICROSCOPE_CONFIGURATION_PATH
+    )
     DEFAULT_CONFIGURATION_PATH = MICROSCOPE_CONFIGURATION_PATH
-        
-print(f"Default configuration {DEFAULT_CONFIGURATION_NAME}. Configuration Path: {DEFAULT_CONFIGURATION_PATH}")
+
+print(
+    f"Default configuration {DEFAULT_CONFIGURATION_NAME}. Configuration Path: {DEFAULT_CONFIGURATION_PATH}"
+)
+
 
 def _is_same_path(path: Optional[str], other: Optional[str]) -> bool:
     """Compare two configuration paths, either of which may be unset."""
@@ -275,19 +287,26 @@ APPLY_CONFIGURATION_ENABLED = True
 
 # tescan manipulator
 
-TESCAN_MANIPULATOR_CALIBRATION_PATH = os.path.join(CONFIG_PATH, "tescan_manipulator.yaml")
+TESCAN_MANIPULATOR_CALIBRATION_PATH = os.path.join(
+    CONFIG_PATH, "tescan_manipulator.yaml"
+)
+
 
 def load_tescan_manipulator_calibration() -> dict:
     """Load the tescan manipulator calibration"""
     from fibsem.utils import load_yaml
+
     config = load_yaml(TESCAN_MANIPULATOR_CALIBRATION_PATH)
     return config
+
 
 def save_tescan_manipulator_calibration(config: dict) -> None:
     """Save the tescan manipulator calibration"""
     from fibsem.utils import save_yaml
+
     save_yaml(TESCAN_MANIPULATOR_CALIBRATION_PATH, config)
     return None
+
 
 # ---------------------------------------------------------------------------
 # User Preferences
@@ -310,9 +329,9 @@ def save_tescan_manipulator_calibration(config: dict) -> None:
 # The stored value is the label lowercased, deliberately: a preferences file that says
 # `compact` and a dialog that says "Standard" are a support conversation waiting to
 # happen.
-MODE_COZY = "cozy"          # large thumbnail tile
+MODE_COZY = "cozy"  # large thumbnail tile
 MODE_STANDARD = "standard"  # small thumbnail beside the name
-MODE_COMPACT = "compact"    # one line, no thumbnail
+MODE_COMPACT = "compact"  # one line, no thumbnail
 CARD_MODES = (MODE_COZY, MODE_STANDARD, MODE_COMPACT)
 _CARD_MODE_LABELS = {
     MODE_COZY: "Cozy",
@@ -343,6 +362,7 @@ class DisplayPreferences:
     # layout is offered, never imposed on an upgrade.
     lamella_card_mode: str = MODE_COZY
 
+
 @dataclass
 class FeatureFlags:
     coincidence_milling_enabled: bool = False
@@ -366,10 +386,12 @@ class FeatureFlags:
     # (FIB-597). Staging, like the flag above -- deleted when it ships, not kept.
     sparse_fm_selection: bool = False
 
+
 @dataclass
 class MovementPreferences:
     acquire_sem_after_stage_movement: bool = True
     acquire_fib_after_stage_movement: bool = True
+
 
 # Maximum number of recent experiments to remember for quick-select
 MAX_RECENT_EXPERIMENTS = 10
@@ -385,6 +407,7 @@ class ExperimentPreferences:
     project: str = ""
     organisation: str = ""
 
+
 @dataclass
 class ReportingPreferences:
     contact_email: str = ""
@@ -397,6 +420,7 @@ class ReportingPreferences:
     # operator would have no idea it was happening. Skipped entirely for source
     # installs regardless of this setting (see fibsem.update_check.is_enabled).
     update_check_enabled: bool = False
+
 
 @dataclass
 class UserPreferences:
@@ -423,13 +447,24 @@ class UserPreferences:
     @classmethod
     def from_dict(cls, d: dict) -> "UserPreferences":
         """Reconstruct from a dict, handling both nested and legacy flat formats."""
-        if any(k in d for k in ("display", "features", "movement", "experiment",
-                                "reporting", "hooks")):
+        if any(
+            k in d
+            for k in (
+                "display",
+                "features",
+                "movement",
+                "experiment",
+                "reporting",
+                "hooks",
+            )
+        ):
             return cls(
                 display=_sub_from_dict(DisplayPreferences, d.get("display", {})),
                 features=_sub_from_dict(FeatureFlags, d.get("features", {})),
                 movement=_sub_from_dict(MovementPreferences, d.get("movement", {})),
-                experiment=_sub_from_dict(ExperimentPreferences, d.get("experiment", {})),
+                experiment=_sub_from_dict(
+                    ExperimentPreferences, d.get("experiment", {})
+                ),
                 reporting=_sub_from_dict(ReportingPreferences, d.get("reporting", {})),
                 # .get() rather than a default, so an absent key stays None
                 hooks=d.get("hooks"),
@@ -437,9 +472,13 @@ class UserPreferences:
         # Legacy flat format
         prefs = cls()
         if "acquire_sem_after_stage_movement" in d:
-            prefs.movement.acquire_sem_after_stage_movement = d["acquire_sem_after_stage_movement"]
+            prefs.movement.acquire_sem_after_stage_movement = d[
+                "acquire_sem_after_stage_movement"
+            ]
         if "acquire_fib_after_stage_movement" in d:
-            prefs.movement.acquire_fib_after_stage_movement = d["acquire_fib_after_stage_movement"]
+            prefs.movement.acquire_fib_after_stage_movement = d[
+                "acquire_fib_after_stage_movement"
+            ]
         if "experiment_directory" in d:
             prefs.experiment.default_experiment_directory = d["experiment_directory"]
         if "last_experiment_path" in d:
@@ -465,7 +504,9 @@ def load_user_preferences() -> UserPreferences:
             loaded = yaml.safe_load(f) or {}
         return UserPreferences.from_dict(loaded)
     except Exception as e:
-        logging.warning(f"Failed to load user preferences from {USER_PREFERENCES_PATH}: {e}")
+        logging.warning(
+            f"Failed to load user preferences from {USER_PREFERENCES_PATH}: {e}"
+        )
         return UserPreferences()
 
 
@@ -480,7 +521,9 @@ def save_user_preferences(preferences) -> None:
         with open(USER_PREFERENCES_PATH, "w") as f:
             yaml.safe_dump(data, f)
     except Exception as e:
-        logging.warning(f"Failed to save user preferences to {USER_PREFERENCES_PATH}: {e}")
+        logging.warning(
+            f"Failed to save user preferences to {USER_PREFERENCES_PATH}: {e}"
+        )
 
 
 @dataclass
@@ -496,6 +539,7 @@ class ExperimentSummary:
     has adopted. That is a real answer -- nothing is known -- so they stay None
     rather than defaulting to a string that would group with other unknowns.
     """
+
     path: str  # path to the experiment.yaml file
     name: str
     created_at: float = 0.0
@@ -520,7 +564,9 @@ def peek_experiment(experiment_yaml_path: str) -> ExperimentSummary:
     other versions, and one unparseable experiment must not take out the
     enumeration around it.
     """
-    fallback_name = os.path.basename(os.path.dirname(experiment_yaml_path)) or experiment_yaml_path
+    fallback_name = (
+        os.path.basename(os.path.dirname(experiment_yaml_path)) or experiment_yaml_path
+    )
     if not os.path.exists(experiment_yaml_path):
         return ExperimentSummary(
             path=experiment_yaml_path, name=fallback_name, exists=False, available=False
@@ -548,7 +594,9 @@ def peek_experiment(experiment_yaml_path: str) -> ExperimentSummary:
             software_version=system.get("fibsem_version"),
         )
     except Exception as e:
-        logging.warning(f"Failed to read experiment info from {experiment_yaml_path}: {e}")
+        logging.warning(
+            f"Failed to read experiment info from {experiment_yaml_path}: {e}"
+        )
         return ExperimentSummary(
             path=experiment_yaml_path, name=fallback_name, exists=True, available=False
         )
@@ -569,7 +617,11 @@ def add_recent_experiment(prefs: UserPreferences, experiment_yaml_path: str) -> 
         return
 
     path = os.path.normpath(str(experiment_yaml_path))
-    recent = [p for p in prefs.experiment.recent_experiments if os.path.normpath(str(p)) != path]
+    recent = [
+        p
+        for p in prefs.experiment.recent_experiments
+        if os.path.normpath(str(p)) != path
+    ]
     recent.insert(0, path)
     prefs.experiment.recent_experiments = recent[:MAX_RECENT_EXPERIMENTS]
 
@@ -654,11 +706,17 @@ def apply_feature_flags(prefs: UserPreferences) -> None:
 
 
 ### AUTOLAMELLA APPLICATION PATHS
-AUTOLAMELLA_BASE_PATH: Path = os.path.join(os.path.dirname(__file__), "applications", "autolamella")
-AUTOLAMELLA_LOG_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH, 'log')
+AUTOLAMELLA_BASE_PATH: Path = os.path.join(
+    os.path.dirname(__file__), "applications", "autolamella"
+)
+AUTOLAMELLA_LOG_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH, "log")
 AUTOLAMELLA_CONFIG_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH)
-AUTOLAMELLA_PROTOCOL_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH, "protocol", "legacy", "protocol-on-grid.yaml")
-AUTOLAMELLA_TASK_PROTOCOL_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH, "protocol", "task-protocol.yaml")
+AUTOLAMELLA_PROTOCOL_PATH: Path = os.path.join(
+    AUTOLAMELLA_BASE_PATH, "protocol", "legacy", "protocol-on-grid.yaml"
+)
+AUTOLAMELLA_TASK_PROTOCOL_PATH: Path = os.path.join(
+    AUTOLAMELLA_BASE_PATH, "protocol", "task-protocol.yaml"
+)
 AUTOLAMELLA_EXPERIMENT_NAME = "AutoLamella"
 
 os.makedirs(AUTOLAMELLA_LOG_PATH, exist_ok=True)

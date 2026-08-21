@@ -16,6 +16,7 @@ The "legacy 2-arg slot" counter is connected to ``canvas_clicked`` with a
 2-argument slot; it proves the widening stays backward-compatible (PyQt5
 truncates the extra ``modifiers`` argument for slots that don't want it).
 """
+
 import sys
 
 from PyQt5.QtCore import Qt

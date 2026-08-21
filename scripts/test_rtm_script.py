@@ -8,6 +8,7 @@ from matplotlib import pyplot as plot
 # microscope = SdbMicroscopeClient()
 # microscope.connect("localhost")
 
+
 # Define a helper function to convert RTM data to an image
 def get_images_from_rtm_data(rtm_data, rtm_positions):
     result = []
@@ -27,7 +28,9 @@ def get_images_from_rtm_data(rtm_data, rtm_positions):
 
         arr = numpy.full((y_max - y_min + 1, x_max - x_min + 1), -1, dtype=int)
         for i in range(1, len(pattern.positions)):
-            arr[pattern.positions[i][1] - y_min, pattern.positions[i][0] - x_min] = data_set.values[i]
+            arr[pattern.positions[i][1] - y_min, pattern.positions[i][0] - x_min] = (
+                data_set.values[i]
+            )
 
         # Take only lines and rows, where at least one pixel is valid
         arr = arr[numpy.any(arr > -1, axis=1), :]
@@ -35,6 +38,7 @@ def get_images_from_rtm_data(rtm_data, rtm_positions):
         result.append(arr)
 
     return result
+
 
 from fibsem import utils
 from fibsem.milling.patterning import RectanglePattern
@@ -44,7 +48,16 @@ m1, settings = utils.setup_session()
 microscope = m1.connection
 
 m1.clear_patterns()
-m1.draw_rectangle(FibsemRectangleSettings(width=10e-6, height=10e-6, depth=1e-6, centre_x=0, centre_y=0, cross_section=CrossSection))
+m1.draw_rectangle(
+    FibsemRectangleSettings(
+        width=10e-6,
+        height=10e-6,
+        depth=1e-6,
+        centre_x=0,
+        centre_y=0,
+        cross_section=CrossSection,
+    )
+)
 
 # m1.draw_rectangle(FibsemRectangleSettings(width=10e-6, height=5e-6, depth=1e-6, centre_x=-5e-6, centre_y=15e-6))
 microscope.patterning.mode = "Parallel"
@@ -65,7 +78,6 @@ microscope.patterning.start()
 rtm_positions = []
 try:
     while microscope.patterning.state != PatterningState.IDLE:
-
         # Read pattern point intensities
         rtm_data = microscope.patterning.real_time_monitor.get_data()
 
@@ -78,7 +90,9 @@ try:
 
         if len(rtm_positions) == 0:
             # Read pattern point positions only once
-            rtm_positions = microscope.patterning.real_time_monitor.get_positions(position_settings)
+            rtm_positions = microscope.patterning.real_time_monitor.get_positions(
+                position_settings
+            )
 
         # If both positions and intensities are present, process them
         if len(rtm_positions) > 0 and len(rtm_data) > 0:
@@ -86,7 +100,7 @@ try:
             for image in images:
                 # Plot the image
                 clear_output(wait=True)
-                plot.imshow(image, cmap='gray')
+                plot.imshow(image, cmap="gray")
                 plot.show()
 finally:
     microscope.patterning.stop()

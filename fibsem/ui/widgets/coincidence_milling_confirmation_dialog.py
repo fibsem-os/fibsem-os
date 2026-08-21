@@ -131,7 +131,10 @@ class CoincidenceMillingConfirmationDialog(QDialog):
 
     def _meta_line(self) -> str:
         stages = self.task_config.enabled_stages
-        bits = [self.lamella_name, f"{len(stages)} stage{'s' if len(stages) != 1 else ''}"]
+        bits = [
+            self.lamella_name,
+            f"{len(stages)} stage{'s' if len(stages) != 1 else ''}",
+        ]
         fov = getattr(self.task_config, "field_of_view", None)
         if fov:
             bits.append(f"{fov * constants.SI_TO_MICRO:.0f} µm field of view")
@@ -177,17 +180,21 @@ class CoincidenceMillingConfirmationDialog(QDialog):
                 # mill will halt itself when it will not.
                 trigger += "  → monitoring only; you stop the mill"
             detail.append(("Drop trigger", trigger))
-            detail.append((
-                "Monitoring",
-                f"starts after {format_duration(config.warmup_duration)} warmup"
-                f" · times out at {format_duration(config.timeout)}",
-            ))
-            detail.append((
-                "Mode",
-                "supervised — you stop the mill manually"
-                if config.supervised
-                else "automated — stops itself on the drop trigger",
-            ))
+            detail.append(
+                (
+                    "Monitoring",
+                    f"starts after {format_duration(config.warmup_duration)} warmup"
+                    f" · times out at {format_duration(config.timeout)}",
+                )
+            )
+            detail.append(
+                (
+                    "Mode",
+                    "supervised — you stop the mill manually"
+                    if config.supervised
+                    else "automated — stops itself on the drop trigger",
+                )
+            )
             saved = (
                 f"saved (every {config.save_rate_limit} frames)"
                 if config.save_fm_images
@@ -197,7 +204,9 @@ class CoincidenceMillingConfirmationDialog(QDialog):
                 saved += " · FIB image acquired"
             detail.append(("FM images", saved))
 
-        detail.append(("Estimated time", format_duration(self.task_config.estimated_time)))
+        detail.append(
+            ("Estimated time", format_duration(self.task_config.estimated_time))
+        )
         return detail
 
     # ── layout ───────────────────────────────────────────────────────────

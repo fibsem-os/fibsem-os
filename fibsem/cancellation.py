@@ -6,6 +6,7 @@ at natural checkpoints (between passes/steps, before an irreversible action) via
 cleanly. Callers distinguish a cancel from a real failure — surface it as a neutral "...cancelled"
 (not an error), and in a workflow mark the task ``Cancelled`` rather than ``Failed``.
 """
+
 from __future__ import annotations
 
 import threading

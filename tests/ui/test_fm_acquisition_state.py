@@ -10,6 +10,7 @@ tileset moves the stage between every pair of tiles with no stream running, so
 came to be startable mid-tileset, and how the objective panel came to stay live against
 a runner that was stepping the objective itself.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -221,7 +222,9 @@ class TestTheOverviewRespectsTheInstrument:
 
         assert accept_dialog == [], "asked the user to confirm a run it then refused"
 
-    def test_it_starts_once_the_instrument_is_free(self, widget, accept_dialog, no_worker):
+    def test_it_starts_once_the_instrument_is_free(
+        self, widget, accept_dialog, no_worker
+    ):
         widget.fm.set_acquiring(True, "z-stack")
         widget.fm.set_acquiring(False)
 
@@ -360,9 +363,7 @@ class TestTheControlWidgetWiring:
     def test_every_worker_is_marked_for(self, name):
         assert "set_acquiring" in self._calls(self._functions()[name])
 
-    @pytest.mark.parametrize(
-        "name", ["_image_acquistion_worker", "_autofocus_worker"]
-    )
+    @pytest.mark.parametrize("name", ["_image_acquistion_worker", "_autofocus_worker"])
     def test_every_worker_clears_on_the_way_out(self, name):
         """In the `finally`, not the happy path: a worker that raises still holds it."""
         import ast

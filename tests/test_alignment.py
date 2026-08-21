@@ -29,21 +29,26 @@ def test_align_from_crosscorrelation(offset):
 
     w = h = 150
     x, y = 200, 200
-    ref_image.data[y:y + h, x:x + w] = 255
-    new_image.data[y + offset:y + h + offset, x + offset:x + w + offset] = 255
+    ref_image.data[y : y + h, x : x + w] = 255
+    new_image.data[y + offset : y + h + offset, x + offset : x + w + offset] = 255
 
     dx, dy, xcorr, _ = alignment.shift_from_crosscorrelation(
         ref_image, new_image, lowpass=50, highpass=4, sigma=5, use_rect_mask=True
     )
 
     pixel_size = ref_image.metadata.pixel_size.x
-    assert np.isclose(dx, offset * pixel_size, atol=pixel_size), f"dx: {dx}, offset: {offset * pixel_size}"
-    assert np.isclose(dy, offset * pixel_size, atol=pixel_size), f"dy: {dy}, offset: {offset * pixel_size}"
+    assert np.isclose(dx, offset * pixel_size, atol=pixel_size), (
+        f"dx: {dx}, offset: {offset * pixel_size}"
+    )
+    assert np.isclose(dy, offset * pixel_size, atol=pixel_size), (
+        f"dy: {dy}, offset: {offset * pixel_size}"
+    )
 
 
 # ---------------------------------------------------------------------------
 # crosscorrelation_cv2
 # ---------------------------------------------------------------------------
+
 
 def test_crosscorrelation_cv2_known_shift():
     """crosscorrelation_cv2 recovers a known integer shift within 1 pixel."""
@@ -89,12 +94,15 @@ def test_crosscorrelation_cv2_zero_shift():
 
     assert abs(sx) < 0.5, f"x shift {sx:.3f} should be ~0 for identical images"
     assert abs(sy) < 0.5, f"y shift {sy:.3f} should be ~0 for identical images"
-    assert response > 0.8, f"Response {response:.3f} should be high for identical images"
+    assert response > 0.8, (
+        f"Response {response:.3f} should be high for identical images"
+    )
 
 
 # ---------------------------------------------------------------------------
 # shift_from_crosscorrelation_v2
 # ---------------------------------------------------------------------------
+
 
 def test_shift_from_crosscorrelation_v2_known_shift():
     """v2 recovers a known shift in metres within 1 pixel."""
@@ -104,23 +112,26 @@ def test_shift_from_crosscorrelation_v2_known_shift():
     w = h = 150
     offset = 20
     x, y = 200, 200
-    ref_image.data[y:y + h, x:x + w] = 255
-    new_image.data[y + offset:y + h + offset, x + offset:x + w + offset] = 255
+    ref_image.data[y : y + h, x : x + w] = 255
+    new_image.data[y + offset : y + h + offset, x + offset : x + w + offset] = 255
 
     pixel_size = ref_image.metadata.pixel_size.x
 
     dx_v2, dy_v2, response = shift_from_crosscorrelation_v2(ref_image, new_image)
 
     assert response > 0.0, "response should be positive"
-    assert np.isclose(dx_v2, offset * pixel_size, atol=pixel_size), \
+    assert np.isclose(dx_v2, offset * pixel_size, atol=pixel_size), (
         f"dx_v2={dx_v2:.2e}, expected {offset * pixel_size:.2e}"
-    assert np.isclose(dy_v2, offset * pixel_size, atol=pixel_size), \
+    )
+    assert np.isclose(dy_v2, offset * pixel_size, atol=pixel_size), (
         f"dy_v2={dy_v2:.2e}, expected {offset * pixel_size:.2e}"
+    )
 
 
 # ---------------------------------------------------------------------------
 # _subpixel_peak
 # ---------------------------------------------------------------------------
+
 
 def _make_parabola(shape, peak_row, peak_col, amplitude=100.0):
     """Build a 2D parabolic surface with its maximum at (peak_row, peak_col)."""
@@ -140,8 +151,12 @@ def test_subpixel_peak_recovers_fractional_offset():
     int_row, int_col = np.unravel_index(np.argmax(xcorr), xcorr.shape)
     row_sub, col_sub = _subpixel_peak(xcorr, int_row, int_col)
 
-    assert abs(row_sub - true_row) < 0.01, f"row error {abs(row_sub - true_row):.4f} >= 0.01"
-    assert abs(col_sub - true_col) < 0.01, f"col error {abs(col_sub - true_col):.4f} >= 0.01"
+    assert abs(row_sub - true_row) < 0.01, (
+        f"row error {abs(row_sub - true_row):.4f} >= 0.01"
+    )
+    assert abs(col_sub - true_col) < 0.01, (
+        f"col error {abs(col_sub - true_col):.4f} >= 0.01"
+    )
 
 
 def test_subpixel_peak_symmetric_returns_integer():
@@ -177,6 +192,7 @@ def test_subpixel_peak_flat_denom_no_crash():
 # Method agreement: all three methods should agree on magnitude and direction
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("shift_x,shift_y", [(20, 20), (20, -20), (-15, 10), (0, 25)])
 def test_alignment_methods_agree(shift_x, shift_y):
     """All three alignment methods recover the same shift direction and magnitude.
@@ -196,37 +212,69 @@ def test_alignment_methods_agree(shift_x, shift_y):
 
     # all three should agree on direction (sign) when shift is non-zero
     if shift_x != 0:
-        assert np.sign(dx_cc) == np.sign(shift_x * pixel_size), f"cc dx sign wrong: {dx_cc:.2e}"
-        assert np.sign(dx_cv2) == np.sign(shift_x * pixel_size), f"cv2 dx sign wrong: {dx_cv2:.2e}"
-        assert np.sign(dx_sk) == np.sign(shift_x * pixel_size), f"sk dx sign wrong: {dx_sk:.2e}"
+        assert np.sign(dx_cc) == np.sign(shift_x * pixel_size), (
+            f"cc dx sign wrong: {dx_cc:.2e}"
+        )
+        assert np.sign(dx_cv2) == np.sign(shift_x * pixel_size), (
+            f"cv2 dx sign wrong: {dx_cv2:.2e}"
+        )
+        assert np.sign(dx_sk) == np.sign(shift_x * pixel_size), (
+            f"sk dx sign wrong: {dx_sk:.2e}"
+        )
     if shift_y != 0:
-        assert np.sign(dy_cc) == np.sign(shift_y * pixel_size), f"cc dy sign wrong: {dy_cc:.2e}"
-        assert np.sign(dy_cv2) == np.sign(shift_y * pixel_size), f"cv2 dy sign wrong: {dy_cv2:.2e}"
-        assert np.sign(dy_sk) == np.sign(shift_y * pixel_size), f"sk dy sign wrong: {dy_sk:.2e}"
+        assert np.sign(dy_cc) == np.sign(shift_y * pixel_size), (
+            f"cc dy sign wrong: {dy_cc:.2e}"
+        )
+        assert np.sign(dy_cv2) == np.sign(shift_y * pixel_size), (
+            f"cv2 dy sign wrong: {dy_cv2:.2e}"
+        )
+        assert np.sign(dy_sk) == np.sign(shift_y * pixel_size), (
+            f"sk dy sign wrong: {dy_sk:.2e}"
+        )
 
     # all three should agree on magnitude within atol
-    assert abs(dx_cc - dx_cv2) < atol, f"cc vs cv2 dx disagree: {dx_cc:.2e} vs {dx_cv2:.2e}"
-    assert abs(dy_cc - dy_cv2) < atol, f"cc vs cv2 dy disagree: {dy_cc:.2e} vs {dy_cv2:.2e}"
-    assert abs(dx_cc - dx_sk) < atol, f"cc vs sk dx disagree: {dx_cc:.2e} vs {dx_sk:.2e}"
-    assert abs(dy_cc - dy_sk) < atol, f"cc vs sk dy disagree: {dy_cc:.2e} vs {dy_sk:.2e}"
-    assert abs(dx_cv2 - dx_sk) < atol, f"cv2 vs sk dx disagree: {dx_cv2:.2e} vs {dx_sk:.2e}"
-    assert abs(dy_cv2 - dy_sk) < atol, f"cv2 vs sk dy disagree: {dy_cv2:.2e} vs {dy_sk:.2e}"
+    assert abs(dx_cc - dx_cv2) < atol, (
+        f"cc vs cv2 dx disagree: {dx_cc:.2e} vs {dx_cv2:.2e}"
+    )
+    assert abs(dy_cc - dy_cv2) < atol, (
+        f"cc vs cv2 dy disagree: {dy_cc:.2e} vs {dy_cv2:.2e}"
+    )
+    assert abs(dx_cc - dx_sk) < atol, (
+        f"cc vs sk dx disagree: {dx_cc:.2e} vs {dx_sk:.2e}"
+    )
+    assert abs(dy_cc - dy_sk) < atol, (
+        f"cc vs sk dy disagree: {dy_cc:.2e} vs {dy_sk:.2e}"
+    )
+    assert abs(dx_cv2 - dx_sk) < atol, (
+        f"cv2 vs sk dx disagree: {dx_cv2:.2e} vs {dx_sk:.2e}"
+    )
+    assert abs(dy_cv2 - dy_sk) < atol, (
+        f"cv2 vs sk dy disagree: {dy_cv2:.2e} vs {dy_sk:.2e}"
+    )
 
 
 def test_shift_from_crosscorrelation_v2_minimum_response_gate():
     """When response is below minimum_response, (0, 0, response) is returned."""
-    ref_image = FibsemImage.generate_blank_image(resolution=(512, 512), hfw=50e-6, random=True)
-    new_image = FibsemImage.generate_blank_image(resolution=(512, 512), hfw=50e-6, random=True)
+    ref_image = FibsemImage.generate_blank_image(
+        resolution=(512, 512), hfw=50e-6, random=True
+    )
+    new_image = FibsemImage.generate_blank_image(
+        resolution=(512, 512), hfw=50e-6, random=True
+    )
 
-    dx, dy, response = shift_from_crosscorrelation_v2(ref_image, new_image, minimum_response=1.0)
+    dx, dy, response = shift_from_crosscorrelation_v2(
+        ref_image, new_image, minimum_response=1.0
+    )
 
-    assert dx == 0.0 and dy == 0.0, \
+    assert dx == 0.0 and dy == 0.0, (
         f"Expected zero shift when response {response:.3f} < minimum_response"
+    )
 
 
 # ---------------------------------------------------------------------------
 # compare_alignment_methods
 # ---------------------------------------------------------------------------
+
 
 def _make_shifted_images(shift_x, shift_y):
     """Return (ref_image, new_image, pixel_size) with a synthetic known shift."""
@@ -262,7 +310,9 @@ def test_compare_alignment_methods_results_tagged_with_method():
 def test_compare_alignment_methods_agreement_on_known_shift():
     """All methods agree within threshold for a clean synthetic shift."""
     ref_image, new_image, _ = _make_shifted_images(20, 20)
-    differential = compare_alignment_methods(ref_image, new_image, agreement_threshold_px=2.0)
+    differential = compare_alignment_methods(
+        ref_image, new_image, agreement_threshold_px=2.0
+    )
 
     assert differential.agreement, (
         f"Methods should agree for a clean shift, "
@@ -303,6 +353,7 @@ def test_compare_alignment_methods_disagreement_metric():
 # AlignmentDifferential.to_dict — JSON serialisability
 # ---------------------------------------------------------------------------
 
+
 def test_alignment_differential_to_dict_json_serialisable():
     """to_dict() must be JSON-serialisable (no numpy scalars)."""
     ref_image, new_image, _ = _make_shifted_images(20, 20)
@@ -318,8 +369,12 @@ def test_alignment_differential_to_dict_native_types():
     differential = compare_alignment_methods(ref_image, new_image)
     d = differential.to_dict()
 
-    assert isinstance(d["agreement"], bool), f"agreement should be bool, got {type(d['agreement'])}"
-    assert isinstance(d["max_disagreement_px"], float), "max_disagreement_px should be float"
+    assert isinstance(d["agreement"], bool), (
+        f"agreement should be bool, got {type(d['agreement'])}"
+    )
+    assert isinstance(d["max_disagreement_px"], float), (
+        "max_disagreement_px should be float"
+    )
 
 
 def test_alignment_differential_to_dict_structure():
@@ -328,13 +383,19 @@ def test_alignment_differential_to_dict_structure():
     differential = compare_alignment_methods(ref_image, new_image)
     d = differential.to_dict()
 
-    assert set(d.keys()) == {"shifts_px", "max_disagreement_px", "agreement", "consensus_shift"}
+    assert set(d.keys()) == {
+        "shifts_px",
+        "max_disagreement_px",
+        "agreement",
+        "consensus_shift",
+    }
     assert set(d["shifts_px"].keys()) == {m.value for m in AlignmentMethod}
 
 
 # ---------------------------------------------------------------------------
 # multi_step_alignment_v2 with validate=True
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="module")
 def demo_session():
@@ -393,7 +454,9 @@ def test_multi_step_alignment_no_validate_no_validation(demo_session, tmp_path):
     assert run.validation is None
 
 
-def test_multi_step_alignment_run_to_dict_json_serialisable_with_validation(demo_session, tmp_path):
+def test_multi_step_alignment_run_to_dict_json_serialisable_with_validation(
+    demo_session, tmp_path
+):
     """AlignmentResult.to_dict() with validation must be JSON-serialisable."""
     microscope, settings = demo_session
     ref_image = acquire.acquire_image(microscope, settings.image)
@@ -414,6 +477,7 @@ def test_multi_step_alignment_run_to_dict_json_serialisable_with_validation(demo
 # consensus_shift
 # ---------------------------------------------------------------------------
 
+
 def test_consensus_shift_present():
     """compare_alignment_methods always populates consensus_shift."""
     ref_image, new_image, _ = _make_shifted_images(20, 10)
@@ -424,6 +488,7 @@ def test_consensus_shift_present():
 def test_consensus_shift_within_method_range():
     """consensus_shift lies between the per-method estimates (not outside the spread)."""
     from fibsem.structures import Point as Pt
+
     shift_x, shift_y = 20, 10
     ref_image, new_image, pixel_size = _make_shifted_images(shift_x, shift_y)
     differential = compare_alignment_methods(ref_image, new_image)
@@ -433,8 +498,12 @@ def test_consensus_shift_within_method_range():
     cx = differential.consensus_shift.x / pixel_size
     cy = differential.consensus_shift.y / pixel_size
 
-    assert min(xs) - 0.1 <= cx <= max(xs) + 0.1, f"consensus x={cx:.2f} outside [{min(xs):.2f}, {max(xs):.2f}]"
-    assert min(ys) - 0.1 <= cy <= max(ys) + 0.1, f"consensus y={cy:.2f} outside [{min(ys):.2f}, {max(ys):.2f}]"
+    assert min(xs) - 0.1 <= cx <= max(xs) + 0.1, (
+        f"consensus x={cx:.2f} outside [{min(xs):.2f}, {max(xs):.2f}]"
+    )
+    assert min(ys) - 0.1 <= cy <= max(ys) + 0.1, (
+        f"consensus y={cy:.2f} outside [{min(ys):.2f}, {max(ys):.2f}]"
+    )
 
 
 def test_consensus_shift_serialised():
@@ -442,6 +511,7 @@ def test_consensus_shift_serialised():
     ref_image, new_image, _ = _make_shifted_images(20, 10)
     differential = compare_alignment_methods(ref_image, new_image)
     from fibsem.alignment import AlignmentDifferential
+
     reloaded = AlignmentDifferential.from_dict(differential.to_dict())
     assert reloaded.consensus_shift is not None
     assert np.isclose(reloaded.consensus_shift.x, differential.consensus_shift.x)
@@ -451,6 +521,7 @@ def test_consensus_shift_serialised():
 # ---------------------------------------------------------------------------
 # AlignmentDifferential.from_dict round-trip
 # ---------------------------------------------------------------------------
+
 
 def test_alignment_differential_from_dict_round_trip():
     """from_dict(to_dict()) preserves all scalar fields."""
@@ -469,6 +540,7 @@ def test_alignment_differential_from_dict_round_trip():
 # ---------------------------------------------------------------------------
 # AlignmentResult.load round-trip
 # ---------------------------------------------------------------------------
+
 
 def test_alignment_run_save_load_round_trip(demo_session, tmp_path):
     """AlignmentResult.save() followed by .load() recovers all scalar fields."""
@@ -497,4 +569,6 @@ def test_alignment_run_save_load_round_trip(demo_session, tmp_path):
         assert loaded.method == orig.method
     assert reloaded.final_image is not None
     assert reloaded.validation is not None
-    assert np.isclose(reloaded.validation.max_disagreement_px, run.validation.max_disagreement_px)
+    assert np.isclose(
+        reloaded.validation.max_disagreement_px, run.validation.max_disagreement_px
+    )

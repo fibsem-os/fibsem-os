@@ -25,14 +25,15 @@ from fibsem.correlation.structures import (
 from fibsem.structures import Point
 
 DEFAULT_OPTIMIZATION_PARAMETERS = {
-    'random_rotations': True,
-    'rotation_init': 'gl2',
-    'restrict_rotations': 0.1,
-    'scale': None,
-    'random_scale': True,
-    'scale_init': 'gl2',
-    'ninit': 10
+    "random_rotations": True,
+    "rotation_init": "gl2",
+    "restrict_rotations": 0.1,
+    "scale": None,
+    "random_scale": True,
+    "scale_init": "gl2",
+    "ninit": 10,
 }
+
 
 def correlate(
     markers_3d: np.ndarray,
@@ -40,12 +41,12 @@ def correlate(
     poi_3d: np.ndarray,
     rotation_center: List[float],
     imageProps: list = None,
-    optimiser_params: Dict = DEFAULT_OPTIMIZATION_PARAMETERS
+    optimiser_params: Dict = DEFAULT_OPTIMIZATION_PARAMETERS,
 ) -> dict:
     """
     Iteratively calculate the correlation between 3D and 2D markers and reproject the points of interest (POI) into the 2D image
 
-    Args: 
+    Args:
         markers_3d: array of correlation marker positions for 3D image
         markers_2d: array of correlation marker positions for 2D image
         poi_3d:     array of points of interest for 3D image
@@ -81,51 +82,80 @@ def correlate(
 
     """
     # TODO: convert imageProps to a dataclass or dict?
-    
+
     # read optimization parameters
-    random_rotations = optimiser_params.get('random_rotations', DEFAULT_OPTIMIZATION_PARAMETERS['random_rotations'])
-    rotation_init = optimiser_params.get('rotation_init', DEFAULT_OPTIMIZATION_PARAMETERS['rotation_init'])
-    restrict_rotations = optimiser_params.get('restrict_rotations', DEFAULT_OPTIMIZATION_PARAMETERS['restrict_rotations'])
-    scale = optimiser_params.get('scale', DEFAULT_OPTIMIZATION_PARAMETERS['scale'])
-    random_scale = optimiser_params.get('random_scale', DEFAULT_OPTIMIZATION_PARAMETERS['random_scale'])
-    scale_init = optimiser_params.get('scale_init', DEFAULT_OPTIMIZATION_PARAMETERS['scale_init'])
-    ninit: float = optimiser_params.get('ninit', DEFAULT_OPTIMIZATION_PARAMETERS['ninit'])
-    
+    random_rotations = optimiser_params.get(
+        "random_rotations", DEFAULT_OPTIMIZATION_PARAMETERS["random_rotations"]
+    )
+    rotation_init = optimiser_params.get(
+        "rotation_init", DEFAULT_OPTIMIZATION_PARAMETERS["rotation_init"]
+    )
+    restrict_rotations = optimiser_params.get(
+        "restrict_rotations", DEFAULT_OPTIMIZATION_PARAMETERS["restrict_rotations"]
+    )
+    scale = optimiser_params.get("scale", DEFAULT_OPTIMIZATION_PARAMETERS["scale"])
+    random_scale = optimiser_params.get(
+        "random_scale", DEFAULT_OPTIMIZATION_PARAMETERS["random_scale"]
+    )
+    scale_init = optimiser_params.get(
+        "scale_init", DEFAULT_OPTIMIZATION_PARAMETERS["scale_init"]
+    )
+    ninit: float = optimiser_params.get(
+        "ninit", DEFAULT_OPTIMIZATION_PARAMETERS["ninit"]
+    )
+
     assert markers_3d.shape[1] == 3, "Markers 3D do not have 3 dimensions"
-    
+
     # coordinate arrays
-    mark_3d = markers_3d.T          # fm markers (3D)
-    mark_2d = markers_2d[:,:2].T    # fib markers (2D) 
-    poi_3d = poi_3d.T               # points of interest (3D)
-    
+    mark_3d = markers_3d.T  # fm markers (3D)
+    mark_2d = markers_2d[:, :2].T  # fib markers (2D)
+    poi_3d = poi_3d.T  # points of interest (3D)
+
     # convert Eulers in degrees to Caley-Klein params
-    if (rotation_init is not None) and (rotation_init != 'gl2'):
+    if (rotation_init is not None) and (rotation_init != "gl2"):
         rotation_init_rad = rotation_init * np.pi / 180
-        einit = Rigid3D.euler_to_ck(angles=rotation_init_rad, mode='x')
+        einit = Rigid3D.euler_to_ck(angles=rotation_init_rad, mode="x")
     else:
         einit = rotation_init
 
     # establish correlation
     # Suppress stdout and stderr
-    with open(os.devnull, 'w') as fnull, contextlib.redirect_stdout(fnull), contextlib.redirect_stderr(fnull):
+    with open(os.devnull, "w") as fnull, contextlib.redirect_stdout(
+        fnull
+    ), contextlib.redirect_stderr(fnull):
         transf = Rigid3D.find_32(
-            x=mark_3d, y=mark_2d, scale=scale,
-            randome=random_rotations, einit=einit, einit_dist=restrict_rotations,
-            randoms=random_scale, sinit=scale_init, ninit=ninit)
+            x=mark_3d,
+            y=mark_2d,
+            scale=scale,
+            randome=random_rotations,
+            einit=einit,
+            einit_dist=restrict_rotations,
+            randoms=random_scale,
+            sinit=scale_init,
+            ninit=ninit,
+        )
 
     if imageProps:
-        
         # establish correlation for cubic rotation (offset added to coordinates)
         shape_2d, pixel_size, shape_3d = imageProps
         offset = (max(shape_3d) - np.array(shape_3d)) * 0.5
 
         mark_3d_cube = np.copy(mark_3d) + offset[::-1, np.newaxis]
         # Suppress stdout and stderr
-        with open(os.devnull, 'w') as fnull, contextlib.redirect_stdout(fnull), contextlib.redirect_stderr(fnull):
+        with open(os.devnull, "w") as fnull, contextlib.redirect_stdout(
+            fnull
+        ), contextlib.redirect_stderr(fnull):
             transf_cube = Rigid3D.find_32(
-                x=mark_3d_cube, y=mark_2d, scale=scale,
-                randome=random_rotations, einit=einit, einit_dist=restrict_rotations,
-                randoms=random_scale, sinit=scale_init, ninit=ninit)
+                x=mark_3d_cube,
+                y=mark_2d,
+                scale=scale,
+                randome=random_rotations,
+                einit=einit,
+                einit_dist=restrict_rotations,
+                randoms=random_scale,
+                sinit=scale_init,
+                ninit=ninit,
+            )
     else:
         transf_cube = transf
 
@@ -139,13 +169,14 @@ def correlate(
 
     # calculate translation if rotation center is not at (0,0,0)
     modified_translation = transf_cube.recalculate_translation(
-        rotation_center=rotation_center)
+        rotation_center=rotation_center
+    )
 
     # center of mass of 3D markers
     cm_3D_markers = mark_3d.mean(axis=-1).tolist()
 
     # delta calc,real
-    reprojection_error = reprojected_coordinates_3d[:2,:] - mark_2d
+    reprojection_error = reprojected_coordinates_3d[:2, :] - mark_2d
 
     return {
         "input": {
@@ -162,7 +193,7 @@ def correlate(
             "reprojection_error": reprojection_error,
             "center_of_mass_3d_markers": cm_3D_markers,
             "modified_translation": modified_translation,
-        }
+        },
     }
 
 
@@ -171,19 +202,21 @@ def save_results(correlation_results: dict, results_file: str):
     Save the results of the correlation to a file (old .txt format)
     """
     from tdct.correlation import write_results
+
     # write transformation params and correlation
     write_results(
-        transf=correlation_results["output"]["transform"], 
+        transf=correlation_results["output"]["transform"],
         res_file_name=results_file,
-        spots_3d=correlation_results["input"]["poi_3d"], 
+        spots_3d=correlation_results["input"]["poi_3d"],
         spots_2d=correlation_results["output"]["reprojected_2d_poi"],
-        markers_3d=correlation_results["input"]["markers_3d"], 
-        transformed_3d=correlation_results["output"]["reprojected_3d_coordinates"], 
+        markers_3d=correlation_results["input"]["markers_3d"],
+        transformed_3d=correlation_results["output"]["reprojected_3d_coordinates"],
         markers_2d=correlation_results["input"]["markers_2d"],
-        rotation_center=correlation_results["input"]["rotation_center"], 
+        rotation_center=correlation_results["input"]["rotation_center"],
         modified_translation=correlation_results["output"]["modified_translation"],
-        imageProps=correlation_results["input"]["imageProps"]
-        )
+        imageProps=correlation_results["input"]["imageProps"],
+    )
+
 
 def run_correlation(
     fib_coords: np.ndarray,
@@ -224,8 +257,7 @@ def run_correlation(
 
     # output data
     correlation_data = parse_correlation_result_v2(
-        cor_ret=correlation_results, 
-        input_data=input_data
+        cor_ret=correlation_results, input_data=input_data
     )
 
     # full correlation data
@@ -234,7 +266,7 @@ def run_correlation(
             "timestamp": datetime.datetime.now().strftime(DATETIME_FILE),
             "data_path": path,
             "csv_path": os.path.join(path, "data.csv") if path is not None else path,
-            "project_path": path, # TODO: add project path
+            "project_path": path,  # TODO: add project path
         },
         "correlation": correlation_data,
     }
@@ -243,7 +275,9 @@ def run_correlation(
 
     return correlation_data
 
+
 ##### CORRELATION RESULTS #####
+
 
 # convert 2D image coordinates to microscope image coordinates
 def convert_poi_to_microscope_coordinates(
@@ -263,13 +297,16 @@ def convert_poi_to_microscope_coordinates(
             px_y * pixel_size_um,
         )  # point in microscope image coordinates (um)
         poi_image_coordinates.append(
-            {"image_px": px, 
-             "px": [px_x, px_y], 
-             "px_um": [pt_um[0], pt_um[1]],                 # micrometers
-             "px_m": [pt_um[0] * 1e-6, pt_um[1] * 1e-6]}    # meters
+            {
+                "image_px": px,
+                "px": [px_x, px_y],
+                "px_um": [pt_um[0], pt_um[1]],  # micrometers
+                "px_m": [pt_um[0] * 1e-6, pt_um[1] * 1e-6],
+            }  # meters
         )
 
     return poi_image_coordinates
+
 
 def extract_transformation_data(transf, mod_translation, reproj_3d, delta_2d) -> dict:
     # extract eulers in degrees
@@ -300,9 +337,12 @@ def extract_transformation_data(transf, mod_translation, reproj_3d, delta_2d) ->
 
     return transformation_data
 
+
 def parse_correlation_result_v2(cor_ret: dict, input_data: dict) -> dict:
     # point of interest data
-    spots_2d = cor_ret["output"]["reprojected_2d_poi"]  # (points of interest in 2D image)
+    spots_2d = cor_ret["output"][
+        "reprojected_2d_poi"
+    ]  # (points of interest in 2D image)
     fib_image_shape = input_data["image_properties"]["fib_image_shape"]
     pixel_size_um = input_data["image_properties"]["fib_pixel_size_um"]
 
@@ -311,20 +351,29 @@ def parse_correlation_result_v2(cor_ret: dict, input_data: dict) -> dict:
     )
 
     # transformation data
-    transf = cor_ret["output"]["transform"]     # transformation matrix
-    reproj_3d = cor_ret["output"]["reprojected_3d_coordinates"]  # reprojected 3D points to 2D points
-    delta_2d = cor_ret["output"]["reprojection_error"]   # difference between reprojected 3D points and 2D points (in pixels)
-    mod_translation = cor_ret["output"]["modified_translation"]  # translation around rotation center
-    transformation_data = extract_transformation_data(transf=transf, 
-                                                      mod_translation=mod_translation, 
-                                                      reproj_3d=reproj_3d, 
-                                                      delta_2d=delta_2d)
+    transf = cor_ret["output"]["transform"]  # transformation matrix
+    reproj_3d = cor_ret["output"][
+        "reprojected_3d_coordinates"
+    ]  # reprojected 3D points to 2D points
+    delta_2d = cor_ret["output"][
+        "reprojection_error"
+    ]  # difference between reprojected 3D points and 2D points (in pixels)
+    mod_translation = cor_ret["output"][
+        "modified_translation"
+    ]  # translation around rotation center
+    transformation_data = extract_transformation_data(
+        transf=transf,
+        mod_translation=mod_translation,
+        reproj_3d=reproj_3d,
+        delta_2d=delta_2d,
+    )
 
     correlation_data = {"input": input_data, "output": {}}
     correlation_data["output"].update(transformation_data)
     correlation_data["output"].update({"poi": poi_image_coordinates})
 
     return correlation_data
+
 
 def save_correlation_data(data: dict, path: str) -> str:
     correlation_data_filename = os.path.join(path, "correlation_data.yaml")
@@ -337,7 +386,9 @@ def save_correlation_data(data: dict, path: str) -> str:
 
 
 def _coords_to_array(coords: list[Coordinate]) -> np.ndarray:
-    return np.array([[c.point.x, c.point.y, c.point.z] for c in coords], dtype=np.float32)
+    return np.array(
+        [[c.point.x, c.point.y, c.point.z] for c in coords], dtype=np.float32
+    )
 
 
 def _reproject_poi_via_transform(
@@ -458,8 +509,8 @@ def run_correlation_from_data(
     transf = out["transformation"]
     err = out["error"]
 
-    d2d = err["delta_2d"]       # [[x1,x2,...], [y1,y2,...]]
-    r3d = err["reprojected_3d"] # [[x1,...], [y1,...], [z1,...]]
+    d2d = err["delta_2d"]  # [[x1,x2,...], [y1,y2,...]]
+    r3d = err["reprojected_3d"]  # [[x1,...], [y1,...], [z1,...]]
     n_markers = len(d2d[0])
 
     # Ghost markers: where the POIs would land without the pre-correction,
@@ -488,7 +539,9 @@ def run_correlation_from_data(
         rms_error=err["rms_error"],
         mean_absolute_error=err["mean_absolute_error"],
         delta_2d=[Point(d2d[0][i], d2d[1][i]) for i in range(n_markers)],
-        reprojected_3d=[PointXYZ(r3d[0][i], r3d[1][i], r3d[2][i]) for i in range(len(r3d[0]))],
+        reprojected_3d=[
+            PointXYZ(r3d[0][i], r3d[1][i], r3d[2][i]) for i in range(len(r3d[0]))
+        ],
         input_data=data,
         refractive_index_correction_factor=(
             data.ri_pre_correction_factor if pre_correction_applied else None

@@ -191,8 +191,14 @@ def tile_footprints(p, fov_x=FOV, fov_y=FOV, overlap=0.0):
     """
     step_x, step_y = fov_x * (1 - overlap), fov_y * (1 - overlap)
     grid = compute_tile_grid_from_fov(
-        nrows=p.rows, ncols=p.cols, fov_x=fov_x, fov_y=fov_y,
-        image_width=100, image_height=100, overlap=overlap, mask=p.mask,
+        nrows=p.rows,
+        ncols=p.cols,
+        fov_x=fov_x,
+        fov_y=fov_y,
+        image_width=100,
+        image_height=100,
+        overlap=overlap,
+        mask=p.mask,
     )
     out = {}
     for tile in grid:

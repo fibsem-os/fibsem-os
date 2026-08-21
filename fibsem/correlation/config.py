@@ -7,6 +7,7 @@ as a peer field on
 is a user step, not an automated microscope task. Defined here so the autolamella
 model only holds an instance; imports no UI.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -52,7 +53,9 @@ class FitSettings:
             fm_fiducial_channel=d.get("fm_fiducial_channel"),
             fm_poi_channel=d.get("fm_poi_channel"),
             reflection_cutout=d.get("reflection_cutout", default.reflection_cutout),
-            fluorescence_cutout=d.get("fluorescence_cutout", default.fluorescence_cutout),
+            fluorescence_cutout=d.get(
+                "fluorescence_cutout", default.fluorescence_cutout
+            ),
         )
 
 

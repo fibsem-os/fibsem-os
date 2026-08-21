@@ -1,4 +1,5 @@
 """Quick test script for LinePlotWidget with random data generation."""
+
 import sys
 
 import numpy as np

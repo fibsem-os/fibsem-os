@@ -6,6 +6,7 @@ Run directly:
 A checkbox toggles add/remove editing (hidden by default). A live readout
 shows the current AutoFocusSettings as the user edits.
 """
+
 import sys
 
 from PyQt5.QtWidgets import (
@@ -39,9 +40,17 @@ def main() -> None:
     app.setStyle("Fusion")
 
     channels = [
-        ChannelSettings(name="Reflection", excitation_wavelength=550, emission_wavelength=None),
-        ChannelSettings(name="GFP", excitation_wavelength=488, emission_wavelength="FLUORESCENCE"),
-        ChannelSettings(name="mCherry", excitation_wavelength=550, emission_wavelength="FLUORESCENCE"),
+        ChannelSettings(
+            name="Reflection", excitation_wavelength=550, emission_wavelength=None
+        ),
+        ChannelSettings(
+            name="GFP", excitation_wavelength=488, emission_wavelength="FLUORESCENCE"
+        ),
+        ChannelSettings(
+            name="mCherry",
+            excitation_wavelength=550,
+            emission_wavelength="FLUORESCENCE",
+        ),
     ]
 
     win = QWidget()

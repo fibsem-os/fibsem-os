@@ -28,7 +28,9 @@ class Ui_Form(object):
         self.dr_label = QtWidgets.QLabel(Form)
         self.dr_label.setObjectName("dr_label")
         self.gridLayout_2.addWidget(self.dr_label, 9, 0, 1, 1)
-        spacerItem = QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding)
+        spacerItem = QtWidgets.QSpacerItem(
+            20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding
+        )
         self.gridLayout_2.addItem(spacerItem, 14, 0, 1, 2)
         self.dX_spinbox = QtWidgets.QDoubleSpinBox(Form)
         self.dX_spinbox.setMinimum(-1000.0)

@@ -7,6 +7,7 @@ actually run, and starting must never be reachable by a stray keypress.
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_coincidence_milling_confirmation_dialog.py
 """
+
 from __future__ import annotations
 
 import os
@@ -52,7 +53,9 @@ def _stage(name="Polish", current=60e-12, pattern=None, enabled=True, **cfg):
         acquire_fib_image=False,
     )
     base.update(cfg)
-    stage.strategy = CoincidenceMillingStrategy(CoincidenceMillingStrategyConfig(**base))
+    stage.strategy = CoincidenceMillingStrategy(
+        CoincidenceMillingStrategyConfig(**base)
+    )
     return stage
 
 
@@ -80,9 +83,7 @@ def test_start_is_never_the_default_button():
     dialog = _dialog()
     assert not dialog.button_start.isDefault(), "Start Milling is the default button"
     assert not dialog.button_start.autoDefault(), "Start Milling would take Enter"
-    cancel = next(
-        b for b in dialog.findChildren(QPushButton) if b.text() == "Cancel"
-    )
+    cancel = next(b for b in dialog.findChildren(QPushButton) if b.text() == "Cancel")
     assert cancel.isDefault(), "Cancel is not the default"
 
 
@@ -134,7 +135,9 @@ def test_mode_wording_matches_the_supervision_button():
         fluorescence_coincidence_viewer_widget as viewer,
     )
 
-    source = inspect.getsource(viewer.FluorescenceCoincidenceViewerWidget._update_supervised_button)
+    source = inspect.getsource(
+        viewer.FluorescenceCoincidenceViewerWidget._update_supervised_button
+    )
     assert 'setText("Supervised")' in source
     assert 'setText("Automated")' in source
 
@@ -144,9 +147,17 @@ def test_mode_wording_matches_the_supervision_button():
 
 def test_shows_per_stage_current_pattern_and_duration():
     stages = [
-        _stage("Rough Mill", 1.0e-9, TrenchPattern(width=20e-6, depth=2e-6, spacing=3e-6,
-                                                   upper_trench_height=8e-6,
-                                                   lower_trench_height=6e-6)),
+        _stage(
+            "Rough Mill",
+            1.0e-9,
+            TrenchPattern(
+                width=20e-6,
+                depth=2e-6,
+                spacing=3e-6,
+                upper_trench_height=8e-6,
+                lower_trench_height=6e-6,
+            ),
+        ),
         _stage("Polish", 60e-12),
     ]
     text = _text(_dialog(stages=stages))
@@ -195,12 +206,22 @@ def test_current_formats_nano_above_a_nanoamp():
 
 
 def test_pattern_summary_omits_dimensions_a_pattern_lacks():
-    rect = _pattern_summary(_stage(pattern=RectanglePattern(width=12e-6, height=1.5e-6, depth=0.5e-6)))
+    rect = _pattern_summary(
+        _stage(pattern=RectanglePattern(width=12e-6, height=1.5e-6, depth=0.5e-6))
+    )
     assert "12.0 wide" in rect and "1.5 tall" in rect and "0.5 deep" in rect
 
-    trench = _pattern_summary(_stage(pattern=TrenchPattern(
-        width=20e-6, depth=2e-6, spacing=3e-6,
-        upper_trench_height=8e-6, lower_trench_height=6e-6)))
+    trench = _pattern_summary(
+        _stage(
+            pattern=TrenchPattern(
+                width=20e-6,
+                depth=2e-6,
+                spacing=3e-6,
+                upper_trench_height=8e-6,
+                lower_trench_height=6e-6,
+            )
+        )
+    )
     assert "20.0 wide" in trench and "2.0 deep" in trench
     # secondary trench dimensions are deliberately left to the task config editor
     assert "gap" not in trench and "upper" not in trench

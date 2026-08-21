@@ -53,8 +53,8 @@ def test_iteration_yields_exactly_the_four_modes():
 )
 def test_the_beam_side_spellings_are_aliases_not_new_members(alias, canonical):
     assert getattr(AutoFocusMode, alias) is canonical
-    assert AutoFocusMode[alias] is canonical   # settings persisted by name
-    assert AutoFocusMode(alias) is canonical   # ... and read back by value
+    assert AutoFocusMode[alias] is canonical  # settings persisted by name
+    assert AutoFocusMode(alias) is canonical  # ... and read back by value
 
 
 @pytest.mark.parametrize(
@@ -93,12 +93,17 @@ def test_junk_still_raises(bogus):
 
 @pytest.mark.parametrize("mode", list(AutoFocusMode))
 def test_autofocus_settings_round_trip(mode):
-    assert AutoFocusSettings.from_dict(AutoFocusSettings(mode=mode).to_dict()).mode is mode
+    assert (
+        AutoFocusSettings.from_dict(AutoFocusSettings(mode=mode).to_dict()).mode is mode
+    )
 
 
 def test_autofocus_settings_reads_the_previously_persisted_name_form():
     """Beam settings on disk say {"mode": "EVERY_ROW"}; they must keep loading."""
-    assert AutoFocusSettings.from_dict({"mode": "EVERY_ROW"}).mode is AutoFocusMode.EACH_ROW
+    assert (
+        AutoFocusSettings.from_dict({"mode": "EVERY_ROW"}).mode
+        is AutoFocusMode.EACH_ROW
+    )
     assert AutoFocusSettings.from_dict({"mode": "NONE"}).mode is AutoFocusMode.NONE
 
 
@@ -114,7 +119,9 @@ def test_the_shipped_fm_configuration_still_parses():
     """The default config has `autofocus_mode: once` in it -- pin it against the enum."""
     from fibsem.fm.structures import OverviewParameters
 
-    path = Path(fibsem.__file__).parent / "config" / "fm" / "fm-configuration-default.yaml"
+    path = (
+        Path(fibsem.__file__).parent / "config" / "fm" / "fm-configuration-default.yaml"
+    )
     config = yaml.safe_load(path.read_text(encoding="utf-8"))
 
     params = OverviewParameters.from_dict(config["overview_parameters"])

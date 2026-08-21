@@ -7,6 +7,7 @@ that expect integers.
 
 Uses PyQt5 directly with the offscreen platform (no pytest-qt dependency).
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -43,10 +44,14 @@ def _row(widget, field):
 
 
 def test_integer_fields_use_integer_spinbox(qapp, microscope):
-    widget = FibsemPatternSettingsWidget(microscope=microscope, pattern=_array_pattern())
+    widget = FibsemPatternSettingsWidget(
+        microscope=microscope, pattern=_array_pattern()
+    )
     for field in _INT_FIELDS:
         # `.control` is the builder's Control adapter; `.widget` is the Qt control.
-        assert isinstance(_row(widget, field).control.widget, IntegerValueSpinBox), field
+        assert isinstance(_row(widget, field).control.widget, IntegerValueSpinBox), (
+            field
+        )
 
 
 def test_get_pattern_returns_int_not_float(qapp, microscope):
@@ -62,7 +67,9 @@ def test_get_pattern_returns_int_not_float(qapp, microscope):
 
 
 def test_set_pattern_roundtrip_preserves_int(qapp, microscope):
-    widget = FibsemPatternSettingsWidget(microscope=microscope, pattern=_array_pattern())
+    widget = FibsemPatternSettingsWidget(
+        microscope=microscope, pattern=_array_pattern()
+    )
     widget.set_pattern(_array_pattern(n_columns=9, n_rows=2, passes=6))
     result = widget.get_pattern()
     assert (type(result.n_columns), result.n_columns) == (int, 9)
@@ -72,7 +79,9 @@ def test_set_pattern_roundtrip_preserves_int(qapp, microscope):
 
 def test_float_fields_remain_float(qapp, microscope):
     """Guard against over-correcting float controls into ints."""
-    widget = FibsemPatternSettingsWidget(microscope=microscope, pattern=_array_pattern())
+    widget = FibsemPatternSettingsWidget(
+        microscope=microscope, pattern=_array_pattern()
+    )
     result = widget.get_pattern()
     assert isinstance(result.width, float)
     assert isinstance(result.height, float)

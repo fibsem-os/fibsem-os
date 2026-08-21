@@ -43,10 +43,10 @@ _NAME_EDIT_STYLE = (
 
 class SavedPositionRowWidget(QWidget):
     name_changed = pyqtSignal(object, str)  # (FibsemStagePosition, name)
-    move_to_clicked = pyqtSignal(object)    # FibsemStagePosition
-    update_clicked = pyqtSignal(object)     # FibsemStagePosition
-    remove_clicked = pyqtSignal(object)     # FibsemStagePosition
-    row_clicked = pyqtSignal(object)        # FibsemStagePosition
+    move_to_clicked = pyqtSignal(object)  # FibsemStagePosition
+    update_clicked = pyqtSignal(object)  # FibsemStagePosition
+    remove_clicked = pyqtSignal(object)  # FibsemStagePosition
+    row_clicked = pyqtSignal(object)  # FibsemStagePosition
 
     def __init__(self, position: FibsemStagePosition, parent: QWidget = None) -> None:
         super().__init__(parent)
@@ -67,7 +67,9 @@ class SavedPositionRowWidget(QWidget):
         layout.addWidget(self.name_edit)
 
         self.position_label = QLabel(self.position.pretty_string)
-        self.position_label.setStyleSheet("color: #888; font-size: 11px; background: transparent;")
+        self.position_label.setStyleSheet(
+            "color: #888; font-size: 11px; background: transparent;"
+        )
         layout.addWidget(self.position_label, 1)
 
         self.btn_move = IconToolButton(
@@ -154,7 +156,7 @@ class _SavedPositionListHeader(QWidget):
 
 class SavedPositionListWidget(QWidget):
     move_to_requested = pyqtSignal(object)  # FibsemStagePosition
-    positions_updated = pyqtSignal(list)    # List[FibsemStagePosition]
+    positions_updated = pyqtSignal(list)  # List[FibsemStagePosition]
     position_selected = pyqtSignal(object)  # FibsemStagePosition
 
     def __init__(self, microscope=None, parent: QWidget = None) -> None:

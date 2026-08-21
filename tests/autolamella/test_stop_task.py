@@ -10,6 +10,7 @@ Real Experiment, real Lamellas, real TaskQueue, real _run_queue. Task execution 
 the one thing stubbed, so a stop can be raised from inside a running task without
 a microscope.
 """
+
 from pathlib import Path
 from typing import List
 
@@ -38,8 +39,10 @@ def manager(tmp_path: Path) -> TaskManager:
     experiment = Experiment(path=tmp_path, name="test-exp")
     experiment.task_protocol = AutoLamellaTaskProtocol(
         workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[AutoLamellaTaskDescription(name=n, supervise=False, required=False)
-                   for n in TASKS]
+            tasks=[
+                AutoLamellaTaskDescription(name=n, supervise=False, required=False)
+                for n in TASKS
+            ]
         )
     )
     for i, name in enumerate(("L1", "L2"), start=1):
@@ -87,8 +90,10 @@ def statuses(manager: TaskManager) -> List[Status]:
 
 # ── Scope: the whole point ────────────────────────────────────────────────────
 
+
 def test_stopping_a_task_leaves_the_run_going(manager):
     """The item is Cancelled and the queue carries on to the next one."""
+
     def on_task(task_name, lamella):
         if (lamella.name, task_name) == ("L1", "Trench"):
             manager.stop_task()
@@ -96,13 +101,14 @@ def test_stopping_a_task_leaves_the_run_going(manager):
 
     executed = run_with(manager, on_task)
 
-    assert len(executed) == 4          # every item was still attempted
+    assert len(executed) == 4  # every item was still attempted
     assert statuses(manager)[0] is Status.Cancelled
     assert statuses(manager)[1:] == [Status.Completed] * 3
 
 
 def test_stopping_the_run_ends_it(manager):
     """The contrast: everything after the current item stays untouched."""
+
     def on_task(task_name, lamella):
         if (lamella.name, task_name) == ("L1", "Trench"):
             manager.stop()
@@ -138,8 +144,10 @@ def test_a_run_stop_wins_when_both_are_set(manager):
 
 # ── Clearing between tasks ────────────────────────────────────────────────────
 
+
 def test_the_task_stop_does_not_leak_into_the_next_task(manager):
     """Cleared at the top of each item, so one cancel cancels one task."""
+
     def on_task(task_name, lamella):
         if (lamella.name, task_name) == ("L1", "Trench"):
             manager.stop_task()
@@ -153,9 +161,10 @@ def test_the_task_stop_does_not_leak_into_the_next_task(manager):
 
 def test_a_click_between_tasks_is_discarded(manager):
     """It was aimed at the task that has just finished, not the next one."""
+
     def on_task(task_name, lamella):
         if (lamella.name, task_name) == ("L1", "Trench"):
-            manager.stop_task()   # set, but nothing raises: the task completes
+            manager.stop_task()  # set, but nothing raises: the task completes
 
     executed = run_with(manager, on_task)
 
@@ -164,6 +173,7 @@ def test_a_click_between_tasks_is_discarded(manager):
 
 
 # ── The token everything inside a task polls ──────────────────────────────────
+
 
 def test_the_token_reports_either_stop(manager):
     token = manager.abort_token
@@ -191,6 +201,7 @@ def test_a_composite_cannot_be_set_directly():
 
 # ── Stopping the hardware, not just the queue ─────────────────────────────────
 
+
 def test_both_stop_paths_interrupt_the_hardware_the_same_way():
     """Found on the microscope: cancelling mid-mill unwound the task but the mill
     carried on.
@@ -212,9 +223,9 @@ def test_both_stop_paths_interrupt_the_hardware_the_same_way():
     def body(source: str, name: str) -> str:
         """The text of one method, up to the next def at the same indent."""
         start = source.index(f"    def {name}(")
-        rest = source[start + 1:]
+        rest = source[start + 1 :]
         end = rest.find("\n    def ")
-        return rest[:end if end != -1 else len(rest)]
+        return rest[: end if end != -1 else len(rest)]
 
     halt = body(autolamella_ui, "stop_current_operations")
     assert "stop_milling()" in halt

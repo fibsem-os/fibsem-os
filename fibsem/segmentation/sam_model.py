@@ -12,7 +12,7 @@ class SamModelWrapper:
         self.device = device
 
         self.checkpoint = checkpoint
-        self.model: SamModel =  SamModel.from_pretrained(checkpoint).to(self.device)
+        self.model: SamModel = SamModel.from_pretrained(checkpoint).to(self.device)
         self.processor: SamProcessor = SamProcessor.from_pretrained(checkpoint)
 
     def __call__(

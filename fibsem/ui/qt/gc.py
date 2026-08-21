@@ -24,6 +24,7 @@ reference; cycles (signal connections, parent links, closures) are the
 dominant path for Qt/napari/vispy objects and the one observed in the crash
 logs.
 """
+
 from __future__ import annotations
 
 import gc
@@ -95,9 +96,7 @@ def install_main_thread_gc(
     """
     app = QCoreApplication.instance()
     if app is None:
-        raise RuntimeError(
-            "install_main_thread_gc requires a QApplication to exist"
-        )
+        raise RuntimeError("install_main_thread_gc requires a QApplication to exist")
     if QThread.currentThread() is not app.thread():
         raise RuntimeError(
             "install_main_thread_gc must be called from the Qt main thread"

@@ -11,6 +11,7 @@ checked here is what reaches the screen.
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python -m pytest tests/ui/test_workflow_preflight_dialog.py
 """
+
 from __future__ import annotations
 
 import os
@@ -46,9 +47,15 @@ NOW = datetime(2026, 8, 18, 14, 0, 0)
 
 
 def _estimate(tasks=None, **kwargs) -> WorkflowEstimate:
-    tasks = tasks if tasks is not None else [
-        TaskEstimate(name="Mill Fiducial", lamella_count=2, seconds=198.0, supervised=False)
-    ]
+    tasks = (
+        tasks
+        if tasks is not None
+        else [
+            TaskEstimate(
+                name="Mill Fiducial", lamella_count=2, seconds=198.0, supervised=False
+            )
+        ]
+    )
     defaults = dict(
         tasks=tasks,
         lamella_names=["01-fancy-mite", "02-civil-cub"],
@@ -82,6 +89,7 @@ def _texts(dialog) -> str:
 
 # ── the two figures ──────────────────────────────────────────────────────────
 
+
 def test_it_shows_the_duration_and_the_finish_clock(dialog):
     """Two, not one: the duration says whether to start, the clock says when to come
     back, and the second is the one people act on."""
@@ -95,14 +103,20 @@ def test_the_duration_is_the_work_not_the_wall_clock(dialog):
     """A held workflow finishes late without taking longer to run."""
     at = NOW + timedelta(hours=4)
     tasks = [TaskEstimate("Polishing", 2, 600.0, supervised=False, scheduled_at=at)]
-    d = dialog(_estimate(tasks=tasks, hold_seconds=4 * 3600,
-                         expected_finish=at + timedelta(seconds=600)))
+    d = dialog(
+        _estimate(
+            tasks=tasks,
+            hold_seconds=4 * 3600,
+            expected_finish=at + timedelta(seconds=600),
+        )
+    )
     text = _texts(d)
     assert "10m 00s" in text, "the duration is the work"
     assert "6:10PM" in text, "the finish is after the hold"
 
 
 # ── the breakdown ────────────────────────────────────────────────────────────
+
 
 def test_every_task_gets_a_row_with_its_count_and_duration(dialog):
     tasks = [
@@ -125,6 +139,7 @@ def test_the_step_count_is_the_queue_not_the_task_count(dialog):
 
 # ── the exceptions ───────────────────────────────────────────────────────────
 
+
 def test_a_supervised_step_is_flagged_and_its_work_still_counted(dialog):
     """Only the pause is unbounded. Dropping the task would understate the total by
     the work it does, so the row carries a chip instead of a blank."""
@@ -140,8 +155,14 @@ def test_a_scheduled_step_says_how_long_the_workflow_holds(dialog):
     would be wrong by its length."""
     at = NOW + timedelta(hours=6)
     tasks = [
-        TaskEstimate("Polishing", 2, 785.0, supervised=False, scheduled_at=at,
-                     hold_seconds=6 * 3600)
+        TaskEstimate(
+            "Polishing",
+            2,
+            785.0,
+            supervised=False,
+            scheduled_at=at,
+            hold_seconds=6 * 3600,
+        )
     ]
     text = _texts(dialog(_estimate(tasks=tasks, hold_seconds=6 * 3600)))
     assert "Scheduled 8:00PM" in text
@@ -152,10 +173,22 @@ def test_each_scheduled_step_is_quoted_its_own_hold_not_the_total(dialog):
     """Two scheduled tasks share one workflow hold; quoting the whole of it against
     each would say the same wrong number twice. Summarised once instead."""
     tasks = [
-        TaskEstimate("Mill Fiducial", 2, 198.0, supervised=False,
-                     scheduled_at=NOW + timedelta(hours=2), hold_seconds=2 * 3600),
-        TaskEstimate("Polishing", 2, 785.0, supervised=False,
-                     scheduled_at=NOW + timedelta(hours=6), hold_seconds=4 * 3600),
+        TaskEstimate(
+            "Mill Fiducial",
+            2,
+            198.0,
+            supervised=False,
+            scheduled_at=NOW + timedelta(hours=2),
+            hold_seconds=2 * 3600,
+        ),
+        TaskEstimate(
+            "Polishing",
+            2,
+            785.0,
+            supervised=False,
+            scheduled_at=NOW + timedelta(hours=6),
+            hold_seconds=4 * 3600,
+        ),
     ]
     text = _texts(dialog(_estimate(tasks=tasks, hold_seconds=6 * 3600)))
     assert "2 steps are scheduled" in text
@@ -184,6 +217,7 @@ def test_an_unsupervised_workflow_says_nothing_about_waiting(dialog):
 
 # ── the lamella disclosure ───────────────────────────────────────────────────
 
+
 def test_the_lamella_names_are_hidden_until_asked_for(dialog):
     """A per-task breakdown replaces the names with ×2; they come back once, here,
     rather than repeated under every task."""
@@ -201,7 +235,13 @@ def test_an_overnight_finish_says_tomorrow(dialog):
     next morning is wrong by a day, and a date stamp reads as a filename where a person
     would just say "tomorrow"."""
     tasks = [TaskEstimate("Rough Milling", 2, 72000.0, supervised=False)]
-    text = _texts(dialog(_estimate(tasks=tasks, expected_finish=NOW + timedelta(hours=16, minutes=15))))
+    text = _texts(
+        dialog(
+            _estimate(
+                tasks=tasks, expected_finish=NOW + timedelta(hours=16, minutes=15)
+            )
+        )
+    )
     assert "Tomorrow, 6:15AM" in text
 
 
@@ -212,9 +252,11 @@ def test_a_finish_today_is_just_the_clock(dialog):
 
 
 def test_a_finish_further_out_keeps_its_date(dialog):
-    """"In 3 days" is arithmetic the reader has to do."""
+    """ "In 3 days" is arithmetic the reader has to do."""
     tasks = [TaskEstimate("Rough Milling", 2, 259200.0, supervised=False)]
-    text = _texts(dialog(_estimate(tasks=tasks, expected_finish=NOW + timedelta(days=3))))
+    text = _texts(
+        dialog(_estimate(tasks=tasks, expected_finish=NOW + timedelta(days=3)))
+    )
     assert "2026-08-21" in text
 
 
@@ -228,7 +270,9 @@ def test_a_hundred_lamellae_do_not_push_the_dialog_apart(dialog):
     )
 
     def _expanded_names(count):
-        d = dialog(_estimate(lamella_names=[f"{i:02d}-scale-lamella" for i in range(count)]))
+        d = dialog(
+            _estimate(lamella_names=[f"{i:02d}-scale-lamella" for i in range(count)])
+        )
         d.show()
         d.findChild(QToolButton).setChecked(True)
         return d._lamella_names_label.text()
@@ -262,12 +306,15 @@ def test_the_breakdown_is_per_task_not_per_lamella(dialog):
         TaskEstimate("Mill Fiducial", 100, 19800.0, supervised=False),
         TaskEstimate("Rough Milling", 100, 61200.0, supervised=False),
     ]
-    text = _texts(dialog(_estimate(tasks=tasks, lamella_names=[f"l{i}" for i in range(100)])))
+    text = _texts(
+        dialog(_estimate(tasks=tasks, lamella_names=[f"l{i}" for i in range(100)]))
+    )
     assert "×100" in text
     assert "200 steps" in text
 
 
 # ── nothing to do ────────────────────────────────────────────────────────────
+
 
 def test_run_is_refused_when_no_task_is_selected(dialog):
     """The queue would build empty and the workflow end immediately; say so here
@@ -282,6 +329,7 @@ def test_run_is_offered_when_there_is_work(dialog):
 
 
 # ── the chips keep their own background ──────────────────────────────────────
+
 
 def test_the_panels_do_not_restyle_the_chips_inside_them(dialog):
     """Regression, and invisible without running the app: a bare `QFrame { ... }`
@@ -298,7 +346,8 @@ def test_the_panels_do_not_restyle_the_chips_inside_them(dialog):
     d = dialog(_estimate(tasks=tasks))
 
     panels = [
-        f for f in d.findChildren(QFrame)
+        f
+        for f in d.findChildren(QFrame)
         if f.objectName() in {"preflightTaskBlock", "preflightMetric"}
     ]
     assert len(panels) == 3, "one task block and two metric cards"
@@ -345,7 +394,8 @@ def test_everything_on_a_panel_declares_itself_transparent(dialog):
         return widget is panel
 
     panels = [
-        f for f in d.findChildren(QFrame)
+        f
+        for f in d.findChildren(QFrame)
         if f.objectName() in {"preflightTaskBlock", "preflightMetric"}
     ]
     assert panels, "guard: the panels are findable"

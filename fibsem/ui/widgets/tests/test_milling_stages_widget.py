@@ -3,6 +3,7 @@
 Run directly:
     python fibsem/ui/widgets/tests/test_milling_stages_widget.py
 """
+
 import sys
 
 from PyQt5.QtWidgets import (
@@ -96,7 +97,10 @@ def main() -> None:
     def on_stages_changed(changed_stages) -> None:
         names = [s.name for s in changed_stages]
         status.setText(f"stages_changed: {names}")
-        print("stages_changed:", [(s.name, s.milling.milling_current) for s in changed_stages])
+        print(
+            "stages_changed:",
+            [(s.name, s.milling.milling_current) for s in changed_stages],
+        )
 
     def on_print_all() -> None:
         for s in widget.get_stages():

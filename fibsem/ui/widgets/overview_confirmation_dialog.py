@@ -66,19 +66,23 @@ class OverviewConfirmationDialog(OverviewPreflightDialog):
     # ── content ──────────────────────────────────────────────────────────
 
     def _tile_counts(self) -> Tuple[int, int]:
-        return (self.settings.n_enabled_tiles,
-                self.settings.nrows * self.settings.ncols)
+        return (
+            self.settings.n_enabled_tiles,
+            self.settings.nrows * self.settings.ncols,
+        )
 
     def _meta_line(self) -> str:
         s = self.settings
         sym = constants.MICRON_SYMBOL
-        return " · ".join([
-            f"{s.nrows} × {s.ncols} grid",
-            f"{s.overlap:.0%} overlap",
-            f"{s.total_fov_x * constants.SI_TO_MICRO:.0f} × "
-            f"{s.total_fov_y * constants.SI_TO_MICRO:.0f} {sym}",
-            f"{s.tile_order.value} order",
-        ])
+        return " · ".join(
+            [
+                f"{s.nrows} × {s.ncols} grid",
+                f"{s.overlap:.0%} overlap",
+                f"{s.total_fov_x * constants.SI_TO_MICRO:.0f} × "
+                f"{s.total_fov_y * constants.SI_TO_MICRO:.0f} {sym}",
+                f"{s.tile_order.value} order",
+            ]
+        )
 
     def _centre_text(self) -> str:
         """Where the grid sits, in the terms it was placed in.
@@ -107,30 +111,34 @@ class OverviewConfirmationDialog(OverviewPreflightDialog):
         if self.view_description:
             detail.append(("Acquired in", self.view_description))
         detail.append(("Centred on", self._centre_text()))
-        detail.append((
-            "Tile",
-            f"{width} × {height} px · {image.hfw * constants.SI_TO_MICRO:.0f} {sym} wide",
-        ))
-        detail.append((
-            "Dwell time",
-            f"{image.dwell_time * constants.SI_TO_MICRO:.2f} "
-            f"{constants.MICROSECOND_SYMBOL}",
-        ))
+        detail.append(
+            (
+                "Tile",
+                f"{width} × {height} px · {image.hfw * constants.SI_TO_MICRO:.0f} {sym} wide",
+            )
+        )
+        detail.append(
+            (
+                "Dwell time",
+                f"{image.dwell_time * constants.SI_TO_MICRO:.2f} "
+                f"{constants.MICROSECOND_SYMBOL}",
+            )
+        )
         detail.append(("Auto contrast", "on" if image.autocontrast else "off"))
 
         # What it will cost on disk. Tiles are written one file each and the stitch is
         # written beside them, all uncompressed -- measured at 1.00x the array plus a
         # 2 kB header -- so the array sizes are the estimate rather than a floor for it.
-        mosaic_w, mosaic_h = mosaic_pixels(
-            s.nrows, s.ncols, s.overlap, width, height
-        )
+        mosaic_w, mosaic_h = mosaic_pixels(s.nrows, s.ncols, s.overlap, width, height)
         tile_bytes = width * height * BEAM_BYTES_PER_PIXEL
-        detail.append((
-            "Disk",
-            f"~{format_bytes(s.n_enabled_tiles * tile_bytes + mosaic_w * mosaic_h * BEAM_BYTES_PER_PIXEL)}"
-            f"   ({format_bytes(tile_bytes)} per tile"
-            f" · {mosaic_w} × {mosaic_h} px stitched)",
-        ))
+        detail.append(
+            (
+                "Disk",
+                f"~{format_bytes(s.n_enabled_tiles * tile_bytes + mosaic_w * mosaic_h * BEAM_BYTES_PER_PIXEL)}"
+                f"   ({format_bytes(tile_bytes)} per tile"
+                f" · {mosaic_w} × {mosaic_h} px stitched)",
+            )
+        )
 
         # Where it lands, which is the other thing that survives a tab switch unnoticed:
         # the filename names the tile sub-folder, so two runs under one name interleave.
@@ -141,9 +149,11 @@ class OverviewConfirmationDialog(OverviewPreflightDialog):
         # the stage entirely. A real run is several times longer -- see
         # `OverviewAcquisitionSettings.scan_time`, which says why that term is not
         # guessed at here.
-        detail.append((
-            "Scan time",
-            f"{format_duration(s.scan_time)}"
-            f"   ({format_duration(image.scan_time)} per tile, before stage movement)",
-        ))
+        detail.append(
+            (
+                "Scan time",
+                f"{format_duration(s.scan_time)}"
+                f"   ({format_duration(image.scan_time)} per tile, before stage movement)",
+            )
+        )
         return detail

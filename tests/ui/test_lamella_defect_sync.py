@@ -14,6 +14,7 @@ Driven through `LamellaNameListWidget` rather than a bare `_LamellaRow`: the def
 button is hidden until `enable_defect_button(True)`, and `refresh` skips a hidden
 button, so a bare row silently asserts nothing.
 """
+
 import ast
 import os
 

@@ -55,7 +55,9 @@ def test_reimporting_the_same_file_is_a_no_op(user_configurations, tmp_path):
     assert len(user_configurations) == 2  # the default, plus this one
 
 
-def test_reimport_survives_a_path_written_in_another_form(user_configurations, tmp_path):
+def test_reimport_survives_a_path_written_in_another_form(
+    user_configurations, tmp_path
+):
     """The stored path and the one the file dialog hands back need not match textually."""
     path = str(tmp_path / "my-microscope.yaml")
 
@@ -75,7 +77,9 @@ def test_a_different_file_with_the_same_name_gets_its_own_entry(
 
     first = cfg.register_configuration(path=first_path)
     second = cfg.register_configuration(path=second_path)
-    third = cfg.register_configuration(path=str(tmp_path / "c" / "microscope-configuration.yaml"))
+    third = cfg.register_configuration(
+        path=str(tmp_path / "c" / "microscope-configuration.yaml")
+    )
 
     assert first == "microscope-configuration"
     assert second == "microscope-configuration (2)"
@@ -93,7 +97,8 @@ def test_registration_never_raises_on_a_taken_name(user_configurations, tmp_path
     """
     with pytest.raises(ValueError):
         cfg.add_configuration(
-            configuration_name="default-configuration", path=str(tmp_path / "other.yaml")
+            configuration_name="default-configuration",
+            path=str(tmp_path / "other.yaml"),
         )
 
     name = cfg.register_configuration(path=str(tmp_path / "default-configuration.yaml"))
@@ -109,7 +114,10 @@ def test_registered_name_always_resolves_to_a_path(user_configurations, tmp_path
 
 def test_yml_suffix_is_stripped(user_configurations, tmp_path):
     """The import dialog accepts *.yml too, which .removesuffix('.yaml') left on the name."""
-    assert cfg.register_configuration(path=str(tmp_path / "my-microscope.yml")) == "my-microscope"
+    assert (
+        cfg.register_configuration(path=str(tmp_path / "my-microscope.yml"))
+        == "my-microscope"
+    )
 
 
 def test_explicit_name_overrides_the_filename(user_configurations, tmp_path):

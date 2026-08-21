@@ -100,15 +100,23 @@ def plot_multi_step_alignment(
         dy_px = r.shift.y / pixel_size
         colour = "lime" if r.score >= 0.7 else ("orange" if r.score >= 0.5 else "red")
         axes[0, 1 + i].text(
-            0.04, 0.04,
+            0.04,
+            0.04,
             f"dx={dx_px:.1f}px  dy={dy_px:.1f}px",
             transform=axes[0, 1 + i].transAxes,
-            color=colour, fontsize=7, va="bottom", fontfamily="monospace",
-            bbox=dict(boxstyle="round,pad=0.2", facecolor="black", alpha=0.6, edgecolor="none"),
+            color=colour,
+            fontsize=7,
+            va="bottom",
+            fontfamily="monospace",
+            bbox=dict(
+                boxstyle="round,pad=0.2", facecolor="black", alpha=0.6, edgecolor="none"
+            ),
         )
         cx, cy = r.image.data.shape[1] // 2, r.image.data.shape[0] // 2
         axes[0, 1 + i].annotate(
-            "", xy=(cx + dx_px, cy + dy_px), xytext=(cx, cy),
+            "",
+            xy=(cx + dx_px, cy + dy_px),
+            xytext=(cx, cy),
             arrowprops=dict(arrowstyle="->", color=colour, lw=2),
         )
 
@@ -157,12 +165,24 @@ def plot_multi_step_alignment(
             lines = []
             for method_name, shift_pt in validation.shifts_px.items():
                 mag = np.hypot(shift_pt.x, shift_pt.y)
-                lines.append(f"{method_name}: dx={shift_pt.x:.1f}  dy={shift_pt.y:.1f}  |{mag:.1f}|px")
+                lines.append(
+                    f"{method_name}: dx={shift_pt.x:.1f}  dy={shift_pt.y:.1f}  |{mag:.1f}|px"
+                )
             axes[2, n_cols - 1].text(
-                0.04, 0.04, "\n".join(lines),
+                0.04,
+                0.04,
+                "\n".join(lines),
                 transform=axes[2, n_cols - 1].transAxes,
-                color=colour, fontsize=7, va="bottom", fontfamily="monospace",
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="black", alpha=0.6, edgecolor="none"),
+                color=colour,
+                fontsize=7,
+                va="bottom",
+                fontfamily="monospace",
+                bbox=dict(
+                    boxstyle="round,pad=0.3",
+                    facecolor="black",
+                    alpha=0.6,
+                    edgecolor="none",
+                ),
             )
 
     fig.tight_layout()

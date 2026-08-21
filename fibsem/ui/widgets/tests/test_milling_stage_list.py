@@ -3,6 +3,7 @@
 Run directly:
     python fibsem/ui/widgets/tests/test_milling_stage_list.py
 """
+
 import sys
 
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QLabel, QVBoxLayout, QWidget
@@ -13,8 +14,12 @@ from fibsem.structures import FibsemMillingSettings
 from fibsem.ui.widgets.milling_stage_list_widget import MillingStageListWidget
 
 
-def _make_stage(name: str, pattern_name: str, depth: float, current: float) -> FibsemMillingStage:
-    pattern = get_pattern(pattern_name, {"depth": depth, "width": 10e-6, "height": 5e-6})
+def _make_stage(
+    name: str, pattern_name: str, depth: float, current: float
+) -> FibsemMillingStage:
+    pattern = get_pattern(
+        pattern_name, {"depth": depth, "width": 10e-6, "height": 5e-6}
+    )
     milling = FibsemMillingSettings(milling_current=current)
     return FibsemMillingStage(name=name, milling=milling, pattern=pattern)
 
@@ -24,10 +29,10 @@ def main() -> None:
     app.setStyle("Fusion")
 
     stages = [
-        _make_stage("Rough Cut",    "Rectangle", depth=10e-6, current=2e-9),
-        _make_stage("Regular Cut",  "Rectangle", depth=5e-6,  current=300e-12),
-        _make_stage("Polish",       "Rectangle", depth=1e-6,  current=50e-12),
-        _make_stage("Fiducial",     "Circle",    depth=2e-6,  current=100e-12),
+        _make_stage("Rough Cut", "Rectangle", depth=10e-6, current=2e-9),
+        _make_stage("Regular Cut", "Rectangle", depth=5e-6, current=300e-12),
+        _make_stage("Polish", "Rectangle", depth=1e-6, current=50e-12),
+        _make_stage("Fiducial", "Circle", depth=2e-6, current=100e-12),
     ]
 
     # --- main window ---
@@ -50,7 +55,9 @@ def main() -> None:
     root.addWidget(status)
 
     def on_selected(stage: FibsemMillingStage) -> None:
-        status.setText(f"Selected: {stage.name}  |  {stage.pattern.name}  |  {stage.strategy.name}")
+        status.setText(
+            f"Selected: {stage.name}  |  {stage.pattern.name}  |  {stage.strategy.name}"
+        )
 
     def on_removed(stage: FibsemMillingStage) -> None:
         status.setText(f"Removed: {stage.name}")

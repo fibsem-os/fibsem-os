@@ -15,6 +15,7 @@ two of them let a wrong number reach the experiment:
 
 Headless PyQt5, offscreen.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -127,7 +128,9 @@ def test_a_run_finishing_after_an_edit_is_not_live(qapp):
     snapshot = CorrelationInputData(fib_coordinates=[_fib(x=10.0)])
 
     w.data.fib_coordinates[0].point.x = 999.0  # dragged while the run was in flight
-    w._on_run_finished(CorrelationResult(poi=[_poi()], rms_error=1.0, input_data=snapshot))
+    w._on_run_finished(
+        CorrelationResult(poi=[_poi()], rms_error=1.0, input_data=snapshot)
+    )
 
     assert not w._btn_continue.isEnabled()
     assert "points have changed" in w._lbl_status.text()
@@ -238,7 +241,9 @@ def test_loading_an_image_does_not_list_it_twice(qapp, monkeypatch):
     path = "/lam/03_ref_MillRough_ib.tif"
     picker.set_options([path], path)
     monkeypatch.setattr(
-        ctw.FibsemImage, "load", staticmethod(lambda p: _loads_as("03_ref_MillRough_ib.tif"))
+        ctw.FibsemImage,
+        "load",
+        staticmethod(lambda p: _loads_as("03_ref_MillRough_ib.tif")),
     )
 
     tab._load_fib(path)
@@ -333,5 +338,3 @@ def test_editor_defaults_to_the_newest_image():
 # ---------------------------------------------------------------------------
 # 7 — the legend describes what is on the canvas
 # ---------------------------------------------------------------------------
-
-

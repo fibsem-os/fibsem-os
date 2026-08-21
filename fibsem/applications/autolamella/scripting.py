@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 SCRIPTS_DIR_ENV_VAR = "AUTOLAMELLA_SCRIPTS_DIR"
 DEFAULT_SCRIPTS_DIR = Path.home() / ".autolamella" / "scripts"
 
+
 def get_scripts_directory() -> Path:
     """Resolve the user scripts directory. Does not create it."""
     override = os.environ.get(SCRIPTS_DIR_ENV_VAR)

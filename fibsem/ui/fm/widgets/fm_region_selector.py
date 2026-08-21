@@ -165,7 +165,9 @@ class FMRegionSelectorWidget(QWidget):
             chip.setCheckable(True)
             chip.setChecked(view == self._current_view)
             chip.setStyleSheet(
-                _VIEW_CHIP_STYLE_ACTIVE if view == self._current_view else _VIEW_CHIP_STYLE
+                _VIEW_CHIP_STYLE_ACTIVE
+                if view == self._current_view
+                else _VIEW_CHIP_STYLE
             )
             chip.clicked.connect(lambda _checked, v=view: self.show_view(v))
             row.addWidget(chip)
@@ -212,7 +214,9 @@ class FMRegionSelectorWidget(QWidget):
             position = self._position_of(image)
             size = self._pixel_size_of(image)
             if position is None or not size or frame is None:
-                logger.debug("Skipping an overview that does not say where it was taken.")
+                logger.debug(
+                    "Skipping an overview that does not say where it was taken."
+                )
                 continue
             try:
                 centre = frame.offset(position)
@@ -222,16 +226,28 @@ class FMRegionSelectorWidget(QWidget):
             data = image.filtered_data
             self._placed.append(
                 self.canvas.add_image(
-                    data, centre=centre, pixel_size=size, key=f"overview-{index}",
+                    data,
+                    centre=centre,
+                    pixel_size=size,
+                    key=f"overview-{index}",
                 )
             )
-            spans.append((
-                centre[0], centre[1], data.shape[1] * size, data.shape[0] * size,
-            ))
+            spans.append(
+                (
+                    centre[0],
+                    centre[1],
+                    data.shape[1] * size,
+                    data.shape[0] * size,
+                )
+            )
 
         if spans:
-            xs = [cx - w / 2 for cx, _, w, _ in spans] + [cx + w / 2 for cx, _, w, _ in spans]
-            ys = [cy - h / 2 for _, cy, _, h in spans] + [cy + h / 2 for _, cy, _, h in spans]
+            xs = [cx - w / 2 for cx, _, w, _ in spans] + [
+                cx + w / 2 for cx, _, w, _ in spans
+            ]
+            ys = [cy - h / 2 for _, cy, _, h in spans] + [
+                cy + h / 2 for _, cy, _, h in spans
+            ]
             self._content_extent = (max(xs) - min(xs), max(ys) - min(ys))
 
     @property
@@ -252,7 +268,10 @@ class FMRegionSelectorWidget(QWidget):
         if not self.has_overview:
             return None
         overlay = RectOverlay(
-            color=REGION_COLOUR, facecolor=REGION_COLOUR, alpha=0.30, linewidth=2,
+            color=REGION_COLOUR,
+            facecolor=REGION_COLOUR,
+            alpha=0.30,
+            linewidth=2,
             resizable=True,
         )
         self.canvas.add_overlay(overlay)
@@ -292,10 +311,14 @@ class FMRegionSelectorWidget(QWidget):
         out = []
         for overlay in self._overlays:
             rect = overlay.get_rect()
-            out.append(PlaneRegion.from_points([
-                self.canvas.canvas_to_metres(rect["x0"], rect["y0"]),
-                self.canvas.canvas_to_metres(rect["x1"], rect["y1"]),
-            ]))
+            out.append(
+                PlaneRegion.from_points(
+                    [
+                        self.canvas.canvas_to_metres(rect["x0"], rect["y0"]),
+                        self.canvas.canvas_to_metres(rect["x1"], rect["y1"]),
+                    ]
+                )
+            )
         return out
 
     @property

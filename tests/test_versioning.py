@@ -444,7 +444,9 @@ def test_failure_is_logged_quietly(monkeypatch, caplog):
 @pytest.mark.parametrize(
     "describe",
     [
-        pytest.param(lambda: (_ for _ in ()).throw(RuntimeError("kaboom")), id="raises"),
+        pytest.param(
+            lambda: (_ for _ in ()).throw(RuntimeError("kaboom")), id="raises"
+        ),
         pytest.param(lambda: None, id="none"),
         pytest.param(lambda: "v0.5.1-48-g4cd11d9c", id="value"),
     ],

@@ -43,7 +43,9 @@ def test_known_values(lut: SliceScalingFactorLUT) -> None:
     assert abs(zeta_bead - 1.45) < 0.01, f"Expected ~1.45, got {zeta_bead:.4f}"
 
     # Cell targeting case: tilt=15, depth=4, NA=0.7, n2=1.35, wavelength=0.515 → ~1.47
-    zeta_cell = lut.lookup(tilt_deg=15, depth_um=4, NA=0.7, n2=1.35, wavelength_um=0.515)
+    zeta_cell = lut.lookup(
+        tilt_deg=15, depth_um=4, NA=0.7, n2=1.35, wavelength_um=0.515
+    )
     assert abs(zeta_cell - 1.47) < 0.01, f"Expected ~1.47, got {zeta_cell:.4f}"
 
 

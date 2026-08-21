@@ -93,6 +93,7 @@ def _context(lamella: Lamella, experiment: Experiment, **overrides) -> HookConte
 # the writer
 # ---------------------------------------------------------------------------
 
+
 def test_the_summary_says_which_lamella_which_experiment_and_when(experiment):
     lamella = _complete_lamella(experiment, "lam-1")
     fired_at = 1_754_000_000.0
@@ -153,9 +154,8 @@ def test_it_records_how_long_each_task_took(experiment):
 
     record = _summary(lamella)["tasks_completed"][0]
     assert record["duration_s"] == 412.3
-    assert (
-        datetime.fromisoformat(record["completed_at"]).timestamp()
-        == pytest.approx(task.end_timestamp, abs=1)
+    assert datetime.fromisoformat(record["completed_at"]).timestamp() == pytest.approx(
+        task.end_timestamp, abs=1
     )
 
 
@@ -280,9 +280,11 @@ def test_an_unresolvable_item_writes_nothing(experiment, caplog):
 # through the hook, as the UI wires it
 # ---------------------------------------------------------------------------
 
+
 def _manager_with_summary_hook(experiment: Experiment) -> TaskManager:
     """Mirrors the registration commented out in AutoLamellaUI.setup_hooks, so the two
     have to be changed together when it is turned back on."""
+
     class _NoMicroscope:
         fm = None
 
@@ -342,9 +344,7 @@ def test_an_unfinished_lamella_writes_nothing(experiment):
 
     manager._maybe_fire_lamella_completed(lamella, "MillTrench")
 
-    assert not os.path.exists(
-        os.path.join(lamella.path, COMPLETION_SUMMARY_FILENAME)
-    )
+    assert not os.path.exists(os.path.join(lamella.path, COMPLETION_SUMMARY_FILENAME))
 
 
 def test_a_failing_artifact_does_not_break_the_run(experiment, caplog):
@@ -364,8 +364,10 @@ def test_a_failing_artifact_does_not_break_the_run(experiment, caplog):
         )
     )
     manager = TaskManager(
-        microscope=_NoMicroscope(), experiment=experiment,
-        parent_ui=None, hook_manager=hooks,
+        microscope=_NoMicroscope(),
+        experiment=experiment,
+        parent_ui=None,
+        hook_manager=hooks,
     )
     lamella = _complete_lamella(experiment, "lam-1")
     manager._completed_lamella = set()

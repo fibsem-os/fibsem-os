@@ -7,6 +7,7 @@ edited AutoLamellaTaskDescription whenever Apply is clicked.
 Run directly:
     python fibsem/applications/autolamella/ui/tests/test_workflow_task_editor_widget.py
 """
+
 import sys
 from datetime import datetime, timedelta
 
@@ -35,7 +36,9 @@ def _scheduled_task() -> AutoLamellaTaskDescription:
         supervise=True,
         required=True,
         requires=["Setup"],
-        scheduled_at=(datetime.now() + timedelta(minutes=2)).replace(second=0, microsecond=0),
+        scheduled_at=(datetime.now() + timedelta(minutes=2)).replace(
+            second=0, microsecond=0
+        ),
     )
 
 
@@ -51,7 +54,9 @@ def _unscheduled_task() -> AutoLamellaTaskDescription:
 
 
 def _describe(task: AutoLamellaTaskDescription) -> str:
-    sched = task.scheduled_at.strftime("%Y-%m-%d %H:%M") if task.scheduled_at else "None"
+    sched = (
+        task.scheduled_at.strftime("%Y-%m-%d %H:%M") if task.scheduled_at else "None"
+    )
     requires = ", ".join(task.requires) if task.requires else "—"
     return (
         f"name={task.name}  required={task.required}  "

@@ -13,6 +13,7 @@ module and never checked the acquisition code at all.
 Run directly:
     python -m pytest tests/test_tiled_progress_payload.py
 """
+
 from __future__ import annotations
 
 import pytest
@@ -49,10 +50,15 @@ def payloads(microscope, tmp_path_factory):
             microscope,
             OverviewAcquisitionSettings(
                 image_settings=ImageSettings(
-                    hfw=100e-6, resolution=(64, 64), beam_type=BeamType.ELECTRON,
-                    save=False, path=str(tmp_path_factory.mktemp("tiles")), filename="t",
+                    hfw=100e-6,
+                    resolution=(64, 64),
+                    beam_type=BeamType.ELECTRON,
+                    save=False,
+                    path=str(tmp_path_factory.mktemp("tiles")),
+                    filename="t",
                 ),
-                nrows=1, ncols=2,
+                nrows=1,
+                ncols=2,
             ),
         ).run()
     finally:
@@ -104,9 +110,7 @@ def test_a_tile_update_carries_a_placeable_preview(payloads):
 def test_the_preview_fills_as_the_run_goes(payloads):
     """A preview that never changed would satisfy every structural check above while
     showing the same empty mosaic for the length of the run."""
-    filled = [
-        int((p["preview"].data > 0).sum()) for p in _per_tile(payloads)
-    ]
+    filled = [int((p["preview"].data > 0).sum()) for p in _per_tile(payloads)]
     assert filled[-1] > filled[0], f"the preview did not fill: {filled}"
 
 

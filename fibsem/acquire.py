@@ -39,9 +39,8 @@ def new_image(
     # run autocontrast
     if settings.autocontrast:
         microscope.autocontrast(
-                beam_type=settings.beam_type,
-                reduced_area=settings.reduced_area
-            )
+            beam_type=settings.beam_type, reduced_area=settings.reduced_area
+        )
 
     # acquire the image
     image = microscope.acquire_image(

@@ -5,6 +5,7 @@ image they were placed on. The correlation widget converts them to absolute FIB
 pixels (the frame the canvas and fits use); the protocol editor picks the burns
 off the lamella and only for a first correlation. Headless PyQt5, offscreen.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -56,10 +57,10 @@ def test_seed_converts_normalised_to_pixels(qapp):
     fib = w.data.fib_coordinates
     assert len(fib) == 2
     assert fib[0].point.x == pytest.approx(0.25 * wd)  # 75.0
-    assert fib[0].point.y == pytest.approx(0.5 * h)    # 100.0
+    assert fib[0].point.y == pytest.approx(0.5 * h)  # 100.0
     assert fib[0].point.z == 0.0
     assert fib[0].point_type is PointType.FIB
-    assert fib[0].fitted is False                       # a seed, not an accepted fit
+    assert fib[0].fitted is False  # a seed, not an accepted fit
     assert fib[1].point.x == pytest.approx(1.0 * wd)
     assert fib[1].point.y == pytest.approx(0.0)
 

@@ -11,6 +11,7 @@ contract is small but load-bearing:
 
 Headless PyQt5, offscreen.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

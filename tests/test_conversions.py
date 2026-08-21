@@ -34,9 +34,9 @@ SHAPE = (100, 200)  # (y, x)
 @pytest.mark.parametrize(
     "coords",
     [
-        (50, 100),   # middle
-        (1, 1),      # just inside the low corner
-        (99, 199),   # just inside the high corner
+        (50, 100),  # middle
+        (1, 1),  # just inside the low corner
+        (99, 199),  # just inside the high corner
         (50.5, 100.5),  # sub-pixel
     ],
 )
@@ -47,11 +47,11 @@ def test_inside(coords):
 @pytest.mark.parametrize(
     "coords",
     [
-        (-1, 50),     # above
-        (100, 50),    # below: shape[0] is exclusive
-        (50, -1),     # left
-        (50, 200),    # right: shape[1] is exclusive
-        (1000, 1000), # far outside
+        (-1, 50),  # above
+        (100, 50),  # below: shape[0] is exclusive
+        (50, -1),  # left
+        (50, 200),  # right: shape[1] is exclusive
+        (1000, 1000),  # far outside
     ],
 )
 def test_outside(coords):
@@ -82,7 +82,7 @@ def test_shape_is_y_x_not_x_y():
 # ---------------------------------------------------------------------------
 
 EVEN = (512, 1024)  # (height, width)
-ODD = (511, 1023)   # the only case where the centre rounding is visible
+ODD = (511, 1023)  # the only case where the centre rounding is visible
 PIXEL_SIZE = 1e-8
 
 
@@ -156,7 +156,10 @@ def test_both_forms_pass_the_flag_through(subpixel):
     )
     for actual in (
         image_to_microscope_image_coordinates(
-            coord, np.zeros(ODD, dtype=np.uint8), PIXEL_SIZE, subpixel_precision=subpixel
+            coord,
+            np.zeros(ODD, dtype=np.uint8),
+            PIXEL_SIZE,
+            subpixel_precision=subpixel,
         ),
         image_to_microscope_image_coordinates2(
             coord, ODD, PIXEL_SIZE, subpixel_precision=subpixel
@@ -183,7 +186,9 @@ def test_the_default_is_the_floored_centre():
 
 def test_a_non_2d_shape_is_rejected():
     with pytest.raises(ValueError, match="two integers"):
-        image_to_microscope_image_coordinates2(Point(0.0, 0.0), (512, 512, 3), PIXEL_SIZE)
+        image_to_microscope_image_coordinates2(
+            Point(0.0, 0.0), (512, 512, 3), PIXEL_SIZE
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -282,10 +287,14 @@ def test_is_importable_without_napari():
     import sys
 
     result = subprocess.run(
-        [sys.executable, "-c",
-         "import sys; from fibsem.conversions import is_inside_image_bounds; "
-         "assert 'napari' not in sys.modules, 'napari was imported'; "
-         "assert 'fibsem.microscope' not in sys.modules, 'fibsem.microscope was imported'"],
-        capture_output=True, text=True,
+        [
+            sys.executable,
+            "-c",
+            "import sys; from fibsem.conversions import is_inside_image_bounds; "
+            "assert 'napari' not in sys.modules, 'napari was imported'; "
+            "assert 'fibsem.microscope' not in sys.modules, 'fibsem.microscope was imported'",
+        ],
+        capture_output=True,
+        text=True,
     )
     assert result.returncode == 0, result.stderr

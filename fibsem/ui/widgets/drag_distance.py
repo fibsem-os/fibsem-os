@@ -35,9 +35,9 @@ from PyQt5.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 # ---------------------------------------------------------------------------
 # Shared colours
 # ---------------------------------------------------------------------------
-_LINE_COLOR = QColor(255, 220, 50, 230)      # yellow  – diagonal / main
-_LINE_COLOR_H = QColor(80, 200, 255, 230)    # blue    – horizontal
-_LINE_COLOR_V = QColor(120, 255, 120, 230)   # green   – vertical
+_LINE_COLOR = QColor(255, 220, 50, 230)  # yellow  – diagonal / main
+_LINE_COLOR_H = QColor(80, 200, 255, 230)  # blue    – horizontal
+_LINE_COLOR_V = QColor(120, 255, 120, 230)  # green   – vertical
 _RECT_FILL = QColor(255, 220, 50, 30)
 _TEXT_BG = QColor(20, 20, 20, 180)
 _ENDPOINT_RADIUS = 5
@@ -57,6 +57,7 @@ class ConstraintMode(Enum):
 # ---------------------------------------------------------------------------
 # SI formatting helpers
 # ---------------------------------------------------------------------------
+
 
 def _fmt_distance(metres: float) -> str:
     """Auto-scale a distance in metres to a human-readable SI string."""
@@ -104,7 +105,7 @@ class _MeasureOverlayBase(QtWidgets.QWidget):
         parent: Optional[QtWidgets.QWidget] = None,
     ):
         super().__init__(parent)
-        self._pixel_size = pixel_size   # metres per pixel; None = use scale/unit
+        self._pixel_size = pixel_size  # metres per pixel; None = use scale/unit
         self._scale = scale
         self._unit = unit
         self._on_measure = on_measure
@@ -125,8 +126,8 @@ class _MeasureOverlayBase(QtWidgets.QWidget):
     def _fmt_area(self, pixels_sq: float) -> str:
         """Format a pixel area using pixel_size (SI) or scale/unit."""
         if self._pixel_size is not None:
-            return _fmt_area(pixels_sq * self._pixel_size ** 2)
-        return f"{pixels_sq * self._scale ** 2:.1f} {self._unit}²"
+            return _fmt_area(pixels_sq * self._pixel_size**2)
+        return f"{pixels_sq * self._scale**2:.1f} {self._unit}²"
 
     # ------------------------------------------------------------------
     # Public API
@@ -204,6 +205,7 @@ class _MeasureOverlayBase(QtWidgets.QWidget):
 # Ruler
 # ---------------------------------------------------------------------------
 
+
 class DragDistanceOverlay(_MeasureOverlayBase):
     """Drag-to-measure line overlay.
 
@@ -225,8 +227,13 @@ class DragDistanceOverlay(_MeasureOverlayBase):
         on_measure: Optional[Callable[[float], None]] = None,
         parent: Optional[QtWidgets.QWidget] = None,
     ):
-        super().__init__(pixel_size=pixel_size, scale=scale, unit=unit,
-                         on_measure=on_measure, parent=parent)
+        super().__init__(
+            pixel_size=pixel_size,
+            scale=scale,
+            unit=unit,
+            on_measure=on_measure,
+            parent=parent,
+        )
         self._default_constraint = constraint
         self._constraint = constraint
 
@@ -285,11 +292,23 @@ class DragDistanceOverlay(_MeasureOverlayBase):
             cr = 3
             painter.drawEllipse(x2 - cr, y1 - cr, cr * 2, cr * 2)
             # Component labels
-            self._draw_label(painter, self._fmt(abs(dx)),
-                             (x1 + x2) / 2, y1, _LINE_COLOR_H, offset_y=-18)
+            self._draw_label(
+                painter,
+                self._fmt(abs(dx)),
+                (x1 + x2) / 2,
+                y1,
+                _LINE_COLOR_H,
+                offset_y=-18,
+            )
             side = 18 if x2 >= x1 else -18
-            self._draw_label(painter, self._fmt(abs(dy)),
-                             x2, (y1 + y2) / 2, _LINE_COLOR_V, offset_x=side)
+            self._draw_label(
+                painter,
+                self._fmt(abs(dy)),
+                x2,
+                (y1 + y2) / 2,
+                _LINE_COLOR_V,
+                offset_x=side,
+            )
             line_color = _LINE_COLOR
 
         elif self._constraint == ConstraintMode.HORIZONTAL:
@@ -361,6 +380,7 @@ class DragDistanceOverlay(_MeasureOverlayBase):
 # Rectangle
 # ---------------------------------------------------------------------------
 
+
 class RectMeasureOverlay(_MeasureOverlayBase):
     """Drag-to-measure rectangle overlay.
 
@@ -379,8 +399,13 @@ class RectMeasureOverlay(_MeasureOverlayBase):
         on_measure: Optional[Callable[[float, float, float], None]] = None,
         parent: Optional[QtWidgets.QWidget] = None,
     ):
-        super().__init__(pixel_size=pixel_size, scale=scale, unit=unit,
-                         on_measure=on_measure, parent=parent)
+        super().__init__(
+            pixel_size=pixel_size,
+            scale=scale,
+            unit=unit,
+            on_measure=on_measure,
+            parent=parent,
+        )
         self._square = False
 
     def _on_start(self) -> None:
@@ -446,26 +471,40 @@ class RectMeasureOverlay(_MeasureOverlayBase):
 
         # Width label — centred above the top edge
         top_y = min(y1, y2)
-        self._draw_label(painter, self._fmt(abs(dx)),
-                         (x1 + x2) / 2, top_y, _LINE_COLOR_H, offset_y=-18)
+        self._draw_label(
+            painter,
+            self._fmt(abs(dx)),
+            (x1 + x2) / 2,
+            top_y,
+            _LINE_COLOR_H,
+            offset_y=-18,
+        )
 
         # Height label — centred to the right of the right edge
         right_x = max(x1, x2)
-        self._draw_label(painter, self._fmt(abs(dy)),
-                         right_x, (y1 + y2) / 2, _LINE_COLOR_V, offset_x=18)
+        self._draw_label(
+            painter,
+            self._fmt(abs(dy)),
+            right_x,
+            (y1 + y2) / 2,
+            _LINE_COLOR_V,
+            offset_x=18,
+        )
 
         # Area label — centred inside the rectangle (if large enough)
         area_label = self._fmt_area(abs(dx) * abs(dy))
         if self._square:
             area_label += "  [■]"
         if abs(dx) > 80 and abs(dy) > 30:
-            self._draw_label(painter, area_label,
-                             (x1 + x2) / 2, (y1 + y2) / 2, _LINE_COLOR)
+            self._draw_label(
+                painter, area_label, (x1 + x2) / 2, (y1 + y2) / 2, _LINE_COLOR
+            )
         else:
             # Fallback: place outside, below the bottom edge
             bottom_y = max(y1, y2)
-            self._draw_label(painter, area_label,
-                             (x1 + x2) / 2, bottom_y, _LINE_COLOR, offset_y=18)
+            self._draw_label(
+                painter, area_label, (x1 + x2) / 2, bottom_y, _LINE_COLOR, offset_y=18
+            )
 
         painter.end()
 
@@ -482,7 +521,9 @@ class RectMeasureOverlay(_MeasureOverlayBase):
         if self._on_measure:
             self._on_measure(w, h, area)
         else:
-            print(f"Rectangle: {self._fmt(abs(dx))} × {self._fmt(abs(dy))}  area={self._fmt_area(abs(dx) * abs(dy))}")
+            print(
+                f"Rectangle: {self._fmt(abs(dx))} × {self._fmt(abs(dy))}  area={self._fmt_area(abs(dx) * abs(dy))}"
+            )
 
     def _apply_square(self, pos: QPoint) -> QPoint:
         if not self._square or not self._start:
@@ -499,6 +540,7 @@ class RectMeasureOverlay(_MeasureOverlayBase):
 # ---------------------------------------------------------------------------
 # Mixins
 # ---------------------------------------------------------------------------
+
 
 class DragDistanceMixin:
     """Adds left-click drag-to-measure (ruler) to any QWidget."""

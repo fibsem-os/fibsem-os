@@ -76,11 +76,13 @@ class SpotBurnCoordinatesWidget(QWidget):
     settings_changed = pyqtSignal(SpotBurnSettings)
     OVERLAY_ID = "spot_burn"
 
-    def __init__(self,
-                 controller,
-                 beam: BeamType = BeamType.ION,
-                 settings: Optional[SpotBurnSettings] = None,
-                 parent: Optional[QWidget] = None):
+    def __init__(
+        self,
+        controller,
+        beam: BeamType = BeamType.ION,
+        settings: Optional[SpotBurnSettings] = None,
+        parent: Optional[QWidget] = None,
+    ):
         super().__init__(parent)
         self.controller = controller
         self.beam = beam
@@ -88,8 +90,8 @@ class SpotBurnCoordinatesWidget(QWidget):
         self._coordinates: List[Point] = list(self.settings.coordinates)
         self._image_shape: Optional[Tuple[int, int]] = None  # (h, w) for 0-1 <-> px
         self._updating = False  # guard against re-entrant list/overlay updates
-        self._active = False    # overlay armed + shown while the widget is visible
-        self._wired = False     # subscribed to controller signals
+        self._active = False  # overlay armed + shown while the widget is visible
+        self._wired = False  # subscribed to controller signals
 
         self._init_ui()
 
@@ -124,7 +126,9 @@ class SpotBurnCoordinatesWidget(QWidget):
         lbl_x = QLabel("X (0-1)")
         lbl_y = QLabel("Y (0-1)")
         for lbl in (lbl_idx, lbl_x, lbl_y):
-            lbl.setStyleSheet(f"color: {_MUTED}; background: transparent; font-size: 11px;")
+            lbl.setStyleSheet(
+                f"color: {_MUTED}; background: transparent; font-size: 11px;"
+            )
         cl.addWidget(lbl_idx)
         cl.addWidget(lbl_x, stretch=1)
         cl.addWidget(lbl_y, stretch=1)
@@ -152,7 +156,9 @@ class SpotBurnCoordinatesWidget(QWidget):
 
     def set_image_shape(self, shape) -> None:
         """Set the host FIB image shape (h, w), used for 0-1 <-> pixel conversion."""
-        self._image_shape = (int(shape[0]), int(shape[1])) if shape is not None else None
+        self._image_shape = (
+            (int(shape[0]), int(shape[1])) if shape is not None else None
+        )
         self._sync_overlay()
 
     def set_settings(self, settings: SpotBurnSettings):
@@ -236,7 +242,11 @@ class SpotBurnCoordinatesWidget(QWidget):
 
     def _on_overlay_edited(self, beam, overlay_id, points):
         """A point was added / moved / removed on the canvas -> refresh the rows."""
-        if beam != self.beam or overlay_id != self.OVERLAY_ID or self._image_shape is None:
+        if (
+            beam != self.beam
+            or overlay_id != self.OVERLAY_ID
+            or self._image_shape is None
+        ):
             return
         h, w = self._image_shape
         # overlay already reflects the edit (incl. renumbering); just mirror it here
@@ -332,7 +342,10 @@ class SpotBurnCoordinatesWidget(QWidget):
         if self._wired:
             for sig, slot in (
                 (self.controller.overlay_edited, self._on_overlay_edited),
-                (self.controller.overlay_point_selected, self._on_overlay_point_selected),
+                (
+                    self.controller.overlay_point_selected,
+                    self._on_overlay_point_selected,
+                ),
             ):
                 try:
                     sig.disconnect(slot)

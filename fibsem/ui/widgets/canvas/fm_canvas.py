@@ -9,6 +9,7 @@ contrast — the napari layer-controls equivalent, on matplotlib.
 Display only (Phase 6a); FM canvas interactions (position select, relative move)
 are Phase 6b.
 """
+
 from __future__ import annotations
 
 from dataclasses import replace
@@ -72,7 +73,7 @@ _ACCENT = ACCENT_COLOR
 # ACCENT_COLOR carries the pill with it; a hand-picked hex would silently fall
 # out of step.
 _ACCENT_WASH = "rgba({}, {}, {}, 0.16)".format(
-    *(int(ACCENT_COLOR[i:i + 2], 16) for i in (1, 3, 5))
+    *(int(ACCENT_COLOR[i : i + 2], 16) for i in (1, 3, 5))
 )
 
 # The ‹ › buttons flanking the z-slider. Outside _PANEL_QSS because that stylesheet
@@ -131,7 +132,9 @@ def _color_icon(color: str, size: int = 14) -> QIcon:
 
 
 def _chip_css(color: str) -> str:
-    return "background: %s; border-radius: 3px;" % ("white" if color == "gray" else color)
+    return "background: %s; border-radius: 3px;" % (
+        "white" if color == "gray" else color
+    )
 
 
 class _ContrastSlider(QRangeSlider):
@@ -165,7 +168,9 @@ class _ChannelRow(QFrame):
     selected = pyqtSignal(int)
     visibility_changed = pyqtSignal(int, bool)
 
-    def __init__(self, index: int, layer: FMLayer, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self, index: int, layer: FMLayer, parent: Optional[QWidget] = None
+    ) -> None:
         super().__init__(parent)
         self._index = index
         self.setObjectName("channelRow")
@@ -250,13 +255,17 @@ class FMCanvasWidget(QWidget):
         # rather than absent -- an AttributeError inside a paint aborts the process
         # under PyQt5 rather than raising (FIB-329).
         self._blended_planes: Dict[str, np.ndarray] = {}
-        self._shape: Optional[Tuple[int, int]] = None  # composite target shape (last upserted layer)
+        self._shape: Optional[Tuple[int, int]] = (
+            None  # composite target shape (last upserted layer)
+        )
         # z-stack scrubbing: keep the full ZYX stack per channel + display state
-        self._stacks: Dict[str, np.ndarray] = {}   # channel name -> ZYX stack
-        self._mip_clim: Dict[str, Tuple[float, float]] = {}  # fixed clim while scrubbing
+        self._stacks: Dict[str, np.ndarray] = {}  # channel name -> ZYX stack
+        self._mip_clim: Dict[
+            str, Tuple[float, float]
+        ] = {}  # fixed clim while scrubbing
         self._z_index: int = 0
-        self._z_max: int = 0                        # nz - 1
-        self._max_projection: bool = True           # default: MIP (behaviour-preserving)
+        self._z_max: int = 0  # nz - 1
+        self._max_projection: bool = True  # default: MIP (behaviour-preserving)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -291,10 +300,15 @@ class FMCanvasWidget(QWidget):
         )
         # max-projection toggle (checked = MIP; uncheck to scrub the z-slider)
         self._btn_mip = self.canvas.add_toolbar_button(
-            "mdi:arrow-collapse-vertical", "Max projection", self._on_mip_button, checkable=True
+            "mdi:arrow-collapse-vertical",
+            "Max projection",
+            self._on_mip_button,
+            checkable=True,
         )
         self._btn_mip.setChecked(True)
-        self._btn_mip.setVisible(False)  # shown only once a multi-plane z-stack is loaded
+        self._btn_mip.setVisible(
+            False
+        )  # shown only once a multi-plane z-stack is loaded
         # FM contrast/gamma is per-channel (layers popover); the canvas's built-in
         # grayscale contrast button does nothing on the RGB composite — hide it.
         self.canvas.btn_contrast.hide()
@@ -306,7 +320,9 @@ class FMCanvasWidget(QWidget):
 
     # ── public API ────────────────────────────────────────────────────────
 
-    def _upsert_layer(self, name: str, data: np.ndarray, color: Optional[str]) -> FMLayer:
+    def _upsert_layer(
+        self, name: str, data: np.ndarray, color: Optional[str]
+    ) -> FMLayer:
         """Create or update a channel's layer (2-D data + colour); display props preserved.
 
         Rebuilds the panel list only when a channel is added — a data-only update (live
@@ -366,7 +382,9 @@ class FMCanvasWidget(QWidget):
         """
         return False
 
-    def set_channel(self, name: str, data: np.ndarray, color: Optional[str] = None) -> None:
+    def set_channel(
+        self, name: str, data: np.ndarray, color: Optional[str] = None
+    ) -> None:
         """Upsert a channel's 2-D image (live path — no z-stack); display props preserved.
 
         Setting several channels? Use :meth:`set_channels`. Each call here recomposites,
@@ -423,11 +441,11 @@ class FMCanvasWidget(QWidget):
         self._mip_clim = {}
         self._z_index = 0
         for ci, channel in enumerate(md.channels):
-            if data.ndim >= 4:        # CZYX
+            if data.ndim >= 4:  # CZYX
                 stack = np.asarray(data[ci])
-            elif data.ndim == 3:      # ZYX (single channel)
+            elif data.ndim == 3:  # ZYX (single channel)
                 stack = np.asarray(data)
-            else:                      # 2-D single plane
+            else:  # 2-D single plane
                 stack = np.asarray(data)[None]
             self._stacks[channel.name] = stack
             self._upsert_layer(channel.name, stack.max(axis=0), channel.color)
@@ -684,7 +702,9 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         self._held: Dict[str, Dict[str, np.ndarray]] = {}
         # Auto contrast limits per placed image per channel, as
         # ``{key: {channel: (source_plane, (lo, hi))}}``. See `_auto_clim`.
-        self._held_clim: Dict[str, Dict[str, Tuple[np.ndarray, Tuple[float, float]]]] = {}
+        self._held_clim: Dict[
+            str, Dict[str, Tuple[np.ndarray, Tuple[float, float]]]
+        ] = {}
 
     def _make_canvas(self) -> FibsemCanvasBase:
         return FibsemRealSpaceCanvas()
@@ -742,9 +762,13 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         """
         self._placement = (float(centre[0]), float(centre[1]))
 
-    def set_world_extent(self, width: Optional[float], height: Optional[float] = None,
-                         centre: Tuple[float, float] = (0.0, 0.0),
-                         refit: bool = True) -> None:
+    def set_world_extent(
+        self,
+        width: Optional[float],
+        height: Optional[float] = None,
+        centre: Tuple[float, float] = (0.0, 0.0),
+        refit: bool = True,
+    ) -> None:
         """Declare the working area the canvas represents — see the canvas method."""
         self.canvas.set_world_extent(width, height, centre, refit)
 
@@ -771,7 +795,10 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         # inferring placed a mosaic reduced 10x at a tenth of its size.
         covers = None
         if self._shape:
-            covers = (self._shape[1] * self._pixel_size, self._shape[0] * self._pixel_size)
+            covers = (
+                self._shape[1] * self._pixel_size,
+                self._shape[0] * self._pixel_size,
+            )
         # Keep this image's planes at *acquisition* resolution: they are what `_patch`
         # slices, so how far a zoom can go is set by what is kept here. No reduction is
         # cached beside them -- the canvas holds the patch it last fetched and refetches
@@ -870,7 +897,9 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
             x0 / width, x1 / width, y0 / height, y1 / height
         )
 
-    def _auto_clim(self, key: str, name: str, source: np.ndarray) -> Tuple[float, float]:
+    def _auto_clim(
+        self, key: str, name: str, source: np.ndarray
+    ) -> Tuple[float, float]:
         """Auto contrast limits for one channel of one placed image, computed once.
 
         **Pinned to the whole image, not to what is drawn of it.** `composite_fm_layers`
@@ -950,7 +979,8 @@ class FMRealSpaceCanvasWidget(FMCanvasWidget):
         key = self._composite_key
         reduced = [
             self._pinned(key, layer, layer.data, self._reduce(layer.data))
-            if layer.data is not None else layer
+            if layer.data is not None
+            else layer
             for layer in self._layers
         ]
         first = next((layer.data for layer in reduced if layer.data is not None), None)
@@ -1008,42 +1038,62 @@ class FMLayersPanel(QFrame):
         root.setSpacing(0)
 
         # header
-        header = QHBoxLayout(); header.setSpacing(8)
+        header = QHBoxLayout()
+        header.setSpacing(8)
         hicon = QLabel()
         hicon.setPixmap(
-            fibsem_icon("mdi:layers-triple-outline", color=TEXT_MUTED_COLOR).pixmap(QSize(16, 16))
+            fibsem_icon("mdi:layers-triple-outline", color=TEXT_MUTED_COLOR).pixmap(
+                QSize(16, 16)
+            )
         )
-        title = QLabel("FM CHANNELS"); title.setObjectName("panelTitle")
-        header.addWidget(hicon); header.addWidget(title); header.addStretch()
+        title = QLabel("FM CHANNELS")
+        title.setObjectName("panelTitle")
+        header.addWidget(hicon)
+        header.addWidget(title)
+        header.addStretch()
         root.addLayout(header)
         root.addSpacing(12)
 
         # channel list
-        self._list_box = QVBoxLayout(); self._list_box.setSpacing(2)
+        self._list_box = QVBoxLayout()
+        self._list_box.setSpacing(2)
         root.addLayout(self._list_box)
         root.addSpacing(12)
 
-        div = QFrame(); div.setObjectName("divider"); div.setFixedHeight(1)
+        div = QFrame()
+        div.setObjectName("divider")
+        div.setFixedHeight(1)
         root.addWidget(div)
         root.addSpacing(12)
 
         # detail header (selected channel)
-        dh = QHBoxLayout(); dh.setSpacing(8)
-        self.sel_chip = QLabel(); self.sel_chip.setFixedSize(11, 11)
-        self.sel_name = QLabel("—"); self.sel_name.setObjectName("selName")
-        sel_tag = QLabel("selected"); sel_tag.setObjectName("selTag")
-        dh.addWidget(self.sel_chip); dh.addWidget(self.sel_name); dh.addStretch(); dh.addWidget(sel_tag)
+        dh = QHBoxLayout()
+        dh.setSpacing(8)
+        self.sel_chip = QLabel()
+        self.sel_chip.setFixedSize(11, 11)
+        self.sel_name = QLabel("—")
+        self.sel_name.setObjectName("selName")
+        sel_tag = QLabel("selected")
+        sel_tag.setObjectName("selTag")
+        dh.addWidget(self.sel_chip)
+        dh.addWidget(self.sel_name)
+        dh.addStretch()
+        dh.addWidget(sel_tag)
         root.addLayout(dh)
         root.addSpacing(14)
 
         # colormap
         cm_row = QHBoxLayout()
-        cm_lbl = QLabel("Colormap"); cm_lbl.setObjectName("ctrlLbl")
-        self.colormap = QComboBox(); self.colormap.setFixedWidth(132)
+        cm_lbl = QLabel("Colormap")
+        cm_lbl.setObjectName("ctrlLbl")
+        self.colormap = QComboBox()
+        self.colormap.setFixedWidth(132)
         for c in AVAILABLE_COLORS:
             self.colormap.addItem(_color_icon(c), c)
         self.colormap.currentTextChanged.connect(self._on_colormap)
-        cm_row.addWidget(cm_lbl); cm_row.addStretch(); cm_row.addWidget(self.colormap)
+        cm_row.addWidget(cm_lbl)
+        cm_row.addStretch()
+        cm_row.addWidget(self.colormap)
         root.addLayout(cm_row)
         root.addSpacing(13)
 
@@ -1055,41 +1105,58 @@ class FMLayersPanel(QFrame):
 
         # contrast header (label + Auto pill)
         ch = QHBoxLayout()
-        ct_lbl = QLabel("Contrast"); ct_lbl.setObjectName("ctrlLbl")
-        self.autocontrast_cb = QPushButton("Auto"); self.autocontrast_cb.setObjectName("autoPill")
-        self.autocontrast_cb.setCheckable(True); self.autocontrast_cb.setChecked(True)
+        ct_lbl = QLabel("Contrast")
+        ct_lbl.setObjectName("ctrlLbl")
+        self.autocontrast_cb = QPushButton("Auto")
+        self.autocontrast_cb.setObjectName("autoPill")
+        self.autocontrast_cb.setCheckable(True)
+        self.autocontrast_cb.setChecked(True)
         self.autocontrast_cb.setCursor(Qt.PointingHandCursor)
         self.autocontrast_cb.toggled.connect(self._on_autocontrast)
-        ch.addWidget(ct_lbl); ch.addStretch(); ch.addWidget(self.autocontrast_cb)
+        ch.addWidget(ct_lbl)
+        ch.addStretch()
+        ch.addWidget(self.autocontrast_cb)
         root.addLayout(ch)
         root.addSpacing(8)
 
         self.contrast = _ContrastSlider(Qt.Horizontal)
-        self.contrast.setRange(0, 1000); self.contrast.setValue((0, 1000))
+        self.contrast.setRange(0, 1000)
+        self.contrast.setValue((0, 1000))
         self.contrast.valueChanged.connect(self._on_contrast)
         root.addWidget(self.contrast)
         root.addSpacing(8)
 
         cv = QHBoxLayout()
-        self.cmin_val = QLabel("0"); self.cmin_val.setObjectName("valSm")
-        self.cmax_val = QLabel("0"); self.cmax_val.setObjectName("valSm")
-        cv.addWidget(self.cmin_val); cv.addStretch(); cv.addWidget(self.cmax_val)
+        self.cmin_val = QLabel("0")
+        self.cmin_val.setObjectName("valSm")
+        self.cmax_val = QLabel("0")
+        self.cmax_val.setObjectName("valSm")
+        cv.addWidget(self.cmin_val)
+        cv.addStretch()
+        cv.addWidget(self.cmax_val)
         root.addLayout(cv)
         root.addSpacing(14)
 
-        self.btn_reset = QPushButton("Reset adjustments"); self.btn_reset.setObjectName("resetBtn")
+        self.btn_reset = QPushButton("Reset adjustments")
+        self.btn_reset.setObjectName("resetBtn")
         self.btn_reset.setCursor(Qt.PointingHandCursor)
         self.btn_reset.clicked.connect(self._on_reset)
         root.addWidget(self.btn_reset)
 
     def _slider_row(self, root, label: str, lo: int, hi: int, val: int):
         head = QHBoxLayout()
-        lbl = QLabel(label); lbl.setObjectName("ctrlLbl")
-        valw = QLabel(); valw.setObjectName("valLbl")
-        head.addWidget(lbl); head.addStretch(); head.addWidget(valw)
+        lbl = QLabel(label)
+        lbl.setObjectName("ctrlLbl")
+        valw = QLabel()
+        valw.setObjectName("valLbl")
+        head.addWidget(lbl)
+        head.addStretch()
+        head.addWidget(valw)
         root.addLayout(head)
         root.addSpacing(7)
-        s = QSlider(Qt.Horizontal); s.setRange(lo, hi); s.setValue(val)
+        s = QSlider(Qt.Horizontal)
+        s.setRange(lo, hi)
+        s.setValue(val)
         root.addWidget(s)
         root.addSpacing(13)
         return s, valw
@@ -1128,7 +1195,11 @@ class FMLayersPanel(QFrame):
             row.set_selected(i == self._selected)
 
     def _current(self) -> Optional[FMLayer]:
-        return self._layers[self._selected] if 0 <= self._selected < len(self._layers) else None
+        return (
+            self._layers[self._selected]
+            if 0 <= self._selected < len(self._layers)
+            else None
+        )
 
     def _sync_detail(self) -> None:
         layer = self._current()
@@ -1146,7 +1217,9 @@ class FMLayersPanel(QFrame):
             self.gamma.setValue(int(layer.gamma * 100))
             self.gamma_val.setText("%.2f" % layer.gamma)
             self.autocontrast_cb.setChecked(layer.autocontrast)
-            self.contrast.setEnabled(not layer.autocontrast)  # manual edits only when off
+            self.contrast.setEnabled(
+                not layer.autocontrast
+            )  # manual edits only when off
             if layer.data is not None:
                 d = np.asarray(layer.data, dtype=np.float32)
                 lo_d, hi_d = float(d.min()), float(d.max())
@@ -1156,10 +1229,12 @@ class FMLayersPanel(QFrame):
                 else:
                     clo, chi = layer.clim
                 self._data_lo, self._data_span = lo_d, span
-                self.contrast.setValue((
-                    int((clo - lo_d) / span * 1000),
-                    int((chi - lo_d) / span * 1000),
-                ))
+                self.contrast.setValue(
+                    (
+                        int((clo - lo_d) / span * 1000),
+                        int((chi - lo_d) / span * 1000),
+                    )
+                )
                 self.cmin_val.setText("%d" % round(clo))
                 self.cmax_val.setText("%d" % round(chi))
         self._updating = prev_updating
@@ -1216,7 +1291,9 @@ class FMLayersPanel(QFrame):
         if self._updating or layer is None:
             return
         layer.autocontrast = checked
-        layer.manual = not checked  # explicit user choice — survives live frames / MIP toggles
+        layer.manual = (
+            not checked
+        )  # explicit user choice — survives live frames / MIP toggles
         if not checked and layer.clim is None and layer.data is not None:
             # seed manual limits from the current auto values so the image doesn't jump
             layer.clim = auto_clim(np.asarray(layer.data, dtype=np.float32))

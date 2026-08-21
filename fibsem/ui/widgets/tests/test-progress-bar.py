@@ -28,7 +28,7 @@ class IndeterminateProgressExample(QWidget):
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setMinimum(0)
-        self.progress_bar.setMaximum(0)   # <-- indeterminate mode
+        self.progress_bar.setMaximum(0)  # <-- indeterminate mode
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setStyleSheet(INDETERMINATE_PROGRESS_BAR_STYLESHEET)
         self.progress_bar.hide()

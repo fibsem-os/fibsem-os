@@ -68,9 +68,13 @@ def _manager(experiment: Experiment, hook_manager: HookManager) -> TaskManager:
 
 
 def _add_lamella(experiment: Experiment, name: str, completed: List[str]) -> Lamella:
-    lamella = Lamella(path=experiment.path, number=len(experiment.positions) + 1, petname=name)
+    lamella = Lamella(
+        path=experiment.path, number=len(experiment.positions) + 1, petname=name
+    )
     for task_name in completed:
-        lamella.task_history.append(AutoLamellaTaskState(name=task_name, status=AutoLamellaTaskStatus.Completed))
+        lamella.task_history.append(
+            AutoLamellaTaskState(name=task_name, status=AutoLamellaTaskStatus.Completed)
+        )
     experiment.positions.append(lamella)
     return lamella
 
@@ -83,6 +87,7 @@ def _events(fired: List[HookContext]) -> List[str]:
 # item_completed (an item is a lamella here)
 # ---------------------------------------------------------------------------
 
+
 def test_fires_when_the_last_required_task_lands(experiment, recorder):
     hook_manager, fired = recorder
     lamella = _add_lamella(experiment, "lam-1", completed=["MillTrench"])
@@ -93,7 +98,11 @@ def test_fires_when_the_last_required_task_lands(experiment, recorder):
     manager._maybe_fire_lamella_completed(lamella, "MillTrench")
     assert _events(fired) == []
 
-    lamella.task_history.append(AutoLamellaTaskState(name="MillUndercut", status=AutoLamellaTaskStatus.Completed))
+    lamella.task_history.append(
+        AutoLamellaTaskState(
+            name="MillUndercut", status=AutoLamellaTaskStatus.Completed
+        )
+    )
     manager._maybe_fire_lamella_completed(lamella, "MillUndercut")
 
     assert _events(fired) == ["item_completed"]
@@ -133,7 +142,11 @@ def test_each_lamella_fires_for_itself(experiment, recorder):
     manager._snapshot_completion()
 
     for lamella in (lam1, lam2):
-        lamella.task_history.append(AutoLamellaTaskState(name="MillUndercut", status=AutoLamellaTaskStatus.Completed))
+        lamella.task_history.append(
+            AutoLamellaTaskState(
+                name="MillUndercut", status=AutoLamellaTaskStatus.Completed
+            )
+        )
         manager._maybe_fire_lamella_completed(lamella, "MillUndercut")
 
     assert [c.item_name for c in fired] == [lam1.name, lam2.name]
@@ -142,6 +155,7 @@ def test_each_lamella_fires_for_itself(experiment, recorder):
 # ---------------------------------------------------------------------------
 # experiment_completed
 # ---------------------------------------------------------------------------
+
 
 def test_fires_when_the_last_outstanding_lamella_finishes(experiment, recorder):
     hook_manager, fired = recorder
@@ -153,7 +167,11 @@ def test_fires_when_the_last_outstanding_lamella_finishes(experiment, recorder):
     manager._maybe_fire_experiment_completed()
     assert _events(fired) == []  # lam-2 still outstanding
 
-    lam2.task_history.append(AutoLamellaTaskState(name="MillUndercut", status=AutoLamellaTaskStatus.Completed))
+    lam2.task_history.append(
+        AutoLamellaTaskState(
+            name="MillUndercut", status=AutoLamellaTaskStatus.Completed
+        )
+    )
     manager._maybe_fire_experiment_completed()
 
     assert _events(fired) == ["experiment_completed"]
@@ -250,6 +268,7 @@ def test_a_workflow_requiring_nothing_completes_nothing(tmp_path, recorder):
 # ---------------------------------------------------------------------------
 # through a real run
 # ---------------------------------------------------------------------------
+
 
 def test_a_cancelled_run_does_not_complete_the_experiment(experiment, recorder):
     """An aborted run establishes nothing about the experiment, even if the work

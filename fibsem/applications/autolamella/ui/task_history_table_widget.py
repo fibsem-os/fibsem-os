@@ -1,6 +1,7 @@
 """
 Widget for displaying experiment task history in a sortable table.
 """
+
 from typing import Optional
 
 from PyQt5.QtWidgets import (
@@ -94,41 +95,40 @@ class TaskHistoryTableWidget(QWidget):
 
         # Filter to only show errors if checkbox is checked
         if self.display_errors_only_checkbox.isChecked():
-            if 'task_status' in df.columns:
+            if "task_status" in df.columns:
                 # Filter for Failed status
-                df = df[df['task_status'] == AutoLamellaTaskStatus.Failed.name]
+                df = df[df["task_status"] == AutoLamellaTaskStatus.Failed.name]
 
         # Filter to only include specified columns
         columns_to_include = [
-            'lamella_name',
-            'task_name',
+            "lamella_name",
+            "task_name",
             # 'task_type',
-            'task_status',
+            "task_status",
         ]
 
         # Conditionally add status message column
         if self.display_status_message_checkbox.isChecked():
-            columns_to_include.append('task_status_message')
+            columns_to_include.append("task_status_message")
 
         # Add remaining columns
-        columns_to_include.extend([
-            'completed_at',
-            'duration'
-        ])
+        columns_to_include.extend(["completed_at", "duration"])
 
         # Only select columns that exist in the dataframe
         available_columns = [col for col in columns_to_include if col in df.columns]
         df = df[available_columns]
 
         # Format duration column as MMm:SSs
-        if 'duration' in df.columns:
-            df['duration'] = df['duration'].apply(format_duration_short)
+        if "duration" in df.columns:
+            df["duration"] = df["duration"].apply(format_duration_short)
 
         # Rename columns to nice titles
         df = df.rename(columns=COLUMN_NAME_MAPPING)
 
         # Update the table with status-based cell colouring
-        self.table_widget.set_dataframe(df, cell_formatter=make_status_cell_formatter(df))
+        self.table_widget.set_dataframe(
+            df, cell_formatter=make_status_cell_formatter(df)
+        )
 
     def clear(self):
         """Clear the table."""

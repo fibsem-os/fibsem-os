@@ -19,6 +19,7 @@ from fibsem.ui.widgets.preferences_dialog import PreferencesDialog  # noqa: E402
 @pytest.fixture
 def qapp():
     from PyQt5.QtWidgets import QApplication
+
     yield QApplication.instance() or QApplication([])
 
 
@@ -53,6 +54,7 @@ def prefs_file(tmp_path, monkeypatch):
 
 # ── the default ──────────────────────────────────────────────────────────────
 
+
 def test_scripts_are_off_by_default():
     assert cfg.FeatureFlags().scripts_enabled is False
 
@@ -76,6 +78,7 @@ def test_scripts_stay_off_for_a_file_that_predates_the_flag(prefs_file):
 
 # ── persistence ──────────────────────────────────────────────────────────────
 
+
 def test_the_flag_round_trips(prefs_file):
     prefs = cfg.load_user_preferences()
     prefs.features.scripts_enabled = True
@@ -97,6 +100,7 @@ def test_enabling_scripts_leaves_the_other_flags_alone(prefs_file):
 
 
 # ── the Preferences dialog ───────────────────────────────────────────────────
+
 
 def test_the_dialog_shows_the_current_value(qapp):
     prefs = cfg.UserPreferences()

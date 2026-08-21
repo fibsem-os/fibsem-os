@@ -76,8 +76,10 @@ class TileMaskGrid(QWidget):
             self._mask = [[True] * self._cols for _ in range(self._rows)]
         else:
             self._mask = [
-                [bool(value[r][c]) if r < len(value) and c < len(value[r]) else True
-                 for c in range(self._cols)]
+                [
+                    bool(value[r][c]) if r < len(value) and c < len(value[r]) else True
+                    for c in range(self._cols)
+                ]
                 for r in range(self._rows)
             ]
         self.update()
@@ -93,8 +95,10 @@ class TileMaskGrid(QWidget):
             return
         old = self._mask
         self._mask = [
-            [old[r][c] if r < len(old) and c < len(old[r]) else True
-             for c in range(cols)]
+            [
+                old[r][c] if r < len(old) and c < len(old[r]) else True
+                for c in range(cols)
+            ]
             for r in range(rows)
         ]
         self._rows, self._cols = rows, cols
@@ -133,7 +137,8 @@ class TileMaskGrid(QWidget):
         return QRect(
             ox + GAP_PX + col * (cell + GAP_PX),
             oy + GAP_PX + row * (cell + GAP_PX),
-            cell, cell,
+            cell,
+            cell,
         )
 
     def _cell_at(self, x: int, y: int) -> Optional[tuple]:

@@ -11,6 +11,7 @@ working on the FM canvas looks for it, and both import paths are in use. There i
 now one `FMLayer` class rather than two that merely looked alike -- which is what
 made this worth doing rather than leaving alone.
 """
+
 from __future__ import annotations
 
 from fibsem.fm.composite import (

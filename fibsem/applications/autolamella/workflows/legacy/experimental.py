@@ -2,21 +2,23 @@
 protocol = {
     "milling": {
         "polish": {
-            "stages": [{
-        "application_file": "autolamella",
-        "cross_section": "CleaningCrossSection",
-        "hfw": 80e-6,
-        "height": 6.0e-07,
-        "width": 6.0e-06,
-        "depth": 4.0e-07,
-        "milling_current": 6.0e-11,
-        "milling_voltage": 3.0e3,
-        "type": "Rectangle",
-            }
-        ],
-        "point": {
-            "x": 0.0,
-            "y": 5e-6,}
+            "stages": [
+                {
+                    "application_file": "autolamella",
+                    "cross_section": "CleaningCrossSection",
+                    "hfw": 80e-6,
+                    "height": 6.0e-07,
+                    "width": 6.0e-06,
+                    "depth": 4.0e-07,
+                    "milling_current": 6.0e-11,
+                    "milling_voltage": 3.0e3,
+                    "type": "Rectangle",
+                }
+            ],
+            "point": {
+                "x": 0.0,
+                "y": 5e-6,
+            },
         }
     }
 }
@@ -35,9 +37,14 @@ from fibsem.structures import BeamType, ImageSettings, MicroscopeSettings
 from fibsem.ui.utils import _draw_milling_stages_on_image
 
 
-def adaptive_mill_polishing(microscope: FibsemMicroscope, settings: MicroscopeSettings, protocol: dict, parent_ui=None):
+def adaptive_mill_polishing(
+    microscope: FibsemMicroscope,
+    settings: MicroscopeSettings,
+    protocol: dict,
+    parent_ui=None,
+):
     """Adaptive lamella polishing using contrast detection
-        
+
     # ref: https://pure.mpg.de/rest/items/item_2415133/component/file_3148891/content
     # ref: https://www.biorxiv.org/content/10.1101/2024.02.21.581285v1.full.pdf
     # target acquisition
@@ -72,9 +79,15 @@ def adaptive_mill_polishing(microscope: FibsemMicroscope, settings: MicroscopeSe
 
     # contrast image settings
     contrast_image_settings = copy.deepcopy(settings.image)
-    contrast_image_settings.resolution = contrast_protocol.get("image_resolution", (3072, 2188))
-    contrast_image_settings.line_integration = contrast_protocol.get("image_line_integration", 20)
-    contrast_image_settings.dwell_time = contrast_protocol.get("image_dwell_time", 100e-9)
+    contrast_image_settings.resolution = contrast_protocol.get(
+        "image_resolution", (3072, 2188)
+    )
+    contrast_image_settings.line_integration = contrast_protocol.get(
+        "image_line_integration", 20
+    )
+    contrast_image_settings.dwell_time = contrast_protocol.get(
+        "image_dwell_time", 100e-9
+    )
     contrast_image_settings.beam_type = BeamType.ELECTRON
 
     # contrast test settings
@@ -83,15 +96,15 @@ def adaptive_mill_polishing(microscope: FibsemMicroscope, settings: MicroscopeSe
     step_limit = contrast_protocol.get("step_limit", 100)
     n_step = 0
     while True:
-
         stages = get_milling_stages("polish", protocol["milling"], point=point)
 
         from pprint import pprint
+
         pprint(stages[0].pattern)
 
         # draw rectangle (milling pattern ion beam)
         image = acquire.acquire_image(microscope, settings.image)
-        _draw_milling_stages_on_image(image, stages)    
+        _draw_milling_stages_on_image(image, stages)
 
         # mill pattern
         milling.mill_stages(microscope, stages)
@@ -103,23 +116,32 @@ def adaptive_mill_polishing(microscope: FibsemMicroscope, settings: MicroscopeSe
         # measure brightness and contrast
         brightness = np.mean(image.data)
         contrast = np.std(image.data)
-        logging.info({"msg": "thickness-dependent-contrast-test",  
-                    "brightness": brightness, "contrast": contrast, "threshold": threshold, 
-                    "n_step": n_step, "step_size": step_size, "step_limit": step_limit})
+        logging.info(
+            {
+                "msg": "thickness-dependent-contrast-test",
+                "brightness": brightness,
+                "contrast": contrast,
+                "threshold": threshold,
+                "n_step": n_step,
+                "step_size": step_size,
+                "step_limit": step_limit,
+            }
+        )
 
         if brightness < threshold:
             break
-        
+
         # manual validation
         if parent_ui is None:
-            
-            plt.title(f"Step {n_step}/{step_limit} - Brightness: {brightness:.2f}, Contrast: {contrast:.2f}, Threshold: {threshold}")
+            plt.title(
+                f"Step {n_step}/{step_limit} - Brightness: {brightness:.2f}, Contrast: {contrast:.2f}, Threshold: {threshold}"
+            )
             plt.imshow(image.data, cmap="gray")
             plt.show()
-        
+
             response = input("Has the contrast faded? (y/n)")
 
-            if response == 'y':
+            if response == "y":
                 break
 
         # ml classifier
@@ -132,9 +154,17 @@ def adaptive_mill_polishing(microscope: FibsemMicroscope, settings: MicroscopeSe
         # move pattern down by step
         point.y -= step_size
 
-    logging.info({"msg": "adaptive_mill_polishing_finished", 
-                  "n_step": n_step, "step_size": step_size, "step_limit": step_limit, 
-                  "threshold": threshold, "brightness": brightness, "contrast": contrast})
+    logging.info(
+        {
+            "msg": "adaptive_mill_polishing_finished",
+            "n_step": n_step,
+            "step_size": step_size,
+            "step_limit": step_limit,
+            "threshold": threshold,
+            "brightness": brightness,
+            "contrast": contrast,
+        }
+    )
 
     # restore beam settings
     microscope.set("voltage", initial_voltage, BeamType.ELECTRON)

@@ -355,7 +355,9 @@ def _apply_shift(
             beam_type=beam_type,
         )
     elif subsystem is AlignmentSubsystem.STAGE_VERTICAL:
-        if beam_type is BeamType.ELECTRON and hasattr(microscope, "move_coincident_from_sem"):
+        if beam_type is BeamType.ELECTRON and hasattr(
+            microscope, "move_coincident_from_sem"
+        ):
             microscope.move_coincident_from_sem(dx=dx, dy=-dy)  # type: ignore
             return
         microscope.vertical_move(dy=-dy, dx=dx)

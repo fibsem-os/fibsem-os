@@ -44,7 +44,9 @@ class CanvasOverlayControls(QWidget):
 
     toggled = pyqtSignal(str, bool)
 
-    def __init__(self, entries: Iterable[OverlayEntry], parent: Optional[QWidget] = None):
+    def __init__(
+        self, entries: Iterable[OverlayEntry], parent: Optional[QWidget] = None
+    ):
         super().__init__(parent)
         self._boxes: Dict[str, QCheckBox] = {}
 
@@ -56,7 +58,9 @@ class CanvasOverlayControls(QWidget):
             box.setChecked(shown)
             # `key=key` binds per iteration; a bare closure would capture the loop
             # variable and report the last key for every box.
-            box.toggled.connect(lambda checked, key=key: self.toggled.emit(key, checked))
+            box.toggled.connect(
+                lambda checked, key=key: self.toggled.emit(key, checked)
+            )
             layout.addWidget(box)
             self._boxes[key] = box
 

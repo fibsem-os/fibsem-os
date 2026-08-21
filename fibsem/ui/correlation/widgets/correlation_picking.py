@@ -23,6 +23,7 @@ Hosts forward the four signals rather than making callers reach through
 `.picking`, which keeps `correlation_tab_widget` and its `_CanvasAdapter`
 untouched by the migration.
 """
+
 from __future__ import annotations
 
 from typing import List, Optional, Sequence, Tuple
@@ -91,13 +92,17 @@ class CorrelationPicking(QObject):
         # both, so without these the swap would quietly cost two controls that
         # exist today. Same icons and tooltips it used.
         self.btn_legend = canvas.add_toolbar_button(
-            "mdi:format-list-bulleted", "Toggle legend",
-            self.set_legend_visible, checkable=True,
+            "mdi:format-list-bulleted",
+            "Toggle legend",
+            self.set_legend_visible,
+            checkable=True,
         )
         self.btn_legend.setChecked(True)
         self.btn_labels = canvas.add_toolbar_button(
-            "mdi:label-outline", "Toggle point labels",
-            self.set_labels_visible, checkable=True,
+            "mdi:label-outline",
+            "Toggle point labels",
+            self.set_labels_visible,
+            checkable=True,
         )
         self.btn_labels.setChecked(True)
 
@@ -195,7 +200,9 @@ class CorrelationPicking(QObject):
         menu is dismissed -- the point is created by the caller, not here, so the
         Coordinate still gets its z from the adapter as it does today.
         """
-        types = self._allowed_types if self._allowed_types is not None else list(PointType)
+        types = (
+            self._allowed_types if self._allowed_types is not None else list(PointType)
+        )
         if not types:
             return
 

@@ -77,10 +77,10 @@ class MinimapPlotWidget(QWidget):
         # Artist references for incremental updates
         # Store matplotlib artist objects for current position to enable incremental updates
         self.current_position_artists: dict = {
-            'marker': None,          # The + marker (Line2D)
-            'text': None,            # Text label (Text)
-            'fov_rect': None,        # FOV rectangle (Rectangle patch)
-            'rotation_triangle': None # Rotation indicator (RegularPolygon patch)
+            "marker": None,  # The + marker (Line2D)
+            "text": None,  # Text label (Text)
+            "fov_rect": None,  # FOV rectangle (Rectangle patch)
+            "rotation_triangle": None,  # Rotation indicator (RegularPolygon patch)
         }
 
         self.initUI()
@@ -113,12 +113,12 @@ class MinimapPlotWidget(QWidget):
             self._apply_dark_theme()
 
             # Enable scroll wheel zoom (without toolbar)
-            self.canvas.mpl_connect('scroll_event', self._on_scroll)
+            self.canvas.mpl_connect("scroll_event", self._on_scroll)
 
             # Enable click handlers (double-click, alt+click, pan)
-            self.canvas.mpl_connect('button_press_event', self._on_mouse_press)
-            self.canvas.mpl_connect('button_release_event', self._on_mouse_release)
-            self.canvas.mpl_connect('motion_notify_event', self._on_mouse_move)
+            self.canvas.mpl_connect("button_press_event", self._on_mouse_press)
+            self.canvas.mpl_connect("button_release_event", self._on_mouse_release)
+            self.canvas.mpl_connect("motion_notify_event", self._on_mouse_move)
 
             # Initial empty plot
             self._plot_empty_minimap()
@@ -244,7 +244,9 @@ class MinimapPlotWidget(QWidget):
                     height: 13px;
                 }}
             """)
-            self.show_current_fov_checkbox.stateChanged.connect(self._on_show_current_fov_changed)
+            self.show_current_fov_checkbox.stateChanged.connect(
+                self._on_show_current_fov_changed
+            )
             checkbox_layout1.addWidget(self.show_current_fov_checkbox)
 
             checkbox_layout1.addStretch()
@@ -266,7 +268,9 @@ class MinimapPlotWidget(QWidget):
                     height: 13px;
                 }}
             """)
-            self.show_grid_positions_checkbox.stateChanged.connect(self._on_show_grid_positions_changed)
+            self.show_grid_positions_checkbox.stateChanged.connect(
+                self._on_show_grid_positions_changed
+            )
             checkbox_layout2.addWidget(self.show_grid_positions_checkbox)
 
             # Show grid boundary checkbox
@@ -282,7 +286,9 @@ class MinimapPlotWidget(QWidget):
                     height: 13px;
                 }}
             """)
-            self.show_grid_boundary_checkbox.stateChanged.connect(self._on_show_grid_boundary_changed)
+            self.show_grid_boundary_checkbox.stateChanged.connect(
+                self._on_show_grid_boundary_changed
+            )
             checkbox_layout2.addWidget(self.show_grid_boundary_checkbox)
 
             checkbox_layout2.addStretch()
@@ -352,7 +358,12 @@ class MinimapPlotWidget(QWidget):
         self.lamella_positions = positions
         self.update_minimap()
 
-    def set_current_position(self, position: Optional[FibsemStagePosition], force_full_redraw: bool = False, auto_zoom: bool = False):
+    def set_current_position(
+        self,
+        position: Optional[FibsemStagePosition],
+        force_full_redraw: bool = False,
+        auto_zoom: bool = False,
+    ):
         """Set the current stage position to display on the minimap.
 
         Args:
@@ -454,7 +465,9 @@ class MinimapPlotWidget(QWidget):
                     ):
                         if pt.name is None:
                             pt.name = "Current Position"
-                        self._plot_current_position(pt.x, pt.y, name=pt.name, color="yellow")
+                        self._plot_current_position(
+                            pt.x, pt.y, name=pt.name, color="yellow"
+                        )
 
             # Plot lamella positions
             if len(self.lamella_positions) > 0:
@@ -483,7 +496,11 @@ class MinimapPlotWidget(QWidget):
                     self._plot_point_with_label(pt.x, pt.y, pt.name, color=c)
 
             # Plot grid positions (if enabled)
-            if self.show_grid_positions and self.grid_positions is not None and len(self.grid_positions) > 0:
+            if (
+                self.show_grid_positions
+                and self.grid_positions is not None
+                and len(self.grid_positions) > 0
+            ):
                 points = reproject_stage_positions_onto_image2(
                     image=self.image, positions=self.grid_positions
                 )
@@ -533,6 +550,7 @@ class MinimapPlotWidget(QWidget):
         except Exception as e:
             logging.error(f"Error updating minimap: {e}")
             import traceback
+
             traceback.print_exc()
             self._plot_empty_minimap()
 
@@ -542,8 +560,6 @@ class MinimapPlotWidget(QWidget):
             return
 
         try:
-
-
             # Remove old current position artists
             self._clear_current_position_artists()
 
@@ -596,7 +612,7 @@ class MinimapPlotWidget(QWidget):
                     pass  # Artist may already be removed
                 self.current_position_artists[key] = None
 
-    def _create_fov_rectangle(self, pt_x: float, pt_y: float, color: str = 'yellow'):
+    def _create_fov_rectangle(self, pt_x: float, pt_y: float, color: str = "yellow"):
         """Create a field of view rectangle indicator.
 
         Args:
@@ -618,13 +634,17 @@ class MinimapPlotWidget(QWidget):
         fov_height = fov_width * aspect_ratio
 
         # Convert to pixels
-        if self.image.metadata is not None and self.image.metadata.pixel_size is not None:
+        if (
+            self.image.metadata is not None
+            and self.image.metadata.pixel_size is not None
+        ):
             pixel_size = self.image.metadata.pixel_size.x
             fov_width_px = fov_width / pixel_size
             fov_height_px = fov_height / pixel_size
 
             # Create rectangle (centered on point)
             from matplotlib.patches import Rectangle
+
             rect = Rectangle(
                 (pt_x - fov_width_px / 2, pt_y - fov_height_px / 2),
                 fov_width_px,
@@ -632,15 +652,23 @@ class MinimapPlotWidget(QWidget):
                 color=color,
                 fill=False,
                 linewidth=2,
-                linestyle='--',
-                alpha=0.7
+                linestyle="--",
+                alpha=0.7,
             )
             return rect
 
         return None
 
-    def _plot_point_with_label(self, pt_x: float, pt_y: float, name: str, color: str = 'cyan',
-                               marker: str = '+', marker_size: int = 15, show_label: Optional[bool] = None):
+    def _plot_point_with_label(
+        self,
+        pt_x: float,
+        pt_y: float,
+        name: str,
+        color: str = "cyan",
+        marker: str = "+",
+        marker_size: int = 15,
+        show_label: Optional[bool] = None,
+    ):
         """Plot a point marker with optional text label.
 
         Args:
@@ -656,7 +684,7 @@ class MinimapPlotWidget(QWidget):
             Tuple of (line artist, text artist or None)
         """
         # Plot the point marker
-        line, = self.ax.plot(
+        (line,) = self.ax.plot(
             pt_x,
             pt_y,
             ms=marker_size,
@@ -664,7 +692,7 @@ class MinimapPlotWidget(QWidget):
             marker=marker,
             markeredgewidth=2,
             label=name,
-            alpha=0.7
+            alpha=0.7,
         )
 
         # Plot the text label if enabled
@@ -684,7 +712,9 @@ class MinimapPlotWidget(QWidget):
 
         return line, text_artist
 
-    def _create_grid_boundary_circle(self, pt_x: float, pt_y: float, color: str = 'red'):
+    def _create_grid_boundary_circle(
+        self, pt_x: float, pt_y: float, color: str = "red"
+    ):
         """Create a grid boundary circle indicator.
 
         Args:
@@ -702,27 +732,36 @@ class MinimapPlotWidget(QWidget):
         grid_radius = self.grid_boundary_radius
 
         # Convert to pixels
-        if self.image.metadata is not None and self.image.metadata.pixel_size is not None:
+        if (
+            self.image.metadata is not None
+            and self.image.metadata.pixel_size is not None
+        ):
             pixel_size = self.image.metadata.pixel_size.x
             grid_radius_px = grid_radius / pixel_size
 
             # Create circle
             from matplotlib.patches import Circle
+
             circle = Circle(
                 (pt_x, pt_y),
                 grid_radius_px,
                 color=color,
                 fill=False,
                 linewidth=2,
-                linestyle='-',
-                alpha=0.7
+                linestyle="-",
+                alpha=0.7,
             )
             return circle
 
         return None
 
-    def _plot_current_position(self, pt_x: float, pt_y: float, name: str = "Current Position",
-                               color: str = 'yellow'):
+    def _plot_current_position(
+        self,
+        pt_x: float,
+        pt_y: float,
+        name: str = "Current Position",
+        color: str = "yellow",
+    ):
         """Plot the current position marker with all associated overlays (FOV, rotation).
 
         Args:
@@ -736,22 +775,24 @@ class MinimapPlotWidget(QWidget):
         """
         # Plot the position marker (with label if show_names is enabled)
         line, text_artist = self._plot_point_with_label(pt_x, pt_y, name, color=color)
-        self.current_position_artists['marker'] = line
-        self.current_position_artists['text'] = text_artist
+        self.current_position_artists["marker"] = line
+        self.current_position_artists["text"] = text_artist
 
         # Draw field of view indicator if enabled
         fov_rect = self._create_fov_rectangle(pt_x, pt_y, color=color)
         if fov_rect is not None:
             self.ax.add_patch(fov_rect)
-            self.current_position_artists['fov_rect'] = fov_rect
+            self.current_position_artists["fov_rect"] = fov_rect
 
         # Add rotation reference indicator if enabled
         triangle = self._create_rotation_triangle(pt_x, pt_y, color=color)
         if triangle is not None:
             self.ax.add_patch(triangle)
-            self.current_position_artists['rotation_triangle'] = triangle
+            self.current_position_artists["rotation_triangle"] = triangle
 
-    def _plot_grid_position(self, pt_x: float, pt_y: float, name: str, color: str = 'red'):
+    def _plot_grid_position(
+        self, pt_x: float, pt_y: float, name: str, color: str = "red"
+    ):
         """Plot a grid position marker with boundary circle overlay.
 
         Args:
@@ -783,14 +824,17 @@ class MinimapPlotWidget(QWidget):
             # Get orientation from metadata using microscope.get_stage_orientation
             orientation = "Unknown"
             try:
-                if (self.parent_widget is not None and
-                    hasattr(self.parent_widget, 'microscope') and
-                    self.parent_widget.microscope is not None and
-                    self.image.metadata.microscope_state is not None and
-                    self.image.metadata.microscope_state.stage_position is not None):
-
+                if (
+                    self.parent_widget is not None
+                    and hasattr(self.parent_widget, "microscope")
+                    and self.parent_widget.microscope is not None
+                    and self.image.metadata.microscope_state is not None
+                    and self.image.metadata.microscope_state.stage_position is not None
+                ):
                     stage_position = self.image.metadata.microscope_state.stage_position
-                    orientation = self.parent_widget.microscope.get_stage_orientation(stage_position)
+                    orientation = self.parent_widget.microscope.get_stage_orientation(
+                        stage_position
+                    )
 
             except Exception as e:
                 # If we can't get orientation, just show "Unknown"
@@ -803,15 +847,22 @@ class MinimapPlotWidget(QWidget):
         # transform=self.ax.transAxes means (0,0) is bottom-left, (1,1) is top-right
         # This stays fixed regardless of zoom/pan
         self.ax.text(
-            0.02, 0.02,  # 2% from left, 2% from bottom
+            0.02,
+            0.02,  # 2% from left, 2% from bottom
             f"Orientation: {self.cached_orientation}",
             transform=self.ax.transAxes,
             fontsize=9,
-            color='white',
-            bbox=dict(boxstyle='round,pad=0.5', facecolor='black', alpha=0.6, edgecolor='white', linewidth=1),
-            verticalalignment='bottom',
-            horizontalalignment='left',
-            zorder=1000  # High z-order to keep it on top
+            color="white",
+            bbox=dict(
+                boxstyle="round,pad=0.5",
+                facecolor="black",
+                alpha=0.6,
+                edgecolor="white",
+                linewidth=1,
+            ),
+            verticalalignment="bottom",
+            horizontalalignment="left",
+            zorder=1000,  # High z-order to keep it on top
         )
 
     def _create_scalebar(self):
@@ -820,7 +871,11 @@ class MinimapPlotWidget(QWidget):
         Returns:
             ScaleBar artist object or None if not available
         """
-        if self.image is None or self.image.metadata is None or self.image.metadata.pixel_size is None:
+        if (
+            self.image is None
+            or self.image.metadata is None
+            or self.image.metadata.pixel_size is None
+        ):
             return None
 
         try:
@@ -838,7 +893,9 @@ class MinimapPlotWidget(QWidget):
             # Silently skip if scalebar fails (e.g., matplotlib_scalebar not installed)
             return None
 
-    def _create_rotation_triangle(self, pt_x: float, pt_y: float, color: str = 'yellow'):
+    def _create_rotation_triangle(
+        self, pt_x: float, pt_y: float, color: str = "yellow"
+    ):
         """Create a rotation reference triangle indicator.
 
         Args:
@@ -849,20 +906,28 @@ class MinimapPlotWidget(QWidget):
         Returns:
             RegularPolygon patch object or None if rotation data unavailable
         """
-        if not self.show_rotation_reference or self.image is None or self.image.metadata is None:
+        if (
+            not self.show_rotation_reference
+            or self.image is None
+            or self.image.metadata is None
+        ):
             return None
 
         try:
-            if (self.image.metadata.hardware_geometry is not None and
-                self.image.metadata.microscope_state is not None and
-                self.image.metadata.microscope_state.stage_position is not None):
-
-                reference_rotation = self.image.metadata.hardware_geometry.rotation_reference
+            if (
+                self.image.metadata.hardware_geometry is not None
+                and self.image.metadata.microscope_state is not None
+                and self.image.metadata.microscope_state.stage_position is not None
+            ):
+                reference_rotation = (
+                    self.image.metadata.hardware_geometry.rotation_reference
+                )
                 current_rotation = self.image.metadata.microscope_state.stage_position.r
 
                 if reference_rotation is not None and current_rotation is not None:
                     # Calculate rotation difference
                     import numpy as np
+
                     reference_rotation_rad = np.deg2rad(reference_rotation)
                     rotation_diff = current_rotation - reference_rotation_rad
 
@@ -875,10 +940,10 @@ class MinimapPlotWidget(QWidget):
                         3,  # 3 sides = triangle
                         radius=triangle_size,
                         orientation=(rotation_diff + np.radians(180)),
-                        facecolor='none',
+                        facecolor="none",
                         edgecolor=color,
                         linewidth=2,
-                        alpha=0.8
+                        alpha=0.8,
                     )
                     return triangle
         except Exception:
@@ -926,10 +991,10 @@ class MinimapPlotWidget(QWidget):
         # Increased zoom factor for faster zooming
         base_scale = 1.5
 
-        if event.button == 'up':
+        if event.button == "up":
             # Zoom in
             scale_factor = 1 / base_scale
-        elif event.button == 'down':
+        elif event.button == "down":
             # Zoom out
             scale_factor = base_scale
         else:
@@ -986,9 +1051,11 @@ class MinimapPlotWidget(QWidget):
         Returns:
             bool: True if minimap state is valid, False otherwise
         """
-        return (self.image is not None and
-                self.image.metadata is not None and
-                self.parent_widget is not None)
+        return (
+            self.image is not None
+            and self.image.metadata is not None
+            and self.parent_widget is not None
+        )
 
     def _check_stage_orientation_match(self) -> bool:
         """Check if current stage orientation matches the minimap image orientation.
@@ -1000,15 +1067,21 @@ class MinimapPlotWidget(QWidget):
             RuntimeError: If minimap state is invalid (should be validated before calling)
         """
         # Type guards - should be validated by _validate_minimap_state() before calling
-        if (self.image is None or
-            self.image.metadata is None or
-            self.parent_widget is None or
-            self.parent_widget.microscope is None):
+        if (
+            self.image is None
+            or self.image.metadata is None
+            or self.parent_widget is None
+            or self.parent_widget.microscope is None
+        ):
             raise RuntimeError("Invalid minimap state: missing required data")
 
         image_stage_position = self.image.metadata.stage_position
-        image_stage_orientation = self.parent_widget.microscope.get_stage_orientation(image_stage_position)
-        current_stage_orientation = self.parent_widget.microscope.get_stage_orientation()
+        image_stage_orientation = self.parent_widget.microscope.get_stage_orientation(
+            image_stage_position
+        )
+        current_stage_orientation = (
+            self.parent_widget.microscope.get_stage_orientation()
+        )
         return image_stage_orientation == current_stage_orientation
 
     def _handle_double_click(self, event):
@@ -1024,18 +1097,28 @@ class MinimapPlotWidget(QWidget):
             return
 
         # Type guard for parent_widget
-        if self.parent_widget is None or self.parent_widget.microscope is None or self.parent_widget.movement_widget is None:
+        if (
+            self.parent_widget is None
+            or self.parent_widget.microscope is None
+            or self.parent_widget.movement_widget is None
+        ):
             raise RuntimeError("Invalid minimap state: missing parent_widget")
 
-        logging.info(f"Double-click at image coordinates: x={event.xdata:.2f}, y={event.ydata:.2f}")
+        logging.info(
+            f"Double-click at image coordinates: x={event.xdata:.2f}, y={event.ydata:.2f}"
+        )
 
         try:
             stage_position = self._event_to_stage_position(event)
-            logging.info(f"Double click at microscope stage coordinates: {stage_position.pretty}")
+            logging.info(
+                f"Double click at microscope stage coordinates: {stage_position.pretty}"
+            )
 
             # Check if the current stage orientation and image orientation are the same
             if not self._check_stage_orientation_match():
-                logging.warning("Current stage orientation and image orientation do not match. Movement may be inaccurate.")
+                logging.warning(
+                    "Current stage orientation and image orientation do not match. Movement may be inaccurate."
+                )
                 return
 
             self.parent_widget.movement_widget.move_to_position(stage_position)
@@ -1059,16 +1142,22 @@ class MinimapPlotWidget(QWidget):
         if self.parent_widget is None:
             raise RuntimeError("Invalid minimap state: missing parent_widget")
 
-        logging.info(f"Alt+click at image coordinates: x={event.xdata:.2f}, y={event.ydata:.2f}")
+        logging.info(
+            f"Alt+click at image coordinates: x={event.xdata:.2f}, y={event.ydata:.2f}"
+        )
         logging.info(f"Alt+click at display coordinates: x={event.x}, y={event.y}")
 
         try:
             stage_position = self._event_to_stage_position(event)
-            logging.info(f"Alt+click at microscope stage coordinates: {stage_position.pretty}")
+            logging.info(
+                f"Alt+click at microscope stage coordinates: {stage_position.pretty}"
+            )
 
             # Check if the current stage orientation and image orientation are the same
             if not self._check_stage_orientation_match():
-                logging.warning("Current stage orientation and image orientation do not match. Position may be inaccurate.")
+                logging.warning(
+                    "Current stage orientation and image orientation do not match. Position may be inaccurate."
+                )
                 return
 
             self.parent_widget.add_new_lamella(stage_position)
@@ -1112,9 +1201,11 @@ class MinimapPlotWidget(QWidget):
         )
 
         stage_position = self.parent_widget.microscope.project_stable_move(
-                    dx=point.x, dy=point.y,
-                    beam_type=self.image.metadata.beam_type,
-                    base_position=self.image.metadata.stage_position)
+            dx=point.x,
+            dy=point.y,
+            beam_type=self.image.metadata.beam_type,
+            base_position=self.image.metadata.stage_position,
+        )
 
         return stage_position
 
@@ -1174,11 +1265,14 @@ class MinimapPlotWidget(QWidget):
 
     def _zoom_to_current_position(self):
         """Zoom to a 1000um box around the current position."""
-        if not MATPLOTLIB_AVAILABLE or self.current_position is None or self.image is None:
+        if (
+            not MATPLOTLIB_AVAILABLE
+            or self.current_position is None
+            or self.image is None
+        ):
             return
 
         try:
-
             # Reproject current position to image coordinates
             points = reproject_stage_positions_onto_image2(
                 image=self.image, positions=[self.current_position]
@@ -1190,7 +1284,10 @@ class MinimapPlotWidget(QWidget):
             pt = points[0]
 
             # Calculate zoom box in pixels
-            if self.image.metadata is not None and self.image.metadata.pixel_size is not None:
+            if (
+                self.image.metadata is not None
+                and self.image.metadata.pixel_size is not None
+            ):
                 pixel_size = self.image.metadata.pixel_size.x
                 box_size = self.default_zoom_box
                 box_size_px = box_size / pixel_size / 2  # Half size for centering
@@ -1241,7 +1338,7 @@ class MinimapPlotWidget(QWidget):
 
         # Determine starting directory from experiment path if available
         start_dir = ""
-        if (self.parent_widget is not None and self.parent_widget.experiment is not None):
+        if self.parent_widget is not None and self.parent_widget.experiment is not None:
             start_dir = str(self.parent_widget.experiment.path)
 
         # Open file dialog to select an image file
@@ -1249,7 +1346,7 @@ class MinimapPlotWidget(QWidget):
             self,
             "Select Minimap Image",
             start_dir,
-            "Image Files (*.tif *.tiff *.png *.jpg *.jpeg *.bmp);;TIFF Files (*.tif *.tiff);;All Files (*.*)"
+            "Image Files (*.tif *.tiff *.png *.jpg *.jpeg *.bmp);;TIFF Files (*.tif *.tiff);;All Files (*.*)",
         )
 
         if not file_path:
@@ -1269,4 +1366,5 @@ class MinimapPlotWidget(QWidget):
         except Exception as e:
             logging.error(f"Error loading minimap image: {e}")
             import traceback
+
             traceback.print_exc()

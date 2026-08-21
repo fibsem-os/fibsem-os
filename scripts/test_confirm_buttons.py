@@ -67,9 +67,9 @@ class ProgressButtonBase(QPushButton):
         self._label = text
         self._duration_ms = duration_ms
 
-        self._progress = 0.0        # 0..1, what the bar draws
+        self._progress = 0.0  # 0..1, what the bar draws
         self._mode = IDLE
-        self._confirmed = False     # showing 'Started', input ignored
+        self._confirmed = False  # showing 'Started', input ignored
 
         self._elapsed = QElapsedTimer()
         self._start_progress = 0.0  # progress when this phase began
@@ -208,7 +208,12 @@ class ProgressButtonBase(QPushButton):
             painter.save()
             painter.setClipPath(path)
             painter.fillRect(
-                QRectF(rect.left(), rect.top(), rect.width() * self._progress, rect.height()),
+                QRectF(
+                    rect.left(),
+                    rect.top(),
+                    rect.width() * self._progress,
+                    rect.height(),
+                ),
                 fill,
             )
             painter.restore()
@@ -227,7 +232,9 @@ class HoldButton(ProgressButtonBase):
     button cannot reach the action, because it needs sustained intent.
     """
 
-    def __init__(self, text: str = "Hold to Start", duration_ms: int = DURATION_MS, parent=None):
+    def __init__(
+        self, text: str = "Hold to Start", duration_ms: int = DURATION_MS, parent=None
+    ):
         super().__init__(text, duration_ms, parent)
 
     def _bar_text(self) -> str:
@@ -280,7 +287,9 @@ class ClickButton(ProgressButtonBase):
     release, and the label says so while it counts down.
     """
 
-    def __init__(self, text: str = "Click to Start", duration_ms: int = DURATION_MS, parent=None):
+    def __init__(
+        self, text: str = "Click to Start", duration_ms: int = DURATION_MS, parent=None
+    ):
         super().__init__(text, duration_ms, parent)
         self.clicked.connect(self._on_clicked)
 
@@ -301,7 +310,12 @@ class TwoStageButton(ProgressButtonBase):
     four, since a decisive user can fire it as fast as a double click.
     """
 
-    def __init__(self, text: str = "Click Twice to Start", window_ms: int = WINDOW_MS, parent=None):
+    def __init__(
+        self,
+        text: str = "Click Twice to Start",
+        window_ms: int = WINDOW_MS,
+        parent=None,
+    ):
         super().__init__(text, window_ms, parent)
         self._window_ms = window_ms
         self.clicked.connect(self._on_clicked)
@@ -332,7 +346,9 @@ class UndoButton(ProgressButtonBase):
 
     undone = pyqtSignal()
 
-    def __init__(self, text: str = "Start (undoable)", window_ms: int = WINDOW_MS, parent=None):
+    def __init__(
+        self, text: str = "Start (undoable)", window_ms: int = WINDOW_MS, parent=None
+    ):
         super().__init__(text, window_ms, parent)
         self._window_ms = window_ms
         self.clicked.connect(self._on_clicked)

@@ -39,7 +39,9 @@ class _LabeledSlider(QWidget):
 
     valueChanged = pyqtSignal(float)
 
-    def __init__(self, min_val: float = 0.0, max_val: float = 1.0, decimals: int = 3, parent=None):
+    def __init__(
+        self, min_val: float = 0.0, max_val: float = 1.0, decimals: int = 3, parent=None
+    ):
         super().__init__(parent)
         self._decimals = decimals
         self._pct_mode = True
@@ -53,7 +55,9 @@ class _LabeledSlider(QWidget):
         install_wheel_blocker(self._slider)
 
         self._value_label = QLabel(self._format(min_val), self)
-        self._value_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)  # type: ignore[attr-defined]
+        self._value_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )  # type: ignore[attr-defined]
         self._value_label.setFixedWidth(52)
 
         layout.addWidget(self._slider)
@@ -125,19 +129,25 @@ class FibsemDetectorSettingsWidget(QWidget):
         layout.addRow(self.mode_label, self.mode_combo)
 
         # --- Brightness ---
-        self.brightness_slider = _LabeledSlider(decimals=WIDGET_CONFIG["brightness"]["decimals"])
+        self.brightness_slider = _LabeledSlider(
+            decimals=WIDGET_CONFIG["brightness"]["decimals"]
+        )
         self.brightness_label = QLabel(WIDGET_CONFIG["brightness"]["label"])
         layout.addRow(self.brightness_label, self.brightness_slider)
 
         # --- Contrast ---
-        self.contrast_slider = _LabeledSlider(decimals=WIDGET_CONFIG["contrast"]["decimals"])
+        self.contrast_slider = _LabeledSlider(
+            decimals=WIDGET_CONFIG["contrast"]["decimals"]
+        )
         self.contrast_label = QLabel(WIDGET_CONFIG["contrast"]["label"])
         layout.addRow(self.contrast_label, self.contrast_slider)
 
         # All widgets shown only when advanced mode is active
         self._adv_widgets = [
-            self.type_label, self.type_combo,
-            self.mode_label, self.mode_combo,
+            self.type_label,
+            self.type_combo,
+            self.mode_label,
+            self.mode_combo,
         ]
 
     # ------------------------------------------------------------------
@@ -158,24 +168,44 @@ class FibsemDetectorSettingsWidget(QWidget):
         if not detector_type:
             return
         self.microscope.set_detector_type(detector_type, self.beam_type)
-        logging.info({"msg": "_on_type_changed", "beam_type": self.beam_type.name, "detector_type": detector_type})
+        logging.info(
+            {
+                "msg": "_on_type_changed",
+                "beam_type": self.beam_type.name,
+                "detector_type": detector_type,
+            }
+        )
         self.settings_changed.emit(self.get_settings())
 
     def _on_mode_changed(self, mode: str):
         if not mode:
             return
         self.microscope.set_detector_mode(mode, self.beam_type)
-        logging.info({"msg": "_on_mode_changed", "beam_type": self.beam_type.name, "mode": mode})
+        logging.info(
+            {"msg": "_on_mode_changed", "beam_type": self.beam_type.name, "mode": mode}
+        )
         self.settings_changed.emit(self.get_settings())
 
     def _on_brightness_changed(self, value: float):
         self.microscope.set_detector_brightness(value, self.beam_type)
-        logging.info({"msg": "_on_brightness_changed", "beam_type": self.beam_type.name, "brightness": value})
+        logging.info(
+            {
+                "msg": "_on_brightness_changed",
+                "beam_type": self.beam_type.name,
+                "brightness": value,
+            }
+        )
         self.settings_changed.emit(self.get_settings())
 
     def _on_contrast_changed(self, value: float):
         self.microscope.set_detector_contrast(value, self.beam_type)
-        logging.info({"msg": "_on_contrast_changed", "beam_type": self.beam_type.name, "contrast": value})
+        logging.info(
+            {
+                "msg": "_on_contrast_changed",
+                "beam_type": self.beam_type.name,
+                "contrast": value,
+            }
+        )
         self.settings_changed.emit(self.get_settings())
 
     # ------------------------------------------------------------------
@@ -200,7 +230,9 @@ class FibsemDetectorSettingsWidget(QWidget):
         """
         self.type_combo.blockSignals(True)
         self.type_combo.clear()
-        available_types = self.microscope.get_available_values("detector_type", beam_type=self.beam_type)
+        available_types = self.microscope.get_available_values(
+            "detector_type", beam_type=self.beam_type
+        )
         if available_types:
             self.type_combo.addItems(available_types)
             current_type = self.microscope.get_detector_type(self.beam_type)
@@ -210,7 +242,9 @@ class FibsemDetectorSettingsWidget(QWidget):
 
         self.mode_combo.blockSignals(True)
         self.mode_combo.clear()
-        available_modes = self.microscope.get_available_values("detector_mode", beam_type=self.beam_type)
+        available_modes = self.microscope.get_available_values(
+            "detector_mode", beam_type=self.beam_type
+        )
         if available_modes is None:
             available_modes = []
         self.mode_combo.addItems(available_modes)
@@ -261,7 +295,9 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
 
-    microscope, settings = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    microscope, settings = utils.setup_session(
+        manufacturer="Demo", ip_address="localhost"
+    )
 
     main_widget = QWidget()
     layout = QVBoxLayout()
@@ -270,7 +306,9 @@ if __name__ == "__main__":
     header1 = QLabel("Electron Detector Settings")
     header1.setStyleSheet("font-weight: bold; font-size: 16px;")
     layout.addWidget(header1)
-    widget = FibsemDetectorSettingsWidget(microscope=microscope, beam_type=BeamType.ELECTRON)
+    widget = FibsemDetectorSettingsWidget(
+        microscope=microscope, beam_type=BeamType.ELECTRON
+    )
     widget.populate_detector_combos()
     widget.update_from_settings(microscope.get_detector_settings(BeamType.ELECTRON))
     layout.addWidget(widget)
@@ -278,13 +316,16 @@ if __name__ == "__main__":
     header2 = QLabel("Ion Detector Settings")
     header2.setStyleSheet("font-weight: bold; font-size: 16px;")
     layout.addWidget(header2)
-    widget2 = FibsemDetectorSettingsWidget(microscope=microscope, beam_type=BeamType.ION)
+    widget2 = FibsemDetectorSettingsWidget(
+        microscope=microscope, beam_type=BeamType.ION
+    )
     widget2.populate_detector_combos()
     widget2.update_from_settings(microscope.get_detector_settings(BeamType.ION))
     layout.addWidget(widget2)
 
     def print_settings():
         from pprint import pprint
+
         pprint(widget.get_settings().to_dict())
 
     btn = QPushButton("Print Settings")

@@ -57,7 +57,9 @@ def test_entry_point_imports_without_a_circular_import(module):
     assert "circular import" not in result.stderr, (
         f"importing {module} hit a circular import:\n{result.stderr[-1500:]}"
     )
-    assert result.returncode == 0, f"importing {module} failed:\n{result.stderr[-1500:]}"
+    assert result.returncode == 0, (
+        f"importing {module} failed:\n{result.stderr[-1500:]}"
+    )
 
 
 def test_imaging_does_not_pull_in_the_microscope():
@@ -88,7 +90,9 @@ def test_spot_imports_the_microscope_for_typing_only():
     module has `from __future__ import annotations` -- so it never needs the real
     object at runtime.
     """
-    source = (Path(fibsem.__file__).parent / "imaging" / "spot.py").read_text(encoding="utf-8")
+    source = (Path(fibsem.__file__).parent / "imaging" / "spot.py").read_text(
+        encoding="utf-8"
+    )
     tree = ast.parse(source)
 
     module_level = {

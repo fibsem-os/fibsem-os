@@ -4,12 +4,15 @@ Pure dataclasses, no Qt. Covers round-trip and — the load-bearing part —
 back-compat: a config dict missing keys (or a whole nested block, or the whole
 thing) must fill in defaults, so a protocol saved before this field loads clean.
 """
+
 from fibsem.correlation.config import CorrelationConfig, FitSettings, RISettings
 
 
 def test_correlation_config_round_trips():
     cfg = CorrelationConfig(
-        fit=FitSettings(fib_method="Gaussian", fm_poi_channel="GFP", reflection_cutout=3),
+        fit=FitSettings(
+            fib_method="Gaussian", fm_poi_channel="GFP", reflection_cutout=3
+        ),
         ri=RISettings(na=0.9, wavelength_um=0.488, mode="post"),
         load_spot_burns=False,
     )
@@ -26,8 +29,13 @@ def test_defaults_match_the_current_hardcoded_behaviour():
     assert cfg.fit.fm_poi_method == "Gaussian"
     assert (cfg.fit.reflection_cutout, cfg.fit.fluorescence_cutout) == (2, 5)
     # RI defaults mirror DEFAULT_ZETA_PARAMS in the RI widget
-    assert (cfg.ri.tilt_deg, cfg.ri.depth_um, cfg.ri.na, cfg.ri.n2, cfg.ri.wavelength_um) == \
-        (15.0, 4.0, 0.8, 1.4, 0.515)
+    assert (
+        cfg.ri.tilt_deg,
+        cfg.ri.depth_um,
+        cfg.ri.na,
+        cfg.ri.n2,
+        cfg.ri.wavelength_um,
+    ) == (15.0, 4.0, 0.8, 1.4, 0.515)
     assert cfg.ri.mode == "pre"
     assert cfg.load_spot_burns is True
 
@@ -52,17 +60,17 @@ def test_partial_dict_fills_missing_keys():
     """A hand-edited or older config with only some keys keeps the rest at default,
     rather than raising on a missing key."""
     cfg = CorrelationConfig.from_dict({"fit": {"fib_method": "None"}})
-    assert cfg.fit.fib_method == "None"           # the provided key
-    assert cfg.fit.fm_poi_method == "Gaussian"    # a sibling default
-    assert cfg.ri == RISettings()                 # a missing nested block
+    assert cfg.fit.fib_method == "None"  # the provided key
+    assert cfg.fit.fm_poi_method == "Gaussian"  # a sibling default
+    assert cfg.ri == RISettings()  # a missing nested block
     assert cfg.load_spot_burns is True
 
 
 def test_nested_blocks_independently_tolerate_absence():
     cfg = CorrelationConfig.from_dict({"ri": {"na": 0.7}, "load_spot_burns": False})
     assert cfg.ri.na == 0.7
-    assert cfg.ri.mode == "pre"                   # sibling default within ri
-    assert cfg.fit == FitSettings()               # whole missing block
+    assert cfg.ri.mode == "pre"  # sibling default within ri
+    assert cfg.fit == FitSettings()  # whole missing block
     assert cfg.load_spot_burns is False
 
 
@@ -70,7 +78,10 @@ def test_retired_interpolation_key_is_ignored():
     """The field was dropped in FIB-319 (persisted, never read). A protocol saved
     while it existed must still load — silently, not by raising."""
     cfg = CorrelationConfig.from_dict(
-        {"interpolation": {"enabled": True, "target_z_nm": 120.0}, "load_spot_burns": False}
+        {
+            "interpolation": {"enabled": True, "target_z_nm": 120.0},
+            "load_spot_burns": False,
+        }
     )
     assert cfg.load_spot_burns is False
     assert not hasattr(cfg, "interpolation")

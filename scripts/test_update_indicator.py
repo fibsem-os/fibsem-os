@@ -46,9 +46,7 @@ def _pretend_wheel_install(stack: ExitStack, version: str = FAKE_INSTALLED_VERSI
     )
     stack.enter_context(patch("fibsem.update_check.get_revision", lambda: None))
     stack.enter_context(patch.object(fibsem, "__version__", version))
-    stack.enter_context(
-        patch("fibsem.config.load_user_preferences", lambda: opted_in)
-    )
+    stack.enter_context(patch("fibsem.config.load_user_preferences", lambda: opted_in))
 
 
 def run_live() -> int:
@@ -58,15 +56,19 @@ def run_live() -> int:
     with ExitStack() as stack:
         _pretend_wheel_install(stack)
 
-        print(f"pretending to be fibsem {FAKE_INSTALLED_VERSION} installed from a wheel")
+        print(
+            f"pretending to be fibsem {FAKE_INSTALLED_VERSION} installed from a wheel"
+        )
         print("enabled          :", update_check.is_enabled())
 
         started = time.perf_counter()
         status = update_check.refresh()
         elapsed_ms = (time.perf_counter() - started) * 1000
 
-        print(f"refresh took     : {elapsed_ms:.0f} ms "
-              f"(timeout is {update_check.REQUEST_TIMEOUT_SECONDS}s)")
+        print(
+            f"refresh took     : {elapsed_ms:.0f} ms "
+            f"(timeout is {update_check.REQUEST_TIMEOUT_SECONDS}s)"
+        )
         print("status           :", status)
         print("indicator shows  :", update_check.get_available_update() or "(nothing)")
     return 0
@@ -89,7 +91,9 @@ def run_dialog(mode: str) -> int:
         if mode != "suppressed":
             _pretend_wheel_install(stack)
             # The dialog reads these directly, so they need patching here too.
-            stack.enter_context(patch.object(about_dialog, "get_revision", lambda: None))
+            stack.enter_context(
+                patch.object(about_dialog, "get_revision", lambda: None)
+            )
             stack.enter_context(patch.object(about_dialog, "get_branch", lambda: None))
         if mode == "dialog":
             stack.enter_context(
@@ -129,8 +133,10 @@ def run_hang() -> int:
 
     print(f"blackholed request returned {result!r} after {elapsed:.1f}s")
     ok = elapsed < HANG_BUDGET_SECONDS
-    print(f"timeout is {update_check.REQUEST_TIMEOUT_SECONDS}s — "
-          f"{'PASS' if ok else 'FAIL: it hung'}")
+    print(
+        f"timeout is {update_check.REQUEST_TIMEOUT_SECONDS}s — "
+        f"{'PASS' if ok else 'FAIL: it hung'}"
+    )
     return 0 if ok else 1
 
 

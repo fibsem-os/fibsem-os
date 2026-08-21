@@ -81,6 +81,7 @@ def _default_factor() -> float:
         )
         return _FALLBACK_FACTOR
 
+
 # The correlation panels run at 11-12px. Controls and QFormLayout's auto-built
 # string labels default to the app font, which renders larger than the values
 # beside them — the field name ends up shouting over its own data.
@@ -154,24 +155,42 @@ class RefractiveIndexWidget(QWidget):
         form.setSpacing(6)
 
         self._spin_tilt = ValueSpinBox(
-            suffix="°", minimum=0.0, maximum=30.0, step=1.0, decimals=0,
+            suffix="°",
+            minimum=0.0,
+            maximum=30.0,
+            step=1.0,
+            decimals=0,
             tooltip=_TILT_TOOLTIP,
         )
         self._spin_depth = ValueSpinBox(
-            suffix="µm", minimum=0.5, maximum=14.5, step=0.5, decimals=1,
+            suffix="µm",
+            minimum=0.5,
+            maximum=14.5,
+            step=0.5,
+            decimals=1,
             tooltip="Estimated depth of the feature below the coverslip (has little effect below ~20 µm)",
         )
         self._spin_na = ValueSpinBox(
-            minimum=0.2, maximum=0.9, step=0.1, decimals=2,
+            minimum=0.2,
+            maximum=0.9,
+            step=0.1,
+            decimals=2,
             tooltip="Numerical aperture of the objective lens",
         )
         self._spin_n2 = ValueSpinBox(
-            minimum=1.22, maximum=1.46, step=0.04, decimals=2,
+            minimum=1.22,
+            maximum=1.46,
+            step=0.04,
+            decimals=2,
             tooltip="Refractive index of the sample medium (n=1.0 is vacuum/air)",
         )
         # Wavelength spinbox works in nm; converted to µm for LUT lookup
         self._spin_wl = ValueSpinBox(
-            suffix="nm", minimum=420.0, maximum=720.0, step=10.0, decimals=0,
+            suffix="nm",
+            minimum=420.0,
+            maximum=720.0,
+            step=10.0,
+            decimals=0,
             tooltip="Excitation wavelength of the fluorescence channel",
         )
 
@@ -182,7 +201,10 @@ class RefractiveIndexWidget(QWidget):
         form.addRow(_form_label("Wavelength (λ)"), self._spin_wl)
 
         self._spin_factor = ValueSpinBox(
-            minimum=0.1, maximum=10.0, step=0.01, decimals=3,
+            minimum=0.1,
+            maximum=10.0,
+            step=0.01,
+            decimals=3,
             tooltip="Correction factor (ζ) applied to the depth below the surface",
         )
         # Resolved once, so the initial value, the tooltip that advertises it and
@@ -202,7 +224,9 @@ class RefractiveIndexWidget(QWidget):
         lut_available = _LUT_PATH.exists()
         self._lut_available = lut_available
         if not lut_available:
-            self._lut_warning = QLabel("LUT not found — calculator disabled. Edit correction factor manually.")
+            self._lut_warning = QLabel(
+                "LUT not found — calculator disabled. Edit correction factor manually."
+            )
             self._lut_warning.setStyleSheet(
                 "color: #f0a500; font-style: italic; font-size: 11px; padding: 4px 8px;"
             )
@@ -210,7 +234,13 @@ class RefractiveIndexWidget(QWidget):
             self._lut_warning.setToolTip(_LUT_MISSING_MSG)
             form.addRow(self._lut_warning)
 
-            for spin in (self._spin_tilt, self._spin_depth, self._spin_na, self._spin_n2, self._spin_wl):
+            for spin in (
+                self._spin_tilt,
+                self._spin_depth,
+                self._spin_na,
+                self._spin_n2,
+                self._spin_wl,
+            ):
                 spin.setEnabled(False)
                 spin.setToolTip(_LUT_MISSING_MSG)
 

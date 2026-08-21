@@ -1,17 +1,17 @@
-
-
 import matplotlib
 import matplotlib.pyplot as plt
 
 from fibsem import acquire, utils
 
-matplotlib.use('TkAgg', force=True) # Activate 'agg' backend for off-screen plotting.
+matplotlib.use("TkAgg", force=True)  # Activate 'agg' backend for off-screen plotting.
 
 
 def main():
 
     # connect to microscope
-    microscope, settings = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    microscope, settings = utils.setup_session(
+        manufacturer="Demo", ip_address="localhost"
+    )
 
     # take image with both beams
     eb_image, ib_image = acquire.take_reference_images(microscope, settings.image)

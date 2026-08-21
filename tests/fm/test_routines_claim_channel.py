@@ -160,7 +160,10 @@ class TestTheClaimIsStructural:
 
     @pytest.mark.parametrize(
         "module,function",
-        [("fm/calibration/__init__.py", "run_autofocus"), ("fm/acquisition.py", "acquire_z_stack")],
+        [
+            ("fm/calibration/__init__.py", "run_autofocus"),
+            ("fm/acquisition.py", "acquire_z_stack"),
+        ],
     )
     def test_the_routine_opens_a_channel_scope(self, module, function):
         import ast
@@ -168,9 +171,12 @@ class TestTheClaimIsStructural:
 
         import fibsem
 
-        tree = ast.parse((Path(fibsem.__file__).parent / module).read_text(encoding="utf-8"))
+        tree = ast.parse(
+            (Path(fibsem.__file__).parent / module).read_text(encoding="utf-8")
+        )
         fn = next(
-            n for n in ast.walk(tree)
+            n
+            for n in ast.walk(tree)
             if isinstance(n, ast.FunctionDef) and n.name == function
         )
         scoped = any(

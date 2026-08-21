@@ -21,6 +21,7 @@ silent:
 * **The cache is bounded.** Every thumbnail a workflow rewrites lands under a new key, so
   an unbounded dict grows for the length of a run.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -79,12 +80,12 @@ class TestTheWriteIsDisplaySized:
     @pytest.mark.parametrize(
         "source",
         [
-            (1536, 1024),   # the acquired frame
-            (1024, 1536),   # portrait
-            (3072, 3072),   # a stitched square overview
-            (1024, 3072),   # a tall stitched strip
-            (409, 384),     # an odd small frame, below the bound
-            (1001, 667),    # a ratio no integer pair hits cleanly
+            (1536, 1024),  # the acquired frame
+            (1024, 1536),  # portrait
+            (3072, 3072),  # a stitched square overview
+            (1024, 3072),  # a tall stitched strip
+            (409, 384),  # an odd small frame, below the bound
+            (1001, 667),  # a ratio no integer pair hits cleanly
         ],
         ids=lambda s: f"{s[0]}x{s[1]}",
     )
@@ -190,7 +191,9 @@ class TestTheScaledImageIsCached:
         """No thumbnail in that arrangement, so decoding one is pure waste."""
         lamella.save_thumbnail(frame(1536, 1024))
         monkeypatch.setattr(
-            Lamella, "get_thumbnail", lambda self: pytest.fail("decoded for a hidden label")
+            Lamella,
+            "get_thumbnail",
+            lambda self: pytest.fail("decoded for a hidden label"),
         )
 
         LamellaCardWidget(lamella, mode=MODE_COMPACT)
@@ -203,7 +206,9 @@ class TestTheScaledImageIsCached:
         lamella.save_thumbnail(frame(1536, 1024, value=240))
         card.refresh()
 
-        assert card._thumb_label.pixmap().toImage().pixelColor(2, 2).red() != placeholder
+        assert (
+            card._thumb_label.pixmap().toImage().pixelColor(2, 2).red() != placeholder
+        )
 
 
 class TestTheCacheIsSafe:
@@ -230,7 +235,9 @@ class TestTheCacheIsSafe:
         lamella.save_thumbnail(frame(64, 64))
         others = []
         for i in range(3):
-            other = Lamella(path=str(tmp_path / f"other-{i}"), number=i + 2, petname=f"o{i}")
+            other = Lamella(
+                path=str(tmp_path / f"other-{i}"), number=i + 2, petname=f"o{i}"
+            )
             os.makedirs(other.path, exist_ok=True)
             other.save_thumbnail(frame(64, 64, value=i * 30))
             others.append(other)

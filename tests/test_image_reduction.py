@@ -48,7 +48,9 @@ def block_mean(arr: np.ndarray, factor: int) -> np.ndarray:
     out_h, out_w = math.ceil(h / factor), math.ceil(w / factor)
     pad = [(0, out_h * factor - h), (0, out_w * factor - w)] + [(0, 0)] * (arr.ndim - 2)
     padded = np.pad(arr.astype(np.float64), pad, mode="edge")
-    return padded.reshape(out_h, factor, out_w, factor, *arr.shape[2:]).mean(axis=(1, 3))
+    return padded.reshape(out_h, factor, out_w, factor, *arr.shape[2:]).mean(
+        axis=(1, 3)
+    )
 
 
 class TestFineStructureSurvives:
@@ -87,8 +89,17 @@ class TestFineStructureSurvives:
 
 
 class TestTheContractDownstreamInherited:
-    SHAPES = [(1024, 1024), (1000, 900), (1023, 777), (10, 10000), (513, 512), (5, 5),
-              (4096, 4096), (777, 1023, 3), (100, 3000, 4)]
+    SHAPES = [
+        (1024, 1024),
+        (1000, 900),
+        (1023, 777),
+        (10, 10000),
+        (513, 512),
+        (5, 5),
+        (4096, 4096),
+        (777, 1023, 3),
+        (100, 3000, 4),
+    ]
 
     @pytest.mark.parametrize("shape", SHAPES)
     @pytest.mark.parametrize("max_px", [512, 128, 64])
@@ -117,7 +128,9 @@ class TestTheContractDownstreamInherited:
 
         assert not np.shares_memory(downsample(arr, 512), arr)
 
-    @pytest.mark.parametrize("dtype", ["uint8", "uint16", "int16", "float32", "float64", "int32"])
+    @pytest.mark.parametrize(
+        "dtype", ["uint8", "uint16", "int16", "float32", "float64", "int32"]
+    )
     @pytest.mark.parametrize("shape", [(1024, 1024), (1024, 1024, 3), (1024, 1024, 4)])
     def test_dtype_and_channels_are_preserved(self, dtype, shape):
         """matplotlib reads an RGB array's value range from its dtype — uint8 is 0-255
@@ -131,13 +144,16 @@ class TestTheContractDownstreamInherited:
 
 
 class TestTheBlocksThemselves:
-    @pytest.mark.parametrize("shape,max_px", [
-        ((1024, 1024), 512),   # factor 2, divides exactly
-        ((1024, 1024), 128),   # factor 8, divides exactly
-        ((1023, 777), 512),    # factor 2, ragged on both axes
-        ((1024, 4712), 512),   # factor 10, ragged — the mosaic case
-        ((7, 7), 3),           # tiny, so a wrong tail is a third of the picture
-    ])
+    @pytest.mark.parametrize(
+        "shape,max_px",
+        [
+            ((1024, 1024), 512),  # factor 2, divides exactly
+            ((1024, 1024), 128),  # factor 8, divides exactly
+            ((1023, 777), 512),  # factor 2, ragged on both axes
+            ((1024, 4712), 512),  # factor 10, ragged — the mosaic case
+            ((7, 7), 3),  # tiny, so a wrong tail is a third of the picture
+        ],
+    )
     def test_each_output_pixel_is_the_mean_of_its_block(self, shape, max_px):
         rng = np.random.default_rng(2)
         arr = (rng.random(shape) * 255).astype(np.uint8)
@@ -193,7 +209,9 @@ class TestTheTwoImplementationsAgree:
         factor = 2
 
         by_cv2 = downsample(arr, 512)
-        by_numpy = _box_mean_numpy(arr, factor, math.ceil(1023 / factor), math.ceil(777 / factor))
+        by_numpy = _box_mean_numpy(
+            arr, factor, math.ceil(1023 / factor), math.ceil(777 / factor)
+        )
 
         assert by_numpy.shape == by_cv2.shape
         assert np.abs(by_numpy.astype(int) - by_cv2.astype(int)).max() <= 1
@@ -218,11 +236,18 @@ class TestReducingACoverageMask:
     is drawn opaque over whatever else is beneath it.
     """
 
-    @pytest.mark.parametrize("covered,expected", [
-        (0, False), (10, False), (49, False),
-        (50, False),  # exactly half — the tie, resolved inward
-        (51, True), (90, True), (100, True),
-    ])
+    @pytest.mark.parametrize(
+        "covered,expected",
+        [
+            (0, False),
+            (10, False),
+            (49, False),
+            (50, False),  # exactly half — the tie, resolved inward
+            (51, True),
+            (90, True),
+            (100, True),
+        ],
+    )
     def test_a_block_survives_when_most_of_it_is_set(self, covered, expected):
         block = np.zeros((10, 10), dtype=bool)
         block.flat[:covered] = True
@@ -246,11 +271,14 @@ class TestReducingACoverageMask:
         assert generous.all(), "the reference rule did not do the generous thing"
         assert not honest.any(), "a tenth-covered block was called acquired"
 
-    @pytest.mark.parametrize("shape,max_px,cut", [
-        ((5120, 5120), 2048, (3000, 3777)),  # the 5x5 mosaic, factor 3
-        ((777, 301), 64, (500, 200)),        # ragged on both axes, factor 13
-        ((1000, 1000), 97, (613, 411)),      # factor 11, ragged
-    ])
+    @pytest.mark.parametrize(
+        "shape,max_px,cut",
+        [
+            ((5120, 5120), 2048, (3000, 3777)),  # the 5x5 mosaic, factor 3
+            ((777, 301), 64, (500, 200)),  # ragged on both axes, factor 13
+            ((1000, 1000), 97, (613, 411)),  # factor 11, ragged
+        ],
+    )
     def test_it_matches_the_float_spelling_on_a_real_mask(self, shape, max_px, cut):
         """Down to the last block, which is the claim that makes the cheaper spelling a
         substitution rather than a change.
@@ -261,7 +289,7 @@ class TestReducingACoverageMask:
         quantisation could decide it either way.
         """
         mask = np.zeros(shape, dtype=bool)
-        mask[:cut[0], :cut[1]] = True
+        mask[: cut[0], : cut[1]] = True
 
         assert np.array_equal(downsample_mask(mask, max_px), float_mask(mask, max_px))
 
@@ -272,7 +300,9 @@ class TestReducingACoverageMask:
         for row in range(5):
             for col in range(5):
                 if (row + col) % 2 == 0:
-                    mask[row * 1024:(row + 1) * 1024, col * 1024:(col + 1) * 1024] = True
+                    mask[
+                        row * 1024 : (row + 1) * 1024, col * 1024 : (col + 1) * 1024
+                    ] = True
 
         assert np.array_equal(downsample_mask(mask, 2048), float_mask(mask, 2048))
 
@@ -338,16 +368,17 @@ class TestPreviewMosaic:
         tile = np.full((1024, 1024), 200, dtype=np.uint8)
         mosaic.paint(tile, canvas_x=4096, canvas_y=2048)
 
-        assert mosaic.canvas[512, 1024] == 200          # 2048//4, 4096//4
-        assert mosaic.canvas[511, 1024] == 0            # just above it
-        assert mosaic.canvas[512, 1023] == 0            # just left of it
+        assert mosaic.canvas[512, 1024] == 200  # 2048//4, 4096//4
+        assert mosaic.canvas[511, 1024] == 0  # just above it
+        assert mosaic.canvas[512, 1023] == 0  # just left of it
 
     def test_each_channel_is_reduced_on_its_own_axes(self):
         """`downsample` reads shape as (y, x[, c]), so reducing a (c, y, x) stack whole
         would average across *channels* and y -- the right answer on the wrong axes."""
         mosaic = PreviewMosaic(4096, 4096, dtype=np.uint16, channels=3)  # stride 2
-        tile = np.stack([np.full((512, 512), v, dtype=np.uint16)
-                         for v in (100, 200, 300)])
+        tile = np.stack(
+            [np.full((512, 512), v, dtype=np.uint16) for v in (100, 200, 300)]
+        )
         mosaic.paint(tile, canvas_x=0, canvas_y=0)
 
         assert [int(mosaic.canvas[c, 0, 0]) for c in range(3)] == [100, 200, 300]

@@ -39,7 +39,9 @@ def fm():
 def moves(fm):
     """Every `(position, state)` emitted."""
     seen = []
-    fm.objective.position_changed.connect(lambda position, state: seen.append((position, state)))
+    fm.objective.position_changed.connect(
+        lambda position, state: seen.append((position, state))
+    )
     return seen
 
 
@@ -80,7 +82,9 @@ class TestTheSimulatedObjectiveAnnounces:
 
         objective = ObjectiveLens()
         seen = []
-        objective.position_changed.connect(lambda position, state: seen.append(position))
+        objective.position_changed.connect(
+            lambda position, state: seen.append(position)
+        )
 
         objective.move_absolute(1e-3)
 
@@ -146,6 +150,7 @@ class TestThePayload:
         which surfaces as a *process abort* rather than a failure once a Qt slot reads it
         (FIB-329).
         """
+
         def raises(self):
             raise RuntimeError("detector did not answer")
 
@@ -180,7 +185,9 @@ class TestEveryDriverAnnounces:
     def _announces(method: ast.FunctionDef) -> bool:
         """Either it notifies, or it delegates to something that does."""
         for child in ast.walk(method):
-            if not isinstance(child, ast.Call) or not isinstance(child.func, ast.Attribute):
+            if not isinstance(child, ast.Call) or not isinstance(
+                child.func, ast.Attribute
+            ):
                 continue
             if child.func.attr in ("_notify_moved", "move_absolute", "move_relative"):
                 return True
@@ -189,7 +196,9 @@ class TestEveryDriverAnnounces:
     def test_all_three_implementations_are_found(self):
         """Guard against the probe silently matching nothing."""
         classes = self._objective_classes()
-        assert len(classes) == 3, f"expected three ObjectiveLens classes, found {sorted(classes)}"
+        assert len(classes) == 3, (
+            f"expected three ObjectiveLens classes, found {sorted(classes)}"
+        )
 
     @pytest.mark.parametrize("write_method", WRITE_METHODS)
     def test_every_write_method_announces(self, write_method):
@@ -232,7 +241,9 @@ class TestTheGuardsStillReadTheDevice:
 
     @staticmethod
     def _method(class_name: str, method_name: str) -> ast.FunctionDef:
-        source = (Path(fibsem.__file__).parent / "microscope.py").read_text(encoding="utf-8")
+        source = (Path(fibsem.__file__).parent / "microscope.py").read_text(
+            encoding="utf-8"
+        )
         cls = next(
             node
             for node in ast.walk(ast.parse(source))

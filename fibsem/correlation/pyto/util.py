@@ -22,21 +22,20 @@ def arrayFormat(arrays, format, indices, prependIndex=False):
        - format: format string
        - idices: list of indices
        - prependIndex: if True, the index is prepended to each line. Note that
-       in this case format has to contain an entry for index. 
-     """
+       in this case format has to contain an entry for index.
+    """
 
     out = []
     for ind in indices:
-
         # make a tuple of values for this id
-        if prependIndex: 
+        if prependIndex:
             row = [ind]
-        else: 
+        else:
             row = []
-        for ar in arrays: 
-            row.append( ar[ind] )
+        for ar in arrays:
+            row.append(ar[ind])
 
         # format the current list
-        out.append( format % tuple(row) )
+        out.append(format % tuple(row))
 
     return out

@@ -152,8 +152,12 @@ def slot_landmark(microscope, slot: object) -> Optional[FibsemStagePosition]:
         logger.debug(f"Could not resolve the holder's reference orientation: {e}")
         return None
     return FibsemStagePosition(
-        name=position.name or "", x=position.x, y=position.y,
-        z=position.z or 0.0, r=pose.r, t=pose.t,
+        name=position.name or "",
+        x=position.x,
+        y=position.y,
+        z=position.z or 0.0,
+        r=pose.r,
+        t=pose.t,
     )
 
 
@@ -186,8 +190,15 @@ def limit_shapes(microscope, frame: StageFrame) -> List[ShapeSpec]:
         logger.debug(f"Could not draw the stage limits: {e}")
         return []
     return [
-        ShapeSpec(kind="rect", cx=box_cx, cy=box_cy, width=width, height=height,
-                  color=STAGE_LIMITS_COLOUR, label="Stage Limits"),
+        ShapeSpec(
+            kind="rect",
+            cx=box_cx,
+            cy=box_cy,
+            width=width,
+            height=height,
+            color=STAGE_LIMITS_COLOUR,
+            label="Stage Limits",
+        ),
     ]
 
 
@@ -221,9 +232,17 @@ def boundary_shapes(microscope, frame: StageFrame) -> List[ShapeSpec]:
         except Exception as e:
             logger.debug(f"Could not draw a grid boundary: {e}")
             continue
-        specs.append(ShapeSpec(kind="ellipse", cx=cx, cy=cy,
-                               width=2 * span_x, height=2 * span_y,
-                               color=GRID_BOUNDARY_COLOUR, label="Grid Boundary"))
+        specs.append(
+            ShapeSpec(
+                kind="ellipse",
+                cx=cx,
+                cy=cy,
+                width=2 * span_x,
+                height=2 * span_y,
+                color=GRID_BOUNDARY_COLOUR,
+                label="Grid Boundary",
+            )
+        )
     return specs
 
 
@@ -243,8 +262,15 @@ def slot_shapes(microscope, frame: StageFrame) -> List[ShapeSpec]:
         except Exception as e:
             logger.debug(f"Could not draw a holder slot: {e}")
             continue
-        specs.append(ShapeSpec(kind="crosshair", cx=cx, cy=cy,
-                               color=SLOT_COLOUR, label=place.name or ""))
+        specs.append(
+            ShapeSpec(
+                kind="crosshair",
+                cx=cx,
+                cy=cy,
+                color=SLOT_COLOUR,
+                label=place.name or "",
+            )
+        )
     return specs
 
 

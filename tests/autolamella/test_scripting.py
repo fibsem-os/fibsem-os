@@ -40,6 +40,7 @@ def _write(directory: Path, name: str, body: str) -> Path:
 
 # ── directory resolution ─────────────────────────────────────────────────────
 
+
 def test_scripts_directory_defaults_under_home(monkeypatch):
     monkeypatch.delenv(SCRIPTS_DIR_ENV_VAR, raising=False)
     assert get_scripts_directory() == DEFAULT_SCRIPTS_DIR
@@ -57,8 +58,13 @@ def test_missing_directory_is_not_an_error(tmp_path):
 
 # ── discovery ────────────────────────────────────────────────────────────────
 
+
 def test_docstring_becomes_the_description(tmp_path):
-    _write(tmp_path, "export.py", '"""Export a summary."""\ndef run(ctx):\n    return "ok"\n')
+    _write(
+        tmp_path,
+        "export.py",
+        '"""Export a summary."""\ndef run(ctx):\n    return "ok"\n',
+    )
     script = discover_scripts(tmp_path)[0]
     assert script.name == "export"
     assert script.description == "Export a summary."
@@ -82,9 +88,12 @@ def test_a_file_that_raises_on_import_is_reported_not_hidden(tmp_path):
 
 
 def test_flags_are_read_from_the_module(tmp_path):
-    _write(tmp_path, "flags.py",
-           "writes = True\nbackground = True\nuses_microscope = True\n"
-           "on_workflow_completed = True\ndef run(ctx):\n    pass\n")
+    _write(
+        tmp_path,
+        "flags.py",
+        "writes = True\nbackground = True\nuses_microscope = True\n"
+        "on_workflow_completed = True\ndef run(ctx):\n    pass\n",
+    )
     script = discover_scripts(tmp_path)[0]
     assert (script.writes, script.background) == (True, True)
     assert (script.uses_microscope, script.on_workflow_completed) == (True, True)
@@ -93,8 +102,14 @@ def test_flags_are_read_from_the_module(tmp_path):
 def test_flags_default_to_false(tmp_path):
     _write(tmp_path, "plain.py", "def run(ctx):\n    pass\n")
     script = discover_scripts(tmp_path)[0]
-    assert not any([script.writes, script.background,
-                    script.uses_microscope, script.on_workflow_completed])
+    assert not any(
+        [
+            script.writes,
+            script.background,
+            script.uses_microscope,
+            script.on_workflow_completed,
+        ]
+    )
 
 
 def test_same_filename_in_two_folders_does_not_collide(tmp_path):
@@ -123,10 +138,14 @@ def test_edits_are_picked_up_without_a_reload_step(tmp_path):
 
 # ── running ──────────────────────────────────────────────────────────────────
 
+
 def test_run_passes_the_experiment_and_returns_the_value(tmp_path):
     exp = _experiment(tmp_path)
-    _write(tmp_path / "s", "names.py",
-           "def run(ctx):\n    return [p.name for p in ctx.experiment.positions]\n")
+    _write(
+        tmp_path / "s",
+        "names.py",
+        "def run(ctx):\n    return [p.name for p in ctx.experiment.positions]\n",
+    )
     script = discover_scripts(tmp_path / "s")[0]
 
     result = run_script(script, ScriptContext(experiment=exp))
@@ -150,9 +169,12 @@ def test_a_failing_script_is_captured_not_raised(tmp_path):
 
 def test_writes_flag_persists_the_change(tmp_path):
     exp = _experiment(tmp_path)
-    _write(tmp_path / "s", "mark.py",
-           "writes = True\n"
-           "def run(ctx):\n    ctx.experiment.positions[0].defect.set_defect('bad')\n")
+    _write(
+        tmp_path / "s",
+        "mark.py",
+        "writes = True\n"
+        "def run(ctx):\n    ctx.experiment.positions[0].defect.set_defect('bad')\n",
+    )
     script = discover_scripts(tmp_path / "s")[0]
 
     result = run_script(script, ScriptContext(experiment=exp))
@@ -165,8 +187,11 @@ def test_writes_flag_persists_the_change(tmp_path):
 def test_without_the_writes_flag_nothing_is_persisted(tmp_path):
     """A read-only script must not rewrite the experiment yaml by accident."""
     exp = _experiment(tmp_path)
-    _write(tmp_path / "s", "sneaky.py",
-           "def run(ctx):\n    ctx.experiment.positions[0].defect.set_defect('bad')\n")
+    _write(
+        tmp_path / "s",
+        "sneaky.py",
+        "def run(ctx):\n    ctx.experiment.positions[0].defect.set_defect('bad')\n",
+    )
     script = discover_scripts(tmp_path / "s")[0]
 
     result = run_script(script, ScriptContext(experiment=exp))

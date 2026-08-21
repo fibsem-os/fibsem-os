@@ -114,7 +114,7 @@ class ZoomLoupeOverlay(QtWidgets.QWidget):
 
         # Compute the source rect in scene (image) coordinates
         scene_pos: QPointF = self._view.mapToScene(self._cursor_viewport)
-        half_src = r / self._zoom           # half-size in image pixels
+        half_src = r / self._zoom  # half-size in image pixels
         src_rect = QRectF(
             scene_pos.x() - half_src,
             scene_pos.y() - half_src,

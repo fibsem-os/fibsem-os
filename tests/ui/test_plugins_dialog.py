@@ -234,9 +234,7 @@ def test_open_folder_is_absent_when_nothing_has_a_file(qapp):
 
     A button that can never be enabled reads as broken, not as inapplicable.
     """
-    packaged_only = (
-        ExtensionGroup("fibsem.patterns", "Milling patterns", (PLUGIN,)),
-    )
+    packaged_only = (ExtensionGroup("fibsem.patterns", "Milling patterns", (PLUGIN,)),)
     widget = PluginsDialog(groups=packaged_only)
     try:
         assert not widget.open_folder_button.isVisible()
@@ -308,7 +306,9 @@ def test_meta_line_counts_everything_installed(dialog):
 
 
 def test_a_group_with_nothing_registered_leaves_an_empty_table(qapp):
-    widget = PluginsDialog(groups=(ExtensionGroup("fibsem.patterns", "Milling patterns", ()),))
+    widget = PluginsDialog(
+        groups=(ExtensionGroup("fibsem.patterns", "Milling patterns", ()),)
+    )
     try:
         assert widget.table.rowCount() == 0
         assert widget.selected_extension() is None

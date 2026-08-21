@@ -50,6 +50,7 @@ from fibsem.ui.widgets.custom_widgets import _SpinnerLabel
 # Data structure
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ProgressUpdate:
     """Typed payload for :class:`FibsemProgressWidget`.
@@ -126,6 +127,7 @@ class ProgressUpdate:
 # Widget
 # ---------------------------------------------------------------------------
 
+
 class FibsemProgressWidget(QWidget):
     """Generic progress bar widget.
 
@@ -147,7 +149,9 @@ class FibsemProgressWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        self._spinner = _SpinnerLabel(size=16, step_deg=30, interval_ms=40, color=stylesheets.WHITE_ICON_COLOR)
+        self._spinner = _SpinnerLabel(
+            size=16, step_deg=30, interval_ms=40, color=stylesheets.WHITE_ICON_COLOR
+        )
         layout.addWidget(self._spinner)
 
         self._bar = QProgressBar()
@@ -198,7 +202,11 @@ class FibsemProgressWidget(QWidget):
         if has_numeric and has_time:
             self._spinner.stop()
             self._spinner.clear()  # blank icon, fixed size keeps space reserved
-            elapsed = (info.total_seconds - info.remaining_seconds) if info.total_seconds > 0 else 0.0
+            elapsed = (
+                (info.total_seconds - info.remaining_seconds)
+                if info.total_seconds > 0
+                else 0.0
+            )
             if info.total_seconds > 0:
                 self._bar.setMinimum(0)
                 self._bar.setMaximum(int(info.total_seconds * 10))

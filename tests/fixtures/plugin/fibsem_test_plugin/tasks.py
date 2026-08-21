@@ -32,4 +32,3 @@ class NotATask:
     loader has to report it as a failure rather than let it through. Nothing
     registers it -- that is the point.
     """
-

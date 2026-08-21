@@ -12,6 +12,7 @@ name the acquiring process asked for, and it is not the file:
 ``filepath`` is set by ``load()`` and ``save()`` on both image classes, whatever
 the metadata says, and is the answer to a filesystem question.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -47,7 +48,10 @@ def _fib_image(filepath=FIB_PATH, requested_name=FIB_REQUESTED_NAME):
     """A FIB image as it arrives from disk: loaded from one name, requesting another."""
     image = FibsemImage.generate_blank_image(resolution=(64, 48), hfw=100e-6)
     image.metadata.image_settings = ImageSettings(
-        resolution=(64, 48), hfw=100e-6, filename=requested_name, path="/lam/01-grand-dodo"
+        resolution=(64, 48),
+        hfw=100e-6,
+        filename=requested_name,
+        path="/lam/01-grand-dodo",
     )
     image.filepath = filepath
     return image
@@ -282,6 +286,9 @@ def test_no_image_and_no_file_stay_none(qapp):
     """``to_dict`` is on the only persistence path, so neither may raise (FIB-316)."""
     assert CorrelationInputData().fib_image_filename is None
     assert CorrelationInputData().fm_image_filename is None
-    assert CorrelationInputData(fib_image=_fib_image(filepath=None)).to_dict()[
-        "fib_image_filename"
-    ] is None
+    assert (
+        CorrelationInputData(fib_image=_fib_image(filepath=None)).to_dict()[
+            "fib_image_filename"
+        ]
+        is None
+    )

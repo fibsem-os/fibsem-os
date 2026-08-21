@@ -129,7 +129,6 @@ def main(args):
     count = np.zeros([1, 1, pad_h, pad_w])
     for i in range(windows.shape[0]):
         for j in range(windows.shape[1]):
-
             window = windows[i, j]
             h_start = i * stride
             w_start = j * stride
@@ -149,9 +148,9 @@ def main(args):
             count[:, :, h_start:h_end, w_start:w_end] += 1
             del h_start, w_start, h_end, w_end, logits
     del img, pad_h, pad_w, i, j
-    assert (
-        np.min(count) == 1
-    ), "There are pixels not predicted. Check window and stride size."
+    assert np.min(count) == 1, (
+        "There are pixels not predicted. Check window and stride size."
+    )
 
     #   average the predictions
     container = np.argmax(container / count, axis=1).squeeze() * 127
@@ -163,6 +162,7 @@ def main(args):
     print("done")
 
     import matplotlib.pyplot as plt
+
     plt.imshow(container, cmap="gray")
     plt.show()
 

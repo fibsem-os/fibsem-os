@@ -3,6 +3,7 @@
 Run directly:
     python fibsem/ui/widgets/tests/test_reference_image_parameters_widget.py
 """
+
 import sys
 
 from PyQt5.QtWidgets import (
@@ -53,15 +54,19 @@ def main() -> None:
     def on_settings_changed(s: ReferenceImageParameters) -> None:
         status.setText(
             f"settings_changed: sem={s.acquire_sem}, fib={s.acquire_fib}, "
-            f"img1={s.acquire_image1} ({s.field_of_view1*1e6:.0f}µm), "
-            f"img2={s.acquire_image2} ({s.field_of_view2*1e6:.0f}µm)"
+            f"img1={s.acquire_image1} ({s.field_of_view1 * 1e6:.0f}µm), "
+            f"img2={s.acquire_image2} ({s.field_of_view2 * 1e6:.0f}µm)"
         )
 
     def on_print() -> None:
         s = widget.get_settings()
         print(f"acquire_sem={s.acquire_sem}  acquire_fib={s.acquire_fib}")
-        print(f"acquire_image1={s.acquire_image1}  fov1={s.field_of_view1*1e6:.1f} µm")
-        print(f"acquire_image2={s.acquire_image2}  fov2={s.field_of_view2*1e6:.1f} µm")
+        print(
+            f"acquire_image1={s.acquire_image1}  fov1={s.field_of_view1 * 1e6:.1f} µm"
+        )
+        print(
+            f"acquire_image2={s.acquire_image2}  fov2={s.field_of_view2 * 1e6:.1f} µm"
+        )
         print(f"imaging={s.imaging}")
 
     def on_load() -> None:

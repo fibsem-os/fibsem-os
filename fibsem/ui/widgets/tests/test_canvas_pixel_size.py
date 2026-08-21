@@ -9,6 +9,7 @@ the scalebar, and that its None semantics differ from set_array's argument.
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_canvas_pixel_size.py
 """
+
 import os
 import sys
 

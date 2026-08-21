@@ -45,10 +45,16 @@ DEFAULT_MILLING_CONFIG[MILL_COINCIDENT_KEY] = FibsemMillingTaskConfig(
     stages=[
         FibsemMillingStage(
             name="Coincident Milling 01",
-            milling=FibsemMillingSettings(milling_current=60e-12, application_file="Si-ccs"),
-            pattern=RectanglePattern(width=9.0e-6, depth=4.0e-7, height=20e-6, 
-                                  cross_section=CrossSectionPattern.CleaningCrossSection),
-            strategy=CoincidenceMillingStrategy()
+            milling=FibsemMillingSettings(
+                milling_current=60e-12, application_file="Si-ccs"
+            ),
+            pattern=RectanglePattern(
+                width=9.0e-6,
+                depth=4.0e-7,
+                height=20e-6,
+                cross_section=CrossSectionPattern.CleaningCrossSection,
+            ),
+            strategy=CoincidenceMillingStrategy(),
         )
     ],
 )
@@ -85,7 +91,9 @@ class MillCoincidentTaskConfig(AutoLamellaTaskConfig):
     )
     channel_name: str = field(
         default="Red Channel",
-        metadata=field_meta(tooltip="The fluorescence channel to use for coincident milling"),
+        metadata=field_meta(
+            tooltip="The fluorescence channel to use for coincident milling"
+        ),
     )
     task_type: ClassVar[str] = "MILL_COINCIDENT"
 
@@ -178,7 +186,9 @@ class MillCoincidentTask(AutoLamellaTask):
             return
 
         # Move stage to the saved stage position and objective position
-        self.microscope.fm.objective.move_absolute(self.lamella.fluorescence_pose.objective_position)
+        self.microscope.fm.objective.move_absolute(
+            self.lamella.fluorescence_pose.objective_position
+        )
 
         # mill coincident
         self.log_status_message("MILL_COINCIDENT", "Milling Coincident Lamella...")

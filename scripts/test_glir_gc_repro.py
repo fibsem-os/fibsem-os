@@ -24,6 +24,7 @@ Exit code 0 = no cross-thread GLIR commands observed, 1 = at least one.
 On a Windows machine without ``--fixed`` this may also genuinely hard-crash —
 that is the bug reproducing.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -78,9 +79,7 @@ class LayerChurner:
     def churn(self) -> None:
         self.tick += 1
         shape = RESOLUTIONS[self.tick % len(RESOLUTIONS)]
-        self.image_layer.data = np.random.randint(
-            0, 255, shape, dtype=np.uint8
-        )
+        self.image_layer.data = np.random.randint(0, 255, shape, dtype=np.uint8)
         # remove/re-add an overlay layer, as the minimap crosshair updates do
         if "overlay" in self.viewer.layers:
             self.viewer.layers.remove("overlay")
@@ -109,6 +108,7 @@ def allocation_storm(stop: threading.Event) -> None:
 
 
 # ---------------------------------------------------------------- main
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])

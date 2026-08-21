@@ -43,7 +43,9 @@ def _extension(**kwargs) -> Extension:
     return Extension(**defaults)
 
 
-def _group(*extensions: Extension, group="fibsem.tasks", label="AutoLamella tasks") -> ExtensionGroup:
+def _group(
+    *extensions: Extension, group="fibsem.tasks", label="AutoLamella tasks"
+) -> ExtensionGroup:
     return ExtensionGroup(group=group, label=label, extensions=tuple(extensions))
 
 
@@ -114,7 +116,9 @@ def test_builtin_targets_line_up_with_plugin_targets():
         show_builtins=True,
     )
     plugged, native = _row_for(text, "PLUGGED"), _row_for(text, "NATIVE")
-    assert plugged.index("lab_patterns.tasks.MyTask") == native.index("fibsem.tasks.Native")
+    assert plugged.index("lab_patterns.tasks.MyTask") == native.index(
+        "fibsem.tasks.Native"
+    )
 
 
 def test_no_distribution_column_when_nothing_is_installed():
@@ -234,7 +238,10 @@ def _boom():
 
 def test_a_group_that_cannot_be_inspected_becomes_one_row_saying_so():
     group = report._collect_group(
-        "fibsem.tasks", "AutoLamella tasks", "fibsem.applications.autolamella.workflows.tasks", _boom
+        "fibsem.tasks",
+        "AutoLamella tasks",
+        "fibsem.applications.autolamella.workflows.tasks",
+        _boom,
     )
 
     (row,) = group.extensions
@@ -265,16 +272,22 @@ def test_one_unreadable_group_does_not_take_the_others_down(monkeypatch):
     groups = {g.group: g for g in report.collect_extensions()}
 
     assert set(groups) == {"fibsem.patterns", "fibsem.strategies", "fibsem.tasks"}
-    assert [e.source for e in groups["fibsem.tasks"].extensions] == [ExtensionSource.FAILED]
+    assert [e.source for e in groups["fibsem.tasks"].extensions] == [
+        ExtensionSource.FAILED
+    ]
     # The milling groups are not merely present, they are populated: every
     # install has built-in patterns and strategies.
     for intact in ("fibsem.patterns", "fibsem.strategies"):
-        assert any(e.source is ExtensionSource.BUILTIN for e in groups[intact].extensions)
+        assert any(
+            e.source is ExtensionSource.BUILTIN for e in groups[intact].extensions
+        )
 
 
 def test_an_unreadable_group_still_renders(monkeypatch):
     """Rendering must not assume a row has a name or a distribution."""
-    group = report._collect_group("fibsem.tasks", "AutoLamella tasks", "some.module", _boom)
+    group = report._collect_group(
+        "fibsem.tasks", "AutoLamella tasks", "some.module", _boom
+    )
 
     text = render_report([group])
 
@@ -372,7 +385,7 @@ def test_home_relative_strips_the_username():
     home = os.path.expanduser("~")
     inside = os.path.join(home, "scripts", "x.py")
 
-    assert home_relative(inside) == "~" + inside[len(home):]
+    assert home_relative(inside) == "~" + inside[len(home) :]
     assert not home_relative(inside).startswith(home)
     # Anything outside the home directory is left exactly as it is.
     assert home_relative("/opt/env/fibsem") == "/opt/env/fibsem"

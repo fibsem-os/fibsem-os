@@ -21,6 +21,7 @@ Two properties are worth pinning, and neither is the pixel height:
   labels and would break the moment one is replaced with something that accepts clicks
   -- and the failure is "clicking the picture does nothing", which no other test covers.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

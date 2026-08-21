@@ -4,6 +4,7 @@ Pure-array + FluorescenceImage-level; no Qt. Uses small synthetic volumes so it
 runs fast and deterministically, with the numbers chosen to mirror the real
 METEOR case (500 nm z step, 130 nm XY -> isotropic).
 """
+
 import numpy as np
 import pytest
 
@@ -52,7 +53,10 @@ def test_multi_channel_progress_callback_is_ui_agnostic():
     img = np.random.rand(3, 5, 4, 4).astype(np.float32)
     calls = []
     multi_channel_interpolation(
-        img, 500e-9, 250e-9, progress_callback=lambda done, total: calls.append((done, total))
+        img,
+        500e-9,
+        250e-9,
+        progress_callback=lambda done, total: calls.append((done, total)),
     )
     # one call before the loop, one after each of the 3 channels
     assert calls == [(0, 3), (1, 3), (2, 3), (3, 3)]

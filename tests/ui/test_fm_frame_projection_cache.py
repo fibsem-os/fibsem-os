@@ -128,7 +128,9 @@ class TestTheProjectionIsKept:
             f"events — this is what stuttered on hardware"
         )
 
-    def test_redrawing_the_planned_grid_does_not_read_the_microscope(self, widget, reads):
+    def test_redrawing_the_planned_grid_does_not_read_the_microscope(
+        self, widget, reads
+    ):
         """`_refresh_tile_grid` had its own camera reads, separate from `_frame`.
 
         Caching the frame's projection alone left these, so a drag still took the shared

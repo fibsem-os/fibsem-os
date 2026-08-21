@@ -25,6 +25,7 @@ What to try
   real files, so picking one loads it for real and the radio comes alive;
   switching between them raises the discard confirm (FIB-317).
 """
+
 import os
 import sys
 import tempfile

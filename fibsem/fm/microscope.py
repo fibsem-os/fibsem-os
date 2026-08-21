@@ -722,7 +722,9 @@ class FluorescenceMicroscope(ABC):
             "MILLING",
         ]  # valid orientations for fluorescence acquisition
         self._allow_unknown_orientations: bool = ALLOW_UNKNOWN_ORIENTATIONS
-        self.default_orientation: str = "FM"  # orientation used when computing fluorescence pose for new lamellas
+        self.default_orientation: str = (
+            "FM"  # orientation used when computing fluorescence pose for new lamellas
+        )
         # Orientations the objective can actually image the sample from -- a stricter
         # question than `valid_orientations`, which asks only whether FM control is
         # allowed. Turning the light on and watching the camera from a beam pose is

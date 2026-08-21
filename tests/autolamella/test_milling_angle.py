@@ -22,7 +22,9 @@ def microscope() -> DemoMicroscope:
 
 
 def _make_lamella(tmp_path, tilt_rad) -> Lamella:
-    lamella = Lamella(petname="test-lamella", path=str(tmp_path / "test-lamella"), number=1)
+    lamella = Lamella(
+        petname="test-lamella", path=str(tmp_path / "test-lamella"), number=1
+    )
     lamella.milling_pose = MicroscopeState(
         stage_position=FibsemStagePosition(
             x=0.0, y=0.0, z=0.0, r=0.0, t=tilt_rad, coordinate_system="RAW"

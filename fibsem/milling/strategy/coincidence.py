@@ -107,7 +107,9 @@ class CoincidenceMillingStrategyConfig(MillingStrategyConfig):
     )
     bbox: Optional[FibsemRectangle] = field(
         default=None,
-        metadata=field_meta(hidden=True),  # set interactively via the FM ROI, not a form control
+        metadata=field_meta(
+            hidden=True
+        ),  # set interactively via the FM ROI, not a form control
     )  # reduced area for intensity monitoring
     # oscillation parameters
 
@@ -361,9 +363,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
 
             # unsupervised runs: automatically stop on intensity drop
             if not self.config.supervised and self._drop_detected:
-                logging.info(
-                    "Unsupervised: intensity drop detected. Stopping milling."
-                )
+                logging.info("Unsupervised: intensity drop detected. Stopping milling.")
                 self.microscope.stop_milling()
                 break
 

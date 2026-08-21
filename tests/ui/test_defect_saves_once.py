@@ -21,6 +21,7 @@ Split across two mechanisms because the two halves live in different places:
   read off the source, the same way `test_lamella_defect_sync.py` handles the minimap
   and the coincidence viewer.
 """
+
 import ast
 import inspect
 import os
@@ -126,11 +127,16 @@ class TestTheWindowStillSaves:
         wired = []
         for module, prefix in (
             (AutoLamellaUI, ["self", "lamella_list", "defect_changed"]),
-            (AutoLamellaMainUI, ["self", "autolamella_ui", "lamella_list", "defect_changed"]),
+            (
+                AutoLamellaMainUI,
+                ["self", "autolamella_ui", "lamella_list", "defect_changed"],
+            ),
         ):
             tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
             for node in ast.walk(tree):
-                if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+                if not (
+                    isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                ):
                     continue
                 if node.func.attr != "connect":
                     continue

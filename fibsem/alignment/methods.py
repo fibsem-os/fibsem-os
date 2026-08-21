@@ -32,7 +32,9 @@ if TYPE_CHECKING:
 # the skimage output so all three methods share the same sign convention.
 # ---------------------------------------------------------------------------
 
-USE_SUBPIXEL_PEAK = False        # True → parabolic sub-pixel refinement; False → integer argmax
+USE_SUBPIXEL_PEAK = (
+    False  # True → parabolic sub-pixel refinement; False → integer argmax
+)
 
 
 def _subpixel_peak(xcorr: np.ndarray, row: int, col: int) -> Tuple[float, float]:
@@ -108,9 +110,10 @@ def shift_from_crosscorrelation(
 
     if new_image.data.shape != ref_image.data.shape:
         from skimage.transform import resize
-        new_image.data = resize(new_image.data, ref_image.data.shape, preserve_range=True).astype(
-            np.uint8
-        )
+
+        new_image.data = resize(
+            new_image.data, ref_image.data.shape, preserve_range=True
+        ).astype(np.uint8)
 
     # normalise both images
     ref_data_norm = image_utils.normalise_image(ref_image)
@@ -147,14 +150,22 @@ def shift_from_crosscorrelation(
     if USE_SUBPIXEL_PEAK:
         maxRow, maxCol = _subpixel_peak(xcorr, maxRow, maxCol)
     cen = np.asarray(xcorr.shape) / 2
-    err = cen - np.array([maxRow, maxCol])  # float when USE_SUBPIXEL_PEAK, int-valued otherwise
+    err = cen - np.array(
+        [maxRow, maxCol]
+    )  # float when USE_SUBPIXEL_PEAK, int-valued otherwise
 
     # err[1] = col error → dx;  err[0] = row error → dy
     dx = err[1] * pixelsize_x
     dy = err[0] * pixelsize_y
 
-    msgd = {"msg": "cross-correlation", "pixelsize": (pixelsize_x, pixelsize_y),
-        "max": (maxRow, maxCol), "centre": cen, "shift": (err[1], err[0]), "shift_meters": (dx, dy)}
+    msgd = {
+        "msg": "cross-correlation",
+        "pixelsize": (pixelsize_x, pixelsize_y),
+        "max": (maxRow, maxCol),
+        "centre": cen,
+        "shift": (err[1], err[0]),
+        "shift_meters": (dx, dy),
+    }
     logging.debug(msgd)
 
     if save:
@@ -217,12 +228,14 @@ def shift_from_crosscorrelation_v2(
 
     shift_x, shift_y, response = crosscorrelation_cv2(ref_image.data, new_image.data)
 
-    logging.debug({
-        "msg": "cross-correlation-v2",
-        "pixelsize": (pixelsize_x, pixelsize_y),
-        "shift_px": (shift_x, shift_y),
-        "response": response,
-    })
+    logging.debug(
+        {
+            "msg": "cross-correlation-v2",
+            "pixelsize": (pixelsize_x, pixelsize_y),
+            "shift_px": (shift_x, shift_y),
+            "response": response,
+        }
+    )
 
     if minimum_response is not None and response < minimum_response:
         logging.warning(
@@ -340,12 +353,21 @@ def _save_alignment_data(
         tff.imwrite(fname + "_ref_mask.tif", ref_mask)
 
     info = {
-        "lowpass": lowpass, "highpass": highpass, "sigma": sigma,
-        "pixelsize_x": pixelsize_x, "pixelsize_y": pixelsize_y,
-        "use_rect_mask": use_rect_mask, "xcorr_limit": xcorr_limit, "ref_mask": ref_mask is not None,
-        "dx": dx, "dy": dy, "fname": fname, "timestamp": ts }
+        "lowpass": lowpass,
+        "highpass": highpass,
+        "sigma": sigma,
+        "pixelsize_x": pixelsize_x,
+        "pixelsize_y": pixelsize_y,
+        "use_rect_mask": use_rect_mask,
+        "xcorr_limit": xcorr_limit,
+        "ref_mask": ref_mask is not None,
+        "dx": dx,
+        "dy": dy,
+        "fname": fname,
+        "timestamp": ts,
+    }
 
-    df = pd.DataFrame.from_dict(info, orient='index').T
+    df = pd.DataFrame.from_dict(info, orient="index").T
 
     # save the dataframe to a csv file, append if the file already exists
     DATAFRAME_PATH = os.path.join(cfg.DATA_CC_PATH, "data.csv")
@@ -414,13 +436,15 @@ def shift_from_skimage_phase_correlation(
     dx = dx_px * pixelsize_x
     dy = dy_px * pixelsize_y
 
-    logging.debug({
-        "msg": "skimage-phase-cross-correlation",
-        "pixelsize": (pixelsize_x, pixelsize_y),
-        "shift_px": (dx_px, dy_px),
-        "error": error,
-        "score": score,
-    })
+    logging.debug(
+        {
+            "msg": "skimage-phase-cross-correlation",
+            "pixelsize": (pixelsize_x, pixelsize_y),
+            "shift_px": (dx_px, dy_px),
+            "error": error,
+            "score": score,
+        }
+    )
 
     return AlignmentIteration(
         shift=Point(dx, dy),

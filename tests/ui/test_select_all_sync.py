@@ -14,6 +14,7 @@ shown, so nothing reaches the slot. Its `_checkbox_states` cache is tested anywa
 because it is the same trap as the workflow list's `_checked` -- `_on_reordered` rebuilds
 rows from it, and a stale entry re-enables channels for acquisition, silently.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -52,7 +53,9 @@ def _stage(name: str) -> FibsemMillingStage:
     return FibsemMillingStage(
         name=name,
         milling=FibsemMillingSettings(milling_current=2e-9),
-        pattern=get_pattern("Rectangle", {"depth": 1e-6, "width": 10e-6, "height": 5e-6}),
+        pattern=get_pattern(
+            "Rectangle", {"depth": 1e-6, "width": 10e-6, "height": 5e-6}
+        ),
     )
 
 
@@ -67,7 +70,9 @@ def _milling_list(enabled: bool = True) -> MillingStageListWidget:
 def _channel_list() -> ChannelListWidget:
     channels = [
         ChannelSettings(
-            name=f"Channel-{i:02d}", excitation_wavelength=405.0, emission_wavelength=450.0
+            name=f"Channel-{i:02d}",
+            excitation_wavelength=405.0,
+            emission_wavelength=450.0,
         )
         for i in range(1, 4)
     ]
@@ -103,7 +108,9 @@ def test_tristate_header_clicks_never_disagree_with_the_rows(qapp):
 
     for click in range(4):
         header.click()
-        assert _header_matches_rows(widget), f"header disagrees with the rows on click {click + 1}"
+        assert _header_matches_rows(widget), (
+            f"header disagrees with the rows on click {click + 1}"
+        )
 
 
 def test_clearing_the_stage_selection_unticks_the_header(qapp):
@@ -214,7 +221,5 @@ def test_the_channel_header_checkbox_still_drives_the_rows(qapp, checked):
 
     widget._header.checkbox_all.setChecked(checked)
 
-    assert all(
-        widget._row(i).checkbox.isChecked() == checked for i in range(3)
-    )
+    assert all(widget._row(i).checkbox.isChecked() == checked for i in range(3))
     assert _header_matches_rows(widget)

@@ -16,6 +16,7 @@ Correlation asks for `subpixel_precision=True` throughout, which is what its own
 arithmetic did. The flag is not cosmetic — see
 `test_the_correlation_module_asks_for_the_true_centre`.
 """
+
 import math
 from types import SimpleNamespace
 
@@ -49,6 +50,7 @@ def _centred(x: float, y: float, shape=None):
         Point(x, y), shape or _SHAPE, subpixel_precision=True
     )
     return pt.x, pt.y
+
 
 # Identity transform: FM-space coordinates land unchanged as FIB image pixels,
 # so the same point can be pushed through the reprojection and the correlation

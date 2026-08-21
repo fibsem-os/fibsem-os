@@ -66,7 +66,7 @@ ARCTIS_LWD_CONFIGURATION = {
     "magnification": 50.0,
     "numerical_aperture": 0.75,
     "working_distance": 4e-3,
-    "pixel_size": (2.74822695035461e-08*2, 2.74822695035461e-08*2),
+    "pixel_size": (2.74822695035461e-08 * 2, 2.74822695035461e-08 * 2),
     "resolution": (4512, 4512),
     "focus_position": 7.6e-3,  # 7600 microns
     "limit_position": 8.6e-3,  # 8600 microns
@@ -106,7 +106,9 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
         self._numerical_aperture = DEFAULT_CONFIGURATION["numerical_aperture"]
         self._working_distance = DEFAULT_CONFIGURATION["working_distance"]
         self._focus_position = DEFAULT_CONFIGURATION["focus_position"]
-        self._limit_position: float = DEFAULT_CONFIGURATION.get("limit_position", 8.6e-3)
+        self._limit_position: float = DEFAULT_CONFIGURATION.get(
+            "limit_position", 8.6e-3
+        )
 
     @property
     def magnification(self) -> float:
@@ -171,7 +173,9 @@ class ThermoFisherObjectiveLens(ObjectiveLens):
 
         # clip to user-defined limits
         if not position <= self._limit_position:
-            logging.warning(f"Clipping position {position} to user-defined limits {self._limit_position}")
+            logging.warning(
+                f"Clipping position {position} to user-defined limits {self._limit_position}"
+            )
             position = np.clip(position, 0, self._limit_position)
         with self.parent.active_channel():
             self.parent.fm_settings.focus.value = position
@@ -297,8 +301,8 @@ class ThermoFisherCamera(Camera):
                     self.parent.set_active_channel()  # re-force active channel...?
                     image = self.parent.connection.imaging.get_image()
                     # if image.data.shape != self.resolution: # if shape doesn't match expected resolution, skip (likely acquired wrong channel)
-                        # logging.warning(f"Acquired image shape {image.shape} does not match expected resolution {self.resolution}")
-                        # continue
+                    # logging.warning(f"Acquired image shape {image.shape} does not match expected resolution {self.resolution}")
+                    # continue
                     self.parent._construct_image(image.data)
 
         except Exception as e:
@@ -410,7 +414,7 @@ class ThermoFisherCamera(Camera):
         """
         with self.parent.active_channel():
             return self.parent.connection.detector.contrast.value
-    
+
     @gain.setter
     def gain(self, value: float) -> None:
         """Set the gain of the camera.
@@ -619,7 +623,9 @@ class ThermoFisherFilterSet(FilterSet):
             if value is None:
                 self.parent.fm_settings.filter.type.value = CameraFilterType.REFLECTION
             else:
-                self.parent.fm_settings.filter.type.value = CameraFilterType.FLUORESCENCE
+                self.parent.fm_settings.filter.type.value = (
+                    CameraFilterType.FLUORESCENCE
+                )
 
 
 class ThermoFisherFluorescenceMicroscope(FluorescenceMicroscope):

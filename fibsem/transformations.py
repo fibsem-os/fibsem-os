@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
     from fibsem.structures import FibsemHardwareGeometry
 
+
 def convert_milling_angle_to_stage_tilt(
     milling_angle: float, pretilt: float, column_tilt: float = np.deg2rad(52)
 ) -> float:
@@ -45,7 +46,7 @@ def convert_stage_tilt_to_milling_angle(
 
 
 def get_stage_tilt_from_milling_angle(
-    microscope: 'FibsemMicroscope', milling_angle: float
+    microscope: "FibsemMicroscope", milling_angle: float
 ) -> float:
     """Get the stage tilt angle from the milling angle, based on pretilt and column tilt.
     Args:
@@ -61,8 +62,9 @@ def get_stage_tilt_from_milling_angle(
     )
     return stage_tilt
 
+
 def is_close_to_milling_angle(
-    microscope: 'FibsemMicroscope', milling_angle: float, atol: float = np.deg2rad(2)
+    microscope: "FibsemMicroscope", milling_angle: float, atol: float = np.deg2rad(2)
 ) -> bool:
     """Check if the stage tilt is close to the milling angle, within a tolerance.
     Args:

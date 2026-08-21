@@ -41,10 +41,13 @@ def pending_pairs(q: TaskQueue):
 
 # ── Build / consume ───────────────────────────────────────────────────────────
 
+
 def test_build_from_matrix_is_task_outer_lamella_inner(queue):
     assert pairs(queue) == [
-        ("L1", "Trench"), ("L2", "Trench"),
-        ("L1", "Undercut"), ("L2", "Undercut"),
+        ("L1", "Trench"),
+        ("L2", "Trench"),
+        ("L1", "Undercut"),
+        ("L2", "Undercut"),
     ]
     assert all(i.status is Status.NotStarted for i in queue.items)
 
@@ -87,6 +90,7 @@ def test_next_skips_removed_items(queue):
 
 
 # ── add ───────────────────────────────────────────────────────────────────────
+
 
 def test_add_appends_by_default(queue):
     queue.add("L3", "Polishing")
@@ -131,6 +135,7 @@ def test_add_duplicate_of_completed_pair_is_rerun(queue):
 
 
 # ── remove ────────────────────────────────────────────────────────────────────
+
 
 def test_remove_marks_rather_than_deletes(queue):
     target = queue.pending[2]
@@ -183,6 +188,7 @@ def test_counts_excludes_removed_from_pending_but_not_from_total(queue):
 
 
 # ── moves ─────────────────────────────────────────────────────────────────────
+
 
 def test_move_to_front_runs_it_next(queue):
     target = queue.pending[3]
@@ -240,6 +246,7 @@ def test_move_refuses_non_pending_and_unknown(queue):
 
 # ── nudge ─────────────────────────────────────────────────────────────────────
 
+
 def test_nudge_moves_one_place(queue):
     p = queue.pending
     assert queue.nudge(p[2].id, -1).ok
@@ -270,6 +277,7 @@ def test_nudge_refuses_the_active_item(queue):
 
 
 # ── reorder_pending ───────────────────────────────────────────────────────────
+
 
 def test_reorder_pending_with_partial_list_keeps_everything(queue):
     """Regression: the old replacement-based reorder() destroyed unnamed items."""
@@ -306,6 +314,7 @@ def test_reorder_pending_leaves_history_and_active_pinned(queue):
 
 
 # ── invariants ────────────────────────────────────────────────────────────────
+
 
 def test_no_move_ever_changes_the_item_count(queue):
     """The single rule that would have caught the original data-loss bug."""
@@ -351,6 +360,7 @@ def test_history_is_unreachable_from_every_mutation(queue):
 
 # ── version ───────────────────────────────────────────────────────────────────
 
+
 def test_version_increments_on_real_mutations(queue):
     target = queue.pending[-1]
     before = queue.version
@@ -367,6 +377,7 @@ def test_version_unchanged_on_no_op_and_refusal(queue):
 
 
 # ── snapshots / threading ─────────────────────────────────────────────────────
+
 
 def test_items_and_pending_return_copies(queue):
     snapshot = queue.items
@@ -393,7 +404,7 @@ def test_concurrent_mutation_during_consumption_loses_nothing():
     def mutate():
         rng = random.Random(7)
         while not stop.is_set():
-            snapshot = q.items          # deliberately stale by the time it's used
+            snapshot = q.items  # deliberately stale by the time it's used
             if not snapshot:
                 continue
             a, b = rng.choice(snapshot), rng.choice(snapshot)
@@ -410,9 +421,9 @@ def test_concurrent_mutation_during_consumption_loses_nothing():
     mutator.join(timeout=5)
 
     assert not consumer.is_alive()
-    assert len(q.items) == total            # nothing lost or duplicated
-    assert len(set(seen)) == len(seen)      # nothing run twice
-    assert len(seen) == total               # everything ran exactly once
+    assert len(q.items) == total  # nothing lost or duplicated
+    assert len(set(seen)) == len(seen)  # nothing run twice
+    assert len(seen) == total  # everything ran exactly once
     assert q.is_empty
 
 

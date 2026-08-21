@@ -1,4 +1,5 @@
 """Tests for fibsem/autofunctions: ACB, autofocus, and plotting."""
+
 from __future__ import annotations
 
 import os
@@ -29,6 +30,7 @@ from fibsem.structures import BeamType, FibsemImage, FibsemRectangle
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
+
 def make_image(mean_frac: float = 0.5, size: int = 64, dtype=np.uint16) -> FibsemImage:
     dtype_max = np.iinfo(dtype).max if np.issubdtype(dtype, np.integer) else 1.0
     base = int(dtype_max * mean_frac)
@@ -36,7 +38,8 @@ def make_image(mean_frac: float = 0.5, size: int = 64, dtype=np.uint16) -> Fibse
     rng = np.random.default_rng(42)
     data = np.clip(
         rng.integers(base - noise, base + noise + 1, size=(size, size), dtype=np.int64),
-        0, dtype_max,
+        0,
+        dtype_max,
     ).astype(dtype)
     return FibsemImage(data=data, metadata=None)
 
@@ -74,20 +77,31 @@ def mock_microscope(best_wd: float = 4.5e-3, initial_wd: float = 7.0e-3):
 
 def make_acb_result(n_iters: int = 3) -> AutoContrastBrightnessResult:
     from fibsem.structures import ImageStats
+
     iters = []
     for i in range(n_iters):
         mean = 0.3 + i * 0.07
         stats = ImageStats(
-            mean=mean, std=0.05, median=mean, p01=mean - 0.1, p99=mean + 0.1,
-            saturation_lo=0.0, saturation_hi=0.0, contrast_ratio=0.1,
-            range_utilisation=0.2, snr=10.0, entropy=4.0,
+            mean=mean,
+            std=0.05,
+            median=mean,
+            p01=mean - 0.1,
+            p99=mean + 0.1,
+            saturation_lo=0.0,
+            saturation_hi=0.0,
+            contrast_ratio=0.1,
+            range_utilisation=0.2,
+            snr=10.0,
+            entropy=4.0,
         )
-        iters.append(AutoContrastBrightnessIteration(
-            brightness=0.3 + i * 0.05,
-            contrast=0.5,
-            stats=stats,
-            image=make_image(mean_frac=mean),
-        ))
+        iters.append(
+            AutoContrastBrightnessIteration(
+                brightness=0.3 + i * 0.05,
+                contrast=0.5,
+                stats=stats,
+                image=make_image(mean_frac=mean),
+            )
+        )
     final_stats = iters[-1].stats
     return AutoContrastBrightnessResult(
         image=iters[-1].image,
@@ -101,7 +115,9 @@ def make_acb_result(n_iters: int = 3) -> AutoContrastBrightnessResult:
 def make_autofocus_result(n_passes: int = 1) -> AutoFocusResult:
     best_wd = 4.5e-3
     initial_wd = 7.0e-3
-    passes = [FocusSweepPass(search_range=2.5e-3, step_size=0.5e-3) for _ in range(n_passes)]
+    passes = [
+        FocusSweepPass(search_range=2.5e-3, step_size=0.5e-3) for _ in range(n_passes)
+    ]
     settings = AutoFocusSettings(method="laplacian", passes=passes)
     iters = []
     centre_wd = initial_wd
@@ -110,10 +126,14 @@ def make_autofocus_result(n_passes: int = 1) -> AutoFocusResult:
         wds = np.linspace(centre_wd - half, centre_wd + half, sp.n_steps + 1)
         scores = [_sharpness_score(wd, best_wd) for wd in wds]
         for wd, score in zip(wds, scores):
-            iters.append(AutoFocusIteration(
-                pass_index=pi, working_distance=float(wd),
-                focus_score=score, image=make_image().data,
-            ))
+            iters.append(
+                AutoFocusIteration(
+                    pass_index=pi,
+                    working_distance=float(wd),
+                    focus_score=score,
+                    image=make_image().data,
+                )
+            )
         centre_wd = float(wds[int(np.argmax(scores))])
     best_idx = int(np.argmax([it.focus_score for it in iters]))
     best = iters[best_idx]
@@ -128,6 +148,7 @@ def make_autofocus_result(n_passes: int = 1) -> AutoFocusResult:
 
 
 # ── ImageStats / compute_stats ────────────────────────────────────────────────
+
 
 def test_compute_stats_mid_exposure():
     img = make_image(mean_frac=0.5)
@@ -159,25 +180,40 @@ def test_compute_stats_uint8():
 
 def test_image_stats_converged():
     from fibsem.structures import ImageStats
+
     stats = ImageStats(
-        mean=0.5, std=0.05, median=0.5, p01=0.4, p99=0.6,
-        saturation_lo=0.0, saturation_hi=0.0, contrast_ratio=0.1,
-        range_utilisation=0.2, snr=10.0, entropy=4.0,
+        mean=0.5,
+        std=0.05,
+        median=0.5,
+        p01=0.4,
+        p99=0.6,
+        saturation_lo=0.0,
+        saturation_hi=0.0,
+        contrast_ratio=0.1,
+        range_utilisation=0.2,
+        snr=10.0,
+        entropy=4.0,
     )
     assert stats.converged(mean_target=0.5, mean_tolerance=0.05, saturation_limit=0.005)
-    assert not stats.converged(mean_target=0.8, mean_tolerance=0.05, saturation_limit=0.005)
+    assert not stats.converged(
+        mean_target=0.8, mean_tolerance=0.05, saturation_limit=0.005
+    )
 
 
 # ── ACB settings serialisation ────────────────────────────────────────────────
 
+
 def test_acb_settings_round_trip():
     s = AutoContrastBrightnessSettings(
-        n_iterations=8, brightness_step=0.03, mean_target=0.45,
+        n_iterations=8,
+        brightness_step=0.03,
+        mean_target=0.45,
     )
     assert AutoContrastBrightnessSettings.from_dict(s.to_dict()) == s
 
 
 # ── run_auto_contrast_brightness ──────────────────────────────────────────────
+
 
 def test_run_acb_basic():
     m = MagicMock()
@@ -206,12 +242,15 @@ def test_run_acb_preserves_initial_settings():
     m.get_detector_contrast.return_value = 0.9
     m.acquire_image.return_value = make_image(mean_frac=0.5)
 
-    result = run_auto_contrast_brightness(m, settings=AutoContrastBrightnessSettings(n_iterations=2))
+    result = run_auto_contrast_brightness(
+        m, settings=AutoContrastBrightnessSettings(n_iterations=2)
+    )
     assert result.iterations[0].brightness == pytest.approx(0.7)
     assert result.iterations[0].contrast == pytest.approx(0.9)
 
 
 # ── ACB result serialisation ──────────────────────────────────────────────────
+
 
 def test_acb_result_save_load(tmp_path):
     result = make_acb_result(n_iters=3)
@@ -226,30 +265,41 @@ def test_acb_result_save_load(tmp_path):
 
 # ── Autofocus settings serialisation ─────────────────────────────────────────
 
+
 def test_autofocus_settings_round_trip():
     s = AutoFocusSettings(
         method="sobel",
         passes=[FocusSweepPass(8e-3, 1e-3), FocusSweepPass(1e-3, 0.1e-3)],
     )
-    assert AutoFocusSettings.from_dict(s.to_dict()).passes[0].step_size == pytest.approx(1e-3)
+    assert AutoFocusSettings.from_dict(s.to_dict()).passes[
+        0
+    ].step_size == pytest.approx(1e-3)
     assert AutoFocusSettings.from_dict(s.to_dict()).method == "sobel"
 
 
 def test_autofocus_settings_from_dict_legacy_passes_n_steps():
     # passes serialized by the prior FocusSweepPass(n_steps, step_size) schema
-    s = AutoFocusSettings.from_dict({
-        "method": "laplacian",
-        "passes": [{"n_steps": 10, "step_size": 0.5e-3}],
-    })
+    s = AutoFocusSettings.from_dict(
+        {
+            "method": "laplacian",
+            "passes": [{"n_steps": 10, "step_size": 0.5e-3}],
+        }
+    )
     assert s.passes[0].step_size == pytest.approx(0.5e-3)
     assert s.passes[0].search_range == pytest.approx(10 * 0.5e-3)
     assert s.passes[0].n_steps == 10
 
 
 def test_autofocus_settings_default_pass():
-    s = AutoFocusSettings.from_dict({"method": "laplacian", "passes": [],
-                                      "probe_resolution": [768, 512],
-                                      "probe_dwell_time": 0.5e-6, "reduced_area": None})
+    s = AutoFocusSettings.from_dict(
+        {
+            "method": "laplacian",
+            "passes": [],
+            "probe_resolution": [768, 512],
+            "probe_dwell_time": 0.5e-6,
+            "reduced_area": None,
+        }
+    )
     # empty passes falls back to the default coarse/fine pair
     assert len(s.passes) == 2
 
@@ -263,6 +313,7 @@ def test_autofocus_settings_reduced_area_round_trip():
 
 # ── run_auto_focus ────────────────────────────────────────────────────────────
 
+
 def _mean_focus_fn(arr):
     """Focus function that returns mean — peaks at best_wd in make_sharp_image."""
     return np.array([np.mean(arr)])
@@ -275,10 +326,15 @@ def test_run_auto_focus_single_pass():
         method="laplacian",
         passes=[FocusSweepPass(search_range=5e-3, step_size=0.5e-3)],
     )
-    with patch("fibsem.autofunctions.metrics.get_focus_measure_function", return_value=_mean_focus_fn):
+    with patch(
+        "fibsem.autofunctions.metrics.get_focus_measure_function",
+        return_value=_mean_focus_fn,
+    ):
         result = run_auto_focus(m, settings=settings)
 
-    assert result.working_distance == pytest.approx(best_wd, abs=settings.passes[0].step_size)
+    assert result.working_distance == pytest.approx(
+        best_wd, abs=settings.passes[0].step_size
+    )
     assert result.initial_working_distance == pytest.approx(4.5e-3)
     assert result.settings is settings
     assert len(result.iterations) == settings.passes[0].n_steps + 1
@@ -287,27 +343,37 @@ def test_run_auto_focus_single_pass():
 def test_run_auto_focus_multi_pass_converges():
     best_wd = 4.5e-3
     single = AutoFocusSettings(passes=[FocusSweepPass(20e-3, 2e-3)])
-    multi = AutoFocusSettings(passes=[
-        FocusSweepPass(20e-3, 2e-3),
-        FocusSweepPass(2e-3, 0.2e-3),
-        FocusSweepPass(0.2e-3, 0.02e-3),
-    ])
+    multi = AutoFocusSettings(
+        passes=[
+            FocusSweepPass(20e-3, 2e-3),
+            FocusSweepPass(2e-3, 0.2e-3),
+            FocusSweepPass(0.2e-3, 0.02e-3),
+        ]
+    )
 
     m_single = mock_microscope(best_wd=best_wd, initial_wd=7.0e-3)
     m_multi = mock_microscope(best_wd=best_wd, initial_wd=7.0e-3)
 
-    with patch("fibsem.autofunctions.metrics.get_focus_measure_function", return_value=_mean_focus_fn):
+    with patch(
+        "fibsem.autofunctions.metrics.get_focus_measure_function",
+        return_value=_mean_focus_fn,
+    ):
         r_single = run_auto_focus(m_single, settings=single)
         r_multi = run_auto_focus(m_multi, settings=multi)
 
-    assert abs(r_multi.working_distance - best_wd) <= abs(r_single.working_distance - best_wd)
+    assert abs(r_multi.working_distance - best_wd) <= abs(
+        r_single.working_distance - best_wd
+    )
 
 
 def test_run_auto_focus_iteration_count():
     m = mock_microscope()
     passes = [FocusSweepPass(5e-3, 1e-3), FocusSweepPass(0.4e-3, 0.1e-3)]
     settings = AutoFocusSettings(passes=passes)
-    with patch("fibsem.autofunctions.metrics.get_focus_measure_function", return_value=_mean_focus_fn):
+    with patch(
+        "fibsem.autofunctions.metrics.get_focus_measure_function",
+        return_value=_mean_focus_fn,
+    ):
         result = run_auto_focus(m, settings=settings)
     expected = sum(p.n_steps + 1 for p in passes)
     assert len(result.iterations) == expected
@@ -329,20 +395,28 @@ def test_run_auto_focus_restores_wd_on_error():
 def test_run_auto_focus_cancelled_at_entry_restores_wd():
     """A stop event set before autofocus starts aborts before any sweep and restores the WD."""
     from fibsem.cancellation import OperationCancelledError
+
     initial_wd = 7.0e-3
     m = mock_microscope(initial_wd=initial_wd)
-    ev = threading.Event(); ev.set()
+    ev = threading.Event()
+    ev.set()
     settings = AutoFocusSettings(passes=[FocusSweepPass(2.5e-3, 0.5e-3)])
-    with patch("fibsem.autofunctions.metrics.get_focus_measure_function", return_value=_mean_focus_fn):
+    with patch(
+        "fibsem.autofunctions.metrics.get_focus_measure_function",
+        return_value=_mean_focus_fn,
+    ):
         with pytest.raises(OperationCancelledError):
             run_auto_focus(m, settings=settings, stop_event=ev)
     m.acquire_image.assert_not_called()  # aborted before any sweep image
-    assert m.set_working_distance.call_args[0][0] == pytest.approx(initial_wd)  # WD restored
+    assert m.set_working_distance.call_args[0][0] == pytest.approx(
+        initial_wd
+    )  # WD restored
 
 
 def test_run_auto_focus_cancelled_mid_sweep_restores_wd():
     """A stop event set *during* the sweep aborts partway (not all steps) and restores the WD."""
     from fibsem.cancellation import OperationCancelledError
+
     initial_wd = 7.0e-3
     m = mock_microscope(initial_wd=initial_wd)
     ev = threading.Event()
@@ -357,14 +431,22 @@ def test_run_auto_focus_cancelled_mid_sweep_restores_wd():
 
     m.acquire_image.side_effect = acquire_then_cancel
     settings = AutoFocusSettings(passes=[FocusSweepPass(2.5e-3, 0.1e-3)])  # ~26 steps
-    with patch("fibsem.autofunctions.metrics.get_focus_measure_function", return_value=_mean_focus_fn):
+    with patch(
+        "fibsem.autofunctions.metrics.get_focus_measure_function",
+        return_value=_mean_focus_fn,
+    ):
         with pytest.raises(OperationCancelledError):
             run_auto_focus(m, settings=settings, stop_event=ev)
-    assert calls["n"] < settings.passes[0].n_steps + 1  # stopped before completing the sweep
-    assert m.set_working_distance.call_args[0][0] == pytest.approx(initial_wd)  # WD restored
+    assert (
+        calls["n"] < settings.passes[0].n_steps + 1
+    )  # stopped before completing the sweep
+    assert m.set_working_distance.call_args[0][0] == pytest.approx(
+        initial_wd
+    )  # WD restored
 
 
 # ── AutoFocusResult serialisation ─────────────────────────────────────────────
+
 
 def test_autofocus_result_save_load(tmp_path):
     result = make_autofocus_result(n_passes=2)
@@ -372,13 +454,16 @@ def test_autofocus_result_save_load(tmp_path):
     loaded = AutoFocusResult.load(str(saved_dir))
 
     assert loaded.working_distance == pytest.approx(result.working_distance)
-    assert loaded.initial_working_distance == pytest.approx(result.initial_working_distance)
+    assert loaded.initial_working_distance == pytest.approx(
+        result.initial_working_distance
+    )
     assert loaded.focus_score == pytest.approx(result.focus_score)
     assert len(loaded.iterations) == len(result.iterations)
     assert loaded.settings.method == result.settings.method
 
 
 # ── Plotting ──────────────────────────────────────────────────────────────────
+
 
 def test_plot_acb_minimal(tmp_path):
     result = make_acb_result(n_iters=1)
@@ -438,8 +523,10 @@ def test_plot_autofocus_threadsafe(tmp_path):
 
 # ── Charge neutralisation ─────────────────────────────────────────────────────
 
+
 def test_auto_charge_neutralisation():
     from fibsem.structures import ImageSettings
+
     m = MagicMock()
     image_settings = MagicMock(spec=ImageSettings)
     image_settings.hfw = 150e-6

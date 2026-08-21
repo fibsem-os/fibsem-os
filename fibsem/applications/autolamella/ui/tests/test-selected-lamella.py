@@ -1,4 +1,5 @@
 """Test script for SelectedLamellaWidget (objective + pose list)."""
+
 import sys
 from pathlib import Path
 
@@ -18,18 +19,23 @@ from fibsem.applications.autolamella.ui.selected_lamella_widget import (
 from fibsem.structures import FibsemStagePosition, MicroscopeState
 
 
-def _pose(x: float, y: float, z: float, r: float = 0.0, t: float = 0.0,
-          objective: float = None) -> MicroscopeState:
-    state = MicroscopeState(
-        stage_position=FibsemStagePosition(x=x, y=y, z=z, r=r, t=t)
-    )
+def _pose(
+    x: float,
+    y: float,
+    z: float,
+    r: float = 0.0,
+    t: float = 0.0,
+    objective: float = None,
+) -> MicroscopeState:
+    state = MicroscopeState(stage_position=FibsemStagePosition(x=x, y=y, z=z, r=r, t=t))
     if objective is not None:
         state.objective_position = objective
     return state
 
 
-def _make_lamella(number: int, petname: str, with_objective: bool,
-                  with_fluorescence: bool) -> Lamella:
+def _make_lamella(
+    number: int, petname: str, with_objective: bool, with_fluorescence: bool
+) -> Lamella:
     lamella = Lamella(path=Path(f"/tmp/test/{petname}"), number=number, petname=petname)
     lamella.milling_pose = _pose(1e-3 * number, 2e-3, 3e-3, r=0.1, t=0.2)
     if with_fluorescence:

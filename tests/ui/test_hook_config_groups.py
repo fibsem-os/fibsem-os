@@ -8,6 +8,7 @@ editing them deletes them.
 
 Uses the shared offscreen ``qapp`` fixture from tests/conftest.py.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -90,11 +91,13 @@ def test_ticking_a_group_produces_the_group(qapp):
 # a new hook type has to be editable, or it can only be written by hand
 # ---------------------------------------------------------------------------
 
+
 def test_a_slack_hook_round_trips_through_the_dialog(qapp):
     from fibsem.hooks import SlackHook
 
     hook = SlackHook(
-        name="slack", events=["any_failure"],
+        name="slack",
+        events=["any_failure"],
         url="https://hooks.slack.com/services/x",
         message_template="{item_name} broke",
     )

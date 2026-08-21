@@ -6,6 +6,7 @@ real widget against the real Demo microscope and a real Experiment on disk. The
 only stand-in is the preferences file, redirected to a temp directory so a test
 run never reads or rewrites the developer's own recents.
 """
+
 import os
 from pathlib import Path
 
@@ -37,7 +38,9 @@ def prefs_env(tmp_path, monkeypatch):
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     monkeypatch.setattr(cfg, "CONFIG_PATH", str(config_dir))
-    monkeypatch.setattr(cfg, "USER_PREFERENCES_PATH", str(config_dir / "user-preferences.yaml"))
+    monkeypatch.setattr(
+        cfg, "USER_PREFERENCES_PATH", str(config_dir / "user-preferences.yaml")
+    )
     return tmp_path
 
 
@@ -79,6 +82,7 @@ def ui(qapp):
 
 # ── Flags ─────────────────────────────────────────────────────────────────────
 
+
 def test_neither_flag_is_set_by_default():
     args = _parse_args([])
 
@@ -101,11 +105,14 @@ def test_an_unknown_flag_is_rejected():
 
 # ── Which experiment is "the last one" ────────────────────────────────────────
 
+
 def test_last_experiment_is_resolved_to_its_yaml(prefs_env):
     experiment = make_experiment(prefs_env, "exp-a")
     remember(experiment)
 
-    assert cfg.get_last_experiment_file() == os.path.join(experiment.path, "experiment.yaml")
+    assert cfg.get_last_experiment_file() == os.path.join(
+        experiment.path, "experiment.yaml"
+    )
 
 
 def test_a_deleted_last_experiment_falls_back_to_the_next_newest(prefs_env):
@@ -125,6 +132,7 @@ def test_nothing_recorded_resolves_to_nothing(prefs_env):
 
 
 # ── Connecting and loading ────────────────────────────────────────────────────
+
 
 def test_quickstart_connects_without_being_clicked(ui, prefs_env):
     ui.quickstart()

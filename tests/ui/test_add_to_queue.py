@@ -7,6 +7,7 @@ that selection rather than opening a second picker.
 Everything here is a real Experiment, real Lamellas, a real task protocol and a
 real TaskQueue. The one stand-in is a microscope.
 """
+
 import os
 from pathlib import Path
 
@@ -40,8 +41,10 @@ def experiment(tmp_path: Path) -> Experiment:
     exp = Experiment(path=tmp_path, name="test-exp")
     exp.task_protocol = AutoLamellaTaskProtocol(
         workflow_config=AutoLamellaWorkflowConfig(
-            tasks=[AutoLamellaTaskDescription(name=n, supervise=False, required=False)
-                   for n in TASKS]
+            tasks=[
+                AutoLamellaTaskDescription(name=n, supervise=False, required=False)
+                for n in TASKS
+            ]
         ),
         task_config={n: AcquireReferenceImageConfig(task_name=n) for n in TASKS},
     )
@@ -83,13 +86,16 @@ def pairs(queue: TaskQueue):
 
 # ── Ordering ──────────────────────────────────────────────────────────────────
 
+
 def test_added_at_the_end_keeps_task_outer_lamella_inner(queue):
     """Matching build_from_matrix, so added work interleaves like the original."""
     add_batch(queue, ["L1", "L2"], ["Undercut", "Polishing"], run_next=False)
 
     assert pairs(queue)[2:] == [
-        ("L1", "Undercut"), ("L2", "Undercut"),
-        ("L1", "Polishing"), ("L2", "Polishing"),
+        ("L1", "Undercut"),
+        ("L2", "Undercut"),
+        ("L1", "Polishing"),
+        ("L2", "Polishing"),
     ]
 
 
@@ -99,15 +105,17 @@ def test_run_next_keeps_the_batch_in_order(queue):
     add_batch(queue, ["L1", "L2"], ["Undercut", "Polishing"], run_next=True)
 
     assert [(i.lamella_name, i.task_name) for i in queue.pending][:4] == [
-        ("L1", "Undercut"), ("L2", "Undercut"),
-        ("L1", "Polishing"), ("L2", "Polishing"),
+        ("L1", "Undercut"),
+        ("L2", "Undercut"),
+        ("L1", "Polishing"),
+        ("L2", "Polishing"),
     ]
 
 
 def test_run_next_lands_after_the_running_item_not_before_it(queue):
     add_batch(queue, ["L1"], ["Polishing"], run_next=True)
 
-    assert pairs(queue)[0] == ("L1", "Trench")   # still running, still first
+    assert pairs(queue)[0] == ("L1", "Trench")  # still running, still first
     assert pairs(queue)[1] == ("L1", "Polishing")
 
 
@@ -120,6 +128,7 @@ def test_adding_never_disturbs_the_running_item(queue):
 
 
 # ── Duplicates are added, not dropped ─────────────────────────────────────────
+
 
 def test_a_pair_already_queued_is_added_again(queue):
     """The operator asked for it. _should_skip has no already-completed check —
@@ -136,14 +145,19 @@ def test_what_the_dialog_reports_as_already_queued(queue):
     """The set the confirm dialog warns about: pending pairs only."""
     pending = {(i.lamella_name, i.task_name) for i in queue.pending}
     lamella_names, task_names = ["L1", "L2"], ["Trench"]
-    already = [f"{t} for {ln}" for t in task_names for ln in lamella_names
-               if (ln, t) in pending]
+    already = [
+        f"{t} for {ln}"
+        for t in task_names
+        for ln in lamella_names
+        if (ln, t) in pending
+    ]
 
     # L1 Trench is running, not pending, so it is not flagged; L2 Trench is
     assert already == ["Trench for L2"]
 
 
 # ── Task config backfill ──────────────────────────────────────────────────────
+
 
 def test_a_lamella_missing_a_task_config_gets_it_from_the_base_protocol(experiment):
     """run_task raises if the lamella has no config for the task, and lamellae get
@@ -185,13 +199,17 @@ def test_only_lamellae_actually_missing_the_config_are_backfilled(experiment):
     lamellae = experiment.positions
     task_names = ["Undercut"]
 
-    missing = [lam.name for lam in lamellae
-               if any(t not in lam.task_config for t in task_names)]
+    missing = [
+        lam.name
+        for lam in lamellae
+        if any(t not in lam.task_config for t in task_names)
+    ]
 
     assert missing == ["L2"]
 
 
 # ── The header button ─────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def widget(qapp, queue) -> WorkflowProgressWidget:
@@ -232,8 +250,11 @@ def test_a_selection_enables_the_button(widget):
 
 def entries(widget) -> list:
     """The menu's selectable actions, ignoring the heading and separator."""
-    return [a for a in widget._btn_add.menu().actions()
-            if not a.isSeparator() and a.isEnabled()]
+    return [
+        a
+        for a in widget._btn_add.menu().actions()
+        if not a.isSeparator() and a.isEnabled()
+    ]
 
 
 def test_the_menu_is_headed_by_what_it_does(widget):
@@ -251,7 +272,8 @@ def test_the_menu_offers_both_destinations(widget):
     assert widget._btn_add.text() == "Add to Queue"
     assert widget._btn_add.popupMode() == QToolButton.InstantPopup
     assert [a.text() for a in entries(widget)] == [
-        "Add to End of Queue", "Add to Run Next",
+        "Add to End of Queue",
+        "Add to Run Next",
     ]
 
 

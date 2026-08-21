@@ -57,7 +57,9 @@ def test_every_renamed_key_points_at_a_real_one():
     """The diagnostic map cannot advise a key the vocabulary does not define."""
     for old, new in RENAMED_METADATA_KEYS.items():
         assert new in DEFAULT_FIELD_METADATA, f"{old!r} -> unknown key {new!r}"
-        assert old not in DEFAULT_FIELD_METADATA, f"{old!r} is both superseded and current"
+        assert old not in DEFAULT_FIELD_METADATA, (
+            f"{old!r} is both superseded and current"
+        )
 
 
 def test_filepath_is_part_of_the_vocabulary():
@@ -152,7 +154,9 @@ def test_a_known_key_is_never_reported(caplog):
     with caplog.at_level(logging.WARNING):
         get_fields_with_metadata(Fine)
 
-    assert [r.message for r in caplog.records if "declares metadata key" in r.message] == []
+    assert [
+        r.message for r in caplog.records if "declares metadata key" in r.message
+    ] == []
 
 
 def test_in_tree_configs_declare_no_unreadable_keys(caplog):
@@ -173,7 +177,9 @@ def test_in_tree_configs_declare_no_unreadable_keys(caplog):
         for task in BUILTIN_TASKS.values():
             get_fields_with_metadata(task.config_cls)
 
-    offenders = [r.message for r in caplog.records if "declares metadata key" in r.message]
+    offenders = [
+        r.message for r in caplog.records if "declares metadata key" in r.message
+    ]
     assert offenders == []
 
 

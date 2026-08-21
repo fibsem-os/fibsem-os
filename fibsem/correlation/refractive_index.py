@@ -57,10 +57,10 @@ def _ensure_lut() -> None:
 class ZetaParams:
     """Optical parameters used to look up the slice scaling factor."""
 
-    tilt_deg: float       # stage tilt angle (°), 0–30
-    depth_um: float       # feature depth below coverslip (µm), 0.5–14.5
-    NA: float             # objective numerical aperture, 0.2–0.9
-    n2: float             # immersion medium refractive index, 1.22–1.46
+    tilt_deg: float  # stage tilt angle (°), 0–30
+    depth_um: float  # feature depth below coverslip (µm), 0.5–14.5
+    NA: float  # objective numerical aperture, 0.2–0.9
+    n2: float  # immersion medium refractive index, 1.22–1.46
     wavelength_um: float  # emission wavelength (µm), 0.42–0.72
 
 

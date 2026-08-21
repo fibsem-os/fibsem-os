@@ -12,6 +12,7 @@ this guard running on every version in the matrix, which is the whole point: it 
 what stops the rules being copied a third time. The behavioural tests that need a
 real widget live in tests/ui/test_border_stylesheet.py and skip without PyQt5.
 """
+
 import ast
 import pathlib
 import re

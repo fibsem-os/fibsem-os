@@ -41,7 +41,6 @@ _ROW_HEIGHT = 40
 _BTN_SPACER_WIDTH = _BTN_SIZE.width() * 3 + 8 * 2  # 3 buttons + 2 gaps
 
 
-
 class _LamellaTooltip(QWidget):
     """Frameless popup showing a thumbnail image when hovering a lamella name."""
 
@@ -64,11 +63,17 @@ class _LamellaTooltip(QWidget):
         h, w, c = arr.shape
         qimg = QImage(arr.data, w, h, w * c, QImage.Format_RGB888)
         self._img_label.setPixmap(
-            QPixmap.fromImage(qimg).scaled(256, 170, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            QPixmap.fromImage(qimg).scaled(
+                256,
+                170,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
         )
 
     def show_near_cursor(self) -> None:
         from PyQt5.QtWidgets import QApplication
+
         cursor = QCursor.pos()
         self.adjustSize()
         w, h = self.width(), self.height()
@@ -88,7 +93,10 @@ def _status_text(lamella: Lamella) -> tuple[str, str]:
     """Return (text, stylesheet) for the status column."""
     ts = lamella.task_state
     if ts and ts.status == AutoLamellaTaskStatus.InProgress:
-        return f"{ts.name}", f"color: {stylesheets.PRIMARY_COLOR}; background: transparent;"
+        return (
+            f"{ts.name}",
+            f"color: {stylesheets.PRIMARY_COLOR}; background: transparent;",
+        )
     last = lamella.last_completed_task
     if last:
         return last.completed, f"color: {NEUTRAL_550}; background: transparent;"
@@ -101,15 +109,23 @@ def _defect_icon(lamella: Lamella) -> tuple[str, str, str]:
     if d.state == DefectType.NONE:
         return "mdi:check-circle", stylesheets.GREEN_COLOR, "No defect"
     if d.state == DefectType.REWORK:
-        return "mdi:refresh-circle", stylesheets.DEFECT_ORANGE_COLOR, f"Rework required{': ' + d.description if d.description else ''}"
-    return "mdi:close-circle", stylesheets.DEFECT_RED_COLOR, f"Failure{': ' + d.description if d.description else ''}"
+        return (
+            "mdi:refresh-circle",
+            stylesheets.DEFECT_ORANGE_COLOR,
+            f"Rework required{': ' + d.description if d.description else ''}",
+        )
+    return (
+        "mdi:close-circle",
+        stylesheets.DEFECT_RED_COLOR,
+        f"Failure{': ' + d.description if d.description else ''}",
+    )
 
 
 class LamellaRowWidget(QWidget):
-    move_to_clicked = pyqtSignal(object)       # Lamella
-    edit_clicked = pyqtSignal(object)          # Lamella
-    remove_clicked = pyqtSignal(object)        # Lamella
-    defect_changed = pyqtSignal(object)        # Lamella
+    move_to_clicked = pyqtSignal(object)  # Lamella
+    edit_clicked = pyqtSignal(object)  # Lamella
+    remove_clicked = pyqtSignal(object)  # Lamella
+    defect_changed = pyqtSignal(object)  # Lamella
     selection_changed = pyqtSignal(object, bool)  # Lamella, checked
 
     def __init__(
@@ -145,15 +161,21 @@ class LamellaRowWidget(QWidget):
         layout.addWidget(self.status_label, 1)
 
         self.btn_defect = QToolButton()
-        self.btn_defect.setIcon(fibsem_icon("mdi:circle", color=stylesheets.GREEN_COLOR))
+        self.btn_defect.setIcon(
+            fibsem_icon("mdi:circle", color=stylesheets.GREEN_COLOR)
+        )
         self.btn_defect.setFixedSize(_BTN_SIZE)
         self.btn_defect.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
         layout.addWidget(self.btn_defect)
 
-        self.btn_edit = IconToolButton(icon="mdi:pencil", tooltip="Edit Lamella", size=_BTN_SIZE.width())
+        self.btn_edit = IconToolButton(
+            icon="mdi:pencil", tooltip="Edit Lamella", size=_BTN_SIZE.width()
+        )
         layout.addWidget(self.btn_edit)
 
-        self.btn_remove = IconToolButton(icon="mdi:trash-can-outline", tooltip="Remove", size=_BTN_SIZE.width())
+        self.btn_remove = IconToolButton(
+            icon="mdi:trash-can-outline", tooltip="Remove", size=_BTN_SIZE.width()
+        )
         layout.addWidget(self.btn_remove)
 
         self.checkbox.stateChanged.connect(
@@ -196,8 +218,8 @@ class LamellaRowWidget(QWidget):
         # type: ignore because @evented adds .events dynamically and pyright can't see it.
         # lamella.task_state.events.name.connect(self.refresh)    # DISABLED: FIB-604
         # lamella.task_state.events.status.connect(self.refresh)  # DISABLED: FIB-604
-        lamella.events.defect.connect(self.refresh)             # type: ignore[union-attr]
-        lamella.events.description.connect(self.refresh)        # type: ignore[union-attr]
+        lamella.events.defect.connect(self.refresh)  # type: ignore[union-attr]
+        lamella.events.description.connect(self.refresh)  # type: ignore[union-attr]
 
         self.refresh()
 
@@ -207,15 +229,17 @@ class LamellaRowWidget(QWidget):
             fibsem_icon("mdi:check-circle", color=stylesheets.GREEN_COLOR), "No defect"
         )
         action_rework = menu.addAction(
-            fibsem_icon("mdi:refresh-circle", color=stylesheets.DEFECT_ORANGE_COLOR), "Rework required"
+            fibsem_icon("mdi:refresh-circle", color=stylesheets.DEFECT_ORANGE_COLOR),
+            "Rework required",
         )
         action_failure = menu.addAction(
-            fibsem_icon("mdi:close-circle", color=stylesheets.DEFECT_RED_COLOR), "Failure"
+            fibsem_icon("mdi:close-circle", color=stylesheets.DEFECT_RED_COLOR),
+            "Failure",
         )
 
-        chosen = menu.exec_(self.btn_defect.mapToGlobal(
-            self.btn_defect.rect().bottomLeft()
-        ))
+        chosen = menu.exec_(
+            self.btn_defect.mapToGlobal(self.btn_defect.rect().bottomLeft())
+        )
 
         if chosen == action_none:
             self.lamella.defect = DefectState(state=DefectType.NONE)
@@ -306,11 +330,11 @@ class _LamellaListHeader(QWidget):
 class LamellaListWidget(QWidget):
     """List widget displaying Lamella objects with name, defect, status and actions."""
 
-    move_to_requested = pyqtSignal(object)   # Lamella
-    edit_requested = pyqtSignal(object)      # Lamella
-    remove_requested = pyqtSignal(object)    # Lamella
-    defect_changed = pyqtSignal(object)      # Lamella
-    selection_changed = pyqtSignal(list)     # List[Lamella]
+    move_to_requested = pyqtSignal(object)  # Lamella
+    edit_requested = pyqtSignal(object)  # Lamella
+    remove_requested = pyqtSignal(object)  # Lamella
+    defect_changed = pyqtSignal(object)  # Lamella
+    selection_changed = pyqtSignal(list)  # List[Lamella]
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -460,10 +484,7 @@ class LamellaListWidget(QWidget):
         count = self._list.count()
         if count == 0:
             return
-        n_checked = sum(
-            self._row(i).checkbox.isChecked()
-            for i in range(count)
-        )
+        n_checked = sum(self._row(i).checkbox.isChecked() for i in range(count))
         cb = self._header.checkbox_all
         cb.blockSignals(True)
         if n_checked == 0:

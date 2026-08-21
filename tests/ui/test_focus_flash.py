@@ -72,8 +72,14 @@ def _wheel(dx: int, dy: int, modifiers=Qt.ShiftModifier) -> QWheelEvent:
     """
     pos = QPoint(200, 200)
     return QWheelEvent(
-        pos, pos, QPoint(0, 0), QPoint(dx, dy), Qt.NoButton, modifiers,
-        Qt.NoScrollPhase, False,
+        pos,
+        pos,
+        QPoint(0, 0),
+        QPoint(dx, dy),
+        Qt.NoButton,
+        modifiers,
+        Qt.NoScrollPhase,
+        False,
     )
 
 

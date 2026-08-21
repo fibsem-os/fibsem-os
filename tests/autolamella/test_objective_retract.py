@@ -4,6 +4,7 @@ The objective is inserted by the fluorescence tasks and, before this, was only
 retracted once at the very end of a whole workflow run — so it stayed inserted
 across every task in between.
 """
+
 from unittest.mock import MagicMock
 
 import pytest
@@ -68,8 +69,14 @@ def test_retract_failure_does_not_fail_the_task():
 def test_retract_objective_survives_a_config_round_trip(value):
     """to_dict/from_dict are hand-written here — a new field is easy to drop."""
     config = AcquireFluorescenceImageConfig(task_name="FM", retract_objective=value)
-    assert AcquireFluorescenceImageConfig.from_dict(config.to_dict()).retract_objective is value
+    assert (
+        AcquireFluorescenceImageConfig.from_dict(config.to_dict()).retract_objective
+        is value
+    )
 
 
 def test_retract_objective_defaults_true_for_older_protocols():
-    assert AcquireFluorescenceImageConfig.from_dict({"task_name": "FM"}).retract_objective is True
+    assert (
+        AcquireFluorescenceImageConfig.from_dict({"task_name": "FM"}).retract_objective
+        is True
+    )

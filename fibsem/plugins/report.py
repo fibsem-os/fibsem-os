@@ -151,7 +151,9 @@ class ExtensionGroup:
     def visible(self, show_builtins: bool) -> Tuple[Extension, ...]:
         if show_builtins:
             return self.extensions
-        return tuple(e for e in self.extensions if e.source is not ExtensionSource.BUILTIN)
+        return tuple(
+            e for e in self.extensions if e.source is not ExtensionSource.BUILTIN
+        )
 
 
 def home_relative(path: str) -> str:
@@ -166,7 +168,7 @@ def home_relative(path: str) -> str:
     except Exception:  # pragma: no cover - expanduser is not supposed to fail
         return path
     if home and path.startswith(home):
-        return "~" + path[len(home):]
+        return "~" + path[len(home) :]
     return path
 
 
@@ -174,7 +176,9 @@ def _qualified(cls: type) -> str:
     return f"{cls.__module__}.{cls.__qualname__}"
 
 
-def _shadow_reason(name: str, builtins: Dict[str, type], registered: Dict[str, type]) -> str:
+def _shadow_reason(
+    name: str, builtins: Dict[str, type], registered: Dict[str, type]
+) -> str:
     if name in builtins:
         return "name taken by a built-in - the built-in is used, this is inactive"
     if name in registered:
@@ -226,7 +230,9 @@ def _build_group(
                 target=_qualified(record.cls),
                 distribution=record.distribution,
                 version=record.version,
-                problem=None if won else _shadow_reason(record.name, builtins, registered),
+                problem=None
+                if won
+                else _shadow_reason(record.name, builtins, registered),
             )
         )
 
@@ -234,7 +240,9 @@ def _build_group(
         if name in builtins:
             # Registered at runtime, then shadowed by the built-in of the same
             # name. Same story as a shadowed plugin.
-            problem = "name taken by a built-in - the built-in is used, this is inactive"
+            problem = (
+                "name taken by a built-in - the built-in is used, this is inactive"
+            )
         else:
             problem = None
         extensions.append(
@@ -326,8 +334,18 @@ def _task_group() -> ExtensionGroup:
 # named in the listing. Pinned against the real constants by
 # test_the_group_table_matches_the_registries.
 _GROUPS: Tuple[Tuple[str, str, str, Callable[[], ExtensionGroup]], ...] = (
-    ("fibsem.patterns", "Milling patterns", "fibsem.milling.patterning", _pattern_group),
-    ("fibsem.strategies", "Milling strategies", "fibsem.milling.strategy", _strategy_group),
+    (
+        "fibsem.patterns",
+        "Milling patterns",
+        "fibsem.milling.patterning",
+        _pattern_group,
+    ),
+    (
+        "fibsem.strategies",
+        "Milling strategies",
+        "fibsem.milling.strategy",
+        _strategy_group,
+    ),
     (
         "fibsem.tasks",
         "AutoLamella tasks",
@@ -354,7 +372,9 @@ def _collect_group(
     try:
         return collect()
     except Exception as exc:
-        logging.error("Could not inspect the '%s' extension group", group, exc_info=True)
+        logging.error(
+            "Could not inspect the '%s' extension group", group, exc_info=True
+        )
         return ExtensionGroup(
             group=group,
             label=label,
@@ -414,6 +434,7 @@ def installed_plugin_versions() -> Dict[str, str]:
 # Text rendering
 # ---------------------------------------------------------------------------
 
+
 def _plural(count: int, noun: str) -> str:
     return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
@@ -427,7 +448,11 @@ def group_counts_phrase(group: ExtensionGroup) -> str:
     """
     counts = group.counts()
     parts = []
-    for source in (ExtensionSource.PLUGIN, ExtensionSource.SCRIPT, ExtensionSource.REGISTERED):
+    for source in (
+        ExtensionSource.PLUGIN,
+        ExtensionSource.SCRIPT,
+        ExtensionSource.REGISTERED,
+    ):
         if counts.get(source):
             parts.append(_plural(counts[source], source.value))
     if counts.get(ExtensionSource.FAILED):
@@ -448,7 +473,11 @@ def summarise(groups: Iterable[ExtensionGroup]) -> Tuple[str, int]:
             totals[source] = totals.get(source, 0) + count
 
     parts = []
-    for source in (ExtensionSource.PLUGIN, ExtensionSource.SCRIPT, ExtensionSource.REGISTERED):
+    for source in (
+        ExtensionSource.PLUGIN,
+        ExtensionSource.SCRIPT,
+        ExtensionSource.REGISTERED,
+    ):
         if totals.get(source):
             parts.append(_plural(totals[source], source.value))
     if totals.get(ExtensionSource.FAILED):
@@ -534,7 +563,9 @@ def render_report(groups: Iterable[ExtensionGroup], show_builtins: bool = False)
             if extension.path is not None:
                 # The path took the origin column, so the class goes below it
                 # rather than being dropped.
-                lines.append(_INDENT + " " * (name_width + source_width) + extension.target)
+                lines.append(
+                    _INDENT + " " * (name_width + source_width) + extension.target
+                )
             if extension.problem:
                 lines.append(_INDENT + " " * name_width + "! " + extension.problem)
         lines.append("")

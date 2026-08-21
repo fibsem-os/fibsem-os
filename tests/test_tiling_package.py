@@ -70,8 +70,7 @@ def _module_level_imports(relative_path: str) -> set:
 @pytest.mark.parametrize("path", PURE_MODULES)
 def test_layers_declare_no_microscope_or_ui_import(path):
     offending = sorted(
-        m for m in _declared_imports(path)
-        if m.startswith(FORBIDDEN_PREFIXES)
+        m for m in _declared_imports(path) if m.startswith(FORBIDDEN_PREFIXES)
     )
     assert not offending, (
         f"{path} imports {offending}. These layers stay independent of the microscope "

@@ -28,7 +28,7 @@ class FibsemMillingStagesWidget(QWidget):
     """
 
     stages_changed = pyqtSignal(list)  # List[FibsemMillingStage]
-    eye_toggled = pyqtSignal(bool)     # True = patterns visible
+    eye_toggled = pyqtSignal(bool)  # True = patterns visible
 
     def __init__(
         self,
@@ -60,8 +60,12 @@ class FibsemMillingStagesWidget(QWidget):
         # Stage list. Tescan mills by preset — milling_current is a no-op on that backend —
         # so it gets a Preset column where every other backend gets Current.
         _show_preset = self.microscope.manufacturer.upper() == "TESCAN"
-        _current_values = self.microscope.get_available_values_cached("current", BeamType.ION)
-        _preset_values = self.microscope.get_available_values_cached("preset", BeamType.ION)
+        _current_values = self.microscope.get_available_values_cached(
+            "current", BeamType.ION
+        )
+        _preset_values = self.microscope.get_available_values_cached(
+            "preset", BeamType.ION
+        )
         self._list = MillingStageListWidget(
             current_values=_current_values,
             preset_values=_preset_values,
@@ -133,10 +137,14 @@ class FibsemMillingStagesWidget(QWidget):
 
     def _connect_signals(self) -> None:
         self._list.stage_selected.connect(self._on_row_selected)
-        self._list.stage_added.connect(lambda _: self.stages_changed.emit(self._list.get_stages()))
+        self._list.stage_added.connect(
+            lambda _: self.stages_changed.emit(self._list.get_stages())
+        )
         self._list.stage_removed.connect(self._on_stage_removed)
         self._list.order_changed.connect(self.stages_changed.emit)
-        self._list.enabled_changed.connect(lambda _: self.stages_changed.emit(self._list.get_stages()))
+        self._list.enabled_changed.connect(
+            lambda _: self.stages_changed.emit(self._list.get_stages())
+        )
         self._list.stage_changed.connect(self._on_inline_stage_changed)
         self._list.eye_toggled.connect(self.eye_toggled)
         self._milling_widget.settings_changed.connect(self._on_milling_settings_changed)

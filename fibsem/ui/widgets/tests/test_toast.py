@@ -1,4 +1,5 @@
 """Manual test script for toast notifications (FIB-100)."""
+
 import sys
 
 from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget
@@ -24,9 +25,16 @@ class TestWindow(QMainWindow):
 
         for ntype in ["info", "success", "warning", "error"]:
             btn = QPushButton(f"Show {ntype} toast")
-            btn.setStyleSheet("color: #d6d6d6; background-color: #3d4251; padding: 8px; border-radius: 3px;")
-            btn.clicked.connect(lambda checked, t=ntype: self.toast_manager.show_toast(f"This is a {t} message", t))
+            btn.setStyleSheet(
+                "color: #d6d6d6; background-color: #3d4251; padding: 8px; border-radius: 3px;"
+            )
+            btn.clicked.connect(
+                lambda checked, t=ntype: self.toast_manager.show_toast(
+                    f"This is a {t} message", t
+                )
+            )
             layout.addWidget(btn)
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

@@ -1,4 +1,5 @@
 """Standalone viewer for loading and displaying FluorescenceImages from file."""
+
 from __future__ import annotations
 
 import logging
@@ -176,7 +177,9 @@ class FMImageViewerWidget(QWidget):
         shape = getattr(image.data, "shape", ())
         if channels:
             n_z = shape[-3] if len(shape) >= 3 else 1
-            parts.append(f"{len(channels)} channel{'s' if len(channels) != 1 else ''} · {n_z} z-slice{'s' if n_z != 1 else ''}")
+            parts.append(
+                f"{len(channels)} channel{'s' if len(channels) != 1 else ''} · {n_z} z-slice{'s' if n_z != 1 else ''}"
+            )
             parts.append(", ".join(c.name for c in channels))
         if len(shape) >= 2:
             parts.append(f"{shape[-1]} × {shape[-2]} px")

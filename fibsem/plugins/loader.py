@@ -185,13 +185,17 @@ def load_entry_point_group(
         # does. Check first, so the reason names the real problem.
         if not isinstance(obj, type):
             reason = f"{type(obj).__name__} is not a class"
-            logging.warning("Invalid %s plugin found: '%s' %s", kind, entry_point.value, reason)
+            logging.warning(
+                "Invalid %s plugin found: '%s' %s", kind, entry_point.value, reason
+            )
             records.append(replace(record, error=reason))
             continue
 
         if not issubclass(obj, base_cls):
             reason = f"not a subclass of {base_cls.__name__}"
-            logging.warning("Invalid %s plugin found: '%s' is %s", kind, entry_point.value, reason)
+            logging.warning(
+                "Invalid %s plugin found: '%s' is %s", kind, entry_point.value, reason
+            )
             records.append(replace(record, error=reason))
             continue
 

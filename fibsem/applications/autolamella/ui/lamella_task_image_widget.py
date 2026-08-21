@@ -41,10 +41,10 @@ from fibsem.ui.tokens import (
     SURFACE_COLOR,
 )
 
-_TARGET_WIDTH = 1024//2
-_PLACEHOLDER_HEIGHT = 768//2  # estimated height for placeholder labels
+_TARGET_WIDTH = 1024 // 2
+_PLACEHOLDER_HEIGHT = 768 // 2  # estimated height for placeholder labels
 _MAX_IMAGES_PER_TASK = 2  # last 2 files = highest-res SEM + FIB
-_IMAGES_PER_LINE = 2      # tiles per line before wrapping; matches the SEM/FIB pair
+_IMAGES_PER_LINE = 2  # tiles per line before wrapping; matches the SEM/FIB pair
 
 
 def _arr_to_pixmap(arr: np.ndarray, w: int, h: int) -> QPixmap:
@@ -55,13 +55,16 @@ def _arr_to_pixmap(arr: np.ndarray, w: int, h: int) -> QPixmap:
     ih, iw, c = arr.shape
     qimg = QImage(arr.data, iw, ih, iw * c, QImage.Format_RGB888)
     return QPixmap.fromImage(qimg).scaled(
-        w, h,
+        w,
+        h,
         Qt.AspectRatioMode.KeepAspectRatio,
         Qt.TransformationMode.SmoothTransformation,
     )
 
 
-def _load_and_resize(filepath: str, target_width: int = _TARGET_WIDTH) -> Tuple[np.ndarray, float]:
+def _load_and_resize(
+    filepath: str, target_width: int = _TARGET_WIDTH
+) -> Tuple[np.ndarray, float]:
     """Load an image and resize to target width, preserving aspect ratio.
 
     Handles both a plain .tif and a fluorescence z-stack, which becomes an RGB
@@ -134,7 +137,9 @@ class ZoomableImageView(QGraphicsView):
             self.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
     def wheelEvent(self, event) -> None:
-        factor = self._ZOOM_FACTOR if event.angleDelta().y() > 0 else 1 / self._ZOOM_FACTOR
+        factor = (
+            self._ZOOM_FACTOR if event.angleDelta().y() > 0 else 1 / self._ZOOM_FACTOR
+        )
         self.scale(factor, factor)
 
 
@@ -344,7 +349,9 @@ class LamellaTaskImageWidget(QWidget):
             # cap the reference images *before* appending fluorescence: the cap picks
             # the highest-magnification SEM/FIB pair out of a multi-FOV set, and
             # applying it to a merged list would let a z-stack displace the FIB image.
-            filenames = final_reference_images(lamella, *task_runs)[-_MAX_IMAGES_PER_TASK:]
+            filenames = final_reference_images(lamella, *task_runs)[
+                -_MAX_IMAGES_PER_TASK:
+            ]
             filenames += fluorescence_images(lamella, *task_runs)
             # a task that produced nothing still gets a row saying so: silently
             # omitting it is indistinguishable from the task never having run,
@@ -429,7 +436,9 @@ class LamellaTaskImageWidget(QWidget):
 
         return container
 
-    def _on_image_loaded(self, filepath: str, arr: np.ndarray, pixel_size_x: float) -> None:
+    def _on_image_loaded(
+        self, filepath: str, arr: np.ndarray, pixel_size_x: float
+    ) -> None:
         """Slot called on main thread when a background image finishes loading."""
         arr = draw_image_overlays(arr, pixel_size_x)
         h, w = arr.shape[:2]
@@ -446,5 +455,7 @@ class LamellaTaskImageWidget(QWidget):
 
     def _open_expanded(self, filepath: str) -> None:
         """Open an expanded, zoomable/pannable view of the image."""
-        dlg = ExpandedImageDialog(filepath, title=os.path.basename(filepath), parent=self)
+        dlg = ExpandedImageDialog(
+            filepath, title=os.path.basename(filepath), parent=self
+        )
         dlg.exec_()

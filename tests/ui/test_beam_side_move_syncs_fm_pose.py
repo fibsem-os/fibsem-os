@@ -15,6 +15,7 @@ invokes is not a fix.
 The methods are borrowed onto stubs rather than driven through real widgets, because the
 minimap needs a napari viewer and those segfault under the offscreen platform.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -137,7 +138,9 @@ def test_dragging_a_lamella_on_the_minimap_moves_its_fluorescence_pose(tmp_path)
     )
 
 
-def test_saving_a_new_position_from_the_lamella_list_moves_it_too(tmp_path, monkeypatch):
+def test_saving_a_new_position_from_the_lamella_list_moves_it_too(
+    tmp_path, monkeypatch
+):
     """`AutoLamellaUI.update_lamella_position_ui` -- the list row's Update Position,
     which records wherever the stage is now onto the selected lamella."""
     module = sys.modules["fibsem.applications.autolamella.ui.AutoLamellaUI"]
@@ -222,7 +225,9 @@ def _pose_row_ui(module, microscope, lamella):
     """A stub carrying `AutoLamellaUI._set_current_position_as_pose` and nothing else."""
 
     class _UI:
-        _set_current_position_as_pose = module.AutoLamellaUI._set_current_position_as_pose
+        _set_current_position_as_pose = (
+            module.AutoLamellaUI._set_current_position_as_pose
+        )
 
         def __init__(self):
             self.microscope = microscope

@@ -26,7 +26,11 @@ GRID_KWARGS = dict(fov_x=1.0, fov_y=1.0, image_width=100, image_height=100, over
 
 def make_grid(n, predicate=None):
     """An n x n grid; `predicate(row, col)` decides which tiles are enabled."""
-    mask = None if predicate is None else [[predicate(i, j) for j in range(n)] for i in range(n)]
+    mask = (
+        None
+        if predicate is None
+        else [[predicate(i, j) for j in range(n)] for i in range(n)]
+    )
     return compute_tile_grid_from_fov(nrows=n, ncols=n, mask=mask, **GRID_KWARGS)
 
 
@@ -75,9 +79,9 @@ def test_a_numpy_mask_yields_plain_bools():
 @pytest.mark.parametrize(
     ("mask", "match"),
     [
-        ([[True] * 3] * 2, "2 rows"),        # too few rows
-        ([[True] * 2] * 3, "2 columns"),     # too few columns
-        ([[True] * 3] * 4, "4 rows"),        # too many rows
+        ([[True] * 3] * 2, "2 rows"),  # too few rows
+        ([[True] * 2] * 3, "2 columns"),  # too few columns
+        ([[True] * 3] * 4, "4 rows"),  # too many rows
     ],
 )
 def test_a_mask_of_the_wrong_shape_is_rejected(mask, match):
@@ -96,13 +100,19 @@ def test_sparse_tiles_land_where_the_dense_ones_would(overlap):
     kwargs = dict(GRID_KWARGS, overlap=overlap)
     predicate = lambda i, j: (i + j) % 2 == 0  # noqa: E731
 
-    dense = {(t.row, t.col): t for t in compute_tile_grid_from_fov(nrows=4, ncols=4, **kwargs)}
+    dense = {
+        (t.row, t.col): t
+        for t in compute_tile_grid_from_fov(nrows=4, ncols=4, **kwargs)
+    }
     mask = [[predicate(i, j) for j in range(4)] for i in range(4)]
     sparse = compute_tile_grid_from_fov(nrows=4, ncols=4, mask=mask, **kwargs)
 
     for tile in sparse:
         reference = dense[(tile.row, tile.col)]
-        assert (tile.canvas_x, tile.canvas_y) == (reference.canvas_x, reference.canvas_y)
+        assert (tile.canvas_x, tile.canvas_y) == (
+            reference.canvas_x,
+            reference.canvas_y,
+        )
         assert (tile.dx, tile.dy) == (reference.dx, reference.dy)
 
 
@@ -123,10 +133,10 @@ def test_ordering_returns_only_enabled_tiles(strategy):
 @pytest.mark.parametrize(
     "predicate",
     [
-        lambda i, j: (i + j) % 2 == 0,      # checkerboard
-        lambda i, j: i < 3 and j < 3,       # off-centre block
-        lambda i, j: i != 1,                # a whole row missing
-        lambda i, j: (i, j) != (2, 2),      # a single hole
+        lambda i, j: (i + j) % 2 == 0,  # checkerboard
+        lambda i, j: i < 3 and j < 3,  # off-centre block
+        lambda i, j: i != 1,  # a whole row missing
+        lambda i, j: (i, j) != (2, 2),  # a single hole
     ],
     ids=["checkerboard", "off-centre-block", "whole-row-missing", "single-hole"],
 )
@@ -170,7 +180,9 @@ def test_serpentine_parity_follows_the_grid_row_not_the_visit_count():
     tiles = make_grid(4, lambda i, j: i != 1)
 
     ours = order_tiles(tiles, TileOrderStrategy.SERPENTINE)
-    re_derived = order_tiles([t for t in tiles if t.enabled], TileOrderStrategy.SERPENTINE)
+    re_derived = order_tiles(
+        [t for t in tiles if t.enabled], TileOrderStrategy.SERPENTINE
+    )
 
     assert rc(ours)[:5] == [(0, 0), (0, 1), (0, 2), (0, 3), (2, 0)]
     assert rc(re_derived)[:5] == [(0, 0), (0, 1), (0, 2), (0, 3), (2, 3)]

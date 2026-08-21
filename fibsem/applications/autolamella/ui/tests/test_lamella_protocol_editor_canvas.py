@@ -14,6 +14,7 @@ must survive one tab having migrated.
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_lamella_protocol_editor_canvas.py
 """
+
 from __future__ import annotations
 
 import os
@@ -130,7 +131,9 @@ def test_editor_is_napari_free():
 
 def test_fib_image_reaches_the_ion_canvas():
     editor, _ = _editor()
-    image = FibsemImage.generate_blank_image(resolution=_RESOLUTION, hfw=_HFW, random=True)
+    image = FibsemImage.generate_blank_image(
+        resolution=_RESOLUTION, hfw=_HFW, random=True
+    )
     editor.image = image
     editor.view_controller.set_image(BeamType.ION, image)
     canvas = editor.view_controller.get_canvas(BeamType.ION)
@@ -197,7 +200,9 @@ def test_alignment_area_draws_removes_and_folds_edits_back():
     assert lamella.alignment_area.top == 0.2
 
     # an edit signalled for a different overlay on the same canvas must be ignored
-    editor._on_controller_overlay_edited(BeamType.ION, "milling", FibsemRectangle(0.9, 0.9, 0.05, 0.05))
+    editor._on_controller_overlay_edited(
+        BeamType.ION, "milling", FibsemRectangle(0.9, 0.9, 0.05, 0.05)
+    )
     assert lamella.alignment_area.left == 0.1
 
     editor._on_toggle_alignment_area_editable(False)

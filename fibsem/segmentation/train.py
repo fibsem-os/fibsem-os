@@ -21,7 +21,9 @@ from fibsem.constants import DATE_COMPACT
 from fibsem.segmentation import dataset, utils
 
 
-def _convert_checkpoint_format(checkpoint: str, encoder:str, nc: int, output_filename: str):
+def _convert_checkpoint_format(
+    checkpoint: str, encoder: str, nc: int, output_filename: str
+):
     """Converts a checkpoint from the old format to the new format"""
     import torch
     from huggingface_hub import hf_hub_download
@@ -37,14 +39,14 @@ def _convert_checkpoint_format(checkpoint: str, encoder:str, nc: int, output_fil
     torch.save(state_dict, output_filename)
     print(f"Saved as {output_filename}")
 
+
 def _create_wandb_image(img, gt, pred, caption):
-    
-    img = img_as_ubyte(gray2rgb(img)) 
-    gt = utils.decode_segmap_v2(gt[0]) 
+
+    img = img_as_ubyte(gray2rgb(img))
+    gt = utils.decode_segmap_v2(gt[0])
     pred = utils.decode_segmap_v2(pred[0])
 
-    return wandb.Image(
-        np.hstack([img, gt, pred]), caption=caption)
+    return wandb.Image(np.hstack([img, gt, pred]), caption=caption)
 
 
 # TODO: update save model to new checkpoint format
@@ -56,6 +58,7 @@ def save_model(save_dir, model, epoch):
     torch.save(model.state_dict(), model_save_file)
 
     print(f"Model saved to {model_save_file}")
+
 
 def save_model_v2(save_dir, model, epoch, encoder, nc):
     # save model with all necessary information
@@ -70,6 +73,7 @@ def save_model_v2(save_dir, model, epoch, encoder, nc):
     # save
     torch.save(state_dict, checkpoint_name)
     print(f"Checkpoint saved as {checkpoint_name}")
+
 
 def train(model, device, data_loader, criterion, optimizer, WANDB, log_freq: int = 32):
     data_loader = tqdm(data_loader)
@@ -101,9 +105,7 @@ def train(model, device, data_loader, criterion, optimizer, WANDB, log_freq: int
 
         data_loader.set_description(f"Train Loss: {loss.item():.04f}")
 
-
-        if WANDB and i % log_freq == 0: 
-            
+        if WANDB and i % log_freq == 0:
             # TODO: this is really inefficient, re-running the model on the same image, just use existing outputs
             idx = random.choice(np.arange(0, images.shape[0]))
             output = model(images[idx][None, :, :, :])
@@ -111,7 +113,9 @@ def train(model, device, data_loader, criterion, optimizer, WANDB, log_freq: int
 
             img_base = images[idx].detach().cpu().squeeze().numpy()
             gt_base = masks[idx].detach().cpu()[:, :, None].permute(2, 0, 1).numpy()
-            stack = _create_wandb_image(img_base, gt_base, output_mask, "Train Image (Raw, GT, Pred)")
+            stack = _create_wandb_image(
+                img_base, gt_base, output_mask, "Train Image (Raw, GT, Pred)"
+            )
             wandb.log({"train_loss": loss.item(), "train_image": stack})
 
     return train_loss
@@ -122,7 +126,6 @@ def validate(model, device, data_loader, criterion, WANDB, log_freq: int = 16):
     val_loss = 0
 
     for i, (images, masks) in enumerate(val_loader):
-
         model.eval()
 
         # move img and mask to device, reshape mask
@@ -141,9 +144,7 @@ def validate(model, device, data_loader, criterion, WANDB, log_freq: int = 16):
 
         val_loader.set_description(f"Val Loss: {loss.item():.04f}")
 
-
         if WANDB and i % log_freq == 0:
-            
             # select random image from batch
             # output = model(images[0][None, :, :, :])
             output_mask = utils.decode_output(outputs)
@@ -151,10 +152,13 @@ def validate(model, device, data_loader, criterion, WANDB, log_freq: int = 16):
             img_base = images[0].detach().cpu().squeeze().numpy()
             gt_base = masks[0].detach().cpu()[:, :, None].permute(2, 0, 1).numpy()
 
-            stack = _create_wandb_image(img_base, gt_base, output_mask, "Val Image (Raw, GT, Pred)")
+            stack = _create_wandb_image(
+                img_base, gt_base, output_mask, "Val Image (Raw, GT, Pred)"
+            )
             wandb.log({"val_loss": loss.item(), "val_image": stack})
 
     return val_loss
+
 
 # initialise loss function and optimizer
 def multi_loss(pred, target) -> float:
@@ -170,14 +174,14 @@ def train_model(
     optimizer,
     train_data_loader,
     val_data_loader,
-    config: dict, 
+    config: dict,
 ):
     """Helper function for training the model"""
 
-    epochs=config["epochs"]
-    WANDB=config["wandb"]
-    TRAIN_LOG_FREQ=config.get("train_log_freq", 32)
-    VAL_LOG_FREQ=config.get("val_log_freq", 16)
+    epochs = config["epochs"]
+    WANDB = config["wandb"]
+    TRAIN_LOG_FREQ = config.get("train_log_freq", 32)
+    VAL_LOG_FREQ = config.get("val_log_freq", 16)
 
     criterion = multi_loss
 
@@ -187,26 +191,38 @@ def train_model(
     train_losses = []
     val_losses = []
 
-    # helps improve memory issues? 
+    # helps improve memory issues?
     # https://stackoverflow.com/questions/59129812/how-to-avoid-cuda-out-of-memory-in-pytorch
     torch.cuda.empty_cache()
 
     # training loop
     for epoch in range(epochs):
-        print(f"------- Epoch {epoch+1} of {epochs}  --------")
+        print(f"------- Epoch {epoch + 1} of {epochs}  --------")
 
-        train_loss = train(model, device, train_data_loader, criterion, optimizer, WANDB, TRAIN_LOG_FREQ)
-        val_loss = validate(model, device, val_data_loader, criterion, WANDB, VAL_LOG_FREQ)
+        train_loss = train(
+            model,
+            device,
+            train_data_loader,
+            criterion,
+            optimizer,
+            WANDB,
+            TRAIN_LOG_FREQ,
+        )
+        val_loss = validate(
+            model, device, val_data_loader, criterion, WANDB, VAL_LOG_FREQ
+        )
 
         train_losses.append(train_loss / len(train_data_loader))
         val_losses.append(val_loss / len(val_data_loader))
-        
+
         # get index of lowest loss
         print(f"MIN TRAIN LOSS at {train_losses.index(min(train_losses))}")
         print(f"MIN VAL LOSS at {val_losses.index(min(val_losses))}")
 
         # save_model(save_dir, model, epoch)
-        save_model_v2(config["save_path"], model, epoch, config["encoder"], config["num_classes"])
+        save_model_v2(
+            config["save_path"], model, epoch, config["encoder"], config["num_classes"]
+        )
 
     return model
 
@@ -224,7 +240,6 @@ def _setup_model(config: dict) -> tuple:
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
-
     # load model checkpoint
     if config["checkpoint"]:
         model.load_state_dict(torch.load(config["checkpoint"], map_location=device))
@@ -234,12 +249,13 @@ def _setup_model(config: dict) -> tuple:
 
     return model, optimizer, device
 
-def _setup_dataset(config:dict):
+
+def _setup_dataset(config: dict):
 
     train_data_loader, val_data_loader = dataset.preprocess_data(
-        data_paths = config["data_paths"], 
-        label_paths= config["label_paths"], 
-        num_classes=config["num_classes"], 
+        data_paths=config["data_paths"],
+        label_paths=config["label_paths"],
+        num_classes=config["num_classes"],
         batch_size=config["batch_size"],
         val_split=config.get("split", 0.15),
         _validate_dataset=config.get("validate_dataset", True),
@@ -249,7 +265,7 @@ def _setup_dataset(config:dict):
     return train_data_loader, val_data_loader
 
 
-def _setup_wandb(config:dict):
+def _setup_wandb(config: dict):
     # other parameters
     WANDB = config["wandb"]
     if WANDB:
@@ -259,6 +275,7 @@ def _setup_wandb(config:dict):
             entity=config["wandb_entity"],
             config=config,
         )
+
 
 def main(config: dict):
 
@@ -272,7 +289,7 @@ def main(config: dict):
     ################################## LOAD MODEL ##################################
 
     model, optimizer, device = _setup_model(config)
-        
+
     ################################## TRAINING ##################################
 
     # train model
@@ -284,6 +301,7 @@ def main(config: dict):
         val_data_loader,
         config=config,
     )
+
 
 if __name__ == "__main__":
     # command line arguments
@@ -302,4 +320,4 @@ if __name__ == "__main__":
     with open(config_dir, "r") as f:
         config = yaml.safe_load(f)
 
-    main(config)    
+    main(config)

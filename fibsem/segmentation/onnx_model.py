@@ -20,7 +20,6 @@ from fibsem.segmentation.utils import decode_segmap_v2, download_checkpoint
 
 
 class SegmentationModelONNX:
-
     def __init__(self, checkpoint: str = None):
         if checkpoint is not None:
             self.load_model(checkpoint)
@@ -32,8 +31,9 @@ class SegmentationModelONNX:
         self.checkpoint = os.path.basename(checkpoint)
 
         # load inference session
-        self.session = onnxruntime.InferenceSession(checkpoint, providers=["CPUExecutionProvider"])
-
+        self.session = onnxruntime.InferenceSession(
+            checkpoint, providers=["CPUExecutionProvider"]
+        )
 
     def inference(self, img: np.ndarray, rgb: bool = True):
         # preprocess
@@ -46,20 +46,20 @@ class SegmentationModelONNX:
         ort_inputs = {self.session.get_inputs()[0].name: imgt}
         ort_outs = self.session.run(None, ort_inputs)
 
-
         # softmax
-        outputs = ort_outs[0] # TODO: support batch size > 1
+        outputs = ort_outs[0]  # TODO: support batch size > 1
         outputs = np.exp(outputs) / np.sum(np.exp(outputs), axis=1, keepdims=True)
         masks = np.argmax(outputs, axis=1)
         mask = masks[0, :, :]
 
         # convert to rgb
-        if rgb: 
+        if rgb:
             mask = decode_segmap_v2(mask)
         return mask
 
+
 def export_model_to_onnx(checkpoint: str, onnx_path: str):
-    
+
     import torch
 
     from fibsem.segmentation.model import load_model
@@ -75,26 +75,35 @@ def export_model_to_onnx(checkpoint: str, onnx_path: str):
     torch_out = model.model(x)
 
     # Export the model
-    torch.onnx.export(model.model,               # model being run
-                    x,                         # model input (or a tuple for multiple inputs)
-                    onnx_path,   # where to save the model (can be a file or file-like object)
-                    export_params=True,        # store the trained parameter weights inside the model file
-                    do_constant_folding=True,  # whether to execute constant folding for optimization
-                    input_names = ['input'],   # the model's input names
-                    output_names = ['output'], # the model's output names
-                    dynamic_axes={'input' : {0 : 'batch_size'},    # variable length axes
-                                    'output' : {0 : 'batch_size'}})
-
+    torch.onnx.export(
+        model.model,  # model being run
+        x,  # model input (or a tuple for multiple inputs)
+        onnx_path,  # where to save the model (can be a file or file-like object)
+        export_params=True,  # store the trained parameter weights inside the model file
+        do_constant_folding=True,  # whether to execute constant folding for optimization
+        input_names=["input"],  # the model's input names
+        output_names=["output"],  # the model's output names
+        dynamic_axes={
+            "input": {0: "batch_size"},  # variable length axes
+            "output": {0: "batch_size"},
+        },
+    )
 
     # load onnx model
     onnx_model = onnx.load(onnx_path)
     onnx.checker.check_model(onnx_model)
 
     # load inference session
-    ort_session = onnxruntime.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
+    ort_session = onnxruntime.InferenceSession(
+        onnx_path, providers=["CPUExecutionProvider"]
+    )
 
     def to_numpy(tensor):
-        return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
+        return (
+            tensor.detach().cpu().numpy()
+            if tensor.requires_grad
+            else tensor.cpu().numpy()
+        )
 
     # compute ONNX Runtime output prediction
     ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(x)}
@@ -105,7 +114,9 @@ def export_model_to_onnx(checkpoint: str, onnx_path: str):
 
     print("Exported model has been tested with ONNXRuntime, and the result looks good!")
 
+
 # export_model_to_onnx("autolamella-mega-latest.pt", "autolamella-mega-20231230.onnx")
+
 
 ## PPLITESEG WINDOWED MODEL
 def load_windowed_onnx_model(model_path: str) -> tuple:
@@ -128,6 +139,7 @@ def load_windowed_onnx_model(model_path: str) -> tuple:
     num_output_classes = session.get_outputs()[0].shape[1]
 
     return session, input_name, window_shape, output_name, num_output_classes
+
 
 def standardize(img: object, sigma: float = 24.0) -> np.ndarray:
     """
@@ -155,12 +167,13 @@ class SegmentationModelWindowONNX:
     ONNX model for windowed inference.
     This code refactor enables multi-threaded inference and Gaussian weighted windows
     Improves model inference, inference time and window edge effects"""
+
     def __init__(self, checkpoint: str = None):
         if checkpoint is not None:
             self.load_model(checkpoint)
         self.device = None
         self.num_workers = min(8, os.cpu_count())
-    
+
     def load_model(self, checkpoint="autolamella-mega.onnx"):
         # download checkpoint if needed
         # checkpoint = download_checkpoint(checkpoint)
@@ -168,8 +181,14 @@ class SegmentationModelWindowONNX:
 
         # load inference session
         session = load_windowed_onnx_model(checkpoint)
-        self.session, self.input_name, self.window_shape, self.output_name, self.num_output_classes = session
-    
+        (
+            self.session,
+            self.input_name,
+            self.window_shape,
+            self.output_name,
+            self.num_output_classes,
+        ) = session
+
     def GaussianWeightMatrix(self, window_shape: tuple[int, int]) -> np.ndarray:
         """
         Generate a Gaussian weight matrix for the sliding window."""
@@ -183,7 +202,7 @@ class SegmentationModelWindowONNX:
         w_matrix = w_matrix[np.newaxis, ...]
         del ksize
         return w_matrix
-    
+
     def pre_process(self, img: np.ndarray) -> np.ndarray:
         """Pre-process the image for inference, calculate window parameters"""
         ##### PREPROCESSING
@@ -209,16 +228,25 @@ class SegmentationModelWindowONNX:
         img = np.pad(img, ((0, 0), (0, pad_h), (0, pad_w)), mode="constant")
         _, pad_h, pad_w = img.shape
 
-        #   window input image 
+        #   window input image
         windows = view_as_windows(
-        img, (3, self.window_shape[0], self.window_shape[1]), step=stride
+            img, (3, self.window_shape[0], self.window_shape[1]), step=stride
         ).reshape(-1, 3, self.window_shape[0], self.window_shape[1])
 
-        logging.debug(f"pre_process: {img.shape}, {windows.shape}, {h}, {w}, {pad_h}, {pad_w}, {stride}")
+        logging.debug(
+            f"pre_process: {img.shape}, {windows.shape}, {h}, {w}, {pad_h}, {pad_w}, {stride}"
+        )
 
         return img, windows, h, w, pad_h, pad_w, stride
-    
-    def window_indices(self,pad_h: int, pad_w: int, window_shape: tuple[int, int], stride: int, windows: np.ndarray) -> None:
+
+    def window_indices(
+        self,
+        pad_h: int,
+        pad_w: int,
+        window_shape: tuple[int, int],
+        stride: int,
+        windows: np.ndarray,
+    ) -> None:
         #   determine the i and j indices for each window
         num_windows_h = ((pad_h - window_shape[0]) / stride) + 1
         num_windows_w = ((pad_w - window_shape[1]) / stride) + 1
@@ -230,7 +258,7 @@ class SegmentationModelWindowONNX:
         return indices
 
     def worker_process(
-    self,session: InferenceSession, window: np.ndarray, index: tuple[int, int]
+        self, session: InferenceSession, window: np.ndarray, index: tuple[int, int]
     ) -> tuple[np.ndarray, tuple[int, int]]:
         """
         Worker process for multi-threaded ONNX inference.
@@ -250,7 +278,7 @@ class SegmentationModelWindowONNX:
         )[0].squeeze()
 
         return logits, index
-    
+
     def inference(self, img: np.ndarray, rgb: bool = True) -> np.ndarray:
         """Perform inference on the provided image.
         Args:
@@ -259,7 +287,7 @@ class SegmentationModelWindowONNX:
         Returns:
             np.ndarray: The segmented image."""
         pass
-        
+
         w_matrix = self.GaussianWeightMatrix(self.window_shape)
 
         img, windows, h, w, pad_h, pad_w, stride = self.pre_process(img)
@@ -268,9 +296,14 @@ class SegmentationModelWindowONNX:
 
         container = np.zeros([1, self.num_output_classes, pad_h, pad_w])
         count = np.zeros([1, 1, pad_h, pad_w])
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=self.num_workers
+        ) as executor:
             jobs = {
-                executor.submit(self.worker_process, self.session, window, idx): (window, idx)
+                executor.submit(self.worker_process, self.session, window, idx): (
+                    window,
+                    idx,
+                )
                 for (window, idx) in zip(windows, indices)
             }
             for job in concurrent.futures.as_completed(jobs):
@@ -280,9 +313,7 @@ class SegmentationModelWindowONNX:
                     :,
                     idx[0] : idx[0] + logits.shape[1],
                     idx[1] : idx[1] + logits.shape[2],
-                ] += (
-                    logits * w_matrix
-                )
+                ] += logits * w_matrix
                 count[
                     :,
                     :,
@@ -291,7 +322,6 @@ class SegmentationModelWindowONNX:
                 ] = w_matrix
         del w_matrix, executor, jobs, logits, idx
 
-        
         mask = np.argmax(container / count, axis=1).squeeze()  # 2d class map
         del container, count
         # crop image to remove padding
@@ -300,6 +330,7 @@ class SegmentationModelWindowONNX:
         if rgb:
             mask = decode_segmap_v2(mask)
         return mask
+
 
 class SegmentationModelWindowONNX_OLD:
     def __init__(self, checkpoint: str = None):
@@ -314,7 +345,13 @@ class SegmentationModelWindowONNX_OLD:
 
         # load inference session
         session = load_windowed_onnx_model(checkpoint)
-        self.session, self.input_name, self.window_shape, self.output_name, self.num_output_classes = session
+        (
+            self.session,
+            self.input_name,
+            self.window_shape,
+            self.output_name,
+            self.num_output_classes,
+        ) = session
 
     def pre_process(self, img: np.ndarray) -> np.ndarray:
         """Pre-process the image for inference, calculate window parameters"""
@@ -346,7 +383,9 @@ class SegmentationModelWindowONNX_OLD:
             img, (3, self.window_shape[0], self.window_shape[1]), step=stride
         ).squeeze()
 
-        logging.debug(f"pre_process: {img.shape}, {windows.shape}, {h}, {w}, {pad_h}, {pad_w}, {stride}")
+        logging.debug(
+            f"pre_process: {img.shape}, {windows.shape}, {h}, {w}, {pad_h}, {pad_w}, {stride}"
+        )
 
         return img, windows, h, w, pad_h, pad_w, stride
 
@@ -374,8 +413,7 @@ class SegmentationModelWindowONNX_OLD:
 
                 # add batch dimension to window
                 logits = self.session.run(
-                    [self.output_name], 
-                    {self.input_name: window[np.newaxis, ...]}
+                    [self.output_name], {self.input_name: window[np.newaxis, ...]}
                 )[0].squeeze()
                 del window
 
@@ -386,9 +424,9 @@ class SegmentationModelWindowONNX_OLD:
                 count[:, :, h_start:h_end, w_start:w_end] += 1
                 del h_start, w_start, h_end, w_end, logits
 
-        assert (
-            np.min(count) == 1
-        ), "There are pixels not predicted. Check window and stride size."
+        assert np.min(count) == 1, (
+            "There are pixels not predicted. Check window and stride size."
+        )
 
         # post-process
         # average the predictions across windows

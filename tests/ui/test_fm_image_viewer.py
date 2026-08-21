@@ -8,6 +8,7 @@ logic, so it is what these tests pin.
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python -m pytest tests/ui/test_fm_image_viewer.py
 """
+
 from __future__ import annotations
 
 import os
@@ -54,7 +55,9 @@ def _image(
     shape=(64, 96),
 ) -> FluorescenceImage:
     h, w = shape
-    data = (np.random.default_rng(0).random((len(channels), z, h, w)) * 4095).astype(np.uint16)
+    data = (np.random.default_rng(0).random((len(channels), z, h, w)) * 4095).astype(
+        np.uint16
+    )
     md = FluorescenceImageMetadata(
         acquisition_date="2026-08-12T15:00:00",
         pixel_size_x=100e-9,
@@ -89,7 +92,9 @@ def test_the_viewer_carries_the_dark_theme_itself():
     isolation and comes up light-on-dark inside the app.
     """
     widget = FMImageViewerWidget()
-    assert widget.styleSheet(), "no stylesheet — the sidebar renders light against the canvas"
+    assert widget.styleSheet(), (
+        "no stylesheet — the sidebar renders light against the canvas"
+    )
 
 
 def test_the_load_dialog_carries_the_dark_theme_too():
@@ -109,12 +114,17 @@ def test_the_load_dialog_carries_the_dark_theme_too():
 
 def test_loading_appends_to_the_list_and_shows_the_new_image():
     widget = FMImageViewerWidget()
-    first, second = _image(filepath="/a/first.ome.tiff"), _image(filepath="/b/second.ome.tiff")
+    first, second = (
+        _image(filepath="/a/first.ome.tiff"),
+        _image(filepath="/b/second.ome.tiff"),
+    )
 
     widget.add_image(first)
     widget.add_image(second)
 
-    assert widget.listWidget_images.count() == 2, "loading replaced instead of appending"
+    assert widget.listWidget_images.count() == 2, (
+        "loading replaced instead of appending"
+    )
     assert [widget.listWidget_images.item(i).text() for i in range(2)] == [
         "first.ome.tiff",
         "second.ome.tiff",
@@ -128,7 +138,11 @@ def test_selecting_a_row_switches_which_image_is_displayed():
     does not reach ``set_fm_image`` leaves the viewer showing the wrong file."""
     widget = FMImageViewerWidget()
     widget.add_image(_image(filepath="/a/first.ome.tiff", channels=(("DAPI", "cyan"),)))
-    widget.add_image(_image(filepath="/b/second.ome.tiff", channels=(("GFP", "green"), ("RFP", "red"))))
+    widget.add_image(
+        _image(
+            filepath="/b/second.ome.tiff", channels=(("GFP", "green"), ("RFP", "red"))
+        )
+    )
 
     assert [layer.name for layer in widget.canvas.layers] == ["GFP", "RFP"]
 

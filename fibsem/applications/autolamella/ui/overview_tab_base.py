@@ -176,11 +176,15 @@ class AutoLamellaOverviewTabBase(QWidget):
 
     @property
     def microscope(self):
-        return self.autolamella_ui.microscope if self.autolamella_ui is not None else None
+        return (
+            self.autolamella_ui.microscope if self.autolamella_ui is not None else None
+        )
 
     @property
     def experiment(self):
-        return self.autolamella_ui.experiment if self.autolamella_ui is not None else None
+        return (
+            self.autolamella_ui.experiment if self.autolamella_ui is not None else None
+        )
 
     def refresh_microscope(self) -> None:
         """Build, rebuild or drop the overview widget to match the instrument.

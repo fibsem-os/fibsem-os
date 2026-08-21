@@ -384,9 +384,7 @@ class TestEmissionFluorescenceMapping:
     ):
         fm.filter_set.excitation_wavelength = excitation_nm
         fm.filter_set.emission_wavelength = "Fluorescence"
-        assert fm.filter_set.emission_wavelength == pytest.approx(
-            expected_emission_nm
-        )
+        assert fm.filter_set.emission_wavelength == pytest.approx(expected_emission_nm)
 
     def test_set_channel_with_tfs_style_settings(self, fm):
         channel = ChannelSettings(
@@ -543,7 +541,9 @@ class TestFastAcquisition:
         try:
             stream, dataflow = self._start_live(fm)
             monkeypatch.setattr(
-                fm, "_construct_image", lambda data: (_ for _ in ()).throw(RuntimeError("boom"))
+                fm,
+                "_construct_image",
+                lambda data: (_ for _ in ()).throw(RuntimeError("boom")),
             )
             dataflow.push(np.zeros((8, 8), dtype=np.uint16))  # handled, not raised
             assert stream.is_active.value is True
@@ -585,7 +585,9 @@ class TestFastAcquisition:
         monkeypatch.setattr(
             dataflow,
             "get",
-            lambda asap=True: (_ for _ in ()).throw(AssertionError("dataflow.get in idle mode")),
+            lambda asap=True: (_ for _ in ()).throw(
+                AssertionError("dataflow.get in idle mode")
+            ),
         )
         image = fm.acquire_image()
         assert isinstance(image, FluorescenceImage)

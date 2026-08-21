@@ -34,18 +34,18 @@ from fibsem.ui.widgets.custom_widgets import ElidedLabel
 from fibsem.ui.widgets.preflight import format_clock, format_duration
 
 # ── Colours ───────────────────────────────────────────────────────────────────
-_DOT_COMPLETED  = stylesheets.GREEN_COLOR
-_DOT_ACTIVE     = stylesheets.ORANGE_COLOR
-_DOT_PENDING    = NEUTRAL_700
-_DOT_FAILED     = stylesheets.RED_COLOR
-_DOT_SKIPPED    = NEUTRAL_500
+_DOT_COMPLETED = stylesheets.GREEN_COLOR
+_DOT_ACTIVE = stylesheets.ORANGE_COLOR
+_DOT_PENDING = NEUTRAL_700
+_DOT_FAILED = stylesheets.RED_COLOR
+_DOT_SKIPPED = NEUTRAL_500
 # Slate, not amber: the old #e0a030 was indistinguishable from the active orange,
 # so a cancelled row read as still running — especially when it was the last thing
 # to run and there was no active row beside it to compare against. Still not red:
 # a user abort is not an error.
-_DOT_CANCELLED  = "#6f7d8c"
+_DOT_CANCELLED = "#6f7d8c"
 
-_LINE_COLOR     = "#3a3d42"
+_LINE_COLOR = "#3a3d42"
 
 _SKIP_REASON_LABELS = {
     "not_required": "Not in required list",
@@ -60,14 +60,14 @@ _SKIP_REASON_LABELS = {
 # PRIMARY_COLOR is what selection means across the app — the lamella cards mark
 # themselves with a 2px border in it, so the timeline agrees rather than
 # inventing a second selection blue.
-_SELECTED_BG    = QColor(stylesheets.PRIMARY_COLOR)
+_SELECTED_BG = QColor(stylesheets.PRIMARY_COLOR)
 _SELECTED_BG.setAlpha(30)
-_SELECTED_BAR   = QColor(stylesheets.PRIMARY_COLOR)
+_SELECTED_BAR = QColor(stylesheets.PRIMARY_COLOR)
 _SELECTED_BAR_W = 2
-_LABEL_COLOR    = stylesheets.GRAY_TEXT_COLOR
+_LABEL_COLOR = stylesheets.GRAY_TEXT_COLOR
 _SUBTITLE_COLOR = stylesheets.GRAY_SECONDARY_COLOR
 
-_ADD_BTN_STYLE  = (
+_ADD_BTN_STYLE = (
     "QToolButton { background: transparent; border: none; border-radius: 3px;"
     " color: #d1d2d4; font-size: 13px; padding: 3px 6px; }"
     "QToolButton:hover { background: #3a3d42; }"
@@ -75,50 +75,51 @@ _ADD_BTN_STYLE  = (
     "QToolButton::menu-indicator { image: none; }"
 )
 
-_ACTIONS_BTN    = 20   # px — the hover-revealed "..." button
-_ACTIONS_STYLE  = (
+_ACTIONS_BTN = 20  # px — the hover-revealed "..." button
+_ACTIONS_STYLE = (
     "QToolButton { background: transparent; border: none; border-radius: 3px; }"
     "QToolButton:hover { background: #3a3d42; }"
     "QToolButton::menu-indicator { image: none; }"
 )
 
-_DOT_SIZE       = 12
+_DOT_SIZE = 12
 _INNER_DOT_SIZE = 8
-_LINE_W         = 2
-_LEFT_COL       = 32   # px — fixed width for dot + connector column
-_INNER_ROW_H    = 22   # px — minimum height per inner step row
+_LINE_W = 2
+_LEFT_COL = 32  # px — fixed width for dot + connector column
+_INNER_ROW_H = 22  # px — minimum height per inner step row
 
 # The estimate column. Fixed width and right-aligned so the times hold one line down the
 # panel however long the names beside them are — that column is the thing being scanned,
 # and a ragged right edge would break it. The pre-flight dialog reserves 84px for the same
 # column against a wider dialog; 78 is what fits here beside the actions button.
-_TRAILING_W     = 78
+_TRAILING_W = 78
 
 
 # ── Status mapping ───────────────────────────────────────────────────────────
 def _queue_status_to_step_status(s) -> "StepStatus":
     """Map AutoLamellaTaskStatus → StepStatus for display."""
     from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+
     return {
         AutoLamellaTaskStatus.NotStarted: StepStatus.PENDING,
         AutoLamellaTaskStatus.InProgress: StepStatus.ACTIVE,
-        AutoLamellaTaskStatus.Completed:  StepStatus.COMPLETED,
-        AutoLamellaTaskStatus.Failed:     StepStatus.FAILED,
-        AutoLamellaTaskStatus.Skipped:    StepStatus.SKIPPED,
-        AutoLamellaTaskStatus.Cancelled:  StepStatus.CANCELLED,
+        AutoLamellaTaskStatus.Completed: StepStatus.COMPLETED,
+        AutoLamellaTaskStatus.Failed: StepStatus.FAILED,
+        AutoLamellaTaskStatus.Skipped: StepStatus.SKIPPED,
+        AutoLamellaTaskStatus.Cancelled: StepStatus.CANCELLED,
         # Removed items are filtered out before they reach the timeline; mapped
         # anyway so any other caller gets the struck-through look, not a crash.
-        AutoLamellaTaskStatus.Removed:    StepStatus.SKIPPED,
+        AutoLamellaTaskStatus.Removed: StepStatus.SKIPPED,
     }.get(s, StepStatus.PENDING)  # unknown status must never crash the timeline
 
 
 # ── Data model ────────────────────────────────────────────────────────────────
 class StepStatus(Enum):
-    PENDING   = auto()
-    ACTIVE    = auto()
+    PENDING = auto()
+    ACTIVE = auto()
     COMPLETED = auto()
-    FAILED    = auto()
-    SKIPPED   = auto()
+    FAILED = auto()
+    SKIPPED = auto()
     CANCELLED = auto()
 
 
@@ -142,10 +143,10 @@ class TimelineStep:
 def _status_color(status: StepStatus) -> str:
     return {
         StepStatus.COMPLETED: _DOT_COMPLETED,
-        StepStatus.ACTIVE:    _DOT_ACTIVE,
-        StepStatus.PENDING:   _DOT_PENDING,
-        StepStatus.FAILED:    _DOT_FAILED,
-        StepStatus.SKIPPED:   _DOT_SKIPPED,
+        StepStatus.ACTIVE: _DOT_ACTIVE,
+        StepStatus.PENDING: _DOT_PENDING,
+        StepStatus.FAILED: _DOT_FAILED,
+        StepStatus.SKIPPED: _DOT_SKIPPED,
         StepStatus.CANCELLED: _DOT_CANCELLED,
     }.get(status, _DOT_PENDING)
 
@@ -179,7 +180,7 @@ class _DotWidget(QWidget):
     def __init__(self, color: str, size: int = _DOT_SIZE, parent=None):
         super().__init__(parent)
         self._color = QColor(color)
-        self._size  = size
+        self._size = size
         self.setFixedSize(size, size)
 
     def set_color(self, color: str) -> None:
@@ -510,7 +511,9 @@ class WorkflowTimelineWidget(QWidget):
         # and painting GRAY_BACKGROUND_COLOR here left the rows as a visibly
         # darker rectangle inside a lighter panel, with the header strip above
         # them a third shade again.
-        self._scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        self._scroll.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+        )
         self._scroll.viewport().setStyleSheet("background: transparent;")
 
         self._contents = QWidget()
@@ -589,7 +592,8 @@ class WorkflowTimelineWidget(QWidget):
         # behind on whatever moved into that position.
         self._selected_index = (
             self._keys.index(self._selected_key)
-            if self._selected_key in self._keys else None
+            if self._selected_key in self._keys
+            else None
         )
         for i, row in enumerate(self._rows):
             row.set_selected(i == self._selected_index)
@@ -728,7 +732,9 @@ class WorkflowProgressWidget(QWidget):
         self._btn_add = QToolButton()
         self._btn_add.setStyleSheet(_ADD_BTN_STYLE)
         self._btn_add.setText("Add to Queue")
-        self._btn_add.setIcon(fibsem_icon("mdi:plus", color=stylesheets.GRAY_ICON_COLOR))
+        self._btn_add.setIcon(
+            fibsem_icon("mdi:plus", color=stylesheets.GRAY_ICON_COLOR)
+        )
         self._btn_add.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self._btn_add.setVisible(False)
         # Nothing is selected until the owner says otherwise.
@@ -874,8 +880,10 @@ class WorkflowProgressWidget(QWidget):
         # Reconcile rows with the snapshot; this also refreshes every status.
         self._sync(queue_items)
 
-        active_id = next((i.id for i in self._items
-                          if i.status == AutoLamellaTaskStatus.InProgress), None)
+        active_id = next(
+            (i.id for i in self._items if i.status == AutoLamellaTaskStatus.InProgress),
+            None,
+        )
 
         # New active row — show inner container, start elapsed timer. Compared by
         # id, so a reorder that moves the running task does not restart it.
@@ -898,8 +906,11 @@ class WorkflowProgressWidget(QWidget):
             )
 
         # Completion/failure/cancel — set subtitle, hide inner, resolve last inner step
-        if task_status in (AutoLamellaTaskStatus.Completed, AutoLamellaTaskStatus.Failed,
-                           AutoLamellaTaskStatus.Cancelled):
+        if task_status in (
+            AutoLamellaTaskStatus.Completed,
+            AutoLamellaTaskStatus.Failed,
+            AutoLamellaTaskStatus.Cancelled,
+        ):
             self._elapsed_timer.stop()
             self._active_start_time = None
             self._waiting_for_user = False
@@ -907,7 +918,9 @@ class WorkflowProgressWidget(QWidget):
             idx = self._outer_index
             if 0 <= idx < len(self._outer._rows):
                 task_name = self._items[idx].task_name
-                self._set_completion_subtitle(idx, task_duration, task_name, completed_at=status.get("timestamp"))
+                self._set_completion_subtitle(
+                    idx, task_duration, task_name, completed_at=status.get("timestamp")
+                )
                 # Show error message on failed rows, before the refresh that renders it
                 if task_status == AutoLamellaTaskStatus.Failed:
                     error_msg = status.get("error_message", None)
@@ -939,14 +952,19 @@ class WorkflowProgressWidget(QWidget):
         """
         from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 
-        self._items = [i for i in items
-                       if i.status is not AutoLamellaTaskStatus.Removed]
+        self._items = [
+            i for i in items if i.status is not AutoLamellaTaskStatus.Removed
+        ]
         self._outer.sync_steps(
             [i.id for i in self._items],
-            [TimelineStep(label=i.lamella_name,
-                          subtitle=i.task_name,
-                          status=_queue_status_to_step_status(i.status))
-             for i in self._items],
+            [
+                TimelineStep(
+                    label=i.lamella_name,
+                    subtitle=i.task_name,
+                    status=_queue_status_to_step_status(i.status),
+                )
+                for i in self._items
+            ],
         )
         self._outer_index = next(
             (n for n, i in enumerate(self._items) if i.id == self._active_id), -1
@@ -1000,12 +1018,18 @@ class WorkflowProgressWidget(QWidget):
         rather than through update_from_status().
         """
         self._outer_index = index
-        self._active_id = self._items[index].id if 0 <= index < len(self._items) else None
+        self._active_id = (
+            self._items[index].id if 0 <= index < len(self._items) else None
+        )
         self._show_inner_at(index)
 
     # ── Internal ──────────────────────────────────────────────────────────
-    _FINISHED = (StepStatus.COMPLETED, StepStatus.FAILED,
-                 StepStatus.SKIPPED, StepStatus.CANCELLED)
+    _FINISHED = (
+        StepStatus.COMPLETED,
+        StepStatus.FAILED,
+        StepStatus.SKIPPED,
+        StepStatus.CANCELLED,
+    )
 
     def build_row_menu(self, index: int) -> Optional[QMenu]:
         """The queue-actions menu for a row, or None if the row is unknown.
@@ -1032,8 +1056,13 @@ class WorkflowProgressWidget(QWidget):
         menu = QMenu(self)
         menu.setToolTipsVisible(True)
 
-        def add(action_id: str, label: str, icon: str, enabled: bool,
-                colour: Optional[str] = None):
+        def add(
+            action_id: str,
+            label: str,
+            icon: str,
+            enabled: bool,
+            colour: Optional[str] = None,
+        ):
             act = menu.addAction(
                 fibsem_icon(icon, color=colour or stylesheets.GRAY_ICON_COLOR), label
             )
@@ -1044,13 +1073,19 @@ class WorkflowProgressWidget(QWidget):
             if not enabled and is_active:
                 act.setToolTip("This task is already running")
             act.triggered.connect(
-                lambda _checked=False, a=action_id: self.queue_action_requested.emit(a, item_id)
+                lambda _checked=False, a=action_id: self.queue_action_requested.emit(
+                    a, item_id
+                )
             )
             return act
 
         add("move_up", "Move up", "mdi:arrow-up", is_pending and rank > 0)
-        add("move_down", "Move down", "mdi:arrow-down",
-            is_pending and rank < len(pending) - 1)
+        add(
+            "move_down",
+            "Move down",
+            "mdi:arrow-down",
+            is_pending and rank < len(pending) - 1,
+        )
         add("run_next", "Run next", "mdi:skip-next", is_pending and rank > 0)
         menu.addSeparator()
         add("remove", "Remove from queue", "mdi:trash-can-outline", is_pending)
@@ -1061,8 +1096,13 @@ class WorkflowProgressWidget(QWidget):
             # Red where Remove is grey: Remove edits a list, this interrupts an
             # operation on the sample.
             menu.addSeparator()
-            add("stop_task", "Stop Task", "mdi:stop-circle-outline", True,
-                colour=_DOT_FAILED)
+            add(
+                "stop_task",
+                "Stop Task",
+                "mdi:stop-circle-outline",
+                True,
+                colour=_DOT_FAILED,
+            )
         return menu
 
     def _show_row_menu(self, index: int, pos: QPoint) -> None:
@@ -1116,6 +1156,7 @@ class WorkflowProgressWidget(QWidget):
         over them would undo that.
         """
         from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+
         for i, item in enumerate(self._items):
             if i >= len(self._outer._steps):
                 break
@@ -1134,7 +1175,9 @@ class WorkflowProgressWidget(QWidget):
 
         active_elapsed = None
         if self._active_start_time is not None:
-            active_elapsed = self._machine_elapsed(time.time() - self._active_start_time)
+            active_elapsed = self._machine_elapsed(
+                time.time() - self._active_start_time
+            )
 
         estimate = estimate_queue(
             self._items,
@@ -1162,6 +1205,7 @@ class WorkflowProgressWidget(QWidget):
     def _update_header(self, queue_items: list) -> None:
         """Update the header label with progress counts."""
         from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+
         total = len(queue_items)
         if total == 0:
             self._header.setText("Workflow")
@@ -1170,16 +1214,27 @@ class WorkflowProgressWidget(QWidget):
         # succeeded — otherwise the counter can never reach the total once anything
         # is cancelled. Removed items are already filtered out of the view, so they
         # leave both sides of the fraction rather than counting as work done.
-        done = sum(1 for i in queue_items if i.status in (
-            AutoLamellaTaskStatus.Completed, AutoLamellaTaskStatus.Skipped,
-            AutoLamellaTaskStatus.Cancelled))
+        done = sum(
+            1
+            for i in queue_items
+            if i.status
+            in (
+                AutoLamellaTaskStatus.Completed,
+                AutoLamellaTaskStatus.Skipped,
+                AutoLamellaTaskStatus.Cancelled,
+            )
+        )
         failed = sum(1 for i in queue_items if i.status == AutoLamellaTaskStatus.Failed)
-        cancelled = sum(1 for i in queue_items
-                        if i.status == AutoLamellaTaskStatus.Cancelled)
+        cancelled = sum(
+            1 for i in queue_items if i.status == AutoLamellaTaskStatus.Cancelled
+        )
         text = f"Workflow — {done}/{total}"
         # A run that ended with tasks abandoned should not read like one that did not.
-        notes = [f"{n} {label}" for n, label in
-                 ((failed, "failed"), (cancelled, "cancelled")) if n]
+        notes = [
+            f"{n} {label}"
+            for n, label in ((failed, "failed"), (cancelled, "cancelled"))
+            if n
+        ]
         if notes:
             text += f" ({', '.join(notes)})"
         self._header.setText(text)
@@ -1191,8 +1246,11 @@ class WorkflowProgressWidget(QWidget):
         if not (0 <= self._outer_index < len(self._outer._steps)):
             return
         step = self._outer._steps[self._outer_index]
-        item = (self._items[self._outer_index]
-                if self._outer_index < len(self._items) else None)
+        item = (
+            self._items[self._outer_index]
+            if self._outer_index < len(self._items)
+            else None
+        )
         task_name = item.task_name if item is not None else ""
 
         # Wall-clock, including any wait for a human: this is the number the recorded
@@ -1212,7 +1270,9 @@ class WorkflowProgressWidget(QWidget):
             step.trailing = ""
         elif self._machine_elapsed(elapsed) < estimate:
             step.subtitle = f"{task_name} ({format_duration(elapsed)})"
-            step.trailing = f"{format_duration(estimate - self._machine_elapsed(elapsed))} left"
+            step.trailing = (
+                f"{format_duration(estimate - self._machine_elapsed(elapsed))} left"
+            )
         else:
             # The estimate is spent, so the column stops predicting and reports instead —
             # elapsed, which is the same kind of number the row will show once it is
@@ -1224,7 +1284,13 @@ class WorkflowProgressWidget(QWidget):
         self._outer._rows[self._outer_index].refresh(step)
         self._update_summary()
 
-    def _set_completion_subtitle(self, outer_idx: int, task_duration: Optional[float], task_name: str = "", completed_at: Optional[float] = None) -> None:
+    def _set_completion_subtitle(
+        self,
+        outer_idx: int,
+        task_duration: Optional[float],
+        task_name: str = "",
+        completed_at: Optional[float] = None,
+    ) -> None:
         """What a finished row says: where it got to, and what it cost.
 
         The duration goes in the estimate column rather than in brackets after the task
@@ -1240,7 +1306,9 @@ class WorkflowProgressWidget(QWidget):
             # `.lstrip("0")`, as `format_clock` does: the header now quotes a finish
             # time in the same panel, and `06:59PM` beside `7:13PM` reads as two
             # different clocks rather than one convention.
-            stamp = datetime.fromtimestamp(completed_at).strftime(TIME_DISPLAY_AMPM_SHORT)
+            stamp = datetime.fromtimestamp(completed_at).strftime(
+                TIME_DISPLAY_AMPM_SHORT
+            )
             time_str = f" · {stamp.lstrip('0')}"
         self._outer._steps[outer_idx].subtitle = f"{task_name}{time_str}"
         if task_duration is not None:
@@ -1249,14 +1317,14 @@ class WorkflowProgressWidget(QWidget):
 
 # ── Demo ──────────────────────────────────────────────────────────────────────
 DEMO_STEPS = [
-    TimelineStep("Setup session",        StepStatus.COMPLETED),
-    TimelineStep("Move to position",     StepStatus.COMPLETED, "0.32 s"),
-    TimelineStep("Acquire overview",     StepStatus.COMPLETED, "1.1 s"),
-    TimelineStep("Detect features",      StepStatus.COMPLETED, "2.4 s"),
-    TimelineStep("Mill rough trench",    StepStatus.ACTIVE,    "running…"),
-    TimelineStep("Mill fine trench",     StepStatus.PENDING),
-    TimelineStep("Polish lamella",       StepStatus.PENDING),
-    TimelineStep("Acquire final image",  StepStatus.PENDING),
+    TimelineStep("Setup session", StepStatus.COMPLETED),
+    TimelineStep("Move to position", StepStatus.COMPLETED, "0.32 s"),
+    TimelineStep("Acquire overview", StepStatus.COMPLETED, "1.1 s"),
+    TimelineStep("Detect features", StepStatus.COMPLETED, "2.4 s"),
+    TimelineStep("Mill rough trench", StepStatus.ACTIVE, "running…"),
+    TimelineStep("Mill fine trench", StepStatus.PENDING),
+    TimelineStep("Polish lamella", StepStatus.PENDING),
+    TimelineStep("Acquire final image", StepStatus.PENDING),
 ]
 
 if __name__ == "__main__":
@@ -1271,6 +1339,7 @@ if __name__ == "__main__":
     win.setStyleSheet(f"background: {stylesheets.GRAY_BACKGROUND_COLOR};")
 
     from PyQt5.QtWidgets import QVBoxLayout as VBox
+
     layout = VBox(win)
     layout.setContentsMargins(0, 0, 0, 0)
 

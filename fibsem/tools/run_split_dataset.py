@@ -8,7 +8,7 @@ import pandas as pd
 
 def _split_dataset(DATA_PATH: Path, OUTPUT_PATH: Path):
 
-    TRAIN_PATH = os.path.join(OUTPUT_PATH, "train" )
+    TRAIN_PATH = os.path.join(OUTPUT_PATH, "train")
     TEST_PATH = os.path.join(OUTPUT_PATH, "test")
 
     # make dirs
@@ -17,7 +17,9 @@ def _split_dataset(DATA_PATH: Path, OUTPUT_PATH: Path):
 
     df = pd.read_csv(os.path.join(DATA_PATH, "data.csv"))
     df["path"] = df["image"].apply(lambda x: os.path.join(DATA_PATH, f"{x}.tif"))
-    df["mask_path"] = df["image"].apply(lambda x: os.path.join(DATA_PATH, "mask", f"{x}.tif"))
+    df["mask_path"] = df["image"].apply(
+        lambda x: os.path.join(DATA_PATH, "mask", f"{x}.tif")
+    )
 
     print(f"total: {len(df)} images")
 
@@ -36,19 +38,41 @@ def _split_dataset(DATA_PATH: Path, OUTPUT_PATH: Path):
 
     if response == "y":
         # move the images and masks to the correct folder
-        for path, mask_path in zip(df_train["path"].unique(), df_train["mask_path"].unique()):
+        for path, mask_path in zip(
+            df_train["path"].unique(), df_train["mask_path"].unique()
+        ):
             os.rename(path, os.path.join(TRAIN_PATH, os.path.basename(path)))
-            os.rename(mask_path, os.path.join(TRAIN_PATH, "labels", os.path.basename(mask_path)))
+            os.rename(
+                mask_path,
+                os.path.join(TRAIN_PATH, "labels", os.path.basename(mask_path)),
+            )
 
-        for path, mask_path in zip(df_test["path"].unique(), df_test["mask_path"].unique()):
+        for path, mask_path in zip(
+            df_test["path"].unique(), df_test["mask_path"].unique()
+        ):
             os.rename(path, os.path.join(TEST_PATH, os.path.basename(path)))
-            os.rename(mask_path, os.path.join(TEST_PATH, "labels", os.path.basename(mask_path)))
+            os.rename(
+                mask_path,
+                os.path.join(TEST_PATH, "labels", os.path.basename(mask_path)),
+            )
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_path", type=str, dest="data_path", action="store", help="Path to the data folder")
-    parser.add_argument("--output_path", type=str, dest="output_path", action="store", help="Path to the output folder")
+    parser.add_argument(
+        "--data_path",
+        type=str,
+        dest="data_path",
+        action="store",
+        help="Path to the data folder",
+    )
+    parser.add_argument(
+        "--output_path",
+        type=str,
+        dest="output_path",
+        action="store",
+        help="Path to the output folder",
+    )
 
     args = parser.parse_args()
 

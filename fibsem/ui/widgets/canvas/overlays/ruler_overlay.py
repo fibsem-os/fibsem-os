@@ -63,8 +63,8 @@ class RulerOverlay(CanvasOverlay):
         self._visible: bool = False
 
         # artists
-        self._line = None   # Line2D segment
-        self._dots = None   # Line2D endpoint markers
+        self._line = None  # Line2D segment
+        self._dots = None  # Line2D endpoint markers
         self._label = None  # Annotation (distance)
 
         # drag state: None | "p1" | "p2" | "line"
@@ -167,21 +167,42 @@ class RulerOverlay(CanvasOverlay):
             return
         xs, ys = self._xs_ys()
         (self._line,) = self._ax.plot(
-            xs, ys, color=self._color, linewidth=1.6,
-            solid_capstyle="round", zorder=8,
+            xs,
+            ys,
+            color=self._color,
+            linewidth=1.6,
+            solid_capstyle="round",
+            zorder=8,
         )
         (self._dots,) = self._ax.plot(
-            xs, ys, linestyle="none", marker="o", markersize=6,
-            markerfacecolor=self._color, markeredgecolor="white",
-            markeredgewidth=0.8, zorder=9,
+            xs,
+            ys,
+            linestyle="none",
+            marker="o",
+            markersize=6,
+            markerfacecolor=self._color,
+            markeredgecolor="white",
+            markeredgewidth=0.8,
+            zorder=9,
         )
         mx, my = (xs[0] + xs[1]) / 2.0, (ys[0] + ys[1]) / 2.0
         self._label = self._ax.annotate(
-            self._text(), xy=(mx, my), xytext=(0, 9),
-            textcoords="offset points", ha="center", va="bottom",
-            fontsize=8, color=WHITE_ICON_COLOR, zorder=10,
-            bbox=dict(boxstyle="round,pad=0.3", facecolor=_BG,
-                      edgecolor=self._color, alpha=0.8, linewidth=0.8),
+            self._text(),
+            xy=(mx, my),
+            xytext=(0, 9),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+            color=WHITE_ICON_COLOR,
+            zorder=10,
+            bbox=dict(
+                boxstyle="round,pad=0.3",
+                facecolor=_BG,
+                edgecolor=self._color,
+                alpha=0.8,
+                linewidth=0.8,
+            ),
         )
 
     def _text(self) -> str:
@@ -254,9 +275,15 @@ class RulerOverlay(CanvasOverlay):
             return
         left, top, right, bottom = rect.x0, rect.y0, rect.x1, rect.y1
         if self._drag == "p1":
-            self._p1 = [_clampf(p1[0] + dx, left, right), _clampf(p1[1] + dy, top, bottom)]
+            self._p1 = [
+                _clampf(p1[0] + dx, left, right),
+                _clampf(p1[1] + dy, top, bottom),
+            ]
         elif self._drag == "p2":
-            self._p2 = [_clampf(p2[0] + dx, left, right), _clampf(p2[1] + dy, top, bottom)]
+            self._p2 = [
+                _clampf(p2[0] + dx, left, right),
+                _clampf(p2[1] + dy, top, bottom),
+            ]
         else:  # move the whole line, clamped so both endpoints stay in bounds
             minx, maxx = min(p1[0], p2[0]), max(p1[0], p2[0])
             miny, maxy = min(p1[1], p2[1]), max(p1[1], p2[1])

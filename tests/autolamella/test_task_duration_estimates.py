@@ -25,13 +25,13 @@ from fibsem.structures import Point
 def _base_reference(cfg) -> float:
     """What the base charges for reference imaging: one field of view at the start,
     the full set at the end."""
-    return (
-        timing.reference_image_cost(cfg.reference_imaging, fovs=1)
-        + timing.reference_image_cost(cfg.reference_imaging)
-    )
+    return timing.reference_image_cost(
+        cfg.reference_imaging, fovs=1
+    ) + timing.reference_image_cost(cfg.reference_imaging)
 
 
 # ── the base estimate ────────────────────────────────────────────────────────
+
 
 def test_base_estimate_exceeds_the_scan_only_figure():
     """estimated_time counts scan arithmetic and milling; estimated_duration adds the
@@ -64,6 +64,7 @@ def test_every_task_is_charged_its_opening_move_by_default():
     from fibsem.applications.autolamella.workflows.tasks.mill_coincident import (
         MillCoincidentTaskConfig,
     )
+
     assert MillFiducialTaskConfig().opens_with_stage_move is True
     assert MillCoincidentTaskConfig().opens_with_stage_move is False
 
@@ -72,6 +73,7 @@ def test_a_task_that_does_not_move_is_not_charged_for_it():
     from fibsem.applications.autolamella.workflows.tasks.mill_coincident import (
         MillCoincidentTaskConfig,
     )
+
     cfg = MillCoincidentTaskConfig()
     cfg.milling = {}
     assert cfg.estimated_duration == pytest.approx(
@@ -87,6 +89,7 @@ def test_reference_alignment_is_opt_in():
     from fibsem.applications.autolamella.workflows.tasks.undercut import (
         MillUndercutTaskConfig,
     )
+
     assert MillRoughTaskConfig().opens_with_reference_alignment is True
     assert MillUndercutTaskConfig().opens_with_reference_alignment is False
 
@@ -100,6 +103,7 @@ def test_fiducial_counts_the_move_and_the_reference_alignment():
 
 
 # ── spot burn: one exposure per coordinate ───────────────────────────────────
+
 
 def test_spot_burn_adds_an_exposure_per_coordinate():
     """Each point costs its exposure plus a blank/park/unblank cycle."""
@@ -142,6 +146,7 @@ def test_spot_burn_scales_with_exposure_time():
 
 # ── fluorescence: delegate to the FM timing model ────────────────────────────
 
+
 def _channel(exposure: float) -> ChannelSettings:
     return ChannelSettings(
         name="DAPI",
@@ -170,7 +175,9 @@ def test_fluorescence_adds_the_channel_acquisition():
 
 def test_fluorescence_scales_with_channel_count():
     one = AcquireFluorescenceImageConfig(channel_settings=[_channel(0.5)])
-    two = AcquireFluorescenceImageConfig(channel_settings=[_channel(0.5), _channel(0.5)])
+    two = AcquireFluorescenceImageConfig(
+        channel_settings=[_channel(0.5), _channel(0.5)]
+    )
     assert two.estimated_duration > one.estimated_duration
 
 
@@ -213,12 +220,19 @@ def test_autofocus_is_counted_only_when_a_pass_is_enabled():
 
 # ── the autofocus sweep is counted, not assumed ──────────────────────────────
 
+
 def test_autofocus_estimate_scales_with_the_steps_it_will_take():
     """The sweep is arithmetic: one image per step, and n_steps comes off the pass."""
     channels = [_channel(0.5)]
-    coarse = AutoFocusSettings(passes=[FocusSweepPass(search_range=50e-6, step_size=5e-6)])
-    fine = AutoFocusSettings(passes=[FocusSweepPass(search_range=50e-6, step_size=1e-6)])
-    assert estimate_autofocus_time(fine, channels) > estimate_autofocus_time(coarse, channels)
+    coarse = AutoFocusSettings(
+        passes=[FocusSweepPass(search_range=50e-6, step_size=5e-6)]
+    )
+    fine = AutoFocusSettings(
+        passes=[FocusSweepPass(search_range=50e-6, step_size=1e-6)]
+    )
+    assert estimate_autofocus_time(fine, channels) > estimate_autofocus_time(
+        coarse, channels
+    )
 
 
 def test_autofocus_estimate_ignores_disabled_passes():
@@ -229,7 +243,9 @@ def test_autofocus_estimate_ignores_disabled_passes():
     one = AutoFocusSettings(
         passes=[FocusSweepPass(enabled=True), FocusSweepPass(enabled=False)]
     )
-    assert estimate_autofocus_time(one, channels) < estimate_autofocus_time(both, channels)
+    assert estimate_autofocus_time(one, channels) < estimate_autofocus_time(
+        both, channels
+    )
 
 
 def test_autofocus_estimate_is_zero_when_every_pass_is_off():
@@ -259,9 +275,14 @@ def test_autofocus_estimate_uses_the_named_channel():
 
 # ── every task answers ───────────────────────────────────────────────────────
 
+
 @pytest.mark.parametrize(
     "config_cls",
-    [MillFiducialTaskConfig, SpotBurnFiducialTaskConfig, AcquireFluorescenceImageConfig],
+    [
+        MillFiducialTaskConfig,
+        SpotBurnFiducialTaskConfig,
+        AcquireFluorescenceImageConfig,
+    ],
 )
 def test_every_config_reports_a_positive_duration(config_cls):
     """A task with no override still answers, via the base implementation."""
@@ -270,9 +291,14 @@ def test_every_config_reports_a_positive_duration(config_cls):
 
 # ── the opening flags are behaviour, not configuration ───────────────────────
 
+
 @pytest.mark.parametrize(
     "config_cls",
-    [MillFiducialTaskConfig, SpotBurnFiducialTaskConfig, AcquireFluorescenceImageConfig],
+    [
+        MillFiducialTaskConfig,
+        SpotBurnFiducialTaskConfig,
+        AcquireFluorescenceImageConfig,
+    ],
 )
 def test_opening_flags_are_not_serialised(config_cls):
     """They describe what a task's _run does, which is a property of the code and not

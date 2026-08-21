@@ -4,6 +4,7 @@ Uses PyQt5 directly with the offscreen platform (no pytest-qt dependency).
 The real ``_on_add_channel`` opens a modal ``QMenu.exec_()``; tests stub that
 to capture the menu, and exercise the row/selection/removal helpers directly.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -70,19 +71,27 @@ def _recent_rows(menu: QMenu):
 def test_channel_available_matches_filter_set(qapp):
     w = _widget(qapp)
     assert w._channel_available(
-        ChannelSettings(name="GFP", excitation_wavelength=488.0, emission_wavelength=520.0)
+        ChannelSettings(
+            name="GFP", excitation_wavelength=488.0, emission_wavelength=520.0
+        )
     )
     # emission None (reflection) is always allowed
     assert w._channel_available(
-        ChannelSettings(name="Refl", excitation_wavelength=405.0, emission_wavelength=None)
+        ChannelSettings(
+            name="Refl", excitation_wavelength=405.0, emission_wavelength=None
+        )
     )
     # excitation not on the filter set
     assert not w._channel_available(
-        ChannelSettings(name="Bad", excitation_wavelength=999.0, emission_wavelength=520.0)
+        ChannelSettings(
+            name="Bad", excitation_wavelength=999.0, emission_wavelength=520.0
+        )
     )
     # emission not on the filter set
     assert not w._channel_available(
-        ChannelSettings(name="Bad", excitation_wavelength=405.0, emission_wavelength=999.0)
+        ChannelSettings(
+            name="Bad", excitation_wavelength=405.0, emission_wavelength=999.0
+        )
     )
 
 
@@ -93,7 +102,9 @@ def test_no_recents_adds_directly_without_menu(qapp, monkeypatch):
     w = _widget(qapp)
     monkeypatch.setattr(clw, "load_recent_channels", lambda: [])
     monkeypatch.setattr(
-        QMenu, "exec_", lambda *a, **k: pytest.fail("menu must not open with no recents")
+        QMenu,
+        "exec_",
+        lambda *a, **k: pytest.fail("menu must not open with no recents"),
     )
     before = w._list.count()
     w._on_add_channel()
@@ -103,8 +114,12 @@ def test_no_recents_adds_directly_without_menu(qapp, monkeypatch):
 def test_menu_lists_new_channel_then_recents(qapp, monkeypatch):
     w = _widget(qapp)
     recents = [
-        ChannelSettings(name="GFP", excitation_wavelength=488.0, emission_wavelength=520.0),
-        ChannelSettings(name="Bad", excitation_wavelength=999.0, emission_wavelength=520.0),
+        ChannelSettings(
+            name="GFP", excitation_wavelength=488.0, emission_wavelength=520.0
+        ),
+        ChannelSettings(
+            name="Bad", excitation_wavelength=999.0, emission_wavelength=520.0
+        ),
     ]
     monkeypatch.setattr(clw, "load_recent_channels", lambda: recents)
 
@@ -162,8 +177,12 @@ def test_recent_removed_updates_store(qapp, recents_env):
     w = _widget(qapp)
     fm_config.record_recent_channels(
         [
-            ChannelSettings(name="GFP", excitation_wavelength=488.0, emission_wavelength=520.0),
-            ChannelSettings(name="DAPI", excitation_wavelength=405.0, emission_wavelength=450.0),
+            ChannelSettings(
+                name="GFP", excitation_wavelength=488.0, emission_wavelength=520.0
+            ),
+            ChannelSettings(
+                name="DAPI", excitation_wavelength=405.0, emission_wavelength=450.0
+            ),
         ]
     )
     menu = QMenu()
@@ -182,7 +201,9 @@ def test_recent_removed_updates_store(qapp, recents_env):
 def test_removing_last_recent_empties_store(qapp, recents_env):
     w = _widget(qapp)
     fm_config.record_recent_channels(
-        ChannelSettings(name="GFP", excitation_wavelength=488.0, emission_wavelength=520.0)
+        ChannelSettings(
+            name="GFP", excitation_wavelength=488.0, emission_wavelength=520.0
+        )
     )
     menu = QMenu()
     for recent in fm_config.load_recent_channels():

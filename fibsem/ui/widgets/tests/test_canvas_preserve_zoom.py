@@ -7,6 +7,7 @@ and on the explicit reset_view() (fit-to-view) button.
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_canvas_preserve_zoom.py
 """
+
 import sys
 
 import numpy as np
@@ -29,8 +30,8 @@ def _zoom(c, x0, x1, y0, y1):
 def test_same_shape_preserves_view():
     c = FibsemImageCanvas()
     c.set_array(_img(64, 64))
-    _zoom(c, 10, 30, 30, 10)          # user zooms in
-    c.set_array(_img(64, 64))         # next live frame, same resolution
+    _zoom(c, 10, 30, 30, 10)  # user zooms in
+    c.set_array(_img(64, 64))  # next live frame, same resolution
     assert c._ax.get_xlim() == (10, 30)
     assert c._ax.get_ylim() == (30, 10)
 
@@ -39,24 +40,24 @@ def test_first_image_fits():
     c = FibsemImageCanvas()
     c.set_array(_img(64, 64))
     x0, x1 = c._ax.get_xlim()
-    assert x0 < 0 and x1 > 63          # framed to the image extent, not a stale view
+    assert x0 < 0 and x1 > 63  # framed to the image extent, not a stale view
 
 
 def test_resolution_change_refits():
     c = FibsemImageCanvas()
     c.set_array(_img(64, 64))
     _zoom(c, 10, 30, 30, 10)
-    c.set_array(_img(128, 128))        # different resolution -> refit
+    c.set_array(_img(128, 128))  # different resolution -> refit
     x0, x1 = c._ax.get_xlim()
     assert not (x0 == 10 and x1 == 30)
-    assert x1 > 100                    # framed to the larger image
+    assert x1 > 100  # framed to the larger image
 
 
 def test_reset_view_always_fits():
     c = FibsemImageCanvas()
     c.set_array(_img(64, 64))
     _zoom(c, 10, 30, 30, 10)
-    c.reset_view()                     # fit-to-view button -> refit despite same shape
+    c.reset_view()  # fit-to-view button -> refit despite same shape
     x0, x1 = c._ax.get_xlim()
     assert x0 < 0 and x1 > 63
 

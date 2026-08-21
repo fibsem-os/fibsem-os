@@ -20,6 +20,7 @@ from fibsem.hooks import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _ctx(**kwargs) -> HookContext:
     defaults = dict(
         event=HookEvent.TASK_COMPLETED,
@@ -35,10 +36,14 @@ def _ctx(**kwargs) -> HookContext:
 # LoggingHook
 # ---------------------------------------------------------------------------
 
+
 def test_logging_hook_fires(caplog):
     import logging
+
     manager = HookManager()
-    manager.register(LoggingHook(name="l", events=[HookEvent.TASK_COMPLETED], level="INFO"))
+    manager.register(
+        LoggingHook(name="l", events=[HookEvent.TASK_COMPLETED], level="INFO")
+    )
     with caplog.at_level(logging.INFO):
         manager.fire(_ctx())
     assert any("task_completed" in r.message for r in caplog.records)
@@ -46,8 +51,11 @@ def test_logging_hook_fires(caplog):
 
 def test_logging_hook_respects_level(caplog):
     import logging
+
     manager = HookManager()
-    manager.register(LoggingHook(name="l", events=[HookEvent.TASK_COMPLETED], level="WARNING"))
+    manager.register(
+        LoggingHook(name="l", events=[HookEvent.TASK_COMPLETED], level="WARNING")
+    )
     with caplog.at_level(logging.WARNING):
         manager.fire(_ctx())
     assert any(r.levelno == logging.WARNING for r in caplog.records)
@@ -56,6 +64,7 @@ def test_logging_hook_respects_level(caplog):
 # ---------------------------------------------------------------------------
 # NotificationHook
 # ---------------------------------------------------------------------------
+
 
 def test_notification_hook_calls_notify():
     received = []
@@ -102,7 +111,9 @@ def test_notification_hook_cancelled_is_warning():
     manager.register(hook)
     manager.fire(_ctx(event=HookEvent.TASK_FAILED, error="boom"))
     assert received == []
-    manager.fire(_ctx(event=HookEvent.TASK_CANCELLED, task_name="Mill", item_name="01-elk"))
+    manager.fire(
+        _ctx(event=HookEvent.TASK_CANCELLED, task_name="Mill", item_name="01-elk")
+    )
     assert received == [("Task Mill cancelled for 01-elk", "warning")]
 
 
@@ -165,6 +176,7 @@ def test_hook_context_lamella_name_alias_is_deprecated():
 
 def test_notification_hook_falls_back_to_logging_without_notify(caplog):
     import logging
+
     hook = NotificationHook(
         name="n",
         events=[HookEvent.TASK_COMPLETED],
@@ -179,14 +191,17 @@ def test_notification_hook_falls_back_to_logging_without_notify(caplog):
 # FunctionHook
 # ---------------------------------------------------------------------------
 
+
 def test_function_hook_calls_callback():
     calls = []
     manager = HookManager()
-    manager.register(FunctionHook(
-        name="f",
-        events=[HookEvent.TASK_COMPLETED],
-        callback=lambda ctx: calls.append(ctx.task_name),
-    ))
+    manager.register(
+        FunctionHook(
+            name="f",
+            events=[HookEvent.TASK_COMPLETED],
+            callback=lambda ctx: calls.append(ctx.task_name),
+        )
+    )
     manager.fire(_ctx())
     assert calls == ["MillTrench"]
 
@@ -195,15 +210,18 @@ def test_function_hook_calls_callback():
 # HookManager — filtering
 # ---------------------------------------------------------------------------
 
+
 def test_disabled_hook_does_not_fire():
     received = []
     manager = HookManager()
-    manager.register(NotificationHook(
-        name="n",
-        events=[HookEvent.TASK_COMPLETED],
-        enabled=False,
-        _notify=lambda msg, typ: received.append(msg),
-    ))
+    manager.register(
+        NotificationHook(
+            name="n",
+            events=[HookEvent.TASK_COMPLETED],
+            enabled=False,
+            _notify=lambda msg, typ: received.append(msg),
+        )
+    )
     manager.fire(_ctx())
     assert received == []
 
@@ -211,11 +229,13 @@ def test_disabled_hook_does_not_fire():
 def test_wrong_event_does_not_fire():
     received = []
     manager = HookManager()
-    manager.register(NotificationHook(
-        name="n",
-        events=[HookEvent.TASK_FAILED],
-        _notify=lambda msg, typ: received.append(msg),
-    ))
+    manager.register(
+        NotificationHook(
+            name="n",
+            events=[HookEvent.TASK_FAILED],
+            _notify=lambda msg, typ: received.append(msg),
+        )
+    )
     manager.fire(_ctx(event=HookEvent.TASK_COMPLETED))
     assert received == []
 
@@ -223,12 +243,14 @@ def test_wrong_event_does_not_fire():
 def test_task_type_filter_matches():
     received = []
     manager = HookManager()
-    manager.register(NotificationHook(
-        name="n",
-        events=[HookEvent.TASK_COMPLETED],
-        task_types=["MILL_TRENCH"],
-        _notify=lambda msg, typ: received.append(msg),
-    ))
+    manager.register(
+        NotificationHook(
+            name="n",
+            events=[HookEvent.TASK_COMPLETED],
+            task_types=["MILL_TRENCH"],
+            _notify=lambda msg, typ: received.append(msg),
+        )
+    )
     manager.fire(_ctx(task_type="MILL_TRENCH"))
     assert len(received) == 1
 
@@ -236,12 +258,14 @@ def test_task_type_filter_matches():
 def test_task_type_filter_excludes():
     received = []
     manager = HookManager()
-    manager.register(NotificationHook(
-        name="n",
-        events=[HookEvent.TASK_COMPLETED],
-        task_types=["MILL_TRENCH"],
-        _notify=lambda msg, typ: received.append(msg),
-    ))
+    manager.register(
+        NotificationHook(
+            name="n",
+            events=[HookEvent.TASK_COMPLETED],
+            task_types=["MILL_TRENCH"],
+            _notify=lambda msg, typ: received.append(msg),
+        )
+    )
     manager.fire(_ctx(task_type="IMAGING"))
     assert received == []
 
@@ -254,8 +278,16 @@ def test_hook_exception_is_isolated():
         raise RuntimeError("boom")
 
     manager = HookManager()
-    manager.register(FunctionHook(name="bad", events=[HookEvent.TASK_COMPLETED], callback=bad_hook))
-    manager.register(FunctionHook(name="good", events=[HookEvent.TASK_COMPLETED], callback=lambda ctx: calls.append("ok")))
+    manager.register(
+        FunctionHook(name="bad", events=[HookEvent.TASK_COMPLETED], callback=bad_hook)
+    )
+    manager.register(
+        FunctionHook(
+            name="good",
+            events=[HookEvent.TASK_COMPLETED],
+            callback=lambda ctx: calls.append("ok"),
+        )
+    )
     manager.fire(_ctx())
     assert calls == ["ok"]
 
@@ -264,8 +296,14 @@ def test_hook_exception_is_isolated():
 # YAML round-trip
 # ---------------------------------------------------------------------------
 
+
 def test_logging_hook_yaml_roundtrip():
-    original = LoggingHook(name="logger", events=[HookEvent.TASK_FAILED], level="WARNING", task_types=["MILL_TRENCH"])
+    original = LoggingHook(
+        name="logger",
+        events=[HookEvent.TASK_FAILED],
+        level="WARNING",
+        task_types=["MILL_TRENCH"],
+    )
     restored = LoggingHook.from_dict(original.to_dict())
     assert restored.name == original.name
     assert restored.events == original.events
@@ -292,8 +330,18 @@ def test_notification_hook_yaml_roundtrip():
 
 def test_hook_manager_yaml_roundtrip():
     manager = HookManager()
-    manager.register(LoggingHook(name="l", events=[HookEvent.TASK_STARTED, HookEvent.TASK_COMPLETED], level="INFO"))
-    manager.register(NotificationHook(name="n", events=[HookEvent.TASK_FAILED], notification_type="error"))
+    manager.register(
+        LoggingHook(
+            name="l",
+            events=[HookEvent.TASK_STARTED, HookEvent.TASK_COMPLETED],
+            level="INFO",
+        )
+    )
+    manager.register(
+        NotificationHook(
+            name="n", events=[HookEvent.TASK_FAILED], notification_type="error"
+        )
+    )
 
     buf = io.StringIO()
     yaml.dump(manager.to_dict(), buf)
@@ -310,13 +358,18 @@ def test_hook_manager_yaml_roundtrip():
 def test_function_hook_excluded_from_yaml():
     """FunctionHook should be silently excluded from serialization."""
     manager = HookManager()
-    manager.register(FunctionHook(name="f", events=[HookEvent.TASK_COMPLETED], callback=lambda ctx: None))
+    manager.register(
+        FunctionHook(
+            name="f", events=[HookEvent.TASK_COMPLETED], callback=lambda ctx: None
+        )
+    )
     d = manager.to_dict()
     assert d["hooks"] == []
 
 
 def test_unknown_hook_type_skipped(caplog):
     import logging
+
     d = {"hooks": [{"type": "NonExistentHook", "name": "x", "events": []}]}
     with caplog.at_level(logging.WARNING):
         manager = HookManager.from_dict(d)
@@ -328,7 +381,11 @@ def test_save_and_load_yaml(tmp_path):
     path = str(tmp_path / "hooks.yaml")
     manager = HookManager()
     manager.register(LoggingHook(name="l", events=[HookEvent.TASK_COMPLETED]))
-    manager.register(NotificationHook(name="n", events=[HookEvent.TASK_FAILED], notification_type="error"))
+    manager.register(
+        NotificationHook(
+            name="n", events=[HookEvent.TASK_FAILED], notification_type="error"
+        )
+    )
     manager.save_yaml(path)
 
     restored = HookManager.load_yaml(path)
@@ -339,6 +396,7 @@ def test_save_and_load_yaml(tmp_path):
 # ---------------------------------------------------------------------------
 # set_notifier()
 # ---------------------------------------------------------------------------
+
 
 def test_set_notifier_applies_to_already_registered_hooks():
     calls = []
@@ -366,11 +424,13 @@ def test_set_notifier_applies_to_hooks_registered_later():
 def test_set_notifier_does_not_override_an_explicit_notify():
     manager_calls, own_calls = [], []
     manager = HookManager()
-    manager.register(NotificationHook(
-        name="own",
-        events=[HookEvent.TASK_COMPLETED],
-        _notify=lambda msg, typ: own_calls.append(msg),
-    ))
+    manager.register(
+        NotificationHook(
+            name="own",
+            events=[HookEvent.TASK_COMPLETED],
+            _notify=lambda msg, typ: own_calls.append(msg),
+        )
+    )
     manager.set_notifier(lambda msg, typ: manager_calls.append(msg))
 
     manager.fire(_ctx())
@@ -389,14 +449,17 @@ def test_no_notifier_is_safe():
 # fire_event() — the producer-side API
 # ---------------------------------------------------------------------------
 
+
 def test_fire_event_builds_the_context():
     received = []
     manager = HookManager()
-    manager.register(FunctionHook(
-        name="f",
-        events=[HookEvent.TASK_COMPLETED],
-        callback=received.append,
-    ))
+    manager.register(
+        FunctionHook(
+            name="f",
+            events=[HookEvent.TASK_COMPLETED],
+            callback=received.append,
+        )
+    )
 
     fire_event(manager, HookEvent.TASK_COMPLETED, task_name="Mill", item_name="grid-1")
 
@@ -413,27 +476,50 @@ def test_any_producer_can_fire_events():
     microscope. This stands in for a future milling/acquisition producer."""
     seen = []
     manager = HookManager()
-    manager.register(FunctionHook(
-        name="f",
-        events=[HookEvent.TASK_STARTED, HookEvent.TASK_COMPLETED, HookEvent.TASK_FAILED],
-        callback=lambda ctx: seen.append((ctx.event, ctx.item_name)),
-    ))
+    manager.register(
+        FunctionHook(
+            name="f",
+            events=[
+                HookEvent.TASK_STARTED,
+                HookEvent.TASK_COMPLETED,
+                HookEvent.TASK_FAILED,
+            ],
+            callback=lambda ctx: seen.append((ctx.event, ctx.item_name)),
+        )
+    )
 
     def run_some_work(hook_manager, item_name: str, fail: bool = False):
-        fire_event(hook_manager, HookEvent.TASK_STARTED, task_name="Polish", item_name=item_name)
+        fire_event(
+            hook_manager,
+            HookEvent.TASK_STARTED,
+            task_name="Polish",
+            item_name=item_name,
+        )
         if fail:
-            fire_event(hook_manager, HookEvent.TASK_FAILED, task_name="Polish",
-                       item_name=item_name, error="beam off")
+            fire_event(
+                hook_manager,
+                HookEvent.TASK_FAILED,
+                task_name="Polish",
+                item_name=item_name,
+                error="beam off",
+            )
             return
-        fire_event(hook_manager, HookEvent.TASK_COMPLETED, task_name="Polish", item_name=item_name)
+        fire_event(
+            hook_manager,
+            HookEvent.TASK_COMPLETED,
+            task_name="Polish",
+            item_name=item_name,
+        )
 
     run_some_work(manager, "grid-1")
     run_some_work(manager, "grid-2", fail=True)
     run_some_work(None, "grid-3")  # no manager: silent
 
     assert seen == [
-        ("task_started", "grid-1"), ("task_completed", "grid-1"),
-        ("task_started", "grid-2"), ("task_failed", "grid-2"),
+        ("task_started", "grid-1"),
+        ("task_completed", "grid-1"),
+        ("task_started", "grid-2"),
+        ("task_failed", "grid-2"),
     ]
 
 

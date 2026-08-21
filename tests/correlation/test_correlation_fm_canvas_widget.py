@@ -9,6 +9,7 @@ max-projection because the quad view is a viewer; correlation is a picker, and a
 projection has no z to give a point. Getting that wrong is silent: every FM point
 lands at z=0 and the correlation is quietly wrong.
 """
+
 import sys
 
 import numpy as np
@@ -41,9 +42,14 @@ def _fm_image(nz=_NZ, size=32):
         resolution=(size, size),
         channels=[
             FluorescenceChannelMetadata(
-                name="GFP", color="#00ff00", excitation_wavelength=488,
-                emission_wavelength=509, power=1.0, exposure_time=0.1,
-                gain=1.0, offset=0.0,
+                name="GFP",
+                color="#00ff00",
+                excitation_wavelength=488,
+                emission_wavelength=509,
+                power=1.0,
+                exposure_time=0.1,
+                gain=1.0,
+                offset=0.0,
             )
         ],
         filename="stack",
@@ -190,7 +196,12 @@ def test_the_crosshair_is_off():
 def test_the_tab_widget_can_connect_its_four_signals():
     """Both correlation surfaces are wired in one loop in the tab widget, so
     these have to be present under exactly these names."""
-    for name in ("point_selected", "point_moved", "point_removed", "point_add_requested"):
+    for name in (
+        "point_selected",
+        "point_moved",
+        "point_removed",
+        "point_add_requested",
+    ):
         assert hasattr(CorrelationFMCanvasWidget, name), name
 
 

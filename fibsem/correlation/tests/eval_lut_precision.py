@@ -1,4 +1,5 @@
 """Compare full-precision vs 2dp LUT: file size, load time, interpolation accuracy."""
+
 from __future__ import annotations
 
 import os
@@ -8,8 +9,12 @@ import numpy as np
 import pandas as pd
 from scipy.interpolate import RegularGridInterpolator
 
-FULL_PATH = os.path.join(os.path.dirname(__file__), "..", "scaling_factor_lookup_table.csv")
-SMALL_PATH = os.path.join(os.path.dirname(__file__), "..", "scaling_factor_lookup_table_2dp.csv")
+FULL_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "scaling_factor_lookup_table.csv"
+)
+SMALL_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "scaling_factor_lookup_table_2dp.csv"
+)
 
 
 def build_interpolator(lut: pd.DataFrame) -> RegularGridInterpolator:
@@ -66,13 +71,15 @@ interp_small = build_interpolator(lut_small)
 # Sample 10 000 random points within the grid bounds
 rng = np.random.default_rng(42)
 n = 10_000
-query_points = np.column_stack([
-    rng.uniform(0, 30, n),       # tilt_deg
-    rng.uniform(0.5, 14.5, n),   # depth_um
-    rng.uniform(1.22, 1.46, n),  # n2
-    rng.uniform(0.42, 0.72, n),  # wavelength_um
-    rng.uniform(0.2, 0.9, n),    # NA
-])
+query_points = np.column_stack(
+    [
+        rng.uniform(0, 30, n),  # tilt_deg
+        rng.uniform(0.5, 14.5, n),  # depth_um
+        rng.uniform(1.22, 1.46, n),  # n2
+        rng.uniform(0.42, 0.72, n),  # wavelength_um
+        rng.uniform(0.2, 0.9, n),  # NA
+    ]
+)
 
 zeta_full = interp_full(query_points)
 zeta_small = interp_small(query_points)
@@ -82,15 +89,15 @@ print("\nINTERPOLATION ACCURACY (full vs 2dp, 10 000 random query points)")
 print(f"  Max error  : {errors.max():.4f}")
 print(f"  Mean error : {errors.mean():.4f}")
 print(f"  Std error  : {errors.std():.4f}")
-print(f"  % points with error < 0.005 : {(errors < 0.005).mean()*100:.1f}%")
-print(f"  % points with error < 0.01  : {(errors < 0.01).mean()*100:.1f}%")
+print(f"  % points with error < 0.005 : {(errors < 0.005).mean() * 100:.1f}%")
+print(f"  % points with error < 0.01  : {(errors < 0.01).mean() * 100:.1f}%")
 
 # ── Named test cases from the notebook ───────────────────────────────────────
 test_cases = [
-    ("Meteor bead focal shift",  15, 4,   1.29, 0.58,  0.8),
-    ("Cell targeting (Arctis)",  15, 4,   1.35, 0.515, 0.7),
-    ("On-grid, shallow",          0, 2,   1.33, 0.52,  0.8),
-    ("High-tilt, deep",          25, 12,  1.38, 0.57,  0.9),
+    ("Meteor bead focal shift", 15, 4, 1.29, 0.58, 0.8),
+    ("Cell targeting (Arctis)", 15, 4, 1.35, 0.515, 0.7),
+    ("On-grid, shallow", 0, 2, 1.33, 0.52, 0.8),
+    ("High-tilt, deep", 25, 12, 1.38, 0.57, 0.9),
 ]
 
 print("\nNAMED TEST CASES")
@@ -100,6 +107,6 @@ for name, tilt, depth, n2, wl, na in test_cases:
     pt = (tilt, depth, n2, wl, na)
     zf = float(interp_full(pt))
     zs = float(interp_small(pt))
-    print(f"{name:<30} {zf:>8.4f} {zs:>8.4f} {abs(zf-zs):>8.4f}")
+    print(f"{name:<30} {zf:>8.4f} {zs:>8.4f} {abs(zf - zs):>8.4f}")
 
 print("=" * 60)

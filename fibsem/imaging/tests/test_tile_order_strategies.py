@@ -17,7 +17,9 @@ from fibsem.structures import (
 def main():
     base = OverviewAcquisitionSettings(
         image_settings=ImageSettings(resolution=(1024, 1024), hfw=100e-6),
-        nrows=5, ncols=5, overlap=0.1,
+        nrows=5,
+        ncols=5,
+        overlap=0.1,
     )
 
     strategies = list(TileOrderStrategy)
@@ -26,7 +28,9 @@ def main():
     for ax, strategy in zip(axes, strategies):
         settings = OverviewAcquisitionSettings(
             image_settings=base.image_settings,
-            nrows=base.nrows, ncols=base.ncols, overlap=base.overlap,
+            nrows=base.nrows,
+            ncols=base.ncols,
+            overlap=base.overlap,
             tile_order=strategy,
         )
         tiles = compute_tile_grid(settings)

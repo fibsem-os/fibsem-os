@@ -8,6 +8,7 @@ factor that described none of the settings displayed above it.
 The factor is derived now. What still needs pinning is the offline fallback — a
 literal, and therefore free to drift again the moment the defaults move.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

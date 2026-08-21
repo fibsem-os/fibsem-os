@@ -10,6 +10,7 @@ The failure this pins is not a wrong value -- it is a `RuntimeError: wrapped C/C
 object ... has been deleted` raised inside somebody else's worker thread, which reads
 as a broken acquisition rather than as a teardown bug.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

@@ -36,7 +36,9 @@ def main():
     hfw = args.hfw
     beam_type = BeamType[args.beam_type]
 
-    run_beam_shift_alignment_test(scan_rotation=scan_rotation, hfw=hfw, beam_type=beam_type)
+    run_beam_shift_alignment_test(
+        scan_rotation=scan_rotation, hfw=hfw, beam_type=beam_type
+    )
 
 
 if __name__ == "__main__":

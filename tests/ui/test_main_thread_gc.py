@@ -17,6 +17,7 @@ Two sides are tested:
 
 Uses PyQt5 directly with the offscreen platform (no pytest-qt dependency).
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -91,7 +92,9 @@ def test_hazard_worker_thread_gc_finalizes_off_main_thread(qapp):
     worker.start()
     worker.join()
 
-    assert record, "allocation storm never triggered a collection — increase n_allocations"
+    assert record, (
+        "allocation storm never triggered a collection — increase n_allocations"
+    )
     assert record[0] is not threading.main_thread(), (
         "expected the control finalizer to run on the worker thread; if CPython's "
         "GC threading behaviour changed, the main-thread GC fix may be obsolete"
@@ -111,7 +114,9 @@ def test_fix_finalizers_run_only_on_main_thread(qapp):
         worker.start()
         worker.join()
 
-        assert record == [], "automatic GC ran in the worker thread despite gc.disable()"
+        assert record == [], (
+            "automatic GC ran in the worker thread despite gc.disable()"
+        )
 
         # simulate timer ticks on the main thread until the cycle is collected
         for _ in range(10):

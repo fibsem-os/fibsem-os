@@ -9,6 +9,7 @@ couple of render checks.
   * reflection hole     -> z + XY, inverted signal
   * fluorescence target -> z + XY
 """
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -32,14 +33,18 @@ def _blob_2d(size: int, cx: float, cy: float, sigma: float = 3.0) -> np.ndarray:
 def _refl_vol(cx: float, nz: int = 21, size: int = 60) -> np.ndarray:
     vol = np.full((nz, size, size), 200.0, dtype=np.float32)
     for zi in range(nz):  # a dark hole, deepest at z=10
-        vol[zi] -= 160.0 * np.exp(-((zi - 10) ** 2) / (2 * 2.0**2)) * _blob_2d(size, cx, cx)
+        vol[zi] -= (
+            160.0 * np.exp(-((zi - 10) ** 2) / (2 * 2.0**2)) * _blob_2d(size, cx, cx)
+        )
     return vol
 
 
 def _fluor_vol(cx: float, nz: int = 21, size: int = 40) -> np.ndarray:
     vol = np.zeros((nz, size, size), dtype=np.float32)
     for zi in range(nz):  # a bright target, brightest at z=10
-        vol[zi] += 200.0 * np.exp(-((zi - 10) ** 2) / (2 * 2.0**2)) * _blob_2d(size, cx, cx)
+        vol[zi] += (
+            200.0 * np.exp(-((zi - 10) ** 2) / (2 * 2.0**2)) * _blob_2d(size, cx, cx)
+        )
     return vol
 
 
@@ -52,7 +57,7 @@ def test_fib_hole_fit_returns_xy_only_diagnostic():
 
     assert isinstance(d, FitDiagnostic)
     assert np.isfinite(xr) and np.isfinite(yr)
-    assert not d.has_z              # FIB has no z panel
+    assert not d.has_z  # FIB has no z panel
     assert d.fitted_xy is not None  # a clean fit has a fitted marker
 
 
@@ -127,19 +132,28 @@ def _xy_only():
 
 def _with_z():
     return FitDiagnostic(
-        title="t", roi_xy=np.zeros((10, 10)), input_xy=(5.0, 5.0),
-        z_axis=np.arange(5), z_signal=np.arange(5.0), z_fit=np.arange(5.0),
-        z_input=2.0, z_fitted=2.5,
+        title="t",
+        roi_xy=np.zeros((10, 10)),
+        input_xy=(5.0, 5.0),
+        z_axis=np.arange(5),
+        z_signal=np.arange(5.0),
+        z_fit=np.arange(5.0),
+        z_input=2.0,
+        z_fitted=2.5,
     )
 
 
 def test_plot_fit_diagnostic_panel_counts():
-    assert len(plot_fit_diagnostic(_xy_only()).axes) == 1   # XY only
-    assert len(plot_fit_diagnostic(_with_z()).axes) == 2    # z + XY
+    assert len(plot_fit_diagnostic(_xy_only()).axes) == 1  # XY only
+    assert len(plot_fit_diagnostic(_with_z()).axes) == 2  # z + XY
 
 
 def test_plot_fit_diagnostic_dark_vs_light_facecolor():
     from matplotlib.colors import to_hex
 
-    assert to_hex(plot_fit_diagnostic(_with_z(), dark=True).get_facecolor()) == "#1e2124"
-    assert to_hex(plot_fit_diagnostic(_with_z(), dark=False).get_facecolor()) == "#ffffff"
+    assert (
+        to_hex(plot_fit_diagnostic(_with_z(), dark=True).get_facecolor()) == "#1e2124"
+    )
+    assert (
+        to_hex(plot_fit_diagnostic(_with_z(), dark=False).get_facecolor()) == "#ffffff"
+    )

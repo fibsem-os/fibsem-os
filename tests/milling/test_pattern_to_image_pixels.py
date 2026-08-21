@@ -7,6 +7,7 @@ FIB-644: the four `_*_pattern_to_image_pixels` helpers each wrote out
 The reason this mattered is in `test_the_line_converter_disagrees_with_its_siblings`:
 they had already drifted apart before anyone noticed.
 """
+
 import numpy as np
 import pytest
 
@@ -25,10 +26,10 @@ from fibsem.structures import (
     Point,
 )
 
-EVEN = (512, 1024)   # (height, width)
-ODD = (511, 1023)    # the only shapes where the centre rounding is visible
+EVEN = (512, 1024)  # (height, width)
+ODD = (511, 1023)  # the only shapes where the centre rounding is visible
 PS = 1e-8
-OFFSET = 5e-6        # 500 px at this pixel size
+OFFSET = 5e-6  # 500 px at this pixel size
 
 
 def _expected(x, y, shape, subpixel):
@@ -52,8 +53,13 @@ def test_rectangle_uses_the_shared_conversion(shape):
 @pytest.mark.parametrize("shape", [EVEN, ODD])
 def test_circle_uses_the_shared_conversion(shape):
     p = FibsemCircleSettings(
-        radius=3e-6, depth=1e-6, thickness=0, centre_x=OFFSET, centre_y=-OFFSET,
-        start_angle=0, end_angle=360,
+        radius=3e-6,
+        depth=1e-6,
+        thickness=0,
+        centre_x=OFFSET,
+        centre_y=-OFFSET,
+        start_angle=0,
+        end_angle=360,
     )
     px, py, *_ = _circle_pattern_to_image_pixels(p, PS, shape)
 

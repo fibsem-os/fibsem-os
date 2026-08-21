@@ -35,7 +35,12 @@ from fibsem.ui.widgets.canvas.fm_canvas import FMRealSpaceCanvasWidget
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
-CHANNELS = [("red", "red"), ("green", "green"), ("cyan", "cyan"), ("magenta", "magenta")]
+CHANNELS = [
+    ("red", "red"),
+    ("green", "green"),
+    ("cyan", "cyan"),
+    ("magenta", "magenta"),
+]
 
 
 def plane(side: int = 900, seed: int = 0) -> np.ndarray:
@@ -68,7 +73,9 @@ def reductions(widget, monkeypatch):
 class TestOneCompositePerUpdate:
     def test_setting_channels_together_costs_one_composite(self, widget, reductions):
         """C reductions, not C squared. The loop threw C-1 blends away."""
-        items = [(name, plane(seed=i), color) for i, (name, color) in enumerate(CHANNELS)]
+        items = [
+            (name, plane(seed=i), color) for i, (name, color) in enumerate(CHANNELS)
+        ]
 
         widget.set_channels(items)
 
@@ -90,7 +97,9 @@ class TestOneCompositePerUpdate:
 
     def test_the_picture_is_the_same_either_way(self, widget):
         """Batching is an optimisation; it must not change what is drawn."""
-        items = [(name, plane(seed=i), color) for i, (name, color) in enumerate(CHANNELS)]
+        items = [
+            (name, plane(seed=i), color) for i, (name, color) in enumerate(CHANNELS)
+        ]
 
         widget.set_channels(items)
         batched = widget.canvas._placed[widget._composite_key].artist.get_array().copy()
@@ -124,12 +133,16 @@ class TestHeldOverviewsAreNotRedrawnWholesale:
         region rather than the mosaic.
         """
         widget.set_composite_key("first")
-        widget.set_channels([(n, plane(seed=i), c) for i, (n, c) in enumerate(CHANNELS)])
+        widget.set_channels(
+            [(n, plane(seed=i), c) for i, (n, c) in enumerate(CHANNELS)]
+        )
         reductions.clear()
 
         widget.set_composite_key("second")
         widget.set_placement((1e-3, 0.0))
-        widget.set_channels([(n, plane(seed=i + 9), c) for i, (n, c) in enumerate(CHANNELS)])
+        widget.set_channels(
+            [(n, plane(seed=i + 9), c) for i, (n, c) in enumerate(CHANNELS)]
+        )
 
         assert len(reductions) == len(CHANNELS), (
             f"{len(reductions)} whole-image reductions placing a second overview — only "
@@ -140,7 +153,9 @@ class TestHeldOverviewsAreNotRedrawnWholesale:
         """No pixels changed, so there is nothing to blend up front -- the canvas asks
         each source for what it can show. This is the path a slider drag takes, once per
         mouse move."""
-        widget.set_channels([(n, plane(seed=i), c) for i, (n, c) in enumerate(CHANNELS)])
+        widget.set_channels(
+            [(n, plane(seed=i), c) for i, (n, c) in enumerate(CHANNELS)]
+        )
         reductions.clear()
 
         widget.layers[0].opacity = 0.5

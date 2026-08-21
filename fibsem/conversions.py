@@ -61,9 +61,10 @@ def image_to_microscope_image_coordinates_px(
 
     # distance from centre?
     return Point(
-        x=float(coord.x - cx),   # neg = left
-        y=float(cy - coord.y),   # neg = down
+        x=float(coord.x - cx),  # neg = left
+        y=float(cy - coord.y),  # neg = down
     )
+
 
 def image_to_microscope_image_coordinates(
     coord: Point, image: np.ndarray, pixelsize: float, subpixel_precision: bool = False
@@ -88,8 +89,12 @@ def image_to_microscope_image_coordinates(
 
     return convert_point_from_pixel_to_metres(point_px, pixelsize)
 
+
 def image_to_microscope_image_coordinates2(
-    coord: Point, image_shape: Tuple[int, int], pixelsize: float, subpixel_precision: bool = False
+    coord: Point,
+    image_shape: Tuple[int, int],
+    pixelsize: float,
+    subpixel_precision: bool = False,
 ) -> Point:
     """
     Convert an image pixel coordinate to a microscope image coordinate.
@@ -114,6 +119,7 @@ def image_to_microscope_image_coordinates2(
 
     return point_px._to_metres(pixel_size=pixelsize)
 
+
 def microscope_image_to_image_coordinates(
     point: Point,
     image_shape: Tuple[int, int],
@@ -121,7 +127,7 @@ def microscope_image_to_image_coordinates(
     subpixel_precision: bool = False,
 ) -> Point:
     """
-    Convert a microscope image coordinate to an image pixel coordinate. 
+    Convert a microscope image coordinate to an image pixel coordinate.
     The microscope image coordinate system is centered on the image with positive Y-axis pointing upwards.
     Args:
         point (Point): A Point object representing the microscope image coordinates in metres.
@@ -145,6 +151,7 @@ def microscope_image_to_image_coordinates(
     py = cy - pmy
 
     return Point(x=px, y=py)
+
 
 def get_lamella_size_in_pixels(
     img: FibsemImage, protocol: dict, use_trench_height: bool = False
@@ -279,9 +286,7 @@ def is_inside_image_bounds(coords: Tuple[float, float], shape: Tuple[int, int]) 
     """
     ycoord, xcoord = coords
 
-    if (ycoord > 0 and ycoord < shape[0]) and (
-        xcoord > 0 and xcoord < shape[1]
-    ):
+    if (ycoord > 0 and ycoord < shape[0]) and (xcoord > 0 and xcoord < shape[1]):
         return True
 
     return False

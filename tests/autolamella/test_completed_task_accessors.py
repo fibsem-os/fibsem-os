@@ -30,9 +30,15 @@ def workflow() -> AutoLamellaWorkflowConfig:
     """MillUndercut requires MillTrench."""
     return AutoLamellaWorkflowConfig(
         tasks=[
-            AutoLamellaTaskDescription(name="MillTrench", supervise=False, required=True),
-            AutoLamellaTaskDescription(name="MillUndercut", supervise=False, required=True,
-                                       requires=["MillTrench"]),
+            AutoLamellaTaskDescription(
+                name="MillTrench", supervise=False, required=True
+            ),
+            AutoLamellaTaskDescription(
+                name="MillUndercut",
+                supervise=False,
+                required=True,
+                requires=["MillTrench"],
+            ),
         ]
     )
 
@@ -49,13 +55,17 @@ def test_a_failed_task_is_not_a_completed_task(lamella: Lamella) -> None:
 
 
 def test_a_cancelled_task_is_not_a_completed_task(lamella: Lamella) -> None:
-    lamella.task_history.append(_finished("MillTrench", AutoLamellaTaskStatus.Cancelled))
+    lamella.task_history.append(
+        _finished("MillTrench", AutoLamellaTaskStatus.Cancelled)
+    )
 
     assert not lamella.has_completed_task("MillTrench")
 
 
 def test_a_completed_task_still_counts(lamella: Lamella) -> None:
-    lamella.task_history.append(_finished("MillTrench", AutoLamellaTaskStatus.Completed))
+    lamella.task_history.append(
+        _finished("MillTrench", AutoLamellaTaskStatus.Completed)
+    )
 
     assert lamella.completed_tasks == ["MillTrench"]
     assert lamella.has_completed_task("MillTrench")
@@ -79,7 +89,9 @@ def test_a_failed_required_task_leaves_the_workflow_incomplete(
 ) -> None:
     """Feeds ITEM_COMPLETED / EXPERIMENT_COMPLETED and the is_completed report column."""
     lamella.task_history.append(_finished("MillTrench", AutoLamellaTaskStatus.Failed))
-    lamella.task_history.append(_finished("MillUndercut", AutoLamellaTaskStatus.Completed))
+    lamella.task_history.append(
+        _finished("MillUndercut", AutoLamellaTaskStatus.Completed)
+    )
 
     assert not workflow.is_completed(lamella)
     assert workflow.get_completed_tasks(lamella) == ["MillUndercut"]
@@ -89,7 +101,9 @@ def test_a_failed_required_task_leaves_the_workflow_incomplete(
 def test_last_completed_task_skips_a_failed_entry(lamella: Lamella) -> None:
     """Reported as last_completed / last_completed_at in the experiment summary, so a
     failure landing last would otherwise be presented as the lamella's latest progress."""
-    lamella.task_history.append(_finished("MillTrench", AutoLamellaTaskStatus.Completed))
+    lamella.task_history.append(
+        _finished("MillTrench", AutoLamellaTaskStatus.Completed)
+    )
     lamella.task_history.append(_finished("MillUndercut", AutoLamellaTaskStatus.Failed))
 
     last = lamella.last_completed_task

@@ -29,6 +29,7 @@ What to try
   `+` and the shared canvas's yellow one is easy to mistake for it. The toolbar
   toggle brings it back.
 """
+
 from __future__ import annotations
 
 import sys
@@ -68,7 +69,11 @@ def _synthetic_image(h: int = 512, w: int = 512) -> np.ndarray:
     base = np.linspace(0.0, 0.3, w)[None, :] + np.linspace(0.0, 0.3, h)[:, None]
     img = base + rng.normal(0, 0.04, (h, w))
     yy, xx = np.mgrid[0:h, 0:w]
-    for cy, cx, amp, sigma in ((150, 180, 0.5, 40), (330, 300, 0.4, 55), (200, 400, 0.3, 30)):
+    for cy, cx, amp, sigma in (
+        (150, 180, 0.5, 40),
+        (330, 300, 0.4, 55),
+        (200, 400, 0.3, 30),
+    ):
         img += amp * np.exp(-(((yy - cy) ** 2 + (xx - cx) ** 2) / (2.0 * sigma**2)))
     return (np.clip(img, 0, None) / img.max() * 255).astype(np.uint8)
 
@@ -88,18 +93,35 @@ def _seed_points() -> list:
 _RESULT_GROUPS = (
     (
         [(186.0, 156.0), (295.0, 337.0)],
-        dict(color="#ff4444", label_prefix="E", size=4, marker="o",
-             legend_label="FM reprojected (E)"),
+        dict(
+            color="#ff4444",
+            label_prefix="E",
+            size=4,
+            marker="o",
+            legend_label="FM reprojected (E)",
+        ),
     ),
     (
         [(250.0, 250.0)],
-        dict(color="#ff00ff", size=7, marker="o", alpha=0.7, show_labels=False,
-             hollow=True, legend_label="POI uncorrected"),
+        dict(
+            color="#ff00ff",
+            size=7,
+            marker="o",
+            alpha=0.7,
+            show_labels=False,
+            hollow=True,
+            legend_label="POI uncorrected",
+        ),
     ),
     (
         [(256.0, 254.0)],
-        dict(color="#ff00ff", label_prefix="P", size=5, marker="o",
-             legend_label="POI (P)"),
+        dict(
+            color="#ff00ff",
+            label_prefix="P",
+            size=5,
+            marker="o",
+            legend_label="POI (P)",
+        ),
     ),
 )
 
@@ -203,7 +225,9 @@ class DemoWindow(QMainWindow):
         )
 
     def _log(self, message: str, color: str = None) -> None:
-        self.log.append(f"<span style='color:{color}'>{message}</span>" if color else message)
+        self.log.append(
+            f"<span style='color:{color}'>{message}</span>" if color else message
+        )
 
 
 def main() -> None:

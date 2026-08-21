@@ -3,6 +3,7 @@
 Run directly:
     python fibsem/ui/fm/widgets/test_channel_list_widget.py
 """
+
 import sys
 
 from PyQt5.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
@@ -19,9 +20,33 @@ def main() -> None:
     fm = FluorescenceMicroscope()
 
     channels = [
-        ChannelSettings(name="DAPI",     excitation_wavelength=365, emission_wavelength=None, power=0.05, exposure_time=0.050, color="blue",   gain=0.5),
-        ChannelSettings(name="GFP",      excitation_wavelength=450, emission_wavelength="Fluorescence", power=0.10, exposure_time=0.100, color="cyan",   gain=0.6),
-        ChannelSettings(name="mCherry",  excitation_wavelength=550, emission_wavelength=None, power=0.20, exposure_time=0.200, color="red",    gain=0.7),
+        ChannelSettings(
+            name="DAPI",
+            excitation_wavelength=365,
+            emission_wavelength=None,
+            power=0.05,
+            exposure_time=0.050,
+            color="blue",
+            gain=0.5,
+        ),
+        ChannelSettings(
+            name="GFP",
+            excitation_wavelength=450,
+            emission_wavelength="Fluorescence",
+            power=0.10,
+            exposure_time=0.100,
+            color="cyan",
+            gain=0.6,
+        ),
+        ChannelSettings(
+            name="mCherry",
+            excitation_wavelength=550,
+            emission_wavelength=None,
+            power=0.20,
+            exposure_time=0.200,
+            color="red",
+            gain=0.7,
+        ),
     ]
 
     win = QWidget()

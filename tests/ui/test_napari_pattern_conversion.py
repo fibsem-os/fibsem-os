@@ -13,6 +13,7 @@ deliberately off-centre and asymmetric.
 NOTE these skip on CI, which installs no napari. `fibsem/ui/napari/patterns.py`
 imports it at module level, so the converters cannot be reached without it.
 """
+
 import numpy as np
 import pytest
 
@@ -35,16 +36,16 @@ from fibsem.ui.napari.patterns import (
     convert_point_to_napari,
 )
 
-SHAPE = (512, 1024)   # (height, width) -> centre (256, 512)
-PS = 1e-8             # 10 nm/px, so 1e-6 m = 100 px
-ABOVE = 1e-6          # +y in microscope coordinates is UP
+SHAPE = (512, 1024)  # (height, width) -> centre (256, 512)
+PS = 1e-8  # 10 nm/px, so 1e-6 m = 100 px
+ABOVE = 1e-6  # +y in microscope coordinates is UP
 
 
 def test_a_vertex_above_the_centre_is_drawn_above_the_centre():
     """The defect, stated as plainly as it can be."""
     pattern = FibsemPolygonSettings(vertices=[(0.0, ABOVE)], depth=1e-6)
 
-    (row, col), = convert_pattern_to_napari_polygon(pattern, SHAPE, PS)[0]
+    ((row, col),) = convert_pattern_to_napari_polygon(pattern, SHAPE, PS)[0]
 
     assert row == pytest.approx(156.0), "100 px above a centre of 256"
     assert row < 256, "drawn below the centre — mirrored (FIB-692)"
@@ -74,7 +75,7 @@ def test_a_polygon_agrees_with_a_rectangle_about_which_way_is_up():
         width=1e-6, height=1e-6, depth=1e-6, centre_x=0.0, centre_y=ABOVE
     )
 
-    (poly_row, _), = convert_pattern_to_napari_polygon(poly, SHAPE, PS)[0]
+    ((poly_row, _),) = convert_pattern_to_napari_polygon(poly, SHAPE, PS)[0]
     rect_rows = [row for row, _ in convert_pattern_to_napari_rect(rect, SHAPE, PS)[0]]
 
     assert poly_row == pytest.approx(sum(rect_rows) / len(rect_rows))
@@ -84,7 +85,7 @@ def test_a_vertex_on_the_centre_line_never_showed_the_bug():
     """Why it survived: with y = 0 the mirror is the identity."""
     pattern = FibsemPolygonSettings(vertices=[(4e-6, 0.0)], depth=1e-6)
 
-    (row, col), = convert_pattern_to_napari_polygon(pattern, SHAPE, PS)[0]
+    ((row, col),) = convert_pattern_to_napari_polygon(pattern, SHAPE, PS)[0]
 
     assert (row, col) == pytest.approx((256.0, 912.0))
 
@@ -93,7 +94,7 @@ def test_the_result_is_row_column_for_napari():
     """The swap is real and has to happen after the conversion, not before."""
     pattern = FibsemPolygonSettings(vertices=[(4e-6, ABOVE)], depth=1e-6)
 
-    (row, col), = convert_pattern_to_napari_polygon(pattern, SHAPE, PS)[0]
+    ((row, col),) = convert_pattern_to_napari_polygon(pattern, SHAPE, PS)[0]
 
     assert (row, col) == pytest.approx((156.0, 912.0))
 
@@ -120,8 +121,13 @@ def _expected(x, y, shape=SHAPE):
 @pytest.mark.parametrize("shape", [SHAPE, ODD])
 def test_circle_agrees_with_the_shared_conversion(shape):
     p = FibsemCircleSettings(
-        radius=3e-6, depth=1e-6, thickness=0, centre_x=2e-6, centre_y=ABOVE,
-        start_angle=0, end_angle=360,
+        radius=3e-6,
+        depth=1e-6,
+        thickness=0,
+        centre_x=2e-6,
+        centre_y=ABOVE,
+        start_angle=0,
+        end_angle=360,
     )
     rows = convert_pattern_to_napari_circle(p, shape, PS)[0]
     cx, cy = _expected(2e-6, ABOVE, shape)
@@ -160,7 +166,7 @@ def test_convert_point_to_napari_takes_width_height_not_shape():
 
     A non-square resolution is the only way to catch getting it wrong.
     """
-    resolution = [1024, 512]          # width, height  -> centre (256, 512)
+    resolution = [1024, 512]  # width, height  -> centre (256, 512)
 
     got = convert_point_to_napari(resolution, PS, Point(0.0, ABOVE))
 

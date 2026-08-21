@@ -18,8 +18,12 @@ def main():
 
     if _DEBUG:
         microscope.set("scan_rotation", np.deg2rad(0), beam_type=BeamType.ION)
-        microscope.move_manipulator_to_position_offset(offset=FibsemManipulatorPosition(), name="EUCENTRIC")
-        microscope.move_manipulator_corrected(dx=-50e-6, dy=-150e-6, beam_type=BeamType.ELECTRON)
+        microscope.move_manipulator_to_position_offset(
+            offset=FibsemManipulatorPosition(), name="EUCENTRIC"
+        )
+        microscope.move_manipulator_corrected(
+            dx=-50e-6, dy=-150e-6, beam_type=BeamType.ELECTRON
+        )
 
         settings.image.autocontrast = True
         settings.image.hfw = 900e-6
@@ -32,6 +36,7 @@ def main():
         plt.show()
 
     calibration._calibrate_manipulator_thermo(microscope, settings, None)
+
 
 if __name__ == "__main__":
     main()

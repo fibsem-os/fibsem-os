@@ -27,6 +27,7 @@ QToolButton + QLabel. That buys three things worth having:
 
 The constants immediately below are the knobs - widths, timings, palette.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -74,8 +75,8 @@ COLLAPSED_WIDTH = 56
 EXPANDED_WIDTH = 208
 ITEM_HEIGHT = 44
 ICON_SIZE = 22
-ANIM_DURATION = 180   # ms, width animation
-EXPAND_DELAY = 100    # ms of hover before expanding (kills flicker on a fly-by)
+ANIM_DURATION = 180  # ms, width animation
+EXPAND_DELAY = 100  # ms of hover before expanding (kills flicker on a fly-by)
 COLLAPSE_DELAY = 220  # ms of grace before collapsing again
 
 # ── Palette (napari-dark leaning) ────────────────────────────────────────────
@@ -111,7 +112,9 @@ def _label_rect(width: int, height: int, mirrored: bool) -> Tuple[QRect, int]:
         right = width - COLLAPSED_WIDTH + 4
         return QRect(10, 0, max(0, right - 10), height), Qt.AlignRight | Qt.AlignVCenter
     left = COLLAPSED_WIDTH - 4
-    return QRect(left, 0, max(0, width - left - 10), height), Qt.AlignLeft | Qt.AlignVCenter
+    return QRect(
+        left, 0, max(0, width - left - 10), height
+    ), Qt.AlignLeft | Qt.AlignVCenter
 
 
 def _icon_x(width: int, mirrored: bool) -> int:
@@ -188,7 +191,9 @@ class _TabButton(QAbstractButton):
 
         icon = self._icon_active if checked else self._icon_idle
         icon_x = _icon_x(width, self._mirrored)
-        icon.paint(painter, QRect(icon_x, (height - ICON_SIZE) // 2, ICON_SIZE, ICON_SIZE))
+        icon.paint(
+            painter, QRect(icon_x, (height - ICON_SIZE) // 2, ICON_SIZE, ICON_SIZE)
+        )
 
         opacity = _label_opacity(width)
         if opacity > 0.01:
@@ -277,7 +282,9 @@ class VerticalTabBar(QWidget):
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setStyleSheet(
             "VerticalTabBar {{ background-color: {}; {}: 1px solid {}; }}".format(
-                COLOR_RAIL_BG, "border-left" if self._mirrored else "border-right", COLOR_BORDER
+                COLOR_RAIL_BG,
+                "border-left" if self._mirrored else "border-right",
+                COLOR_BORDER,
             )
         )
         self.setFixedWidth(COLLAPSED_WIDTH)
@@ -479,43 +486,85 @@ class VerticalTabWidget(QWidget):
 # the right-hand rail swaps in when that section is selected.
 TABS = [
     (
-        "mdi:microscope", "Imaging", "Beam settings, detectors and live acquisition.",
+        "mdi:microscope",
+        "Imaging",
+        "Beam settings, detectors and live acquisition.",
         [
             ("mdi:tune-vertical", "Beam", "Voltage, current and working distance."),
             ("mdi:camera-iris", "Detector", "Detector type, brightness and contrast."),
-            ("mdi:image-filter-center-focus", "Autofocus", "Focus sweep and beam alignment."),
+            (
+                "mdi:image-filter-center-focus",
+                "Autofocus",
+                "Focus sweep and beam alignment.",
+            ),
         ],
     ),
     (
-        "mdi:target", "Milling", "Pattern definition, stages and mill supervision.",
+        "mdi:target",
+        "Milling",
+        "Pattern definition, stages and mill supervision.",
         [
-            ("mdi:shape-rectangle-plus", "Patterns", "Trench, undercut and microexpansion shapes."),
-            ("mdi:layers-triple", "Stages", "Ordering, currents and per-stage overrides."),
-            ("mdi:eye-check-outline", "Supervision", "Pause points and operator confirmation."),
+            (
+                "mdi:shape-rectangle-plus",
+                "Patterns",
+                "Trench, undercut and microexpansion shapes.",
+            ),
+            (
+                "mdi:layers-triple",
+                "Stages",
+                "Ordering, currents and per-stage overrides.",
+            ),
+            (
+                "mdi:eye-check-outline",
+                "Supervision",
+                "Pause points and operator confirmation.",
+            ),
             ("mdi:crosshairs", "Alignment", "Drift correction between milling stages."),
         ],
     ),
     (
-        "mdi:axis-arrow", "Movement", "Stage moves, compucentric rotation and tilts.",
+        "mdi:axis-arrow",
+        "Movement",
+        "Stage moves, compucentric rotation and tilts.",
         [
             ("mdi:stove", "Stage", "Absolute and relative stage positioning."),
-            ("mdi:robot-industrial", "Manipulator", "Needle insert, retract and saved positions."),
-            ("mdi:rotate-3d-variant", "Compucentric", "Rotation about the coincidence point."),
+            (
+                "mdi:robot-industrial",
+                "Manipulator",
+                "Needle insert, retract and saved positions.",
+            ),
+            (
+                "mdi:rotate-3d-variant",
+                "Compucentric",
+                "Rotation about the coincidence point.",
+            ),
         ],
     ),
     (
-        "mdi:image-multiple", "Correlation", "Fluorescence overlay and point picking.",
+        "mdi:image-multiple",
+        "Correlation",
+        "Fluorescence overlay and point picking.",
         [
-            ("mdi:vector-point", "Points", "Pick and pair fiducials across modalities."),
+            (
+                "mdi:vector-point",
+                "Points",
+                "Pick and pair fiducials across modalities.",
+            ),
             ("mdi:function-variant", "Transform", "Fit, residuals and RMS reporting."),
             ("mdi:layers-outline", "Overlay", "Channel blending and opacity."),
         ],
     ),
     (
-        "mdi:cog-outline", "System", "Hardware connection, calibration and logs.",
+        "mdi:cog-outline",
+        "System",
+        "Hardware connection, calibration and logs.",
         [
             ("mdi:lan-connect", "Connection", "Microscope address and handshake."),
-            ("mdi:ruler-square", "Calibration", "Beam shift, stage and detector calibration."),
+            (
+                "mdi:ruler-square",
+                "Calibration",
+                "Beam shift, stage and detector calibration.",
+            ),
             ("mdi:text-box-outline", "Logs", "Session log stream and export."),
         ],
     ),
@@ -558,11 +607,15 @@ class _SectionPage(QWidget):
         card_layout.setSpacing(6)
         eyebrow = QLabel("SELECTED TOOL")
         eyebrow.setStyleSheet(
-            "color: {}; font-size: 10px; font-weight: 600; border: none;".format(COLOR_ACCENT)
+            "color: {}; font-size: 10px; font-weight: 600; border: none;".format(
+                COLOR_ACCENT
+            )
         )
         self._tool_name = QLabel("-")
         self._tool_name.setStyleSheet(
-            "color: {}; font-size: 16px; font-weight: 600; border: none;".format(COLOR_TEXT)
+            "color: {}; font-size: 16px; font-weight: 600; border: none;".format(
+                COLOR_TEXT
+            )
         )
         self._tool_blurb = QLabel("")
         self._tool_blurb.setStyleSheet(
@@ -611,8 +664,12 @@ class DualRailDemo(QWidget):
         if overlay:
             left_slot = _float_rail(self, self._left)
             right_slot = _float_rail(self, self._right)
-            self._left.railWidthChanged.connect(lambda _w: _place_rail(self, self._left))
-            self._right.railWidthChanged.connect(lambda _w: _place_rail(self, self._right))
+            self._left.railWidthChanged.connect(
+                lambda _w: _place_rail(self, self._left)
+            )
+            self._right.railWidthChanged.connect(
+                lambda _w: _place_rail(self, self._right)
+            )
         else:
             left_slot, right_slot = self._left, self._right
         layout.addWidget(left_slot)

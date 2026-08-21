@@ -557,7 +557,9 @@ class AutoLamellaUI(QMainWindow):
             experiment = Experiment.load(Path(experiment_path))
         except Exception as e:
             logging.warning(f"Quickload: unable to load {experiment_path}: {e}")
-            notification_service.show_toast(f"Quickload: could not load experiment: {e}", "error")
+            notification_service.show_toast(
+                f"Quickload: could not load experiment: {e}", "error"
+            )
             return
 
         # The same bar the load dialog sets. An experiment with no protocol has
@@ -569,7 +571,9 @@ class AutoLamellaUI(QMainWindow):
             return
 
         self._adopt_experiment(experiment)
-        logging.info(f"Quickload: loaded experiment {experiment.name} from {experiment_path}")
+        logging.info(
+            f"Quickload: loaded experiment {experiment.name} from {experiment_path}"
+        )
 
     def _adopt_experiment(self, experiment: Experiment) -> None:
         """Make ``experiment`` the current one, and point logging at its logfile.
@@ -1015,7 +1019,9 @@ class AutoLamellaUI(QMainWindow):
             # capture the per-run summary before the manager is torn down
             if self._task_manager is not None:
                 try:
-                    self._last_run_summary = self._task_manager.build_run_summary_dataframe()
+                    self._last_run_summary = (
+                        self._task_manager.build_run_summary_dataframe()
+                    )
                 except Exception as e:
                     logging.warning(f"Failed to build workflow run summary: {e}")
                     self._last_run_summary = None
@@ -1483,7 +1489,9 @@ class AutoLamellaUI(QMainWindow):
                 )
 
         self.experiment.save()
-        self.selected_lamella_widget.refresh_pose(pose_name, state.stage_position.pretty)
+        self.selected_lamella_widget.refresh_pose(
+            pose_name, state.stage_position.pretty
+        )
         # The FM overview canvas draws these positions itself rather than reading them
         # back, so a pose that moved here is one it only hears about by being told.
         self.experiment.positions.events.changed.emit()
@@ -1554,14 +1562,17 @@ class AutoLamellaUI(QMainWindow):
         else:
             value_m = obj.focus_position
         if value_m is None:
-            notification_service.show_toast("Objective position unavailable.", "warning")
+            notification_service.show_toast(
+                "Objective position unavailable.", "warning"
+            )
             return
         lamella.fluorescence_pose.objective_position = value_m
         self.experiment.save()
         # full refresh so the objective value shows and "Apply to All" re-enables
         self.selected_lamella_widget.set_lamella(lamella)
         notification_service.show_toast(
-            f"Set objective position to {value_m * METRE_TO_MICRON:.1f} µm for {lamella.name}.", "info"
+            f"Set objective position to {value_m * METRE_TO_MICRON:.1f} µm for {lamella.name}.",
+            "info",
         )
 
     def _move_objective_to_lamella_position(self):
@@ -1645,7 +1656,8 @@ class AutoLamellaUI(QMainWindow):
         if count:
             self.experiment.save()
             notification_service.show_toast(
-                f"Applied objective position ({value_um:.1f} µm) to {count} lamella.", "info"
+                f"Applied objective position ({value_um:.1f} µm) to {count} lamella.",
+                "info",
             )
 
     def get_selected_lamella(self) -> Optional[Lamella]:
@@ -1998,15 +2010,21 @@ class AutoLamellaUI(QMainWindow):
         controller.set_overlay(
             BeamType.ION,
             PointsSpec(
-                id="poi", points=[(col, row)],
+                id="poi",
+                points=[(col, row)],
                 # Matches the protocol editor's POI, down to the legend entry: same
                 # concept, same marker. Left to the defaults this drew at size 18 with
                 # PointOverlay's 2.0 edge, a cross visibly fatter than the thin one the
                 # editor and the config preview draw, and absent from the legend
                 # (FIB-582). 1.2 keeps it reading like the centre crosshair.
-                color="magenta", selected_color="magenta", marker="+",
-                size=14, edge_width=1.2, legend_label="Point of Interest",
-                add_on_right_click=False, removable=False,
+                color="magenta",
+                selected_color="magenta",
+                marker="+",
+                size=14,
+                edge_width=1.2,
+                legend_label="Point of Interest",
+                add_on_right_click=False,
+                removable=False,
             ),
         )
         # POI owns FIB-canvas input: stage-move + milling menu stand down. The toolbar

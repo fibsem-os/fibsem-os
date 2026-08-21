@@ -80,7 +80,9 @@ class MillingTaskViewerWidget(QWidget):
         self._controller = None
         self._fib_canvas = None
         self._background_milling_stages: List[FibsemMillingStage] = []
-        self._patterns_visible = True  # eye-toggle state (mirrored onto MillingSpec.visible)
+        self._patterns_visible = (
+            True  # eye-toggle state (mirrored onto MillingSpec.visible)
+        )
         self._pattern_update_pending = False
         self._settings_emit_pending: bool = False
         self._pending_settings: Optional[FibsemMillingTaskConfig] = None
@@ -198,7 +200,9 @@ class MillingTaskViewerWidget(QWidget):
     def closeEvent(self, event) -> None:
         if self._controller is not None and self._fib_canvas is not None:
             try:
-                self._fib_canvas.canvas_right_clicked.disconnect(self._on_canvas_right_click)
+                self._fib_canvas.canvas_right_clicked.disconnect(
+                    self._on_canvas_right_click
+                )
             except Exception:
                 pass
             try:

@@ -5,6 +5,7 @@ lives in tests/test_border_stylesheet_single_source.py, which imports nothing an
 still runs on CI. This module needs the real ``fibsem.ui`` package, and importing any
 part of it pulls in Qt through ``fibsem/ui/__init__.py``, so it skips without PyQt5.
 """
+
 import re
 
 import pytest
@@ -20,7 +21,7 @@ from fibsem.ui.stylesheets import (  # noqa: E402
 
 RULE = re.compile(
     r'QFrame#(?P<name>\w+)\[borderState="(?P<state>\w+)"\]\s*'
-    r'\{\s*border:\s*(?P<px>\d+)px solid (?P<colour>#[0-9A-Fa-f]{6});\s*\}'
+    r"\{\s*border:\s*(?P<px>\d+)px solid (?P<colour>#[0-9A-Fa-f]{6});\s*\}"
 )
 
 # Every widget that owns a border frame. Adding one here is the cheap way to keep

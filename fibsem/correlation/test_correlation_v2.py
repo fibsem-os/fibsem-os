@@ -6,6 +6,7 @@ Usage
 -----
     python fibsem/correlation/test_correlation_v2.py
 """
+
 from __future__ import annotations
 
 import os
@@ -58,11 +59,13 @@ def main():
     # Parse coordinates
     all_coords = load_coordinates(os.path.join(DEV_PATH, DEV_CSV))
     fib = [c for c in all_coords if c.point_type == PointType.FIB]
-    fm  = [c for c in all_coords if c.point_type == PointType.FM]
+    fm = [c for c in all_coords if c.point_type == PointType.FM]
     poi = [c for c in all_coords if c.point_type == PointType.POI]
     surface = next((c for c in all_coords if c.point_type == PointType.SURFACE), None)
 
-    print(f"\nCoordinates: {len(fib)} FIB, {len(fm)} FM, {len(poi)} POI, surface={'yes' if surface else 'no'}")
+    print(
+        f"\nCoordinates: {len(fib)} FIB, {len(fm)} FM, {len(poi)} POI, surface={'yes' if surface else 'no'}"
+    )
 
     data = CorrelationInputData(
         fib_image=fib_image,
@@ -75,8 +78,9 @@ def main():
 
     data.save(os.path.join(DEV_PATH, "correlation_input_data.json"))
 
-
-    print(f"\nimage_props will be: fib_shape={data.fib_image_shape}, pixel_size_um={data.fib_image_pixel_size * 1e6:.4f}, fm_shape={data.fm_image_shape}")
+    print(
+        f"\nimage_props will be: fib_shape={data.fib_image_shape}, pixel_size_um={data.fib_image_pixel_size * 1e6:.4f}, fm_shape={data.fm_image_shape}"
+    )
 
     # Run correlation
     print("\nRunning correlation...")
@@ -90,15 +94,17 @@ def main():
 
     print(f"\nReprojected 3D markers into 2D ({len(result.reprojected_3d)} markers):")
     for i, pt in enumerate(result.reprojected_3d):
-        print(f"  marker {i+1}: ({pt.x:.2f}, {pt.y:.2f}, {pt.z:.2f})")
+        print(f"  marker {i + 1}: ({pt.x:.2f}, {pt.y:.2f}, {pt.z:.2f})")
 
     print("\nDelta 2D per marker (reprojection error, pixels):")
     for i, d in enumerate(result.delta_2d):
-        print(f"  marker {i+1}: dx={d.x:.3f}  dy={d.y:.3f}")
+        print(f"  marker {i + 1}: dx={d.x:.3f}  dy={d.y:.3f}")
 
     print(f"\nPOI ({len(result.poi)} points):")
     for i, p in enumerate(result.poi):
-        print(f"  POI {i+1}: image_px=({p.image_px.x:.1f}, {p.image_px.y:.1f})  px_m=({p.px_m.x:.3e}, {p.px_m.y:.3e} m)")
+        print(
+            f"  POI {i + 1}: image_px=({p.image_px.x:.1f}, {p.image_px.y:.1f})  px_m=({p.px_m.x:.3e}, {p.px_m.y:.3e} m)"
+        )
 
 
 if __name__ == "__main__":

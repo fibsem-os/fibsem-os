@@ -13,6 +13,7 @@ acquiring and driving the stage; `default_orientation` (the single pose a fluore
 position is written down as) gates marking. Neither is `valid_orientations`, which is
 the looser "FM control is allowed here" and still includes the beam poses.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -226,7 +227,9 @@ class TestOffsetMounts:
 
 
 class TestTheRefusal:
-    def test_acquire_refuses_from_the_wrong_pose(self, widget, accept_dialog, no_worker):
+    def test_acquire_refuses_from_the_wrong_pose(
+        self, widget, accept_dialog, no_worker
+    ):
         """The button is not the guard: a host can call this, and the stage can move
         between the click and here."""
         _pose(widget, "NONE")
@@ -235,7 +238,9 @@ class TestTheRefusal:
 
         assert accept_dialog == [], "asked the user to confirm a run it then refused"
 
-    def test_acquire_runs_once_the_stage_is_posed(self, widget, accept_dialog, no_worker):
+    def test_acquire_runs_once_the_stage_is_posed(
+        self, widget, accept_dialog, no_worker
+    ):
         _pose(widget, "NONE")
         _pose(widget, "FM")
 
@@ -339,6 +344,7 @@ class TestTheMoveAction:
 
     def test_a_failed_move_is_logged_not_raised(self, widget, monkeypatch, caplog):
         """It runs on a worker thread, where an exception has nowhere to go."""
+
         def _boom(target):
             raise RuntimeError("stage refused")
 

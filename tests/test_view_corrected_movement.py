@@ -59,9 +59,9 @@ def _reference_y_corrected(microscope, expected_y: float, beam_type: BeamType):
     stage_rotation_flat_to_eb = np.deg2rad(
         microscope.system.stage.rotation_reference
     ) % (2 * np.pi)
-    stage_rotation_flat_to_ion = np.deg2rad(
-        microscope.system.stage.rotation_180
-    ) % (2 * np.pi)
+    stage_rotation_flat_to_ion = np.deg2rad(microscope.system.stage.rotation_180) % (
+        2 * np.pi
+    )
 
     current_stage_position = microscope.get_stage_position()
     stage_rotation = current_stage_position.r % (2 * np.pi)
@@ -72,9 +72,13 @@ def _reference_y_corrected(microscope, expected_y: float, beam_type: BeamType):
         stage_tilt += np.pi
 
     PRETILT_SIGN = 1.0
-    if movement.rotation_angle_is_smaller(stage_rotation, stage_rotation_flat_to_eb, atol=5):
+    if movement.rotation_angle_is_smaller(
+        stage_rotation, stage_rotation_flat_to_eb, atol=5
+    ):
         PRETILT_SIGN = 1.0
-    if movement.rotation_angle_is_smaller(stage_rotation, stage_rotation_flat_to_ion, atol=5):
+    if movement.rotation_angle_is_smaller(
+        stage_rotation, stage_rotation_flat_to_ion, atol=5
+    ):
         PRETILT_SIGN = -1.0
 
     if microscope.stage_is_compustage and microscope.get_stage_orientation() == "FIB":
@@ -86,7 +90,7 @@ def _reference_y_corrected(microscope, expected_y: float, beam_type: BeamType):
     if beam_type == BeamType.ELECTRON:
         perspective_tilt_adjustment = -corrected_pretilt_angle
     elif beam_type == BeamType.ION:
-        perspective_tilt_adjustment = (-corrected_pretilt_angle - fib_column_tilt)
+        perspective_tilt_adjustment = -corrected_pretilt_angle - fib_column_tilt
 
     y_sample_move = expected_y / np.cos(stage_tilt + perspective_tilt_adjustment)
 
@@ -96,7 +100,9 @@ def _reference_y_corrected(microscope, expected_y: float, beam_type: BeamType):
     return FibsemStagePosition(x=0, y=y_move, z=z_move)
 
 
-def _reference_inverse_y_corrected(microscope, dy: float, dz: float, beam_type: BeamType):
+def _reference_inverse_y_corrected(
+    microscope, dy: float, dz: float, beam_type: BeamType
+):
     """Pre-*fix* `_inverse_y_corrected_stage_movement`, copied verbatim.
 
     Retained to pin that the non-compustage path is untouched, and to document the
@@ -112,13 +118,19 @@ def _reference_inverse_y_corrected(microscope, dy: float, dz: float, beam_type: 
     stage_rotation_flat_to_eb = np.deg2rad(
         microscope.system.stage.rotation_reference
     ) % (2 * np.pi)
-    stage_rotation_flat_to_ion = np.deg2rad(
-        microscope.system.stage.rotation_180
-    ) % (2 * np.pi)
+    stage_rotation_flat_to_ion = np.deg2rad(microscope.system.stage.rotation_180) % (
+        2 * np.pi
+    )
 
     current_stage_position = microscope.get_stage_position()
-    stage_rotation = current_stage_position.r % (2 * np.pi) if current_stage_position.r is not None else 0.0
-    stage_tilt = current_stage_position.t if current_stage_position.t is not None else 0.0
+    stage_rotation = (
+        current_stage_position.r % (2 * np.pi)
+        if current_stage_position.r is not None
+        else 0.0
+    )
+    stage_tilt = (
+        current_stage_position.t if current_stage_position.t is not None else 0.0
+    )
 
     compustage_sign = 1.0
     if microscope.stage_is_compustage:
@@ -127,9 +139,13 @@ def _reference_inverse_y_corrected(microscope, dy: float, dz: float, beam_type: 
         stage_tilt += np.pi
 
     PRETILT_SIGN = 1.0
-    if movement.rotation_angle_is_smaller(stage_rotation, stage_rotation_flat_to_eb, atol=5):
+    if movement.rotation_angle_is_smaller(
+        stage_rotation, stage_rotation_flat_to_eb, atol=5
+    ):
         PRETILT_SIGN = 1.0
-    if movement.rotation_angle_is_smaller(stage_rotation, stage_rotation_flat_to_ion, atol=5):
+    if movement.rotation_angle_is_smaller(
+        stage_rotation, stage_rotation_flat_to_ion, atol=5
+    ):
         PRETILT_SIGN = -1.0
 
     corrected_pretilt_angle = PRETILT_SIGN * (stage_pretilt + sem_column_tilt)
@@ -137,7 +153,7 @@ def _reference_inverse_y_corrected(microscope, dy: float, dz: float, beam_type: 
     if beam_type == BeamType.ELECTRON:
         perspective_tilt_adjustment = -corrected_pretilt_angle
     elif beam_type == BeamType.ION:
-        perspective_tilt_adjustment = (-corrected_pretilt_angle - fib_column_tilt)
+        perspective_tilt_adjustment = -corrected_pretilt_angle - fib_column_tilt
 
     cos_pretilt = np.cos(corrected_pretilt_angle)
     sin_pretilt = np.sin(corrected_pretilt_angle)
@@ -168,7 +184,9 @@ def _configure(microscope, *, pretilt_deg, rotation_deg, tilt_deg, compustage):
     microscope._update_orientations()
 
     position = FibsemStagePosition(
-        x=0.0, y=0.0, z=0.0,
+        x=0.0,
+        y=0.0,
+        z=0.0,
         r=np.deg2rad(rotation_deg),
         t=np.deg2rad(tilt_deg),
     )
@@ -237,8 +255,12 @@ class TestRefactorParity:
         )
         dy, dz = 12e-6, -3e-6
 
-        got = microscope._inverse_y_corrected_stage_movement(dy=dy, dz=dz, beam_type=beam_type)
-        want = _reference_inverse_y_corrected(microscope, dy=dy, dz=dz, beam_type=beam_type)
+        got = microscope._inverse_y_corrected_stage_movement(
+            dy=dy, dz=dz, beam_type=beam_type
+        )
+        want = _reference_inverse_y_corrected(
+            microscope, dy=dy, dz=dz, beam_type=beam_type
+        )
 
         assert got == pytest.approx(want, rel=1e-12, abs=1e-18)
 
@@ -247,16 +269,22 @@ class TestViewTiltEquivalence:
     """A beam is just a view with a particular axis tilt."""
 
     def test_zero_view_tilt_is_the_electron_column(self, microscope):
-        _configure(microscope, pretilt_deg=35, rotation_deg=0, tilt_deg=20, compustage=False)
+        _configure(
+            microscope, pretilt_deg=35, rotation_deg=0, tilt_deg=20, compustage=False
+        )
 
         by_view = microscope._view_corrected_stage_movement(25e-6, view_tilt=0.0)
-        by_beam = microscope._y_corrected_stage_movement(25e-6, beam_type=BeamType.ELECTRON)
+        by_beam = microscope._y_corrected_stage_movement(
+            25e-6, beam_type=BeamType.ELECTRON
+        )
 
         assert by_view.y == pytest.approx(by_beam.y)
         assert by_view.z == pytest.approx(by_beam.z)
 
     def test_column_tilt_view_is_the_ion_column(self, microscope):
-        _configure(microscope, pretilt_deg=35, rotation_deg=0, tilt_deg=20, compustage=False)
+        _configure(
+            microscope, pretilt_deg=35, rotation_deg=0, tilt_deg=20, compustage=False
+        )
         view_tilt = np.deg2rad(microscope.system.ion.column_tilt)
 
         by_view = microscope._view_corrected_stage_movement(25e-6, view_tilt=view_tilt)
@@ -273,11 +301,15 @@ class TestViewTiltEquivalence:
 
     @pytest.mark.parametrize("view_tilt_deg", [0, 38, 52, 180])
     def test_inverse_round_trips(self, microscope, view_tilt_deg):
-        _configure(microscope, pretilt_deg=35, rotation_deg=0, tilt_deg=20, compustage=False)
+        _configure(
+            microscope, pretilt_deg=35, rotation_deg=0, tilt_deg=20, compustage=False
+        )
         view_tilt = np.deg2rad(view_tilt_deg)
         expected_y = 25e-6
 
-        move = microscope._view_corrected_stage_movement(expected_y, view_tilt=view_tilt)
+        move = microscope._view_corrected_stage_movement(
+            expected_y, view_tilt=view_tilt
+        )
         recovered = microscope._inverse_view_corrected_stage_movement(
             dy=move.y, dz=move.z, view_tilt=view_tilt
         )
@@ -301,13 +333,21 @@ class TestCompustageInverseRoundTrip:
     def test_round_trips_at_every_compustage_orientation(
         self, microscope, tilt_deg, orientation, view_tilt_deg
     ):
-        _configure(microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=tilt_deg, compustage=True)
+        _configure(
+            microscope,
+            pretilt_deg=0,
+            rotation_deg=0,
+            tilt_deg=tilt_deg,
+            compustage=True,
+        )
         assert microscope.get_stage_orientation() == orientation, "test pose drifted"
 
         view_tilt = np.deg2rad(view_tilt_deg)
         expected_y = 25e-6
 
-        move = microscope._view_corrected_stage_movement(expected_y, view_tilt=view_tilt)
+        move = microscope._view_corrected_stage_movement(
+            expected_y, view_tilt=view_tilt
+        )
         recovered = microscope._inverse_view_corrected_stage_movement(
             dy=move.y, dz=move.z, view_tilt=view_tilt
         )
@@ -319,11 +359,19 @@ class TestCompustageInverseRoundTrip:
         self, microscope, tilt_deg, orientation
     ):
         """The same property through the public beam-typed wrappers."""
-        _configure(microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=tilt_deg, compustage=True)
+        _configure(
+            microscope,
+            pretilt_deg=0,
+            rotation_deg=0,
+            tilt_deg=tilt_deg,
+            compustage=True,
+        )
         expected_y = 25e-6
 
         for beam_type in BEAM_TYPES:
-            move = microscope._y_corrected_stage_movement(expected_y, beam_type=beam_type)
+            move = microscope._y_corrected_stage_movement(
+                expected_y, beam_type=beam_type
+            )
             recovered = microscope._inverse_y_corrected_stage_movement(
                 dy=move.y, dz=move.z, beam_type=beam_type
             )
@@ -337,11 +385,15 @@ class TestCompustageInverseRoundTrip:
         This is the behaviour change this branch makes, stated explicitly so it cannot
         be reintroduced silently.
         """
-        _configure(microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-128, compustage=True)
+        _configure(
+            microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-128, compustage=True
+        )
         assert microscope.get_stage_orientation() == "FIB"
         expected_y = 25e-6
 
-        move = microscope._y_corrected_stage_movement(expected_y, beam_type=BeamType.ELECTRON)
+        move = microscope._y_corrected_stage_movement(
+            expected_y, beam_type=BeamType.ELECTRON
+        )
         pre_fix = _reference_inverse_y_corrected(
             microscope, dy=move.y, dz=move.z, beam_type=BeamType.ELECTRON
         )
@@ -349,7 +401,9 @@ class TestCompustageInverseRoundTrip:
             dy=move.y, dz=move.z, beam_type=BeamType.ELECTRON
         )
 
-        assert pre_fix == pytest.approx(-expected_y, rel=1e-9), "pre-fix formula was sign-inverted"
+        assert pre_fix == pytest.approx(-expected_y, rel=1e-9), (
+            "pre-fix formula was sign-inverted"
+        )
         assert fixed == pytest.approx(expected_y, rel=1e-9), "fixed formula round-trips"
 
     def test_non_compustage_round_trips_across_orientations(self, microscope):
@@ -363,7 +417,9 @@ class TestCompustageInverseRoundTrip:
                 compustage=False,
             )
             for beam_type in BEAM_TYPES:
-                move = microscope._y_corrected_stage_movement(25e-6, beam_type=beam_type)
+                move = microscope._y_corrected_stage_movement(
+                    25e-6, beam_type=beam_type
+                )
                 recovered = microscope._inverse_y_corrected_stage_movement(
                     dy=move.y, dz=move.z, beam_type=beam_type
                 )
@@ -401,7 +457,11 @@ class TestTiledInverseMatchesMicroscope:
         )
 
         position = _configure(
-            microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=tilt_deg, compustage=True
+            microscope,
+            pretilt_deg=0,
+            rotation_deg=0,
+            tilt_deg=tilt_deg,
+            compustage=True,
         )
         _sync_image_metadata(image, microscope, position, is_compustage=True)
 
@@ -418,19 +478,29 @@ class TestTiledInverseMatchesMicroscope:
     @pytest.mark.parametrize(
         "tilt_deg, orientation", TestCompustageInverseRoundTrip.COMPUSTAGE_POSES
     )
-    def test_round_trips_against_the_forward(self, microscope, image, tilt_deg, orientation):
+    def test_round_trips_against_the_forward(
+        self, microscope, image, tilt_deg, orientation
+    ):
         from fibsem.imaging.tiled import (
             _inverse_y_corrected_stage_movement as tiled_inverse,
         )
 
         position = _configure(
-            microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=tilt_deg, compustage=True
+            microscope,
+            pretilt_deg=0,
+            rotation_deg=0,
+            tilt_deg=tilt_deg,
+            compustage=True,
         )
         _sync_image_metadata(image, microscope, position, is_compustage=True)
         expected_y = 25e-6
 
-        move = microscope._y_corrected_stage_movement(expected_y, beam_type=BeamType.ELECTRON)
-        recovered = tiled_inverse(image, dy=move.y, dz=move.z, beam_type=BeamType.ELECTRON)
+        move = microscope._y_corrected_stage_movement(
+            expected_y, beam_type=BeamType.ELECTRON
+        )
+        recovered = tiled_inverse(
+            image, dy=move.y, dz=move.z, beam_type=BeamType.ELECTRON
+        )
 
         assert recovered == pytest.approx(expected_y, rel=1e-9)
 
@@ -552,7 +622,9 @@ class TestCameraImageTransformIsFlipOnly:
         from fibsem.fm.structures import CameraSettings
 
         for transform in CameraImageTransform:
-            restored = CameraSettings.from_dict(CameraSettings(transform=transform).to_dict())
+            restored = CameraSettings.from_dict(
+                CameraSettings(transform=transform).to_dict()
+            )
             assert restored.transform is transform
 
 
@@ -566,7 +638,9 @@ class TestFmStableMove:
 
     def test_uses_the_camera_tilt_projection(self, microscope):
         """The move must match the shared projection at the camera's own axis tilt."""
-        _configure(microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True)
+        _configure(
+            microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True
+        )
         microscope.fm = FluorescenceMicroscope(parent=microscope)
         moved = []
         microscope.move_stage_relative = lambda p: moved.append(p)  # type: ignore[method-assign]
@@ -583,7 +657,9 @@ class TestFmStableMove:
 
     def test_undoes_the_display_transform(self, microscope):
         """A flipped display must not send the stage the wrong way."""
-        _configure(microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True)
+        _configure(
+            microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True
+        )
         microscope.fm = FluorescenceMicroscope(parent=microscope)
         moved = []
         microscope.move_stage_relative = lambda p: moved.append(p)  # type: ignore[method-assign]
@@ -593,12 +669,16 @@ class TestFmStableMove:
         microscope.fm.set_image_transform(CameraImageTransform.FLIP_X)
         microscope.fm_stable_move(dx=4e-6, dy=25e-6)
 
-        assert moved[1].x == pytest.approx(-moved[0].x), "flip in x should reverse the x move"
+        assert moved[1].x == pytest.approx(-moved[0].x), (
+            "flip in x should reverse the x move"
+        )
         assert moved[1].y == pytest.approx(moved[0].y), "flip in x should leave y alone"
 
     def test_reads_the_transform_live(self, microscope):
         """Changing the dropdown mid-session takes effect on the next move."""
-        _configure(microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True)
+        _configure(
+            microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True
+        )
         microscope.fm = FluorescenceMicroscope(parent=microscope)
         moved = []
         microscope.move_stage_relative = lambda p: moved.append(p)  # type: ignore[method-assign]
@@ -611,7 +691,9 @@ class TestFmStableMove:
 
     def test_does_not_touch_working_distance(self, microscope):
         """Working distance is beam bookkeeping; the FM move must leave it alone."""
-        _configure(microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True)
+        _configure(
+            microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True
+        )
         microscope.fm = FluorescenceMicroscope(parent=microscope)
         microscope.move_stage_relative = lambda p: None  # type: ignore[method-assign]
         calls = []
@@ -665,7 +747,9 @@ class TestProjectFmStableMove:
         compustage_fm.move_stage_relative = lambda p: moved.append(p)  # type: ignore[method-assign]
         compustage_fm.move_stage_absolute = lambda p: moved.append(p)  # type: ignore[method-assign]
 
-        compustage_fm.project_fm_stable_move(4e-6, 25e-6, FibsemStagePosition(x=0, y=0, z=0))
+        compustage_fm.project_fm_stable_move(
+            4e-6, 25e-6, FibsemStagePosition(x=0, y=0, z=0)
+        )
 
         assert moved == []
 
@@ -682,7 +766,9 @@ class TestProjectFmStableMove:
         """
         scope = request.getfixturevalue(mount)
         scope.fm.set_image_transform(transform)
-        base = FibsemStagePosition(x=1e-3, y=-2e-3, z=5e-4, r=0, t=0, coordinate_system="RAW")
+        base = FibsemStagePosition(
+            x=1e-3, y=-2e-3, z=5e-4, r=0, t=0, coordinate_system="RAW"
+        )
 
         moved = []
         scope.move_stage_relative = lambda p: moved.append(p)  # type: ignore[method-assign]
@@ -756,7 +842,9 @@ class TestProjectFmStableMove:
 
     def test_offset_mount_uses_the_ion_column_tilt(self, offset_fm):
         """The offset optical axis is parallel to the FIB column, so it must project like one."""
-        assert offset_fm.fm.camera_tilt == pytest.approx(offset_fm.system.ion.column_tilt)
+        assert offset_fm.fm.camera_tilt == pytest.approx(
+            offset_fm.system.ion.column_tilt
+        )
 
         base = FibsemStagePosition(x=0.0, y=0.0, z=0.0)
         projected = offset_fm.project_fm_stable_move(0.0, 25e-6, base)
@@ -788,7 +876,9 @@ class TestFmConsumersUseTheFmProjection:
         """
         from fibsem.fm import acquisition
 
-        _configure(microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True)
+        _configure(
+            microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True
+        )
         microscope.fm = FluorescenceMicroscope(parent=microscope)
         # A fresh objective is retracted, and a run refuses that (FIB-417) before it
         # projects anything. This test is about which projection tiles are placed with,
@@ -810,26 +900,36 @@ class TestFmConsumersUseTheFmProjection:
             acquisition.acquire_tileset(
                 microscope=microscope,
                 channel_settings=ChannelSettings(
-                    name="DAPI", excitation_wavelength=358, emission_wavelength=461,
-                    power=0.1, exposure_time=0.1,
+                    name="DAPI",
+                    excitation_wavelength=358,
+                    emission_wavelength=461,
+                    power=0.1,
+                    exposure_time=0.1,
                 ),
                 overview_parameters=OverviewParameters(
-                    rows=2, cols=2, overlap=0.1,
-                    use_zstack=False, autofocus_mode=AutoFocusMode.NONE,
+                    rows=2,
+                    cols=2,
+                    overlap=0.1,
+                    use_zstack=False,
+                    autofocus_mode=AutoFocusMode.NONE,
                 ),
             )
 
         assert len(fm_calls) == 4, "one FM projection per tile"
         assert beam_calls == [], "nothing may position a tile via a beam projection"
 
-    def test_fm_projection_differs_from_the_sem_projection_when_it_matters(self, microscope):
+    def test_fm_projection_differs_from_the_sem_projection_when_it_matters(
+        self, microscope
+    ):
         """Guard the reason for the switch: the two projections really do differ.
 
         At the FIB-flat orientation on an offset mount, stepping via the electron
         column foreshortens differently from the camera. If this ever became a
         no-op the switch would be pointless -- and a regression would be invisible.
         """
-        _configure(microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=0, compustage=False)
+        _configure(
+            microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=0, compustage=False
+        )
         microscope.system.electron.column_tilt = 0.0
         microscope.system.ion.column_tilt = 52.0
         fm = FluorescenceMicroscope(parent=microscope)
@@ -870,7 +970,9 @@ class TestCameraTilt:
         compustage has no pre-tilt, so the projection should come out flat-on to the
         camera: no foreshortening, pure y move.
         """
-        _configure(microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True)
+        _configure(
+            microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True
+        )
         microscope.system.electron.column_tilt = 0.0
 
         fm = FluorescenceMicroscope(parent=microscope)
@@ -912,7 +1014,8 @@ class TestMountTransform:
         """A driver overriding mount_transform gets it applied first."""
         fm = FluorescenceMicroscope()
         monkeypatch.setattr(
-            type(fm), "mount_transform",
+            type(fm),
+            "mount_transform",
             property(lambda self: CameraImageTransform.FLIP_Y),
         )
         fm.set_image_transform(CameraImageTransform.FLIP_X)

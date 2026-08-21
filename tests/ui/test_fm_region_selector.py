@@ -5,6 +5,7 @@ pose that overview was acquired at. Both halves of that matter: metres because p
 belong to a detector and cancel on the other side, and the overview's *own* pose because
 the stage has usually moved on by the time anyone is choosing where to look.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -39,9 +40,7 @@ def shot(microscope, orientation="MILLING", beam_type=BeamType.ION, hfw=900e-6):
         FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t)
     )
     return microscope.acquire_image(
-        ImageSettings(
-            hfw=hfw, resolution=[1024, 1024], beam_type=beam_type, save=False
-        )
+        ImageSettings(hfw=hfw, resolution=[1024, 1024], beam_type=beam_type, save=False)
     )
 
 
@@ -56,9 +55,7 @@ def selector(microscope):
 # ── what it is looking at ────────────────────────────────────────────────
 
 
-def test_it_resolves_against_the_overview_rather_than_the_live_stage(
-    microscope, qapp
-):
+def test_it_resolves_against_the_overview_rather_than_the_live_stage(microscope, qapp):
     """A saved overview is exactly the case a live projection gets wrong, and by the
     time someone is selecting on one the stage has usually moved.
 

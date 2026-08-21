@@ -5,6 +5,7 @@ the live canvas. Covers the default source precedence, enable rules, run
 selection, the payload each source yields, and the widget-side seeding + the
 manual-edit guard. Headless PyQt5, offscreen.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -297,7 +298,9 @@ def test_loading_fm_through_the_picker_enables_interpolate(qapp, monkeypatch):
     import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
 
     tab = _widget()._images_tab
-    monkeypatch.setattr(ctw.FluorescenceImage, "load", staticmethod(lambda p: _fm_image()))
+    monkeypatch.setattr(
+        ctw.FluorescenceImage, "load", staticmethod(lambda p: _fm_image())
+    )
 
     tab._load_fm("/lam/some.ome.tiff")
     assert tab._btn_interpolate.isEnabled()

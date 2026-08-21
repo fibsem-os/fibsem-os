@@ -52,6 +52,7 @@ GRID_COLORS = [
     ("White", WHITE_ICON_COLOR),
 ]
 
+
 def _color_icon(color: str, size: int = 12) -> QIcon:
     """A filled swatch for a combo entry, so the colour is picked by eye not by name."""
     pixmap = QPixmap(size, size)
@@ -118,7 +119,9 @@ class TileGridOptionsPanel(QFrame):
         # neither invites a click that does nothing nor strands the state a drag set.
         self.button_centre = QPushButton("Centre on stage")
         self.button_centre.setObjectName("centreButton")
-        self.button_centre.setToolTip("Plan the overview around the stage position again")
+        self.button_centre.setToolTip(
+            "Plan the overview around the stage position again"
+        )
         self.button_centre.setEnabled(False)
         self.button_centre.clicked.connect(self.centre_requested)
         root.addWidget(self.button_centre)

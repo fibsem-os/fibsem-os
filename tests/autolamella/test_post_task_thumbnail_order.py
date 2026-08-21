@@ -125,7 +125,9 @@ class TestItActuallyBehaves:
             f"finished should already be the one on disk when the status is announced"
         )
 
-    def test_a_failing_thumbnail_does_not_stop_the_task_completing(self, task, monkeypatch):
+    def test_a_failing_thumbnail_does_not_stop_the_task_completing(
+        self, task, monkeypatch
+    ):
         from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 
         def exploding(self, image):

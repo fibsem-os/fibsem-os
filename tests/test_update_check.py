@@ -35,9 +35,7 @@ def update_check_active(monkeypatch, wheel_install):
     """A wheel install whose user has opted in: the check actually runs."""
     from fibsem.config import ReportingPreferences, UserPreferences
 
-    prefs = UserPreferences(
-        reporting=ReportingPreferences(update_check_enabled=True)
-    )
+    prefs = UserPreferences(reporting=ReportingPreferences(update_check_enabled=True))
     monkeypatch.setattr("fibsem.config.load_user_preferences", lambda: prefs)
 
 
@@ -88,9 +86,7 @@ def test_opt_in_so_disabled_by_default(wheel_install):
 def test_enabled_once_the_user_opts_in(monkeypatch, wheel_install):
     from fibsem.config import ReportingPreferences, UserPreferences
 
-    prefs = UserPreferences(
-        reporting=ReportingPreferences(update_check_enabled=True)
-    )
+    prefs = UserPreferences(reporting=ReportingPreferences(update_check_enabled=True))
     monkeypatch.setattr("fibsem.config.load_user_preferences", lambda: prefs)
 
     assert update_check.is_enabled() is True
@@ -99,9 +95,7 @@ def test_enabled_once_the_user_opts_in(monkeypatch, wheel_install):
 def test_opting_in_does_not_override_source_install_suppression(monkeypatch):
     from fibsem.config import ReportingPreferences, UserPreferences
 
-    prefs = UserPreferences(
-        reporting=ReportingPreferences(update_check_enabled=True)
-    )
+    prefs = UserPreferences(reporting=ReportingPreferences(update_check_enabled=True))
     monkeypatch.setattr("fibsem.config.load_user_preferences", lambda: prefs)
     monkeypatch.setattr(update_check, "get_revision", lambda: "v0.5.1-48-gabc")
 

@@ -1,4 +1,3 @@
-
 import logging
 from typing import TYPE_CHECKING, Optional
 
@@ -52,7 +51,7 @@ class CameraWidget(QWidget):
 
     settings_changed = pyqtSignal(CameraSettings)
 
-    def __init__(self, fm: 'FluorescenceMicroscope', parent: Optional[QWidget] = None):
+    def __init__(self, fm: "FluorescenceMicroscope", parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.fm = fm
         self.parent_widget = parent
@@ -146,7 +145,7 @@ class CameraWidget(QWidget):
         return CameraSettings(
             gain=self.spinBox_gain.value() / 100,  # Convert percentage to fraction
             binning=self.combobox_binning.currentData(),
-            transform=self.comboBox_transform.currentData()
+            transform=self.comboBox_transform.currentData(),
         )
 
     @camera_settings.setter

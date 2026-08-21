@@ -3,6 +3,7 @@
 Run from the repo root:
     PYTHONPATH=. python scripts/test_acb.py
 """
+
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -23,7 +24,8 @@ def make_probe_image(mean_frac: float, noise_frac: float = 0.05) -> FibsemImage:
     noise = int(dtype_max * noise_frac)
     data = np.clip(
         np.random.randint(base - noise, base + noise + 1, (128, 96)),
-        0, dtype_max,
+        0,
+        dtype_max,
     ).astype(np.uint16)
     return FibsemImage(data=data, metadata=None)
 
@@ -35,7 +37,7 @@ def make_synthetic_result(n_iters: int = 7) -> AutoContrastBrightnessResult:
 
     for i in range(n_iters):
         t = i / max(n_iters - 1, 1)
-        mean_frac = 0.1 + 0.42 * t           # ramps toward 0.52
+        mean_frac = 0.1 + 0.42 * t  # ramps toward 0.52
         brightness = 0.25 + 0.3 * t
         contrast = 0.5
         img = make_probe_image(mean_frac)
@@ -53,7 +55,9 @@ def make_synthetic_result(n_iters: int = 7) -> AutoContrastBrightnessResult:
     return AutoContrastBrightnessResult(
         image=final.image,
         stats=final.stats,
-        converged=final.stats.converged(settings.mean_target, settings.mean_tolerance, settings.saturation_limit),
+        converged=final.stats.converged(
+            settings.mean_target, settings.mean_tolerance, settings.saturation_limit
+        ),
         iterations=iterations,
     )
 
@@ -64,10 +68,12 @@ def demo_percentile_stretch():
     stretched = dark.auto_contrast_brightness()
 
     fig, axes = plt.subplots(1, 4, figsize=(12, 3))
-    fig.suptitle("FibsemImage.auto_contrast_brightness() — percentile stretch", fontsize=10)
+    fig.suptitle(
+        "FibsemImage.auto_contrast_brightness() — percentile stretch", fontsize=10
+    )
 
     axes[0].imshow(dark.data, cmap="gray")
-    axes[0].set_title(f"before\nmean={dark.data.mean()/65535:.3f}", fontsize=8)
+    axes[0].set_title(f"before\nmean={dark.data.mean() / 65535:.3f}", fontsize=8)
     axes[0].axis("off")
 
     axes[1].hist(dark.data.ravel(), bins=128, color="steelblue")
@@ -75,7 +81,7 @@ def demo_percentile_stretch():
     axes[1].set_xlabel("pixel value")
 
     axes[2].imshow(stretched.data, cmap="gray")
-    axes[2].set_title(f"after\nmean={stretched.data.mean()/65535:.3f}", fontsize=8)
+    axes[2].set_title(f"after\nmean={stretched.data.mean() / 65535:.3f}", fontsize=8)
     axes[2].axis("off")
 
     axes[3].hist(stretched.data.ravel(), bins=128, color="darkorange")

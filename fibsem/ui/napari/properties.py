@@ -31,8 +31,8 @@ IMAGING_SCALEBAR_LAYER_PROPERTIES = {
     "face_color": "yellow",
     "opacity": 0.8,
     "blending": "translucent",
-    "text": {   
-        "color":"white",
+    "text": {
+        "color": "white",
         "translation": np.array([-20, 0]),
         "opacity": 1,
         "sze": 20,
@@ -64,4 +64,3 @@ CORRELATION_IMAGE_LAYER_PROPERTIES = {
     "opacity": 0.2,
     "colours": ["green", "cyan", "magenta", "red", "yellow"],
 }
-

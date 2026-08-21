@@ -11,6 +11,7 @@ whole task (so its ``finally`` still restores imaging conditions).
 Run headless:
     QT_QPA_PLATFORM=offscreen python -m pytest tests/milling/test_stop_event.py
 """
+
 import threading
 import types
 
@@ -42,8 +43,11 @@ def _trench_stage(name: str) -> FibsemMillingStage:
     stage = FibsemMillingStage(
         name=name,
         pattern=TrenchPattern(
-            width=10e-6, depth=5e-6, spacing=2e-6,
-            upper_trench_height=5e-6, lower_trench_height=5e-6,
+            width=10e-6,
+            depth=5e-6,
+            spacing=2e-6,
+            upper_trench_height=5e-6,
+            lower_trench_height=5e-6,
         ),
     )
     stage.strategy = OvertiltTrenchMillingStrategy()
@@ -52,21 +56,25 @@ def _trench_stage(name: str) -> FibsemMillingStage:
 
 # ── the primitive ────────────────────────────────────────────────────────────
 
+
 def test_raise_if_cancelled():
-    raise_if_cancelled(None)                 # no-op when absent
-    raise_if_cancelled(threading.Event())    # no-op when clear
-    ev = threading.Event(); ev.set()
+    raise_if_cancelled(None)  # no-op when absent
+    raise_if_cancelled(threading.Event())  # no-op when clear
+    ev = threading.Event()
+    ev.set()
     with pytest.raises(OperationCancelledError):
         raise_if_cancelled(ev)
 
 
 # ── strategies abort before the beam starts ──────────────────────────────────
 
+
 def test_standard_strategy_aborts_before_milling():
     microscope, _ = utils.setup_session(manufacturer="Demo")
     stage = FibsemMillingStage(name="std")
     milled = _spy(microscope, "run_milling")
-    ev = threading.Event(); ev.set()
+    ev = threading.Event()
+    ev.set()
     with pytest.raises(OperationCancelledError):
         StandardMillingStrategy().run(microscope, stage, stop_event=ev)
     assert milled == []  # beam never started
@@ -76,7 +84,8 @@ def test_overtilt_strategy_aborts_before_milling():
     microscope, _ = utils.setup_session(manufacturer="Demo")
     stage = _trench_stage("ot")
     milled = _spy(microscope, "run_milling")
-    ev = threading.Event(); ev.set()
+    ev = threading.Event()
+    ev.set()
     with pytest.raises(OperationCancelledError):
         stage.strategy.run(microscope, stage, stop_event=ev)
     assert milled == []
@@ -106,10 +115,11 @@ def test_overtilt_threads_stop_event_into_alignment(monkeypatch):
         stage.strategy.run(microscope, stage, stop_event=ev)
 
     assert captured["stop_event"] is ev  # wiring: strategy -> alignment
-    assert milled == []                  # aborted after alignment, before the beam
+    assert milled == []  # aborted after alignment, before the beam
 
 
 # ── overtilt leaves the stage where it found it ──────────────────────────────
+
 
 def _stub_alignment(monkeypatch, on_call=None):
     """Replace overtilt's alignment with a no-op (optionally firing a side effect).
@@ -117,6 +127,7 @@ def _stub_alignment(monkeypatch, on_call=None):
     Keeps these tests about stage handling, and off the ~2s cross-correlation the
     real alignment runs against the simulator's noise images.
     """
+
     def fake_alignment(*args, **kwargs):
         if on_call is not None:
             on_call()
@@ -164,11 +175,14 @@ def test_overtilt_restores_stage_pose_when_cancelled_mid_tilt(monkeypatch):
     with pytest.raises(OperationCancelledError):
         stage.strategy.run(microscope, stage, stop_event=ev)
 
-    assert tilted_at["t"] != pytest.approx(t0), "test is vacuous unless the stage really tilted"
+    assert tilted_at["t"] != pytest.approx(t0), (
+        "test is vacuous unless the stage really tilted"
+    )
     assert microscope.get_stage_position().t == pytest.approx(t0)
 
 
 # ── task-level: aborts and still cleans up ───────────────────────────────────
+
 
 def test_task_aborts_and_restores_conditions(tmp_path):
     """A stop before/at the first checkpoint aborts the whole task without milling,
@@ -178,7 +192,8 @@ def test_task_aborts_and_restores_conditions(tmp_path):
     config = FibsemMillingTaskConfig.from_stages(stages=[stage], name="task")
     config.acquisition.imaging.path = str(tmp_path)
 
-    ev = threading.Event(); ev.set()
+    ev = threading.Event()
+    ev.set()
     parent_ui = types.SimpleNamespace(_milling_stop_event=ev)
 
     milled = _spy(microscope, "run_milling")
@@ -187,7 +202,7 @@ def test_task_aborts_and_restores_conditions(tmp_path):
     task = FibsemMillingTask(microscope, config, parent_ui=parent_ui)
     task.run()  # OperationCancelledError is caught inside run(); must not propagate
 
-    assert milled == []        # never milled
+    assert milled == []  # never milled
     assert len(finished) >= 1  # but cleanup (finish_milling) still ran
 
 
@@ -205,7 +220,8 @@ def test_milling_cleanup_restores_captured_imaging_current(tmp_path):
     c0 = microscope.get_beam_current(BeamType.ION)
     v0 = microscope.get_beam_voltage(BeamType.ION)
 
-    ev = threading.Event(); ev.set()  # abort right after the pre-milling capture
+    ev = threading.Event()
+    ev.set()  # abort right after the pre-milling capture
     got = {}
     orig = microscope.finish_milling
 
@@ -215,14 +231,18 @@ def test_milling_cleanup_restores_captured_imaging_current(tmp_path):
 
     microscope.finish_milling = spy
 
-    task = FibsemMillingTask(microscope, config,
-                             parent_ui=types.SimpleNamespace(_milling_stop_event=ev))
+    task = FibsemMillingTask(
+        microscope, config, parent_ui=types.SimpleNamespace(_milling_stop_event=ev)
+    )
     task.run()
 
     assert task.initial_imaging_current == c0 and task.initial_imaging_voltage == v0
-    assert got["c"] == c0 and got["v"] == v0  # finish_milling restored the captured values
+    assert (
+        got["c"] == c0 and got["v"] == v0
+    )  # finish_milling restored the captured values
 
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(pytest.main([__file__, "-q"]))

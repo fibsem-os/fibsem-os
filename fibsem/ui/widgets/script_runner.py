@@ -134,7 +134,10 @@ class ScriptRunner:
         layout = box.layout()
         layout.addItem(
             QSpacerItem(400, 0, QSizePolicy.Minimum, QSizePolicy.Fixed),
-            layout.rowCount(), 0, 1, layout.columnCount(),
+            layout.rowCount(),
+            0,
+            1,
+            layout.columnCount(),
         )
 
         box.exec_()
@@ -198,7 +201,8 @@ class ScriptRunner:
 
         if script.background and not script.uses_microscope:
             logging.warning(
-                "Script %s declares background=True; running inline for now.", script.name
+                "Script %s declares background=True; running inline for now.",
+                script.name,
             )
 
         # Last gate before running. A writes script saves the moment it finishes and a

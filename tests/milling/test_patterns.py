@@ -128,6 +128,7 @@ def test_line_settings():
     assert line_settings2.end_y == end_y
     assert line_settings2.depth == depth
 
+
 def test_rectangle_settings():
     """Test the initialization, dictionary conversion, and reconstruction of a FibsemRectangleSettings object."""
     centre_x = 0
@@ -281,7 +282,6 @@ def test_rectangle_pattern():
     assert rect.shapes[0].centre_x == 0
     assert rect.shapes[0].centre_y == 0
 
-
     # test serialization
     ddict = rect.to_dict()
     assert ddict["width"] == width
@@ -299,8 +299,6 @@ def test_rectangle_pattern():
     assert rect2.rotation == rotation
 
 
-
-
 class TestTrenchPattern:
     def test_init(self):
         # Test default initialization
@@ -309,7 +307,7 @@ class TestTrenchPattern:
             depth=50.0,
             spacing=20.0,
             upper_trench_height=30.0,
-            lower_trench_height=25.0
+            lower_trench_height=25.0,
         )
 
         assert trench.width == 100.0
@@ -333,7 +331,7 @@ class TestTrenchPattern:
             upper_trench_height=30.0,
             lower_trench_height=25.0,
             point=Point(10.0, 20.0),
-            time=5.0
+            time=5.0,
         )
 
         shapes = trench.define()
@@ -372,7 +370,7 @@ class TestTrenchPattern:
             upper_trench_height=30.0,
             lower_trench_height=25.0,
             point=Point(10.0, 20.0),
-            fillet=5.0
+            fillet=5.0,
         )
 
         shapes = trench.define()
@@ -389,8 +387,12 @@ class TestTrenchPattern:
 
         # Check fillet shapes
         fillet_shapes = shapes[2:]
-        circle_shapes = [s for s in fillet_shapes if isinstance(s, FibsemCircleSettings)]
-        rect_shapes = [s for s in fillet_shapes if isinstance(s, FibsemRectangleSettings)]
+        circle_shapes = [
+            s for s in fillet_shapes if isinstance(s, FibsemCircleSettings)
+        ]
+        rect_shapes = [
+            s for s in fillet_shapes if isinstance(s, FibsemRectangleSettings)
+        ]
 
         assert len(circle_shapes) == 4  # 4 circle fillets
         assert len(rect_shapes) == 4  # 4 rectangle fills
@@ -408,7 +410,7 @@ class TestTrenchPattern:
             upper_trench_height=30.0,
             lower_trench_height=25.0,
             point=Point(10.0, 20.0),
-            fillet=20.0  # This is more than upper_trench_height/2
+            fillet=20.0,  # This is more than upper_trench_height/2
         )
 
         shapes = trench.define()
@@ -431,7 +433,7 @@ class TestTrenchPattern:
             point=Point(10.0, 20.0),
             time=5.0,
             fillet=5.0,
-            cross_section=CrossSectionPattern.Rectangle
+            cross_section=CrossSectionPattern.Rectangle,
         )
 
         result_dict = trench.to_dict()
@@ -458,7 +460,7 @@ class TestTrenchPattern:
             "point": {"x": 10.0, "y": 20.0},
             "time": 5.0,
             "fillet": 5.0,
-            "cross_section": "Rectangle"
+            "cross_section": "Rectangle",
         }
 
         trench = TrenchPattern.from_dict(test_dict)
@@ -494,9 +496,6 @@ class TestTrenchPattern:
         assert trench.point.y == 0.0
 
 
-
-
-
 class TestArrayPattern:
     def test_init(self):
         # Test default initialization
@@ -507,7 +506,7 @@ class TestArrayPattern:
             n_columns=3,
             n_rows=2,
             pitch_vertical=50.0,
-            pitch_horizontal=40.0
+            pitch_horizontal=40.0,
         )
 
         assert array.width == 10.0
@@ -539,7 +538,7 @@ class TestArrayPattern:
             passes=2,
             rotation=45,
             scan_direction="LeftToRight",
-            point=Point(5.0, 15.0)
+            point=Point(5.0, 15.0),
         )
 
         shapes = array.define()
@@ -581,7 +580,7 @@ class TestArrayPattern:
             rotation=45,
             scan_direction="LeftToRight",
             cross_section=CrossSectionPattern.Rectangle,
-            point=Point(5.0, 15.0)
+            point=Point(5.0, 15.0),
         )
 
         result_dict = array.to_dict()
@@ -614,7 +613,7 @@ class TestArrayPattern:
             "rotation": 45,
             "scan_direction": "LeftToRight",
             "cross_section": "Rectangle",
-            "point": {"x": 5.0, "y": 15.0}
+            "point": {"x": 5.0, "y": 15.0},
         }
 
         array = ArrayPattern.from_dict(test_dict)
@@ -658,10 +657,7 @@ class TestArrayPattern:
 class TestCloverPattern:
     def test_init(self):
         # Test initialization
-        clover = CloverPattern(
-            radius=10.0,
-            depth=5.0
-        )
+        clover = CloverPattern(radius=10.0, depth=5.0)
 
         assert clover.radius == 10.0
         assert clover.depth == 5.0
@@ -706,11 +702,7 @@ class TestCloverPattern:
         assert stem.scan_direction == "TopToBottom"
 
     def test_to_dict(self):
-        clover = CloverPattern(
-            radius=10.0,
-            depth=5.0,
-            point=Point(5.0, 15.0)
-        )
+        clover = CloverPattern(radius=10.0, depth=5.0, point=Point(5.0, 15.0))
 
         result_dict = clover.to_dict()
 
@@ -721,11 +713,7 @@ class TestCloverPattern:
         assert result_dict["point"]["y"] == 15.0
 
     def test_from_dict(self):
-        test_dict = {
-            "radius": 10.0,
-            "depth": 5.0,
-            "point": {"x": 5.0, "y": 15.0}
-        }
+        test_dict = {"radius": 10.0, "depth": 5.0, "point": {"x": 5.0, "y": 15.0}}
 
         clover = CloverPattern.from_dict(test_dict)
 
@@ -738,11 +726,7 @@ class TestCloverPattern:
 class TestFiducialPattern:
     def test_init(self):
         # Test initialization
-        fiducial = FiducialPattern(
-            width=10.0,
-            height=20.0,
-            depth=5.0
-        )
+        fiducial = FiducialPattern(width=10.0, height=20.0, depth=5.0)
 
         assert fiducial.width == 10.0
         assert fiducial.height == 20.0
@@ -791,7 +775,7 @@ class TestFiducialPattern:
             depth=5.0,
             rotation=45,
             cross_section=CrossSectionPattern.Rectangle,
-            point=Point(5.0, 15.0)
+            point=Point(5.0, 15.0),
         )
 
         result_dict = fiducial.to_dict()
@@ -812,7 +796,7 @@ class TestFiducialPattern:
             "depth": 5.0,
             "rotation": 45,
             "cross_section": "Rectangle",
-            "point": {"x": 5.0, "y": 15.0}
+            "point": {"x": 5.0, "y": 15.0},
         }
 
         fiducial = FiducialPattern.from_dict(test_dict)
@@ -827,11 +811,7 @@ class TestFiducialPattern:
 
     def test_from_dict_default_values(self):
         # Test with minimal dict and default values
-        test_dict = {
-            "width": 10.0,
-            "height": 20.0,
-            "depth": 5.0
-        }
+        test_dict = {"width": 10.0, "height": 20.0, "depth": 5.0}
 
         fiducial = FiducialPattern.from_dict(test_dict)
 
@@ -844,11 +824,7 @@ class TestFiducialPattern:
 class TestGetPattern:
     def test_get_pattern(self):
         # Test that get_pattern correctly instantiates a pattern
-        config = {
-            "width": 10.0,
-            "height": 20.0,
-            "depth": 5.0
-        }
+        config = {"width": 10.0, "height": 20.0, "depth": 5.0}
 
         pattern = get_pattern("rectangle", config)
 
@@ -879,7 +855,7 @@ class TestGetPattern:
             # Create a basic config with sample values for required attributes
             minimal_config = {}
             for attr, t in required_attrs.items():
-                if attr != 'return' and attr not in ['point', 'shapes', 'name']:
+                if attr != "return" and attr not in ["point", "shapes", "name"]:
                     if t == float:
                         minimal_config[attr] = 10.0
                     elif t == int:

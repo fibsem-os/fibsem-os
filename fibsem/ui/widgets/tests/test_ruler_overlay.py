@@ -7,6 +7,7 @@ Or via pytest. Covers SI formatting, the toolbar toggle (seed + activate +
 restore), endpoint/line drag with bounds clamping, screen-space hit testing,
 and that the overlay stays fully inert (no artists, no input) while hidden.
 """
+
 from __future__ import annotations
 
 import os
@@ -80,7 +81,7 @@ def test_drag_endpoint_updates_distance():
     r._drag_start_pts = (list(r._p1), list(r._p2))
     r._blit_bg = None  # force the draw_idle path (skip blit)
     r._on_motion(_ev(xdata=r._p2[0] + 200, ydata=r._p2[1] + 100))
-    expected = ((seed_len + 200) ** 2 + 100 ** 2) ** 0.5
+    expected = ((seed_len + 200) ** 2 + 100**2) ** 0.5
     assert abs(r.measurement() - expected * _PX) < 1e-15
     r._on_release(_ev(button=1))
     assert c._overlay_consuming_event is False

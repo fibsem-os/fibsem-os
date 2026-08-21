@@ -15,6 +15,7 @@ into a section inside the correlation window. Things lost or invented on the way
 
 Headless PyQt5, offscreen.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -129,7 +130,9 @@ def test_a_surface_point_is_something_to_lose(qapp, monkeypatch):
     section = _seed_burns(w)
 
     w._coords_tab.fm_surface_list.add_coordinate(
-        Coordinate(point=PointXYZ(x=10.0, y=20.0, z=3.0), point_type=PointType.SURFACE_FM)
+        Coordinate(
+            point=PointXYZ(x=10.0, y=20.0, z=3.0), point_type=PointType.SURFACE_FM
+        )
     )
     assert w._has_manual_edits()
 

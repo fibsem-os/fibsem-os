@@ -46,6 +46,7 @@ _SECTION_LABEL_STYLE = (
     f" padding: 4px 6px 2px 6px; background: {CANVAS_BG};"
 )
 
+
 class AddTaskDialog(QDialog):
     """Dialog for selecting a task to add to the workflow."""
 
@@ -92,7 +93,7 @@ class AddTaskDialog(QDialog):
 
         # Dialog buttons
         button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel # type: ignore
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel  # type: ignore
         )
         button_box.accepted.connect(self._on_accept)
         button_box.rejected.connect(self.reject)
@@ -112,6 +113,7 @@ class AddTaskDialog(QDialog):
     def get_selected_task(self) -> str | None:
         """Get the selected task name."""
         return self.selected_task
+
 
 class _TaskEditorDialog(QDialog):
     """Modal dialog wrapping WorkflowTaskEditorWidget."""
@@ -155,24 +157,24 @@ class LamellaWorkflowWidget(QWidget):
     """
 
     # ── lamella signals ──────────────────────────────────────────────────
-    lamella_move_to_requested = pyqtSignal(object)   # Lamella
-    lamella_edit_requested = pyqtSignal(object)      # Lamella
-    lamella_remove_requested = pyqtSignal(object)    # Lamella
-    lamella_defect_changed = pyqtSignal(object)      # Lamella
-    lamella_selection_changed = pyqtSignal(list)     # List[Lamella]
+    lamella_move_to_requested = pyqtSignal(object)  # Lamella
+    lamella_edit_requested = pyqtSignal(object)  # Lamella
+    lamella_remove_requested = pyqtSignal(object)  # Lamella
+    lamella_defect_changed = pyqtSignal(object)  # Lamella
+    lamella_selection_changed = pyqtSignal(list)  # List[Lamella]
 
     # ── workflow signals ─────────────────────────────────────────────────
-    task_supervised_changed = pyqtSignal(object)     # AutoLamellaTaskDescription
-    task_edited = pyqtSignal(object)                 # AutoLamellaTaskDescription (after apply)
-    task_remove_requested = pyqtSignal(object)       # AutoLamellaTaskDescription
-    task_added = pyqtSignal(object)                  # AutoLamellaTaskDescription
-    task_selection_changed = pyqtSignal(list)        # List[AutoLamellaTaskDescription]
-    task_order_changed = pyqtSignal(list)            # List[AutoLamellaTaskDescription]
+    task_supervised_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
+    task_edited = pyqtSignal(object)  # AutoLamellaTaskDescription (after apply)
+    task_remove_requested = pyqtSignal(object)  # AutoLamellaTaskDescription
+    task_added = pyqtSignal(object)  # AutoLamellaTaskDescription
+    task_selection_changed = pyqtSignal(list)  # List[AutoLamellaTaskDescription]
+    task_order_changed = pyqtSignal(list)  # List[AutoLamellaTaskDescription]
 
     # ── workflow info signals ────────────────────────────────────────────
     workflow_name_changed = pyqtSignal(str)
     workflow_description_changed = pyqtSignal(str)
-    workflow_options_changed = pyqtSignal(object)    # AutoLamellaWorkflowOptions
+    workflow_options_changed = pyqtSignal(object)  # AutoLamellaWorkflowOptions
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

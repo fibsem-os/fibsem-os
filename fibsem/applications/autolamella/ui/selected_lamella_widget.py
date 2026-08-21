@@ -36,12 +36,12 @@ class SelectedLamellaWidget(QWidget):
     are handled by the parent (AutoLamellaUI) via the connected signals.
     """
 
-    objective_position_changed = pyqtSignal(float)     # value in µm
+    objective_position_changed = pyqtSignal(float)  # value in µm
     use_current_objective_requested = pyqtSignal()
     apply_objective_to_all_requested = pyqtSignal()
-    move_objective_requested = pyqtSignal()            # move objective to stored position
-    pose_update_requested = pyqtSignal(str)            # pose name
-    pose_move_to_requested = pyqtSignal(str)           # pose name
+    move_objective_requested = pyqtSignal()  # move objective to stored position
+    pose_update_requested = pyqtSignal(str)  # pose name
+    pose_move_to_requested = pyqtSignal(str)  # pose name
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -68,9 +68,7 @@ class SelectedLamellaWidget(QWidget):
             "QToolButton::menu-indicator { image: none; }"
         )
         obj_menu = QMenu(self)
-        self._action_move_to_obj_pos = obj_menu.addAction(
-            "Move Objective to Position"
-        )
+        self._action_move_to_obj_pos = obj_menu.addAction("Move Objective to Position")
         obj_menu.addSeparator()
         self._action_use_current_obj_pos = obj_menu.addAction(
             "Use Current Objective Position"
@@ -108,9 +106,7 @@ class SelectedLamellaWidget(QWidget):
         self.spinbox_objective_position.valueChanged.connect(
             self.objective_position_changed
         )
-        self._action_move_to_obj_pos.triggered.connect(
-            self.move_objective_requested
-        )
+        self._action_move_to_obj_pos.triggered.connect(self.move_objective_requested)
         self._action_use_current_obj_pos.triggered.connect(
             self.use_current_objective_requested
         )
@@ -163,7 +159,9 @@ class SelectedLamellaWidget(QWidget):
             if has_fluorescence_pose
             else None
         )
-        self.set_objective_value_um(obj_pos * METRE_TO_MICRON if obj_pos is not None else 0.0)
+        self.set_objective_value_um(
+            obj_pos * METRE_TO_MICRON if obj_pos is not None else 0.0
+        )
         self.label_objective_position.setVisible(has_fluorescence_pose)
         self.spinbox_objective_position.setVisible(has_fluorescence_pose)
         self.btn_objective_actions.setVisible(has_fluorescence_pose)
@@ -182,7 +180,9 @@ class SelectedLamellaWidget(QWidget):
             return
         text = self._lamella.description
         self.description_label.setText(text or "No description")
-        self.description_label.setToolTip(text or "Free-text note (edit in the Lamella editor)")
+        self.description_label.setToolTip(
+            text or "Free-text note (edit in the Lamella editor)"
+        )
 
     def refresh_pose(self, pose_name: str, pretty: str) -> None:
         """Update one pose row's position in place, without rebuilding the list."""

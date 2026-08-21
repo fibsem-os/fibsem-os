@@ -14,6 +14,7 @@ The tests drive the public API the hosts actually call, and additionally the hea
 signal, because that is the path where the old code was already correct and a fix must
 not regress it.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -43,7 +44,9 @@ def qapp():
 
 @pytest.fixture()
 def lamellae(tmp_path):
-    return [Lamella(path=str(tmp_path), number=i, petname=f"lamella-{i}") for i in range(3)]
+    return [
+        Lamella(path=str(tmp_path), number=i, petname=f"lamella-{i}") for i in range(3)
+    ]
 
 
 @pytest.fixture()

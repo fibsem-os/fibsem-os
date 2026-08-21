@@ -47,7 +47,7 @@ _COLOR_BG = CANVAS_BG
 _COLOR_TEXT = GRAY_WHITE_COLOR
 _COLOR_TEXT_DISABLED = "#78909C"
 
-_TILE_PAD = 0.06   # fractional gap in grid-unit mode
+_TILE_PAD = 0.06  # fractional gap in grid-unit mode
 _PATCH_ALPHA = 0.35
 
 
@@ -82,8 +82,8 @@ class TiledOverviewWidget(QWidget):
 
         # Physical-mode state
         self._physical_mode = False
-        self._tile_fov_x_um: float = 1.0   # tile width in µm
-        self._tile_fov_y_um: float = 1.0   # tile height in µm
+        self._tile_fov_x_um: float = 1.0  # tile width in µm
+        self._tile_fov_y_um: float = 1.0  # tile height in µm
         self._dx_step_um: float = 1.0
         self._dy_step_um: float = 1.0
 
@@ -134,7 +134,9 @@ class TiledOverviewWidget(QWidget):
 
         img_w, img_h = settings.image_settings.resolution
         self._tile_fov_x_um = settings.image_settings.hfw * 1e6
-        self._tile_fov_y_um = self._tile_fov_x_um * (img_h / img_w) if img_w > 0 else self._tile_fov_x_um
+        self._tile_fov_y_um = (
+            self._tile_fov_x_um * (img_h / img_w) if img_w > 0 else self._tile_fov_x_um
+        )
         overlap = settings.overlap
         self._dx_step_um = self._tile_fov_x_um * (1 - overlap)
         self._dy_step_um = self._tile_fov_y_um * (1 - overlap)
@@ -142,8 +144,10 @@ class TiledOverviewWidget(QWidget):
         positions = compute_tile_grid(settings)
         self._tiles = [
             TileState(
-                row=p.row, col=p.col,
-                dx=p.dx, dy=p.dy,
+                row=p.row,
+                col=p.col,
+                dx=p.dx,
+                dy=p.dy,
                 enabled=(p.row, p.col) not in prev_disabled,
             )
             for p in positions
@@ -202,7 +206,9 @@ class TiledOverviewWidget(QWidget):
         self._ax.set_facecolor(_COLOR_BG)
 
         self._status = QLabel()
-        self._status.setStyleSheet(f"color: {NEUTRAL_450}; font-size: 11px; padding: 2px 4px;")
+        self._status.setStyleSheet(
+            f"color: {NEUTRAL_450}; font-size: 11px; padding: 2px 4px;"
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -249,8 +255,12 @@ class TiledOverviewWidget(QWidget):
             half_iw = self._image_hfw_um / 2 if self._bg_image is not None else 0
             half_ih = self._image_fov_y_um / 2 if self._bg_image is not None else 0
 
-            grid_half_w = ((self._ncols - 1) * self._dx_step_um + self._tile_fov_x_um) / 2
-            grid_half_h = ((self._nrows - 1) * self._dy_step_um + self._tile_fov_y_um) / 2
+            grid_half_w = (
+                (self._ncols - 1) * self._dx_step_um + self._tile_fov_x_um
+            ) / 2
+            grid_half_h = (
+                (self._nrows - 1) * self._dy_step_um + self._tile_fov_y_um
+            ) / 2
 
             half_w = max(half_iw, grid_half_w) * 1.05
             half_h = max(half_ih, grid_half_h) * 1.05
@@ -300,7 +310,9 @@ class TiledOverviewWidget(QWidget):
         x, y, w, h = self._tile_patch_rect(tile)
         color, edge, alpha = self._tile_colors(tile)
         rect = MplRectangle(
-            (x, y), w, h,
+            (x, y),
+            w,
+            h,
             linewidth=1.5,
             edgecolor=edge,
             facecolor=color,
@@ -312,8 +324,11 @@ class TiledOverviewWidget(QWidget):
 
         cx, cy = x + w / 2, y + h / 2
         label = self._ax.text(
-            cx, cy, f"{tile.row},{tile.col}",
-            ha="center", va="center",
+            cx,
+            cy,
+            f"{tile.row},{tile.col}",
+            ha="center",
+            va="center",
             fontsize=8,
             color=_COLOR_TEXT if tile.enabled else _COLOR_TEXT_DISABLED,
             zorder=3,

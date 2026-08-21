@@ -22,7 +22,5 @@ def main():
     export_model_to_onnx(args.checkpoint, args.output)
 
 
-
-
 if __name__ == "__main__":
     main()

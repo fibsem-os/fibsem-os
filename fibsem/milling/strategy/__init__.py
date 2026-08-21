@@ -23,7 +23,11 @@ def get_strategies() -> typing.Dict[str, typing.Type[MillingStrategy[typing.Any]
 
 
 def get_strategy_names() -> typing.List[str]:
-    return [name for name, cls in get_strategies().items() if getattr(cls, "selectable", True)]
+    return [
+        name
+        for name, cls in get_strategies().items()
+        if getattr(cls, "selectable", True)
+    ]
 
 
 def register_strategy(strategy_cls: typing.Type[MillingStrategy[typing.Any]]) -> None:
@@ -51,6 +55,8 @@ def get_strategy_plugin_records() -> typing.Tuple[PluginRecord, ...]:
     )
 
 
-def _get_plugin_strategies() -> typing.Dict[str, typing.Type[MillingStrategy[typing.Any]]]:
+def _get_plugin_strategies() -> typing.Dict[
+    str, typing.Type[MillingStrategy[typing.Any]]
+]:
     """Plugin strategies that loaded, as ``{name: class}``."""
     return plugin_classes(get_strategy_plugin_records())

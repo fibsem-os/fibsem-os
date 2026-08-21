@@ -159,9 +159,7 @@ WHOLE_IMAGE = ImageRegion(0.0, 1.0, 0.0, 1.0)
 # whatever it holds — returning the region rather than assuming it is what was asked for
 # is what keeps a patch drawn exactly over the ground it came from, instead of a fraction
 # of a pixel off. Returning None declines, leaving whatever is already drawn alone.
-DetailSource = Callable[
-    [ImageRegion, int], Optional[Tuple[np.ndarray, ImageRegion]]
-]
+DetailSource = Callable[[ImageRegion, int], Optional[Tuple[np.ndarray, ImageRegion]]]
 
 
 @dataclass
@@ -343,8 +341,12 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
             **kw,
         )
         self._placed[key] = PlacedImage(
-            key=key, artist=artist, extent=extent, detail=detail,
-            drawn=WHOLE_IMAGE, asked_px=int(max(shown.shape[:2])),
+            key=key,
+            artist=artist,
+            extent=extent,
+            detail=detail,
+            drawn=WHOLE_IMAGE,
+            asked_px=int(max(shown.shape[:2])),
         )
 
         # Framing first: what the screen can show of an image depends on where the camera
@@ -637,7 +639,9 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
                 continue  # off screen: leave the last patch, it costs nothing to keep
             fetch = self._visible_region(placed, margin=_DETAIL_MARGIN) or wanted
             budget = self._detail_budget(placed, fetch)
-            if not placed.stale and not self._needs_detail(placed, wanted, fetch, budget):
+            if not placed.stale and not self._needs_detail(
+                placed, wanted, fetch, budget
+            ):
                 continue
             try:
                 answer = placed.detail(fetch, budget)
@@ -680,8 +684,10 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         if right <= left or bottom <= top:
             return None
         return ImageRegion(
-            (left - xmin) / width, (right - xmin) / width,
-            (top - ymin) / height, (bottom - ymin) / height,
+            (left - xmin) / width,
+            (right - xmin) / width,
+            (top - ymin) / height,
+            (bottom - ymin) / height,
         )
 
     def _detail_budget(self, placed: PlacedImage, region: ImageRegion) -> int:
@@ -698,7 +704,9 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         if canvas_span <= 0:
             return self._display_max_px
         # Device pixels the region occupies across the axes, at the current scale.
-        across = (xmax - xmin) * region.width / canvas_span * max(1, self._axes_width_px())
+        across = (
+            (xmax - xmin) * region.width / canvas_span * max(1, self._axes_width_px())
+        )
         return int(max(1, min(self._display_max_px, np.ceil(across))))
 
     def _axes_width_px(self) -> int:
@@ -768,12 +776,15 @@ class FibsemRealSpaceCanvas(FibsemCanvasBase):
         xmin, xmax, ymax, ymin = placed.extent
         width, height = xmax - xmin, ymax - ymin
         placed.artist.set_data(downsample(data, self._display_max_px))
-        placed.artist.set_extent((
-            xmin + region.left * width,
-            xmin + region.right * width,
-            ymin + region.bottom * height,  # matplotlib takes (left, right, bottom, top)
-            ymin + region.top * height,
-        ))
+        placed.artist.set_extent(
+            (
+                xmin + region.left * width,
+                xmin + region.right * width,
+                ymin
+                + region.bottom * height,  # matplotlib takes (left, right, bottom, top)
+                ymin + region.top * height,
+            )
+        )
         placed.drawn = region
         placed.asked_px = budget
         placed.stale = False

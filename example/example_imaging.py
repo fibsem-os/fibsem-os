@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from fibsem import acquire, utils
 from fibsem.structures import BeamType
 
-matplotlib.use('TkAgg', force=True) # Activate 'agg' backend for off-screen plotting.
+matplotlib.use("TkAgg", force=True)  # Activate 'agg' backend for off-screen plotting.
 
 
 """
@@ -19,10 +19,13 @@ For more detail on the settings, see the documentation for the ImageSettings cla
 
 """
 
+
 def main():
-    
+
     # connect to the microscope
-    microscope, settings = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    microscope, settings = utils.setup_session(
+        manufacturer="Demo", ip_address="localhost"
+    )
 
     # info about ImageSettings
     logging.info("\nAcquiring Images Example:")
@@ -37,8 +40,10 @@ def main():
     ib_image = acquire.new_image(microscope, settings.image)
 
     # take an image with both beams with increased hfw
-    settings.image.hfw = 400e-6       
-    ref_eb_image, ref_ib_image = acquire.take_reference_images(microscope, settings.image)
+    settings.image.hfw = 400e-6
+    ref_eb_image, ref_ib_image = acquire.take_reference_images(
+        microscope, settings.image
+    )
 
     # show images
 

@@ -5,6 +5,7 @@ Its job is to answer "what am I actually running" well enough to paste into a
 bug report, so every value is selectable and the copy button in the header puts
 the whole thing on the clipboard as plain text.
 """
+
 import logging
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
@@ -162,9 +163,7 @@ class AboutDialog(QDialog):
         if branch:
             software.append(("Branch", branch))
         layout.addWidget(
-            self._build_section(
-                "Software", software, mono_keys={"Revision", "Branch"}
-            )
+            self._build_section("Software", software, mono_keys={"Revision", "Branch"})
         )
 
         microscope_rows = self._microscope_rows(microscope)
@@ -277,9 +276,7 @@ class AboutDialog(QDialog):
 
     def _render_update_available(self, latest: str) -> None:
         icon = QLabel()
-        icon.setPixmap(
-            fibsem_icon("mdi:arrow-up-circle", color=_ACCENT).pixmap(13, 13)
-        )
+        icon.setPixmap(fibsem_icon("mdi:arrow-up-circle", color=_ACCENT).pixmap(13, 13))
         note = QLabel(f"{latest} available")
         note.setStyleSheet(f"color: {_ACCENT}; font-size: 12px;")
         note.setToolTip(f"fibsemOS {latest} is available on PyPI")

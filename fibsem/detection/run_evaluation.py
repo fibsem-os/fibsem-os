@@ -12,29 +12,34 @@ def main(config: dict):
     os.makedirs(config["save_path"], exist_ok=True)
 
     if config["run_eval"]:
-        df_eval = evaluation.run_evaluation_v2(path=config["data_path"],
-                                             image_path = config["images_path"], 
-                                                checkpoints=config["checkpoints"], 
-                                                plot=config["show_det_plot"],
-                                                save=config["save_det_plot"], 
-                                                save_path=config["save_path"])
+        df_eval = evaluation.run_evaluation_v2(
+            path=config["data_path"],
+            image_path=config["images_path"],
+            checkpoints=config["checkpoints"],
+            plot=config["show_det_plot"],
+            save=config["save_det_plot"],
+            save_path=config["save_path"],
+        )
     else:
         df_eval = pd.read_csv(os.path.join(config["save_path"], "eval.csv"))
 
     if config["plot_eval"]:
-        category_orders = {"checkpoint": df_eval["checkpoint"].unique().tolist(), 
-                    "feature": sorted(df_eval["feature"].unique().tolist())}
-        evaluation.plot_evaluation_data(df=df_eval, 
-                                        category_orders=category_orders,
-                                        thresholds=config["thresholds"], 
-                                        show=config["show_eval_plot"], 
-                                        save=config["save_eval_plot"],
-                                        save_path=config["save_path"])
-
+        category_orders = {
+            "checkpoint": df_eval["checkpoint"].unique().tolist(),
+            "feature": sorted(df_eval["feature"].unique().tolist()),
+        }
+        evaluation.plot_evaluation_data(
+            df=df_eval,
+            category_orders=category_orders,
+            thresholds=config["thresholds"],
+            show=config["show_eval_plot"],
+            save=config["save_eval_plot"],
+            save_path=config["save_path"],
+        )
 
 
 if __name__ == "__main__":
-# command line arguments
+    # command line arguments
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--config",

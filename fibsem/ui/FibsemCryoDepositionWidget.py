@@ -69,7 +69,11 @@ class FibsemCryoDepositionWidget(QtWidgets.QDialog):
         layout.addWidget(self.pushButton_run_sputter, 6, 0, 1, 2)
 
         # block accidental scroll-to-change on the input widgets
-        for w in (self.comboBox_stage_position, self.comboBox_port, self.doubleSpinBox_duration):
+        for w in (
+            self.comboBox_stage_position,
+            self.comboBox_port,
+            self.doubleSpinBox_duration,
+        ):
             install_wheel_blocker(w)
 
     def setup_connections(self):
@@ -77,10 +81,11 @@ class FibsemCryoDepositionWidget(QtWidgets.QDialog):
         self.pushButton_run_sputter.clicked.connect(self.run_sputter)
 
         positions = utils.load_yaml(Path(cfg.POSITION_PATH))
-        self.comboBox_stage_position.addItems(["Current Position"] + [p["name"] for p in positions])
+        self.comboBox_stage_position.addItems(
+            ["Current Position"] + [p["name"] for p in positions]
+        )
         available_ports = self.microscope.get_available_values("gis_ports")
         self.comboBox_port.addItems([str(p) for p in available_ports])
-
 
         # TODO: show / hide based on gis / multichem available
         multichem_available = self.microscope.is_available("gis_multichem")
@@ -89,7 +94,7 @@ class FibsemCryoDepositionWidget(QtWidgets.QDialog):
         self.lineEdit_insert_position.setVisible(multichem_available)
         self.label_insert_position.setVisible(multichem_available)
         self.comboBox_port.setVisible(not multichem_available)  # gis only
-        self.label_port.setVisible(not multichem_available)     # gis only
+        self.label_port.setVisible(not multichem_available)  # gis only
 
     def _get_protocol_from_ui(self) -> Dict[str, Union[str, float]]:
 
@@ -99,14 +104,13 @@ class FibsemCryoDepositionWidget(QtWidgets.QDialog):
             "insert_position": self.lineEdit_insert_position.text(),
             "duration": self.doubleSpinBox_duration.value(),
             "name": self.comboBox_stage_position.currentText(),
-
         }
 
         return protocol
 
     # TODO: thread this, add progress bar, feedback
     def run_sputter(self):
-        
+
         gdict = self._get_protocol_from_ui()
         gis_settings = FibsemGasInjectionSettings.from_dict(gdict)
         name: Optional[str] = gdict["name"]

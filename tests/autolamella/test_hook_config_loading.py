@@ -36,6 +36,7 @@ def _names(manager: HookManager):
 # the three states
 # ---------------------------------------------------------------------------
 
+
 def test_never_configured_uses_the_defaults():
     manager = build_hook_manager(None)
 
@@ -44,10 +45,16 @@ def test_never_configured_uses_the_defaults():
 
 def test_a_saved_configuration_replaces_the_defaults():
     """Not merged. Someone who deleted the failure toast must get no failure toast."""
-    saved = [{
-        "type": "SlackHook", "name": "slack", "events": ["any_failure"],
-        "enabled": True, "task_types": [], "url": "https://hooks.slack.com/x",
-    }]
+    saved = [
+        {
+            "type": "SlackHook",
+            "name": "slack",
+            "events": ["any_failure"],
+            "enabled": True,
+            "task_types": [],
+            "url": "https://hooks.slack.com/x",
+        }
+    ]
 
     manager = build_hook_manager(saved)
 
@@ -73,6 +80,7 @@ def test_empty_and_absent_are_not_the_same_thing():
 # what survives a round trip
 # ---------------------------------------------------------------------------
 
+
 def test_the_defaults_round_trip_through_the_preferences_field():
     """Save the defaults, reload them, get the defaults."""
     manager = build_hook_manager(None)
@@ -84,10 +92,16 @@ def test_the_defaults_round_trip_through_the_preferences_field():
 
 def test_a_group_subscription_survives_the_file():
     """Stored as the group name, so it keeps covering events added later."""
-    saved = build_hook_manager([{
-        "type": "SlackHook", "name": "slack", "events": ["any_failure"],
-        "url": "https://hooks.slack.com/x",
-    }]).to_dict()["hooks"]
+    saved = build_hook_manager(
+        [
+            {
+                "type": "SlackHook",
+                "name": "slack",
+                "events": ["any_failure"],
+                "url": "https://hooks.slack.com/x",
+            }
+        ]
+    ).to_dict()["hooks"]
 
     assert saved[0]["events"] == ["any_failure"]
     assert isinstance(build_hook_manager(saved)._hooks[0], SlackHook)
@@ -108,6 +122,7 @@ def test_the_whole_thing_survives_yaml():
 # ---------------------------------------------------------------------------
 # a configuration that is wrong
 # ---------------------------------------------------------------------------
+
 
 def test_an_unknown_hook_type_is_skipped_not_fatal():
     saved = [
@@ -132,10 +147,17 @@ def test_a_broken_configuration_falls_back_to_the_defaults(caplog):
 
 def test_a_configured_hook_actually_fires():
     """Through the manager, not just constructed."""
-    manager = build_hook_manager([{
-        "type": "NotificationHook", "name": "mine", "events": ["any_failure"],
-        "notification_type": "error", "message_template": "{item_name} broke",
-    }])
+    manager = build_hook_manager(
+        [
+            {
+                "type": "NotificationHook",
+                "name": "mine",
+                "events": ["any_failure"],
+                "notification_type": "error",
+                "message_template": "{item_name} broke",
+            }
+        ]
+    )
     delivered = []
     manager.set_notifier(lambda message, kind: delivered.append((message, kind)))
 
@@ -148,6 +170,7 @@ def test_a_configured_hook_actually_fires():
 # ---------------------------------------------------------------------------
 # the preferences field itself
 # ---------------------------------------------------------------------------
+
 
 def test_an_absent_hooks_key_loads_as_none():
     prefs = fcfg.UserPreferences.from_dict({"display": {}})

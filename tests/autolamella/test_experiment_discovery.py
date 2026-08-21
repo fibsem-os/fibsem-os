@@ -28,8 +28,17 @@ from fibsem.config import ExperimentSummary, peek_experiment
 DAY = 86400.0
 
 
-def _write(root, name, *, serial=None, model=None, operator=None, age_days=0,
-           lamellae=0, subdir=""):
+def _write(
+    root,
+    name,
+    *,
+    serial=None,
+    model=None,
+    operator=None,
+    age_days=0,
+    lamellae=0,
+    subdir="",
+):
     """An experiment.yaml as the app writes one."""
     directory = os.path.join(root, subdir, name) if subdir else os.path.join(root, name)
     os.makedirs(directory, exist_ok=True)
@@ -64,14 +73,42 @@ def _write(root, name, *, serial=None, model=None, operator=None, age_days=0,
 def facility(tmp_path):
     """Two instruments, five runs, one of them predating the session record."""
     root = str(tmp_path)
-    _write(root, "arctis-monday", serial="SN-4471", model="Arctis",
-           operator="Dr Someone", age_days=6, lamellae=4)
-    _write(root, "arctis-friday", serial="SN-4471", model="Arctis",
-           operator="Dr Someone", age_days=1, lamellae=2)
-    _write(root, "aquilos-run", serial="SN-1102", model="Aquilos",
-           operator="A Colleague", age_days=3, lamellae=7)
-    _write(root, "old-run", serial="SN-1102", model="Aquilos",
-           operator="A Colleague", age_days=40, lamellae=1)
+    _write(
+        root,
+        "arctis-monday",
+        serial="SN-4471",
+        model="Arctis",
+        operator="Dr Someone",
+        age_days=6,
+        lamellae=4,
+    )
+    _write(
+        root,
+        "arctis-friday",
+        serial="SN-4471",
+        model="Arctis",
+        operator="Dr Someone",
+        age_days=1,
+        lamellae=2,
+    )
+    _write(
+        root,
+        "aquilos-run",
+        serial="SN-1102",
+        model="Aquilos",
+        operator="A Colleague",
+        age_days=3,
+        lamellae=7,
+    )
+    _write(
+        root,
+        "old-run",
+        serial="SN-1102",
+        model="Aquilos",
+        operator="A Colleague",
+        age_days=40,
+        lamellae=1,
+    )
     _write(root, "before-sessions", age_days=2)  # no session key
     return root
 
@@ -82,8 +119,14 @@ def facility(tmp_path):
 
 
 def test_a_summary_carries_the_instrument_and_operator(tmp_path) -> None:
-    path = _write(str(tmp_path), "a-run", serial="SN-4471", model="Arctis",
-                  operator="Dr Someone", lamellae=3)
+    path = _write(
+        str(tmp_path),
+        "a-run",
+        serial="SN-4471",
+        model="Arctis",
+        operator="Dr Someone",
+        lamellae=3,
+    )
 
     summary = peek_experiment(path)
 
@@ -136,7 +179,11 @@ def test_an_unreadable_file_is_flagged_not_dropped(tmp_path) -> None:
 
 def test_it_finds_every_experiment_under_a_root(facility) -> None:
     assert {e.name for e in discover_experiments(facility)} == {
-        "arctis-monday", "arctis-friday", "aquilos-run", "old-run", "before-sessions",
+        "arctis-monday",
+        "arctis-friday",
+        "aquilos-run",
+        "old-run",
+        "before-sessions",
     }
 
 

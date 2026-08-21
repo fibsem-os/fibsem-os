@@ -1,4 +1,5 @@
 """Test script for spinner icons using fibsem_icon (qtawesome) + QTimer rotation."""
+
 from __future__ import annotations
 
 import sys
@@ -21,8 +22,15 @@ from fibsem.ui.icon import fibsem_icon
 class SpinnerLabel(QLabel):
     """A QLabel that spins an icon at a given speed."""
 
-    def __init__(self, icon_name: str, color: str = "#d6d6d6", size: int = 32,
-                 step_deg: int = 15, interval_ms: int = 50, parent=None):
+    def __init__(
+        self,
+        icon_name: str,
+        color: str = "#d6d6d6",
+        size: int = 32,
+        step_deg: int = 15,
+        interval_ms: int = 50,
+        parent=None,
+    ):
         super().__init__(parent)
         self._pixmap = fibsem_icon(icon_name, color=color).pixmap(size, size)
         self._angle = 0
@@ -68,17 +76,32 @@ class SpinnerDemo(QWidget):
         self._spinners: list[SpinnerLabel] = []
 
         variants = [
-            ("mdi:loading",         "#d6d6d6", 32, 15, 50,  "mdi:loading  step=15°  50ms"),
-            ("mdi:loading",         "#4fc3f7", 48, 20, 40,  "mdi:loading  step=20°  40ms  blue  48px"),
-            ("mdi:sync",            "#d6d6d6", 32, 10, 50,  "mdi:sync     step=10°  50ms"),
-            ("mdi:cog-outline",     "#f0c040", 32, 5,  30,  "mdi:cog-outline  step=5°  30ms  slow"),
-            ("mdi:refresh",         "#a5d6a7", 32, 30, 80,  "mdi:refresh  step=30°  80ms  fast"),
-            ("mdi:progress-clock",  "#d6d6d6", 32, 15, 50,  "mdi:progress-clock"),
+            ("mdi:loading", "#d6d6d6", 32, 15, 50, "mdi:loading  step=15°  50ms"),
+            (
+                "mdi:loading",
+                "#4fc3f7",
+                48,
+                20,
+                40,
+                "mdi:loading  step=20°  40ms  blue  48px",
+            ),
+            ("mdi:sync", "#d6d6d6", 32, 10, 50, "mdi:sync     step=10°  50ms"),
+            (
+                "mdi:cog-outline",
+                "#f0c040",
+                32,
+                5,
+                30,
+                "mdi:cog-outline  step=5°  30ms  slow",
+            ),
+            ("mdi:refresh", "#a5d6a7", 32, 30, 80, "mdi:refresh  step=30°  80ms  fast"),
+            ("mdi:progress-clock", "#d6d6d6", 32, 15, 50, "mdi:progress-clock"),
         ]
 
         for row, (icon, color, size, step, interval, label_text) in enumerate(variants):
-            spinner = SpinnerLabel(icon, color=color, size=size,
-                                   step_deg=step, interval_ms=interval)
+            spinner = SpinnerLabel(
+                icon, color=color, size=size, step_deg=step, interval_ms=interval
+            )
             self._spinners.append(spinner)
             grid.addWidget(spinner, row, 0, Qt.AlignCenter)
             lbl = QLabel(label_text)

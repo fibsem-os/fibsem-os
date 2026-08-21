@@ -48,7 +48,9 @@ def steal_during(monkeypatch, thief) -> None:
     uses for the acquisition. Patched on the module, so it fires for whichever
     `sim_sleep` the operation under test reaches.
     """
-    monkeypatch.setattr("fibsem.microscopes.simulator.sim_sleep", lambda seconds: thief())
+    monkeypatch.setattr(
+        "fibsem.microscopes.simulator.sim_sleep", lambda seconds: thief()
+    )
 
 
 class TestTheAutofunctionsHoldTheChannel:

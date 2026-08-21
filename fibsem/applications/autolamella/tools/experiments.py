@@ -61,7 +61,7 @@ def discover_experiments(
     root = os.path.abspath(root)
 
     for dirpath, dirnames, filenames in os.walk(root):
-        depth = dirpath[len(root):].count(os.sep)
+        depth = dirpath[len(root) :].count(os.sep)
         if "experiment.yaml" in filenames:
             found.append(peek_experiment(os.path.join(dirpath, "experiment.yaml")))
             # Whatever is inside an experiment belongs to it. Pruning here also
@@ -97,7 +97,8 @@ def filter_experiments(
     if instrument is not None:
         needle = instrument.casefold()
         results = [
-            e for e in results
+            e
+            for e in results
             if needle in (e.instrument_serial or "").casefold()
             or needle in (e.instrument_model or "").casefold()
         ]

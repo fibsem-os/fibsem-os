@@ -15,6 +15,7 @@ arrays.
 Display-only: captures no mouse events, so it coexists with the canvas pan/zoom +
 click-to-move + right-click menu.
 """
+
 from __future__ import annotations
 
 import logging
@@ -160,21 +161,32 @@ class MinimapShapesOverlay(CanvasOverlay):
         if spec.kind == "rect":
             patch = mpatches.Rectangle(
                 (spec.cx - spec.width / 2.0, spec.cy - spec.height / 2.0),
-                spec.width, spec.height,
-                fill=False, edgecolor=spec.color, linewidth=self._linewidth,
+                spec.width,
+                spec.height,
+                fill=False,
+                edgecolor=spec.color,
+                linewidth=self._linewidth,
                 zorder=self._zorder,
             )
             self._ax.add_patch(patch)
             self._artists.append(patch)
-            self._draw_label(spec, spec.cx - spec.width / 2.0,
-                              spec.cy - spec.height / 2.0, va="bottom")
+            self._draw_label(
+                spec,
+                spec.cx - spec.width / 2.0,
+                spec.cy - spec.height / 2.0,
+                va="bottom",
+            )
         elif spec.kind == "ellipse":
             # matplotlib's Ellipse takes full width and height, matching `rect` -- so a
             # caller that has projected a diameter per axis passes the same two numbers
             # to either kind, and cannot halve one and not the other.
             patch = mpatches.Ellipse(
-                (spec.cx, spec.cy), spec.width, spec.height,
-                fill=False, edgecolor=spec.color, linewidth=self._linewidth,
+                (spec.cx, spec.cy),
+                spec.width,
+                spec.height,
+                fill=False,
+                edgecolor=spec.color,
+                linewidth=self._linewidth,
                 zorder=self._zorder,
             )
             self._ax.add_patch(patch)
@@ -182,8 +194,11 @@ class MinimapShapesOverlay(CanvasOverlay):
             self._draw_label(spec, spec.cx, spec.cy - spec.height / 2.0, va="bottom")
         elif spec.kind == "circle":
             patch = mpatches.Circle(
-                (spec.cx, spec.cy), spec.radius,
-                fill=False, edgecolor=spec.color, linewidth=self._linewidth,
+                (spec.cx, spec.cy),
+                spec.radius,
+                fill=False,
+                edgecolor=spec.color,
+                linewidth=self._linewidth,
                 zorder=self._zorder,
             )
             self._ax.add_patch(patch)
@@ -195,15 +210,30 @@ class MinimapShapesOverlay(CanvasOverlay):
             (l1,) = self._ax.plot([spec.cx - h, spec.cx + h], [spec.cy, spec.cy], **kw)
             (l2,) = self._ax.plot([spec.cx, spec.cx], [spec.cy - h, spec.cy + h], **kw)
             self._artists.extend([l1, l2])
-            self._draw_label(spec, spec.cx + h * 0.15, spec.cy + h * 0.15,
-                             va="top", ha="left")
+            self._draw_label(
+                spec, spec.cx + h * 0.15, spec.cy + h * 0.15, va="top", ha="left"
+            )
 
-    def _draw_label(self, spec: ShapeSpec, x: float, y: float,
-                    *, va: str = "bottom", ha: str = "left") -> None:
+    def _draw_label(
+        self,
+        spec: ShapeSpec,
+        x: float,
+        y: float,
+        *,
+        va: str = "bottom",
+        ha: str = "left",
+    ) -> None:
         if not spec.label:
             return
         t = self._ax.text(
-            x, y, spec.label, color=spec.color, fontsize=_LABEL_FONTSIZE,
-            ha=ha, va=va, zorder=self._zorder + 0.5, clip_on=True,
+            x,
+            y,
+            spec.label,
+            color=spec.color,
+            fontsize=_LABEL_FONTSIZE,
+            ha=ha,
+            va=va,
+            zorder=self._zorder + 0.5,
+            clip_on=True,
         )
         self._artists.append(t)

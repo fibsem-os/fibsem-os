@@ -68,17 +68,30 @@ def build_microscope(
 
 def main(argv: Optional[list] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--manufacturer", default="Demo",
-                        help="Demo, Thermo, Tescan (default: Demo)")
+    parser.add_argument(
+        "--manufacturer", default="Demo", help="Demo, Thermo, Tescan (default: Demo)"
+    )
     parser.add_argument("--ip", default="localhost", dest="ip_address")
-    parser.add_argument("--tilt", type=float, default=-180.0,
-                        help="Stage tilt in degrees for the Demo pose (default: -180)")
-    parser.add_argument("--no-compustage", action="store_false", dest="compustage",
-                        help="Pose the Demo microscope as an offset FM mount instead")
-    parser.add_argument("--output", default=None, metavar="DIR",
-                        help="Write acquired overviews under DIR. Each run gets its own "
-                             "subdirectory of tiles, with the stitched mosaic beside it. "
-                             "Omitted, overviews are shown but not saved.")
+    parser.add_argument(
+        "--tilt",
+        type=float,
+        default=-180.0,
+        help="Stage tilt in degrees for the Demo pose (default: -180)",
+    )
+    parser.add_argument(
+        "--no-compustage",
+        action="store_false",
+        dest="compustage",
+        help="Pose the Demo microscope as an offset FM mount instead",
+    )
+    parser.add_argument(
+        "--output",
+        default=None,
+        metavar="DIR",
+        help="Write acquired overviews under DIR. Each run gets its own "
+        "subdirectory of tiles, with the stitched mosaic beside it. "
+        "Omitted, overviews are shown but not saved.",
+    )
     args = parser.parse_args(argv)
 
     from PyQt5.QtWidgets import QApplication, QMainWindow

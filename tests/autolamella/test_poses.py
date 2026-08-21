@@ -217,9 +217,7 @@ def test_marking_from_fluorescence_is_refused_on_an_offset_mount():
     )
 
     with pytest.raises(ValueError, match="FIB-93"):
-        build_lamella_poses(
-            microscope, fm_position, marked_at=FLUORESCENCE_ORIENTATION
-        )
+        build_lamella_poses(microscope, fm_position, marked_at=FLUORESCENCE_ORIENTATION)
 
 
 def test_a_declared_orientation_wins_over_the_derived_one():

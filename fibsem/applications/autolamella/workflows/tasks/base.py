@@ -1,4 +1,3 @@
-
 ######## TASK BASE DEFINITIONS ########
 
 
@@ -96,15 +95,18 @@ _LIFECYCLE_STEPS = {"STARTED", "FINISHED"}
 
 class AutoLamellaTask(ABC):
     """Base class for AutoLamella tasks."""
+
     config_cls: ClassVar[AutoLamellaTaskConfig]
     config: AutoLamellaTaskConfig
 
-    def __init__(self,
-                 microscope: FibsemMicroscope,
-                 config: AutoLamellaTaskConfig,
-                 lamella: Lamella,
-                 parent_ui: Optional['AutoLamellaUI'] = None,
-                 task_manager: Optional['TaskManager'] = None):
+    def __init__(
+        self,
+        microscope: FibsemMicroscope,
+        config: AutoLamellaTaskConfig,
+        lamella: Lamella,
+        parent_ui: Optional["AutoLamellaUI"] = None,
+        task_manager: Optional["TaskManager"] = None,
+    ):
         self.microscope = microscope
         self.config = config
         self.lamella = lamella
@@ -152,7 +154,9 @@ class AutoLamellaTask(ABC):
             # exception with this one, losing what actually went wrong.
             try:
                 self.lamella.task_state.status = (
-                    AutoLamellaTaskStatus.Cancelled if cancelled else AutoLamellaTaskStatus.Failed
+                    AutoLamellaTaskStatus.Cancelled
+                    if cancelled
+                    else AutoLamellaTaskStatus.Failed
                 )
                 self.lamella.task_state.status_message = (
                     "Cancelled by user." if cancelled else str(e)
@@ -160,7 +164,9 @@ class AutoLamellaTask(ABC):
                 self._record_outcome()
             except Exception:
                 logging.exception(f"Could not record the outcome of {self.task_name}")
-            self._fire_hook("task_cancelled" if cancelled else "task_failed", error=str(e))
+            self._fire_hook(
+                "task_cancelled" if cancelled else "task_failed", error=str(e)
+            )
             raise
         finally:
             # In a finally, not in post_task, which never runs when _run() raises. Left
@@ -198,6 +204,7 @@ class AutoLamellaTask(ABC):
 
     def _fire_hook(self, event: str, error: Optional[str] = None) -> None:
         from fibsem.hooks import fire_event
+
         # Which experiment, and how much of the queue is left. Only the manager knows
         # either, and a task can run without one -- a script driving a task directly, or
         # a stand-in -- so those fields are simply absent then. Fetched the same
@@ -222,7 +229,9 @@ class AutoLamellaTask(ABC):
         pass
 
     def pre_task(self) -> None:
-        logging.info(f"Running {self.task_name}, {self.task_type} ({self.task_id}) for {self.lamella.name} ({self.lamella.id})")
+        logging.info(
+            f"Running {self.task_name}, {self.task_type} ({self.task_id}) for {self.lamella.name} ({self.lamella.id})"
+        )
 
         # pre-task
         # task_state is a single object reused across every run, so each per-run field
@@ -249,9 +258,11 @@ class AutoLamellaTask(ABC):
             task_id=self.task_id,
             task_name=self.task_name,
         )
-        self.log_status_message(message="STARTED",
-                                display_message="Started",
-                                workflow_display_message=f"{self.lamella.name} [{self.display_name}]")
+        self.log_status_message(
+            message="STARTED",
+            display_message="Started",
+            workflow_display_message=f"{self.lamella.name} [{self.display_name}]",
+        )
 
     def post_task(self) -> None:
         # post-task
@@ -298,32 +309,46 @@ class AutoLamellaTask(ABC):
             }
         )
 
-    def log_status_message(self, message: str,
-                           display_message: Optional[str] = None,
-                           workflow_display_message: Optional[str] = None) -> None:
-        logging.debug({"msg": "status",
-                       "timestamp": datetime.now().isoformat(),
-                       "lamella": self.lamella.name,
-                       "lamella_id": self.lamella.id,
-                       "task_id": self.task_id,
-                       "task_type": self.task_type,
-                       "task_name": self.task_name,
-                       "task_step": message})
+    def log_status_message(
+        self,
+        message: str,
+        display_message: Optional[str] = None,
+        workflow_display_message: Optional[str] = None,
+    ) -> None:
+        logging.debug(
+            {
+                "msg": "status",
+                "timestamp": datetime.now().isoformat(),
+                "lamella": self.lamella.name,
+                "lamella_id": self.lamella.id,
+                "task_id": self.task_id,
+                "task_type": self.task_type,
+                "task_name": self.task_name,
+                "task_step": message,
+            }
+        )
         if self.lamella.task_state is not None:
             self.lamella.task_state.step = message
-            self.lamella.task_state.status_message = display_message if display_message is not None else ""
+            self.lamella.task_state.status_message = (
+                display_message if display_message is not None else ""
+            )
 
         if message not in _LIFECYCLE_STEPS and self.parent_ui is not None:
             self.parent_ui.step_update_signal.emit(display_message or message)
 
         if display_message is not None:
-            self.update_status_ui(message = display_message,
-                                  workflow_info = workflow_display_message)
+            self.update_status_ui(
+                message=display_message, workflow_info=workflow_display_message
+            )
 
-    def update_status_ui(self, message: str, workflow_info: Optional[str] = None) -> None:
-        update_status_ui(parent_ui=self.parent_ui,
-                         msg=f"{self.lamella.name} [{self.task_name}] {message}",
-                         workflow_info=workflow_info)
+    def update_status_ui(
+        self, message: str, workflow_info: Optional[str] = None
+    ) -> None:
+        update_status_ui(
+            parent_ui=self.parent_ui,
+            msg=f"{self.lamella.name} [{self.task_name}] {message}",
+            workflow_info=workflow_info,
+        )
 
     def _check_for_abort(self) -> None:
         """Raise InterruptedError if this task should stop.
@@ -349,12 +374,16 @@ class AutoLamellaTask(ABC):
             else None
         )
         self.lamella.fluorescence_pose = self.microscope.get_microscope_state()
-        self.lamella.fluorescence_pose.objective_position = configured_objective_position
+        self.lamella.fluorescence_pose.objective_position = (
+            configured_objective_position
+        )
 
-    def update_milling_config_ui(self,
-                                 milling_config: FibsemMillingTaskConfig,
-                                 msg: str = "Run Milling",
-                                 milling_enabled: bool = True) -> FibsemMillingTaskConfig:
+    def update_milling_config_ui(
+        self,
+        milling_config: FibsemMillingTaskConfig,
+        msg: str = "Run Milling",
+        milling_enabled: bool = True,
+    ) -> FibsemMillingTaskConfig:
         """Update the milling config in the milling widget, and optionally run the milling task."""
         # headless mode
         if self.parent_ui is None:
@@ -379,7 +408,9 @@ class AutoLamellaTask(ABC):
 
         response = True
         if self.validate:
-            response = ask_user(self.parent_ui, msg=msg, pos=pos, neg=neg, mill=milling_enabled)
+            response = ask_user(
+                self.parent_ui, msg=msg, pos=pos, neg=neg, mill=milling_enabled
+            )
 
         while response and milling_enabled:
             self.update_status_ui(f"Milling {milling_config.name}...")
@@ -402,10 +433,14 @@ class AutoLamellaTask(ABC):
 
             response = False
             if self.validate:
-                response = ask_user(self.parent_ui, msg=msg, pos=pos, neg=neg, mill=milling_enabled)
+                response = ask_user(
+                    self.parent_ui, msg=msg, pos=pos, neg=neg, mill=milling_enabled
+                )
 
         # get milling config from milling widget
-        milling_config = deepcopy(self.parent_ui.milling_task_config_widget.get_config())
+        milling_config = deepcopy(
+            self.parent_ui.milling_task_config_widget.get_config()
+        )
 
         # clear milling config from milling widget
         self.clear_milling_config_ui()
@@ -425,7 +460,7 @@ class AutoLamellaTask(ABC):
         }
 
         self.parent_ui.WAITING_FOR_UI_UPDATE = True
-        self.parent_ui.workflow_update_signal.emit(info) # type: ignore
+        self.parent_ui.workflow_update_signal.emit(info)  # type: ignore
         while self.parent_ui.WAITING_FOR_UI_UPDATE:
             time.sleep(0.5)
 
@@ -440,7 +475,7 @@ class AutoLamellaTask(ABC):
         }
 
         self.parent_ui.WAITING_FOR_UI_UPDATE = True
-        self.parent_ui.workflow_update_signal.emit(info) # type: ignore
+        self.parent_ui.workflow_update_signal.emit(info)  # type: ignore
         while self.parent_ui.WAITING_FOR_UI_UPDATE:
             time.sleep(0.5)
 
@@ -452,18 +487,23 @@ class AutoLamellaTask(ABC):
 
         # validate reference image exists
         if not os.path.exists(full_filename):
-            logging.warning(f"Reference image {full_filename} for alignment does not exist" "" \
-            f"but was requested by {self.task_name}. Skipping alignment.")
+            logging.warning(
+                f"Reference image {full_filename} for alignment does not exist"
+                ""
+                f"but was requested by {self.task_name}. Skipping alignment."
+            )
             return
 
         # load reference image, align
         ref_image = FibsemImage.load(full_filename)
-        alignment.multi_step_alignment_v2(microscope=self.microscope,
-                                        ref_image=ref_image,
-                                        use_autocontrast=True,
-                                        steps=MAX_ALIGNMENT_ATTEMPTS,
-                                        stop_event=self._stop_event,
-                                        run_name=f"{self.lamella.name} - {self.task_name}")
+        alignment.multi_step_alignment_v2(
+            microscope=self.microscope,
+            ref_image=ref_image,
+            use_autocontrast=True,
+            steps=MAX_ALIGNMENT_ATTEMPTS,
+            stop_event=self._stop_event,
+            run_name=f"{self.lamella.name} - {self.task_name}",
+        )
 
     def _run_autofocus(self, beam_type: BeamType, hfw: Optional[float] = None) -> None:
         """Run the image-based autofocus sweep, saving diagnostics to the lamella path.
@@ -483,6 +523,7 @@ class AutoLamellaTask(ABC):
             FocusSweepPass,
             run_auto_focus,
         )
+
         settings = AutoFocusSettings(
             method="tenengrad",
             passes=[
@@ -490,7 +531,8 @@ class AutoLamellaTask(ABC):
                 FocusSweepPass(search_range=100e-6, step_size=10e-6),
             ],
             reduced_area=FibsemRectangle(0.25, 0.25, 0.5, 0.5),
-            use_autocontrast=True)
+            use_autocontrast=True,
+        )
         # NOTE: config.imaging, not self.image_settings -- only two subclasses define
         # that attribute, and only partway through their own _run().
         # `is None` rather than `or`, so an explicit hfw=0 is not silently replaced.
@@ -505,28 +547,40 @@ class AutoLamellaTask(ABC):
             stop_event=self._stop_event,
         )
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        result.save(path=os.path.join(self.lamella.path, "autofunctions"), name=f"{self.task_name}_autofocus_{ts}")
+        result.save(
+            path=os.path.join(self.lamella.path, "autofunctions"),
+            name=f"{self.task_name}_autofocus_{ts}",
+        )
         self.log_status_message(
             "AUTOFOCUS",
-            f"Autofocus (image-based): WD={result.working_distance*1e3:.3f}mm score={result.focus_score:.2f}",
-            f"Autofocus complete: WD={result.working_distance*1e3:.3f}mm",
+            f"Autofocus (image-based): WD={result.working_distance * 1e3:.3f}mm score={result.focus_score:.2f}",
+            f"Autofocus complete: WD={result.working_distance * 1e3:.3f}mm",
         )
 
-    def _acquire_reference_image(self, image_settings: ImageSettings, filename: Optional[str] = None, field_of_view: float = 150e-6) -> None:
+    def _acquire_reference_image(
+        self,
+        image_settings: ImageSettings,
+        filename: Optional[str] = None,
+        field_of_view: float = 150e-6,
+    ) -> None:
         """Acquire a reference image with given field of view."""
         acquire_fib = self.config.reference_imaging.acquire_fib
         acquire_sem = self.config.reference_imaging.acquire_sem
-        return self._acquire_channels(image_settings,
-                                        field_of_view=field_of_view,
-                                        filename=filename,
-                                        acquire_sem=acquire_sem,
-                                        acquire_fib=acquire_fib)
+        return self._acquire_channels(
+            image_settings,
+            field_of_view=field_of_view,
+            filename=filename,
+            acquire_sem=acquire_sem,
+            acquire_fib=acquire_fib,
+        )
 
-    def _acquire_set_of_reference_images(self,
-                                 image_settings: ImageSettings,
-                                 filename: Optional[str] = None,
-                                 field_of_views: Optional[Tuple[float, ...]] = None,
-                                 phase: Optional[str] = None) -> None:
+    def _acquire_set_of_reference_images(
+        self,
+        image_settings: ImageSettings,
+        filename: Optional[str] = None,
+        field_of_views: Optional[Tuple[float, ...]] = None,
+        phase: Optional[str] = None,
+    ) -> None:
         """Acquire a set of reference images.
 
         `phase` names the role the images are recorded under; see
@@ -537,14 +591,18 @@ class AutoLamellaTask(ABC):
         if field_of_views is None:
             field_of_views = self.config.reference_imaging.field_of_views
         image_settings = self.config.reference_imaging.imaging
-        return self._acquire_set_of_channels(image_settings,
-                                                field_of_views=field_of_views,
-                                                filename=filename,
-                                                acquire_sem=acquire_sem,
-                                                acquire_fib=acquire_fib,
-                                                phase=phase)
+        return self._acquire_set_of_channels(
+            image_settings,
+            field_of_views=field_of_views,
+            filename=filename,
+            acquire_sem=acquire_sem,
+            acquire_fib=acquire_fib,
+            phase=phase,
+        )
 
-    def _record_output(self, role: str, image: Optional[Union[FibsemImage, "FluorescenceImage"]]) -> None:
+    def _record_output(
+        self, role: str, image: Optional[Union[FibsemImage, "FluorescenceImage"]]
+    ) -> None:
         """Record where an acquired image was written, under the given role.
 
         Stored relative to the lamella directory so the record survives the
@@ -562,18 +620,24 @@ class AutoLamellaTask(ABC):
         if path not in paths:
             paths.append(path)
 
-    def _record_channel_outputs(self, phase: str, images: List[Tuple[Optional[FibsemImage], Optional[FibsemImage]]]) -> None:
+    def _record_channel_outputs(
+        self,
+        phase: str,
+        images: List[Tuple[Optional[FibsemImage], Optional[FibsemImage]]],
+    ) -> None:
         """Record a set of (sem, fib) pairs under `{phase}_sem` / `{phase}_fib`."""
         for sem_image, fib_image in images:
             self._record_output(f"{phase}_sem", sem_image)
             self._record_output(f"{phase}_fib", fib_image)
 
-    def _acquire_channels(self,
-                          image_settings: ImageSettings,
-                          filename: Optional[str] = None,
-                          field_of_view: float = 150e-6,
-                          acquire_sem: bool = True,
-                          acquire_fib: bool = True) -> None:
+    def _acquire_channels(
+        self,
+        image_settings: ImageSettings,
+        filename: Optional[str] = None,
+        field_of_view: float = 150e-6,
+        acquire_sem: bool = True,
+        acquire_fib: bool = True,
+    ) -> None:
         """Acquire images for sem/fib channels at given field of view."""
         # only the default filename is the conventional start-of-task reference set.
         # tasks that pass their own name are recorded separately, so consumers asking
@@ -582,25 +646,32 @@ class AutoLamellaTask(ABC):
         if filename is None:
             filename = f"ref_{self.task_name}_start"
 
-        self.log_status_message("ACQUIRE_REFERENCE_IMAGES", "Acquiring Reference Images...")
+        self.log_status_message(
+            "ACQUIRE_REFERENCE_IMAGES", "Acquiring Reference Images..."
+        )
         image_settings.hfw = field_of_view
         image_settings.filename = filename
         image_settings.save = True
-        sem_image, fib_image = acquire.acquire_channels(self.microscope,
-                                                        image_settings,
-                                                        acquire_sem=acquire_sem,
-                                                        acquire_fib=acquire_fib)
+        sem_image, fib_image = acquire.acquire_channels(
+            self.microscope,
+            image_settings,
+            acquire_sem=acquire_sem,
+            acquire_fib=acquire_fib,
+        )
         self._record_channel_outputs(phase, [(sem_image, fib_image)])
         if fib_image is not None:
             self._last_fib_image = fib_image
         set_images_ui(self.parent_ui, sem_image, fib_image)
 
-    def _acquire_set_of_channels(self, image_settings: ImageSettings,
-                                 field_of_views: Optional[Tuple[float, ...]] = None,
-                                 filename: Optional[str] = None,
-                                 acquire_sem: bool = True,
-                                 acquire_fib: bool = True,
-                                 phase: Optional[str] = None) -> None:
+    def _acquire_set_of_channels(
+        self,
+        image_settings: ImageSettings,
+        field_of_views: Optional[Tuple[float, ...]] = None,
+        filename: Optional[str] = None,
+        acquire_sem: bool = True,
+        acquire_fib: bool = True,
+        phase: Optional[str] = None,
+    ) -> None:
         """Acquire a set of images for each sem/fib channel at given field of views.
 
         `phase` is the role the images are recorded under, and defaults to reading it
@@ -619,7 +690,9 @@ class AutoLamellaTask(ABC):
         if filename is None:
             filename = f"ref_{self.task_name}_final"
 
-        self.log_status_message("ACQUIRE_REFERENCE_IMAGES", "Acquiring Reference Images...")
+        self.log_status_message(
+            "ACQUIRE_REFERENCE_IMAGES", "Acquiring Reference Images..."
+        )
         images = acquire.acquire_set_of_channels(
             self.microscope,
             image_settings,
@@ -630,10 +703,12 @@ class AutoLamellaTask(ABC):
         )
         self._record_channel_outputs(phase, images)
 
-        sem_image, fib_image = images[-1] # last acquired image
+        sem_image, fib_image = images[-1]  # last acquired image
         if fib_image is not None:
             self._last_fib_image = fib_image
-        set_images_ui(self.parent_ui, sem_image, fib_image)  # show the last acquired image
+        set_images_ui(
+            self.parent_ui, sem_image, fib_image
+        )  # show the last acquired image
 
     def _retract_objective(self) -> None:
         """Retract the FM objective if it is inserted.
@@ -654,14 +729,18 @@ class AutoLamellaTask(ABC):
             self.log_status_message("RETRACT_OBJECTIVE", "Retracting Objective...")
             self.microscope.fm.objective.retract()
         except Exception as e:
-            logging.warning(f"Failed to retract the objective after {self.task_name}: {e}",
-                            exc_info=True)
+            logging.warning(
+                f"Failed to retract the objective after {self.task_name}: {e}",
+                exc_info=True,
+            )
 
     def _move_to_milling_pose(self) -> None:
         """Move to the lamella milling pose."""
         self.log_status_message("MOVE_TO_POSITION", "Moving to Position...")
         if self.lamella.milling_pose is None:
-            raise ValueError(f"Milling pose for {self.lamella.name} is not set. Please set the milling pose before milling the lamella.")
+            raise ValueError(
+                f"Milling pose for {self.lamella.name} is not set. Please set the milling pose before milling the lamella."
+            )
         self.microscope.set_microscope_state(self.lamella.milling_pose)
 
     def _get_stage_position_for_orientation(
@@ -674,10 +753,12 @@ class AutoLamellaTask(ABC):
             return stage_position
         return self.microscope.get_target_position(stage_position, orientation)
 
-    def _acquire_alignment_reference_image(self,
-                                            image_settings: ImageSettings,
-                                            field_of_view: float,
-                                            reduced_area: FibsemRectangle) -> FibsemImage:
+    def _acquire_alignment_reference_image(
+        self,
+        image_settings: ImageSettings,
+        field_of_view: float,
+        reduced_area: FibsemRectangle,
+    ) -> FibsemImage:
         """Acquire alignment reference image with reduced area.
         Args:
             image_settings (ImageSettings): The image settings to use for acquisition.
@@ -686,7 +767,10 @@ class AutoLamellaTask(ABC):
         Returns:
             FibsemImage: The acquired alignment reference image.
         """
-        self.log_status_message("ACQUIRE_ALIGNMENT_REFERENCE_IMAGE", "Acquiring Alignment Reference Image...")
+        self.log_status_message(
+            "ACQUIRE_ALIGNMENT_REFERENCE_IMAGE",
+            "Acquiring Alignment Reference Image...",
+        )
         alignment_image_settings = deepcopy(image_settings)
 
         # set reduced area for fiducial alignment
@@ -699,20 +783,28 @@ class AutoLamellaTask(ABC):
         alignment_image_settings.filename = "ref_alignment"
         alignment_image_settings.resolution = (1536, 1024)
         alignment_image_settings.dwell_time = 1e-6
-        alignment_image_settings.autocontrast = True # enable autocontrast for alignment
+        alignment_image_settings.autocontrast = (
+            True  # enable autocontrast for alignment
+        )
         fib_image = acquire.acquire_image(self.microscope, alignment_image_settings)
 
         return fib_image
 
     def _validate_alignment_area(self) -> None:
         """Validate the alignment area with the user."""
-        self.log_status_message("VALIDATE_ALIGNMENT_AREA", "Validating Alignment Image...")
-        self.lamella.alignment_area = update_alignment_area_ui(alignment_area=self.lamella.alignment_area,
-                                                parent_ui=self.parent_ui,
-                                                msg="Drag to edit the Alignment Area. Press Continue when done.",
-                                                validate=self.validate)
+        self.log_status_message(
+            "VALIDATE_ALIGNMENT_AREA", "Validating Alignment Image..."
+        )
+        self.lamella.alignment_area = update_alignment_area_ui(
+            alignment_area=self.lamella.alignment_area,
+            parent_ui=self.parent_ui,
+            msg="Drag to edit the Alignment Area. Press Continue when done.",
+            validate=self.validate,
+        )
 
-    def set_fluorescence_channels_ui(self, channel_settings: List[ChannelSettings]) -> None:
+    def set_fluorescence_channels_ui(
+        self, channel_settings: List[ChannelSettings]
+    ) -> None:
         """Set the fluorescence channel settings in the fluorescence widget."""
         if self.parent_ui is None:
             return
@@ -723,16 +815,20 @@ class AutoLamellaTask(ABC):
         }
 
         self.parent_ui.WAITING_FOR_UI_UPDATE = True
-        self.parent_ui.workflow_update_signal.emit(info) # type: ignore
+        self.parent_ui.workflow_update_signal.emit(info)  # type: ignore
         while self.parent_ui.WAITING_FOR_UI_UPDATE:
             time.sleep(0.5)
 
-def get_task_supervision(task_name: str,
-                    parent_ui: Optional['AutoLamellaUI'] = None) -> bool:
+
+def get_task_supervision(
+    task_name: str, parent_ui: Optional["AutoLamellaUI"] = None
+) -> bool:
     """Get supervision status for a task."""
     if parent_ui is None:
         return False
-    if not hasattr(parent_ui, 'experiment') or not hasattr(parent_ui.experiment, 'task_protocol'):
+    if not hasattr(parent_ui, "experiment") or not hasattr(
+        parent_ui.experiment, "task_protocol"
+    ):
         logging.warning("Parent UI does not have an experiment or task protocol.")
         return False
     if parent_ui.experiment is None or parent_ui.experiment.task_protocol is None:

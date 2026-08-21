@@ -40,9 +40,13 @@ def test_the_default_set_is_what_it_is():
         HookEvent.TASK_FAILED,
         HookEvent.TASK_CANCELLED,
     ]
-    assert [hooks[n].notification_type for n in
-            ("completion_toast", "failure_toast", "cancellation_toast")] == [
-        "success", "error", "warning",
+    assert [
+        hooks[n].notification_type
+        for n in ("completion_toast", "failure_toast", "cancellation_toast")
+    ] == [
+        "success",
+        "error",
+        "warning",
     ]
 
 

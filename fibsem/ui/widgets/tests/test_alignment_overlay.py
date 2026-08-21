@@ -7,6 +7,7 @@ Drag/resize the dashed lime alignment rectangle on the FIB image; the label show
 the normalized FibsemRectangle (and whether it's valid). "Toggle editable"
 switches between editable (corner handles + drag/resize) and read-only (static).
 """
+
 import sys
 
 from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget
@@ -37,7 +38,9 @@ class AlignmentOverlayTest(QWidget):
         self.overlay.alignment_area_changed.connect(self._show_area)
 
         self.label = QLabel()
-        self.label.setStyleSheet("color: #d1d2d4; padding: 6px; font-family: monospace;")
+        self.label.setStyleSheet(
+            "color: #d1d2d4; padding: 6px; font-family: monospace;"
+        )
         self._show_area(self.overlay.get_area())
 
         self._editable = True

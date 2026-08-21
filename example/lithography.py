@@ -15,6 +15,7 @@ from fibsem.structures import BeamType
 
 BASE_PATH = os.path.dirname(__file__)
 
+
 def save_profile_to_bmp(arr: np.ndarray, fname: str = "profile.bmp"):
 
     # scale values to int
@@ -88,7 +89,7 @@ def main():
         centre_y=0,
         width=lens_width,
         height=lens_height,
-        depth=settings.protocol["milling"]["milling_depth"], 
+        depth=settings.protocol["milling"]["milling_depth"],
         bitmap_pattern_definition=bitmap_pattern,
     )
     milling.run_milling(microscope, settings.protocol["milling"]["milling_current"])

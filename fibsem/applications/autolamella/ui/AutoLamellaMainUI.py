@@ -199,11 +199,15 @@ def confirm_add_to_queue_dialog(
         )
         layout.addLayout(metrics)
 
-    layout.addWidget(preflight.detail_block([
-        ("Position", "Run next" if run_next else "At the end of the queue"),
-        ("Lamella", ", ".join(lamella_names)),
-        ("Tasks", ", ".join(task_names)),
-    ]))
+    layout.addWidget(
+        preflight.detail_block(
+            [
+                ("Position", "Run next" if run_next else "At the end of the queue"),
+                ("Lamella", ", ".join(lamella_names)),
+                ("Tasks", ", ".join(task_names)),
+            ]
+        )
+    )
 
     absorbed = _absorbed_note(estimate)
     if absorbed:
@@ -282,8 +286,10 @@ def _absorbed_note(estimate: Optional[AdditionEstimate]) -> str:
     ):
         return ""
     if estimate.delay_seconds <= 0:
-        return ("The workflow is already waiting for a scheduled task, and this work "
-                "fits inside that wait — so it costs no extra time overall.")
+        return (
+            "The workflow is already waiting for a scheduled task, and this work "
+            "fits inside that wait — so it costs no extra time overall."
+        )
     return (
         f"Only {preflight.format_duration(estimate.delay_seconds)} of this lands after "
         "the workflow's scheduled wait; the rest fits inside it."
@@ -1141,8 +1147,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # same rule — there is nothing to add until something is ticked.
         if hasattr(self, "workflow_timeline"):
             if valid:
-                tip = (f"Add to queue: {n_lam} lamella, "
-                       f"{n_task} task{'s' if n_task != 1 else ''}")
+                tip = (
+                    f"Add to queue: {n_lam} lamella, "
+                    f"{n_task} task{'s' if n_task != 1 else ''}"
+                )
             else:
                 tip = f"Select {' and '.join(missing)} to add to the queue"
             self.workflow_timeline.set_add_enabled(valid, tip)
@@ -1718,7 +1726,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # Experiment name label
         self.experiment_name_label = QLabel("No Experiment")
-        self.experiment_name_label.setStyleSheet(f"color: {TEXT_COLOR}; font-size: 12px;")
+        self.experiment_name_label.setStyleSheet(
+            f"color: {TEXT_COLOR}; font-size: 12px;"
+        )
 
         # Notification bell
         self.notification_bell = NotificationBell(self)
@@ -2020,14 +2030,21 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         task_names = [t.name for t in tasks]
 
         pending = {(i.lamella_name, i.task_name) for i in manager.queue.pending}
-        already = [f"{t} for {ln}" for t in task_names for ln in lamella_names
-                   if (ln, t) in pending]
+        already = [
+            f"{t} for {ln}"
+            for t in task_names
+            for ln in lamella_names
+            if (ln, t) in pending
+        ]
 
         # Task-outer, lamella-inner: the order the items are really inserted in below,
         # so what is priced is what will be queued.
         pairs = [(ln, tn) for tn in task_names for ln in lamella_names]
         if not confirm_add_to_queue_dialog(
-            lamella_names, task_names, run_next, already,
+            lamella_names,
+            task_names,
+            run_next,
+            already,
             estimate=self._estimate_addition(manager, pairs, run_next),
             parent=self,
         ):
@@ -2036,8 +2053,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # A lamella created before a task joined the protocol has no config for
         # it, and run_task raises on that. Backfill from the base protocol first.
         experiment = self.autolamella_ui.experiment
-        missing = [ln for ln, lam in zip(lamella_names, lamellae)
-                   if any(t not in lam.task_config for t in task_names)]
+        missing = [
+            ln
+            for ln, lam in zip(lamella_names, lamellae)
+            if any(t not in lam.task_config for t in task_names)
+        ]
         if missing and experiment is not None:
             experiment.apply_lamella_config(missing, task_names)
 
@@ -2103,8 +2123,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 # `estimated_time` divides by the sputter rate (milling/base.py:292), so
                 # a hand-edited protocol can raise. Losing the figure is a great deal
                 # better than losing the dialog that queues the work.
-                logging.warning("Could not estimate duration for %s on %s.",
-                                item.task_name, item.lamella_name, exc_info=True)
+                logging.warning(
+                    "Could not estimate duration for %s on %s.",
+                    item.task_name,
+                    item.lamella_name,
+                    exc_info=True,
+                )
                 return None
 
         schedule = {}
@@ -2129,8 +2153,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 )
 
         return estimate_addition(
-            manager.queue.items, pairs, seconds_for,
-            run_next=run_next, schedule=schedule, active_elapsed=active_elapsed,
+            manager.queue.items,
+            pairs,
+            seconds_for,
+            run_next=run_next,
+            schedule=schedule,
+            active_elapsed=active_elapsed,
         )
 
     def _push_timeline_estimates(self, pairs: list) -> None:
@@ -2169,7 +2197,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 # to offer" state, so degrading into it is the graceful failure.
                 logging.warning(
                     "Could not estimate duration for %s on %s; the timeline will show "
-                    "no estimate for it.", task_name, lamella_name, exc_info=True,
+                    "no estimate for it.",
+                    task_name,
+                    lamella_name,
+                    exc_info=True,
                 )
         self.workflow_timeline.set_estimates(estimates)
 
@@ -2233,14 +2264,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             # A fresh item rather than a rewind: the original attempt still
             # happened and stays in the run record.
             added = queue.add(item.lamella_name, item.task_name, front=True)
-            message = (f"Queued {label} to run next." if added is not None
-                       else f"Could not queue {label}.")
+            message = (
+                f"Queued {label} to run next."
+                if added is not None
+                else f"Could not queue {label}."
+            )
         else:
             call = {
-                "move_up":   lambda: queue.nudge(item_id, -1),
+                "move_up": lambda: queue.nudge(item_id, -1),
                 "move_down": lambda: queue.nudge(item_id, +1),
-                "run_next":  lambda: queue.move_to_front(item_id),
-                "remove":    lambda: queue.remove(item_id),
+                "run_next": lambda: queue.move_to_front(item_id),
+                "remove": lambda: queue.remove(item_id),
             }.get(action)
             if call is None:
                 logging.warning(f"Unknown queue action from the timeline: {action}")
@@ -2265,10 +2299,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if not result.ok:
             return f"{label} is no longer in the queue."
         return {
-            "move_up":   f"Moved {label} up.",
+            "move_up": f"Moved {label} up.",
             "move_down": f"Moved {label} down.",
-            "run_next":  f"{label} will run next.",
-            "remove":    f"Removed {label} from the queue.",
+            "run_next": f"{label} will run next.",
+            "remove": f"Removed {label} from the queue.",
         }.get(action, "")
 
     def _show_queue_message(self, message: str) -> None:
@@ -2572,12 +2606,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.fm_overview_tab.availability_changed.connect(
             self._on_fm_overview_availability
         )
-        self.fm_overview_tab.lamella_selected.connect(self._on_fm_overview_lamella_selected)
+        self.fm_overview_tab.lamella_selected.connect(
+            self._on_fm_overview_lamella_selected
+        )
         self.fm_overview_tab.acquiring_changed.connect(self._apply_overview_locks)
 
         self.tab_widget.insertTab(
-            2, self.fm_overview_tab,
-            fibsem_icon("mdi:microscope", color=GRAY_ICON_COLOR), "FM Overview",
+            2,
+            self.fm_overview_tab,
+            fibsem_icon("mdi:microscope", color=GRAY_ICON_COLOR),
+            "FM Overview",
         )
         self.tab_widget.setTabEnabled(
             self.tab_widget.indexOf(self.fm_overview_tab), False
@@ -2608,7 +2646,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.overview_canvas_tab.acquiring_changed.connect(self._apply_overview_locks)
 
         self.tab_widget.insertTab(
-            3, self.overview_canvas_tab,
+            3,
+            self.overview_canvas_tab,
             fibsem_icon("mdi:map-search-outline", color=GRAY_ICON_COLOR),
             "Overview (Canvas)",
         )
@@ -2784,9 +2823,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             try:
                 self.lamella_widget.flush_pending_save()
             except Exception as e:
-                logging.warning(f"Could not flush a pending experiment save on close: {e}")
+                logging.warning(
+                    f"Could not flush a pending experiment save on close: {e}"
+                )
         # persist the FM working state (channels / camera transform / objective)
-        if self.autolamella_ui is not None and self.autolamella_ui.fm_control_widget is not None:
+        if (
+            self.autolamella_ui is not None
+            and self.autolamella_ui.fm_control_widget is not None
+        ):
             try:
                 self.autolamella_ui.fm_control_widget.save_fm_configuration()
             except Exception as e:
@@ -2842,13 +2886,13 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "--quickstart",
         action="store_true",
         help="Connect to the microscope with the default configuration as soon as the "
-             "window is up, instead of waiting for the Connection tab.",
+        "window is up, instead of waiting for the Connection tab.",
     )
     parser.add_argument(
         "--quickload",
         action="store_true",
         help="Connect as --quickstart does, then reopen the most recent experiment. "
-             "Implies --quickstart -- the experiment tabs are built at connection time.",
+        "Implies --quickstart -- the experiment tabs are built at connection time.",
     )
     return parser.parse_args(argv)
 

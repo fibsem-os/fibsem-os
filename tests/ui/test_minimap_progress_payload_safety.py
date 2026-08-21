@@ -14,6 +14,7 @@ under the offscreen platform — so the handler is borrowed onto a host carrying
 attributes it touches. The progress bar is a real `QProgressBar`, which is the part
 under test.
 """
+
 from __future__ import annotations
 
 import os
@@ -65,10 +66,10 @@ def test_a_normal_tile_update_still_draws_the_bar(handler):
     "payload",
     [
         {},
-        {"total": 9, "msg": "Tile Collected"},          # no counter
-        {"counter": 3, "msg": "Tile Collected"},        # no total
-        {"counter": 3, "total": 9},                     # no msg
-        {"counter": 0, "total": 0, "msg": "Nothing"},   # nothing to do
+        {"total": 9, "msg": "Tile Collected"},  # no counter
+        {"counter": 3, "msg": "Tile Collected"},  # no total
+        {"counter": 3, "total": 9},  # no msg
+        {"counter": 0, "total": 0, "msg": "Nothing"},  # nothing to do
         {"current": 3, "total": 9, "task": "tileset"},  # the fluorescence spelling
     ],
 )
@@ -100,10 +101,15 @@ def test_a_fluorescence_run_is_not_drawn_into_the_beam_minimap(handler):
     from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE
 
     sentinel = object()
-    handler.handle_tile_acquisition_progress({
-        "modality": MODALITY_FLUORESCENCE,
-        "counter": 3, "total": 9, "msg": "Tile Collected", "image": sentinel,
-    })
+    handler.handle_tile_acquisition_progress(
+        {
+            "modality": MODALITY_FLUORESCENCE,
+            "counter": 3,
+            "total": 9,
+            "msg": "Tile Collected",
+            "image": sentinel,
+        }
+    )
     assert handler.shown == [], "a fluorescence mosaic was drawn into the beam minimap"
     assert handler._tiles_acquired == 0, "a fluorescence run moved the beam tile count"
 
@@ -111,10 +117,15 @@ def test_a_fluorescence_run_is_not_drawn_into_the_beam_minimap(handler):
 def test_a_beam_run_is_still_drawn(handler):
     """The filter must not cost the thing it guards."""
     sentinel = object()
-    handler.handle_tile_acquisition_progress({
-        "modality": "beam",
-        "counter": 3, "total": 9, "msg": "Tile Collected", "image": sentinel,
-    })
+    handler.handle_tile_acquisition_progress(
+        {
+            "modality": "beam",
+            "counter": 3,
+            "total": 9,
+            "msg": "Tile Collected",
+            "image": sentinel,
+        }
+    )
     assert handler.shown == [sentinel]
     assert handler._tiles_acquired == 3
 

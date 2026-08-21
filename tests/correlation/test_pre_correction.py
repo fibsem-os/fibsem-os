@@ -5,6 +5,7 @@ Covers:
 - run_correlation_from_data applying the correction transiently
 - CorrelationInputData serialization of the new fields (incl. legacy files)
 """
+
 import math
 
 import numpy as np
@@ -32,7 +33,6 @@ def _coord(x=0.0, y=0.0, z=0.0, pt=PointType.FIB) -> Coordinate:
 
 
 class TestApplyZSurfaceCorrection:
-
     def test_basic_scaling(self):
         poi = np.array([[10.0, 20.0, 30.0]], dtype=np.float32)
         out = apply_z_surface_correction(poi, surface_z=10.0, correction_factor=1.5)
@@ -144,7 +144,6 @@ def _make_input_data(**kwargs) -> CorrelationInputData:
 
 
 class TestRunCorrelationPreCorrection:
-
     @pytest.fixture
     def captured(self, monkeypatch):
         captured = {}
@@ -245,7 +244,6 @@ class TestRunCorrelationPreCorrection:
 
 
 class TestSerialization:
-
     def test_input_data_roundtrip(self):
         data = _make_input_data(
             fm_surface_coordinate=_coord(x=1.0, y=2.0, z=10.0, pt=PointType.SURFACE_FM),

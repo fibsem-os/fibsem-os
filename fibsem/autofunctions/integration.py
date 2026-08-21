@@ -159,7 +159,9 @@ def adaptive_frame_integration(
 
     # Create outlier mask: True for outliers.
     # When std_equiv==0 (all frames identical), no frame is an outlier regardless of threshold.
-    outlier_mask = (std_equiv > 0) & (np.abs(pixels_flat - median_values) > (outlier_threshold * std_equiv))
+    outlier_mask = (std_equiv > 0) & (
+        np.abs(pixels_flat - median_values) > (outlier_threshold * std_equiv)
+    )
 
     # Ensure minimum number of frames per pixel
     valid_frames_per_pixel = np.sum(~outlier_mask, axis=1)

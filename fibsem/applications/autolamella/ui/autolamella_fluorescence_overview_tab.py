@@ -167,8 +167,7 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
             return
 
         history = (
-            f"\n\n{name} has already completed "
-            f"{', '.join(lamella.completed_tasks)}."
+            f"\n\n{name} has already completed {', '.join(lamella.completed_tasks)}."
             if lamella.completed_tasks
             else ""
         )

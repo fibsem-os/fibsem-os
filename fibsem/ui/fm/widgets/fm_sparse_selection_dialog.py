@@ -201,9 +201,7 @@ class FMSparseSelectionDialog(QDialog):
         parent: Optional[QWidget] = None,
     ) -> Optional[SparseSelection]:
         """Run the dialog and return the selection, or None if it was cancelled."""
-        dialog = cls(
-            microscope, views, parameters, channel_settings, zparams, parent
-        )
+        dialog = cls(microscope, views, parameters, channel_settings, zparams, parent)
         dialog.exec_()
         return dialog.selection
 
@@ -226,7 +224,11 @@ class FMSparseSelectionDialog(QDialog):
 
     def _recompute(self) -> None:
         regions = self.selector.regions
-        if not regions or self.selector.base is None or self.selector.projection is None:
+        if (
+            not regions
+            or self.selector.base is None
+            or self.selector.projection is None
+        ):
             self.preview.clear()
         else:
             self.preview.set_selection(

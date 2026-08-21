@@ -120,9 +120,7 @@ def estimate_workflow(
     started_at = clock
 
     workflow_config = experiment.task_protocol.workflow_config
-    lamellae = [
-        lam for lam in experiment.positions if lam.name in set(lamella_names)
-    ]
+    lamellae = [lam for lam in experiment.positions if lam.name in set(lamella_names)]
 
     rows: List[TaskEstimate] = []
     work_seconds = 0.0
@@ -389,7 +387,9 @@ def estimate_addition(
         work_seconds=after.work_seconds - before.work_seconds,
         # Never negative: adding work cannot bring a finish forward, and floating-point
         # dust on two large sums should not render as "-0s".
-        delay_seconds=max(0.0, (after.expected_finish - before.expected_finish).total_seconds()),
+        delay_seconds=max(
+            0.0, (after.expected_finish - before.expected_finish).total_seconds()
+        ),
         finish_before=before.expected_finish,
         finish_after=after.expected_finish,
         hold_seconds=after.hold_seconds,

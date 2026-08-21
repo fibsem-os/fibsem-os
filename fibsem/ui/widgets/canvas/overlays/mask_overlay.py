@@ -9,6 +9,7 @@ points) on the same canvas.
 Lifecycle: add once via ``canvas.add_overlay(overlay)``; draws nothing until
 :meth:`set_mask` is called; :meth:`clear` (or ``set_mask(None)``) removes it.
 """
+
 from __future__ import annotations
 
 import logging
@@ -25,7 +26,9 @@ if TYPE_CHECKING:
 _logger = logging.getLogger(__name__)
 
 _MASK_ALPHA = 0.3
-_MASK_ZORDER = 4  # above the base image, below patterns (6) / crosshair (7) / points (8)
+_MASK_ZORDER = (
+    4  # above the base image, below patterns (6) / crosshair (7) / points (8)
+)
 _BACKGROUND_CLASS = 0  # rendered transparent
 
 
@@ -95,6 +98,7 @@ class MaskOverlay(CanvasOverlay):
         if self._colors is not None:
             return self._colors
         from fibsem.segmentation.config import CLASS_COLORS_RGB
+
         return CLASS_COLORS_RGB
 
     def _mask_to_rgba(self, mask: np.ndarray) -> np.ndarray:

@@ -10,6 +10,7 @@ Apply only wrote `scheduled_at` when the preference was on, so a schedule saved
 in a protocol could outlive any control that could see it. Now that Apply always
 writes, unticking the box has to be the way back out.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -52,6 +53,7 @@ def _applied(editor: WorkflowTaskEditorWidget) -> AutoLamellaTaskDescription:
 
 # ── setting a schedule ────────────────────────────────────────────────────────
 
+
 def test_ticking_the_box_writes_the_chosen_time(qapp):
     editor = WorkflowTaskEditorWidget(_task())
     when = datetime.now().replace(second=0, microsecond=0) + timedelta(hours=3)
@@ -80,6 +82,7 @@ def test_the_seconds_are_dropped(qapp):
 
 # ── clearing one ──────────────────────────────────────────────────────────────
 
+
 def test_unticking_the_box_clears_the_schedule(qapp):
     """The way back out. Without this a task scheduled once stays scheduled, and the
     only way to unschedule it is to hand-edit the protocol file."""
@@ -101,6 +104,7 @@ def test_an_unscheduled_task_stays_unscheduled(qapp):
 
 
 # ── what the controls show when a task is loaded ──────────────────────────────
+
 
 def test_loading_a_scheduled_task_shows_its_time(qapp):
     when = (datetime.now() + timedelta(days=2)).replace(second=0, microsecond=0)

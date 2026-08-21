@@ -10,6 +10,7 @@ between the menu opening and the click, which the owner handles via QueueResult.
 
 Uses the shared offscreen ``qapp`` fixture from tests/conftest.py.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -52,11 +53,12 @@ def actions(widget: WorkflowProgressWidget, index: int) -> dict:
 
 # ── What each row state offers ────────────────────────────────────────────────
 
+
 def test_a_pending_row_offers_every_move(widget):
     assert actions(widget, 2) == {
-        "move_up": False,       # already the first pending item
+        "move_up": False,  # already the first pending item
         "move_down": True,
-        "run_next": False,      # already runs next
+        "run_next": False,  # already runs next
         "remove": True,
     }
 
@@ -74,8 +76,10 @@ def test_the_running_row_offers_only_stop_task(widget):
     """It cannot be moved or removed — but it can be abandoned (FIB-499). The
     greyed entries are still what explain the rest of the rule."""
     assert actions(widget, 1) == {
-        "move_up": False, "move_down": False,
-        "run_next": False, "remove": False,
+        "move_up": False,
+        "move_down": False,
+        "run_next": False,
+        "remove": False,
         "stop_task": True,
     }
 
@@ -99,8 +103,10 @@ def test_only_the_running_row_can_be_stopped(widget):
 
 def test_a_finished_row_offers_only_run_again(widget):
     assert actions(widget, 0) == {
-        "move_up": False, "move_down": False,
-        "run_next": False, "remove": False,
+        "move_up": False,
+        "move_down": False,
+        "run_next": False,
+        "remove": False,
         "run_again": True,
     }
 
@@ -124,6 +130,7 @@ def test_no_menu_for_a_row_that_is_gone(widget):
 
 
 # ── The signal the owner acts on ──────────────────────────────────────────────
+
 
 def test_triggering_an_action_reports_it_against_the_row_id(widget, queue):
     seen = []
@@ -152,6 +159,7 @@ def test_the_id_survives_the_row_moving_under_the_menu(widget, queue):
 
 
 # ── Actions off ───────────────────────────────────────────────────────────────
+
 
 def test_the_button_appears_on_hover_and_leaves_again(widget):
     """Right-click alone is undiscoverable; a permanent button on every row of a
@@ -196,6 +204,7 @@ def test_rows_added_later_inherit_the_current_setting(widget, queue):
 
 # ── The queue calls the menu maps onto ────────────────────────────────────────
 
+
 def test_each_action_does_what_the_menu_says(queue):
     """Guards the mapping in AutoLamellaMainUI._on_queue_action."""
     queue.next()  # item 0 running; 1, 2, 3 pending
@@ -215,8 +224,11 @@ def test_each_action_does_what_the_menu_says(queue):
 def test_acting_on_the_running_row_is_refused_not_misapplied(queue):
     """What the owner turns into "... is already running"."""
     active = queue.next()
-    for result in (queue.nudge(active.id, -1), queue.move_to_front(active.id),
-                   queue.remove(active.id)):
+    for result in (
+        queue.nudge(active.id, -1),
+        queue.move_to_front(active.id),
+        queue.remove(active.id),
+    ):
         assert result.op is QueueOp.NOT_PENDING
 
 
@@ -233,11 +245,13 @@ def test_run_again_queues_a_fresh_item_without_touching_the_original(queue):
 
 # ── What the user is told ─────────────────────────────────────────────────────
 
+
 def describe(action: str, op: QueueOp) -> str:
     from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
         AutoLamellaSingleWindowUI,
     )
     from fibsem.applications.autolamella.workflows.tasks.queue import QueueResult
+
     return AutoLamellaSingleWindowUI._queue_action_message(
         action, "Trench for L1", QueueResult(op, 1)
     )
@@ -253,7 +267,9 @@ def test_every_successful_action_is_confirmed():
 
 
 def test_a_row_that_started_running_says_so_rather_than_nothing():
-    assert describe("remove", QueueOp.NOT_PENDING) == "Trench for L1 is already running."
+    assert (
+        describe("remove", QueueOp.NOT_PENDING) == "Trench for L1 is already running."
+    )
 
 
 def test_hitting_the_end_of_the_queue_says_nothing():
@@ -262,7 +278,10 @@ def test_hitting_the_end_of_the_queue_says_nothing():
 
 
 def test_a_vanished_row_is_reported():
-    assert describe("move_up", QueueOp.NOT_FOUND) == "Trench for L1 is no longer in the queue."
+    assert (
+        describe("move_up", QueueOp.NOT_FOUND)
+        == "Trench for L1 is no longer in the queue."
+    )
 
 
 def test_the_dark_theme_greys_disabled_menu_items():
@@ -273,4 +292,5 @@ def test_the_dark_theme_greys_disabled_menu_items():
     pixel-identical to an available one, and the menu teaches nothing.
     """
     from fibsem.ui.stylesheets import NAPARI_STYLE
+
     assert "QMenu::item:disabled" in NAPARI_STYLE

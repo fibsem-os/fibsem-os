@@ -67,6 +67,7 @@ def _load(name: str):
 
 # ── the folder itself ────────────────────────────────────────────────────────
 
+
 def test_the_examples_folder_holds_exactly_the_documented_scripts():
     """SCRIPTING.md points at these by name, so an added or renamed file needs the
     docs updated in the same commit."""
@@ -84,6 +85,7 @@ def test_every_example_loads_and_declares_a_docstring(name):
 
 # ── one test per example, asserting the effect it advertises ─────────────────
 
+
 def test_export_summary_writes_a_csv_with_a_row_per_lamella(experiment):
     script = _load("export_summary")
 
@@ -93,7 +95,10 @@ def test_export_summary_writes_a_csv_with_a_row_per_lamella(experiment):
     assert isinstance(result.value, Path) and result.value.exists()
     assert result.value.parent == Path(experiment.path)
     # header + one row per lamella
-    assert len(result.value.read_text(encoding="utf-8").strip().splitlines()) == len(experiment.positions) + 1
+    assert (
+        len(result.value.read_text(encoding="utf-8").strip().splitlines())
+        == len(experiment.positions) + 1
+    )
 
 
 def test_export_summary_does_not_declare_itself_a_writer(experiment):

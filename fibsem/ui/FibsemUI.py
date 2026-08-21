@@ -16,7 +16,6 @@ from fibsem.versioning import get_version_string
 
 
 class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
-
     def __init__(self, viewer=None):
         super().__init__()
         self.setupUi(self)
@@ -64,16 +63,24 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
         self.system_widget.connected_signal.connect(self.connect_to_microscope)
         self.system_widget.disconnected_signal.connect(self.disconnect_from_microscope)
         if self.manipulator_widget is not None:
-            self.actionManipulator_Positions_Calibration.triggered.connect(self.manipulator_widget.calibrate_manipulator_positions)
+            self.actionManipulator_Positions_Calibration.triggered.connect(
+                self.manipulator_widget.calibrate_manipulator_positions
+            )
         self.actionOpen_Minimap.triggered.connect(self.open_minimap_widget)
 
     def open_minimap_widget(self):
         if self.microscope is None:
-            notification_service.show_toast("Please connect to a microscope first... [No Microscope Connected]", "warning")
+            notification_service.show_toast(
+                "Please connect to a microscope first... [No Microscope Connected]",
+                "warning",
+            )
             return
 
         if self.movement_widget is None:
-            notification_service.show_toast("Please connect to a microscope first... [No Movement Widget]", "warning")
+            notification_service.show_toast(
+                "Please connect to a microscope first... [No Movement Widget]",
+                "warning",
+            )
             return
 
         # NOTE: the minimap still opens its own napari viewer. It is being rebuilt on the
@@ -84,12 +91,14 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
         from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
 
         self.viewer_minimap = napari.Viewer(ndisplay=2)
-        self.minimap_widget = FibsemMinimapWidget(viewer=self.viewer_minimap, parent=self)
+        self.minimap_widget = FibsemMinimapWidget(
+            viewer=self.viewer_minimap, parent=self
+        )
         self.viewer_minimap.window.add_dock_widget(
-            widget=self.minimap_widget, 
-            area="right", 
-            add_vertical_stretch=True, 
-            name="fibsemOS Minimap"
+            widget=self.minimap_widget,
+            area="right",
+            add_vertical_stretch=True,
+            name="fibsemOS Minimap",
         )
         napari.run(max_loop_level=2)
 
@@ -110,7 +119,7 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
         self.update_ui()
 
     def disconnect_from_microscope(self):
-    
+
         self.microscope = None
         self.settings = None
         self.update_microscope_ui()
@@ -147,8 +156,6 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
                 )
             else:
                 self.manipulator_widget = None
-  
-
 
             # add widgets to tabs
             self.tabWidget.addTab(self.image_widget, "Image")
@@ -164,7 +171,7 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
         else:
             if self.image_widget is None:
                 return
-            
+
             # remove tabs
             self.tabWidget.removeTab(4)
             self.tabWidget.removeTab(3)
@@ -180,8 +187,7 @@ class FibsemUI(FibsemUIMainWindow.Ui_MainWindow, QtWidgets.QMainWindow):
             self.movement_widget.deleteLater()
             self.milling_widget.deleteLater()
             if self.manipulator_widget is not None:
-                self.manipulator_widget.deleteLater() 
-
+                self.manipulator_widget.deleteLater()
 
 
 def main():
@@ -197,6 +203,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-

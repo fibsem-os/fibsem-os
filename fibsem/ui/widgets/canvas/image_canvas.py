@@ -118,7 +118,9 @@ class FibsemImageCanvas(FibsemCanvasBase):
 
         self.draw_idle()
 
-    def update_display(self, arr: np.ndarray, pixel_size: Optional[float] = None) -> None:
+    def update_display(
+        self, arr: np.ndarray, pixel_size: Optional[float] = None
+    ) -> None:
         """Fast pixel-data swap without resetting overlays.
 
         Use for z-slice navigation / recomposites where image dimensions don't change.
@@ -147,4 +149,3 @@ class FibsemImageCanvas(FibsemCanvasBase):
             self._pixel_size = pixel_size
             self._refresh_scalebar()
         self.draw_idle()
-

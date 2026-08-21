@@ -41,7 +41,9 @@ class ProtocolInformationWidget(QWidget):
             lambda: self.field_changed.emit("name", self.lineEdit_name.text())
         )
         self.lineEdit_description.editingFinished.connect(
-            lambda: self.field_changed.emit("description", self.lineEdit_description.text())
+            lambda: self.field_changed.emit(
+                "description", self.lineEdit_description.text()
+            )
         )
         self.lineEdit_version.editingFinished.connect(
             lambda: self.field_changed.emit("version", self.lineEdit_version.text())

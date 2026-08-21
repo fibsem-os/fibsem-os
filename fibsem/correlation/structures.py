@@ -20,8 +20,12 @@ class PointType(Enum):
     FIB = "FIB"
     FM = "FM"
     POI = "POI"
-    SURFACE = "SURFACE"          # sample surface in the FIB image (post-correlation RI correction)
-    SURFACE_FM = "FM-SURFACE"    # sample surface in the FM volume (pre-correlation RI correction)
+    SURFACE = (
+        "SURFACE"  # sample surface in the FIB image (post-correlation RI correction)
+    )
+    SURFACE_FM = (
+        "FM-SURFACE"  # sample surface in the FM volume (pre-correlation RI correction)
+    )
 
 
 @dataclass
@@ -168,7 +172,9 @@ class CorrelationInputData:
         """
         if self.fib_image is None:
             return self.stored_fib_image_pixel_size
-        pixel_size = getattr(getattr(self.fib_image, "metadata", None), "pixel_size", None)
+        pixel_size = getattr(
+            getattr(self.fib_image, "metadata", None), "pixel_size", None
+        )
         if pixel_size is None:
             return self.stored_fib_image_pixel_size
         return getattr(pixel_size, "x", None)

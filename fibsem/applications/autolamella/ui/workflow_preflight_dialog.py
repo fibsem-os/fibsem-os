@@ -75,7 +75,9 @@ def _task_row(task: TaskEstimate, reference: Optional[datetime] = None) -> QWidg
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(8)
 
-    name = QLabel(f"{task.name}  <span style='color: {TEXT_MUTED};'>×{task.lamella_count}</span>")
+    name = QLabel(
+        f"{task.name}  <span style='color: {TEXT_MUTED};'>×{task.lamella_count}</span>"
+    )
     name.setStyleSheet(_ON_PANEL + f"color: {TEXT}; font-size: 11px;")
     # Task names are user-supplied and can be long. The name is what gives if a row
     # runs out of room -- the duration column is fixed and the chips are the point --
@@ -96,7 +98,9 @@ def _task_row(task: TaskEstimate, reference: Optional[datetime] = None) -> QWidg
     return row
 
 
-def _task_block(tasks: List[TaskEstimate], reference: Optional[datetime] = None) -> QFrame:
+def _task_block(
+    tasks: List[TaskEstimate], reference: Optional[datetime] = None
+) -> QFrame:
     frame = QFrame()
     # Scoped by name: the rows carry chips, and chips are QFrames, so a bare selector
     # would restyle them with this block's fill and border.
@@ -159,7 +163,9 @@ class WorkflowPreflightDialog(QDialog):
 
         metrics = QHBoxLayout()
         metrics.setSpacing(10)
-        metrics.addWidget(_metric("Estimated duration", format_duration(est.work_seconds)))
+        metrics.addWidget(
+            _metric("Estimated duration", format_duration(est.work_seconds))
+        )
         metrics.addWidget(
             _metric("Expected finish", _clock(est.expected_finish, est.started_at))
         )

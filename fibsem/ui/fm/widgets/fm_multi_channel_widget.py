@@ -3,6 +3,7 @@
 Selecting a row in the list shows its full settings in a detail panel below,
 following the FibsemMillingStagesWidget pattern.
 """
+
 from __future__ import annotations
 
 from typing import List, Optional, Union
@@ -27,13 +28,15 @@ class FluorescenceMultiChannelWidget(QWidget):
     Drop-in replacement for ChannelListWidget at call sites.
     """
 
-    channel_field_changed = pyqtSignal(object, str, object)  # ChannelSettings, field, value
-    settings_changed = pyqtSignal(list)    # List[ChannelSettings]
-    channel_added = pyqtSignal(object)     # ChannelSettings
-    channel_removed = pyqtSignal(object)   # ChannelSettings
-    channel_changed = pyqtSignal(object)   # ChannelSettings
-    enabled_changed = pyqtSignal(list)     # List[ChannelSettings] (enabled only)
-    order_changed = pyqtSignal(list)       # List[ChannelSettings]
+    channel_field_changed = pyqtSignal(
+        object, str, object
+    )  # ChannelSettings, field, value
+    settings_changed = pyqtSignal(list)  # List[ChannelSettings]
+    channel_added = pyqtSignal(object)  # ChannelSettings
+    channel_removed = pyqtSignal(object)  # ChannelSettings
+    channel_changed = pyqtSignal(object)  # ChannelSettings
+    enabled_changed = pyqtSignal(list)  # List[ChannelSettings] (enabled only)
+    order_changed = pyqtSignal(list)  # List[ChannelSettings]
 
     def __init__(
         self,
@@ -151,7 +154,9 @@ class FluorescenceMultiChannelWidget(QWidget):
         return self._list.channel_settings
 
     @channel_settings.setter
-    def channel_settings(self, value: Union[ChannelSettings, List[ChannelSettings]]) -> None:
+    def channel_settings(
+        self, value: Union[ChannelSettings, List[ChannelSettings]]
+    ) -> None:
         if isinstance(value, ChannelSettings):
             value = [value]
         channels = list(value)

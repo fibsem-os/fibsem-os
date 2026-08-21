@@ -30,7 +30,7 @@ class SpotBurnSettings:
 
     coordinates: List[Point] = field(default_factory=list)
     milling_current: float = 60e-12  # amperes
-    exposure_time: float = 10.0      # seconds
+    exposure_time: float = 10.0  # seconds
 
     def to_dict(self) -> dict:
         return {
@@ -48,10 +48,12 @@ class SpotBurnSettings:
         )
 
 
-def run_spot_burn(microscope: FibsemMicroscope,
-                  settings: SpotBurnSettings,
-                  beam_type: BeamType = BeamType.ION,
-                  stop_event: Optional[threading.Event] = None) -> None:
+def run_spot_burn(
+    microscope: FibsemMicroscope,
+    settings: SpotBurnSettings,
+    beam_type: BeamType = BeamType.ION,
+    stop_event: Optional[threading.Event] = None,
+) -> None:
     """Run a spot burner job on the microscope. Exposes the coordinates in *settings* for
     the exposure time at the milling current it specifies.
 
@@ -105,12 +107,13 @@ def run_spot_burn(microscope: FibsemMicroscope,
     microscope.set_beam_current(current=milling_current, beam_type=beam_type)
 
     for i, pt in enumerate(coordinates, 1):
-
         if stop_event is not None and stop_event.is_set():
             logging.info(f"Spot burn cancelled before point {i}/{len(coordinates)}.")
             break
 
-        logging.info(f'burning spot {i}: {pt}, exposure time: {exposure_time}, milling current: {milling_current}')
+        logging.info(
+            f"burning spot {i}: {pt}, exposure time: {exposure_time}, milling current: {milling_current}"
+        )
 
         microscope.blank(beam_type=beam_type)
         microscope.set_spot_scanning_mode(point=pt, beam_type=beam_type)
@@ -121,7 +124,9 @@ def run_spot_burn(microscope: FibsemMicroscope,
         while remaining_time > 0:
             if stop_event is not None and stop_event.is_set():
                 microscope.blank(beam_type=beam_type)
-                logging.info(f"Spot burn cancelled during point {i}/{len(coordinates)}.")
+                logging.info(
+                    f"Spot burn cancelled during point {i}/{len(coordinates)}."
+                )
                 break
             time.sleep(SLEEP_TIME)
             remaining_time -= SLEEP_TIME

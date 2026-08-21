@@ -6,6 +6,7 @@ always created these folders and thrown away the pointer. This reconstructs the
 history from them so a new correlation can seed from the previous one (FIB-299).
 Nothing new is persisted — the history *is* the folders.
 """
+
 from __future__ import annotations
 
 import glob
@@ -32,8 +33,8 @@ def _run_file(folder: str) -> Optional[str]:
 class CorrelationRun:
     """One saved correlation, loaded from its timestamped folder."""
 
-    path: str          # the run folder
-    name: str          # folder basename (the timestamp)
+    path: str  # the run folder
+    name: str  # folder basename (the timestamp)
     state: CorrelationState
 
 

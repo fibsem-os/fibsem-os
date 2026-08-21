@@ -33,12 +33,13 @@ def make_synthetic_sem(width=512, height=384) -> np.ndarray:
         cy = rng.integers(50, height - 50)
         r = rng.integers(15, 45)
         yy, xx = np.ogrid[:height, :width]
-        mask = (xx - cx) ** 2 + (yy - cy) ** 2 < r ** 2
+        mask = (xx - cx) ** 2 + (yy - cy) ** 2 < r**2
         base[mask] = np.clip(base[mask].astype(int) + rng.integers(40, 90), 0, 255)
     return base
 
 
 # ── Tab 1: plain grid mode ────────────────────────────────────────────────────
+
 
 class GridModeTab(QWidget):
     def __init__(self):
@@ -47,10 +48,14 @@ class GridModeTab(QWidget):
 
         ctrl = QHBoxLayout()
         ctrl.addWidget(QLabel("Rows:"))
-        self._rows = QSpinBox(); self._rows.setRange(1, 10); self._rows.setValue(3)
+        self._rows = QSpinBox()
+        self._rows.setRange(1, 10)
+        self._rows.setValue(3)
         ctrl.addWidget(self._rows)
         ctrl.addWidget(QLabel("Cols:"))
-        self._cols = QSpinBox(); self._cols.setRange(1, 10); self._cols.setValue(4)
+        self._cols = QSpinBox()
+        self._cols.setRange(1, 10)
+        self._cols.setValue(4)
         ctrl.addWidget(self._cols)
         btn = QPushButton("Apply")
         btn.clicked.connect(self._apply)
@@ -67,6 +72,7 @@ class GridModeTab(QWidget):
 
 
 # ── Tab 2: physical mode + background image ───────────────────────────────────
+
 
 class PhysicalModeTab(QWidget):
     def __init__(self):
@@ -90,10 +96,14 @@ class PhysicalModeTab(QWidget):
         ctrl.addWidget(self._tile_hfw)
 
         ctrl.addWidget(QLabel("Rows:"))
-        self._rows = QSpinBox(); self._rows.setRange(1, 8); self._rows.setValue(2)
+        self._rows = QSpinBox()
+        self._rows.setRange(1, 8)
+        self._rows.setValue(2)
         ctrl.addWidget(self._rows)
         ctrl.addWidget(QLabel("Cols:"))
-        self._cols = QSpinBox(); self._cols.setRange(1, 8); self._cols.setValue(3)
+        self._cols = QSpinBox()
+        self._cols.setRange(1, 8)
+        self._cols.setValue(3)
         ctrl.addWidget(self._cols)
 
         btn = QPushButton("Apply")
@@ -142,6 +152,7 @@ class PhysicalModeTab(QWidget):
 
 
 # ── Main window ───────────────────────────────────────────────────────────────
+
 
 class TestWindow(QMainWindow):
     def __init__(self):

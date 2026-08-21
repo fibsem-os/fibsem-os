@@ -28,6 +28,7 @@ def apply_gamma(data: NDArray, gamma: float) -> NDArray:
         raise ValueError(f"gamma must be > 0, got {gamma}")
     return exposure.adjust_gamma(data, gamma)
 
+
 def auto_gamma(
     image: FibsemImage,
     min_gamma: float = 0.15,
@@ -81,14 +82,13 @@ def auto_gamma(
     return image
 
 
-
 def apply_clahe(
     image: FibsemImage,
     which_package: str = "skimage",
     clip_limit_cv2: float = 15,
     tile_grid_size: int = 8,
     clip_limit_skimage: float = 0.02,
-    kernel_size = None
+    kernel_size=None,
 ) -> FibsemImage:
     """
     Applies Contrast Limited Adaptive Histogram Equalisation correction to the input `FibsemImage`.
@@ -135,19 +135,22 @@ def apply_clahe(
     temp = temp / temp.max()
     temp = (temp * 2**8).astype(np.uint8)
 
-    if which_package=='OpenCV':
+    if which_package == "OpenCV":
         import cv2
+
         tile_grid_size = int(tile_grid_size)
-        clahe = cv2.createCLAHE(clipLimit=clip_limit_cv2,
-                                tileGridSize=(tile_grid_size,tile_grid_size))
+        clahe = cv2.createCLAHE(
+            clipLimit=clip_limit_cv2, tileGridSize=(tile_grid_size, tile_grid_size)
+        )
         image_data = clahe.apply(temp)
 
-    else: # default filter
+    else:  # default filter
         # nbin = 256 default, for 8-bit images
-        image_data = exposure.equalize_adapthist(temp,
-                                                 kernel_size=kernel_size,
-                                                 clip_limit=clip_limit_skimage, nbins=256)
+        image_data = exposure.equalize_adapthist(
+            temp, kernel_size=kernel_size, clip_limit=clip_limit_skimage, nbins=256
+        )
         import skimage
+
         image_data = skimage.img_as_ubyte(image_data)
 
     return FibsemImage(data=image_data, metadata=image.metadata)

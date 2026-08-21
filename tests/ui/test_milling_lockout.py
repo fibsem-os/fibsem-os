@@ -13,6 +13,7 @@ the protocol as the position that was milled, when it is not.
 Every test here has a not-milling counterpart. A lock test that only ever asserts "this
 did nothing" passes just as well against a widget that does nothing at all.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -149,7 +150,9 @@ def _record_menu(widget, monkeypatch) -> list:
     return opened
 
 
-def test_the_reposition_menu_opens_when_nothing_is_milling(widget, monkeypatch, fib_image):
+def test_the_reposition_menu_opens_when_nothing_is_milling(
+    widget, monkeypatch, fib_image
+):
     """The control: without this, the milling case below proves nothing."""
     widget.set_fib_image(fib_image)
     opened = _record_menu(widget, monkeypatch)
@@ -181,7 +184,9 @@ def test_moving_patterns_is_refused_while_milling(widget, fib_image):
 
     widget._move_patterns(Point(x=1e-6, y=1e-6), move_all=True)
 
-    after = widget.config_widget.milling_stages_widget.get_enabled_stages()[0].pattern.point
+    after = widget.config_widget.milling_stages_widget.get_enabled_stages()[
+        0
+    ].pattern.point
     assert (after.x, after.y) == (before.x, before.y)
 
 
@@ -194,7 +199,9 @@ def test_moving_patterns_still_works_when_idle(widget, fib_image):
 
     widget._move_patterns(Point(x=before.x + 5e-6, y=before.y + 5e-6), move_all=True)
 
-    after = widget.config_widget.milling_stages_widget.get_enabled_stages()[0].pattern.point
+    after = widget.config_widget.milling_stages_widget.get_enabled_stages()[
+        0
+    ].pattern.point
     assert (after.x, after.y) != (before.x, before.y)
 
 

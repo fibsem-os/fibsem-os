@@ -11,6 +11,7 @@ Originally written for the quad-view FM canvas on PR #111 and lifted here so the
 review panel could use it too; `fibsem/ui/widgets/canvas/fm_composite.py` is now a
 re-export of this module rather than the second copy it used to be.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -31,18 +32,18 @@ class FMLayer:
     ``ChannelSettings``, which only carries ``name`` + ``color``)."""
 
     name: str
-    data: Optional[np.ndarray] = None        # 2D (H, W)
+    data: Optional[np.ndarray] = None  # 2D (H, W)
     color: str = "gray"
-    opacity: float = 1.0                      # 0..1
+    opacity: float = 1.0  # 0..1
     clim: Optional[Tuple[float, float]] = None  # manual limits (used when not auto)
     visible: bool = True
-    autocontrast: bool = True                 # recompute clim from data each composite
+    autocontrast: bool = True  # recompute clim from data each composite
     # The user explicitly chose manual contrast (turned Auto off). Distinct from
     # ``autocontrast``, which the z-scrub display path also toggles internally: the
     # single-plane / MIP display path keeps a manual channel's clim across live frames /
     # MIP toggles, but still restores auto for a channel the user left on Auto.
     manual: bool = False
-    gamma: float = 1.0                        # display = norm ** gamma (1 = linear)
+    gamma: float = 1.0  # display = norm ** gamma (1 = linear)
     # cached auto clim, keyed on the data array identity so it's recomputed only
     # when the channel's data actually changes (not on every unrelated recomposite,
     # e.g. an opacity-slider drag). Not part of the layer's value.
@@ -126,7 +127,9 @@ def composite_fm_layers(
         norm = np.clip((d - lo) / (hi - lo), 0.0, 1.0) if hi > lo else np.zeros_like(d)
         if layer.gamma != 1.0:
             norm = np.power(norm, layer.gamma)
-        tint = np.asarray(tint_rgb(layer.color), dtype=np.float32) * float(layer.opacity)
+        tint = np.asarray(tint_rgb(layer.color), dtype=np.float32) * float(
+            layer.opacity
+        )
         rgb += norm[..., None] * tint
     return (np.clip(rgb, 0.0, 1.0) * 255.0).astype(np.uint8)
 

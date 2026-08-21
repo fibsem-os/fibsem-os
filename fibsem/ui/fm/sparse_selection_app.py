@@ -85,7 +85,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--manufacturer", default="Demo")
     parser.add_argument("--ip", default="localhost")
     parser.add_argument(
-        "--hfw", type=float, default=OVERVIEW_HFW,
+        "--hfw",
+        type=float,
+        default=OVERVIEW_HFW,
         help="beam overview field width, in metres",
     )
     args = parser.parse_args(argv)
@@ -95,9 +97,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     from PyQt5.QtWidgets import QApplication
 
     app = QApplication.instance() or QApplication(sys.argv)
-    microscope = build_microscope(
-        manufacturer=args.manufacturer, ip_address=args.ip
-    )
+    microscope = build_microscope(manufacturer=args.manufacturer, ip_address=args.ip)
     selection = run_dialog(microscope, args.hfw)
     if selection is None:
         logging.info("cancelled -- nothing selected")

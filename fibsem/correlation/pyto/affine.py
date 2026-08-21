@@ -20,11 +20,11 @@ import scipy.linalg as linalg
 
 class Affine(object):
     """
-    Finds and preforms affine transformation (general linear transformation 
-    followed by translation) on points (vectors) in an arbitrary 
+    Finds and preforms affine transformation (general linear transformation
+    followed by translation) on points (vectors) in an arbitrary
     dimensional space.
 
-    The transformation that transforms points x to points y has the following 
+    The transformation that transforms points x to points y has the following
     form:
 
       y = gl x + d
@@ -36,7 +36,7 @@ class Affine(object):
     Main methods:
 
       - find(): finds a transformation between two sets of points
-      - findTwoStep(): finds a transformation between two sets of points in 
+      - findTwoStep(): finds a transformation between two sets of points in
       two steps
       - findTranslation(): finds a translation between two sets of points
       - decompose(): decomposes (factorizes) gl
@@ -53,28 +53,28 @@ class Affine(object):
       - q, u, v: rotation matrices
       - s: scaling matrix (diagonal, >=0)
       - scale: vector of scaling parameters (diagonal elements of s)
-      - p: parity matrix (diagonal, the element self.parity_axis 
+      - p: parity matrix (diagonal, the element self.parity_axis
       can be +1 or -1, other diagonal elements +1)
       - parity: parity (+1 or -1)
       - m: shear matrix (upper-triangular)
       - order: decomposition type. It is advisable not to change it directly
-      (because this would make transformation attributes inconsistent with 
+      (because this would make transformation attributes inconsistent with
       attribute order) but to set it via instantiation or change using
       decompose().
 
     Attributes related to finding a transformation:
       - error: error of transformation for all points
       - rmsError: root mean square error of the transformation
-      - rmsErrorEst: estimate of rmsError, calculated when error can not be 
-      calculated, for example for transformations formed as a composition 
-      of two transformations (whose error or rmsError are known), see 
+      - rmsErrorEst: estimate of rmsError, calculated when error can not be
+      calculated, for example for transformations formed as a composition
+      of two transformations (whose error or rmsError are known), see
       composition() method.
 
     Other attributes:
       - parity_axis: position of element in self.p that can be -1
       - param_names: (list) names of all transformation parameters
       - xy_axes: order of axes in matrices specifying points, can be
-      'point_dim' (default, so for n points in d dimensions the points 
+      'point_dim' (default, so for n points in d dimensions the points
       matrixs hape is nxd) or 'dim_point' (points shape is dxn).
 
     """
@@ -92,20 +92,20 @@ class Affine(object):
     # Initialization
     #
 
-    def __init__(self, gl=None, d=None, order='qpsm', xy_axes='point_dim'):
+    def __init__(self, gl=None, d=None, order="qpsm", xy_axes="point_dim"):
         """
         Sets self.gl to arg gl.
 
-        If arg d is None, or 0, and gl is not None, self.d is set to 
-        numpy.array([0, 0, ...]) with the correct length. Otherwise self.d is 
+        If arg d is None, or 0, and gl is not None, self.d is set to
+        numpy.array([0, 0, ...]) with the correct length. Otherwise self.d is
         set to arg d
 
-        If the arg xy_axes is 'point_dim' / 'dim_point', points used in this 
-        instance should be specified as n_point x n_dim / n_dim x n_point 
+        If the arg xy_axes is 'point_dim' / 'dim_point', points used in this
+        instance should be specified as n_point x n_dim / n_dim x n_point
         matrices.
-        
+
         Arguments:
-          - gl: (numpy.ndarray of shape (ndim, ndim)) general linear 
+          - gl: (numpy.ndarray of shape (ndim, ndim)) general linear
           transormation matrix
           - d: (numpy.ndarray of shape ndim) translation
           - order: decomposition order
@@ -117,15 +117,15 @@ class Affine(object):
         self.xy_axes = xy_axes
         self.gl = gl
         self.d = d
-        if (d is None) or (isinstance(d, numpy.uint8) and (d == 0)): 
-            if (self.gl is not None):
+        if (d is None) or (isinstance(d, numpy.uint8) and (d == 0)):
+            if self.gl is not None:
                 self.d = numpy.zeros(gl.shape[0], dtype=numpy.uint8)
 
         # initialize order
         self.order = order
 
         # transformation parameters
-        self.param_names = ['q', 'p', 's', 'm', 'u', 'v']
+        self.param_names = ["q", "p", "s", "m", "u", "v"]
 
         # estimated error
         self.rmsErrorEst = None
@@ -140,7 +140,6 @@ class Affine(object):
         for name in self.param_names:
             self.__setattr__(name, None)
 
-
     ##############################################################
     #
     # Transformation parameters and error
@@ -149,7 +148,7 @@ class Affine(object):
     @classmethod
     def identity(cls, ndim):
         """
-        Returnes an identity object of this class, that is a transformation 
+        Returnes an identity object of this class, that is a transformation
         that leaves all vectors invariant.
 
         Argument:
@@ -168,13 +167,12 @@ class Affine(object):
         Returns scale transformation corresponding to 1D array scale.
 
         Arguments:
-          - scale: can be given as an 1d array (or a list), or as a single 
+          - scale: can be given as an 1d array (or a list), or as a single
           number in which case the scale is the same in all directions
           - ndim: number of dimensions
         """
- 
+
         if not isinstance(scale, (numpy.ndarray, list)):
-       
             # make diagonal
             scale = numpy.ones(ndim) * scale
 
@@ -186,9 +184,9 @@ class Affine(object):
     @classmethod
     def makeP(cls, parity, ndim, axis=-1):
         """
-        Returns parity matrix corresponding to arg parity. 
+        Returns parity matrix corresponding to arg parity.
 
-        If parity is -1, the element of the parity matrix corresponding to 
+        If parity is -1, the element of the parity matrix corresponding to
         axis is set to -1 (all other are 1).
 
         Arguments:
@@ -198,12 +196,12 @@ class Affine(object):
         """
 
         # get ndim
-        #if ndim is None:
+        # if ndim is None:
         #    try:
         #        ndim = self.gl.shape[0]
         #    except AttributeError:
         #        ndim = self.q.shape[0]
-                    
+
         # get p
         p = numpy.identity(ndim)
         if parity == 1:
@@ -217,7 +215,7 @@ class Affine(object):
     @classmethod
     def makeD(cls, d, ndim):
         """
-        Returns d (translation) array 
+        Returns d (translation) array
 
         Arguments:
           - d: (single number) translation
@@ -238,19 +236,20 @@ class Affine(object):
             self.decompose()
         res = numpy.abs(self.s.diagonal())
         return res
-    scale = property(fget=getScale, doc='Scale vector')
+
+    scale = property(fget=getScale, doc="Scale vector")
 
     def setScale(self, scale):
         """
         Sets scale and (re)composes Gl with all other parameters unchanged
-        
+
         Argument:
-          - scale: (1d-array) scale 
+          - scale: (1d-array) scale
         """
         self.s = numpy.diag(scale)
         self.composeGl()
 
-    scale = property(fget=getScale, fset=setScale, doc='scale')
+    scale = property(fget=getScale, fset=setScale, doc="scale")
 
     def getParity(self):
         """
@@ -263,26 +262,28 @@ class Affine(object):
             res = numpy.sign(linalg.det(self.gl))
         res = self.p.diagonal().prod()
         return res
-    parity = property(fget=getParity, doc='Parity')
+
+    parity = property(fget=getParity, doc="Parity")
 
     def getTranslation(self):
         """
         Translation vector.
         """
         return self.d
-    translation = property(fget=getTranslation, doc='Translation.')
+
+    translation = property(fget=getTranslation, doc="Translation.")
 
     def getRMSError(self):
         """
-        Root mean square of the error. 
+        Root mean square of the error.
 
         First tries to calculate it from self.error. If self.error is not
-        defined, returns self._rmsError or None if it doesn't exist) 
+        defined, returns self._rmsError or None if it doesn't exist)
         """
         try:
-            if self.xy_axes == 'point_dim':
+            if self.xy_axes == "point_dim":
                 n_points = self.error.shape[0]
-            elif self.xy_axes == 'dim_point':
+            elif self.xy_axes == "dim_point":
                 n_points = self.error.shape[1]
             error = numpy.sqrt(numpy.square(self.error).sum() / float(n_points))
             return error
@@ -292,7 +293,7 @@ class Affine(object):
             except AttributeError:
                 return None
 
-    rmsError = property(fget=getRMSError, doc='Root mean square error')
+    rmsError = property(fget=getRMSError, doc="Root mean square error")
 
     ##############################################################
     #
@@ -300,19 +301,20 @@ class Affine(object):
     #
 
     @classmethod
-    def find(cls, x, y, type_='gl', order='qpsm', xy_axes='point_dim', 
-             x_ref='cm', y_ref='cm'):
+    def find(
+        cls, x, y, type_="gl", order="qpsm", xy_axes="point_dim", x_ref="cm", y_ref="cm"
+    ):
         """
         Finds affine transformation (general linear transformation folowed by a
-        translation) that minimizes square error for transforming points x to 
+        translation) that minimizes square error for transforming points x to
         points y. The transformation has the form
 
           y = gl x + d,     gl = q s p m                                 (1)
 
         where d is translation vector and q, s, p and m are rotation, scaling,
-        parity and shear matrices, respectivly. 
+        parity and shear matrices, respectivly.
 
-        In 2D, if arg type_ is 'rs' (as opposed to the default 'gl'), instead 
+        In 2D, if arg type_ is 'rs' (as opposed to the default 'gl'), instead
         of optimizing all parameters of Gl transformation, only rotation and
         one scale are optimized. See Affine2D.find() for more info.
 
@@ -332,7 +334,7 @@ class Affine(object):
         Note that in this case the parameters found do not minimize the error
         of eq 1.
 
-        In both cases general linear transformation (matrix gl) is calculated 
+        In both cases general linear transformation (matrix gl) is calculated
         using scipy.linalg.lstsq().
 
         Only the points that are not masked neither in x_mask nor in y_mask are
@@ -343,75 +345,83 @@ class Affine(object):
           - x_ref, y_ref: (ndarray) coordinates of reference points, or 'cm' to
           use center of mass
           - xy_axes: indicates the order of axes in x and y; can be 'point_dim'
-        so that x and y shape is n_points x n_dim or 'dim_point' for 
+        so that x and y shape is n_points x n_dim or 'dim_point' for
         x_dim x n_points
           - type: transformation type ('gl' or 'rs')
           - order: gl decomposition order (see decompose())
 
-        Returns the transformation found as an instance of class cls, with 
+        Returns the transformation found as an instance of class cls, with
         following attributes:
           - gl: general linear transformation matrix
           - d: translation vector
-          - q, p, s, m: rotation, parity, scale and shear matrices 
+          - q, p, s, m: rotation, parity, scale and shear matrices
           - error: difference between y and transformed x values
           - resids, rank, singular: values returned from scipy.linalg.lstsq
           - xy_axes: same as arg xy_axes
           - _xPrime: x - x_ref
           - _yPrime: y - y_ref
           - type_: type of the optimization, 'gl' to find Gl transformation
-          that optimizes the square error, or 'rs' to find the best rotation 
+          that optimizes the square error, or 'rs' to find the best rotation
           and one scale (currently implemented for 2D transformations only).
           In any case the translation is also found.
         """
 
         # remove masked points
-        #[x, y], mask = cls.removeMasked([x,y], [x_mask,y_mask])
-        #if (x_mask != None) or (y_mask != None):
+        # [x, y], mask = cls.removeMasked([x,y], [x_mask,y_mask])
+        # if (x_mask != None) or (y_mask != None):
         #    logging.warn("Arguments x_mask and y_mask are ignored.")
 
-        # bring x and y to n_points x n_dim shape 
-        if xy_axes == 'point_dim':
+        # bring x and y to n_points x n_dim shape
+        if xy_axes == "point_dim":
             pass
-        elif xy_axes == 'dim_point':
+        elif xy_axes == "dim_point":
             x = x.transpose()
             y = y.transpose()
         else:
             raise ValueError(
                 "Argument xy_axes was not understood. Possible values are: "
-                + "'point_dim' and 'dim_point'.")
+                + "'point_dim' and 'dim_point'."
+            )
 
         # bring x to reference frame
-        if isinstance(x_ref, str) and (x_ref == 'cm'):
+        if isinstance(x_ref, str) and (x_ref == "cm"):
             x_ref = numpy.mean(x, axis=0)
         elif isinstance(x_ref, (list, tuple, numpy.ndarray)):
             pass
         else:
             raise ValueError(
-                'Argument x_ref: ', x_ref, ' was not understood.',
-                " Allowed values are None, 'cm', or an array.") 
+                "Argument x_ref: ",
+                x_ref,
+                " was not understood.",
+                " Allowed values are None, 'cm', or an array.",
+            )
         x_prime = x - x_ref
 
         # bring y to reference frame
-        if isinstance(y_ref, str) and (y_ref == 'cm'):
+        if isinstance(y_ref, str) and (y_ref == "cm"):
             y_ref = numpy.mean(y, axis=0)
         elif isinstance(y_ref, (list, tuple, numpy.ndarray)):
             pass
         else:
             raise ValueError(
-                'Argument y_ref: ', y_ref, ' was not understood.',
-                " Allowed values are None, 'cm', or an array.") 
+                "Argument y_ref: ",
+                y_ref,
+                " was not understood.",
+                " Allowed values are None, 'cm', or an array.",
+            )
         y_prime = y - y_ref
 
         # type_ should not be 'rs'
-        if type_ == 'rs':
+        if type_ == "rs":
             warnings.warn(
                 "Type 'rs' is not implemented for dimensions different from 2."
-                + " Continuing with type 'gs'.")
+                + " Continuing with type 'gs'."
+            )
 
         # find gl transformation
         gl_t, resids, rank, singular = linalg.lstsq(x_prime, y_prime)
         gl = gl_t.transpose()
-        
+
         # find translation
         d = y_ref - numpy.inner(x_ref, gl)
 
@@ -421,46 +431,46 @@ class Affine(object):
         inst.rank = rank
         inst.singular = singular
         inst.xy_axes = xy_axes
-        inst.error = y - inst.transform(x, xy_axes='point_dim')
-        if xy_axes == 'dim_point':
+        inst.error = y - inst.transform(x, xy_axes="point_dim")
+        if xy_axes == "dim_point":
             inst.error = inst.error.transpose()
 
         # save x and y in reference frame
-        if xy_axes == 'point_dim':
+        if xy_axes == "point_dim":
             inst._xPrime = x_prime
             inst._yPrime = y_prime
-        elif xy_axes == 'dim_point':
+        elif xy_axes == "dim_point":
             inst._xPrime = x_prime.transpose()
             inst._yPrime = y_prime.transpose()
- 
+
         # find and save other transformation matrices
         inst.decompose(order=order)
 
         # return
         return inst
-        
+
     @classmethod
-    def findTwoStep(cls, x, y, x_gl, y_gl, type_='gl', order='qpsm'):
+    def findTwoStep(cls, x, y, x_gl, y_gl, type_="gl", order="qpsm"):
         """
         Find affine transformation (like find()) in two steps. Useful when
-        only few points x and y exist that are related by the full 
+        only few points x and y exist that are related by the full
         transformation (Gl and translation), but there are other points x_gl
-        and y_gl which are related by a transformation having the same Gl but 
-        a different translation. 
+        and y_gl which are related by a transformation having the same Gl but
+        a different translation.
 
         In the first step, coordinates x_gl and y_gl are used to find Gl (see
-        find() for details). In the second step, points Gl(x) and y are used 
+        find() for details). In the second step, points Gl(x) and y are used
         to find the translation part (see findTranslation() for details.
 
         The final transformation is obtained by the composition of the two
-        transformations obtained above. Consequently, attributes error and 
+        transformations obtained above. Consequently, attributes error and
         rmsError are not defined, but rmsErrorEst is.
 
-        Returns new transformation.   
+        Returns new transformation.
         """
 
         # find Gl part of the transformation
-        transf_gl = cls.find(x=x_gl, y=y_gl, type_=type_, order=order) 
+        transf_gl = cls.find(x=x_gl, y=y_gl, type_=type_, order=order)
         transf_gl.d = numpy.zeros(shape=transf_gl.gl.shape[0])
 
         # find translation
@@ -473,10 +483,12 @@ class Affine(object):
         # save individual errors
         transf.glError = transf_gl.error
         transf.glRmsError = numpy.sqrt(
-            numpy.square(transf.glError).sum() / float(transf.glError.shape[0]))
+            numpy.square(transf.glError).sum() / float(transf.glError.shape[0])
+        )
         transf.dError = transf_d.error
         transf.dRmsError = numpy.sqrt(
-            numpy.square(transf.dError).sum() / float(transf.dError.shape[0]))
+            numpy.square(transf.dError).sum() / float(transf.dError.shape[0])
+        )
 
         return transf
 
@@ -499,7 +511,7 @@ class Affine(object):
         inst = cls.identity(ndim=ndim)
 
         # remove masked points
-        data, mask = cls.removeMasked(arrays=[x,y], masks=[x_mask, y_mask])
+        data, mask = cls.removeMasked(arrays=[x, y], masks=[x_mask, y_mask])
         x_unmasked = data[0]
         y_unmasked = data[1]
 
@@ -516,14 +528,14 @@ class Affine(object):
 
     def transform(self, x, gl=None, d=None, xy_axes=None):
         """
-        Applies transformation defined by gl and d to points x. 
+        Applies transformation defined by gl and d to points x.
 
         If args gl or d are None self.gl and self.d are used.
 
-        If the arg xy_axes is 'point_dim' / 'dim_point', points used in this 
-        instance should be specified as n_point x n_dim / n_dim x n_point 
+        If the arg xy_axes is 'point_dim' / 'dim_point', points used in this
+        instance should be specified as n_point x n_dim / n_dim x n_point
         matrices.
-        
+
         Arguments:
           - x: coordinates of one or more points
           - gl: matrix representation of general linear transformation
@@ -542,23 +554,20 @@ class Affine(object):
         if d is None:
             d = self.d
         if (d is None) or (numpy.isscalar(d) and (d == 0)):
-            d = numpy.zeros(gl.shape[0], dtype='int')
+            d = numpy.zeros(gl.shape[0], dtype="int")
         elif isinstance(d, (list, numpy.ndarray)):
             d = numpy.asarray(d)
         else:
             raise ValueError("Argument d: ", d, " was not understood.")
 
         if (x is not None) and (len(x) > 0):
- 
-            if xy_axes == 'point_dim':
-                
-                # equivalent to matrix multiplication of gl and transposed x, 
+            if xy_axes == "point_dim":
+                # equivalent to matrix multiplication of gl and transposed x,
                 res = numpy.inner(x, gl) + d
 
-            elif xy_axes == 'dim_point':
-
+            elif xy_axes == "dim_point":
                 # just matrix product
-                res = numpy.dot(gl, x) +  + numpy.expand_dims(d, 1)
+                res = numpy.dot(gl, x) + +numpy.expand_dims(d, 1)
 
         else:
             res = None
@@ -574,13 +583,13 @@ class Affine(object):
         """
         Decomposes gl using QR or singular value decomposition as follows:
 
-          gl = q p s m (order 'qr' or 'qpsm') 
+          gl = q p s m (order 'qr' or 'qpsm')
           gl = p s m q (order 'rq' or 'psmq')
           gl = u p s v (order 'usv')
 
         where:
           - q, u, v: rotation matrix (orthogonal, with det +1)
-          - p: parity matrix (diagonal, the element self.parity_axis can be +1 
+          - p: parity matrix (diagonal, the element self.parity_axis can be +1
           or -1, other diagonal elements +1)
           - s: scale martix, diagonal and >=0
           - m: shear matrix, upper triangular, all diagonal elements 1
@@ -590,12 +599,12 @@ class Affine(object):
 
         Arguments:
           - gl: (ndarray) general linear transformation, or self.gl if None
-          - order: decomposition order 'qpsm' (same as 'qr'), 'psmq' (same as 
+          - order: decomposition order 'qpsm' (same as 'qr'), 'psmq' (same as
           'rq'), or 'usv'
 
-        If arg gl is None, self.gl us used and the matrices resulting from the 
+        If arg gl is None, self.gl us used and the matrices resulting from the
         decomposition are saved as the arguments of this instance:
-          - self.q, self.p, self.s and self.m if order 'qpsm', 'qr', 'psmq' 
+          - self.q, self.p, self.s and self.m if order 'qpsm', 'qr', 'psmq'
           or 'rq'
           - self.u, self.p, self.s, self.v if order 'usv'
 
@@ -604,7 +613,7 @@ class Affine(object):
           - (u, p, s, v) if order 'usv'
         """
 
-        # figure out gl (self.gl or arg) and the type of return 
+        # figure out gl (self.gl or arg) and the type of return
         if gl is None:
             gl = self.gl
             self.initializeParams()
@@ -613,17 +622,16 @@ class Affine(object):
             new = True
 
         # figure our order
-        if order is None: 
+        if order is None:
             order = self.order
         else:
             self.order = order
 
         # set all transformation parameters to None
-        #self.initializeParams()
+        # self.initializeParams()
 
         # call appropriate decompose method
-        if ((order == 'qpsm') or (order == 'psmq') or (order == 'qr') 
-            or (order == 'rq')):
+        if (order == "qpsm") or (order == "psmq") or (order == "qr") or (order == "rq"):
             q, p, s, m = self.decomposeQR(gl=gl, order=order)
             if new:
                 return q, p, s, m
@@ -633,7 +641,7 @@ class Affine(object):
                 self.s = s
                 self.m = m
 
-        elif (order == 'usv'):
+        elif order == "usv":
             u, p, s, v = self.decomposeSV(gl=gl, order=order)
             if new:
                 return u, p, s, v
@@ -644,19 +652,18 @@ class Affine(object):
                 self.v = v
 
         else:
-            raise ValueError("Argument order: " + str(order) + 
-                             " not understood.") 
+            raise ValueError("Argument order: " + str(order) + " not understood.")
 
-    def decomposeQR(self, gl=None, order='qr'):
+    def decomposeQR(self, gl=None, order="qr"):
         """
         Decomposes gl using QR decomposition into:
 
-          gl = q p s m (order 'qr' or 'qpsm') 
+          gl = q p s m (order 'qr' or 'qpsm')
           gl = p s m q (order 'rq' or 'psmq')
 
         where:
           - q: rotation (orthogonal, with det +1) matrix
-          - p: parity (diagonal, all elements +1, except that the element 
+          - p: parity (diagonal, all elements +1, except that the element
           corresponding to self.parity_axismatrix can be -1)
           possibly -1
           - s: scale martix, diagonal and positive
@@ -677,14 +684,18 @@ class Affine(object):
             gl = self.gl
         ndim = gl.shape[0]
 
-        # QR decompose 
-        if (order == 'rq') or (order == 'psmq'):
+        # QR decompose
+        if (order == "rq") or (order == "psmq"):
             r, q = linalg.rq(gl)
-        elif (order == 'qr') or (order == 'qpsm'):
+        elif (order == "qr") or (order == "qpsm"):
             q, r = linalg.qr(gl)
         else:
-            ValueError("Argumnet order: ", order, " not understood. It should ",
-                       "be 'psmq' (same as 'rq') or 'qpsm' (same as 'qr').")
+            ValueError(
+                "Argumnet order: ",
+                order,
+                " not understood. It should ",
+                "be 'psmq' (same as 'rq') or 'qpsm' (same as 'qr').",
+            )
 
         # extract s, p and m
         r_diag = r.diagonal()
@@ -692,14 +703,14 @@ class Affine(object):
         s = numpy.diag(s_diag)
         p_diag = numpy.sign(r_diag)
         p = numpy.diag(p_diag)
-        s_inv_diag = 1. * p_diag / s_diag
+        s_inv_diag = 1.0 * p_diag / s_diag
         m = numpy.dot(numpy.diag(s_inv_diag), r)
 
         # make q = q p and p = 1
-        if (order == 'rq') or (order == 'psmq'):
+        if (order == "rq") or (order == "psmq"):
             m = numpy.dot(numpy.dot(p, m), p)
             q = numpy.dot(p, q)
-        elif (order == 'qr') or (order == 'qpsm'):
+        elif (order == "qr") or (order == "qpsm"):
             q = numpy.dot(q, p)
         p = numpy.abs(p)
 
@@ -707,15 +718,15 @@ class Affine(object):
         if linalg.det(q) < 0:
             p = numpy.identity(ndim, dtype=int)
             p[self.parity_axis, self.parity_axis] = -1
-            if (order == 'rq') or (order == 'psmq'):
+            if (order == "rq") or (order == "psmq"):
                 q = numpy.dot(p, q)
                 m = numpy.dot(numpy.dot(p, m), p)
-            elif (order == 'qr') or (order == 'qpsm'):
+            elif (order == "qr") or (order == "qpsm"):
                 q = numpy.dot(q, p)
 
         return q, p, s, m
 
-    def decomposeSV(self, gl, order='usv', correction='u'):
+    def decomposeSV(self, gl, order="usv", correction="u"):
         """
         Decompose gl using singular value decomposition, so that:
 
@@ -723,7 +734,7 @@ class Affine(object):
 
         where:
           - u, v: rotational matrices (orthogonal, det +1)
-          - p: parity (diagonal, all elements +1, except that the element 
+          - p: parity (diagonal, all elements +1, except that the element
           corresponding to self.parity_axis can be -1)
           - s: scale matrix (diagonal, all elements > 0)
 
@@ -735,7 +746,7 @@ class Affine(object):
 
         Returns: (u, p, s, v)
         """
-        
+
         # set decomposition type
         self.order = order
 
@@ -774,30 +785,32 @@ class Affine(object):
             raise ValueError("Something is wrong with parity")
 
         # adjust rotation matrices using the parity correction
-        if correction == 'u':
+        if correction == "u":
             u = numpy.dot(u, p_corr)
-        elif correction == 'v':
+        elif correction == "v":
             v = numpy.dot(p_corr, v)
         else:
-            raise ValueError("Argument correction: " + str(correction) +
-                             " not understood. Allowed values are 'u' and 'v'.")
-            
+            raise ValueError(
+                "Argument correction: "
+                + str(correction)
+                + " not understood. Allowed values are 'u' and 'v'."
+            )
+
         return u, p, s, v
 
-    def composeGl(self, order=None, q=None, p=None, s=None, m=None, 
-                  u=None, v=None):
+    def composeGl(self, order=None, q=None, p=None, s=None, m=None, u=None, v=None):
         """
-        Makes general linear transformation matrix (inverse of 
+        Makes general linear transformation matrix (inverse of
         self.decompose()).
-        
+
         If a parameter (q, p, s, m, u, or v) is not specified as argument, the
         corresponding attributes of this instance is used.
 
         If arg order is not specified, self.order is used.
 
-        The parameters that are defined (passed as arguments or existing as 
-        attributes of this instance) have to correspond to the order. For 
-        example, if order is 'qpsm', parameters q, p, s and m have to be 
+        The parameters that are defined (passed as arguments or existing as
+        attributes of this instance) have to correspond to the order. For
+        example, if order is 'qpsm', parameters q, p, s and m have to be
         defined, or if order is 'usv' u, s, v and p have to be defined.
 
         Arguments:
@@ -810,28 +823,34 @@ class Affine(object):
 
         Returns gl
         """
-        
+
         # get order
         if order is None:
-            order = self.order 
+            order = self.order
         else:
             self.order = order
 
         # read parameters that were not passed
-        if (order == 'qpsm') or (order == 'psmq'):
-            if q is None: q = self.q
-            if m is None: m = self.m
-        elif order == 'usv':
-            if u is None: u = self.u
-            if v is None: v = self.v
-        if p is None: p = self.p
-        if s is None: s = self.s
+        if (order == "qpsm") or (order == "psmq"):
+            if q is None:
+                q = self.q
+            if m is None:
+                m = self.m
+        elif order == "usv":
+            if u is None:
+                u = self.u
+            if v is None:
+                v = self.v
+        if p is None:
+            p = self.p
+        if s is None:
+            s = self.s
 
         # compose
-        if (order == 'qpsm') or (order == 'psmq'):
+        if (order == "qpsm") or (order == "psmq"):
             ret = self.composeQR(order=order, q=q, p=p, s=s, m=m)
             self.order = order
-        elif order == 'usv':
+        elif order == "usv":
             ret = self.composeSV(order=order, u=u, p=p, s=s, v=v)
             self.order = order
 
@@ -839,7 +858,7 @@ class Affine(object):
 
     def composeQR(self, order=None, q=None, p=None, s=None, m=None):
         """
-        Makes general linear transformation from elements of 'qpsm' of 
+        Makes general linear transformation from elements of 'qpsm' of
         'psmq' decomposition.
         """
 
@@ -850,10 +869,14 @@ class Affine(object):
             new = True
 
         # read parameters that were not passed
-        if q is None: q = self.q
-        if p is None: p = self.p
-        if s is None: s = self.s
-        if m is None: m = self.m
+        if q is None:
+            q = self.q
+        if p is None:
+            p = self.p
+        if s is None:
+            s = self.s
+        if m is None:
+            m = self.m
 
         # get order
         if order is None:
@@ -864,9 +887,9 @@ class Affine(object):
         # compose
         ps = numpy.dot(p, s)
         psm = numpy.dot(ps, m)
-        if order == 'qpsm':
+        if order == "qpsm":
             gl = numpy.dot(q, psm)
-        elif order == 'psmq':
+        elif order == "psmq":
             gl = numpy.dot(psm, q)
 
         # set or return
@@ -877,7 +900,7 @@ class Affine(object):
 
     def composeSV(self, order=None, u=None, p=None, s=None, v=None):
         """
-        Makes general linear transformation from elements of 'usv' 
+        Makes general linear transformation from elements of 'usv'
         decomposition.
         """
 
@@ -888,11 +911,15 @@ class Affine(object):
             new = True
 
         # read parameters that were not passed
-        if u is None: u = self.u
-        if p is None: p = self.p
-        if s is None: s = self.s
-        if v is None: v = self.v
-        
+        if u is None:
+            u = self.u
+        if p is None:
+            p = self.p
+        if s is None:
+            s = self.s
+        if v is None:
+            v = self.v
+
         # get order
         if order is None:
             order = self.order
@@ -914,7 +941,7 @@ class Affine(object):
     #
     # Operations of transformations
     #
-    
+
     def inverse(self, gl=None, d=None):
         """
         Finds inverse transformation as follows:
@@ -941,31 +968,31 @@ class Affine(object):
         if d is None:
             d = self.d
         if (d is None) or (numpy.isscalar(d) and (d == 0)):
-            d = numpy.zeros(gl.shape[0], dtype='int')
+            d = numpy.zeros(gl.shape[0], dtype="int")
 
         # calculate inverse
         gl_inv = linalg.inv(gl)
         d_inv = -numpy.dot(gl_inv, d)
-        #d_inv = -self.transform(x=d, gl=gl_inv, d=0)
+        # d_inv = -self.transform(x=d, gl=gl_inv, d=0)
 
-        # make new instance 
+        # make new instance
         tr_inv = self.__class__(gl=gl_inv, d=d_inv)
 
         # try to invert error
         if no_args:
             try:
-#                tr_inv.error = -numpy.inner(gl_inv, self.error)
+                #                tr_inv.error = -numpy.inner(gl_inv, self.error)
                 tr_inv.error = -tr_inv.transform(self.error, d=0)
             except AttributeError:
                 pass
 
-        return tr_inv        
+        return tr_inv
 
     @classmethod
     def compose(cls, t_1, t_2):
         """
-        Finds composition of transformations t_1 and t_2. The resulting 
-        transformation is the same as if first t_2 was applied on initial 
+        Finds composition of transformations t_1 and t_2. The resulting
+        transformation is the same as if first t_2 was applied on initial
         coordinates, and then t_1 was applied.
 
         The composition is calculated as follows:
@@ -976,15 +1003,15 @@ class Affine(object):
 
           sqrt(rms_1 ** 2 + (mean_scale_1 rms_2) ** 2)
 
-        where mean_scale_1 is the geometrical mean of all t_1 scales. It is 
-        saved as attribute rmsErrorEst, Attributes error and rmsError are not 
+        where mean_scale_1 is the geometrical mean of all t_1 scales. It is
+        saved as attribute rmsErrorEst, Attributes error and rmsError are not
         defined.
 
         Returns:
           - new instance of this class that contains the composition
         """
 
-        # calculate composition and make new instance 
+        # calculate composition and make new instance
         gl = numpy.dot(t_1.gl, t_2.gl)
         d = t_1.transform(x=t_2.d)
         tr = cls(gl=gl, d=d)
@@ -1006,23 +1033,22 @@ class Affine(object):
 
         # estimate rms error
         if found_error:
-
             # find scale
-            q, p, s, m = t_1.decompose(order='qpsm', gl=t_1.gl)
+            q, p, s, m = t_1.decompose(order="qpsm", gl=t_1.gl)
             scale = s.diagonal()
 
             # estimate rms error
-            mean_s1 = numpy.multiply.reduce(scale) ** (1./len(scale))
-            ms_error = t_1_rmsError ** 2 + (mean_s1 * t_2_rmsError) ** 2
+            mean_s1 = numpy.multiply.reduce(scale) ** (1.0 / len(scale))
+            ms_error = t_1_rmsError**2 + (mean_s1 * t_2_rmsError) ** 2
             tr.rmsErrorEst = numpy.sqrt(ms_error)
 
-        return tr        
+        return tr
 
     ##############################################################
     #
     # Other methods
     #
-    
+
     @classmethod
     def removeMasked(cls, arrays, masks=None):
         """
@@ -1033,8 +1059,8 @@ class Affine(object):
         coordinates of n_points points.
 
         Masks are a list of, a tuple of, or a single vector, each containing
-        a mask for a respective element of arrays. Mask entry 0 means not 
-        masked, and 1 masked. If masks or any mask is None, it is understood 
+        a mask for a respective element of arrays. Mask entry 0 means not
+        masked, and 1 masked. If masks or any mask is None, it is understood
         as no mask.
 
         Arguments:
@@ -1042,7 +1068,7 @@ class Affine(object):
           - list of, tuple of, or single vector, length n_points
 
         Returns (arrays, mask):
-          - list of, or a single array (depending on the argument) or 
+          - list of, or a single array (depending on the argument) or
           - mask: combined mask (x_mask | y_mask)
         """
 
@@ -1053,12 +1079,16 @@ class Affine(object):
         elif isinstance(arrays, tuple) or isinstance(arrays, list):
             n_arrays = len(arrays)
         else:
-            raise TypeError("Argument arrays can be ndarray, list or a tuple, "
-                            + "but not " + type(arrays) + ".") 
+            raise TypeError(
+                "Argument arrays can be ndarray, list or a tuple, "
+                + "but not "
+                + type(arrays)
+                + "."
+            )
 
         # set masks if needed
         n_points = arrays[0].shape[-2]
-        no_mask = numpy.zeros(n_points, dtype='bool')
+        no_mask = numpy.zeros(n_points, dtype="bool")
         if masks is None:
             masks = [no_mask] * n_arrays
         expanded_masks = []
@@ -1069,16 +1099,16 @@ class Affine(object):
                 expanded_masks.append(no_mask)
             else:
                 expanded_masks.append(mas)
-            
+
         # combine masks
         total_mask = reduce(numpy.logical_or, expanded_masks)
 
         # remove masked points
-        masked_data = [arr.compress(numpy.equal(total_mask, 0), axis=-2) 
-                       for arr in arrays]
+        masked_data = [
+            arr.compress(numpy.equal(total_mask, 0), axis=-2) for arr in arrays
+        ]
 
         # return
         if len(masked_data) == 1:
             masked_data = masked_data[0]
         return masked_data, total_mask
-
