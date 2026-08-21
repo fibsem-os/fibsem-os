@@ -3,7 +3,6 @@ import json
 import os
 import shutil
 
-import matplotlib.pyplot as plt
 import numpy as np
 import PIL.Image
 import torch
@@ -86,12 +85,11 @@ def load_from_checkpoint(
 
     # load the model parameters
     parameters = []
-    checkpoint_name = "final" # always use final checkpoint for now
-    for i, k in enumerate(sorted(model_checkpoint['folds'])):
+    checkpoint_name = "final"  # always use final checkpoint for now
+    for i, k in enumerate(sorted(model_checkpoint["folds"])):
+        checkpoint = model_checkpoint["folds"][k][checkpoint_name]
 
-        checkpoint = model_checkpoint['folds'][k][checkpoint_name]
-        
-        if i == 0: # use first fold to get trainer and configuration name
+        if i == 0:  # use first fold to get trainer and configuration name
             trainer_name = checkpoint["trainer_name"]
             configuration_name = checkpoint["init_args"]["configuration"]
             inference_allowed_mirroring_axes = (
