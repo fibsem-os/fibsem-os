@@ -384,14 +384,18 @@ class TestDescriptions:
             assert description.rstrip().endswith("."), description
             assert len(description) > 40, description
 
-    def test_descriptions_do_not_restate_the_display_name(self):
-        """ "Trench Milling: mills a trench" spends the slot saying nothing."""
+    def test_descriptions_fit_a_table_cell(self):
+        """The whole description is rendered, not a lead sentence.
+
+        The table used to show only the text up to the first ". ", which
+        silently dropped clauses like "Aligns before milling." Now that the cell
+        shows all of it, length is what keeps rows comparable.
+        """
         for task_cls in available_task_types().values():
-            info = task_info(task_cls)
-            if not info.description:
+            description = task_info(task_cls).description
+            if not description:
                 continue
-            opening = info.description.split(".")[0].lower()
-            assert task_cls.config_cls.display_name.lower() not in opening
+            assert len(description) <= 160, description
 
 
 class TestHardwareField:

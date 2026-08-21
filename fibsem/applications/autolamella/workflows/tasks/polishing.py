@@ -42,9 +42,7 @@ class MillPolishingTaskConfig(AutoLamellaTaskConfig):
 
     info: ClassVar[TaskInfo] = TaskInfo(
         description=(
-            "Thins the lamella to electron transparency. The final pass, "
-            "aligned to the fiducial by beam shift before the polishing "
-            "patterns are milled."
+            "Polish the lamella to electron transparency. Aligns before milling."
         ),
         tags=("On-grid milling",),
         level=TASK_LEVEL_RECOMMENDED,

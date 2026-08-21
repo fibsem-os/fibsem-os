@@ -48,9 +48,8 @@ class MillFiducialTaskConfig(AutoLamellaTaskConfig):
     display_name: ClassVar[str] = "Mill Fiducial"
     info: ClassVar[TaskInfo] = TaskInfo(
         description=(
-            "Mills the marker that every later alignment tracks. Records the "
-            "area around it as the lamella's alignment region, so run it before "
-            "rough milling or those tasks have nothing to align to."
+            "Mill a distinct cross (X) fiducial near the point of interest for "
+            "better alignment."
         ),
         tags=("On-grid milling", "Alignment"),
         level=TASK_LEVEL_RECOMMENDED,

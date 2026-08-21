@@ -27,9 +27,8 @@ class SelectFluorescencePositionConfig(AutoLamellaTaskConfig):
     display_name: ClassVar[str] = "Select Fluorescence Position"
     info: ClassVar[TaskInfo] = TaskInfo(
         description=(
-            "Moves to the fluorescence pose so you can confirm it. Inserts the "
-            "objective; needs a fluorescence microscope and a pose already "
-            "recorded against the lamella."
+            "Move to the saved fluorescence pose and insert the objective so "
+            "the position can be confirmed."
         ),
         tags=("Correlation", "Fluorescence", "Positioning"),
         level=TASK_LEVEL_STANDARD,

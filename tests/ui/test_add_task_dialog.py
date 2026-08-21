@@ -105,6 +105,38 @@ class TestTable:
             label = dialog.table.cellWidget(row, 1).property("_label")
             assert label.height() >= label.heightForWidth(label.width())
 
+    def test_rows_are_not_mostly_padding(self, dialog):
+        """Regression: rows rendered 68px for 34px of content.
+
+        The chrome allowance was re-derived from the row height this very method
+        sets, so each pass added the previous pass's padding again.
+        """
+        for row in dialog._rows:
+            content = max(
+                dialog.table.cellWidget(row, c).sizeHint().height()
+                for c in range(dialog.table.columnCount())
+            )
+            assert dialog.table.rowHeight(row) <= content + 24, "row is mostly padding"
+
+    def test_tag_chips_are_never_squeezed(self, dialog):
+        """Chips do not elide when the column is too narrow -- they overlap."""
+        for row in dialog._rows:
+            cell = dialog.table.cellWidget(row, 2)
+            assert cell.sizeHint().width() <= dialog.table.columnWidth(2)
+
+    def test_the_name_field_is_not_the_width_of_the_table(self, dialog):
+        assert dialog.name_field.width() < dialog.table.width()
+
+    def test_the_name_field_shows_a_whole_default_name(self, dialog):
+        """Beside a stretch, a merely-capped field collapses and scrolls its text."""
+        from PyQt5.QtGui import QFontMetrics
+
+        dialog.select("SELECT_MILLING_POSITION")
+        needed = QFontMetrics(dialog.name_field.font()).horizontalAdvance(
+            dialog.task_name
+        )
+        assert dialog.name_field.width() > needed + 20
+
     def test_rows_resize_when_the_dialog_narrows(self, dialog, app):
         """The description column stretches, so a resize re-wraps every row."""
         dialog.resize(1200, 620)
@@ -234,7 +266,7 @@ class TestTooltip:
         assert "MILL_TRENCH" in tip, "the identifier lives here now, not in the row"
         assert "Built-in" in tip
         assert "Waffle milling" in tip
-        assert "pedestal" in tip, "the full description, not just the summary"
+        assert "high current" in tip
 
     def test_every_cell_in_a_row_carries_it(self, dialog):
         """Hovering anywhere on the row should explain the row."""

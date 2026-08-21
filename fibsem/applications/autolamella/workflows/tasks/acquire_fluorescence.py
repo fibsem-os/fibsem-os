@@ -37,10 +37,8 @@ class AcquireFluorescenceImageConfig(AutoLamellaTaskConfig):
     display_name: ClassVar[str] = "Acquire Fluorescence Image"
     info: ClassVar[TaskInfo] = TaskInfo(
         description=(
-            "Acquires a z-stack for every configured channel. Moves to the "
-            "fluorescence pose, optionally autofocuses, and retracts the "
-            "objective when it finishes unless you turn that off for "
-            "back-to-back acquisitions."
+            "Acquire a z-stack for every configured channel at the fluorescence "
+            "pose. Optionally autofocuses first."
         ),
         tags=("Correlation", "Imaging", "Fluorescence"),
         level=TASK_LEVEL_STANDARD,

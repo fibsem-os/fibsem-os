@@ -47,8 +47,14 @@ _SECTION_LABEL_STYLE = (
 )
 
 
-class AddTaskDialog(QDialog):
-    """Dialog for selecting a task to add to the workflow."""
+class SelectWorkflowTaskDialog(QDialog):
+    """Pick an already-configured task to add to the workflow order.
+
+    Not to be confused with `add_task_dialog.AddTaskDialog`, which creates a
+    task that does not exist yet. This one only reorders what the protocol
+    already defines -- the two shared a class name for a long time, which is
+    part of why "task name" and "task type" were so easy to conflate.
+    """
 
     def __init__(
         self,
@@ -351,7 +357,7 @@ class LamellaWorkflowWidget(QWidget):
         # Import here to avoid circular imports at module level
 
         available = self._available_task_names()
-        dialog = AddTaskDialog(
+        dialog = SelectWorkflowTaskDialog(
             available_tasks=available,
             experiment=self.experiment,
             parent=self,

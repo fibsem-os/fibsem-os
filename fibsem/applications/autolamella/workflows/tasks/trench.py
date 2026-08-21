@@ -48,9 +48,8 @@ class MillTrenchTaskConfig(AutoLamellaTaskConfig):
     display_name: ClassVar[str] = "Trench Milling"
     info: ClassVar[TaskInfo] = TaskInfo(
         description=(
-            "Mills the bulk away above and below the lamella, leaving it on a "
-            "pedestal. Moves to the trench angle first, optionally aligning to "
-            "a saved reference, and neutralises sample charge afterwards."
+            "Mill the bulk away above and below the region of interest with a "
+            "relatively high current, does not align before milling."
         ),
         tags=("Waffle milling",),
         level=TASK_LEVEL_RECOMMENDED,
