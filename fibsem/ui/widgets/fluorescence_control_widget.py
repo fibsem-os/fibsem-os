@@ -92,11 +92,6 @@ class FMControlWidget(QWidget):
         self._acquisition_thread: Optional[FunctionWorker] = None
         self._acquisition_stop_event = threading.Event()
         self._current_acquisition_type: Optional[str] = None
-        # Initialised here, not only in the acquire methods: the widget is connected to
-        # the microscope's progress signal from construction, so a workflow task driving
-        # the FM reaches _on_acquisition_progress without this widget having started
-        # anything.
-        self._last_remaining_time: Optional[float] = None
 
         # FM canvas click context (quad-view): retained from the latest image so a
         # double-click can convert pixel -> stage without napari layer metadata
@@ -199,10 +194,8 @@ class FMControlWidget(QWidget):
 
         # Create progress bar (hidden by default)
         self.progressBar_current_acquisition = QProgressBar(self)
-        self.progressBar_acquisition_task = QProgressBar(self)
         self.progressText = QLabel("Acquisition Progress", self)
         self.progressBar_current_acquisition.hide()
-        self.progressBar_acquisition_task.hide()
         self.progressText.hide()
 
         # Create scroll area for main content
@@ -233,7 +226,6 @@ class FMControlWidget(QWidget):
         button_layout.addWidget(self.pushButton_cancel_acquisition, 5, 0, 1, 2)
         button_layout.addWidget(self.progressText, 6, 0, 1, 2)
         button_layout.addWidget(self.progressBar_current_acquisition, 7, 0, 1, 2)
-        button_layout.addWidget(self.progressBar_acquisition_task, 8, 0, 1, 2)
 
         # Main layout with scroll area and buttons
         layout = QVBoxLayout()
@@ -311,8 +303,13 @@ class FMControlWidget(QWidget):
         # Debounced auto-save of the FM working state on any settings change, so
         # edits persist even if the app is force-killed before closeEvent runs.
         from superqt.utils import qdebounced
-        self._autosave_fm_configuration = qdebounced(self.save_fm_configuration, timeout=1000)
-        self.channelSettingsWidget.settings_changed.connect(self._on_fm_settings_changed)
+
+        self._autosave_fm_configuration = qdebounced(
+            self.save_fm_configuration, timeout=1000
+        )
+        self.channelSettingsWidget.settings_changed.connect(
+            self._on_fm_settings_changed
+        )
         self.cameraWidget.settings_changed.connect(self._on_fm_settings_changed)
         self.autofocusWidget.settings_changed.connect(self._on_fm_settings_changed)
         self.zParametersWidget.settings_changed.connect(self._on_fm_settings_changed)
@@ -334,7 +331,9 @@ class FMControlWidget(QWidget):
             # canvas outlives this widget, so a leaked connection would drive a stale
             # stage move through a destroyed widget
             self._fm_canvas = controller.fm_canvas
-            self._fm_canvas.canvas_double_clicked.connect(self._on_canvas_fm_double_click)
+            self._fm_canvas.canvas_double_clicked.connect(
+                self._on_canvas_fm_double_click
+            )
             self._fm_canvas.canvas_scrolled.connect(
                 self.objectiveControlWidget._on_canvas_scroll
             )
@@ -378,8 +377,14 @@ class FMControlWidget(QWidget):
 
         if self._fm_canvas is not None:
             for signal, slot in (
-                (self._fm_canvas.canvas_double_clicked, self._on_canvas_fm_double_click),
-                (self._fm_canvas.canvas_scrolled, self.objectiveControlWidget._on_canvas_scroll),
+                (
+                    self._fm_canvas.canvas_double_clicked,
+                    self._on_canvas_fm_double_click,
+                ),
+                (
+                    self._fm_canvas.canvas_scrolled,
+                    self.objectiveControlWidget._on_canvas_scroll,
+                ),
             ):
                 try:
                     signal.disconnect(slot)
@@ -500,10 +505,8 @@ class FMControlWidget(QWidget):
 
         # clear acquisition state
         self._current_acquisition_type = None
-        self._last_remaining_time = None
 
         # hide progress bar when acquisition finishes
-        self.progressBar_acquisition_task.hide()
         self.progressBar_current_acquisition.hide()
         self.progressText.setText("")
 
@@ -517,10 +520,6 @@ class FMControlWidget(QWidget):
         """Update progress bars on acquisition signal"""
 
         # Show progress bar when acquisition progress is updated
-        if self._current_acquisition_type in ["positions", "overview"]:
-            # only show acquisition_task progress bar when acquiring overview/positions
-            if not self.progressBar_acquisition_task.isVisible():
-                self.progressBar_acquisition_task.show()
         if not self.progressBar_current_acquisition.isVisible():
             self.progressBar_current_acquisition.show()
         if not self.progressText.isVisible():
@@ -528,8 +527,6 @@ class FMControlWidget(QWidget):
 
         progress_zlevels = progress.get("zlevel", None)
         progress_total_zlevels = progress.get("total_zlevels", None)
-        progress_current = progress.get("current", None)
-        progress_total = progress.get("total", None)
         channel_name = progress.get("channel", None)
         progress_state = progress.get("state", None)
         progress_task = progress.get("task", None)
@@ -545,7 +542,6 @@ class FMControlWidget(QWidget):
             self.progressBar_current_acquisition.setFormat("")
 
         if progress_state == "finished":
-            self.progressBar_acquisition_task.hide()
             self.progressBar_current_acquisition.hide()
             self.progressText.setText("Acquisition complete.")
             self.progressText.hide()
@@ -579,32 +575,15 @@ class FMControlWidget(QWidget):
                 # and says which pass, so a coarse sweep followed by a fine one does
                 # not look like the same bar inexplicably starting over.
                 total_passes = progress.get("total_passes", 1)
-                which = (f" · pass {progress.get('pass_index', 1)}/{total_passes}"
-                         if total_passes > 1 else "")
+                which = (
+                    f" · pass {progress.get('pass_index', 1)}/{total_passes}"
+                    if total_passes > 1
+                    else ""
+                )
                 label = f"Focus {progress_zlevels}/{progress_total_zlevels}{which}"
             else:
                 label = f"Z-level {progress_zlevels}/{progress_total_zlevels}"
             self.progressBar_current_acquisition.setFormat(label)
-
-        # set total acquisition task progress
-        if progress_current is not None and progress_total is not None:
-            # Format time remaining string if available
-            time_remaining_str = ""
-            remaining_time = progress.get("estimated_remaining_time", 0)
-            if remaining_time > 0:
-                self._last_remaining_time = remaining_time
-            if self._last_remaining_time is not None and self._last_remaining_time > 0:
-                time_remaining_str = f"Remaining Time: {utils.format_duration(self._last_remaining_time)}"
-
-            # Set progress bar/text
-            percentage = (
-                int((progress_current / progress_total) * 100)
-                if progress_total > 0
-                else 0
-            )
-            msg = f"Position {progress_current}/{progress_total} - {time_remaining_str}"
-            self.progressBar_acquisition_task.setValue(percentage)
-            self.progressBar_acquisition_task.setFormat(msg)
 
     @ensure_main_thread
     def update_image(self, image: FluorescenceImage):
@@ -867,7 +846,6 @@ class FMControlWidget(QWidget):
 
         logging.info("Starting image acquisition")
         self._current_acquisition_type = "image"
-        self._last_remaining_time = None
         self._update_acquisition_button_states()
         self._acquisition_stop_event.clear()
 
@@ -1019,7 +997,6 @@ class FMControlWidget(QWidget):
 
         logging.info("Starting auto-focus")
         self._current_acquisition_type = "autofocus"
-        self._last_remaining_time = None
         self._update_acquisition_button_states()
         self._acquisition_stop_event.clear()
 
@@ -1042,8 +1019,9 @@ class FMControlWidget(QWidget):
         """Worker thread for auto-focus."""
         try:
             ranges = ", ".join(
-                f"{p.search_range*1e6:.1f}µm/{p.step_size*1e6:.1f}µm"
-                for p in autofocus_settings.passes if p.enabled
+                f"{p.search_range * 1e6:.1f}µm/{p.step_size * 1e6:.1f}µm"
+                for p in autofocus_settings.passes
+                if p.enabled
             )
             logging.info(
                 f"Running auto-focus: {len(autofocus_settings.passes)} pass(es) [{ranges}], "
@@ -1141,6 +1119,7 @@ class FMControlWidget(QWidget):
         if self.microscope.fm is None:
             return
         from fibsem.fm.config import save_fm_configuration
+
         try:
             save_fm_configuration(self._build_fluorescence_configuration())
         except Exception as e:
