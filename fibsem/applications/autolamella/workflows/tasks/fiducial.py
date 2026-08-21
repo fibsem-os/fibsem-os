@@ -3,14 +3,18 @@
 import logging
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import ClassVar, Optional, Type
+from typing import ClassVar, Optional, Tuple, Type
 
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MILL_POLISHING_KEY,
     MILL_ROUGH_KEY,
 )
-from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
+from fibsem.applications.autolamella.structures import (
+    TASK_LEVEL_RECOMMENDED,
+    AutoLamellaTaskConfig,
+    TaskInfo,
+)
 from fibsem.applications.autolamella.workflows._default_milling_config import (
     DEFAULT_MILLING_CONFIG,
 )
@@ -42,6 +46,16 @@ class MillFiducialTaskConfig(AutoLamellaTaskConfig):
     )
     task_type: ClassVar[str] = "MILL_FIDUCIAL"
     display_name: ClassVar[str] = "Mill Fiducial"
+    info: ClassVar[TaskInfo] = TaskInfo(
+        description=(
+            "Mills the marker that every later alignment tracks. Records the "
+            "area around it as the lamella's alignment region, so run it before "
+            "rough milling or those tasks have nothing to align to."
+        ),
+        tags=("On-grid milling", "Alignment"),
+        level=TASK_LEVEL_RECOMMENDED,
+        order=10,
+    )
 
     def __post_init__(self):
         if self.milling == {}:

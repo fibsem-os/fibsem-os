@@ -4,11 +4,15 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import ClassVar, Optional, Type
+from typing import ClassVar, Optional, Tuple, Type
 
 from fibsem import config as fcfg
 from fibsem import timing
-from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
+from fibsem.applications.autolamella.structures import (
+    TASK_LEVEL_STANDARD,
+    AutoLamellaTaskConfig,
+    TaskInfo,
+)
 from fibsem.applications.autolamella.workflows.tasks.base import (
     ALIGNMENT_REFERENCE_IMAGE_FILENAME,
     AutoLamellaTask,
@@ -28,6 +32,16 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
 
     task_type: ClassVar[str] = "SPOT_BURN_FIDUCIAL"
     display_name: ClassVar[str] = "Spot Burn Fiducial"
+    info: ClassVar[TaskInfo] = TaskInfo(
+        description=(
+            "Burns small marks with the ion beam for correlating fluorescence "
+            "with the FIB view. Uses coordinates you choose, can autofocus "
+            "first, and runs unattended or hands off to the spot-burn editor."
+        ),
+        tags=("Correlation", "Alignment"),
+        level=TASK_LEVEL_STANDARD,
+        order=30,
+    )
     milling_current: float = field(
         default=60.0e-12,  # in Amperes
         metadata=field_meta(tooltip="Milling current in Amperes", unit="A", scale=1e12),

@@ -7,12 +7,17 @@ from datetime import datetime
 from typing import (
     ClassVar,
     Optional,
+    Tuple,
     Type,
 )
 
 import fibsem.utils as utils
 from fibsem import timing
-from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
+from fibsem.applications.autolamella.structures import (
+    TASK_LEVEL_STANDARD,
+    AutoLamellaTaskConfig,
+    TaskInfo,
+)
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.ui import (
     ask_user,
@@ -30,6 +35,17 @@ class AcquireFluorescenceImageConfig(AutoLamellaTaskConfig):
 
     task_type: ClassVar[str] = "ACQUIRE_FLUORESCENCE_IMAGE"
     display_name: ClassVar[str] = "Acquire Fluorescence Image"
+    info: ClassVar[TaskInfo] = TaskInfo(
+        description=(
+            "Acquires a z-stack for every configured channel. Moves to the "
+            "fluorescence pose, optionally autofocuses, and retracts the "
+            "objective when it finishes unless you turn that off for "
+            "back-to-back acquisitions."
+        ),
+        tags=("Correlation", "Imaging", "Fluorescence"),
+        level=TASK_LEVEL_STANDARD,
+        order=20,
+    )
     channel_settings: list[ChannelSettings] = field(
         default_factory=list,
         metadata=field_meta(

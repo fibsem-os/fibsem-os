@@ -4,10 +4,15 @@ import logging
 from dataclasses import dataclass
 from typing import (
     ClassVar,
+    Tuple,
     Type,
 )
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
+from fibsem.applications.autolamella.structures import (
+    TASK_LEVEL_STANDARD,
+    AutoLamellaTaskConfig,
+    TaskInfo,
+)
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.ui import (
     ask_user,
@@ -20,6 +25,16 @@ class SelectFluorescencePositionConfig(AutoLamellaTaskConfig):
 
     task_type: ClassVar[str] = "SELECT_FLUORESCENCE_POSITION"
     display_name: ClassVar[str] = "Select Fluorescence Position"
+    info: ClassVar[TaskInfo] = TaskInfo(
+        description=(
+            "Moves to the fluorescence pose so you can confirm it. Inserts the "
+            "objective; needs a fluorescence microscope and a pose already "
+            "recorded against the lamella."
+        ),
+        tags=("Correlation", "Fluorescence", "Positioning"),
+        level=TASK_LEVEL_STANDARD,
+        order=10,
+    )
 
 
 class SelectFluorescencePositionTask(AutoLamellaTask):

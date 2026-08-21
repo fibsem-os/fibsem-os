@@ -3,14 +3,18 @@
 import logging
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import ClassVar, Optional, Type
+from typing import ClassVar, Optional, Tuple, Type
 
 from fibsem.applications.autolamella.protocol.constants import (
     MILL_POLISHING_KEY,
     MILL_ROUGH_KEY,
     STRESS_RELIEF_KEY,
 )
-from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
+from fibsem.applications.autolamella.structures import (
+    TASK_LEVEL_RECOMMENDED,
+    AutoLamellaTaskConfig,
+    TaskInfo,
+)
 from fibsem.applications.autolamella.workflows._default_milling_config import (
     DEFAULT_MILLING_CONFIG,
 )
@@ -55,6 +59,18 @@ class MillRoughTaskConfig(AutoLamellaTaskConfig):
         return True
 
     display_name: ClassVar[str] = "Rough Milling"
+
+    info: ClassVar[TaskInfo] = TaskInfo(
+        description=(
+            "Thins the lamella towards its target thickness. The coarse milling "
+            "steps: aligns to the fiducial by beam shift first, and can "
+            "re-acquire the alignment reference afterwards so later tasks start "
+            "from a fresh one."
+        ),
+        tags=("On-grid milling",),
+        level=TASK_LEVEL_RECOMMENDED,
+        order=30,
+    )
 
     def __post_init__(self):
         if self.milling == {}:
