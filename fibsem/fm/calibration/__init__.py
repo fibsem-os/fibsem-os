@@ -4,6 +4,7 @@ This module provides focus measure algorithms used in focus stacking and autofoc
 applications. Different algorithms are suitable for different types of samples
 and imaging conditions.
 """
+
 from __future__ import annotations
 
 import logging
@@ -140,7 +141,9 @@ def run_autofocus(
             microscope.set_channel(channel_settings=channel_settings)
 
         microscope.acquisition_progress_signal.emit({"state": "autofocus"})
-        logging.info(f"Starting autofocus: {len(z_positions)} positions, method='{method}'")
+        logging.info(
+            f"Starting autofocus: {len(z_positions)} positions, method='{method}'"
+        )
 
         initial_z = microscope.objective.position
         iterations: list[AutoFocusIteration] = []
@@ -154,26 +157,32 @@ def run_autofocus(
             # Same payload shape the z-stack and channel loops emit, so a viewer that
             # renders within-tile progress renders this too. Without it the bars froze for
             # the whole sweep -- which on per-tile autofocus is most of the run.
-            microscope.acquisition_progress_signal.emit({
-                "state": "acquiring",
-                "operation": "autofocus",
-                "channel": channel_settings.name if channel_settings is not None else "",
-                "zlevel": i + 1,
-                "total_zlevels": len(z_positions),
-                "pass_index": pass_index,
-                "total_passes": total_passes,
-            })
+            microscope.acquisition_progress_signal.emit(
+                {
+                    "state": "acquiring",
+                    "operation": "autofocus",
+                    "channel": channel_settings.name
+                    if channel_settings is not None
+                    else "",
+                    "zlevel": i + 1,
+                    "total_zlevels": len(z_positions),
+                    "pass_index": pass_index,
+                    "total_passes": total_passes,
+                }
+            )
 
             microscope.objective.move_absolute(z_pos)
             image = microscope.acquire_image()
             image_data = image.crop(roi) if roi is not None else image.data
             focus_score = calculate_focus_quality(image_data, method=method)
-            iterations.append(AutoFocusIteration(
-                working_distance=float(z_pos),
-                focus_score=float(focus_score),
-                pass_index=0,
-                image=image_data,
-            ))
+            iterations.append(
+                AutoFocusIteration(
+                    working_distance=float(z_pos),
+                    focus_score=float(focus_score),
+                    pass_index=0,
+                    image=image_data,
+                )
+            )
             logging.debug(
                 f"Z[{i + 1}/{len(z_positions)}]: {z_pos * 1e6:.1f} μm, Score: {focus_score:.4f}"
             )
@@ -182,7 +191,9 @@ def run_autofocus(
         best = iterations[best_idx]
 
         microscope.objective.move_absolute(best.working_distance)
-        logging.info(f"Autofocus complete: Best position {best.working_distance * 1e6:.1f} μm (score: {best.focus_score:.4f})")
+        logging.info(
+            f"Autofocus complete: Best position {best.working_distance * 1e6:.1f} μm (score: {best.focus_score:.4f})"
+        )
 
         result = AutoFocusResult(
             image=best.image,
@@ -252,7 +263,9 @@ def run_coarse_fine_autofocus(
             if last_result is None:
                 logging.warning("Autofocus cancelled during first pass")
                 return None
-            logging.warning("Autofocus cancelled at pass %d — keeping previous result", pass_index)
+            logging.warning(
+                "Autofocus cancelled at pass %d — keeping previous result", pass_index
+            )
             break
 
         for it in result.iterations:
@@ -361,7 +374,9 @@ def run_multi_position_autofocus(
         for pos_name, data in focus_map.items():
             focus_z = data["focus_z"]
             stage_pos = data["stage_position"]
-            focus_z_str = f"{focus_z * 1e6:.1f} μm" if focus_z is not None else "cancelled"
+            focus_z_str = (
+                f"{focus_z * 1e6:.1f} μm" if focus_z is not None else "cancelled"
+            )
             logging.info(
                 f"  {pos_name}: {focus_z_str} at ({stage_pos.x * 1e6:.1f}, {stage_pos.y * 1e6:.1f}) μm"
             )
