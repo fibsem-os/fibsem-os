@@ -64,6 +64,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v7
+      with:
+        # The formatting step below diffs against the merge base, which does not
+        # exist in the default shallow clone.
+        fetch-depth: 0
     - uses: actions/setup-python@v7
       with:
         python-version: "3.12"
@@ -72,3 +76,31 @@ jobs:
     - run: python -m pip install ruff==0.16.3
     # --output-format=github annotates the diff instead of only failing the job.
     - run: ruff check --output-format=github .
+    - name: Check formatting of the files this PR changes
+      # Format-on-touch rather than a whole-tree flag day: a file has to be
+      # formatted once something in it is edited, so the tree converts fastest
+      # where the work actually happens. `main` stays mixed for a while, which
+      # is the accepted cost.
+      #
+      # The count is echoed on purpose. The failure mode of a diff-scoped check
+      # is that the diff comes back empty -- wrong base, shallow clone -- and
+      # the job passes green having checked nothing, so the number has to be
+      # visible in the log to be disbelieved.
+      run: |
+        set -euo pipefail
+        base=$(git merge-base origin/main HEAD)
+        git diff --name-only --diff-filter=d "$base" HEAD -- '*.py' > changed.txt
+        count=$(wc -l < changed.txt | tr -d ' ')
+        echo "python files changed against $base: $count"
+        if [ "$count" -eq 0 ]; then
+          echo "no python files changed; nothing to check"
+          exit 0
+        fi
+        sed 's/^/  /' changed.txt
+        # NUL-separated: a path with a space would otherwise split into two.
+        if ! tr '\n' '\0' < changed.txt | xargs -0 ruff format --check --; then
+          echo
+          echo "To fix, from the repo root:"
+          echo "  ruff format \$(git diff --name-only --diff-filter=d \$(git merge-base origin/main HEAD) HEAD -- '*.py')"
+          exit 1
+        fi

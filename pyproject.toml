@@ -147,6 +147,14 @@ extend-exclude = [
     "**/*.ipynb",
 ]
 
+[tool.ruff.format]
+# Ruff formats Python inside fenced code blocks in Markdown. Documentation
+# snippets are written to be read, not to satisfy a line-length rule: it wanted
+# to wrap a three-argument call in README.md across three lines, and to rewrite
+# 84 lines of docs/design/autofocus.md. Whether the docs get formatted is its
+# own decision, and not one a formatter should make on the way past.
+exclude = ["**/*.md"]
+
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I"]
 # E501 (line-length) is deliberately absent. A formatter is what wraps code, and
