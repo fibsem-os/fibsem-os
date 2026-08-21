@@ -12,6 +12,7 @@ borrowed onto a host carrying the three real buttons, the same way
 `test_status_bar_tile_outcome.py` does. The buttons are the real ones and so is the
 Experiment; only the widget that owns them is stood in for.
 """
+
 from __future__ import annotations
 
 import ast
@@ -150,9 +151,11 @@ def test_menu_reuses_the_file_menu_actions():
     place would silently miss the other. The constructor cannot be run here, so the
     source is read for which actions it adds.
     """
-    tree = ast.parse(textwrap.dedent(inspect.getsource(
-        AutoLamellaSingleWindowUI.create_notification_button
-    )))
+    tree = ast.parse(
+        textwrap.dedent(
+            inspect.getsource(AutoLamellaSingleWindowUI.create_notification_button)
+        )
+    )
     added = {
         node.args[0].attr
         for node in ast.walk(tree)

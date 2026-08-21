@@ -254,7 +254,9 @@ SECONDARY_BUTTON_STYLESHEET = f"""
 # or not a stylesheet draws its own. Padding chosen to clear the chevron therefore
 # pays for that gutter twice, which put 30px between the label and the arrow against
 # 12px on the other side. 16 leaves 8 before the chevron and 8 after it.
-MENU_BUTTON_STYLESHEET = SECONDARY_BUTTON_STYLESHEET + """
+MENU_BUTTON_STYLESHEET = (
+    SECONDARY_BUTTON_STYLESHEET
+    + """
     QPushButton {
         text-align: left;
         padding-right: 16px;
@@ -268,6 +270,7 @@ MENU_BUTTON_STYLESHEET = SECONDARY_BUTTON_STYLESHEET + """
         right: 8px;
     }
 """.replace("__ICONS_DIR__", _ICONS_DIR)
+)
 
 MESSAGE_BOX_STYLESHEET = f"""
     QMessageBox {{
