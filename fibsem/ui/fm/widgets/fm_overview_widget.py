@@ -366,6 +366,21 @@ class FMOverviewWidget(QWidget):
         # mask `TileMaskWidget` owns, not a second copy: clicks are routed through the
         # settings widget so there is one place the selection lives.
         self.tile_grid_overlay = TileGridOverlay()
+        # Stand aside for a marked position. A press on one belongs to the marker, not
+        # to the tile under it -- see `TileGridOverlay.set_reserved`. Wired to the same
+        # hit test a click uses, so the grid stands aside for exactly what a click would
+        # have selected, rather than for a second opinion about where the markers are.
+        #
+        # The crosshair, though, not the field-of-view box. The box is a large thing to
+        # reserve -- a whole tile on the fluorescence tab, and a whole tile here at any
+        # HFW of 100 um or under -- and reserving it leaves tiles that cannot be toggled
+        # at all with nothing on screen to say why. Reserving the crosshair costs at
+        # worst a click that toggles a tile you meant to select, which greys out visibly
+        # and undoes with one more click. A wrong action that announces itself beats a
+        # dead end that does not.
+        self.tile_grid_overlay.set_reserved(
+            lambda x, y: self._position_at(x, y, crosshair_only=True) is not None
+        )
         self.canvas.canvas.add_overlay(self.tile_grid_overlay)
 
         # The same three switches the beam tab offers, over the same three shapes, from
@@ -1910,7 +1925,9 @@ class FMOverviewWidget(QWidget):
     # microns so that how close you have to click does not change with the zoom.
     PICK_RADIUS_PX = 12
 
-    def _position_at(self, x: float, y: float) -> Optional[str]:
+    def _position_at(
+        self, x: float, y: float, crosshair_only: bool = False
+    ) -> Optional[str]:
         """The marked position under a canvas point, or None.
 
         A click hits a position if it lands inside that position's field-of-view box
@@ -1923,6 +1940,14 @@ class FMOverviewWidget(QWidget):
         would be within any sensible micron radius of the click, and at a tight one none
         would be. Nearest crosshair wins among the hits, which also settles overlapping
         boxes -- and lamellae closer together than one camera frame do overlap.
+                *crosshair_only* drops the box and leaves the radius, for a caller that has to
+        share the canvas with something else. The tile grid stands aside wherever this
+        answers a name (FIB-767), and a field-of-view box is a large thing to reserve:
+        it is a whole tile on the fluorescence tab by construction, and a whole tile on
+        this one at any HFW of 100 um or under. Reserving it would leave tiles that
+        cannot be toggled at all, with nothing on screen to say why -- where reserving
+        only the crosshair costs at worst a click that toggles a tile you meant to
+        select, which greys out visibly and undoes with one more click.
         """
         frame = self._frame()
         ax = getattr(self.canvas.canvas, "_ax", None)
@@ -1948,8 +1973,8 @@ class FMOverviewWidget(QWidget):
             distance = ((click[0] - point[0]) ** 2 + (click[1] - point[1]) ** 2) ** 0.5
             # `centre` is in canvas units and `point` in screen pixels: the box is a
             # fixed piece of sample, the radius a fixed piece of screen.
-            if distance >= self.PICK_RADIUS_PX and not self.position_overlay.covers(
-                centre, x, y
+            if distance >= self.PICK_RADIUS_PX and (
+                crosshair_only or not self.position_overlay.covers(centre, x, y)
             ):
                 continue
             if distance < best_distance:
