@@ -2,14 +2,18 @@
 
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import ClassVar, List, Literal, Optional, Type
+from typing import ClassVar, List, Literal, Optional, Tuple, Type
 
 import numpy as np
 
 from fibsem import config as fcfg
 from fibsem import constants
 from fibsem.applications.autolamella.protocol.constants import UNDERCUT_KEY
-from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
+from fibsem.applications.autolamella.structures import (
+    TASK_LEVEL_RECOMMENDED,
+    AutoLamellaTaskConfig,
+    TaskInfo,
+)
 from fibsem.applications.autolamella.workflows._default_milling_config import (
     DEFAULT_MILLING_CONFIG,
 )
@@ -41,6 +45,16 @@ class MillUndercutTaskConfig(AutoLamellaTaskConfig):
     )
     task_type: ClassVar[str] = "MILL_UNDERCUT"
     display_name: ClassVar[str] = "Undercut Milling"
+    info: ClassVar[TaskInfo] = TaskInfo(
+        description=(
+            "Cuts beneath the lamella to free it from the bulk below. Tilts to "
+            "the undercut angle and aligns to the trench at each step, using "
+            "feature detection to keep the cut on target."
+        ),
+        tags=("Waffle milling",),
+        level=TASK_LEVEL_RECOMMENDED,
+        order=20,
+    )
 
     def __post_init__(self):
         if self.milling == {}:

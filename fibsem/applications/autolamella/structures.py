@@ -139,6 +139,143 @@ class AutoLamellaTaskState:
         return cls(**{k: v for k, v in data.items() if k in known})
 
 
+TASK_LEVEL_RECOMMENDED = "recommended"
+TASK_LEVEL_STANDARD = "standard"
+TASK_LEVEL_ADVANCED = "advanced"
+TASK_LEVELS = (TASK_LEVEL_RECOMMENDED, TASK_LEVEL_STANDARD, TASK_LEVEL_ADVANCED)
+
+
+@dataclass(frozen=True)
+class TaskInfo:
+    """What a picker needs to present a task type, and to gate choosing it.
+
+    One frozen structure rather than a ClassVar apiece, for the same reason
+    `field_meta` exists (FIB-384): a misspelled ClassVar on a subclass is not an
+    error. It shadows nothing, nobody is told, and the picker quietly renders
+    without whatever it was meant to carry. `TaskInfo(descripton=...)` is a
+    TypeError the moment the module imports.
+
+    None of this is serialised. It describes the *type*, not a configured task,
+    so it never reaches protocol.yaml and adding a field here needs no migration.
+
+    Kept out of it deliberately: `task_type` (which is serialised), and
+    `display_name` and `related_tasks`, which drive behaviour outside any picker.
+    This is the metadata a person needs in order to choose, not the metadata the
+    program needs in order to run.
+
+    A subclass that wants to vary one field of its parent's should say so:
+
+        info: ClassVar[TaskInfo] = replace(ParentConfig.info, tags=("Correlation",))
+    """
+
+    description: str = ""
+    """One or two sentences, present tense, about what running it does."""
+
+    tags: Tuple[str, ...] = ()
+    """What the task is *for*, not what it mechanically does.
+
+    A tuple because the purposes genuinely overlap: a spot burn is a correlation
+    fiducial and an alignment aid, and making it pick one hides it from whoever
+    went looking under the other. The first is the heading it files under; the
+    rest are still matched by search.
+    """
+
+    icon: str = "mdi:cog-outline"
+    """An `mdi:` key, resolved offline through `fibsem_icon`."""
+
+    thumbnail: Optional[str] = None
+    """Packaged schematic for the detail pane. Falls back to `icon` drawn large."""
+
+    requires_hardware: Tuple[str, ...] = ()
+    """Hardware the task cannot run without, e.g. ``("fm",)``.
+
+    Not `requires`: `AutoLamellaTaskDescription.requires` already owns that word
+    for the *tasks* that must run first. Two kinds of prerequisite under one
+    name, in one domain, is exactly the confusion this class exists to stop --
+    a reader would reasonably assume the two mean the same thing.
+
+    Declared but not yet read by anything. Whatever consumes it should also run
+    as a pre-flight when a workflow starts, not only where a task is chosen:
+    protocols move between machines, so one authored where an FM exists will
+    eventually be run where one does not.
+    """
+
+    order: int = 100
+    """Rank within the task's own heading. Lower comes first; ties sort by name.
+
+    Alphabetical is actively misleading here: it lists the on-grid sequence as
+    Polishing, Rough, Trench, Undercut, which is close to backwards. The default
+    puts anything that does not say sensibly at the end.
+    """
+
+    experimental: bool = False
+    """Present, but not settled: the behaviour or the parameters may still change.
+
+    Its own flag rather than a level, because it is a different question. Level
+    asks how often a task is the right answer; this asks whether it can be
+    relied on. A brand new task can be both recommended and experimental.
+    """
+
+    deprecated: str = ""
+    """Why this task is on its way out, and what to use instead. Empty if it is not.
+
+    A sentence rather than a flag, because "deprecated" on its own strands
+    anyone who has it in a protocol already. Non-empty keeps it out of the
+    picker -- there is no reason to add a new one -- while leaving existing
+    protocols loading exactly as before.
+    """
+
+    level: str = TASK_LEVEL_STANDARD
+    """How often this task is the right answer. One of TASK_LEVELS.
+
+    One ordinal field rather than a `beginner` flag beside an `advanced` one:
+    they are the same axis, and two booleans admit `beginner and advanced`,
+    which means nothing. Ordering and filtering both read this, so a task moves
+    between tiers by changing one word.
+
+    `recommended` the standard path -- what a first protocol is made of.
+    `standard`    ordinary, but situational; you reach for it when you need it.
+    `advanced`    a primitive or escape hatch. Hidden behind "Show advanced":
+                  `BASIC_MILLING` runs whatever stages it is handed, which is
+                what you want when nothing more specific fits and not what you
+                want to scroll past every other time.
+    """
+
+    def __post_init__(self) -> None:
+        # A typo here would otherwise sort silently to the end of every heading
+        # and never be hidden, which looks like a bug in the picker.
+        if self.level not in TASK_LEVELS:
+            raise ValueError(
+                f"TaskInfo.level must be one of {TASK_LEVELS}, got {self.level!r}"
+            )
+
+    @property
+    def summary(self) -> str:
+        """The lead sentence -- what a list or table cell shows.
+
+        Descriptions are written so the first sentence stands alone, which makes
+        this a deliberate summary rather than a truncation. The rest is detail
+        for a tooltip or a detail pane.
+        """
+        if not self.description:
+            return ""
+        return self.description.split(". ")[0].rstrip(".") + "."
+
+    @property
+    def is_deprecated(self) -> bool:
+        return bool(self.deprecated)
+
+    @property
+    def advanced(self) -> bool:
+        """Whether the picker hides this behind its "Show advanced" toggle."""
+        return self.level == TASK_LEVEL_ADVANCED
+
+    @property
+    def recommended(self) -> bool:
+        """Whether this is part of the standard path, not a situational choice."""
+        return self.level == TASK_LEVEL_RECOMMENDED
+
+
 @evented
 @dataclass
 class AutoLamellaTaskConfig(ABC):
@@ -147,6 +284,10 @@ class AutoLamellaTaskConfig(ABC):
     task_type: ClassVar[str]
     display_name: ClassVar[str]
     related_tasks: ClassVar[list[type["AutoLamellaTaskConfig"]]] = []
+    # Everything a picker needs to present this task type and gate the choice.
+    # See TaskInfo. Never serialised; defaulted, so a task that declares nothing
+    # still appears rather than vanishing from the list.
+    info: ClassVar[TaskInfo] = TaskInfo()
     task_name: str = ""  # unique name for identifying in multi-task workflows
     milling: Dict[str, FibsemMillingTaskConfig] = field(default_factory=dict)
     reference_imaging: ReferenceImageParameters = field(

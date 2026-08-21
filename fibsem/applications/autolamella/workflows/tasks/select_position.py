@@ -2,12 +2,16 @@
 
 import logging
 from dataclasses import dataclass, field
-from typing import ClassVar, Type
+from typing import ClassVar, Tuple, Type
 
 import numpy as np
 
 from fibsem import constants
-from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
+from fibsem.applications.autolamella.structures import (
+    TASK_LEVEL_RECOMMENDED,
+    AutoLamellaTaskConfig,
+    TaskInfo,
+)
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.ui import ask_user, select_poi_ui
 from fibsem.structures import BeamType, ImageSettings, field_meta
@@ -47,7 +51,17 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
         ),
     )
     task_type: ClassVar[str] = "SELECT_MILLING_POSITION"
-    display_name: ClassVar[str] = "Select Milling Position"
+    display_name: ClassVar[str] = "Select Lamella Position"
+    info: ClassVar[TaskInfo] = TaskInfo(
+        description=(
+            "Asks you to confirm where the lamella will be milled. Moves to the "
+            "milling angle, optionally autofocusing both beams, and saves the "
+            "position you settle on."
+        ),
+        tags=("On-grid milling", "Alignment", "Positioning"),
+        level=TASK_LEVEL_RECOMMENDED,
+        order=5,
+    )
 
 
 class SelectMillingPositionTask(AutoLamellaTask):

@@ -2,10 +2,14 @@
 
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import ClassVar, Type
+from typing import ClassVar, Tuple, Type
 
 from fibsem.applications.autolamella.protocol.constants import TRENCH_KEY
-from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
+from fibsem.applications.autolamella.structures import (
+    TASK_LEVEL_ADVANCED,
+    AutoLamellaTaskConfig,
+    TaskInfo,
+)
 from fibsem.applications.autolamella.workflows._default_milling_config import (
     DEFAULT_MILLING_CONFIG,
 )
@@ -18,6 +22,16 @@ class BasicMillingTaskConfig(AutoLamellaTaskConfig):
 
     task_type: ClassVar[str] = "BASIC_MILLING"
     display_name: ClassVar[str] = "Basic Milling"
+    info: ClassVar[TaskInfo] = TaskInfo(
+        description=(
+            "Runs whatever milling stages it is given, with no alignment. The "
+            "escape hatch for a pattern none of the named milling tasks cover; "
+            "moves to the lamella and mills, with no feature detection."
+        ),
+        tags=("Custom",),
+        order=100,
+        level=TASK_LEVEL_ADVANCED,
+    )
 
     def __post_init__(self):
         if self.milling == {}:

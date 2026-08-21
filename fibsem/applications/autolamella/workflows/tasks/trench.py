@@ -3,12 +3,16 @@
 import os
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import ClassVar, Literal, Optional, Type
+from typing import ClassVar, Literal, Optional, Tuple, Type
 
 from fibsem import alignment, calibration
 from fibsem.alignment import AlignmentSubsystem
 from fibsem.applications.autolamella.protocol.constants import TRENCH_KEY
-from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
+from fibsem.applications.autolamella.structures import (
+    TASK_LEVEL_RECOMMENDED,
+    AutoLamellaTaskConfig,
+    TaskInfo,
+)
 from fibsem.applications.autolamella.workflows._default_milling_config import (
     DEFAULT_MILLING_CONFIG,
 )
@@ -42,6 +46,16 @@ class MillTrenchTaskConfig(AutoLamellaTaskConfig):
     )
     task_type: ClassVar[str] = "MILL_TRENCH"
     display_name: ClassVar[str] = "Trench Milling"
+    info: ClassVar[TaskInfo] = TaskInfo(
+        description=(
+            "Mills the bulk away above and below the lamella, leaving it on a "
+            "pedestal. Moves to the trench angle first, optionally aligning to "
+            "a saved reference, and neutralises sample charge afterwards."
+        ),
+        tags=("Waffle milling",),
+        level=TASK_LEVEL_RECOMMENDED,
+        order=10,
+    )
 
     def __post_init__(self):
         if self.milling == {}:

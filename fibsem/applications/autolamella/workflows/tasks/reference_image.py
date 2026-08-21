@@ -1,10 +1,14 @@
 ######## REFERENCE IMAGE TASK DEFINITIONS ########
 
 from dataclasses import dataclass, field
-from typing import ClassVar, Literal, Optional, Type
+from typing import ClassVar, Literal, Optional, Tuple, Type
 
 from fibsem import utils
-from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
+from fibsem.applications.autolamella.structures import (
+    TASK_LEVEL_RECOMMENDED,
+    AutoLamellaTaskConfig,
+    TaskInfo,
+)
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.ui import ask_user
 from fibsem.structures import field_meta
@@ -16,6 +20,16 @@ class AcquireReferenceImageConfig(AutoLamellaTaskConfig):
 
     task_type: ClassVar[str] = "ACQUIRE_REFERENCE_IMAGE"
     display_name: ClassVar[str] = "Acquire Reference Image"
+    info: ClassVar[TaskInfo] = TaskInfo(
+        description=(
+            "Acquires reference images at the current position. Saved against "
+            "the lamella, to record state between milling steps and to give a "
+            "later alignment something to align to."
+        ),
+        tags=("Imaging", "Alignment"),
+        level=TASK_LEVEL_RECOMMENDED,
+        order=10,
+    )
     orientation: Literal["SEM", "FIB", "MILLING"] = field(
         default="MILLING",
         metadata=field_meta(
