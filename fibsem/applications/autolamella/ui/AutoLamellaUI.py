@@ -19,7 +19,6 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QGridLayout,
     QLabel,
-    QLineEdit,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -241,14 +240,6 @@ class AutoLamellaUI(QMainWindow):
         self.tab = QWidget()
         self.grid_layout_experiment = QGridLayout(self.tab)
 
-        # Experiment name (row 0)
-        self.label_experiment_name = QLabel("Experiment")
-        self.lineEdit_experiment_name = QLineEdit()
-
-        # Protocol name (row 3)
-        self.label_protocol_name = QLabel("Protocol")
-        self.lineEdit_protocol_name = QLineEdit()
-
         self.lamella_list = LamellaNameListWidget()
         self.lamella_list.enable_add_button(True)
         self.lamella_list.enable_defect_button(True)
@@ -257,31 +248,24 @@ class AutoLamellaUI(QMainWindow):
         self.lamella_list.enable_update_action(True)
         self.lamella_list.enable_remove_button(True)
 
-        # --- Selected Lamella panel (row 6, colspan 2) ---
         self.selected_lamella_widget = SelectedLamellaWidget()
 
-        self.grid_layout_experiment.addWidget(self.label_experiment_name, 0, 0)
-        self.grid_layout_experiment.addWidget(self.lineEdit_experiment_name, 0, 1)
-        self.grid_layout_experiment.addWidget(self.label_protocol_name, 1, 0)
-        self.grid_layout_experiment.addWidget(self.lineEdit_protocol_name, 1, 1)
-        self.grid_layout_experiment.addWidget(self.lamella_list, 2, 0, 1, 2)
-        self.grid_layout_experiment.addWidget(self.selected_lamella_widget, 3, 0, 1, 2)
+        self.grid_layout_experiment.addWidget(self.lamella_list, 0, 0, 1, 2)
+        self.grid_layout_experiment.addWidget(self.selected_lamella_widget, 1, 0, 1, 2)
 
-        # Vertical spacer (row 7)
         self.grid_layout_experiment.addItem(
-            QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding), 4, 0, 1, 2
+            QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding), 2, 0, 1, 2
         )
 
         # Add Experiment tab to tabWidget
         self.tabWidget.addTab(self.tab, "Experiment")
 
-        # --- Workflow info (row 2) ---
         self.label_workflow_information = QLabel("Workflow Information")
 
-        # --- Instructions (row 3) ---
+        # The question a running workflow is asking; hidden when it is not asking
+        # one. Idle guidance lives in the window's status bar.
         self.label_instructions = QLabel("Instructions")
 
-        # --- Yes / No buttons (row 4) ---
         self.pushButton_yes = QPushButton("Yes")
         self.pushButton_no = QPushButton("No")
 
@@ -346,12 +330,6 @@ class AutoLamellaUI(QMainWindow):
         self.detection_confirmed_signal.connect(self.handle_confirmed_detection_signal)
         self.workflow_update_signal.connect(self.handle_workflow_update)
         self._workflow_finished_signal.connect(self._workflow_finished)  # type: ignore
-
-        # labels and placeholders
-        self.lineEdit_experiment_name.setPlaceholderText("No Experiment Loaded")
-        self.lineEdit_protocol_name.setPlaceholderText("No Protocol Loaded")
-        self.lineEdit_protocol_name.setReadOnly(True)
-        self.lineEdit_experiment_name.setReadOnly(True)
 
         # workflow info
         self.set_current_workflow_message(msg=None, show=False)
@@ -557,7 +535,9 @@ class AutoLamellaUI(QMainWindow):
             experiment = Experiment.load(Path(experiment_path))
         except Exception as e:
             logging.warning(f"Quickload: unable to load {experiment_path}: {e}")
-            notification_service.show_toast(f"Quickload: could not load experiment: {e}", "error")
+            notification_service.show_toast(
+                f"Quickload: could not load experiment: {e}", "error"
+            )
             return
 
         # The same bar the load dialog sets. An experiment with no protocol has
@@ -569,7 +549,9 @@ class AutoLamellaUI(QMainWindow):
             return
 
         self._adopt_experiment(experiment)
-        logging.info(f"Quickload: loaded experiment {experiment.name} from {experiment_path}")
+        logging.info(
+            f"Quickload: loaded experiment {experiment.name} from {experiment_path}"
+        )
 
     def _adopt_experiment(self, experiment: Experiment) -> None:
         """Make ``experiment`` the current one, and point logging at its logfile.
@@ -1015,7 +997,9 @@ class AutoLamellaUI(QMainWindow):
             # capture the per-run summary before the manager is torn down
             if self._task_manager is not None:
                 try:
-                    self._last_run_summary = self._task_manager.build_run_summary_dataframe()
+                    self._last_run_summary = (
+                        self._task_manager.build_run_summary_dataframe()
+                    )
                 except Exception as e:
                     logging.warning(f"Failed to build workflow run summary: {e}")
                     self._last_run_summary = None
@@ -1107,17 +1091,8 @@ class AutoLamellaUI(QMainWindow):
             idx = self.tabWidget.indexOf(self.det_widget)
             self.tabWidget.setTabVisible(idx, False)  # hide detection tab for now
 
-        # labels
-        self.lineEdit_experiment_name.setToolTip("No Experiment Loaded")
         if is_experiment_loaded and self.experiment is not None:
-            self.lineEdit_experiment_name.setText(f"{self.experiment.name}")
-            self.lineEdit_experiment_name.setToolTip(
-                f"Experiment Directory: {self.experiment.path}"
-            )
             self.lamella_list.setEnabled(has_lamella)
-
-        if self.protocol is not None:
-            self.lineEdit_protocol_name.setText(f"{self.protocol.name}")
 
         # buttons
         self.lamella_list.setEnabled(is_experiment_ready)
@@ -1137,16 +1112,11 @@ class AutoLamellaUI(QMainWindow):
         if self.is_workflow_running:
             return
 
-        if not is_microscope_connected:
-            self.set_instructions_msg(INSTRUCTIONS["NOT_CONNECTED"])
-        elif not is_experiment_loaded:
-            self.set_instructions_msg(INSTRUCTIONS["NO_EXPERIMENT"])
-        elif not is_protocol_loaded:
-            self.set_instructions_msg(INSTRUCTIONS["NO_PROTOCOL"])
-        elif not has_lamella:
-            self.set_instructions_msg(INSTRUCTIONS["NO_LAMELLA"])
-        elif has_lamella:
-            self.set_instructions_msg(INSTRUCTIONS["AUTOLAMELLA_READY"])
+        # Nothing to say while idle. The same guidance is in the window's status
+        # bar, which is where it belongs -- shown in both places it read as two
+        # different messages that happened to agree. This label is for the question
+        # a running workflow is asking, which the Yes/No buttons below it answer.
+        self.set_instructions_msg("")
 
     def _on_workflow_config_changed(self, wcfg: AutoLamellaWorkflowConfig):
         if self.experiment is None or self.experiment.task_protocol is None:
@@ -1483,7 +1453,9 @@ class AutoLamellaUI(QMainWindow):
                 )
 
         self.experiment.save()
-        self.selected_lamella_widget.refresh_pose(pose_name, state.stage_position.pretty)
+        self.selected_lamella_widget.refresh_pose(
+            pose_name, state.stage_position.pretty
+        )
         # The FM overview canvas draws these positions itself rather than reading them
         # back, so a pose that moved here is one it only hears about by being told.
         self.experiment.positions.events.changed.emit()
@@ -1554,14 +1526,17 @@ class AutoLamellaUI(QMainWindow):
         else:
             value_m = obj.focus_position
         if value_m is None:
-            notification_service.show_toast("Objective position unavailable.", "warning")
+            notification_service.show_toast(
+                "Objective position unavailable.", "warning"
+            )
             return
         lamella.fluorescence_pose.objective_position = value_m
         self.experiment.save()
         # full refresh so the objective value shows and "Apply to All" re-enables
         self.selected_lamella_widget.set_lamella(lamella)
         notification_service.show_toast(
-            f"Set objective position to {value_m * METRE_TO_MICRON:.1f} µm for {lamella.name}.", "info"
+            f"Set objective position to {value_m * METRE_TO_MICRON:.1f} µm for {lamella.name}.",
+            "info",
         )
 
     def _move_objective_to_lamella_position(self):
@@ -1645,7 +1620,8 @@ class AutoLamellaUI(QMainWindow):
         if count:
             self.experiment.save()
             notification_service.show_toast(
-                f"Applied objective position ({value_um:.1f} µm) to {count} lamella.", "info"
+                f"Applied objective position ({value_um:.1f} µm) to {count} lamella.",
+                "info",
             )
 
     def get_selected_lamella(self) -> Optional[Lamella]:
@@ -1744,6 +1720,9 @@ class AutoLamellaUI(QMainWindow):
             neg: The negative button text.
         """
         self.label_instructions.setText(msg)
+        # An empty prompt is not a blank line: with no message there is no question,
+        # so the label goes away rather than reserving space for one.
+        self.label_instructions.setVisible(bool(msg))
         self.pushButton_yes.setText(pos)
         self.pushButton_no.setText(neg)
 
@@ -1998,15 +1977,21 @@ class AutoLamellaUI(QMainWindow):
         controller.set_overlay(
             BeamType.ION,
             PointsSpec(
-                id="poi", points=[(col, row)],
+                id="poi",
+                points=[(col, row)],
                 # Matches the protocol editor's POI, down to the legend entry: same
                 # concept, same marker. Left to the defaults this drew at size 18 with
                 # PointOverlay's 2.0 edge, a cross visibly fatter than the thin one the
                 # editor and the config preview draw, and absent from the legend
                 # (FIB-582). 1.2 keeps it reading like the centre crosshair.
-                color="magenta", selected_color="magenta", marker="+",
-                size=14, edge_width=1.2, legend_label="Point of Interest",
-                add_on_right_click=False, removable=False,
+                color="magenta",
+                selected_color="magenta",
+                marker="+",
+                size=14,
+                edge_width=1.2,
+                legend_label="Point of Interest",
+                add_on_right_click=False,
+                removable=False,
             ),
         )
         # POI owns FIB-canvas input: stage-move + milling menu stand down. The toolbar
