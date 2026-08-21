@@ -549,6 +549,9 @@ class FibsemOverviewWidget(QWidget):
         # Two independent facts kept apart on purpose: a workflow ending must not
         # re-enable a tab whose acquisition is still going, nor the reverse.
         self._running = False
+        # Set by `_on_move_errored` so `_on_move_finished`, which always runs, knows
+        # not to clear a message the failure has just put up.
+        self._move_failed: bool = False
         self._lock_reason = "a workflow is running"
         self._interactive = True
         self._tiles_acquired = 0
@@ -2468,22 +2471,68 @@ class FibsemOverviewWidget(QWidget):
         """
         if not self._may_move():
             return
+        # Say so. A double-click that starts a multi-second stage move used to be
+        # indistinguishable from one that did nothing -- and because `_may_move`
+        # refusals *do* toast, silence was the state where something was actually
+        # happening (FIB-765).
+        #
+        # The status label, not the progress bar, and this tab already says why: the bar
+        # "carries the message for the whole run" while a run is on, and "the label
+        # below it carries the outcome from here" once it is not. A stage move has no
+        # fraction -- `safe_absolute_stage_movement` blocks and emits nothing along the
+        # way -- so a bar would be inventing one, and the label is where a thing that
+        # merely happens belongs. It is also what the fluorescence tab uses, which is
+        # the point: these two drifted apart once already and that is this whole issue.
+        self.label_status.setText(f"Moving to {self._describe(position)}…")
         worker = FunctionWorker(self._move_worker, position)
+        worker.errored.connect(self._on_move_errored)
+        worker.finished.connect(self._on_move_finished)
         worker.start()
 
     def _move_worker(self, target: FibsemStagePosition) -> None:
-        """Runs off the GUI thread. Only signals may cross back."""
+        """Runs off the GUI thread. Only signals may cross back.
+
+        The exception is deliberately not caught. `FunctionWorker` logs it with a
+        traceback and re-emits it as `errored` on the GUI thread, which is the only way
+        the widget can tell a failed move from a finished one -- swallowing it here left
+        the two identical, so a stage that never arrived reported success.
+        """
         try:
             self.microscope.safe_absolute_stage_movement(target)
-        except Exception as e:
-            logger.error(f"Could not move the stage: {e}", exc_info=True)
-        # Publishes the new position through `stage_position_changed`, which is what
-        # re-marks it -- rather than assuming the stage arrived exactly where it was
-        # asked to, which on a real instrument it does not.
-        try:
-            self.microscope.get_stage_position()
-        except Exception as e:
-            logger.debug(f"Could not confirm the stage position after moving: {e}")
+        finally:
+            # In a `finally`, so it runs on the failing path too: a move that stopped
+            # part-way has still left the stage somewhere, and the marker should say
+            # where rather than where it set off from.
+            #
+            # Publishes the new position through `stage_position_changed`, which is what
+            # re-marks it -- rather than assuming the stage arrived exactly where it was
+            # asked to, which on a real instrument it does not.
+            try:
+                self.microscope.get_stage_position()
+            except Exception as e:
+                logger.debug(f"Could not confirm the stage position after moving: {e}")
+
+    def _on_move_errored(self, error: object) -> None:
+        """The stage did not get there. Say that, rather than falling quiet."""
+        self._move_failed = True
+        self.label_status.setText(f"Could not move the stage: {error}")
+        notification_service.show_toast("Could not move the stage.", "error")
+
+    def _on_move_finished(self) -> None:
+        """Always runs, after `errored` when there was one.
+
+        A failure has already put its own message up and that should stand; only a
+        success replaces the "Moving to …" line. What replaces it is where the stage
+        actually reached, read back by the worker rather than assumed from the target --
+        the same report the fluorescence tab gives, in the same place.
+        """
+        if self._move_failed:
+            self._move_failed = False
+            return
+        position = self._stage_position
+        self.label_status.setText(
+            f"At {self._describe(position)}" if position is not None else "Moved."
+        )
 
     # ── canvas interaction ───────────────────────────────────────────────
 
