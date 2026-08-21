@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import logging
 import sys
 import time
@@ -12,10 +13,11 @@ except Exception:
     pass
 
 import warnings
+from datetime import datetime
 
 import napari
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QKeySequence
+from PyQt5.QtCore import QSize, Qt, QTimer
+from PyQt5.QtGui import QIcon, QKeySequence, QPainter, QPixmap
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
@@ -24,10 +26,12 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
     QTabWidget,
     QTextEdit,
@@ -85,6 +89,7 @@ from fibsem.ui.qt.gc import install_main_thread_gc
 from fibsem.ui.stylesheets import (
     DANGER_BUTTON_STYLESHEET,
     GRAY_ICON_COLOR,
+    MENU_BUTTON_STYLESHEET,
     NAPARI_STYLE,
     PRIMARY_BUTTON_STYLESHEET,
     PROGRESS_BAR_STYLESHEET,
@@ -96,8 +101,9 @@ from fibsem.ui.stylesheets import (
     border_stylesheet,
 )
 from fibsem.ui.tokens import (
+    ERROR_COLOR,
     SURFACE_COLOR,
-    TEXT_COLOR,
+    TEXT_MUTED_COLOR,
 )
 from fibsem.ui.widgets import preflight
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
@@ -113,6 +119,96 @@ warnings.filterwarnings(
     category=UserWarning,
     module=r"napari\.layers\.shapes\._shapes_utils",
 )
+
+# How wide the experiment name button in the tab corner is allowed to grow. Wide
+# enough that a default name -- "AutoLamella-" plus a date stamp -- is never elided;
+# the point of the button is to say which experiment is open.
+EXPERIMENT_MENU_MAX_WIDTH = 360
+
+# Icons sat on a button, rather than in a menu, are drawn at this size.
+BUTTON_ICON_SIZE = 16
+
+
+def experiment_tooltip(experiment: Experiment) -> str:
+    """The hover card for the tab-corner experiment button.
+
+    Rich text, because Qt renders a tooltip as HTML the moment it contains a tag:
+    that is what lines the rows up and keeps the directory on a line of its own
+    instead of letting it set the width of everything above it.
+
+    Every row here is a fact the experiment already holds. Rows whose fact is
+    missing are dropped rather than rendered empty -- a protocol is set after
+    construction and `created_at` is absent from experiments written before it was
+    recorded, so both are genuinely unknown rather than blank.
+    """
+    rows: List[Tuple[str, str]] = []
+
+    if experiment.created_at:
+        created = datetime.fromtimestamp(experiment.created_at)
+        rows.append(("Created", html.escape(created.strftime("%d %b %Y, %H:%M"))))
+
+    lamella = str(len(experiment.positions))
+    # `is_failure` is a human's judgement that a lamella is defective, not a record
+    # of a task that failed, so the count says defective. See Lamella.is_failure.
+    defective = len(experiment.at_failure())
+    if defective:
+        lamella += (
+            f"&nbsp;&nbsp;<span style='color: {ERROR_COLOR}'>"
+            f"{defective} defective</span>"
+        )
+    rows.append(("Lamella", lamella))
+
+    if experiment.task_protocol is not None:
+        rows.append(("Protocol", html.escape(experiment.task_protocol.name)))
+
+    body = "".join(
+        f"<tr><td style='color: {TEXT_MUTED_COLOR}; padding-right: 10px;'>{label}</td>"
+        f"<td>{value}</td></tr>"
+        for label, value in rows
+    )
+    return (
+        f"<b>{html.escape(experiment.name)}</b>"
+        f"<table cellspacing='0' cellpadding='0'>{body}</table>"
+        f"<div style='color: {TEXT_MUTED_COLOR}; margin-top: 4px;'>"
+        f"{html.escape(str(experiment.path))}</div>"
+    )
+
+
+def set_button_icon(
+    button: QPushButton, key: str, gap: int = 5, color: str = TEXT_MUTED_COLOR
+) -> None:
+    """Put an icon on a button with breathing room between it and the text.
+
+    Qt spaces a button's icon from its label by about four pixels and offers no way
+    to ask for more, which next to a name reads as the two being squashed together.
+    Padding the pixmap on its right buys the rest -- and the icon size has to grow
+    with the padding, or Qt scales the wider pixmap back into the old box and
+    shrinks the glyph instead of moving the text.
+
+    Muted by default: at the label's own weight the icon competes with the name
+    rather than introducing it.
+    """
+    pixmap = fibsem_icon(key, color=color).pixmap(BUTTON_ICON_SIZE, BUTTON_ICON_SIZE)
+    ratio = pixmap.devicePixelRatio() or 1.0
+    padded = QPixmap(pixmap.width() + round(gap * ratio), pixmap.height())
+    padded.setDevicePixelRatio(ratio)
+    padded.fill(Qt.transparent)
+    painter = QPainter(padded)
+    painter.drawPixmap(0, 0, pixmap)
+    painter.end()
+
+    button.setIcon(QIcon(padded))
+    button.setIconSize(QSize(BUTTON_ICON_SIZE + gap, BUTTON_ICON_SIZE))
+
+
+def set_menu_icon(action: QAction, key: str) -> None:
+    """Give a menu action an icon that actually renders.
+
+    Qt turns menu icons off wholesale on macOS (AA_DontShowIconsInMenus), so an
+    icon set the usual way shows on Windows and Linux and silently vanishes here.
+    """
+    action.setIcon(fibsem_icon(key, color=GRAY_ICON_COLOR))
+    action.setIconVisibleInMenu(True)
 
 
 def play_notification_sound():
@@ -199,11 +295,15 @@ def confirm_add_to_queue_dialog(
         )
         layout.addLayout(metrics)
 
-    layout.addWidget(preflight.detail_block([
-        ("Position", "Run next" if run_next else "At the end of the queue"),
-        ("Lamella", ", ".join(lamella_names)),
-        ("Tasks", ", ".join(task_names)),
-    ]))
+    layout.addWidget(
+        preflight.detail_block(
+            [
+                ("Position", "Run next" if run_next else "At the end of the queue"),
+                ("Lamella", ", ".join(lamella_names)),
+                ("Tasks", ", ".join(task_names)),
+            ]
+        )
+    )
 
     absorbed = _absorbed_note(estimate)
     if absorbed:
@@ -282,8 +382,10 @@ def _absorbed_note(estimate: Optional[AdditionEstimate]) -> str:
     ):
         return ""
     if estimate.delay_seconds <= 0:
-        return ("The workflow is already waiting for a scheduled task, and this work "
-                "fits inside that wait — so it costs no extra time overall.")
+        return (
+            "The workflow is already waiting for a scheduled task, and this work "
+            "fits inside that wait — so it costs no extra time overall."
+        )
     return (
         f"Only {preflight.format_duration(estimate.delay_seconds)} of this lands after "
         "the workflow's scheduled wait; the rest fits inside it."
@@ -368,15 +470,22 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if view_menu is None:
             raise RuntimeError("Failed to create View menu in AutoLamella UI.")
 
+        # These three carry icons because they are also the tab-corner experiment
+        # menu (see create_notification_button), where the icons do the work of
+        # telling create from load at a glance. Qt hides action icons in menus on
+        # macOS unless each action asks for them, hence set_menu_icon.
         self.action_new_experiment = QAction("New Experiment", self)
+        set_menu_icon(self.action_new_experiment, "mdi:plus")
         self.action_new_experiment.triggered.connect(self._on_new_experiment)
 
         self.action_load_experiment = QAction("Load Experiment", self)
+        set_menu_icon(self.action_load_experiment, "mdi:folder-open")
         self.action_load_experiment.triggered.connect(self._on_load_experiment)
 
         self.action_open_experiment_directory = QAction(
             "Open Experiment Directory", self
         )
+        set_menu_icon(self.action_open_experiment_directory, "mdi:folder")
         self.action_open_experiment_directory.triggered.connect(
             self._on_open_experiment_directory
         )
@@ -1141,8 +1250,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # same rule — there is nothing to add until something is ticked.
         if hasattr(self, "workflow_timeline"):
             if valid:
-                tip = (f"Add to queue: {n_lam} lamella, "
-                       f"{n_task} task{'s' if n_task != 1 else ''}")
+                tip = (
+                    f"Add to queue: {n_lam} lamella, "
+                    f"{n_task} task{'s' if n_task != 1 else ''}"
+                )
             else:
                 tip = f"Select {' and '.join(missing)} to add to the queue"
             self.workflow_timeline.set_add_enabled(valid, tip)
@@ -1366,8 +1477,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.microscope.spot_burn_progress_signal.connect(
                 self._on_spot_burn_progress
             )
-        self.btn_create_experiment.setEnabled(True)
-        self.btn_load_experiment.setEnabled(True)
+        self._update_experiment_header()
         self._update_instructions()
 
     @ensure_main_thread
@@ -1617,12 +1727,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.lamella_widget.setMinimumWidth(500)
         self.lamella_workflow_widget.setMinimumWidth(600)
 
-        # Update experiment name label
-        self.experiment_name_label.setText(
-            f"Experiment: {self.autolamella_ui.experiment.name}"
-        )
-        self.btn_create_experiment.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
-        self.btn_load_experiment.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        # Update the experiment name button
+        self._update_experiment_header()
 
         # Show run workflow button when experiment is loaded
         self.run_workflow_btn.show()
@@ -1695,6 +1801,49 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             events.changed.connect(self._refresh_overview_positions)
         self._lamella_list_experiment = experiment
 
+    def _update_experiment_header(self):
+        """Show either the create/load buttons or the experiment menu, never both.
+
+        Until an experiment exists those two buttons are the only thing to do, so they
+        stay primary-coloured and take the room. Once one is loaded the experiment name
+        replaces them, and opens a menu holding the same actions: the greyed-out pair
+        cost a third of the tab bar to say nothing.
+        """
+        autolamella_ui = getattr(self, "autolamella_ui", None)
+        experiment = autolamella_ui.experiment if autolamella_ui else None
+        is_connected = (
+            autolamella_ui is not None and autolamella_ui.microscope is not None
+        )
+
+        self.btn_create_experiment.setEnabled(is_connected)
+        self.btn_load_experiment.setEnabled(is_connected)
+        self.btn_create_experiment.setVisible(experiment is None)
+        self.btn_load_experiment.setVisible(experiment is None)
+
+        self.btn_experiment_menu.setVisible(experiment is not None)
+        if experiment is None:
+            return
+
+        # Experiment names carry a date stamp and run long; elided here rather than
+        # left to stretch the corner widget back to the width this change reclaims.
+        # Measured off the button rather than against a guessed allowance for the
+        # icon, padding and chevron -- an allowance set too generously elides names
+        # that would have fitted.
+        self.btn_experiment_menu.setText(experiment.name)
+        overflow = (
+            self.btn_experiment_menu.sizeHint().width() - EXPERIMENT_MENU_MAX_WIDTH
+        )
+        if overflow > 0:
+            metrics = self.btn_experiment_menu.fontMetrics()
+            self.btn_experiment_menu.setText(
+                metrics.elidedText(
+                    experiment.name,
+                    Qt.ElideMiddle,
+                    metrics.horizontalAdvance(experiment.name) - overflow,
+                )
+            )
+        self.btn_experiment_menu.setToolTip(experiment_tooltip(experiment))
+
     def create_notification_button(self):
         """Add buttons to the tab bar for adding Protocol Editor, Lamella, and Minimap tabs."""
         # Create button container widget
@@ -1716,16 +1865,32 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.btn_load_experiment.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.btn_load_experiment.clicked.connect(self._on_load_experiment)
 
-        # Experiment name label
-        self.experiment_name_label = QLabel("No Experiment")
-        self.experiment_name_label.setStyleSheet(f"color: {TEXT_COLOR}; font-size: 12px;")
+        # The experiment name, once there is one, is itself the control that reaches
+        # the create/load actions -- see _update_experiment_header.
+        self.btn_experiment_menu = QPushButton()
+        set_button_icon(self.btn_experiment_menu, "mdi:flask-outline")
+        self.btn_experiment_menu.setStyleSheet(MENU_BUTTON_STYLESHEET)
+        self.btn_experiment_menu.setMaximumWidth(EXPERIMENT_MENU_MAX_WIDTH)
+        # Hug the name. A QPushButton's default policy lets it grow to fill the
+        # layout, which here means straight back out to the maximum width above --
+        # the corner widget would be no narrower than the pair it replaces.
+        self.btn_experiment_menu.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        self.btn_experiment_menu.setVisible(False)
+        experiment_menu = QMenu(self.btn_experiment_menu)
+        # The File menu's own QAction objects, not copies of them, so the two places
+        # that offer these actions cannot drift apart.
+        experiment_menu.addAction(self.action_new_experiment)
+        experiment_menu.addAction(self.action_load_experiment)
+        experiment_menu.addSeparator()
+        experiment_menu.addAction(self.action_open_experiment_directory)
+        self.btn_experiment_menu.setMenu(experiment_menu)
 
         # Notification bell
         self.notification_bell = NotificationBell(self)
         self.toast_manager.set_notification_bell(self.notification_bell)
 
         # Add widgets to layout
-        button_layout.addWidget(self.experiment_name_label)
+        button_layout.addWidget(self.btn_experiment_menu)
         button_layout.addWidget(self.btn_create_experiment)
         button_layout.addWidget(self.btn_load_experiment)
         button_layout.addWidget(self.notification_bell)
@@ -2020,14 +2185,21 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         task_names = [t.name for t in tasks]
 
         pending = {(i.lamella_name, i.task_name) for i in manager.queue.pending}
-        already = [f"{t} for {ln}" for t in task_names for ln in lamella_names
-                   if (ln, t) in pending]
+        already = [
+            f"{t} for {ln}"
+            for t in task_names
+            for ln in lamella_names
+            if (ln, t) in pending
+        ]
 
         # Task-outer, lamella-inner: the order the items are really inserted in below,
         # so what is priced is what will be queued.
         pairs = [(ln, tn) for tn in task_names for ln in lamella_names]
         if not confirm_add_to_queue_dialog(
-            lamella_names, task_names, run_next, already,
+            lamella_names,
+            task_names,
+            run_next,
+            already,
             estimate=self._estimate_addition(manager, pairs, run_next),
             parent=self,
         ):
@@ -2036,8 +2208,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # A lamella created before a task joined the protocol has no config for
         # it, and run_task raises on that. Backfill from the base protocol first.
         experiment = self.autolamella_ui.experiment
-        missing = [ln for ln, lam in zip(lamella_names, lamellae)
-                   if any(t not in lam.task_config for t in task_names)]
+        missing = [
+            ln
+            for ln, lam in zip(lamella_names, lamellae)
+            if any(t not in lam.task_config for t in task_names)
+        ]
         if missing and experiment is not None:
             experiment.apply_lamella_config(missing, task_names)
 
@@ -2103,8 +2278,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 # `estimated_time` divides by the sputter rate (milling/base.py:292), so
                 # a hand-edited protocol can raise. Losing the figure is a great deal
                 # better than losing the dialog that queues the work.
-                logging.warning("Could not estimate duration for %s on %s.",
-                                item.task_name, item.lamella_name, exc_info=True)
+                logging.warning(
+                    "Could not estimate duration for %s on %s.",
+                    item.task_name,
+                    item.lamella_name,
+                    exc_info=True,
+                )
                 return None
 
         schedule = {}
@@ -2129,8 +2308,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 )
 
         return estimate_addition(
-            manager.queue.items, pairs, seconds_for,
-            run_next=run_next, schedule=schedule, active_elapsed=active_elapsed,
+            manager.queue.items,
+            pairs,
+            seconds_for,
+            run_next=run_next,
+            schedule=schedule,
+            active_elapsed=active_elapsed,
         )
 
     def _push_timeline_estimates(self, pairs: list) -> None:
@@ -2169,7 +2352,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 # to offer" state, so degrading into it is the graceful failure.
                 logging.warning(
                     "Could not estimate duration for %s on %s; the timeline will show "
-                    "no estimate for it.", task_name, lamella_name, exc_info=True,
+                    "no estimate for it.",
+                    task_name,
+                    lamella_name,
+                    exc_info=True,
                 )
         self.workflow_timeline.set_estimates(estimates)
 
@@ -2233,14 +2419,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             # A fresh item rather than a rewind: the original attempt still
             # happened and stays in the run record.
             added = queue.add(item.lamella_name, item.task_name, front=True)
-            message = (f"Queued {label} to run next." if added is not None
-                       else f"Could not queue {label}.")
+            message = (
+                f"Queued {label} to run next."
+                if added is not None
+                else f"Could not queue {label}."
+            )
         else:
             call = {
-                "move_up":   lambda: queue.nudge(item_id, -1),
+                "move_up": lambda: queue.nudge(item_id, -1),
                 "move_down": lambda: queue.nudge(item_id, +1),
-                "run_next":  lambda: queue.move_to_front(item_id),
-                "remove":    lambda: queue.remove(item_id),
+                "run_next": lambda: queue.move_to_front(item_id),
+                "remove": lambda: queue.remove(item_id),
             }.get(action)
             if call is None:
                 logging.warning(f"Unknown queue action from the timeline: {action}")
@@ -2265,10 +2454,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if not result.ok:
             return f"{label} is no longer in the queue."
         return {
-            "move_up":   f"Moved {label} up.",
+            "move_up": f"Moved {label} up.",
             "move_down": f"Moved {label} down.",
-            "run_next":  f"{label} will run next.",
-            "remove":    f"Removed {label} from the queue.",
+            "run_next": f"{label} will run next.",
+            "remove": f"Removed {label} from the queue.",
         }.get(action, "")
 
     def _show_queue_message(self, message: str) -> None:
@@ -2572,12 +2761,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.fm_overview_tab.availability_changed.connect(
             self._on_fm_overview_availability
         )
-        self.fm_overview_tab.lamella_selected.connect(self._on_fm_overview_lamella_selected)
+        self.fm_overview_tab.lamella_selected.connect(
+            self._on_fm_overview_lamella_selected
+        )
         self.fm_overview_tab.acquiring_changed.connect(self._apply_overview_locks)
 
         self.tab_widget.insertTab(
-            2, self.fm_overview_tab,
-            fibsem_icon("mdi:microscope", color=GRAY_ICON_COLOR), "FM Overview",
+            2,
+            self.fm_overview_tab,
+            fibsem_icon("mdi:microscope", color=GRAY_ICON_COLOR),
+            "FM Overview",
         )
         self.tab_widget.setTabEnabled(
             self.tab_widget.indexOf(self.fm_overview_tab), False
@@ -2608,7 +2801,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.overview_canvas_tab.acquiring_changed.connect(self._apply_overview_locks)
 
         self.tab_widget.insertTab(
-            3, self.overview_canvas_tab,
+            3,
+            self.overview_canvas_tab,
             fibsem_icon("mdi:map-search-outline", color=GRAY_ICON_COLOR),
             "Overview (Canvas)",
         )
@@ -2784,9 +2978,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             try:
                 self.lamella_widget.flush_pending_save()
             except Exception as e:
-                logging.warning(f"Could not flush a pending experiment save on close: {e}")
+                logging.warning(
+                    f"Could not flush a pending experiment save on close: {e}"
+                )
         # persist the FM working state (channels / camera transform / objective)
-        if self.autolamella_ui is not None and self.autolamella_ui.fm_control_widget is not None:
+        if (
+            self.autolamella_ui is not None
+            and self.autolamella_ui.fm_control_widget is not None
+        ):
             try:
                 self.autolamella_ui.fm_control_widget.save_fm_configuration()
             except Exception as e:
@@ -2842,13 +3041,13 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "--quickstart",
         action="store_true",
         help="Connect to the microscope with the default configuration as soon as the "
-             "window is up, instead of waiting for the Connection tab.",
+        "window is up, instead of waiting for the Connection tab.",
     )
     parser.add_argument(
         "--quickload",
         action="store_true",
         help="Connect as --quickstart does, then reopen the most recent experiment. "
-             "Implies --quickstart -- the experiment tabs are built at connection time.",
+        "Implies --quickstart -- the experiment tabs are built at connection time.",
     )
     return parser.parse_args(argv)
 
