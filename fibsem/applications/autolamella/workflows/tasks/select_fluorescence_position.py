@@ -84,12 +84,15 @@ class SelectFluorescencePositionTask(AutoLamellaTask):
             self.lamella.fluorescence_pose.objective_position
         )
 
-        # Acquire image
-        self.log_status_message(
-            "ACQUIRE_FLUORESCENCE_IMAGE", "Acquiring Fluorescence Image..."
-        )
-        self.microscope.fm.acquire_image()
-
+        # No acquisition here. This task's job is to put the stage and objective where
+        # the fluorescence pose says, and record where that turned out to be. The
+        # operator drives the FM controls themselves while confirming below -- which is
+        # what the `stop_acquisition` is for: whatever live view they started, the task
+        # takes down on the way out.
+        #
+        # There used to be a bare `acquire_image()` here whose result was discarded. It
+        # emits no signal, so nothing reached the canvas; it exposed the camera once and
+        # threw the frame away.
         if self.validate:
             ask_user(
                 self.parent_ui,
