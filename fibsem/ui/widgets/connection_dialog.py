@@ -46,6 +46,7 @@ from fibsem.ui.stylesheets import (
 from fibsem.ui.tokens import (
     BORDER_COLOR,
     ERROR_COLOR,
+    OK_COLOR,
     PANEL_COLOR,
     SURFACE_COLOR,
     TEXT_MUTED_COLOR,
@@ -155,9 +156,9 @@ class ConnectionDialog(QDialog):
         instrument a name meant was something you learned by connecting to it.
 
         Laid out as the Connection tab's status card is -- framed panel, icon,
-        bold line, muted line -- so this reads as part of the application rather
-        than a second way of saying the same thing. What it *says* is deliberately
-        not what that card says; see `_set_details`.
+        bold line, muted line, and its green tick on a connection that succeeded --
+        so this reads as part of the application rather than a second way of saying
+        the same thing.
         """
         frame = QFrame()
         frame.setObjectName("frame_connection_details")
@@ -198,14 +199,7 @@ class ConnectionDialog(QDialog):
         return frame
 
     def _set_details(self, title: str, subtitle: str, icon: str, colour: str) -> None:
-        """Fill the panel. Absence is knowable; presence is not.
-
-        The Connection tab's card reads "Microscope Connected" over a green tick,
-        and this deliberately does not copy that. Nothing watches the link
-        (FIB-777), so with a session that was opened hours ago a tick asserts
-        something no one has checked. "No microscope connected" is safe in the
-        other direction -- there is nothing to be wrong about.
-        """
+        """Fill the panel, in the Connection tab's own status-card language."""
         self.details_icon.setPixmap(fibsem_icon(icon, color=colour).pixmap(20, 20))
         self.details_title.setText(title)
         self.details_subtitle.setText(subtitle)
@@ -300,13 +294,18 @@ class ConnectionDialog(QDialog):
     def _refresh_details(self) -> None:
         """Say what is attached, or where Connect is about to go."""
         if self.microscope is not None:
+            # A green tick, as the Connection tab's card has: the session was
+            # established, and reporting that outcome is what this panel is for.
+            # (The header chip in #515 stays wordless about it for a different
+            # reason -- it is on screen for hours, and nothing watches the link.)
             info = self.microscope.system.info
             self._set_details(
-                f"{info.manufacturer} {info.model}".strip(),
-                f"{info.ip_address}  ·  serial {info.serial_number}",
-                "mdi:microscope",
-                TEXT_STRONG_COLOR,
+                "Microscope connected",
+                f"{info.manufacturer} {info.model} at {info.ip_address}".strip(),
+                "mdi:check-circle",
+                OK_COLOR,
             )
+            self.details_subtitle.setToolTip(f"Serial number: {info.serial_number}")
             return
 
         if self.configuration_path() is None:

@@ -159,7 +159,7 @@ def test_it_shows_what_is_connected(connected_dialog):
     """Not the same dialog worded as though nothing had happened yet."""
     info = connected_dialog.microscope.system.info
 
-    assert info.manufacturer in connected_dialog.details_title.text()
+    assert info.manufacturer in connected_dialog.details_subtitle.text()
     assert info.ip_address in connected_dialog.details_subtitle.text()
     # The panel names it; the title says what the dialog is for, once.
     assert connected_dialog.title_label.text() == "Microscope connection"
@@ -268,20 +268,20 @@ def test_losing_the_session_mid_workflow_says_what_it_will_break(qapp, monkeypat
         d.deleteLater()
 
 
-def test_the_details_panel_never_claims_the_link_is_up(connected_dialog):
-    """The Connection tab's card says "Microscope Connected" over a green tick.
+def test_the_details_panel_reports_the_connection(connected_dialog):
+    """Reported as the Connection tab's card reports it, tick included.
 
-    This deliberately does not. Nothing watches the link (FIB-777), so with a
-    session opened hours ago that tick asserts something nobody has checked. The
-    other direction is safe: with no microscope there is nothing to be wrong about,
-    which is why the disconnected panel does say so outright.
+    Deliberate: this panel describes the outcome of a connection that was
+    established, in a dialog someone opened to look at it. The header chip in #515
+    stays wordless about the link for a different reason -- it is on screen for
+    hours, and nothing watches the connection (FIB-777).
     """
-    text = (
-        connected_dialog.details_title.text() + connected_dialog.details_subtitle.text()
-    ).lower()
+    info = connected_dialog.microscope.system.info
 
-    assert "connected" not in text
-    assert "online" not in text
+    assert connected_dialog.details_title.text() == "Microscope connected"
+    assert info.manufacturer in connected_dialog.details_subtitle.text()
+    assert info.ip_address in connected_dialog.details_subtitle.text()
+    assert info.serial_number in connected_dialog.details_subtitle.toolTip()
 
 
 def test_a_configuration_that_resolves_nowhere_shows_in_the_panel(dialog):
