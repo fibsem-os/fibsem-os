@@ -169,26 +169,50 @@ select = ["E4", "E7", "E9", "F", "I"]
 # attached to them ("kept alive for app lifetime"). It belongs at the end of the
 # ratchet, once `select` has stopped moving.
 
-# Every rule below is a real violation with a real fix, parked so the linter can
-# be enforced from day one instead of after a 694-violation cleanup. Burn them
-# down one rule per PR and delete the line; the counts are as of this commit.
+# Rules that are switched off because the codebase does not satisfy them yet --
+# not because they are wrong. Each is a real violation with a real fix. Burn one
+# down per pull request and delete its line.
+#
+# Deliberately no counts here. They change with every merge, so a number written
+# in this file is wrong within days, and it is the copy people trust because it
+# sits next to the config. Current numbers are one command:
+#
+#     ruff check --select F401 --statistics .     # or ALL, or any rule below
+#
+# and the burn-down is tracked in Linear under FIB-754, which is also where the
+# per-rule analysis lives.
+#
+# What is worth writing down here is what does NOT drift:
 ignore = [
-    "F401", # 395  unused-import -- read the warning below before touching these
-    "E402", # 66   module-import-not-at-top-of-file
-    "F841", # 61   unused-variable
-    "E702", # 60   multiple-statements-on-one-line-semicolon
-    "F821", # 24   undefined-name -- includes at least one real NameError
-    "E701", # 19   multiple-statements-on-one-line-colon
-    "E741", # 15   ambiguous-variable-name
-    "E712", # 14   true-false-comparison
-    "E721", # 12   type-comparison
-    "F811", # 8    redefined-while-unused
-    "F403", # 5    undefined-local-with-import-star
-    "F405", # 5    undefined-local-with-import-star-usage
-    "E722", # 3    bare-except
-    "E731", # 3    lambda-assignment
-    "F402", # 3    import-shadowed-by-loop-var
-    "F601", # 1    multi-value-repeated-key-literal
+    # Do not autofix blind. Ruff answers "is this name used in this file", which
+    # is not "is it safe to delete" -- names re-exported through a module, or
+    # reached as `mod.X` after `from pkg import mod`, look unused to it and are
+    # not. One such removal is rated *safe* and breaks scripts/test_installation.
+    # Check candidates against the whole repo first, and run the suite.
+    # In __init__.py an unused import IS the re-export idiom; ruff already
+    # refuses to autofix those, and they want a per-file-ignore at the moment
+    # this rule leaves the list -- adding one earlier suppresses nothing, since
+    # the rule is ignored globally here.
+    "F401",
+    "E402",
+    "F841",
+    "E702",
+    "E701",
+    # All remaining instances are in dead or annotation-only code; none is a
+    # live NameError. Worth fixing for `typing.get_type_hints`, not as a bug hunt.
+    "F821",
+    "E741",
+    "E712",
+    "E721",
+    "F811",
+    "F403",
+    "F405",
+    # Swallows KeyboardInterrupt and SystemExit along with everything else. On a
+    # long acquisition that is the difference between Ctrl+C working and not.
+    "E722",
+    "E731",
+    "F402",
+    "F601",
 ]
 
 # F401 is not a mechanical fix in this codebase, and `--fix` alone is enough to
