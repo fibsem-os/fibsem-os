@@ -22,6 +22,7 @@ from fibsem.structures import BeamType, FibsemImage
 def make_microscope(acquire_side_effect=None):
     """Create a TescanMicroscope whose acquire_image returns a sentinel per beam."""
     m = object.__new__(TescanMicroscope)
+    m._connection_lock = threading.RLock()
     # per-instance event/thread so tests don't share the class-level defaults
     m._stop_acquisition_event = threading.Event()
     m._acquisition_thread = None
@@ -67,6 +68,7 @@ def run_worker_briefly(m, beam_type, frames=3):
     The worker checks the stop event between acquire and emit, so the acquisition that
     trips the stop is deliberately not emitted; stop one acquire later so `frames` emit.
     """
+
     def stop_after(n):
         if n > frames:
             m._stop_acquisition_event.set()
@@ -81,6 +83,7 @@ def run_worker_briefly(m, beam_type, frames=3):
 
 
 # --------------------------------------------------------------------------
+
 
 def test_worker_stops_when_event_is_set_before_start():
     """A stop event set up-front means zero acquisitions."""
@@ -137,7 +140,7 @@ def test_no_frame_emitted_when_stopped_mid_iteration():
     m._acquisition_worker(BeamType.ELECTRON)
 
     assert m._test_calls["n"] == 1  # acquired once
-    assert len(sem) == 0            # but the stop check dropped it before emit
+    assert len(sem) == 0  # but the stop check dropped it before emit
 
 
 def test_worker_survives_acquire_errors_without_raising():

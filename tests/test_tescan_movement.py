@@ -18,6 +18,7 @@ __init__ and the stage state is stubbed.
 """
 
 import os
+import threading
 
 import numpy as np
 import pytest
@@ -47,7 +48,7 @@ TESCAN_CONFIG_PATH = os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
 
 # rotation conventions from tescan-configuration.yaml
 ROTATION_FLAT_TO_EB = np.deg2rad(180)  # stage.rotation_reference
-ROTATION_FLAT_TO_ION = np.deg2rad(0)   # stage.rotation_180
+ROTATION_FLAT_TO_ION = np.deg2rad(0)  # stage.rotation_180
 
 FIB_COLUMN_TILT = np.deg2rad(55)
 
@@ -62,6 +63,7 @@ def make_microscope(
     system.stage.shuttle_pre_tilt = pretilt_deg
 
     microscope = object.__new__(TescanMicroscope)  # skip __init__ (requires SDK)
+    microscope._connection_lock = threading.RLock()
     microscope.system = system
     microscope.stage_is_compustage = False
 
@@ -74,7 +76,9 @@ def make_microscope(
     microscope.get_stage_position = lambda: microscope._test_stage_position
     # get_scan_rotation returns radians (codebase convention); the test param is degrees
     microscope.get_scan_rotation = lambda beam_type: np.deg2rad(scan_rotation_deg)
-    microscope.move_stage_relative = lambda position: microscope._recorded_moves.append(position)
+    microscope.move_stage_relative = lambda position: microscope._recorded_moves.append(
+        position
+    )
     return microscope
 
 
@@ -93,17 +97,26 @@ def make_image(
     """
     state = MicroscopeState(
         stage_position=stage_position,
-        electron_beam=BeamSettings(beam_type=BeamType.ELECTRON, scan_rotation=scan_rotation),
+        electron_beam=BeamSettings(
+            beam_type=BeamType.ELECTRON, scan_rotation=scan_rotation
+        ),
         ion_beam=BeamSettings(beam_type=BeamType.ION, scan_rotation=scan_rotation),
     )
     # v6 (FIB-481) split the old `system` metadata into system_info (identity, carries
     # manufacturer) + hardware_geometry (the tilt/rotation geometry the inverse needs).
     system_info = SystemInfo(
-        name="test", ip_address="localhost", manufacturer="Tescan", model="test",
-        serial_number="test", hardware_version="test", software_version="test",
+        name="test",
+        ip_address="localhost",
+        manufacturer="Tescan",
+        model="test",
+        serial_number="test",
+        hardware_version="test",
+        software_version="test",
     )
     md = FibsemImageMetadata(
-        image_settings=ImageSettings(resolution=(shape[1], shape[0]), beam_type=beam_type),
+        image_settings=ImageSettings(
+            resolution=(shape[1], shape[0]), beam_type=beam_type
+        ),
         pixel_size=Point(pixel_size, pixel_size),
         microscope_state=state,
         system_info=system_info,
@@ -112,7 +125,9 @@ def make_image(
     return FibsemImage(data=np.zeros(shape, dtype=np.uint8), metadata=md)
 
 
-def stage_at(tilt_deg: float, rotation: float = ROTATION_FLAT_TO_EB) -> FibsemStagePosition:
+def stage_at(
+    tilt_deg: float, rotation: float = ROTATION_FLAT_TO_EB
+) -> FibsemStagePosition:
     return FibsemStagePosition(
         x=0, y=0, z=0, r=rotation, t=np.deg2rad(tilt_deg), coordinate_system="RAW"
     )
@@ -121,6 +136,7 @@ def stage_at(tilt_deg: float, rotation: float = ROTATION_FLAT_TO_EB) -> FibsemSt
 # ---------------------------------------------------------------------------
 # _y_corrected_stage_movement (forward)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("tilt_deg", [0.0, 10.0, 17.0, 30.0, 45.0])
 @pytest.mark.parametrize("pretilt_deg", [0.0, 20.0, 35.0])
@@ -201,6 +217,7 @@ def test_pretilt_sign_flips_when_facing_ion():
 # stable_move / project_stable_move
 # ---------------------------------------------------------------------------
 
+
 def test_stable_move_applies_axis_inversion():
     """stable_move applies the empirical stage-axis inversion (x=-dx, y=-y_chamber)
     after the trig, leaving z independent."""
@@ -240,7 +257,9 @@ def test_project_stable_move_matches_stable_move(beam_type):
     m = make_microscope(pretilt_deg=35.0, stage_position=base)
     dx, dy = 1e-6, 2e-6
 
-    projected = m.project_stable_move(dx=dx, dy=dy, beam_type=beam_type, base_position=base)
+    projected = m.project_stable_move(
+        dx=dx, dy=dy, beam_type=beam_type, base_position=base
+    )
     m.stable_move(dx=dx, dy=dy, beam_type=beam_type)
     applied = m._recorded_moves[0]
 
@@ -252,6 +271,7 @@ def test_project_stable_move_matches_stable_move(beam_type):
 # ---------------------------------------------------------------------------
 # inverse round trips
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
 @pytest.mark.parametrize("rotation", [ROTATION_FLAT_TO_EB, ROTATION_FLAT_TO_ION])
@@ -266,7 +286,9 @@ def test_microscope_inverse_round_trip(beam_type, rotation, tilt_deg, pretilt_de
     chamber = m._y_corrected_stage_movement(expected_y=dy, beam_type=beam_type)
     dy_raw, dz_raw = -chamber.y, chamber.z  # as applied by stable_move
 
-    recovered = m._inverse_y_corrected_stage_movement(dy=dy_raw, dz=dz_raw, beam_type=beam_type)
+    recovered = m._inverse_y_corrected_stage_movement(
+        dy=dy_raw, dz=dz_raw, beam_type=beam_type
+    )
 
     assert recovered == pytest.approx(dy)
 
@@ -288,7 +310,9 @@ def test_inverse_uses_sin_branch_past_45_degrees(beam_type):
 
     chamber = m._y_corrected_stage_movement(expected_y=dy, beam_type=beam_type)
     inclination = np.deg2rad(tilt_deg + pretilt_deg)
-    assert abs(np.sin(inclination)) > abs(np.cos(inclination)), "fixture must hit the sin branch"
+    assert abs(np.sin(inclination)) > abs(np.cos(inclination)), (
+        "fixture must hit the sin branch"
+    )
 
     recovered = m._inverse_y_corrected_stage_movement(
         dy=-chamber.y, dz=chamber.z, beam_type=beam_type
@@ -306,7 +330,9 @@ def test_standalone_inverse_matches_microscope(beam_type, tilt_deg):
     image = make_image(m.system, stage_position, beam_type=beam_type)
     dy_raw, dz_raw = -1.5e-6, 0.5e-6
 
-    from_microscope = m._inverse_y_corrected_stage_movement(dy=dy_raw, dz=dz_raw, beam_type=beam_type)
+    from_microscope = m._inverse_y_corrected_stage_movement(
+        dy=dy_raw, dz=dz_raw, beam_type=beam_type
+    )
     from_metadata = _inverse_y_corrected_stage_movement_tescan(
         image, dy=dy_raw, dz=dz_raw, beam_type=beam_type
     )
@@ -331,10 +357,14 @@ def test_standalone_inverse_matches_microscope_sin_branch(beam_type):
     image = make_image(m.system, stage_position, beam_type=beam_type)
 
     inclination = np.deg2rad(tilt_deg + pretilt_deg)  # 50 deg -> sin branch
-    assert abs(np.sin(inclination)) > abs(np.cos(inclination)), "fixture must hit the sin branch"
+    assert abs(np.sin(inclination)) > abs(np.cos(inclination)), (
+        "fixture must hit the sin branch"
+    )
 
     dy_raw, dz_raw = -1.5e-6, 0.5e-6
-    from_microscope = m._inverse_y_corrected_stage_movement(dy=dy_raw, dz=dz_raw, beam_type=beam_type)
+    from_microscope = m._inverse_y_corrected_stage_movement(
+        dy=dy_raw, dz=dz_raw, beam_type=beam_type
+    )
     from_metadata = _inverse_y_corrected_stage_movement_tescan(
         image, dy=dy_raw, dz=dz_raw, beam_type=beam_type
     )
@@ -355,8 +385,12 @@ def test_inverse_dispatches_on_manufacturer(manufacturer):
     image.metadata.system_info.manufacturer = manufacturer
     dy_raw, dz_raw = -1.5e-6, 0.5e-6
 
-    generic = _inverse_y_corrected_stage_movement(image, dy=dy_raw, dz=dz_raw, beam_type=BeamType.ELECTRON)
-    tescan = _inverse_y_corrected_stage_movement_tescan(image, dy=dy_raw, dz=dz_raw, beam_type=BeamType.ELECTRON)
+    generic = _inverse_y_corrected_stage_movement(
+        image, dy=dy_raw, dz=dz_raw, beam_type=BeamType.ELECTRON
+    )
+    tescan = _inverse_y_corrected_stage_movement_tescan(
+        image, dy=dy_raw, dz=dz_raw, beam_type=BeamType.ELECTRON
+    )
 
     assert generic == pytest.approx(tescan)
 
@@ -397,8 +431,9 @@ def test_reprojection_round_trip_scan_rotation_180(beam_type):
     m = make_microscope(pretilt_deg=35.0, stage_position=base, scan_rotation_deg=180.0)
     pixel_size = 1e-7
     # image metadata stores scan_rotation in radians (as get_beam_settings does)
-    image = make_image(m.system, base, beam_type=beam_type,
-                       pixel_size=pixel_size, scan_rotation=np.pi)
+    image = make_image(
+        m.system, base, beam_type=beam_type, pixel_size=pixel_size, scan_rotation=np.pi
+    )
     dx, dy = 1e-6, 2e-6
 
     pos = m.project_stable_move(dx=dx, dy=dy, beam_type=beam_type, base_position=base)
