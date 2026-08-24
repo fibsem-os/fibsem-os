@@ -1870,7 +1870,8 @@ class FibsemMillingSettings:
         }
 
     def get_parameters_for_manufacturer(self, manufacturer: str) -> tuple[str, ...]:
-        """Get all parameter names for a specific manufacturer."""
+        """Get all parameter names for a specific manufacturer (any known spelling)."""
+        manufacturer = normalize_manufacturer(manufacturer)
         if manufacturer not in self._SUPPORTED_MANUFACTURERS:
             raise ValueError(
                 f"Manufacturer must be one of: {', '.join(self._SUPPORTED_MANUFACTURERS)}"
