@@ -149,6 +149,7 @@ if TYPE_CHECKING:
 
     from numpy.typing import NDArray
 
+    from fibsem.imaging.spot import SpotBurnSettings
     from fibsem.structures import TFibsemPatternSettings
 
 
@@ -1113,6 +1114,108 @@ class FibsemMicroscope(ABC):
         """Set the full frame scanning mode for the specified beam type."""
         self.set("full_frame", None, beam_type)
         return
+
+    def run_spot_burn(
+        self,
+        settings: SpotBurnSettings,
+        beam_type: BeamType = BeamType.ION,
+        stop_event: Optional[threading.Event] = None,
+    ) -> None:
+        """Burn each coordinate in *settings* with the beam for the configured exposure time.
+
+        Default implementation: blank -> park the beam on the point (spot scanning mode)
+        -> unblank, at ``settings.milling_current``, restoring full-frame scanning and
+        the imaging current afterwards. Backends whose scan API cannot park the beam
+        (e.g. TESCAN, whose FIB has no blanker) override this with a native
+        implementation.
+
+        Progress is reported via ``spot_burn_progress_signal`` (a dict), which the
+        status bar and the spot burn widget subscribe to.
+
+        Args:
+            settings: What to burn — coordinates (0-1 image coordinates), exposure time
+                per point in seconds, and the milling current to burn at.
+            beam_type: The type of beam to use. (Default: BeamType.ION)
+            stop_event: Threading event to signal cancellation. (Default: None)
+        """
+        # - QUERY: do we need to set the full frame scanning mode each time, or only at the end?
+        SLEEP_TIME = 1
+
+        # coerce numeric parameters: protocol-editor fields can arrive as strings
+        # (e.g. "3e-11"), which would break beam-current/timing arithmetic on hardware.
+        # Read into locals rather than writing back — settings belongs to the caller.
+        exposure_time = float(settings.exposure_time)
+        milling_current = float(settings.milling_current)
+
+        # drop points outside the image bounds (0-1 normalised); set_spot rejects out-of-range
+        # coordinates on hardware. The supervised widget filters these, so filter here too for
+        # the unsupervised/automatic path (coordinates come straight from the stored config).
+        in_bounds, dropped = [], []
+        for pt in settings.coordinates:
+            (in_bounds if 0 <= pt.x <= 1 and 0 <= pt.y <= 1 else dropped).append(pt)
+        if dropped:
+            logging.warning(
+                f"Skipping {len(dropped)} spot burn coordinate(s) outside image bounds (0-1): {dropped}"
+            )
+        coordinates = in_bounds
+
+        total_estimated_time = len(coordinates) * exposure_time
+        total_remaining_time = total_estimated_time
+
+        # emit initial progress signal
+        self.spot_burn_progress_signal.emit(
+            {
+                "current_point": 0,
+                "total_points": len(coordinates),
+                "remaining_time": exposure_time,
+                "total_remaining_time": total_remaining_time,
+                "total_estimated_time": total_estimated_time,
+            }
+        )
+
+        # set the beam current to the milling current
+        imaging_current = self.get_beam_current(beam_type=beam_type)
+        self.set_beam_current(current=milling_current, beam_type=beam_type)
+
+        for i, pt in enumerate(coordinates, 1):
+
+            if stop_event is not None and stop_event.is_set():
+                logging.info(f"Spot burn cancelled before point {i}/{len(coordinates)}.")
+                break
+
+            logging.info(f'burning spot {i}: {pt}, exposure time: {exposure_time}, milling current: {milling_current}')
+
+            self.blank(beam_type=beam_type)
+            self.set_spot_scanning_mode(point=pt, beam_type=beam_type)
+            self.unblank(beam_type=beam_type)
+
+            # countdown for the exposure time, emit progress signal
+            remaining_time = exposure_time
+            while remaining_time > 0:
+                if stop_event is not None and stop_event.is_set():
+                    self.blank(beam_type=beam_type)
+                    logging.info(f"Spot burn cancelled during point {i}/{len(coordinates)}.")
+                    break
+                time.sleep(SLEEP_TIME)
+                remaining_time -= SLEEP_TIME
+                total_remaining_time -= SLEEP_TIME
+                self.spot_burn_progress_signal.emit(
+                    {
+                        "current_point": i,
+                        "total_points": len(coordinates),
+                        "remaining_time": remaining_time,
+                        "total_remaining_time": total_remaining_time,
+                        "total_estimated_time": total_estimated_time,
+                    }
+                )
+
+        # always restore full frame scanning mode and imaging current
+        self.set_full_frame_scanning_mode(beam_type=beam_type)
+
+        # emit finished signal
+        self.spot_burn_progress_signal.emit({"finished": True})
+
+        self.set_beam_current(current=imaging_current, beam_type=beam_type)
 
     def get_beam_current(self, beam_type: BeamType) -> float:
         """Get the beam current for the specified beam type."""

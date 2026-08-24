@@ -52,7 +52,9 @@ try:
 except Exception as e:
     logging.debug(f"Automation (TESCAN) not installed. {e}")
 
+from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.structures import (  # noqa
+    ACTIVE_MILLING_STATES,
     BeamSettings,
     BeamSystemSettings,
     BeamType,
@@ -74,10 +76,9 @@ from fibsem.structures import (  # noqa
     FibsemUser,
     ImageSettings,
     MicroscopeState,
+    MillingState,
     Point,
     SystemSettings,
-    MillingState,
-    ACTIVE_MILLING_STATES,
 )
 
 
@@ -1525,28 +1526,28 @@ class TescanMicroscope(FibsemMicroscope):
 
     def run_spot_burn(
         self,
-        coordinates: List[Point],
-        exposure_time: float,
-        milling_current: Optional[float] = None,
+        settings: SpotBurnSettings,
         beam_type: BeamType = BeamType.ION,
         stop_event: Optional[threading.Event] = None,
     ) -> None:
-        """Expose each coordinate with the ion beam for exposure_time seconds.
+        """Expose each coordinate with the ion beam for the configured exposure time.
 
-        TESCAN cannot implement the blank -> park -> unblank sequence the other backends use
-        for spot burning: FIB.Scan is a strict subset of SEM.Scan, missing exactly SetBlanker,
-        GetBlanker and SetBeamPosition, and no FIB blanker exists anywhere in the SDK. This
-        instead uses DrawBeam, which does the same job natively -- a Dot object with
-        DepthUnit.Second is a timed exposure at a point.
+        TESCAN cannot implement the blank -> park -> unblank sequence the default
+        implementation uses for spot burning: FIB.Scan is a strict subset of SEM.Scan,
+        missing exactly SetBlanker, GetBlanker and SetBeamPosition, and no FIB blanker
+        exists anywhere in the SDK. This instead uses DrawBeam, which does the same job
+        natively -- a Dot object with DepthUnit.Second is a timed exposure at a point.
 
-        All points go into a single layer, so this runs as one DrawBeam exposition and reports
-        progress the same way run_milling does, via milling_progress_signal.
+        All points go into a single layer, so this runs as one DrawBeam exposition.
+        Progress is reported via ``spot_burn_progress_signal`` in the shape the spot
+        burn widget parses; the point index is derived from elapsed time, since DrawBeam
+        runs the dots sequentially at exposure_time each and the SDK has no per-dot
+        callback.
 
         Args:
-            coordinates: points to burn, normalised image coordinates (0-1).
-            exposure_time: seconds to expose each point.
-            milling_current: ignored on TESCAN, accepted for cross-backend signature parity;
-                the beam conditions come from SPOT_BURN_PRESET.
+            settings: coordinates to burn (normalised image coordinates, 0-1) and the
+                exposure time per point. ``settings.milling_current`` is ignored on
+                TESCAN; the beam conditions come from SPOT_BURN_PRESET.
             beam_type: must be BeamType.ION.
             stop_event: set to cancel the exposition.
         """
@@ -1555,19 +1556,19 @@ class TescanMicroscope(FibsemMicroscope):
                 f"Spot burn is only supported on the ion beam, got {beam_type.name}."
             )
 
-        exposure_time = float(exposure_time)
+        exposure_time = float(settings.exposure_time)
         if exposure_time <= 0:
             raise ValueError(f"exposure_time must be positive, got {exposure_time}.")
 
-        if milling_current is not None:
+        if settings.milling_current is not None:
             logging.info(
                 f"Spot burn milling_current is ignored on TESCAN; using preset "
-                f"{SPOT_BURN_PRESET!r}. (requested: {milling_current})"
+                f"{SPOT_BURN_PRESET!r}. (requested: {settings.milling_current})"
             )
 
         # drop points outside the image bounds, matching the shared implementation
         in_bounds, dropped = [], []
-        for pt in coordinates:
+        for pt in settings.coordinates:
             (in_bounds if 0 <= pt.x <= 1 and 0 <= pt.y <= 1 else dropped).append(pt)
         if dropped:
             logging.warning(
@@ -1592,15 +1593,26 @@ class TescanMicroscope(FibsemMicroscope):
             resolution=resolution,
         )
 
+        total_points = len(coordinates)
+        estimated_time = total_points * exposure_time
         start_time = time.time()
-        estimated_time = len(coordinates) * exposure_time
-        remaining_time = estimated_time
 
         self.connection.DrawBeam.LoadLayer(layer)
         logging.info(
-            f"running spot burn now: {len(coordinates)} point(s), "
+            f"running spot burn now: {total_points} point(s), "
             f"{exposure_time}s each, {estimated_time}s total..."
         )
+
+        self.spot_burn_progress_signal.emit(
+            {
+                "current_point": 0,
+                "total_points": total_points,
+                "remaining_time": exposure_time,
+                "total_remaining_time": estimated_time,
+                "total_estimated_time": estimated_time,
+            }
+        )
+
         self.connection.DrawBeam.Start()
 
         try:
@@ -1611,19 +1623,24 @@ class TescanMicroscope(FibsemMicroscope):
                     break
 
                 time.sleep(SPOT_BURN_POLL_INTERVAL)
-                remaining_time = max(0.0, estimated_time - (time.time() - start_time))
 
-                self.milling_progress_signal.emit(
+                # DrawBeam exposes no per-dot progress, but it burns the dots in order
+                # at exposure_time each, so elapsed time maps onto the point index.
+                elapsed = time.time() - start_time
+                current_point = min(total_points, int(elapsed // exposure_time) + 1)
+                self.spot_burn_progress_signal.emit(
                     {
-                        "progress": {
-                            "state": "update",
-                            "milling_state": self.get_milling_state(),
-                            "start_time": start_time,
-                            "estimated_time": estimated_time,
-                            "remaining_time": remaining_time,
-                        }
+                        "current_point": current_point,
+                        "total_points": total_points,
+                        "remaining_time": max(
+                            0.0, current_point * exposure_time - elapsed
+                        ),
+                        "total_remaining_time": max(0.0, estimated_time - elapsed),
+                        "total_estimated_time": estimated_time,
                     }
                 )
+
+            self.spot_burn_progress_signal.emit({"finished": True})
         except Exception as e:
             logging.error(f"Error in run_spot_burn: {e}")
             raise
