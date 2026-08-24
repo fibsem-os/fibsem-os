@@ -23,7 +23,9 @@ from fibsem import cli
 
 # flag argv, namespace attribute, value once given, value when absent
 CONNECTION_FLAGS = [
-    (["--manufacturer", "Thermo"], "manufacturer", "Thermo", "Demo"),
+    # input is the historical spelling on purpose: the parser normalises it, so
+    # the parsed value is canonical
+    (["--manufacturer", "Thermo"], "manufacturer", "ThermoFisher", "Demo"),
     (["--ip-address", "10.0.0.1"], "ip_address", "10.0.0.1", "localhost"),
     (["--config", "/tmp/scope.yaml"], "config_path", Path("/tmp/scope.yaml"), None),
     (["--debug"], "debug", True, False),
@@ -87,7 +89,7 @@ def test_every_subcommand_honours_a_flag_given_before_it(subcommand):
     would reintroduce the bug for that one subcommand only.
     """
     argv = ["--manufacturer", "Thermo", subcommand, *POSITIONALS.get(subcommand, [])]
-    assert _parse(*argv).manufacturer == "Thermo"
+    assert _parse(*argv).manufacturer == "ThermoFisher"
 
 
 def test_the_sweep_covers_every_subcommand():
