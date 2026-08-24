@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
 from superqt.utils import qdebounced
 
 from fibsem import config as cfg
-from fibsem import constants, utils
+from fibsem import constants, manufacturers, utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamSettings, BeamType, Point
 from fibsem.ui import notification_service
@@ -568,7 +568,7 @@ class FibsemBeamSettingsWidget(QWidget):
 
     def _update_visibility(self):
         """Apply visibility based on manufacturer and advanced-mode state."""
-        is_tescan = self.microscope.manufacturer.upper() == "TESCAN"
+        is_tescan = manufacturers.is_tescan(self.microscope.manufacturer)
         adv = self._advanced_visible
 
         for w in self._adv_widgets:

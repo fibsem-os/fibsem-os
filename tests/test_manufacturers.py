@@ -158,18 +158,13 @@ def test_module_namespace_access():
 
 def test_no_upper_tescan_band_aids_outside_the_allowlist():
     """`.upper() == "TESCAN"` was each call site's local coping mechanism for the
-    casing split; new comparisons go through `manufacturers.is_tescan`. The two
-    widget sites remain until the validation/config part lands -- the allowlist
-    then empties and never grows."""
+    casing split; every comparison now goes through `manufacturers.is_tescan`."""
     import os
     from pathlib import Path
 
     import fibsem
 
-    ALLOWED = {
-        "fibsem/ui/widgets/milling_stages_widget.py",
-        "fibsem/ui/widgets/beam_settings_widget.py",
-    }
+    ALLOWED = set()  # emptied when the widget sites converted; never grows
     root = Path(fibsem.__file__).parent
     offenders = []
     for path in root.rglob("*.py"):
@@ -199,3 +194,19 @@ def test_setup_session_accepts_any_demo_spelling(tmp_path):
     assert type(microscope).__name__ == "DemoMicroscope"
     assert settings.system.info.manufacturer == DEMO
     microscope.disconnect()
+
+
+def test_milling_parameters_accept_any_manufacturer_spelling():
+    """get_parameters_for_manufacturer used to raise on "Thermo" and "TESCAN" --
+    the exact spellings configs and live image headers carry."""
+    from fibsem.structures import FibsemMillingSettings
+
+    s = FibsemMillingSettings()
+    assert s.get_parameters_for_manufacturer(
+        "Thermo"
+    ) == s.get_parameters_for_manufacturer("ThermoFisher")
+    assert s.get_parameters_for_manufacturer(
+        "TESCAN"
+    ) == s.get_parameters_for_manufacturer("Tescan")
+    with pytest.raises(ValueError):
+        s.get_parameters_for_manufacturer("Hitachi")
