@@ -13,7 +13,7 @@ from typing import List, Tuple
 
 import numpy as np
 
-from fibsem import movement
+from fibsem import manufacturers, movement
 from fibsem.conversions import is_inside_image_bounds
 from fibsem.structures import (
     BeamType,
@@ -169,12 +169,9 @@ def calculate_reprojected_stage_position2(
         )
 
     # Tescan stage x is inverted wrt image coordinates (see TescanMicroscope.stable_move);
-    # the y inversion is handled inside _inverse_y_corrected_stage_movement_tescan. Match
-    # case-insensitively — a live scope reports "TESCAN", config/saved images "Tescan"; an
-    # exact check silently fell back to Thermo math and placed added positions at the
-    # opposite corner. (band-aid string check, tracked in FIB-300)
+    # the y inversion is handled inside _inverse_y_corrected_stage_movement_tescan.
     system_info = image.metadata.system_info
-    if system_info is not None and system_info.manufacturer.upper() == "TESCAN":
+    if system_info is not None and manufacturers.is_tescan(system_info.manufacturer):
         dx = -dx
 
     # dy = microscope._inverse_y_corrected_stage_movement(dy=delta.y, dz=delta.z, beam_type=beam_type) # type: ignore
@@ -342,11 +339,9 @@ def _inverse_y_corrected_stage_movement(
         )
 
     # Tescan stages have a different geometry (z below the tilt axis), so the inverse
-    # is a separate derivation, not the compustage-aware path below. Match
-    # case-insensitively: a live scope reports "TESCAN", config/saved images "Tescan".
-    # (band-aid string check, tracked in FIB-300)
+    # is a separate derivation, not the compustage-aware path below.
     system_info = image.metadata.system_info
-    if system_info is not None and system_info.manufacturer.upper() == "TESCAN":
+    if system_info is not None and manufacturers.is_tescan(system_info.manufacturer):
         return _inverse_y_corrected_stage_movement_tescan(
             image, dy=dy, dz=dz, beam_type=beam_type
         )

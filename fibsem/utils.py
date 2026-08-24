@@ -13,6 +13,7 @@ import yaml
 from PIL import Image
 
 from fibsem import config as cfg
+from fibsem import manufacturers
 from fibsem.constants import DATETIME_LOG, TIME_FILE
 from fibsem.structures import (
     BeamType,
@@ -30,7 +31,9 @@ def current_timestamp():
     Returns:
         String: Current time
     """
-    return datetime.datetime.fromtimestamp(time.time()).strftime(DATETIME_LOG) #PM/AM doesnt work?
+    return datetime.datetime.fromtimestamp(time.time()).strftime(
+        DATETIME_LOG
+    )  # PM/AM doesnt work?
 
 
 def current_timestamp_v2():
@@ -41,6 +44,7 @@ def current_timestamp_v2():
     """
     return str(time.time()).replace(".", "_")
 
+
 def current_timestamp_v3(timeonly: bool = True) -> str:
     """Return the current time in a specific string formats: HH-MM-SS or YYYY-MM-DD-HH-MM-SSAM/PM"""
     now = datetime.datetime.now()
@@ -48,9 +52,11 @@ def current_timestamp_v3(timeonly: bool = True) -> str:
         return now.strftime(TIME_FILE)
     return now.strftime(DATETIME_LOG)
 
+
 def _format_time_seconds(seconds: float) -> str:
     """Format a time delta in seconds to proper string format."""
     return str(datetime.timedelta(seconds=seconds)).split(".")[0]
+
 
 def format_duration(seconds: float) -> str:
     """Format a duration given in seconds into a human-readable string (hours, minutes, seconds)."""
@@ -92,6 +98,7 @@ def format_time_remaining(seconds: float, pad: bool = False) -> str:
         return f"{minutes}m {secs:{width}}s"
     return f"{secs}s"
 
+
 SI_PREFIXES = {
     -12: "p",
     -9: "n",
@@ -118,6 +125,7 @@ def format_resolution_as_str(resolution: List[int]) -> str:
     """
     return f"{resolution[0]} x {resolution[1]}"
 
+
 def _get_scale_from_value(val: float) -> float:
     """Return the scale multiplier corresponding to the SI prefix for a value."""
     if val == 0:
@@ -141,13 +149,20 @@ def _get_prefix_from_scale(scale: float) -> Tuple[str, float]:
     multiplier = (10 ** (-exponent)) / scale
     return prefix, multiplier
 
+
 def _get_display_unit(scale: float, unit: Optional[str] = None) -> str:
     """Return the formatted unit string using the scale-derived SI prefix."""
     unit = unit or ""
     prefix, _ = _get_prefix_from_scale(scale)
     return f"{prefix}{unit}"
 
-def format_value(val: float, unit: Optional[str] = None, precision: int = 2, scale: Optional[float] = None) -> str:
+
+def format_value(
+    val: float,
+    unit: Optional[str] = None,
+    precision: int = 2,
+    scale: Optional[float] = None,
+) -> str:
     """Format a numerical value as a string with nearest SI unit.
 
     Args:
@@ -165,28 +180,35 @@ def format_value(val: float, unit: Optional[str] = None, precision: int = 2, sca
     unit = unit or ""
     return f"{scaled_val:.{precision}f} {prefix}{unit}"
 
+
 def make_logging_directory(path: Optional[Path] = None, name="run"):
     """
-    Create a logging directory with the specified name at the specified file path. 
+    Create a logging directory with the specified name at the specified file path.
     If no path is given, it creates the directory at the default base path.
 
     Args:
-        path (Path, optional): The file path to create the logging directory at. If None, default base path is used. 
+        path (Path, optional): The file path to create the logging directory at. If None, default base path is used.
         name (str, optional): The name of the logging directory to create. Default is "run".
 
     Returns:
         str: The file path to the created logging directory.
-        """
-    
+    """
+
     if path is None:
         path = os.path.join(cfg.BASE_PATH, "log")
     directory = os.path.join(path, name)
     os.makedirs(directory, exist_ok=True)
     return directory
 
+
 # TODO: better logs: https://www.toptal.com/python/in-depth-python-logging
 # https://stackoverflow.com/questions/61483056/save-logging-debug-and-show-only-logging-info-python
-def configure_logging(path: Path = "", log_filename="logfile", log_level=logging.DEBUG, _DEBUG: bool = False):
+def configure_logging(
+    path: Path = "",
+    log_filename="logfile",
+    log_level=logging.DEBUG,
+    _DEBUG: bool = False,
+):
     """Log to the terminal and to file simultaneously."""
     logfile = os.path.join(path, f"{log_filename}.log")
 
@@ -238,14 +260,16 @@ def save_yaml(path: Path, data: dict) -> None:
     with open(path, "w") as f:
         yaml.dump(data, f, indent=4)
 
+
 def save_json(path: Union[Path, os.PathLike, str], data: dict) -> None:
     """Saves a python dictionary object to a json file
     Args:
         path (Path): path location to save json file
         data (dict): dictionary object
     """
-    with open(path, 'w') as f:
+    with open(path, "w") as f:
         json.dump(data, f, indent=4)
+
 
 def create_gif(path: Path, search: str, gif_fname: str, loop: int = 0) -> None:
     """Creates a GIF from a set of images. Images must be in same folder
@@ -268,8 +292,6 @@ def create_gif(path: Path, search: str, gif_fname: str, loop: int = 0) -> None:
         loop=loop,
     )
 
-VALID_THERMO_FISHER = ["Thermo", "Thermo Fisher Scientific", "Thermo Fisher Scientific"]
-VALID_TESCAN = ["Tescan", "TESCAN" ]
 
 def setup_session(
     session_path: Path = None,
@@ -279,12 +301,12 @@ def setup_session(
     ip_address: str = None,
     manufacturer: str = None,
     debug: bool = False,
-) -> Tuple['FibsemMicroscope', 'MicroscopeSettings']:
+) -> Tuple["FibsemMicroscope", "MicroscopeSettings"]:
     """Setup microscope session
 
     Args:
         session_path (Path): path to logging directory
-        config_path (Path): path to config directory 
+        config_path (Path): path to config directory
         protocol_path (Path): path to protocol file
 
     Returns:
@@ -295,7 +317,7 @@ def setup_session(
     settings = load_microscope_configuration(config_path, protocol_path)
 
     # create session directories
-    session = f'{settings.protocol.get("name", "fibsem-os")}_{current_timestamp()}'
+    session = f"{settings.protocol.get('name', 'fibsem-os')}_{current_timestamp()}"
     if protocol_path is None:
         protocol_path = os.getcwd()
 
@@ -314,37 +336,40 @@ def setup_session(
     # cheap overloading
     if ip_address:
         settings.system.info.ip_address = ip_address
-    
+
     if manufacturer:
-        settings.system.info.manufacturer = manufacturer
+        # normalise the override the same way SystemInfo.from_dict normalises the
+        # config value, so system.info always carries the canonical spelling
+        settings.system.info.manufacturer = manufacturers.normalize_manufacturer(
+            manufacturer
+        )
 
     manufacturer = settings.system.info.manufacturer
     ip_address = settings.system.info.ip_address
 
-    if manufacturer in VALID_THERMO_FISHER:
+    if manufacturer == manufacturers.THERMOFISHER:
         microscope = fibsem_microscope.ThermoMicroscope(settings.system)
-        microscope.connect_to_microscope(
-            ip_address=ip_address, port=7520
-        )
+        microscope.connect_to_microscope(ip_address=ip_address, port=7520)
 
-    elif manufacturer in VALID_TESCAN:
+    elif manufacturer == manufacturers.TESCAN:
         from fibsem.microscopes.tescan import TescanMicroscope
+
         microscope = TescanMicroscope(settings.system)
-        microscope.connect_to_microscope(
-            ip_address=ip_address, port=8300
-        )
-    elif manufacturer in ["Odemis"]:
+        microscope.connect_to_microscope(ip_address=ip_address, port=8300)
+    elif manufacturer == manufacturers.ODEMIS:
         from fibsem.microscopes.odemis_microscope import OdemisThermoMicroscope
+
         microscope = OdemisThermoMicroscope(settings.system)
 
-    elif manufacturer == "Demo":
+    elif manufacturer == manufacturers.DEMO:
         from fibsem.microscopes.simulator import DemoMicroscope
+
         microscope = DemoMicroscope(settings.system)
         microscope.connect_to_microscope(ip_address, port=7520)
 
     else:
         raise NotImplementedError(f"Manufacturer {manufacturer} not supported.")
-    
+
     # set default image_settings path
     settings.image.path = session_path
 
@@ -367,8 +392,9 @@ def load_microscope_configuration(
     """
     if config_path is None:
         from fibsem.config import DEFAULT_CONFIGURATION_PATH
+
         config_path = DEFAULT_CONFIGURATION_PATH
-    
+
     # load config
     config = load_yaml(os.path.join(config_path))
 
@@ -379,6 +405,7 @@ def load_microscope_configuration(
     settings = MicroscopeSettings.from_dict(config, protocol=protocol)
 
     return settings
+
 
 def load_protocol(protocol_path: Path = None) -> dict:
     """Load the protocol file from yaml
@@ -394,7 +421,7 @@ def load_protocol(protocol_path: Path = None) -> dict:
     else:
         protocol = {"name": "demo"}
 
-    #protocol = _format_dictionary(protocol)
+    # protocol = _format_dictionary(protocol)
 
     return protocol
 
@@ -429,6 +456,7 @@ def _format_dictionary(dictionary: dict) -> dict:
                     pass
     return dictionary
 
+
 def get_params(main_str: str) -> list:
     """Helper function to access relevant metadata parameters from sub field
 
@@ -444,7 +472,6 @@ def get_params(main_str: str) -> list:
     i = main_str.find("\n")
     i += 1
     while i < len(main_str):
-
         if main_str[i] == "=":
             cats.append(cat_str)
             cat_str = ""
@@ -457,7 +484,7 @@ def get_params(main_str: str) -> list:
 
 
 def _get_position(name: str):
-    
+
     import os
 
     from fibsem import config as cfg
@@ -470,8 +497,9 @@ def _get_position(name: str):
             return FibsemStagePosition.from_dict(d)
     return None
 
-def _get_positions(fname: str = None) -> List[str]:    
-    
+
+def _get_positions(fname: str = None) -> List[str]:
+
     import os
 
     from fibsem import config as cfg
@@ -497,24 +525,26 @@ def save_positions(positions: list, path: str = None, overwrite: bool = False) -
     if path is None:
         path = cfg.POSITION_PATH
 
-    # get existing positions    
+    # get existing positions
     pdict = []
     if not overwrite:
         pdict = load_yaml(fname=path)
 
-    
     # append new positions
     for position in positions:
         pdict.append(position.to_dict())
-    
+
     # save
     save_yaml(path, pdict)
 
+
 # TODO: re-think this, dont like the pop ups
-def _register_metadata(microscope: 'FibsemMicroscope',
-                       application_software: str,
-                       experiment_name: str,
-                       experiment_id: Optional[str] = None) -> None:
+def _register_metadata(
+    microscope: "FibsemMicroscope",
+    application_software: str,
+    experiment_name: str,
+    experiment_id: Optional[str] = None,
+) -> None:
     """Stamp user, experiment and application identity onto what ``microscope`` acquires.
 
     ``experiment_id`` is the stable join key and should always be supplied; it is

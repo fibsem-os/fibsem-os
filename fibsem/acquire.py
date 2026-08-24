@@ -4,6 +4,7 @@ import copy
 import os
 from typing import Optional, Tuple
 
+from fibsem import manufacturers
 from fibsem.autofunctions.acb import run_auto_contrast_brightness
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
@@ -39,9 +40,8 @@ def new_image(
     # run autocontrast
     if settings.autocontrast:
         microscope.autocontrast(
-                beam_type=settings.beam_type,
-                reduced_area=settings.reduced_area
-            )
+            beam_type=settings.beam_type, reduced_area=settings.reduced_area
+        )
 
     # acquire the image
     image = microscope.acquire_image(
@@ -99,7 +99,7 @@ def take_reference_images(
 
     # acquire ion image
     image_settings.beam_type = BeamType.ION
-    if microscope.manufacturer.upper() == "TESCAN":
+    if manufacturers.is_tescan(microscope.manufacturer):
         import time
 
         time.sleep(1)
