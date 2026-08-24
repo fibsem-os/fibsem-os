@@ -45,25 +45,25 @@ TFibsemPatternSettings = TypeVar(
 )
 
 DEFAULT_FIELD_METADATA: Dict[str, Any] = {
-    "label": None,                  # the display label for the field
-    "type": None,                   # the data type of the field
-    "unit": None,                   # the display unit for the field (after scaling)
-    "tooltip": None,                # the tooltip/help text for the field
-    "scale": None,                  # scale factor for display (e.g., 1e6 for metres to microns)
-    "dimensions": None,             # for complex dimensions, e.g. areas or volumes
-    "default": None,                # default value for the field
-    "minimum": None,                # minimum value for numeric fields
-    "maximum": None,                # maximum value for numeric fields
-    "step": None,                   # step size for numeric fields
-    "decimals": None,               # number of decimal places for numeric fields
-    "items": None,                  # for lists/enums, the possible items. items specified as 'dynamic' are fetched from the microscope via the 'microscope_parameter' key
-    "hidden": False,                # whether the field is hidden from the UI
-    "advanced": False,              # whether the field is considered advanced in the UI
-    "manufacturer": None,           # manufacturer specific parameter (ThermoFisher, Tescan, etc.). Common parameters have None
-    "microscope_parameter": None,   # the corresponding microscope parameter name, if applicable (via get/set)
-    "format_fn": None,              # function to format the value for display
-    "format_fn_kwargs": None,       # kwargs for the format function # NOTE: unused yet
-    "filepath": None,               # render a string field as a file picker rather than a line edit
+    "label": None,  # the display label for the field
+    "type": None,  # the data type of the field
+    "unit": None,  # the display unit for the field (after scaling)
+    "tooltip": None,  # the tooltip/help text for the field
+    "scale": None,  # scale factor for display (e.g., 1e6 for metres to microns)
+    "dimensions": None,  # for complex dimensions, e.g. areas or volumes
+    "default": None,  # default value for the field
+    "minimum": None,  # minimum value for numeric fields
+    "maximum": None,  # maximum value for numeric fields
+    "step": None,  # step size for numeric fields
+    "decimals": None,  # number of decimal places for numeric fields
+    "items": None,  # for lists/enums, the possible items. items specified as 'dynamic' are fetched from the microscope via the 'microscope_parameter' key
+    "hidden": False,  # whether the field is hidden from the UI
+    "advanced": False,  # whether the field is considered advanced in the UI
+    "manufacturer": None,  # manufacturer specific parameter (ThermoFisher, Tescan, etc.). Common parameters have None
+    "microscope_parameter": None,  # the corresponding microscope parameter name, if applicable (via get/set)
+    "format_fn": None,  # function to format the value for display
+    "format_fn_kwargs": None,  # kwargs for the format function # NOTE: unused yet
+    "filepath": None,  # render a string field as a file picker rather than a line edit
 }
 
 # Superseded spelling -> the key that replaced it. Nothing resolves these at
@@ -148,14 +148,21 @@ def field_meta(
         if key not in DEFAULT_FIELD_METADATA:
             renamed = RENAMED_METADATA_KEYS.get(key)
             hint = f", which was renamed to {renamed!r}" if renamed else ""
-            raise TypeError(f"field_meta() base declares unknown metadata key {key!r}{hint}")
-    return {**inherited, **{key: value for key, value in declared.items() if value is not None}}
+            raise TypeError(
+                f"field_meta() base declares unknown metadata key {key!r}{hint}"
+            )
+    return {
+        **inherited,
+        **{key: value for key, value in declared.items() if value is not None},
+    }
 
 
 _warned_metadata_keys: set = set()
 
 
-def _warn_unknown_metadata_keys(struct_cls: Type[Any], field_name: str, metadata: Mapping[str, Any]) -> None:
+def _warn_unknown_metadata_keys(
+    struct_cls: Type[Any], field_name: str, metadata: Mapping[str, Any]
+) -> None:
     """Log once for a metadata key nothing will ever read.
 
     A mis-keyed field is otherwise silent: the form renders, the value is right,
@@ -199,6 +206,7 @@ def get_fields_with_metadata(struct_cls: Type[Any]) -> Dict[str, Dict[str, Any]]
         merged_metadata = {**default_metadata, **declared}
         field_metadata[f.name] = merged_metadata
     return field_metadata
+
 
 @dataclass
 class Point:
@@ -269,6 +277,7 @@ class BeamType(Enum):
     # CCD_CAM = 3
     # NavCam = 4 # see enumerations/ImagingDevice
 
+
 class ImagingState(Enum):
     IDLE = 0
     RUNNING = 1
@@ -284,7 +293,13 @@ class MillingState(Enum):
     PAUSED = 3
     ERROR = 4
 
-ACTIVE_MILLING_STATES = [MillingState.RUNNING, MillingState.STOPPING, MillingState.PAUSED]
+
+ACTIVE_MILLING_STATES = [
+    MillingState.RUNNING,
+    MillingState.STOPPING,
+    MillingState.PAUSED,
+]
+
 
 class ManipulatorState(Enum):
     RETRACTED = 0
@@ -333,9 +348,9 @@ class AutoFocusMode(Enum):
 
 
 class TileOrderStrategy(Enum):
-    TYPEWRITER = "typewriter"   # rows always left-to-right
-    SERPENTINE = "serpentine"   # alternating: row 0 L→R, row 1 R→L, ...
-    SPIRAL     = "spiral"       # outward clockwise spiral from centre tile
+    TYPEWRITER = "typewriter"  # rows always left-to-right
+    SERPENTINE = "serpentine"  # alternating: row 0 L→R, row 1 R→L, ...
+    SPIRAL = "spiral"  # outward clockwise spiral from centre tile
 
 
 @dataclass
@@ -417,19 +432,26 @@ class FibsemStagePosition:
         )
 
     def _scale_repr(self, scale: float, precision: int = 2):
-        return f"x:{self.x*scale:.{precision}f}, y:{self.y*scale:.{precision}f}, z:{self.z*scale:.{precision}f}"
+        return f"x:{self.x * scale:.{precision}f}, y:{self.y * scale:.{precision}f}, z:{self.z * scale:.{precision}f}"
 
-    def is_close(self, pos2: 'FibsemStagePosition', tol: float = 1e-6) -> bool:
+    def is_close(self, pos2: "FibsemStagePosition", tol: float = 1e-6) -> bool:
         """Check if two positions are close to each other."""
-        return ((abs(self.x - pos2.x) < tol) and 
-                (abs(self.y - pos2.y) < tol) and 
-                (abs(self.z - pos2.z) < tol) and 
-                (abs(self.t - pos2.t) < tol) and 
-                (abs(self.r - pos2.r) < tol))
+        return (
+            (abs(self.x - pos2.x) < tol)
+            and (abs(self.y - pos2.y) < tol)
+            and (abs(self.z - pos2.z) < tol)
+            and (abs(self.t - pos2.t) < tol)
+            and (abs(self.r - pos2.r) < tol)
+        )
 
-    def is_close2(self, pos2: 'FibsemStagePosition', tol: float = 1e-6, axes: Optional[List[str]] = None) -> bool:
+    def is_close2(
+        self,
+        pos2: "FibsemStagePosition",
+        tol: float = 1e-6,
+        axes: Optional[List[str]] = None,
+    ) -> bool:
         """Check if two positions are close to each other."""
-        VALID_AXES = ['x', 'y', 'z', 't', 'r']
+        VALID_AXES = ["x", "y", "z", "t", "r"]
         if axes is None:
             axes = VALID_AXES
 
@@ -447,7 +469,9 @@ class FibsemStagePosition:
 
         return True
 
-    def is_within_limits(self, limits: Dict[str, 'RangeLimit'], axes: Optional[List[str]] = None) -> bool:
+    def is_within_limits(
+        self, limits: Dict[str, "RangeLimit"], axes: Optional[List[str]] = None
+    ) -> bool:
         """Check if the position is within the specified limits.
 
         Args:
@@ -478,38 +502,90 @@ class FibsemStagePosition:
     def pretty_string(self) -> str:
         """Returns a pretty string representation of the stage position."""
         from fibsem import constants
-        xstr = f"X:{self.x*constants.METRE_TO_MILLIMETRE:.2f}" if self.x is not None else "X:None"
-        ystr = f"Y:{self.y*constants.METRE_TO_MILLIMETRE:.2f}" if self.y is not None else "Y:None"
-        zstr = f"Z:{self.z*constants.METRE_TO_MILLIMETRE:.2f}" if self.z is not None else "Z:None"
-        rstr = f"R:{self.r*constants.RADIANS_TO_DEGREES:.1f}" if self.r is not None else "R:None"
-        tstr = f"T:{self.t*constants.RADIANS_TO_DEGREES:.1f}" if self.t is not None else "T:None"
+
+        xstr = (
+            f"X:{self.x * constants.METRE_TO_MILLIMETRE:.2f}"
+            if self.x is not None
+            else "X:None"
+        )
+        ystr = (
+            f"Y:{self.y * constants.METRE_TO_MILLIMETRE:.2f}"
+            if self.y is not None
+            else "Y:None"
+        )
+        zstr = (
+            f"Z:{self.z * constants.METRE_TO_MILLIMETRE:.2f}"
+            if self.z is not None
+            else "Z:None"
+        )
+        rstr = (
+            f"R:{self.r * constants.RADIANS_TO_DEGREES:.1f}"
+            if self.r is not None
+            else "R:None"
+        )
+        tstr = (
+            f"T:{self.t * constants.RADIANS_TO_DEGREES:.1f}"
+            if self.t is not None
+            else "T:None"
+        )
         return f"{xstr}, {ystr}, {zstr}, {rstr}, {tstr}"
 
     @property
     def pretty_orientation(self) -> str:
         """Returns a pretty string representation of the stage orientation."""
         from fibsem import constants
-        rstr = f"R:{self.r*constants.RADIANS_TO_DEGREES:.1f}" if self.r is not None else "R:None"
-        tstr = f"T:{self.t*constants.RADIANS_TO_DEGREES:.1f}" if self.t is not None else "T:None"
+
+        rstr = (
+            f"R:{self.r * constants.RADIANS_TO_DEGREES:.1f}"
+            if self.r is not None
+            else "R:None"
+        )
+        tstr = (
+            f"T:{self.t * constants.RADIANS_TO_DEGREES:.1f}"
+            if self.t is not None
+            else "T:None"
+        )
         return f"{rstr}, {tstr}"
 
     @property
     def pretty(self) -> str:
         """Returns a pretty string representation of the stage position including units."""
         from fibsem import constants
-        xstr = f"X:{self.x*constants.METRE_TO_MILLIMETRE:.2f}mm" if self.x is not None else "X:None"
-        ystr = f"Y:{self.y*constants.METRE_TO_MILLIMETRE:.2f}mm" if self.y is not None else "Y:None"
-        zstr = f"Z:{self.z*constants.METRE_TO_MILLIMETRE:.2f}mm" if self.z is not None else "Z:None"
-        rstr = f"R:{self.r*constants.RADIANS_TO_DEGREES:.1f}°" if self.r is not None else "R:None"
-        tstr = f"T:{self.t*constants.RADIANS_TO_DEGREES:.1f}°" if self.t is not None else "T:None"
+
+        xstr = (
+            f"X:{self.x * constants.METRE_TO_MILLIMETRE:.2f}mm"
+            if self.x is not None
+            else "X:None"
+        )
+        ystr = (
+            f"Y:{self.y * constants.METRE_TO_MILLIMETRE:.2f}mm"
+            if self.y is not None
+            else "Y:None"
+        )
+        zstr = (
+            f"Z:{self.z * constants.METRE_TO_MILLIMETRE:.2f}mm"
+            if self.z is not None
+            else "Z:None"
+        )
+        rstr = (
+            f"R:{self.r * constants.RADIANS_TO_DEGREES:.1f}°"
+            if self.r is not None
+            else "R:None"
+        )
+        tstr = (
+            f"T:{self.t * constants.RADIANS_TO_DEGREES:.1f}°"
+            if self.t is not None
+            else "T:None"
+        )
         return f"{xstr}, {ystr}, {zstr}, {rstr}, {tstr}"
 
-    def euclidean_distance(self, other: 'FibsemStagePosition') -> float:
+    def euclidean_distance(self, other: "FibsemStagePosition") -> float:
         """Calculate the euclidean distance between two stage positions."""
         dx = (self.x - other.x) if self.x is not None and other.x is not None else 0.0
         dy = (self.y - other.y) if self.y is not None and other.y is not None else 0.0
         dz = (self.z - other.z) if self.z is not None and other.z is not None else 0.0
         return float(np.linalg.norm([dx, dy, dz]))
+
 
 @dataclass
 class FibsemManipulatorPosition:
@@ -545,7 +621,9 @@ class FibsemManipulatorPosition:
         assert (
             self.coordinate_system in SUPPORTED_COORDINATE_SYSTEMS
             or self.coordinate_system is None
-        ), f"coordinate system value {self.coordinate_system} is unsupported or invalid syntax. Must be RAW or SPECIMEN"
+        ), (
+            f"coordinate system value {self.coordinate_system} is unsupported or invalid syntax. Must be RAW or SPECIMEN"
+        )
 
     def to_dict(self) -> dict:
         position_dict = {}
@@ -599,18 +677,18 @@ class FibsemRectangle:
     height: float = 1.0
 
     def __post_init__(self):
-        assert isinstance(self.left, float) or isinstance(
-            self.left, int
-        ), f"type {type(self.left)} is unsupported for left, must be int or floar"
-        assert isinstance(self.top, float) or isinstance(
-            self.top, int
-        ), f"type {type(self.top)} is unsupported for top, must be int or floar"
-        assert isinstance(self.width, float) or isinstance(
-            self.width, int
-        ), f"type {type(self.width)} is unsupported for width, must be int or floar"
-        assert isinstance(self.height, float) or isinstance(
-            self.height, int
-        ), f"type {type(self.height)} is unsupported for height, must be int or floar"
+        assert isinstance(self.left, float) or isinstance(self.left, int), (
+            f"type {type(self.left)} is unsupported for left, must be int or floar"
+        )
+        assert isinstance(self.top, float) or isinstance(self.top, int), (
+            f"type {type(self.top)} is unsupported for top, must be int or floar"
+        )
+        assert isinstance(self.width, float) or isinstance(self.width, int), (
+            f"type {type(self.width)} is unsupported for width, must be int or floar"
+        )
+        assert isinstance(self.height, float) or isinstance(self.height, int), (
+            f"type {type(self.height)} is unsupported for height, must be int or floar"
+        )
 
     @classmethod
     def from_dict(cls, settings: dict) -> "FibsemRectangle":
@@ -647,41 +725,57 @@ class FibsemRectangle:
         """Returns a pretty string representation of the rectangle."""
         return f"Left: {self.left:.2f}, Top: {self.top:.2f}, Width: {self.width:.2f}, Height: {self.height:.2f}"
 
-    def to_pixel_coordinates(self, image_shape: Tuple[int, int]) -> Tuple[int, int, int, int]:
+    def to_pixel_coordinates(
+        self, image_shape: Tuple[int, int]
+    ) -> Tuple[int, int, int, int]:
         """Convert FibsemRectangle (normalized coordinates 0-1) to image pixel coordinates.
-        
+
         Args:
             image_shape: (height, width) tuple of the image shape
-            
+
         Returns:
             Tuple of (x, y, width, height) in pixel coordinates where:
             - x, y are the top-left corner pixel coordinates
             - width, height are the dimensions in pixels
         """
         height, width = image_shape
-        
+
         # Convert normalized coordinates to pixel coordinates
         x = int(self.left * width)
         y = int(self.top * height)
         pixel_width = int(self.width * width)
         pixel_height = int(self.height * height)
-        
+
         return (x, y, pixel_width, pixel_height)
 
+
 def _is_valid_reduced_area(reduced_area: FibsemRectangle) -> bool:
-    """Check whether the reduced area is valid. 
+    """Check whether the reduced area is valid.
     Left and top must be between 0 and 1, and width and height must be between 0 and 1.
     Must not exceed the boundaries of the image 0 - 1
     """
     # if left or top is less than 0, or width or height is greater than 1, return False
-    if reduced_area.left < 0 or reduced_area.top < 0 or reduced_area.width > 1 or reduced_area.height > 1:
+    if (
+        reduced_area.left < 0
+        or reduced_area.top < 0
+        or reduced_area.width > 1
+        or reduced_area.height > 1
+    ):
         return False
-    if reduced_area.left + reduced_area.width > 1 or reduced_area.top + reduced_area.height > 1:
+    if (
+        reduced_area.left + reduced_area.width > 1
+        or reduced_area.top + reduced_area.height > 1
+    ):
         return False
     # no negative values
-    if reduced_area.left < 0 or reduced_area.top < 0 or reduced_area.width <= 0 or reduced_area.height <= 0:
+    if (
+        reduced_area.left < 0
+        or reduced_area.top < 0
+        or reduced_area.width <= 0
+        or reduced_area.height <= 0
+    ):
         return False
-    return True                           
+    return True
 
 
 @dataclass
@@ -727,33 +821,35 @@ class ImageSettings:
     drift_correction: bool = False  # (bool) # requires frame_integration > 1
 
     def __post_init__(self):
-        assert (
-            isinstance(self.resolution, (list, tuple)) or self.resolution is None
-        ), f"resolution must be a list, currently is {type(self.resolution)}"
-        assert (
-            isinstance(self.dwell_time, float) or self.dwell_time is None
-        ), f"dwell time must be of type float, currently is {type(self.dwell_time)}"
+        assert isinstance(self.resolution, (list, tuple)) or self.resolution is None, (
+            f"resolution must be a list, currently is {type(self.resolution)}"
+        )
+        assert isinstance(self.dwell_time, float) or self.dwell_time is None, (
+            f"dwell time must be of type float, currently is {type(self.dwell_time)}"
+        )
         assert (
             isinstance(self.hfw, float) or isinstance(self.hfw, int) or self.hfw is None
         ), f"hfw must be int or float, currently is {type(self.hfw)}"
-        assert (
-            isinstance(self.autocontrast, bool) or self.autocontrast is None
-        ), f"autocontrast setting must be bool, currently is {type(self.autocontrast)}"
-        assert (
-            isinstance(self.beam_type, BeamType) or self.beam_type is None
-        ), f"beam type must be a BeamType object, currently is {type(self.beam_type)}"
-        assert (
-            isinstance(self.save, bool) or self.save is None
-        ), f"save option must be a bool, currently is {type(self.save)}"
-        assert (
-            isinstance(self.filename, str) or self.filename is None
-        ), f"filename must b str, currently is {type(self.filename)}"
-        assert (
-            isinstance(self.path, (Path, str)) or self.path is None
-        ), f"save path must be Path or str, currently is {type(self.path)}"
+        assert isinstance(self.autocontrast, bool) or self.autocontrast is None, (
+            f"autocontrast setting must be bool, currently is {type(self.autocontrast)}"
+        )
+        assert isinstance(self.beam_type, BeamType) or self.beam_type is None, (
+            f"beam type must be a BeamType object, currently is {type(self.beam_type)}"
+        )
+        assert isinstance(self.save, bool) or self.save is None, (
+            f"save option must be a bool, currently is {type(self.save)}"
+        )
+        assert isinstance(self.filename, str) or self.filename is None, (
+            f"filename must b str, currently is {type(self.filename)}"
+        )
+        assert isinstance(self.path, (Path, str)) or self.path is None, (
+            f"save path must be Path or str, currently is {type(self.path)}"
+        )
         assert (
             isinstance(self.reduced_area, FibsemRectangle) or self.reduced_area is None
-        ), f"reduced area must be a fibsemRectangle object, currently is {type(self.reduced_area)}"
+        ), (
+            f"reduced area must be a fibsemRectangle object, currently is {type(self.reduced_area)}"
+        )
 
     @property
     def scan_time(self) -> float:
@@ -805,7 +901,9 @@ class ImageSettings:
     def to_dict(self) -> dict:
         settings_dict = {
             "beam_type": self.beam_type.name if self.beam_type is not None else None,
-            "resolution": list(self.resolution) if self.resolution is not None else None,
+            "resolution": list(self.resolution)
+            if self.resolution is not None
+            else None,
             "dwell_time": self.dwell_time if self.dwell_time is not None else None,
             "hfw": self.hfw if self.hfw is not None else None,
             "autocontrast": self.autocontrast
@@ -1015,9 +1113,15 @@ class OverviewAcquisitionSettings:
             ncols=d.get("ncols", 3),
             overlap=d.get("overlap", 0.1),
             focus_stack_settings=fss,
-            autofocus_settings=AutoFocusSettings.from_dict(d.get("autofocus_settings", {})),
-            tile_order=TileOrderStrategy(d.get("tile_order", TileOrderStrategy.TYPEWRITER.value)),
-            tile_mask=None if mask is None else [[bool(v) for v in row] for row in mask],
+            autofocus_settings=AutoFocusSettings.from_dict(
+                d.get("autofocus_settings", {})
+            ),
+            tile_order=TileOrderStrategy(
+                d.get("tile_order", TileOrderStrategy.TYPEWRITER.value)
+            ),
+            tile_mask=None
+            if mask is None
+            else [[bool(v) for v in row] for row in mask],
         )
 
     def to_dict(self) -> dict:
@@ -1031,7 +1135,8 @@ class OverviewAcquisitionSettings:
             "tile_order": self.tile_order.value,
             # plain bools: np.bool_ does not survive yaml.safe_dump, and a mask arriving
             # from a numpy grid is exactly how one gets here.
-            "tile_mask": None if self.tile_mask is None
+            "tile_mask": None
+            if self.tile_mask is None
             else [[bool(v) for v in row] for row in self.tile_mask],
         }
 
@@ -1077,34 +1182,38 @@ class BeamSettings:
         assert (
             isinstance(self.working_distance, (float, int))
             or self.working_distance is None
-        ), f"Working distance must be float or int, currently is {type(self.working_distance)}"
+        ), (
+            f"Working distance must be float or int, currently is {type(self.working_distance)}"
+        )
         assert (
             isinstance(self.beam_current, (float, int)) or self.beam_current is None
         ), f"beam current must be float or int, currently is {type(self.beam_current)}"
-        assert (
-            isinstance(self.voltage, (float, int)) or self.voltage is None
-        ), f"voltage must be float or int, currently is {type(self.voltage)}"
-        assert (
-            isinstance(self.hfw, (float, int)) or self.hfw is None
-        ), f"horizontal field width (HFW) must be float or int, currently is {type(self.hfw)}"
-        assert (
-            isinstance(self.resolution, (list, tuple)) or self.resolution is None
-        ), f"resolution must be a list or tuple, currently is {type(self.resolution)}"
-        assert (
-            isinstance(self.dwell_time, (float, int)) or self.dwell_time is None
-        ), f"dwell_time must be float or int, currently is {type(self.dwell_time)}"
-        assert (
-            isinstance(self.stigmation, Point) or self.stigmation is None
-        ), f"stigmation must be a Point instance, currently is {type(self.stigmation)}"
-        assert (
-            isinstance(self.shift, Point) or self.shift is None
-        ), f"shift must be a Point instance, currently is {type(self.shift)}"
+        assert isinstance(self.voltage, (float, int)) or self.voltage is None, (
+            f"voltage must be float or int, currently is {type(self.voltage)}"
+        )
+        assert isinstance(self.hfw, (float, int)) or self.hfw is None, (
+            f"horizontal field width (HFW) must be float or int, currently is {type(self.hfw)}"
+        )
+        assert isinstance(self.resolution, (list, tuple)) or self.resolution is None, (
+            f"resolution must be a list or tuple, currently is {type(self.resolution)}"
+        )
+        assert isinstance(self.dwell_time, (float, int)) or self.dwell_time is None, (
+            f"dwell_time must be float or int, currently is {type(self.dwell_time)}"
+        )
+        assert isinstance(self.stigmation, Point) or self.stigmation is None, (
+            f"stigmation must be a Point instance, currently is {type(self.stigmation)}"
+        )
+        assert isinstance(self.shift, Point) or self.shift is None, (
+            f"shift must be a Point instance, currently is {type(self.shift)}"
+        )
         assert (
             isinstance(self.scan_rotation, (float, int)) or self.scan_rotation is None
-        ), f"scan rotation must be float or int, currently is {type(self.scan_rotation)}"
-        assert (
-            isinstance(self.preset, str) or self.preset is None
-        ), f"preset must be str, currently is {type(self.preset)}"
+        ), (
+            f"scan rotation must be float or int, currently is {type(self.scan_rotation)}"
+        )
+        assert isinstance(self.preset, str) or self.preset is None, (
+            f"preset must be str, currently is {type(self.preset)}"
+        )
 
     def to_dict(self) -> dict:
         state_dict = {
@@ -1113,7 +1222,9 @@ class BeamSettings:
             "beam_current": self.beam_current,
             "voltage": self.voltage,
             "hfw": self.hfw,
-            "resolution": list(self.resolution) if self.resolution is not None else None,
+            "resolution": list(self.resolution)
+            if self.resolution is not None
+            else None,
             "dwell_time": self.dwell_time,
             "stigmation": self.stigmation.to_dict()
             if self.stigmation is not None
@@ -1136,7 +1247,9 @@ class BeamSettings:
         else:
             shift = Point()
 
-        wd = state_dict.get("working_distance", state_dict.get("eucentric_height", None))
+        wd = state_dict.get(
+            "working_distance", state_dict.get("eucentric_height", None)
+        )
         current = state_dict.get("beam_current", state_dict.get("current", None))
 
         beam_settings = BeamSettings(
@@ -1164,18 +1277,18 @@ class FibsemDetectorSettings:
     contrast: float = 0.5
 
     def __post_init__(self):
-        assert (
-            isinstance(self.type, str) or self.type is None
-        ), f"type must be input as str, currently is {type(self.type)}"
-        assert (
-            isinstance(self.mode, str) or self.mode is None
-        ), f"mode must be input as str, currently is {type(self.mode)}"
-        assert (
-            isinstance(self.brightness, (float, int)) or self.brightness is None
-        ), f"brightness must be int or float value, currently is {type(self.brightness)}"
-        assert (
-            isinstance(self.contrast, (float, int)) or self.contrast is None
-        ), f"contrast must be int or float value, currently is {type(self.contrast)}"
+        assert isinstance(self.type, str) or self.type is None, (
+            f"type must be input as str, currently is {type(self.type)}"
+        )
+        assert isinstance(self.mode, str) or self.mode is None, (
+            f"mode must be input as str, currently is {type(self.mode)}"
+        )
+        assert isinstance(self.brightness, (float, int)) or self.brightness is None, (
+            f"brightness must be int or float value, currently is {type(self.brightness)}"
+        )
+        assert isinstance(self.contrast, (float, int)) or self.contrast is None, (
+            f"contrast must be int or float value, currently is {type(self.contrast)}"
+        )
 
     def to_dict(self) -> dict:
         """Converts to a dictionary."""
@@ -1199,7 +1312,6 @@ class FibsemDetectorSettings:
 
 @dataclass
 class MicroscopeState:
-
     """Data Class representing the state of a microscope with various parameters.
 
     Attributes:
@@ -1216,32 +1328,50 @@ class MicroscopeState:
     """
 
     timestamp: float = datetime.timestamp(datetime.now())
-    stage_position: Optional[FibsemStagePosition] = field(default_factory=FibsemStagePosition)
-    electron_beam: Optional[BeamSettings] = field(default_factory=lambda: BeamSettings(beam_type=BeamType.ELECTRON))
-    ion_beam: Optional[BeamSettings] = field(default_factory=lambda: BeamSettings(beam_type=BeamType.ION))
-    electron_detector: Optional[FibsemDetectorSettings] = field(default_factory=FibsemDetectorSettings)
-    ion_detector: Optional[FibsemDetectorSettings] = field(default_factory=FibsemDetectorSettings)
+    stage_position: Optional[FibsemStagePosition] = field(
+        default_factory=FibsemStagePosition
+    )
+    electron_beam: Optional[BeamSettings] = field(
+        default_factory=lambda: BeamSettings(beam_type=BeamType.ELECTRON)
+    )
+    ion_beam: Optional[BeamSettings] = field(
+        default_factory=lambda: BeamSettings(beam_type=BeamType.ION)
+    )
+    electron_detector: Optional[FibsemDetectorSettings] = field(
+        default_factory=FibsemDetectorSettings
+    )
+    ion_detector: Optional[FibsemDetectorSettings] = field(
+        default_factory=FibsemDetectorSettings
+    )
     objective_position: Optional[float] = None  # in meters
 
     def __post_init__(self):
         assert (
             isinstance(self.stage_position, FibsemStagePosition)
             or self.stage_position is None
-        ), f"absolute position must be of type FibsemStagePosition, currently is {type(self.stage_position)}"
+        ), (
+            f"absolute position must be of type FibsemStagePosition, currently is {type(self.stage_position)}"
+        )
         assert (
             isinstance(self.electron_beam, BeamSettings) or self.electron_beam is None
-        ), f"electron_beam must be of type BeamSettings, currently is {type(self.electron_beam)}"
-        assert (
-            isinstance(self.ion_beam, BeamSettings) or self.ion_beam is None
-        ), f"ion_beam must be of type BeamSettings, currently us {type(self.ion_beam)}"
+        ), (
+            f"electron_beam must be of type BeamSettings, currently is {type(self.electron_beam)}"
+        )
+        assert isinstance(self.ion_beam, BeamSettings) or self.ion_beam is None, (
+            f"ion_beam must be of type BeamSettings, currently us {type(self.ion_beam)}"
+        )
         assert (
             isinstance(self.electron_detector, FibsemDetectorSettings)
             or self.electron_detector is None
-        ), f"electron_detector must be of type FibsemDetectorSettings, currently is {type(self.electron_detector)}"
+        ), (
+            f"electron_detector must be of type FibsemDetectorSettings, currently is {type(self.electron_detector)}"
+        )
         assert (
             isinstance(self.ion_detector, FibsemDetectorSettings)
             or self.ion_detector is None
-        ), f"ion_detector must be of type FibsemDetectorSettings, currently is {type(self.ion_detector)}"
+        ), (
+            f"ion_detector must be of type FibsemDetectorSettings, currently is {type(self.ion_detector)}"
+        )
 
     def to_dict(self) -> dict:
         state_dict = {
@@ -1252,9 +1382,7 @@ class MicroscopeState:
             "electron_beam": self.electron_beam.to_dict()
             if self.electron_beam is not None
             else None,
-            "ion_beam": self.ion_beam.to_dict()
-            if self.ion_beam is not None
-            else None,
+            "ion_beam": self.ion_beam.to_dict() if self.ion_beam is not None else None,
             "electron_detector": self.electron_detector.to_dict()
             if self.electron_detector is not None
             else None,
@@ -1268,7 +1396,7 @@ class MicroscopeState:
 
     @staticmethod
     def from_dict(state_dict: dict) -> "MicroscopeState":
-        
+
         # beam, and detector settings are now optional
         electron_beam, electron_detector = None, None
         ion_beam, ion_detector = None, None
@@ -1278,15 +1406,15 @@ class MicroscopeState:
         if state_dict.get("ion_beam", None) is not None:
             ion_beam = BeamSettings.from_dict(state_dict["ion_beam"])
         if state_dict.get("electron_detector", None) is not None:
-            electron_detector = FibsemDetectorSettings.from_dict(state_dict["electron_detector"])
+            electron_detector = FibsemDetectorSettings.from_dict(
+                state_dict["electron_detector"]
+            )
         if state_dict.get("ion_detector", None) is not None:
             ion_detector = FibsemDetectorSettings.from_dict(state_dict["ion_detector"])
 
         microscope_state = MicroscopeState(
             timestamp=state_dict["timestamp"],
-            stage_position=FibsemStagePosition.from_dict(
-                state_dict["stage_position"]
-            ),
+            stage_position=FibsemStagePosition.from_dict(state_dict["stage_position"]),
             electron_beam=electron_beam,
             ion_beam=ion_beam,
             electron_detector=electron_detector,
@@ -1308,7 +1436,9 @@ class FibsemPatternSettings(ABC):
         return ddict
 
     @classmethod
-    def from_dict(cls: Type[TFibsemPatternSettings], data: Dict[str, Any]) -> TFibsemPatternSettings:
+    def from_dict(
+        cls: Type[TFibsemPatternSettings], data: Dict[str, Any]
+    ) -> TFibsemPatternSettings:
         kwargs = {}
         for f in fields(cls):
             if f.name in data:
@@ -1326,10 +1456,12 @@ class FibsemPatternSettings(ABC):
     def volume(self) -> float:
         pass
 
+
 class CrossSectionPattern(Enum):
-    Rectangle  = auto()
+    Rectangle = auto()
     RegularCrossSection = auto()
     CleaningCrossSection = auto()
+
 
 @dataclass
 class FibsemRectangleSettings(FibsemPatternSettings):
@@ -1350,6 +1482,7 @@ class FibsemRectangleSettings(FibsemPatternSettings):
     def volume(self) -> float:
         return self.width * self.height * self.depth
 
+
 @dataclass
 class FibsemLineSettings(FibsemPatternSettings):
     start_x: float
@@ -1358,10 +1491,13 @@ class FibsemLineSettings(FibsemPatternSettings):
     end_y: float
     depth: float
 
-    
     @property
     def volume(self) -> float:
-        return np.sqrt((self.end_x - self.start_x)**2 + (self.end_y - self.start_y)**2) * self.depth
+        return (
+            np.sqrt((self.end_x - self.start_x) ** 2 + (self.end_y - self.start_y) ** 2)
+            * self.depth
+        )
+
 
 @dataclass
 class FibsemCircleSettings(FibsemPatternSettings):
@@ -1372,7 +1508,7 @@ class FibsemCircleSettings(FibsemPatternSettings):
     thickness: float = 0
     start_angle: float = 0.0
     end_angle: float = 360.0
-    rotation: float = 0.0           # annulus -> thickness !=0
+    rotation: float = 0.0  # annulus -> thickness !=0
     is_exclusion: bool = False
 
     @property
@@ -1430,7 +1566,7 @@ class FibsemBitmapSettings(FibsemPatternSettings):
 
 @dataclass
 class FibsemPolygonSettings(FibsemPatternSettings):
-    vertices: np.ndarray[float] # n[x, y]
+    vertices: np.ndarray[float]  # n[x, y]
     depth: float
     is_exclusion: bool = False
 
@@ -1482,158 +1618,195 @@ class FibsemMillingSettings:
     from_dict(settings: dict) -> "FibsemMillingSettings": Creates a FibsemMillingSettings object from a dictionary of settings.
     """
 
-    milling_current: float = field(default=20.0e-12, 
-                                   metadata={"unit": "A", 
-                                             "label": "Milling Current",
-                                             "type": float,
-                                             "items": "dynamic",
-                                             "microscope_parameter": "current",
-                                             "tooltip": "The current used for milling. Higher currents mill faster but with less precision and more damage.",
-                                             "manufacturer": "ThermoFisher"})
-    milling_voltage: float = field(default=30e3, 
-                                  metadata={"unit": "V",
-                                            "label": "Milling Voltage",
-                                            "type": float,
-                                            "items": "dynamic",
-                                            "microscope_parameter": "voltage",
-                                            "advanced": True,
-                                            "tooltip": "The voltage used for milling. Higher voltages provide higher energy ions for milling.",
-                                            "manufacturer": "ThermoFisher"})
-    application_file: str = field(default="Si", 
-                                 metadata={"label": "Application File",
-                                           "type": str,
-                                           "items": "dynamic",
-                                           "microscope_parameter": "application_file",
-                                           "advanced": True,
-                                           "tooltip": "The application file used for milling. Note: this can be changed at runtime depending on the pattern and other parameters.",
-                                           "manufacturer": "ThermoFisher"})
-    patterning_mode: str = field(default="Serial", 
-                                metadata={"label": "Patterning Mode",
-                                        "type": str,
-                                        "advanced": True,
-                                        "items": ["Serial", "Parallel"],
-                                        "advanced": True,
-                                        "tooltip": "The patterning mode used for milling. 'Serial' mills the entire pattern in one pass, 'Parallel' mills multiple pattern simultaneously.",
-                                        })
-    hfw: float = field(default=150e-6, 
-                      metadata={"label": "Field of View",
-                                "type": float,
-                                "unit": "m",
-                                "scale": 1e6,
-                                "default": 150.0,
-                                "minimum": 20.0,
-                                "maximum": 950.0,
-                                "step": 10.0,
-                                "decimals": 2,
-                                "microscope_parameter": "hfw",
-                                "hidden": True,
-                                "tooltip": "The horizontal field width used for milling. Patterns must fit within this field of view.",
-                                })
-    preset: str = field(default="30 keV; 2nA", 
-                        metadata={"label": "Preset",
-                                  "type": str,
-                                  "items": "dynamic",
-                                  "microscope_parameter": "preset",
-                                  "tooltip": "The preset used for milling. Presets define the beam settings for different milling conditions.",
-                                  "manufacturer": "Tescan"})
+    milling_current: float = field(
+        default=20.0e-12,
+        metadata={
+            "unit": "A",
+            "label": "Milling Current",
+            "type": float,
+            "items": "dynamic",
+            "microscope_parameter": "current",
+            "tooltip": "The current used for milling. Higher currents mill faster but with less precision and more damage.",
+            "manufacturer": "ThermoFisher",
+        },
+    )
+    milling_voltage: float = field(
+        default=30e3,
+        metadata={
+            "unit": "V",
+            "label": "Milling Voltage",
+            "type": float,
+            "items": "dynamic",
+            "microscope_parameter": "voltage",
+            "advanced": True,
+            "tooltip": "The voltage used for milling. Higher voltages provide higher energy ions for milling.",
+            "manufacturer": "ThermoFisher",
+        },
+    )
+    application_file: str = field(
+        default="Si",
+        metadata={
+            "label": "Application File",
+            "type": str,
+            "items": "dynamic",
+            "microscope_parameter": "application_file",
+            "advanced": True,
+            "tooltip": "The application file used for milling. Note: this can be changed at runtime depending on the pattern and other parameters.",
+            "manufacturer": "ThermoFisher",
+        },
+    )
+    patterning_mode: str = field(
+        default="Serial",
+        metadata={
+            "label": "Patterning Mode",
+            "type": str,
+            "advanced": True,
+            "items": ["Serial", "Parallel"],
+            "advanced": True,
+            "tooltip": "The patterning mode used for milling. 'Serial' mills the entire pattern in one pass, 'Parallel' mills multiple pattern simultaneously.",
+        },
+    )
+    hfw: float = field(
+        default=150e-6,
+        metadata={
+            "label": "Field of View",
+            "type": float,
+            "unit": "m",
+            "scale": 1e6,
+            "default": 150.0,
+            "minimum": 20.0,
+            "maximum": 950.0,
+            "step": 10.0,
+            "decimals": 2,
+            "microscope_parameter": "hfw",
+            "hidden": True,
+            "tooltip": "The horizontal field width used for milling. Patterns must fit within this field of view.",
+        },
+    )
+    preset: str = field(
+        default="30 keV; 2nA",
+        metadata={
+            "label": "Preset",
+            "type": str,
+            "items": "dynamic",
+            "microscope_parameter": "preset",
+            "tooltip": "The preset used for milling. Presets define the beam settings for different milling conditions.",
+            "manufacturer": "Tescan",
+        },
+    )
     # 1 µm is the value the cryo lamella milling was validated at on hardware
     # (2026-07-22). Protocols do not set spot_size, so this default is what every
     # milling stage actually uses -- the `milling:` block in the system config is
     # not consulted for it (only milling_current is read from there).
-    spot_size: float = field(default=1.0e-6,
-                            metadata={
-                                    "label": "Spot Size",
-                                    "type": float,
-                                    "unit": "m",
-                                    "scale": 1e6,
-                                    # bounds are in the DISPLAY unit (µm). Real spot sizes are
-                                    # tens of nm -- the TESCAN default is 50 nm -- so a 1.0 µm
-                                    # minimum silently clamped every real value up to 1 µm.
-                                    "minimum": 0.001,
-                                    "maximum": 100.0,
-                                    "step": 0.01,
-                                    "decimals": 3,
-                                    "tooltip": "The spot size for the ion beam during milling.",
-                                    "manufacturer": "Tescan"})
-    rate: float = field(default=1.3e-8,
-                        metadata={
-                                    "label": "Rate",
-                                    "type": float,
-                                    # unit must stay a BASE unit: the display suffix is built by
-                                    # prefixing it from `scale` (1e3 -> "m"), giving "mm³/A/s".
-                                    # mm³/A/s and TESCAN's own µm³/nA/s are numerically identical.
-                                    "unit": "m³/A/s",
-                                    "scale": 1e3,
-                                    "dimensions": 3,
-                                    "tooltip": "Ion etching rate — how much material one amp removes per "
-                                               "second. Equivalently µm³/nA/s, which is how TESCAN quotes "
-                                               "it. Default is the cryo lamella value; silicon is 0.3.",
-                                    "manufacturer": "Tescan"
-                                    })
-    dwell_time: float = field(default=1.0e-6, 
-                              metadata={
-                                    "label": "Dwell Time",
-                                    "type": float,
-                                    "unit": "s",
-                                    "scale": 1e6,
-                                    "tooltip": "The dwell time for the ion beam during milling (µs).",
-                                    "manufacturer": "Tescan"})
-    spacing: float = field(default=0.005,
-                           metadata={
-                                    "label": "Spacing",
-                                    "type": float,
-                                    "minimum": 0.0,
-                                    "maximum": 100.0,
-                                    "step": 0.001,
-                                    "decimals": 4,
-                                    "tooltip": "Exposition mesh spacing — how finely the pattern is filled "
-                                               "with exposure points. Dimensionless; the TESCAN default is "
-                                               "1.0 and smaller values mill more finely and take longer.",
-                                    "manufacturer": "Tescan"})
-    milling_channel: BeamType = field(default=BeamType.ION, 
-                                      metadata={
-                                    "label": "Milling Channel",
-                                    "type": BeamType,
-                                    "items": [BeamType.ION, BeamType.ELECTRON],
-                                    "tooltip": "The beam channel used for milling.",
-                                    "hidden": True,
-                                    })
-    acquire_images: bool = field(default=False, 
-                                metadata={
-                                    "label": "Acquire Images",
-                                    "type": bool,
-                                    "tooltip": "Whether to acquire images after milling.",
-                                    "hidden": True,
-                                    })
+    spot_size: float = field(
+        default=1.0e-6,
+        metadata={
+            "label": "Spot Size",
+            "type": float,
+            "unit": "m",
+            "scale": 1e6,
+            # bounds are in the DISPLAY unit (µm). Real spot sizes are
+            # tens of nm -- the TESCAN default is 50 nm -- so a 1.0 µm
+            # minimum silently clamped every real value up to 1 µm.
+            "minimum": 0.001,
+            "maximum": 100.0,
+            "step": 0.01,
+            "decimals": 3,
+            "tooltip": "The spot size for the ion beam during milling.",
+            "manufacturer": "Tescan",
+        },
+    )
+    rate: float = field(
+        default=1.3e-8,
+        metadata={
+            "label": "Rate",
+            "type": float,
+            # unit must stay a BASE unit: the display suffix is built by
+            # prefixing it from `scale` (1e3 -> "m"), giving "mm³/A/s".
+            # mm³/A/s and TESCAN's own µm³/nA/s are numerically identical.
+            "unit": "m³/A/s",
+            "scale": 1e3,
+            "dimensions": 3,
+            "tooltip": "Ion etching rate — how much material one amp removes per "
+            "second. Equivalently µm³/nA/s, which is how TESCAN quotes "
+            "it. Default is the cryo lamella value; silicon is 0.3.",
+            "manufacturer": "Tescan",
+        },
+    )
+    dwell_time: float = field(
+        default=1.0e-6,
+        metadata={
+            "label": "Dwell Time",
+            "type": float,
+            "unit": "s",
+            "scale": 1e6,
+            "tooltip": "The dwell time for the ion beam during milling (µs).",
+            "manufacturer": "Tescan",
+        },
+    )
+    spacing: float = field(
+        default=0.005,
+        metadata={
+            "label": "Spacing",
+            "type": float,
+            "minimum": 0.0,
+            "maximum": 100.0,
+            "step": 0.001,
+            "decimals": 4,
+            "tooltip": "Exposition mesh spacing — how finely the pattern is filled "
+            "with exposure points. Dimensionless; the TESCAN default is "
+            "1.0 and smaller values mill more finely and take longer.",
+            "manufacturer": "Tescan",
+        },
+    )
+    milling_channel: BeamType = field(
+        default=BeamType.ION,
+        metadata={
+            "label": "Milling Channel",
+            "type": BeamType,
+            "items": [BeamType.ION, BeamType.ELECTRON],
+            "tooltip": "The beam channel used for milling.",
+            "hidden": True,
+        },
+    )
+    acquire_images: bool = field(
+        default=False,
+        metadata={
+            "label": "Acquire Images",
+            "type": bool,
+            "tooltip": "Whether to acquire images after milling.",
+            "hidden": True,
+        },
+    )
 
     # Parameter mapping for different manufacturers
     _SUPPORTED_MANUFACTURERS = {"ThermoFisher", "Tescan"}
 
     def __post_init__(self):
-        assert isinstance(
-            self.milling_current, (float, int)
-        ), f"invalid type for milling_current, must be int or float, currently {type(self.milling_current)}"
-        assert isinstance(
-            self.spot_size, (float, int)
-        ), f"invalid type for spot_size, must be int or float, currently {type(self.spot_size)}"
-        assert isinstance(
-            self.rate, (float, int)
-        ), f"invalid type for rate, must be int or float, currently {type(self.rate)}"
-        assert isinstance(
-            self.dwell_time, (float, int)
-        ), f"invalid type for dwell_time, must be int or float, currently {type(self.dwell_time)}"
-        assert isinstance(
-            self.hfw, (float, int)
-        ), f"invalid type for hfw, must be int or float, currently {type(self.hfw)}"
-        assert isinstance(
-            self.patterning_mode, str
-        ), f"invalid type for value for patterning_mode, must be str, currently {type(self.patterning_mode)}"
-        assert isinstance(
-            self.application_file, (str)
-        ), f"invalid type for value for application_file, must be str, currently {type(self.application_file)}"
-        assert isinstance(
-            self.spacing, (float, int)
-        ), f"invalid type for value for spacing, must be int or float, currently {type(self.spacing)}"
+        assert isinstance(self.milling_current, (float, int)), (
+            f"invalid type for milling_current, must be int or float, currently {type(self.milling_current)}"
+        )
+        assert isinstance(self.spot_size, (float, int)), (
+            f"invalid type for spot_size, must be int or float, currently {type(self.spot_size)}"
+        )
+        assert isinstance(self.rate, (float, int)), (
+            f"invalid type for rate, must be int or float, currently {type(self.rate)}"
+        )
+        assert isinstance(self.dwell_time, (float, int)), (
+            f"invalid type for dwell_time, must be int or float, currently {type(self.dwell_time)}"
+        )
+        assert isinstance(self.hfw, (float, int)), (
+            f"invalid type for hfw, must be int or float, currently {type(self.hfw)}"
+        )
+        assert isinstance(self.patterning_mode, str), (
+            f"invalid type for value for patterning_mode, must be str, currently {type(self.patterning_mode)}"
+        )
+        assert isinstance(self.application_file, (str)), (
+            f"invalid type for value for application_file, must be str, currently {type(self.application_file)}"
+        )
+        assert isinstance(self.spacing, (float, int)), (
+            f"invalid type for value for spacing, must be int or float, currently {type(self.spacing)}"
+        )
         # assert isinstance(self.preset,(str)), f"invalid type for value for preset, must be str, currently {type(self.preset)}"
 
     def to_dict(self) -> dict:
@@ -1666,11 +1839,15 @@ class FibsemMillingSettings:
             dwell_time=settings.get("dwell_time", defaults.dwell_time),
             hfw=float(settings.get("hfw", defaults.hfw)),
             patterning_mode=settings.get("patterning_mode", defaults.patterning_mode),
-            application_file=settings.get("application_file", defaults.application_file),
+            application_file=settings.get(
+                "application_file", defaults.application_file
+            ),
             preset=settings.get("preset", defaults.preset),
             spacing=settings.get("spacing", defaults.spacing),
             milling_voltage=settings.get("milling_voltage", defaults.milling_voltage),
-            milling_channel=BeamType[settings.get("milling_channel", defaults.milling_channel.name)],
+            milling_channel=BeamType[
+                settings.get("milling_channel", defaults.milling_channel.name)
+            ],
             acquire_images=settings.get("acquire_images", defaults.acquire_images),
         )
 
@@ -1694,8 +1871,10 @@ class FibsemMillingSettings:
     def get_parameters_for_manufacturer(self, manufacturer: str) -> tuple[str, ...]:
         """Get all parameter names for a specific manufacturer."""
         if manufacturer not in self._SUPPORTED_MANUFACTURERS:
-            raise ValueError(f"Manufacturer must be one of: {', '.join(self._SUPPORTED_MANUFACTURERS)}")
-        
+            raise ValueError(
+                f"Manufacturer must be one of: {', '.join(self._SUPPORTED_MANUFACTURERS)}"
+            )
+
         # use the field metadata to determine manufacturer-specific parameters
         fields_with_metadata = self.field_metadata
         required_params = []
@@ -1713,6 +1892,7 @@ class FibsemMillingSettings:
 
     def summary(self) -> str:
         from fibsem.utils import format_value
+
         mc = format_value(self.milling_current, unit="A", precision=1)
         mv = format_value(self.milling_voltage, unit="V", precision=1)
         lines = [
@@ -1732,7 +1912,7 @@ class StageSystemSettings:
     manipulator_height_limit: float
     enabled: bool = True
     rotation: bool = True
-    tilt: bool  = True
+    tilt: bool = True
     milling_angle: float = 15
 
     def to_dict(self):
@@ -1746,7 +1926,7 @@ class StageSystemSettings:
             "tilt": self.tilt,
             "milling_angle": self.milling_angle,
         }
-    
+
     @staticmethod
     def from_dict(settings: dict):
         return StageSystemSettings(
@@ -1794,7 +1974,7 @@ class BeamSystemSettings:
         return ddict
 
     @staticmethod
-    def from_dict(settings: dict) -> 'BeamSystemSettings':
+    def from_dict(settings: dict) -> "BeamSystemSettings":
         return BeamSystemSettings(
             beam_type=BeamType[settings["beam_type"]],
             enabled=settings["enabled"],
@@ -1805,6 +1985,7 @@ class BeamSystemSettings:
             plasma=settings.get("plasma", False),
             plasma_gas=settings.get("plasma_gas", None),
         )
+
 
 @dataclass
 class ManipulatorSystemSettings:
@@ -1818,7 +1999,7 @@ class ManipulatorSystemSettings:
             "rotation": self.rotation,
             "tilt": self.tilt,
         }
-    
+
     @staticmethod
     def from_dict(settings: dict):
         return ManipulatorSystemSettings(
@@ -1826,7 +2007,6 @@ class ManipulatorSystemSettings:
             rotation=settings["rotation"],
             tilt=settings["tilt"],
         )
-
 
 
 @dataclass
@@ -1842,7 +2022,7 @@ class GISSystemSettings:
             "multichem": self.multichem,
             "sputter_coater": self.sputter_coater,
         }
-    
+
     @staticmethod
     def from_dict(settings: dict):
         return GISSystemSettings(
@@ -1922,6 +2102,7 @@ class SystemInfo:
             # evaluate the lookup eagerly on every call.
             fibsem_revision=settings.get("fibsem_revision") or get_revision(),
         )
+
 
 @dataclass
 class SystemSettings:
@@ -2067,14 +2248,14 @@ class FibsemHardwareGeometry:
     there; ``from_system_settings`` is the one place that knows about it.
     """
 
-    column_tilt: float = 0.0            # electron column
-    fib_column_tilt: float = 52.0       # ion column; fixes the compustage FIB pose
+    column_tilt: float = 0.0  # electron column
+    fib_column_tilt: float = 52.0  # ion column; fixes the compustage FIB pose
     shuttle_pre_tilt: float = 0.0
     rotation_reference: float = 0.0
     rotation_180: float = 180.0
     is_compustage: bool = False
     # Fluorescence only; left at these defaults for a beam image.
-    camera_tilt: float = 0.0            # viewing axis, from the electron column
+    camera_tilt: float = 0.0  # viewing axis, from the electron column
     transform: CameraImageTransform = CameraImageTransform.NONE
 
     @classmethod
@@ -2129,7 +2310,6 @@ class FibsemHardwareGeometry:
 
 @dataclass
 class MicroscopeSettings:
-
     """
     A data class representing the settings for a microscope system.
 
@@ -2148,7 +2328,7 @@ class MicroscopeSettings:
     image: ImageSettings
     milling: FibsemMillingSettings
     protocol: Optional[dict] = None
-    fm: Optional['FluorescenceConfiguration'] = None
+    fm: Optional["FluorescenceConfiguration"] = None
 
     def to_dict(self) -> dict:
         settings_dict = {
@@ -2172,10 +2352,12 @@ class MicroscopeSettings:
         fm_config_path = settings.get("fm", {}).get("config", None)
         if fm_config_path is not None and isinstance(fm_config_path, str):
             from fibsem.fm.structures import FluorescenceConfiguration
+
             fm_config = FluorescenceConfiguration.load(fm_config_path)
         else:
             # fall back to the auto-persisted FM working state (survives restarts)
             from fibsem.fm.config import load_fm_configuration
+
             fm_config = load_fm_configuration()
 
         return MicroscopeSettings(
@@ -2183,7 +2365,7 @@ class MicroscopeSettings:
             image=ImageSettings.from_dict(settings["imaging"]),
             protocol=protocol,
             milling=FibsemMillingSettings.from_dict(settings["milling"]),
-            fm=fm_config
+            fm=fm_config,
         )
 
 
@@ -2380,7 +2562,9 @@ class FibsemUser:
         else:
             hostname = "hostname"
 
-        user = FibsemUser(name=username, email="null", organization="null", hostname=hostname)
+        user = FibsemUser(
+            name=username, email="null", organization="null", hostname=hostname
+        )
 
         return user
 
@@ -2513,7 +2697,9 @@ class FibsemImageMetadata:
     hardware_geometry: Optional[FibsemHardwareGeometry] = None
     version: str = METADATA_VERSION
     user: FibsemUser = field(default_factory=lambda: FibsemUser())
-    experiment: FibsemExperimentRef = field(default_factory=lambda: FibsemExperimentRef())
+    experiment: FibsemExperimentRef = field(
+        default_factory=lambda: FibsemExperimentRef()
+    )
 
     @property
     def beam_type(self) -> BeamType:
@@ -2552,7 +2738,9 @@ class FibsemImageMetadata:
             self.system_info.to_dict() if self.system_info is not None else {}
         )
         settings_dict["hardware_geometry"] = (
-            self.hardware_geometry.to_dict() if self.hardware_geometry is not None else {}
+            self.hardware_geometry.to_dict()
+            if self.hardware_geometry is not None
+            else {}
         )
 
         return settings_dict
@@ -2591,7 +2779,9 @@ class FibsemImageMetadata:
             column_tilt=electron.get("column_tilt", default.column_tilt),
             fib_column_tilt=ion.get("column_tilt", default.fib_column_tilt),
             shuttle_pre_tilt=stage.get("shuttle_pre_tilt", default.shuttle_pre_tilt),
-            rotation_reference=stage.get("rotation_reference", default.rotation_reference),
+            rotation_reference=stage.get(
+                "rotation_reference", default.rotation_reference
+            ),
             rotation_180=stage.get("rotation_180", default.rotation_180),
             is_compustage=is_compustage,
         )
@@ -2605,9 +2795,7 @@ class FibsemImageMetadata:
         if settings["pixel_size"] is not None:
             pixel_size = Point.from_dict(settings["pixel_size"])
         if settings["microscope_state"] is not None:
-            microscope_state = MicroscopeState.from_dict(
-                settings["microscope_state"]
-            )
+            microscope_state = MicroscopeState.from_dict(settings["microscope_state"])
 
         # Presence-detection, not a version switch (FIB-445 D3): v6 writes
         # `system_info` and `hardware_geometry`, everything before it wrote a whole
@@ -2644,17 +2832,18 @@ class ImageStats:
 
     All intensity values are normalised to [0, 1] relative to the dtype maximum.
     """
+
     mean: float
     std: float
-    p01: float              # 1st percentile
-    p99: float              # 99th percentile
-    saturation_lo: float    # fraction of pixels at dtype min
-    saturation_hi: float    # fraction of pixels at dtype max
-    contrast_ratio: float   # coefficient of variation: std / mean
+    p01: float  # 1st percentile
+    p99: float  # 99th percentile
+    saturation_lo: float  # fraction of pixels at dtype min
+    saturation_hi: float  # fraction of pixels at dtype max
+    contrast_ratio: float  # coefficient of variation: std / mean
     range_utilisation: float  # p99 - p01
-    median: float           # normalised median (robust alternative to mean)
-    snr: float              # mean / std
-    entropy: float          # Shannon entropy of the normalised histogram (bits)
+    median: float  # normalised median (robust alternative to mean)
+    snr: float  # mean / std
+    entropy: float  # Shannon entropy of the normalised histogram (bits)
 
     def __str__(self) -> str:
         return (
@@ -2665,13 +2854,17 @@ class ImageStats:
             f"range={self.range_utilisation:.3f}, entropy={self.entropy:.2f}b"
         )
 
-    def converged(self, mean_target: float, mean_tolerance: float, saturation_limit: float) -> bool:
+    def converged(
+        self, mean_target: float, mean_tolerance: float, saturation_limit: float
+    ) -> bool:
         """Return True when mean and saturation hard criteria are both satisfied."""
-        return abs(self.mean - mean_target) <= mean_tolerance and self.saturation_hi <= saturation_limit
+        return (
+            abs(self.mean - mean_target) <= mean_tolerance
+            and self.saturation_hi <= saturation_limit
+        )
 
 
 class FibsemImage:
-
     """
     Class representing a FibsemImage and its associated metadata.
     Has in built methods to deal with image types of TESCAN and ThermoFisher API
@@ -2704,7 +2897,9 @@ class FibsemImage:
             save() and load(). None for an image that has never been written or read.
     """
 
-    def __init__(self, data: np.ndarray, metadata: Optional[FibsemImageMetadata] = None):
+    def __init__(
+        self, data: np.ndarray, metadata: Optional[FibsemImageMetadata] = None
+    ):
         if check_data_format(data):
             if data.ndim == 3 and data.shape[2] == 1:
                 data = data[:, :, 0]
@@ -2723,17 +2918,17 @@ class FibsemImage:
     def shape(self) -> tuple[int, int]:
         """Returns the shape of the image data."""
         return self.data.shape
-    
+
     @property
     def dtype(self) -> np.dtype:
         """Returns the data type of the image data."""
         return self.data.dtype
-    
+
     @property
     def data(self) -> NDArray:
         """Returns the image data as a numpy array."""
         return self._data
-    
+
     @data.setter
     def data(self, value: NDArray) -> None:
         if check_data_format(value):
@@ -2805,13 +3000,19 @@ class FibsemImage:
 
         if path is None:
             if self.metadata is None:
-                raise ValueError("No metadata provided, cannot determine save path. Please provide a path.")
+                raise ValueError(
+                    "No metadata provided, cannot determine save path. Please provide a path."
+                )
             filename = self.metadata.image_settings.filename
             directory = self.metadata.image_settings.path
             if filename is None:
-                raise ValueError("No filename provided in metadata, cannot determine save path. Please provide a path.")
+                raise ValueError(
+                    "No filename provided in metadata, cannot determine save path. Please provide a path."
+                )
             if directory is None:
-                raise ValueError("No path provided in metadata, cannot determine save path. Please provide a path.")
+                raise ValueError(
+                    "No path provided in metadata, cannot determine save path. Please provide a path."
+                )
             # The recorded path is an absolute directory on whichever machine acquired
             # the image, and it travels inside the file. Creating it would mean loading
             # a colleague's image and re-saving it silently reconstructs their directory
@@ -2858,7 +3059,6 @@ class FibsemImage:
         )
         from ome_types.model.simple_types import UnitsLength
 
-
         md = self.metadata
         microscope = Microscope(
             # md.system_info since FIB-481; this was md.system.info, which no longer
@@ -2878,22 +3078,28 @@ class FibsemImage:
         pos_y = stage_position.y
         pos_z = stage_position.z
 
-        plane = Plane(the_c=0, the_z=0, the_t=0,
-                    position_x=pos_x, position_y=pos_y, position_z=pos_z,
-                    position_x_unit=UnitsLength.METER, 
-                    position_y_unit=UnitsLength.METER, 
-                    position_z_unit=UnitsLength.METER)
+        plane = Plane(
+            the_c=0,
+            the_z=0,
+            the_t=0,
+            position_x=pos_x,
+            position_y=pos_y,
+            position_z=pos_z,
+            position_x_unit=UnitsLength.METER,
+            position_y_unit=UnitsLength.METER,
+            position_z_unit=UnitsLength.METER,
+        )
         tiff_data = TiffData(ifd=0)
 
         ch = Channel(
-            id='Channel:0',
+            id="Channel:0",
             name="SEM" if md.image_settings.beam_type is BeamType.ELECTRON else "FIB",
             samples_per_pixel=1,
         )
 
         pixels = Pixels(
-            id='Pixels:0',
-            dimension_order='XYZTC',
+            id="Pixels:0",
+            dimension_order="XYZTC",
             size_x=size_x,
             size_y=size_y,
             size_c=1,
@@ -2910,13 +3116,15 @@ class FibsemImage:
         )
 
         sa = StructuredAnnotations()
-        mapAnnotation=[MapAnnotation(id="Annotation:0", 
-                        value={"fibsemOS": json.dumps(md.to_dict())}
-                )]
+        mapAnnotation = [
+            MapAnnotation(
+                id="Annotation:0", value={"fibsemOS": json.dumps(md.to_dict())}
+            )
+        ]
         sa.map_annotations = mapAnnotation
 
         ome_image = Image(
-            id='Image:0',
+            id="Image:0",
             name=md.image_settings.filename,
             acquisition_date=md.microscope_state.timestamp,
             pixels=pixels,
@@ -2932,9 +3140,9 @@ class FibsemImage:
         # TODO: check for a unique filename
         path = os.path.join(path, filename)
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        
+
         # add suffix if not present
-        OME_TIFF_SUFFIXES = ('.ome.tiff', ".ome.tif", ".tif", ".tiff")
+        OME_TIFF_SUFFIXES = (".ome.tiff", ".ome.tif", ".tif", ".tiff")
         if not path.endswith(OME_TIFF_SUFFIXES):
             # Note: with_suffix doesn't work correctly with double extensions, .ome.tiff
             path = Path(path).with_suffix(".ome.tiff")
@@ -2944,18 +3152,21 @@ class FibsemImage:
             tif.overwrite_description(ome.to_xml())
 
     @classmethod
-    def _load_from_ome_tiff(cls, path: str) -> 'FibsemImage':
+    def _load_from_ome_tiff(cls, path: str) -> "FibsemImage":
         import ome_types
 
         # read ome-xml, extract fibsemOS metadata
         try:
             ome = ome_types.from_tiff(path)
-            fibsemos_md = json.loads(ome.structured_annotations.map_annotations[0].value['fibsemOS'])
-            
+            fibsemos_md = json.loads(
+                ome.structured_annotations.map_annotations[0].value["fibsemOS"]
+            )
+
             # parse metadata to struct
             md = FibsemImageMetadata.from_dict(fibsemos_md)
         except Exception as e:
             import logging
+
             logging.warning(f"Failing to load metadata from OME-TIFF: {e}")
             md = None
 
@@ -2991,11 +3202,14 @@ class FibsemImage:
             )
 
         # Convert normalized coords to pixel indices using existing helper
-        x, y, pw, ph = rect.to_pixel_coordinates(self.data.shape)  # (x, y, width, height)
-        cropped = self.data[y:y + ph, x:x + pw].copy()
+        x, y, pw, ph = rect.to_pixel_coordinates(
+            self.data.shape
+        )  # (x, y, width, height)
+        cropped = self.data[y : y + ph, x : x + pw].copy()
 
         # Clone metadata; only update reduced_area — resolution/hfw/pixel_size unchanged
         from copy import deepcopy
+
         new_metadata = deepcopy(self.metadata)
         new_metadata.image_settings.reduced_area = rect
 
@@ -3019,6 +3233,7 @@ class FibsemImage:
             raise ValueError("Cannot resize FibsemImage without metadata.")
 
         from skimage.transform import resize as skimage_resize
+
         new_width, new_height = resolution
         resized = skimage_resize(
             self.data,
@@ -3028,6 +3243,7 @@ class FibsemImage:
         ).astype(self.data.dtype)
 
         from copy import deepcopy
+
         new_metadata = deepcopy(self.metadata)
         new_metadata.image_settings.resolution = resolution
         # pixel size scales inversely with resolution at fixed HFW
@@ -3055,7 +3271,10 @@ class FibsemImage:
         from copy import deepcopy
 
         from fibsem.autofunctions.gamma import apply_gamma as _apply_gamma
-        return FibsemImage(data=_apply_gamma(self.data, gamma), metadata=deepcopy(self.metadata))
+
+        return FibsemImage(
+            data=_apply_gamma(self.data, gamma), metadata=deepcopy(self.metadata)
+        )
 
     def auto_contrast_brightness(
         self,
@@ -3077,7 +3296,10 @@ class FibsemImage:
         from copy import deepcopy
 
         from fibsem.imaging.utils import percentile_stretch
-        stretched = percentile_stretch(self.data, clip_percentile_lo, clip_percentile_hi)
+
+        stretched = percentile_stretch(
+            self.data, clip_percentile_lo, clip_percentile_hi
+        )
         return FibsemImage(data=stretched, metadata=deepcopy(self.metadata))
 
     def compute_stats(self) -> "ImageStats":
@@ -3134,7 +3356,7 @@ class FibsemImage:
         pixel_size: Optional[Point] = None,
         random: bool = False,
         dtype: np.dtype = np.uint8,
-    ) -> 'FibsemImage':
+    ) -> "FibsemImage":
         """Generate a blank image with a given resolution and field of view.
         Args:
             resolution: List[int]: Resolution of the image.
@@ -3169,6 +3391,7 @@ class FibsemImage:
         )
         return image
 
+
 @dataclass
 class ReferenceImages:
     low_res_eb: FibsemImage
@@ -3178,7 +3401,6 @@ class ReferenceImages:
 
     def __iter__(self) -> List[FibsemImage]:
         yield self.low_res_eb, self.high_res_eb, self.low_res_ib, self.high_res_ib
-
 
 
 def check_data_format(data: np.ndarray) -> bool:
@@ -3211,12 +3433,13 @@ def load_tiff(path: Union[str, Path]) -> np.ndarray:
     """Read a raw image array from a TIFF file."""
     return tff.imread(str(path))
 
+
 @dataclass
 class FibsemGasInjectionSettings:
     port: str
     gas: str
     duration: float
-    insert_position: Optional[str] = None # multichem only
+    insert_position: Optional[str] = None  # multichem only
 
     @staticmethod
     def from_dict(d: dict):
@@ -3236,12 +3459,15 @@ class FibsemGasInjectionSettings:
         }
 
 
-def calculate_fiducial_area_v2(image: FibsemImage, fiducial_centre: Point, fiducial_length:float)->Tuple[FibsemRectangle, bool]:
-    
+def calculate_fiducial_area_v2(
+    image: FibsemImage, fiducial_centre: Point, fiducial_length: float
+) -> Tuple[FibsemRectangle, bool]:
+
     if image.metadata is None or image.metadata.pixel_size is None:
         raise ValueError("Image metadata or pixel size is not set.")
-    
+
     from fibsem import conversions
+
     pixelsize = image.metadata.pixel_size.x
 
     fiducial_centre.y = -fiducial_centre.y
@@ -3253,7 +3479,8 @@ def calculate_fiducial_area_v2(image: FibsemImage, fiducial_centre: Point, fiduc
     rcy = fiducial_centre_px.y / image.metadata.image_settings.resolution[1] + 0.5
 
     fiducial_length_px = (
-        conversions.convert_metres_to_pixels(fiducial_length, pixelsize) * 1.5 # SCALE_FACTOR
+        conversions.convert_metres_to_pixels(fiducial_length, pixelsize)
+        * 1.5  # SCALE_FACTOR
     )
     h_offset = fiducial_length_px / image.metadata.image_settings.resolution[0] / 2
     v_offset = fiducial_length_px / image.metadata.image_settings.resolution[1] / 2
@@ -3272,30 +3499,36 @@ def calculate_fiducial_area_v2(image: FibsemImage, fiducial_centre: Point, fiduc
 
     return alignment_area, flag
 
+
 DEFAULT_ALIGNMENT_AREA = {"left": 0.7, "top": 0.3, "width": 0.25, "height": 0.4}
+
 
 @dataclass
 class MillingAlignment:
     """Drift correction settings for milling"""
+
     enabled: bool = True
     interval_enabled: bool = False
-    interval: int = 30 # seconds
-    rect: FibsemRectangle = field(default_factory=lambda: FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA))
+    interval: int = 30  # seconds
+    rect: FibsemRectangle = field(
+        default_factory=lambda: FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA)
+    )
     use_autocontrast: bool = True
     use_autofocus: bool = False
     steps: int = 3
     imaging: ImageSettings = field(default_factory=ImageSettings)
 
     def to_dict(self):
-        return {"enabled": self.enabled, 
-                "interval_enabled": self.interval_enabled, 
-                "interval": self.interval, 
-                "rect": self.rect.to_dict(),
-                "use_autocontrast": self.use_autocontrast,
-                "use_autofocus": self.use_autofocus,
-                "steps": self.steps,
-                "imaging": self.imaging.to_dict(),
-                }
+        return {
+            "enabled": self.enabled,
+            "interval_enabled": self.interval_enabled,
+            "interval": self.interval,
+            "rect": self.rect.to_dict(),
+            "use_autocontrast": self.use_autocontrast,
+            "use_autofocus": self.use_autofocus,
+            "steps": self.steps,
+            "imaging": self.imaging.to_dict(),
+        }
 
     @staticmethod
     def from_dict(d: dict) -> "MillingAlignment":
@@ -3303,12 +3536,15 @@ class MillingAlignment:
             enabled=d.get("enabled", False),
             interval_enabled=d.get("interval_enabled", False),
             interval=d.get("interval", 30),
-            rect=FibsemRectangle.from_dict(d.get("rect", DEFAULT_ALIGNMENT_AREA),),
+            rect=FibsemRectangle.from_dict(
+                d.get("rect", DEFAULT_ALIGNMENT_AREA),
+            ),
             use_autocontrast=d.get("use_autocontrast", True),
             use_autofocus=d.get("use_autofocus", False),
             steps=d.get("steps", 3),
             imaging=ImageSettings.from_dict(d.get("imaging", {})),
         )
+
 
 @dataclass
 class RangeLimit:
@@ -3329,12 +3565,24 @@ class RangeLimit:
 @dataclass
 class ReferenceImageParameters:
     imaging: ImageSettings = field(default_factory=ImageSettings)
-    field_of_view1: float = field(default=100e-6, metadata={"tooltip": "Field of view for first reference image"})
-    field_of_view2: float = field(default=150e-6, metadata={"tooltip": "Field of view for second reference image"})
-    acquire_sem: bool = field(default=True, metadata={"tooltip": "Whether to acquire SEM reference images"})
-    acquire_fib: bool = field(default=True, metadata={"tooltip": "Whether to acquire FIB reference images"})
-    acquire_image1: bool = field(default=True, metadata={"tooltip": "Whether to acquire first reference image"})
-    acquire_image2: bool = field(default=True, metadata={"tooltip": "Whether to acquire second reference image"})
+    field_of_view1: float = field(
+        default=100e-6, metadata={"tooltip": "Field of view for first reference image"}
+    )
+    field_of_view2: float = field(
+        default=150e-6, metadata={"tooltip": "Field of view for second reference image"}
+    )
+    acquire_sem: bool = field(
+        default=True, metadata={"tooltip": "Whether to acquire SEM reference images"}
+    )
+    acquire_fib: bool = field(
+        default=True, metadata={"tooltip": "Whether to acquire FIB reference images"}
+    )
+    acquire_image1: bool = field(
+        default=True, metadata={"tooltip": "Whether to acquire first reference image"}
+    )
+    acquire_image2: bool = field(
+        default=True, metadata={"tooltip": "Whether to acquire second reference image"}
+    )
 
     def to_dict(self) -> dict:
         return {
@@ -3359,7 +3607,7 @@ class ReferenceImageParameters:
             acquire_image1=settings.get("acquire_image1", True),
             acquire_image2=settings.get("acquire_image2", True),
         )
-    
+
     @property
     def field_of_views(self) -> Tuple[float, ...]:
         """Returns a tuple of the selected field of views, sorted from largest to smallest."""
@@ -3368,7 +3616,7 @@ class ReferenceImageParameters:
             fovs.append(self.field_of_view1)
         if self.acquire_image2:
             fovs.append(self.field_of_view2)
-        return tuple(sorted(fovs, reverse=True)) # largest to smallest
+        return tuple(sorted(fovs, reverse=True))  # largest to smallest
 
     @property
     def estimated_time(self) -> float:
