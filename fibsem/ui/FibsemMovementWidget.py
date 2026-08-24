@@ -375,11 +375,11 @@ class FibsemMovementWidget(QtWidgets.QWidget):
     def handle_movement_progress_update(self, ddict: dict) -> None:
         """Handle movement progress updates from the microscope.
 
-        Shown in the instructions label rather than as toasts. These messages bracket
-        a blocking move -- one click-to-move emits four of them inside ~45 ms -- so as
-        popups they stack into a wall that says nothing the moving stage and the
-        refreshing images do not already show. A label carries the same words for the
-        duration of the move, which is when they are worth reading.
+        Written to the canvas info bar rather than shown as toasts. These messages
+        bracket a blocking move -- one click-to-move emits four of them inside ~45 ms
+        -- so as popups they stack into a wall that says nothing the moving stage and
+        the refreshing images do not already show. On the info bar the same words stay
+        put for the duration of the move, which is when they are worth reading.
 
         They are invisible today because `display.toasts_enabled` defaults to False.
         That default should change, and this is what has to be true first.
@@ -387,15 +387,42 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         msg = ddict.get("msg", None)
         if msg is not None:
             logging.debug(msg)
-            self.label_movement_instructions.setText(msg)
+            self._set_move_status(msg)
 
         is_finished = ddict.get("finished", False)
         if is_finished:
-            # Restored, or the last progress line sits there afterwards as though the
-            # stage were still moving. Every path reaches here: each worker connects
-            # `finished` to `move_stage_finished`, which emits this.
-            self.label_movement_instructions.setText(INSTRUCTIONS_TEXT)
+            # Cleared, or the last line sits there afterwards as though the stage were
+            # still moving. Every path reaches here: each worker connects `finished` to
+            # `move_stage_finished`, which emits this.
+            #
+            # Except while the images are still being retaken -- which is the usual
+            # case, because `update_ui_after_movement` only *queues* the acquisition
+            # before the worker returns. `move_stage_finished` already declines to
+            # re-enable the buttons in that window; the status has to keep the same
+            # counsel or it says "done" over a second of acquisition, and offers a
+            # double-click that is still disabled. `handle_acquisition_update` clears
+            # it when the images actually land.
+            if not self.image_widget.is_acquiring:
+                self._set_move_status(None)
             self._update_position_readout()
+
+    def _set_move_status(self, msg: Optional[str]) -> None:
+        """Put *msg* on the info bar of every canvas, or clear it when None.
+
+        Not the instructions label on this tab. Five of the six paths that start a
+        stage move start it from somewhere else -- the canvas beside the tabs (which
+        takes a double-click whatever tab is showing), either minimap, or the lamella
+        list -- so a message on the Movement tab is one the operator is usually not
+        looking at, where a toast could be read from anywhere. The info bar is beside
+        the canvas that was clicked, is visible from every tab, and is already where
+        the stage position this move is changing gets written.
+        """
+        controller = self._view_controller()
+        if controller is None:
+            return
+        controller.set_info(BeamType.ELECTRON, "move", msg)
+        controller.set_info(BeamType.ION, "move", msg)
+        controller.set_fm_info("move", msg)
 
     def _update_position_readout(
         self, stage_position: Optional[FibsemStagePosition] = None
@@ -409,6 +436,10 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         """Handle acquisition updates from the image widget"""
         is_finished = ddict.get("finished", False)
         if is_finished:
+            # The other half of the hand-off above: a move's status outlives its
+            # `finished` so it covers the acquisition that follows, and this is what
+            # takes it down. A no-op when no move put anything there.
+            self._set_move_status(None)
             self.update_ui()
 
     @ensure_main_thread
