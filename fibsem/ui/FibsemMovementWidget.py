@@ -583,6 +583,23 @@ class FibsemMovementWidget(QtWidgets.QWidget):
             }
         )
 
+        # refuse rather than silently fall through to stable_move below: on backends
+        # without move_coincident_from_sem (e.g. TESCAN) the operator would ask to
+        # restore coincidence and get a sample-plane move instead
+        if (
+            beam_type is BeamType.ELECTRON
+            and vertical_move
+            and not hasattr(self.microscope, "move_coincident_from_sem")
+        ):
+            logging.warning(
+                "Vertical move from the SEM view is not supported on this system."
+            )
+            notification_service.show_toast(
+                "Vertical move from the SEM view is not supported on this system - use the FIB view.",
+                "warning",
+            )
+            return
+
         # Which kind of move, because they are different operations and the user chose
         # between them: a plain double-click moves laterally, Alt + double-click moves
         # along the beam axis to hold eucentricity. "Vertically" rather than
@@ -598,11 +615,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         # eucentric is only supported for ION beam
         if beam_type is BeamType.ION and vertical_move:
             self.microscope.vertical_move(dx=point.x, dy=point.y)
-        elif (
-            beam_type is BeamType.ELECTRON
-            and vertical_move
-            and hasattr(self.microscope, "move_coincident_from_sem")
-        ):
+        elif beam_type is BeamType.ELECTRON and vertical_move:
             # move coincident from SEM
             self.microscope.move_coincident_from_sem(
                 dx=0, dy=point.y
