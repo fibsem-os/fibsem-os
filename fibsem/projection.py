@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Optional, Protocol, Tuple
 
 import numpy as np
 
+from fibsem import manufacturers
 from fibsem.fm.reprojection import project_image_point, project_stage_position
 from fibsem.imaging.tiling.reprojection import (
     inverse_y_corrected_stage_movement_tescan_from_geometry,
@@ -76,10 +77,12 @@ def surface_foreshortening(
     every Arctis, and every test written against one -- and 22% at 35 degrees (FIB-657).
     """
     moved = projection.from_plane(0.0, _FORESHORTENING_PROBE, base)
-    travel = float(np.hypot(
-        (moved.y or 0.0) - (base.y or 0.0),
-        (moved.z or 0.0) - (base.z or 0.0),
-    ))
+    travel = float(
+        np.hypot(
+            (moved.y or 0.0) - (base.y or 0.0),
+            (moved.z or 0.0) - (base.z or 0.0),
+        )
+    )
     if not travel:
         return 1.0
     return _FORESHORTENING_PROBE / travel
@@ -257,7 +260,7 @@ class BeamStageProjection:
                 geometry=microscope.hardware_geometry(),
                 beam_type=beam_type,
                 scan_rotation=microscope.get_scan_rotation(beam_type=beam_type),
-                is_tescan=microscope.system.info.manufacturer.upper() == "TESCAN",
+                is_tescan=manufacturers.is_tescan(microscope.system.info.manufacturer),
             )
         except Exception as e:
             logging.debug(f"Could not read the live beam geometry: {e}")
@@ -291,7 +294,7 @@ class BeamStageProjection:
                 beam_type=beam_type,
                 scan_rotation=beam.scan_rotation,
                 is_tescan=(
-                    info is not None and info.manufacturer.upper() == "TESCAN"
+                    info is not None and manufacturers.is_tescan(info.manufacturer)
                 ),
             )
         except Exception as e:
@@ -397,9 +400,7 @@ class BeamStageProjection:
             return 0.0
         return np.deg2rad(self.geometry.fib_column_tilt)
 
-    def _expected_y(
-        self, dy: float, dz: float, base: FibsemStagePosition
-    ) -> float:
+    def _expected_y(self, dy: float, dz: float, base: FibsemStagePosition) -> float:
         """The image-space y-displacement a y/z stage movement corresponds to."""
         if self.is_tescan:
             return inverse_y_corrected_stage_movement_tescan_from_geometry(

@@ -149,3 +149,53 @@ def test_module_namespace_access():
     """Call sites use `manufacturers.TESCAN` -- keep the module-level names stable."""
     assert manufacturers.TESCAN == "Tescan"
     assert manufacturers.THERMOFISHER == "ThermoFisher"
+
+
+# ---------------------------------------------------------------------------
+# the ratchet: no new .upper() band-aids
+# ---------------------------------------------------------------------------
+
+
+def test_no_upper_tescan_band_aids_outside_the_allowlist():
+    """`.upper() == "TESCAN"` was each call site's local coping mechanism for the
+    casing split; new comparisons go through `manufacturers.is_tescan`. The two
+    widget sites remain until the validation/config part lands -- the allowlist
+    then empties and never grows."""
+    import os
+    from pathlib import Path
+
+    import fibsem
+
+    ALLOWED = {
+        "fibsem/ui/widgets/milling_stages_widget.py",
+        "fibsem/ui/widgets/beam_settings_widget.py",
+    }
+    root = Path(fibsem.__file__).parent
+    offenders = []
+    for path in root.rglob("*.py"):
+        rel = "fibsem/" + str(path.relative_to(root)).replace(os.sep, "/")
+        if (
+            'upper() == "TESCAN"' in path.read_text(encoding="utf-8")
+            and rel not in ALLOWED
+        ):
+            offenders.append(rel)
+    assert offenders == [], (
+        'new `.upper() == "TESCAN"` band-aid(s) -- use manufacturers.is_tescan: '
+        f"{offenders}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# boundary: setup_session dispatches on canonical, whatever the caller spelled
+# ---------------------------------------------------------------------------
+
+
+def test_setup_session_accepts_any_demo_spelling(tmp_path):
+    from fibsem import utils
+
+    microscope, settings = utils.setup_session(
+        session_path=str(tmp_path), manufacturer="DEMO", setup_logging=False
+    )
+    assert type(microscope).__name__ == "DemoMicroscope"
+    assert settings.system.info.manufacturer == DEMO
+    microscope.disconnect()
