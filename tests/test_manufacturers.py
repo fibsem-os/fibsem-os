@@ -210,3 +210,35 @@ def test_milling_parameters_accept_any_manufacturer_spelling():
     ) == s.get_parameters_for_manufacturer("Tescan")
     with pytest.raises(ValueError):
         s.get_parameters_for_manufacturer("Hitachi")
+
+
+# ---------------------------------------------------------------------------
+# the config surface is canonical
+# ---------------------------------------------------------------------------
+
+
+def test_available_manufacturers_are_canonical():
+    from fibsem import config as cfg
+
+    assert all(normalize_manufacturer(m) == m for m in cfg.AVAILABLE_MANUFACTURERS)
+    assert cfg.DEFAULT_MANUFACTURER == THERMOFISHER
+
+
+def test_column_tilt_lookup_accepts_any_spelling():
+    from fibsem.configuration import get_column_tilt
+
+    assert (
+        get_column_tilt("Thermo", "ion") == get_column_tilt("ThermoFisher", "ion") == 52
+    )
+    assert get_column_tilt("TESCAN", "ion") == 55
+    with pytest.raises(ValueError):
+        get_column_tilt("Hitachi", "ion")
+
+
+def test_wizard_config_values_are_canonical():
+    """The guided setup writes config_value into generated configs and keys the
+    column-tilt defaults with it -- a non-canonical value would silently miss both."""
+    from fibsem.guided_setup import MANUFACTURERS
+
+    for m in MANUFACTURERS:
+        assert normalize_manufacturer(m.config_value) == m.config_value

@@ -8,6 +8,7 @@ from typing import List, Optional
 import yaml
 
 import fibsem
+from fibsem import manufacturers
 
 # Documentation for a human reading a file, not a parsing switch -- from_dict does not
 # branch on it, and additive changes are detected from field presence instead (FIB-445
@@ -149,8 +150,12 @@ def load_yaml(fname):
     return config
 
 
-AVAILABLE_MANUFACTURERS = ["Thermo", "Tescan", "Demo"]
-DEFAULT_MANUFACTURER = "Thermo"
+AVAILABLE_MANUFACTURERS = [
+    manufacturers.THERMOFISHER,
+    manufacturers.TESCAN,
+    manufacturers.DEMO,
+]
+DEFAULT_MANUFACTURER = manufacturers.THERMOFISHER
 DEFAULT_IP_ADDRESS = "192.168.0.1"
 SUPPORTED_PLASMA_GASES = ["Argon", "Oxygen", "Nitrogen", "Xenon"]
 
@@ -160,7 +165,7 @@ def get_default_user_config() -> dict:
     return {
         "name": "default-configuration",  # a descriptive name for your configuration
         "ip_address": DEFAULT_IP_ADDRESS,  # the ip address of the microscope PC
-        "manufacturer": DEFAULT_MANUFACTURER,  # the microscope manufactuer, Thermo, Tescan or Demo
+        "manufacturer": DEFAULT_MANUFACTURER,  # the microscope manufacturer: ThermoFisher, Tescan or Demo
         "rotation-reference": 0,  # the reference rotation value (rotation when loading)  [degrees]
         "shuttle-pre-tilt": 35,  # the pre-tilt of the shuttle                           [degrees]
         "electron-beam-eucentric-height": 7.0e-3,  # the eucentric height of the electron beam             [metres]
@@ -263,7 +268,7 @@ def set_default_configuration(configuration_name: str):
 
 # default configuration values
 DEFAULT_CONFIGURATION_VALUES = {
-    "Thermo": {
+    manufacturers.THERMOFISHER: {
         "ion-column-tilt": 52,
         "electron-column-tilt": 0,
     },

@@ -681,7 +681,7 @@ def test_the_review_is_built_from_what_will_be_written(dialog):
     assert rows["Address"] == "localhost"
     # What the file will say, not what the card said: the review's job is to show what
     # is about to be written.
-    assert rows["Manufacturer"] == "Thermo"
+    assert rows["Manufacturer"] == "ThermoFisher"
 
 
 def test_the_review_says_which_values_nobody_typed(dialog):
