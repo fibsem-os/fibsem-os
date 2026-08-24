@@ -23,7 +23,9 @@ from fibsem import cli
 
 # flag argv, namespace attribute, value once given, value when absent
 CONNECTION_FLAGS = [
-    (["--manufacturer", "Thermo"], "manufacturer", "Thermo", "Demo"),
+    # input is the historical spelling on purpose: the parser normalises it, so
+    # the parsed value is canonical
+    (["--manufacturer", "Thermo"], "manufacturer", "ThermoFisher", "Demo"),
     (["--ip-address", "10.0.0.1"], "ip_address", "10.0.0.1", "localhost"),
     (["--config", "/tmp/scope.yaml"], "config_path", Path("/tmp/scope.yaml"), None),
     (["--debug"], "debug", True, False),
@@ -62,7 +64,9 @@ def test_a_connection_flag_is_honoured_from_either_position(flag, dest, given, _
 
 
 @pytest.mark.parametrize("_flag,dest,_given,absent", CONNECTION_FLAGS, ids=_IDS)
-def test_the_declared_default_still_applies_when_the_flag_is_absent(_flag, dest, _given, absent):
+def test_the_declared_default_still_applies_when_the_flag_is_absent(
+    _flag, dest, _given, absent
+):
     """Suppressing the subparsers' defaults must not suppress them everywhere.
 
     The root parser's copy is the one that guarantees the attribute exists at
@@ -87,7 +91,7 @@ def test_every_subcommand_honours_a_flag_given_before_it(subcommand):
     would reintroduce the bug for that one subcommand only.
     """
     argv = ["--manufacturer", "Thermo", subcommand, *POSITIONALS.get(subcommand, [])]
-    assert _parse(*argv).manufacturer == "Thermo"
+    assert _parse(*argv).manufacturer == "ThermoFisher"
 
 
 def test_the_sweep_covers_every_subcommand():
@@ -97,7 +101,12 @@ def test_the_sweep_covers_every_subcommand():
     coverage quietly stops one subcommand short.
     """
     for subcommand in _subcommand_names():
-        argv = ["--manufacturer", "Thermo", subcommand, *POSITIONALS.get(subcommand, [])]
+        argv = [
+            "--manufacturer",
+            "Thermo",
+            subcommand,
+            *POSITIONALS.get(subcommand, []),
+        ]
         try:
             _parse(*argv)
         except SystemExit:
