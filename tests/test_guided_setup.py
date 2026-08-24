@@ -330,7 +330,7 @@ def test_the_generic_base_takes_its_manufacturer_from_the_first_step():
             name="Bench",
         )
     )
-    assert config["info"]["manufacturer"] == "Thermo"
+    assert config["info"]["manufacturer"] == "ThermoFisher"
 
 
 def test_every_shipped_file_already_agrees_with_its_manufacturers_column_tilts():

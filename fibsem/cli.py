@@ -1,4 +1,5 @@
 """fibsem-cli — command-line interface for fibsemOS microscope control."""
+
 from __future__ import annotations
 
 import argparse
@@ -10,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-from fibsem import acquire, utils
+from fibsem import acquire, manufacturers, utils
 from fibsem.structures import (
     BeamSettings,
     BeamType,
@@ -22,6 +23,7 @@ from fibsem.structures import (
 # ---------------------------------------------------------------------------
 # Unit helpers
 # ---------------------------------------------------------------------------
+
 
 def _um_to_m(v: Optional[float]) -> Optional[float]:
     return v * 1e-6 if v is not None else None
@@ -58,6 +60,7 @@ def _parse_resolution(s: str) -> tuple:
 # Output helpers
 # ---------------------------------------------------------------------------
 
+
 def _print_stage_position(pos: FibsemStagePosition) -> None:
     print("Stage Position")
     for axis, val, unit, is_angle in [
@@ -89,15 +92,32 @@ def _fmt_current(amps: Optional[float]) -> str:
     return f"{amps * 1e6:.2f} uA"
 
 
-def _print_beam_settings(label: str, beam: BeamSettings, detector: FibsemDetectorSettings,
-                          is_on: Optional[bool], is_blanked: Optional[bool]) -> None:
+def _print_beam_settings(
+    label: str,
+    beam: BeamSettings,
+    detector: FibsemDetectorSettings,
+    is_on: Optional[bool],
+    is_blanked: Optional[bool],
+) -> None:
     print(f"{label} Beam")
-    wd = f"{beam.working_distance * 1e3:.3f} mm" if beam.working_distance is not None else "None"
+    wd = (
+        f"{beam.working_distance * 1e3:.3f} mm"
+        if beam.working_distance is not None
+        else "None"
+    )
     hfw = f"{beam.hfw * 1e6:.2f} um" if beam.hfw is not None else "None"
     kv = f"{beam.voltage / 1e3:.2f} kV" if beam.voltage is not None else "None"
     dt = f"{beam.dwell_time * 1e6:.2f} us" if beam.dwell_time is not None else "None"
-    res = f"{beam.resolution[0]} x {beam.resolution[1]}" if beam.resolution is not None else "None"
-    rot = f"{_rad_to_deg(beam.scan_rotation):.2f} deg" if beam.scan_rotation is not None else "None"
+    res = (
+        f"{beam.resolution[0]} x {beam.resolution[1]}"
+        if beam.resolution is not None
+        else "None"
+    )
+    rot = (
+        f"{_rad_to_deg(beam.scan_rotation):.2f} deg"
+        if beam.scan_rotation is not None
+        else "None"
+    )
     print(f"  voltage:           {kv}")
     print(f"  current:           {_fmt_current(beam.beam_current)}")
     print(f"  working_distance:  {wd}")
@@ -110,9 +130,13 @@ def _print_beam_settings(label: str, beam: BeamSettings, detector: FibsemDetecto
     print("  Detector")
     print(f"    type:       {detector.type}")
     print(f"    mode:       {detector.mode}")
-    print(f"    contrast:   {detector.contrast:.2f}    brightness: {detector.brightness:.2f}")
+    print(
+        f"    contrast:   {detector.contrast:.2f}    brightness: {detector.brightness:.2f}"
+    )
     on_str = "ON" if is_on else ("OFF" if is_on is not None else "unknown")
-    blanked_str = "yes" if is_blanked else ("no" if is_blanked is not None else "unknown")
+    blanked_str = (
+        "yes" if is_blanked else ("no" if is_blanked is not None else "unknown")
+    )
     print(f"  power:             {on_str}")
     print(f"  blanked:           {blanked_str}")
 
@@ -137,6 +161,7 @@ def _print_image_result(image, beam_type: BeamType) -> None:
 # ---------------------------------------------------------------------------
 # Subcommand handlers
 # ---------------------------------------------------------------------------
+
 
 def cmd_acquire(microscope, settings, args) -> int:
     res_w, res_h = args.resolution
@@ -293,7 +318,7 @@ def cmd_info(microscope, _settings, _args) -> int:
 
     for beam_type, beam_settings, detector in [
         (BeamType.ELECTRON, state.electron_beam, state.electron_detector),
-        (BeamType.ION,      state.ion_beam,      state.ion_detector),
+        (BeamType.ION, state.ion_beam, state.ion_detector),
     ]:
         if beam_settings is None:
             continue
@@ -343,6 +368,7 @@ def cmd_plugins(args) -> int:
 # Parser construction
 # ---------------------------------------------------------------------------
 
+
 def _build_connection_parser(*, defaults: bool = True) -> argparse.ArgumentParser:
     """The connection arguments, shared by the root parser and every subcommand.
 
@@ -369,7 +395,10 @@ def _build_connection_parser(*, defaults: bool = True) -> argparse.ArgumentParse
     p.add_argument(
         "--manufacturer",
         default=default("Demo"),
-        choices=["Demo", "Thermo", "Tescan", "Odemis"],
+        # normalise BEFORE the choices check, so historical spellings
+        # (--manufacturer Thermo) keep working while --help shows canonical
+        type=manufacturers.normalize_manufacturer,
+        choices=["Demo", "ThermoFisher", "Tescan", "Odemis"],
         help="Microscope manufacturer (default: Demo)",
     )
     p.add_argument(
@@ -396,7 +425,9 @@ def _build_connection_parser(*, defaults: bool = True) -> argparse.ArgumentParse
 
 
 def _add_acquire_parser(sub, conn) -> None:
-    p = sub.add_parser("acquire", parents=[conn], help="Acquire one or both beam images")
+    p = sub.add_parser(
+        "acquire", parents=[conn], help="Acquire one or both beam images"
+    )
     p.add_argument(
         "--beam",
         choices=["electron", "ion", "both"],
@@ -453,18 +484,50 @@ def _add_acquire_parser(sub, conn) -> None:
 
 
 def _add_move_parser(sub, conn) -> None:
-    p = sub.add_parser("move", parents=[conn], help="Move the stage (absolute or relative)")
+    p = sub.add_parser(
+        "move", parents=[conn], help="Move the stage (absolute or relative)"
+    )
     p.add_argument(
         "--mode",
         choices=["absolute", "relative"],
         default="relative",
         help="Move mode (default: relative)",
     )
-    p.add_argument("--x", type=float, default=None, metavar="MICROMETRES", help="X position/delta in micrometres")
-    p.add_argument("--y", type=float, default=None, metavar="MICROMETRES", help="Y position/delta in micrometres")
-    p.add_argument("--z", type=float, default=None, metavar="MICROMETRES", help="Z position/delta in micrometres")
-    p.add_argument("--rotation", type=float, default=None, metavar="DEGREES", help="Rotation (r) in degrees")
-    p.add_argument("--tilt", type=float, default=None, metavar="DEGREES", help="Tilt (t) in degrees")
+    p.add_argument(
+        "--x",
+        type=float,
+        default=None,
+        metavar="MICROMETRES",
+        help="X position/delta in micrometres",
+    )
+    p.add_argument(
+        "--y",
+        type=float,
+        default=None,
+        metavar="MICROMETRES",
+        help="Y position/delta in micrometres",
+    )
+    p.add_argument(
+        "--z",
+        type=float,
+        default=None,
+        metavar="MICROMETRES",
+        help="Z position/delta in micrometres",
+    )
+    p.add_argument(
+        "--rotation",
+        type=float,
+        default=None,
+        metavar="DEGREES",
+        help="Rotation (r) in degrees",
+    )
+    p.add_argument(
+        "--tilt",
+        type=float,
+        default=None,
+        metavar="DEGREES",
+        help="Tilt (t) in degrees",
+    )
     p.set_defaults(func=cmd_move)
 
 
@@ -501,7 +564,9 @@ def _add_autofocus_parser(sub, conn) -> None:
 
 
 def _add_autocontrast_parser(sub, conn) -> None:
-    p = sub.add_parser("autocontrast", parents=[conn], help="Run autocontrast on a beam")
+    p = sub.add_parser(
+        "autocontrast", parents=[conn], help="Run autocontrast on a beam"
+    )
     p.add_argument(
         "--beam",
         choices=["electron", "ion", "both"],
@@ -518,7 +583,9 @@ def _add_info_parser(sub, conn) -> None:
 
 def _add_mill_angle_parser(sub, conn) -> None:
     p = sub.add_parser("mill-angle", parents=[conn], help="Move stage to milling angle")
-    p.add_argument("angle", type=float, metavar="DEGREES", help="Target milling angle in degrees")
+    p.add_argument(
+        "angle", type=float, metavar="DEGREES", help="Target milling angle in degrees"
+    )
     p.add_argument(
         "--rotation",
         type=float,
@@ -597,7 +664,9 @@ def cmd_experiments(args) -> int:
         operator=args.operator,
         since=since,
         until=(
-            datetime.strptime(args.until, "%Y-%m-%d").timestamp() if args.until else None
+            datetime.strptime(args.until, "%Y-%m-%d").timestamp()
+            if args.until
+            else None
         ),
     )
 
@@ -607,7 +676,9 @@ def cmd_experiments(args) -> int:
 
     if args.group:
         for serial, group in group_by_instrument(experiments).items():
-            model = next((e.instrument_model for e in group if e.instrument_model), None)
+            model = next(
+                (e.instrument_model for e in group if e.instrument_model), None
+            )
             heading = f"{model} ({serial})" if serial else "No session recorded"
             print(f"\n{heading} — {len(group)} experiment(s)")
             _print_experiments(group)
@@ -657,21 +728,28 @@ def _add_experiments_parser(sub) -> None:
         action="append",
         metavar="PATH",
         help="Directory to search; repeatable. Defaults to your configured "
-             "experiment directory",
+        "experiment directory",
     )
     p.add_argument(
         "--recent",
         action="store_true",
         help="Also include experiments this machine has opened, which may live "
-             "outside any searched root (last 10 only)",
+        "outside any searched root (last 10 only)",
     )
-    p.add_argument("--instrument", metavar="SERIAL|MODEL",
-                   help="Only experiments run on this instrument")
-    p.add_argument("--operator", metavar="NAME", help="Only experiments run by this operator")
+    p.add_argument(
+        "--instrument",
+        metavar="SERIAL|MODEL",
+        help="Only experiments run on this instrument",
+    )
+    p.add_argument(
+        "--operator", metavar="NAME", help="Only experiments run by this operator"
+    )
     p.add_argument("--days", type=int, metavar="N", help="Only the last N days")
     p.add_argument("--since", metavar="YYYY-MM-DD", help="Only on or after this date")
     p.add_argument("--until", metavar="YYYY-MM-DD", help="Only on or before this date")
-    p.add_argument("--group", action="store_true", help="Group the listing by instrument")
+    p.add_argument(
+        "--group", action="store_true", help="Group the listing by instrument"
+    )
     p.set_defaults(func=cmd_experiments, needs_microscope=False)
 
 
@@ -709,14 +787,18 @@ def _add_plugins_parser(sub) -> None:
 
 
 def _add_set_beam_parser(sub, conn) -> None:
-    p = sub.add_parser("set-beam", parents=[conn], help="Set beam voltage, current, or HFW")
+    p = sub.add_parser(
+        "set-beam", parents=[conn], help="Set beam voltage, current, or HFW"
+    )
     p.add_argument(
         "--beam",
         choices=["electron", "ion"],
         default="electron",
         help="Which beam to configure (default: electron)",
     )
-    p.add_argument("--voltage", type=float, default=None, metavar="KV", help="Beam voltage in kV")
+    p.add_argument(
+        "--voltage", type=float, default=None, metavar="KV", help="Beam voltage in kV"
+    )
     p.add_argument(
         "--current",
         type=float,
@@ -724,7 +806,13 @@ def _add_set_beam_parser(sub, conn) -> None:
         metavar="AMPS",
         help="Beam current in amps (e.g. 100e-12 for 100 pA)",
     )
-    p.add_argument("--hfw", type=float, default=None, metavar="MICROMETRES", help="Horizontal field width in µm")
+    p.add_argument(
+        "--hfw",
+        type=float,
+        default=None,
+        metavar="MICROMETRES",
+        help="Horizontal field width in µm",
+    )
     p.set_defaults(func=cmd_set_beam)
 
 
@@ -785,6 +873,7 @@ def _build_parser() -> argparse.ArgumentParser:
 # Entry point
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
@@ -794,7 +883,9 @@ def main() -> None:
 
     if args.subcommand == "move":
         if all(v is None for v in [args.x, args.y, args.z, args.rotation, args.tilt]):
-            parser.error("move: at least one of --x, --y, --z, --rotation, --tilt must be specified")
+            parser.error(
+                "move: at least one of --x, --y, --z, --rotation, --tilt must be specified"
+            )
 
     # Subcommands that answer a question about this install rather than about a
     # microscope run before the connection attempt. `plugins` in particular has

@@ -30,7 +30,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import config as cfg
-from fibsem import constants, utils
+from fibsem import constants, manufacturers, utils
 from fibsem.structures import BeamType
 
 
@@ -110,9 +110,12 @@ class MicroscopeConfigWidget(QWidget):
     def _build_stage_tab(self) -> QWidget:
         w = QWidget()
         form = QFormLayout(w)
-        self._sb_stage_rot_ref = QSpinBox(); self._sb_stage_rot_ref.setRange(-360, 360)
-        self._sb_stage_rot_180 = QSpinBox(); self._sb_stage_rot_180.setRange(-360, 360)
-        self._sb_stage_pretilt = QSpinBox(); self._sb_stage_pretilt.setRange(0, 90)
+        self._sb_stage_rot_ref = QSpinBox()
+        self._sb_stage_rot_ref.setRange(-360, 360)
+        self._sb_stage_rot_180 = QSpinBox()
+        self._sb_stage_rot_180.setRange(-360, 360)
+        self._sb_stage_pretilt = QSpinBox()
+        self._sb_stage_pretilt.setRange(0, 90)
         self._dsb_stage_manip_limit = _dsb(0, 100, 4, suffix=" mm")
         form.addRow("Rotation Reference (deg)", self._sb_stage_rot_ref)
         form.addRow("Rotation 180 (deg)", self._sb_stage_rot_180)
@@ -129,12 +132,15 @@ class MicroscopeConfigWidget(QWidget):
         inner = QWidget()
         form = QFormLayout(inner)
 
-        sb_col_tilt = QSpinBox(); sb_col_tilt.setRange(-90, 90)
+        sb_col_tilt = QSpinBox()
+        sb_col_tilt.setRange(-90, 90)
         dsb_euc = _dsb(0, 100, 4, suffix=" mm")
         dsb_voltage = _dsb(0, 100000, 0, suffix=" V")
         dsb_current = _dsb(0, 1e6, 4, suffix=" nA")
-        sb_res_x = QSpinBox(); sb_res_x.setRange(64, 16384)
-        sb_res_y = QSpinBox(); sb_res_y.setRange(64, 16384)
+        sb_res_x = QSpinBox()
+        sb_res_x.setRange(64, 16384)
+        sb_res_y = QSpinBox()
+        sb_res_y.setRange(64, 16384)
         dsb_hfw = _dsb(0, 100000, 2, suffix=" µm")
         dsb_dwell = _dsb(0, 10000, 4, suffix=" µs")
         le_det_mode = QLineEdit()
@@ -152,11 +158,16 @@ class MicroscopeConfigWidget(QWidget):
         form.addRow("Detector Type", le_det_type)
 
         fields = {
-            "col_tilt": sb_col_tilt, "euc": dsb_euc,
-            "voltage": dsb_voltage, "current": dsb_current,
-            "res_x": sb_res_x, "res_y": sb_res_y,
-            "hfw": dsb_hfw, "dwell": dsb_dwell,
-            "det_mode": le_det_mode, "det_type": le_det_type,
+            "col_tilt": sb_col_tilt,
+            "euc": dsb_euc,
+            "voltage": dsb_voltage,
+            "current": dsb_current,
+            "res_x": sb_res_x,
+            "res_y": sb_res_y,
+            "hfw": dsb_hfw,
+            "dwell": dsb_dwell,
+            "det_mode": le_det_mode,
+            "det_type": le_det_type,
         }
 
         if beam == "ion":
@@ -176,8 +187,10 @@ class MicroscopeConfigWidget(QWidget):
         form = QFormLayout(w)
         self._cb_imaging_beam_type = QComboBox()
         self._cb_imaging_beam_type.addItems([b.name for b in BeamType])
-        self._sb_imaging_res_x = QSpinBox(); self._sb_imaging_res_x.setRange(64, 16384)
-        self._sb_imaging_res_y = QSpinBox(); self._sb_imaging_res_y.setRange(64, 16384)
+        self._sb_imaging_res_x = QSpinBox()
+        self._sb_imaging_res_x.setRange(64, 16384)
+        self._sb_imaging_res_y = QSpinBox()
+        self._sb_imaging_res_y.setRange(64, 16384)
         self._dsb_imaging_hfw = _dsb(0, 100000, 2, suffix=" µm")
         self._dsb_imaging_dwell = _dsb(0, 10000, 4, suffix=" µs")
         self._dsb_imaging_current = _dsb(0, 1e6, 4, suffix=" nA")
@@ -237,10 +250,25 @@ class MicroscopeConfigWidget(QWidget):
             return g, widgets
 
         g_elec, self._sub_electron = grp("Electron", [("Enabled", "enabled")])
-        g_ion, self._sub_ion = grp("Ion", [("Enabled", "enabled"), ("Plasma", "plasma")])
-        g_stage, self._sub_stage = grp("Stage", [("Enabled", "enabled"), ("Rotation", "rotation"), ("Tilt", "tilt")])
-        g_manip, self._sub_manip = grp("Manipulator", [("Enabled", "enabled"), ("Rotation", "rotation"), ("Tilt", "tilt")])
-        g_gis, self._sub_gis = grp("GIS", [("Enabled", "enabled"), ("Multichem", "multichem"), ("Sputter Coater", "sputter_coater")])
+        g_ion, self._sub_ion = grp(
+            "Ion", [("Enabled", "enabled"), ("Plasma", "plasma")]
+        )
+        g_stage, self._sub_stage = grp(
+            "Stage",
+            [("Enabled", "enabled"), ("Rotation", "rotation"), ("Tilt", "tilt")],
+        )
+        g_manip, self._sub_manip = grp(
+            "Manipulator",
+            [("Enabled", "enabled"), ("Rotation", "rotation"), ("Tilt", "tilt")],
+        )
+        g_gis, self._sub_gis = grp(
+            "GIS",
+            [
+                ("Enabled", "enabled"),
+                ("Multichem", "multichem"),
+                ("Sputter Coater", "sputter_coater"),
+            ],
+        )
 
         for g in (g_elec, g_ion, g_stage, g_manip, g_gis):
             vbox.addWidget(g)
@@ -259,9 +287,11 @@ class MicroscopeConfigWidget(QWidget):
             h.setContentsMargins(0, 0, 0, 0)
             h.addWidget(le)
             h.addWidget(btn)
-            btn.clicked.connect(lambda: le.setText(
-                QFileDialog.getOpenFileName(self, f"Select {label}")[0] or le.text()
-            ))
+            btn.clicked.connect(
+                lambda: le.setText(
+                    QFileDialog.getOpenFileName(self, f"Select {label}")[0] or le.text()
+                )
+            )
             return row, le
 
         sem_row, self._le_sim_sem = path_row("SEM image")
@@ -278,8 +308,8 @@ class MicroscopeConfigWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _on_manufacturer_changed(self, manufacturer: str) -> None:
-        is_thermo = manufacturer in ("Thermo", "Demo")
-        is_tescan = manufacturer in ("Tescan", "Demo")
+        is_thermo = manufacturer in (manufacturers.THERMOFISHER, manufacturers.DEMO)
+        is_tescan = manufacturer in (manufacturers.TESCAN, manufacturers.DEMO)
         self._grp_thermo.setVisible(is_thermo)
         self._grp_tescan.setVisible(is_tescan)
 
@@ -319,34 +349,52 @@ class MicroscopeConfigWidget(QWidget):
         info = c.get("info", {})
         self._le_name.setText(str(info.get("name", "")))
         self._le_ip.setText(str(info.get("ip_address", "")))
-        self._cb_manufacturer.setCurrentText(str(info.get("manufacturer", "Demo")))
+        self._cb_manufacturer.setCurrentText(
+            manufacturers.normalize_manufacturer(str(info.get("manufacturer", "Demo")))
+        )
 
         stage = c.get("stage", {})
         self._sb_stage_rot_ref.setValue(int(stage.get("rotation_reference", 0)))
         self._sb_stage_rot_180.setValue(int(stage.get("rotation_180", 180)))
         self._sb_stage_pretilt.setValue(int(stage.get("shuttle_pre_tilt", 0)))
-        self._dsb_stage_manip_limit.setValue(float(stage.get("manipulator_height_limit", 0)) * constants.SI_TO_MILLI)
+        self._dsb_stage_manip_limit.setValue(
+            float(stage.get("manipulator_height_limit", 0)) * constants.SI_TO_MILLI
+        )
 
         self._populate_beam("electron", c.get("electron", {}))
         self._populate_beam("ion", c.get("ion", {}))
 
         imaging = c.get("imaging", {})
-        self._cb_imaging_beam_type.setCurrentText(str(imaging.get("beam_type", "ELECTRON")))
+        self._cb_imaging_beam_type.setCurrentText(
+            str(imaging.get("beam_type", "ELECTRON"))
+        )
         res = imaging.get("resolution", [1536, 1024])
         self._sb_imaging_res_x.setValue(int(res[0]))
         self._sb_imaging_res_y.setValue(int(res[1]))
-        self._dsb_imaging_hfw.setValue(float(imaging.get("hfw", 150e-6)) * constants.SI_TO_MICRO)
-        self._dsb_imaging_dwell.setValue(float(imaging.get("dwell_time", 1e-6)) * constants.SI_TO_MICRO)
-        self._dsb_imaging_current.setValue(float(imaging.get("imaging_current", 0)) * constants.SI_TO_NANO)
+        self._dsb_imaging_hfw.setValue(
+            float(imaging.get("hfw", 150e-6)) * constants.SI_TO_MICRO
+        )
+        self._dsb_imaging_dwell.setValue(
+            float(imaging.get("dwell_time", 1e-6)) * constants.SI_TO_MICRO
+        )
+        self._dsb_imaging_current.setValue(
+            float(imaging.get("imaging_current", 0)) * constants.SI_TO_NANO
+        )
         self._chk_autocontrast.setChecked(bool(imaging.get("autocontrast", True)))
         self._chk_autosave.setChecked(bool(imaging.get("save", False)))
 
         milling = c.get("milling", {})
         self._dsb_mill_voltage.setValue(float(milling.get("milling_voltage", 30000)))
-        self._dsb_mill_current.setValue(float(milling.get("milling_current", 0)) * constants.SI_TO_NANO)
-        self._dsb_mill_dwell.setValue(float(milling.get("dwell_time", 1e-6)) * constants.SI_TO_MICRO)
+        self._dsb_mill_current.setValue(
+            float(milling.get("milling_current", 0)) * constants.SI_TO_NANO
+        )
+        self._dsb_mill_dwell.setValue(
+            float(milling.get("dwell_time", 1e-6)) * constants.SI_TO_MICRO
+        )
         self._dsb_mill_rate.setValue(float(milling.get("rate", 0)))
-        self._dsb_mill_spot.setValue(float(milling.get("spot_size", 0)) * constants.SI_TO_NANO)
+        self._dsb_mill_spot.setValue(
+            float(milling.get("spot_size", 0)) * constants.SI_TO_NANO
+        )
         self._le_mill_preset.setText(str(milling.get("preset", "")))
 
         for key, chk in self._sub_electron.items():
@@ -388,6 +436,7 @@ class MicroscopeConfigWidget(QWidget):
 
     def _read(self) -> dict:
         import copy
+
         c = copy.deepcopy(self._config)
 
         c.setdefault("info", {})
@@ -399,24 +448,37 @@ class MicroscopeConfigWidget(QWidget):
         c["stage"]["rotation_reference"] = self._sb_stage_rot_ref.value()
         c["stage"]["rotation_180"] = self._sb_stage_rot_180.value()
         c["stage"]["shuttle_pre_tilt"] = self._sb_stage_pretilt.value()
-        c["stage"]["manipulator_height_limit"] = self._dsb_stage_manip_limit.value() * constants.MILLI_TO_SI
+        c["stage"]["manipulator_height_limit"] = (
+            self._dsb_stage_manip_limit.value() * constants.MILLI_TO_SI
+        )
 
         c["electron"] = self._read_beam("electron", c.get("electron", {}))
         c["ion"] = self._read_beam("ion", c.get("ion", {}))
 
         c.setdefault("imaging", {})
         c["imaging"]["beam_type"] = self._cb_imaging_beam_type.currentText()
-        c["imaging"]["resolution"] = [self._sb_imaging_res_x.value(), self._sb_imaging_res_y.value()]
+        c["imaging"]["resolution"] = [
+            self._sb_imaging_res_x.value(),
+            self._sb_imaging_res_y.value(),
+        ]
         c["imaging"]["hfw"] = self._dsb_imaging_hfw.value() * constants.MICRO_TO_SI
-        c["imaging"]["dwell_time"] = self._dsb_imaging_dwell.value() * constants.MICRO_TO_SI
-        c["imaging"]["imaging_current"] = self._dsb_imaging_current.value() * constants.NANO_TO_SI
+        c["imaging"]["dwell_time"] = (
+            self._dsb_imaging_dwell.value() * constants.MICRO_TO_SI
+        )
+        c["imaging"]["imaging_current"] = (
+            self._dsb_imaging_current.value() * constants.NANO_TO_SI
+        )
         c["imaging"]["autocontrast"] = self._chk_autocontrast.isChecked()
         c["imaging"]["save"] = self._chk_autosave.isChecked()
 
         c.setdefault("milling", {})
         c["milling"]["milling_voltage"] = self._dsb_mill_voltage.value()
-        c["milling"]["milling_current"] = self._dsb_mill_current.value() * constants.NANO_TO_SI
-        c["milling"]["dwell_time"] = self._dsb_mill_dwell.value() * constants.MICRO_TO_SI
+        c["milling"]["milling_current"] = (
+            self._dsb_mill_current.value() * constants.NANO_TO_SI
+        )
+        c["milling"]["dwell_time"] = (
+            self._dsb_mill_dwell.value() * constants.MICRO_TO_SI
+        )
         c["milling"]["rate"] = self._dsb_mill_rate.value()
         c["milling"]["spot_size"] = self._dsb_mill_spot.value() * constants.NANO_TO_SI
         c["milling"]["preset"] = self._le_mill_preset.text()
@@ -441,6 +503,7 @@ class MicroscopeConfigWidget(QWidget):
 
     def _read_beam(self, beam: str, existing: dict) -> dict:
         import copy
+
         b = copy.deepcopy(existing)
         f = getattr(self, f"_beam_{beam}")
         b["column_tilt"] = f["col_tilt"].value()
@@ -463,13 +526,18 @@ class MicroscopeConfigWidget(QWidget):
 
     def _on_load(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, "Load Microscope Configuration", self._path or "", "YAML (*.yaml *.yml)"
+            self,
+            "Load Microscope Configuration",
+            self._path or "",
+            "YAML (*.yaml *.yml)",
         )
         if path:
             self.load_from_file(path)
 
     def _on_save(self) -> None:
-        default = self._path or os.path.join(os.path.expanduser("~"), "microscope-configuration.yaml")
+        default = self._path or os.path.join(
+            os.path.expanduser("~"), "microscope-configuration.yaml"
+        )
         path, _ = QFileDialog.getSaveFileName(
             self, "Save Microscope Configuration", default, "YAML (*.yaml *.yml)"
         )
@@ -481,7 +549,10 @@ class MicroscopeConfigWidget(QWidget):
 # Helper
 # ---------------------------------------------------------------------------
 
-def _dsb(min_val: float, max_val: float, decimals: int, suffix: str = "") -> QDoubleSpinBox:
+
+def _dsb(
+    min_val: float, max_val: float, decimals: int, suffix: str = ""
+) -> QDoubleSpinBox:
     w = QDoubleSpinBox()
     w.setRange(min_val, max_val)
     w.setDecimals(decimals)
@@ -494,6 +565,7 @@ def _dsb(min_val: float, max_val: float, decimals: int, suffix: str = "") -> QDo
 # ---------------------------------------------------------------------------
 # Dialog wrapper (for embedding in AutoLamellaMainUI)
 # ---------------------------------------------------------------------------
+
 
 def open_microscope_config_dialog(path: Optional[str] = None, parent=None) -> None:
     """Open MicroscopeConfigWidget in a modal dialog."""
@@ -516,6 +588,7 @@ def open_microscope_config_dialog(path: Optional[str] = None, parent=None) -> No
 # ---------------------------------------------------------------------------
 # Entry point (fibsem-config-ui)
 # ---------------------------------------------------------------------------
+
 
 def main():
     """Launch the microscope configuration UI standalone.
