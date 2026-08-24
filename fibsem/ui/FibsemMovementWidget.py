@@ -591,7 +591,9 @@ class FibsemMovementWidget(QtWidgets.QWidget):
             and vertical_move
             and not hasattr(self.microscope, "move_coincident_from_sem")
         ):
-            logging.warning("Vertical move from the SEM view is not supported on this system.")
+            logging.warning(
+                "Vertical move from the SEM view is not supported on this system."
+            )
             notification_service.show_toast(
                 "Vertical move from the SEM view is not supported on this system - use the FIB view.",
                 "warning",

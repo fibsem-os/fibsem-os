@@ -18,6 +18,7 @@ import pytest
 try:
     from fibsem.ui import notification_service
     from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
+
     _MISSING_UI_DEPS = None
 except ImportError as e:  # pragma: no cover - exercised only on UI-less CI
     _MISSING_UI_DEPS = str(e)
@@ -53,7 +54,8 @@ class SemCoincidentMicroscope(RecordingMicroscope):
 def toasts(monkeypatch):
     events = []
     monkeypatch.setattr(
-        notification_service, "show_toast",
+        notification_service,
+        "show_toast",
         lambda msg, notification_type="info": events.append((msg, notification_type)),
     )
     return events
