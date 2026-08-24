@@ -624,6 +624,14 @@ class TescanMicroscope(FibsemMicroscope):
             beam.Detector.AutoSignal(Detector=self._active_detector[beam_type])
         return
 
+    def is_working_distance_settable(self, beam_type: BeamType) -> bool:
+        """ION working distance is not settable: the SDK's FIB class has no WD or
+        focus control anywhere (FIB.Optics carries only rotation/shift/viewfield) --
+        ion focus on TESCAN is preset-driven. _set("working_distance", ION) is a
+        best-effort no-op so state restores keep working; anything that *depends* on
+        the write landing (the autofocus sweep) must gate on this instead."""
+        return beam_type is not BeamType.ION
+
     def auto_focus(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
     ) -> None:
