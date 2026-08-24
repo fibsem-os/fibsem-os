@@ -38,6 +38,7 @@ from fibsem.config import (
     SUPPORTED_COORDINATE_SYSTEMS,
     UNVERSIONED_METADATA,
 )
+from fibsem.manufacturers import normalize_manufacturer
 from fibsem.versioning import get_revision
 
 TFibsemPatternSettings = TypeVar(
@@ -2090,7 +2091,11 @@ class SystemInfo:
         return SystemInfo(
             name=settings.get("name", "Unknown"),
             ip_address=settings.get("ip_address", "Unknown"),
-            manufacturer=settings.get("manufacturer", "Unknown"),
+            # normalise on read: configs and old experiments carry "Thermo"/"TESCAN"
+            # etc.; everything downstream compares against the canonical spellings
+            manufacturer=normalize_manufacturer(
+                settings.get("manufacturer", "Unknown")
+            ),
             model=settings.get("model", "Unknown"),
             serial_number=settings.get("serial_number", "Unknown"),
             hardware_version=settings.get("hardware_version", "Unknown"),

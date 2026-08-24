@@ -100,6 +100,7 @@ except Exception:
 
 
 import fibsem.constants as constants
+from fibsem import manufacturers
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.microscopes.autoscript import (
     fibsem_image_from_adorned_image,
@@ -1178,12 +1179,15 @@ class FibsemMicroscope(ABC):
         self.set_beam_current(current=milling_current, beam_type=beam_type)
 
         for i, pt in enumerate(coordinates, 1):
-
             if stop_event is not None and stop_event.is_set():
-                logging.info(f"Spot burn cancelled before point {i}/{len(coordinates)}.")
+                logging.info(
+                    f"Spot burn cancelled before point {i}/{len(coordinates)}."
+                )
                 break
 
-            logging.info(f'burning spot {i}: {pt}, exposure time: {exposure_time}, milling current: {milling_current}')
+            logging.info(
+                f"burning spot {i}: {pt}, exposure time: {exposure_time}, milling current: {milling_current}"
+            )
 
             self.blank(beam_type=beam_type)
             self.set_spot_scanning_mode(point=pt, beam_type=beam_type)
@@ -1194,7 +1198,9 @@ class FibsemMicroscope(ABC):
             while remaining_time > 0:
                 if stop_event is not None and stop_event.is_set():
                     self.blank(beam_type=beam_type)
-                    logging.info(f"Spot burn cancelled during point {i}/{len(coordinates)}.")
+                    logging.info(
+                        f"Spot burn cancelled during point {i}/{len(coordinates)}."
+                    )
                     break
                 time.sleep(SLEEP_TIME)
                 remaining_time -= SLEEP_TIME
@@ -2071,7 +2077,10 @@ class FibsemMicroscope(ABC):
 
     @property
     def manufacturer(self) -> str:
-        return "ThermoFisher"
+        # NOTE: this base default means every backend that does not override the
+        # property (Demo, Zeiss, Odemis) reports ThermoFisher -- FIB-300 tracks
+        # whether it should serve self.system.info.manufacturer instead.
+        return manufacturers.THERMOFISHER
 
 
 def _thermo_application_file_wrapper_for_drawing_functions(

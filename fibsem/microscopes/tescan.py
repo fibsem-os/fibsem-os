@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 
 import fibsem.constants as constants
+from fibsem import manufacturers
 from fibsem.microscope import FibsemMicroscope
 
 TESCAN_API_AVAILABLE = False
@@ -377,8 +378,9 @@ class TescanMicroscope(FibsemMicroscope):
         )
         self.set_detector_type(self._default_detector_names[BeamType.ION], BeamType.ION)
 
-        # system info
-        self.system.info.manufacturer = "TESCAN"  # only available from image
+        # system info: the hardware reports "TESCAN" in image headers; store the
+        # canonical spelling so downstream comparisons never meet the raw form
+        self.system.info.manufacturer = manufacturers.TESCAN
         info = self.system.info
         logging.info(
             f"Microscope client connected to model {info.model} with serial number {info.serial_number} and software version {info.software_version}."
@@ -405,7 +407,7 @@ class TescanMicroscope(FibsemMicroscope):
 
     @property
     def manufacturer(self) -> str:
-        return "Tescan"
+        return manufacturers.TESCAN
 
     def acquire_image(
         self,
