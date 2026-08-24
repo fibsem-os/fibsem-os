@@ -16,6 +16,8 @@ from fibsem import config as cfg
 from fibsem import constants, utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamSettings, BeamType, Point
+from fibsem.ui import notification_service
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import _create_combobox_control
 
@@ -94,7 +96,9 @@ class FibsemBeamSettingsWidget(QWidget):
         # updates immediately for feedback, the hardware move is debounced so a burst of
         # scroll notches coalesces into a single move.
         self._wd_wheel_target_mm: float = self.working_distance_spinbox.value()
-        self._execute_wd_wheel_move = qdebounced(self._execute_wd_wheel_move_impl, timeout=150)
+        self._execute_wd_wheel_move = qdebounced(
+            self._execute_wd_wheel_move_impl, timeout=150
+        )
 
     # ------------------------------------------------------------------
     # UI setup
@@ -188,10 +192,14 @@ class FibsemBeamSettingsWidget(QWidget):
 
         # All widgets that are shown only when advanced mode is active
         self._adv_widgets = [
-            self.scan_rotation_label, self.scan_rotation_spinbox,
-            self.shift_label, self.shift_row,
-            self.stigmation_label, self.stigmation_row,
-            self.beam_voltage_label, self.beam_voltage_combo,
+            self.scan_rotation_label,
+            self.scan_rotation_spinbox,
+            self.shift_label,
+            self.shift_row,
+            self.stigmation_label,
+            self.stigmation_row,
+            self.beam_voltage_label,
+            self.beam_voltage_combo,
         ]
 
     # ------------------------------------------------------------------
@@ -202,10 +210,16 @@ class FibsemBeamSettingsWidget(QWidget):
         self.hfw_spinbox.valueChanged.connect(self._on_hfw_changed)
         self.dwell_time_spinbox.valueChanged.connect(self._on_dwell_time_changed)
         self.resolution_combo.currentIndexChanged.connect(self._on_resolution_changed)
-        self.beam_current_combo.currentIndexChanged.connect(self._on_beam_current_changed)
-        self.beam_voltage_combo.currentIndexChanged.connect(self._on_beam_voltage_changed)
+        self.beam_current_combo.currentIndexChanged.connect(
+            self._on_beam_current_changed
+        )
+        self.beam_voltage_combo.currentIndexChanged.connect(
+            self._on_beam_voltage_changed
+        )
         self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
-        self.working_distance_spinbox.valueChanged.connect(self._on_working_distance_changed)
+        self.working_distance_spinbox.valueChanged.connect(
+            self._on_working_distance_changed
+        )
         self.scan_rotation_spinbox.valueChanged.connect(self._on_scan_rotation_changed)
         self.shift_x_spinbox.valueChanged.connect(self._on_shift_changed)
         self.shift_y_spinbox.valueChanged.connect(self._on_shift_changed)
@@ -218,46 +232,112 @@ class FibsemBeamSettingsWidget(QWidget):
 
     def _on_hfw_changed(self, value: float):
         self.microscope.set_field_of_view(value * constants.MICRO_TO_SI, self.beam_type)
-        logging.info({"msg": "_on_hfw_changed", "beam_type": self.beam_type.name, "hfw": value})
+        logging.info(
+            {"msg": "_on_hfw_changed", "beam_type": self.beam_type.name, "hfw": value}
+        )
         self.settings_changed.emit(self.get_settings())
 
     def _on_dwell_time_changed(self, value: float):
         self.microscope.set_dwell_time(value * constants.MICRO_TO_SI, self.beam_type)
-        logging.info({"msg": "_on_dwell_time_changed", "beam_type": self.beam_type.name, "dwell_time": value})
+        logging.info(
+            {
+                "msg": "_on_dwell_time_changed",
+                "beam_type": self.beam_type.name,
+                "dwell_time": value,
+            }
+        )
         self.settings_changed.emit(self.get_settings())
 
     def _on_resolution_changed(self, index: int):
         resolution = self.resolution_combo.itemData(index)
         if resolution is not None:
             self.microscope.set_resolution(resolution, self.beam_type)
-            logging.info({"msg": "_on_resolution_changed", "beam_type": self.beam_type.name, "resolution": resolution})
+            logging.info(
+                {
+                    "msg": "_on_resolution_changed",
+                    "beam_type": self.beam_type.name,
+                    "resolution": resolution,
+                }
+            )
             self.settings_changed.emit(self.get_settings())
 
     def _on_beam_current_changed(self, index: int):
         current = self.beam_current_combo.itemData(index)
         if current is not None:
             self.microscope.set_beam_current(current, self.beam_type)
-            logging.info({"msg": "_on_beam_current_changed", "beam_type": self.beam_type.name, "current": current})
+            logging.info(
+                {
+                    "msg": "_on_beam_current_changed",
+                    "beam_type": self.beam_type.name,
+                    "current": current,
+                }
+            )
             self.settings_changed.emit(self.get_settings())
 
     def _on_beam_voltage_changed(self, index: int):
         voltage = self.beam_voltage_combo.itemData(index)
         if voltage is not None:
             self.microscope.set_beam_voltage(voltage, self.beam_type)
-            logging.info({"msg": "_on_beam_voltage_changed", "beam_type": self.beam_type.name, "voltage": voltage})
+            logging.info(
+                {
+                    "msg": "_on_beam_voltage_changed",
+                    "beam_type": self.beam_type.name,
+                    "voltage": voltage,
+                }
+            )
             self.settings_changed.emit(self.get_settings())
 
     def _on_preset_changed(self, index: int):
         preset = self.preset_combo.itemData(index)
-        if preset is not None:
-            self.microscope.set_preset(preset, self.beam_type)
-            logging.info({"msg": "_on_preset_changed", "beam_type": self.beam_type.name, "preset": preset})
-            self.settings_changed.emit(self.get_settings())
+        if preset is None:
+            return
+        # Preset activation is a multi-second SharkSEM round trip (with the settle-wait
+        # from #82), so it must not run on the GUI thread -- and it can fail: the
+        # simulator enumerates SEM presets that Activate then refuses (PresetNotFound),
+        # which must surface as a toast rather than an exception in a Qt slot.
+        self.preset_combo.setEnabled(False)
+        worker = FunctionWorker(self.microscope.set_preset, preset, self.beam_type)
+        worker.returned.connect(lambda _result, p=preset: self._on_preset_applied(p))
+        worker.errored.connect(lambda exc, p=preset: self._on_preset_failed(p, exc))
+        worker.finished.connect(lambda: self.preset_combo.setEnabled(True))
+        worker.start()
+
+    def _on_preset_applied(self, preset: str) -> None:
+        logging.info(
+            {
+                "msg": "_on_preset_changed",
+                "beam_type": self.beam_type.name,
+                "preset": preset,
+            }
+        )
+        self.settings_changed.emit(self.get_settings())
+
+    def _on_preset_failed(self, preset: str, exc: Exception) -> None:
+        """Toast the failure and put the combo back on the preset the microscope reports.
+
+        On Tescan ``get("preset")`` is served from the cached beam parameters, so the
+        revert makes no SDK call. If nothing was ever activated, clear the selection --
+        leaving the refused preset displayed would show state the microscope is not in.
+        """
+        notification_service.show_toast(
+            f"Failed to activate preset {preset}: {exc}", "error"
+        )
+        current = self.microscope.get("preset", self.beam_type)
+        self.preset_combo.blockSignals(True)
+        idx = self.preset_combo.findData(current) if current is not None else -1
+        self.preset_combo.setCurrentIndex(idx)
+        self.preset_combo.blockSignals(False)
 
     def _on_working_distance_changed(self, value: float):
         wd = value * constants.MILLI_TO_SI
         self.microscope.set_working_distance(wd, self.beam_type)
-        logging.info({"msg": "_on_working_distance_changed", "beam_type": self.beam_type.name, "working_distance": wd})
+        logging.info(
+            {
+                "msg": "_on_working_distance_changed",
+                "beam_type": self.beam_type.name,
+                "working_distance": wd,
+            }
+        )
         self.settings_changed.emit(self.get_settings())
 
     # ------------------------------------------------------------------
@@ -273,7 +353,9 @@ class FibsemBeamSettingsWidget(QWidget):
             return
         sb = self.working_distance_spinbox
         new_val = float(
-            np.clip(sb.value() + WD_WHEEL_STEP_MM * direction, sb.minimum(), sb.maximum())
+            np.clip(
+                sb.value() + WD_WHEEL_STEP_MM * direction, sb.minimum(), sb.maximum()
+            )
         )
         # immediate visual feedback without a hardware call; debounce the actual move
         sb.blockSignals(True)
@@ -291,10 +373,16 @@ class FibsemBeamSettingsWidget(QWidget):
         WD is beam focus (lens), not a physical objective, so a big move isn't a collision risk."""
         target_m = self._wd_wheel_target_mm * constants.MILLI_TO_SI
         logging.info(
-            {"msg": "_on_canvas_scroll", "beam_type": self.beam_type.name, "working_distance": target_m}
+            {
+                "msg": "_on_canvas_scroll",
+                "beam_type": self.beam_type.name,
+                "working_distance": target_m,
+            }
         )
         self.microscope.set_working_distance(target_m, self.beam_type)
-        self._set_working_distance_spinbox(self.microscope.get_working_distance(self.beam_type))
+        self._set_working_distance_spinbox(
+            self.microscope.get_working_distance(self.beam_type)
+        )
         self.settings_changed.emit(self.get_settings())
 
     def _set_working_distance_spinbox(self, wd_m: float) -> None:
@@ -305,7 +393,13 @@ class FibsemBeamSettingsWidget(QWidget):
 
     def _on_scan_rotation_changed(self, value: float):
         self.microscope.set_scan_rotation(np.deg2rad(value), self.beam_type)
-        logging.info({"msg": "_on_scan_rotation_changed", "beam_type": self.beam_type.name, "rotation": value})
+        logging.info(
+            {
+                "msg": "_on_scan_rotation_changed",
+                "beam_type": self.beam_type.name,
+                "rotation": value,
+            }
+        )
         self.settings_changed.emit(self.get_settings())
 
     def _on_shift_changed(self):
@@ -314,7 +408,13 @@ class FibsemBeamSettingsWidget(QWidget):
             y=self.shift_y_spinbox.value() * constants.MICRO_TO_SI,
         )
         self.microscope.set_beam_shift(shift, self.beam_type)
-        logging.info({"msg": "_on_shift_changed", "beam_type": self.beam_type.name, "shift": shift})
+        logging.info(
+            {
+                "msg": "_on_shift_changed",
+                "beam_type": self.beam_type.name,
+                "shift": shift,
+            }
+        )
         self.settings_changed.emit(self.get_settings())
 
     def _on_stigmation_changed(self):
@@ -323,7 +423,13 @@ class FibsemBeamSettingsWidget(QWidget):
             y=self.stigmation_y_spinbox.value(),
         )
         self.microscope.set_stigmation(stigmation, self.beam_type)
-        logging.info({"msg": "_on_stigmation_changed", "beam_type": self.beam_type.name, "stigmation": stigmation})
+        logging.info(
+            {
+                "msg": "_on_stigmation_changed",
+                "beam_type": self.beam_type.name,
+                "stigmation": stigmation,
+            }
+        )
         self.settings_changed.emit(self.get_settings())
 
     # ------------------------------------------------------------------
@@ -340,7 +446,9 @@ class FibsemBeamSettingsWidget(QWidget):
         self.beam_current_combo.clear()
         _create_combobox_control(
             value=self.microscope.get_beam_current(self.beam_type),
-            items=self.microscope.get_available_values_cached("current", self.beam_type),
+            items=self.microscope.get_available_values_cached(
+                "current", self.beam_type
+            ),
             units="A",
             format_fn=utils.format_value,
             control=self.beam_current_combo,
@@ -351,7 +459,9 @@ class FibsemBeamSettingsWidget(QWidget):
         self.beam_voltage_combo.clear()
         _create_combobox_control(
             value=self.microscope.get_beam_voltage(self.beam_type),
-            items=self.microscope.get_available_values_cached("voltage", self.beam_type),
+            items=self.microscope.get_available_values_cached(
+                "voltage", self.beam_type
+            ),
             units="V",
             format_fn=utils.format_value,
             control=self.beam_voltage_combo,
@@ -379,7 +489,8 @@ class FibsemBeamSettingsWidget(QWidget):
         """Return a BeamSettings built from the current widget values."""
         return BeamSettings(
             beam_type=self.beam_type,
-            working_distance=self.working_distance_spinbox.value() * constants.MILLI_TO_SI,
+            working_distance=self.working_distance_spinbox.value()
+            * constants.MILLI_TO_SI,
             hfw=self.hfw_spinbox.value() * constants.MICRO_TO_SI,
             dwell_time=self.dwell_time_spinbox.value() * constants.MICRO_TO_SI,
             resolution=self.resolution_combo.currentData(),
@@ -417,11 +528,15 @@ class FibsemBeamSettingsWidget(QWidget):
             w.blockSignals(True)
 
         if settings.working_distance is not None:
-            self.working_distance_spinbox.setValue(settings.working_distance * constants.METRE_TO_MILLIMETRE)
+            self.working_distance_spinbox.setValue(
+                settings.working_distance * constants.METRE_TO_MILLIMETRE
+            )
         if settings.hfw is not None:
             self.hfw_spinbox.setValue(settings.hfw * constants.SI_TO_MICRO)
         if settings.dwell_time is not None:
-            self.dwell_time_spinbox.setValue(settings.dwell_time * constants.SI_TO_MICRO)
+            self.dwell_time_spinbox.setValue(
+                settings.dwell_time * constants.SI_TO_MICRO
+            )
         if settings.resolution is not None:
             idx = self.resolution_combo.findData(tuple(settings.resolution))
             if idx != -1:
@@ -472,19 +587,24 @@ class FibsemBeamSettingsWidget(QWidget):
         for w in [self.beam_current_label, self.beam_current_combo]:
             w.setVisible(not is_tescan)
 
-        # Preset: TESCAN only, and only where the beam actually has presets.
-        # Tescan exposes them on the FIB but not the SEM, and an empty combo
-        # reads as a control the user simply failed to set.
+        # Preset: TESCAN ION only, and only when presets exist. Enumerability is not
+        # settability: the simulator's SEM enumerates presets but activating one raises
+        # PresetNotFound, and the hardware session found SEM presets cannot be set --
+        # so the SEM never shows the control, regardless of what Enum() returns. An
+        # empty FIB combo also hides (it reads as a control the user failed to set).
         has_presets = self.preset_combo.count() > 0
+        show_preset = is_tescan and self.beam_type is BeamType.ION and has_presets
         for w in [self.preset_label, self.preset_combo]:
-            w.setVisible(is_tescan and has_presets)
+            w.setVisible(show_preset)
 
         # Working distance: not settable on the TESCAN FIB -- _set("working_distance")
         # is a no-op there -- so show it read-only rather than as a live control.
         wd_settable = not (is_tescan and self.beam_type is BeamType.ION)
         self.working_distance_spinbox.setEnabled(wd_settable)
         self.working_distance_spinbox.setToolTip(
-            "" if wd_settable else "Not settable on the TESCAN FIB (use the TESCAN autofocus)"
+            ""
+            if wd_settable
+            else "Not settable on the TESCAN FIB (use the TESCAN autofocus)"
         )
 
     @staticmethod
@@ -508,7 +628,9 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
 
-    microscope, settings = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    microscope, settings = utils.setup_session(
+        manufacturer="Demo", ip_address="localhost"
+    )
 
     main_widget = QWidget()
     layout = QVBoxLayout()
@@ -517,7 +639,9 @@ if __name__ == "__main__":
     header1 = QLabel("Electron Beam Settings")
     header1.setStyleSheet("font-weight: bold; font-size: 16px;")
     layout.addWidget(header1)
-    widget = FibsemBeamSettingsWidget(microscope=microscope, beam_type=BeamType.ELECTRON)
+    widget = FibsemBeamSettingsWidget(
+        microscope=microscope, beam_type=BeamType.ELECTRON
+    )
     widget.populate_beam_combos()
     widget.update_from_settings(microscope.get_beam_settings(BeamType.ELECTRON))
     layout.addWidget(widget)
@@ -531,6 +655,7 @@ if __name__ == "__main__":
     layout.addWidget(widget2)
 
     from pprint import pprint
+
     def print_settings():
         s = widget.get_settings()
         pprint(s.to_dict())
