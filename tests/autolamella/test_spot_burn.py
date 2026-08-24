@@ -15,6 +15,7 @@ from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )
 from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn
+from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, Point
 
 # The widget-dispatch tests need the UI stack (napari/PyQt5), which isn't installed
@@ -55,8 +56,7 @@ def mock_microscope():
 @pytest.fixture(autouse=True)
 def _no_sleep(monkeypatch):
     """Skip the real exposure countdown so tests run instantly."""
-    import fibsem.imaging.spot as spot
-    monkeypatch.setattr(spot.time, "sleep", lambda *_: None)
+    monkeypatch.setattr("time.sleep", lambda *_: None)
 
 
 def _burned_points(mic: MagicMock) -> list:
@@ -76,8 +76,8 @@ def test_run_spot_burn_filters_out_of_bounds_coordinates(mock_microscope):
         Point(-0.1, 0.3),  # x < 0
         Point(0.5, 1.5),   # y > 1
     ]
-    run_spot_burn(
-        microscope=mock_microscope,
+    FibsemMicroscope.run_spot_burn(
+        mock_microscope,
         settings=SpotBurnSettings(coordinates=coords, exposure_time=1.0,
                                   milling_current=30e-12),
         beam_type=BeamType.ION,
@@ -88,8 +88,8 @@ def test_run_spot_burn_filters_out_of_bounds_coordinates(mock_microscope):
 def test_run_spot_burn_keeps_boundary_coordinates(mock_microscope):
     """Exact 0 and 1 boundaries are inclusive."""
     coords = [Point(0.0, 0.0), Point(1.0, 1.0)]
-    run_spot_burn(
-        microscope=mock_microscope,
+    FibsemMicroscope.run_spot_burn(
+        mock_microscope,
         settings=SpotBurnSettings(coordinates=coords, exposure_time=1.0,
                                   milling_current=30e-12),
     )
@@ -98,8 +98,8 @@ def test_run_spot_burn_keeps_boundary_coordinates(mock_microscope):
 
 def test_run_spot_burn_empty_coordinates_does_not_burn(mock_microscope):
     """No coordinates -> no spot exposures, but the beam state is still restored."""
-    run_spot_burn(
-        microscope=mock_microscope,
+    FibsemMicroscope.run_spot_burn(
+        mock_microscope,
         settings=SpotBurnSettings(coordinates=[], exposure_time=1.0,
                                   milling_current=30e-12),
     )
@@ -112,8 +112,8 @@ def test_run_spot_burn_empty_coordinates_does_not_burn(mock_microscope):
 
 def test_run_spot_burn_coerces_string_parameters(mock_microscope):
     """String milling_current/exposure_time (from the editor QLineEdit bug) don't crash."""
-    run_spot_burn(
-        microscope=mock_microscope,
+    FibsemMicroscope.run_spot_burn(
+        mock_microscope,
         settings=SpotBurnSettings(coordinates=[Point(0.5, 0.5)], exposure_time="2",
                                   milling_current="3e-11"),
         beam_type=BeamType.ION,
@@ -129,8 +129,8 @@ def test_run_spot_burn_coerces_string_parameters(mock_microscope):
 
 def test_run_spot_burn_restores_full_frame_and_imaging_current(mock_microscope):
     """After burning, scanning returns to full frame and the imaging current is restored."""
-    run_spot_burn(
-        microscope=mock_microscope,
+    FibsemMicroscope.run_spot_burn(
+        mock_microscope,
         settings=SpotBurnSettings(coordinates=[Point(0.5, 0.5)], exposure_time=1.0,
                                   milling_current=30e-12),
     )
@@ -144,8 +144,8 @@ def test_run_spot_burn_restores_full_frame_and_imaging_current(mock_microscope):
 
 def test_run_spot_burn_emits_progress_via_microscope(mock_microscope):
     """Progress is reported through microscope.spot_burn_progress_signal (both run paths)."""
-    run_spot_burn(
-        microscope=mock_microscope,
+    FibsemMicroscope.run_spot_burn(
+        mock_microscope,
         settings=SpotBurnSettings(coordinates=[Point(0.5, 0.5), Point(0.6, 0.6)],
                                   exposure_time=1.0, milling_current=30e-12),
     )
@@ -157,6 +157,18 @@ def test_run_spot_burn_emits_progress_via_microscope(mock_microscope):
     assert emitted[0]["total_points"] == 2
     # final emission signals completion
     assert emitted[-1] == {"finished": True}
+
+
+def test_run_spot_burn_module_function_delegates_to_the_microscope(mock_microscope):
+    """The module entry point dispatches polymorphically (FIB-297): the default
+    implementation parks the beam per point, TESCAN overrides with DrawBeam dots."""
+    settings = SpotBurnSettings(coordinates=[Point(0.5, 0.5)], exposure_time=1.0,
+                                milling_current=30e-12)
+    run_spot_burn(microscope=mock_microscope, settings=settings,
+                  beam_type=BeamType.ION, stop_event=None)
+    mock_microscope.run_spot_burn.assert_called_once_with(
+        settings=settings, beam_type=BeamType.ION, stop_event=None
+    )
 
 
 @requires_ui

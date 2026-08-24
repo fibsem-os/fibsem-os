@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import logging
 import threading
-import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, List, Optional
 
@@ -15,8 +13,6 @@ if TYPE_CHECKING:
     # into `fibsem.imaging`. `from __future__ import annotations` is already on, so the
     # annotation below needs no runtime object.
     from fibsem.microscope import FibsemMicroscope
-
-SLEEP_TIME = 1
 
 
 @dataclass
@@ -52,8 +48,13 @@ def run_spot_burn(microscope: FibsemMicroscope,
                   settings: SpotBurnSettings,
                   beam_type: BeamType = BeamType.ION,
                   stop_event: Optional[threading.Event] = None) -> None:
-    """Run a spot burner job on the microscope. Exposes the coordinates in *settings* for
+    """Run a spot burn job on the microscope. Exposes the coordinates in *settings* for
     the exposure time at the milling current it specifies.
+
+    Delegates to ``microscope.run_spot_burn`` so each backend supplies its own
+    mechanism: the default implementation blanks and parks the beam per point
+    (ThermoFisher, simulator), while TESCAN overrides it with a DrawBeam layer of
+    timed dots — its FIB scan API has no blanker or beam parking.
 
     Progress is reported via ``microscope.spot_burn_progress_signal`` (a dict), which the
     status bar and the spot burn widget subscribe to.
@@ -66,80 +67,6 @@ def run_spot_burn(microscope: FibsemMicroscope,
     Returns:
         None
     """
-    # - QUERY: do we need to set the full frame scanning mode each time, or only at the end?
-
-    # coerce numeric parameters: protocol-editor fields can arrive as strings
-    # (e.g. "3e-11"), which would break beam-current/timing arithmetic on hardware.
-    # Read into locals rather than writing back — settings belongs to the caller.
-    exposure_time = float(settings.exposure_time)
-    milling_current = float(settings.milling_current)
-
-    # drop points outside the image bounds (0-1 normalised); set_spot rejects out-of-range
-    # coordinates on hardware. The supervised widget filters these, so filter here too for
-    # the unsupervised/automatic path (coordinates come straight from the stored config).
-    in_bounds, dropped = [], []
-    for pt in settings.coordinates:
-        (in_bounds if 0 <= pt.x <= 1 and 0 <= pt.y <= 1 else dropped).append(pt)
-    if dropped:
-        logging.warning(
-            f"Skipping {len(dropped)} spot burn coordinate(s) outside image bounds (0-1): {dropped}"
-        )
-    coordinates = in_bounds
-
-    total_estimated_time = len(coordinates) * exposure_time
-    total_remaining_time = total_estimated_time
-
-    # emit initial progress signal
-    microscope.spot_burn_progress_signal.emit(
-        {
-            "current_point": 0,
-            "total_points": len(coordinates),
-            "remaining_time": exposure_time,
-            "total_remaining_time": total_remaining_time,
-            "total_estimated_time": total_estimated_time,
-        }
+    return microscope.run_spot_burn(
+        settings=settings, beam_type=beam_type, stop_event=stop_event
     )
-
-    # set the beam current to the milling current
-    imaging_current = microscope.get_beam_current(beam_type=beam_type)
-    microscope.set_beam_current(current=milling_current, beam_type=beam_type)
-
-    for i, pt in enumerate(coordinates, 1):
-
-        if stop_event is not None and stop_event.is_set():
-            logging.info(f"Spot burn cancelled before point {i}/{len(coordinates)}.")
-            break
-
-        logging.info(f'burning spot {i}: {pt}, exposure time: {exposure_time}, milling current: {milling_current}')
-
-        microscope.blank(beam_type=beam_type)
-        microscope.set_spot_scanning_mode(point=pt, beam_type=beam_type)
-        microscope.unblank(beam_type=beam_type)
-
-        # countdown for the exposure time, emit progress signal
-        remaining_time = exposure_time
-        while remaining_time > 0:
-            if stop_event is not None and stop_event.is_set():
-                microscope.blank(beam_type=beam_type)
-                logging.info(f"Spot burn cancelled during point {i}/{len(coordinates)}.")
-                break
-            time.sleep(SLEEP_TIME)
-            remaining_time -= SLEEP_TIME
-            total_remaining_time -= SLEEP_TIME
-            microscope.spot_burn_progress_signal.emit(
-                {
-                    "current_point": i,
-                    "total_points": len(coordinates),
-                    "remaining_time": remaining_time,
-                    "total_remaining_time": total_remaining_time,
-                    "total_estimated_time": total_estimated_time,
-                }
-            )
-
-    # always restore full frame scanning mode and imaging current
-    microscope.set_full_frame_scanning_mode(beam_type=beam_type)
-
-    # emit finished signal
-    microscope.spot_burn_progress_signal.emit({"finished": True})
-
-    microscope.set_beam_current(current=imaging_current, beam_type=beam_type)
