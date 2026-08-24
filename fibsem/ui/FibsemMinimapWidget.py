@@ -48,7 +48,14 @@ from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
 )
 from fibsem.conversions import is_inside_image_bounds
 from fibsem.imaging import tiled
-from fibsem.imaging.tiling.progress import MODALITY_BEAM, is_modality
+from fibsem.imaging.tiling.progress import (
+    MODALITY_BEAM,
+    BeamTileCompletedEvent,
+    CountedTiledPhaseEvent,
+    CountedTiledTerminalEvent,
+    TiledAcquisitionEvent,
+    is_modality,
+)
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import FibsemMillingStage
 from fibsem.structures import (
@@ -619,47 +626,40 @@ class FibsemMinimapWidget(QWidget):
             self._acquisition_finished.emit(result)
 
     @ensure_main_thread
-    def handle_tile_acquisition_progress(self, ddict: dict) -> None:
+    def handle_tile_acquisition_progress(self, event: TiledAcquisitionEvent) -> None:
         """Callback for handling the tile acquisition progress.
 
-        Read with `.get`, not indexed. This signal has no discriminator -- a consumer
-        works out what it received from which keys are present -- so a payload shape
-        that omits any of these is not a degraded label here, it is a `KeyError` inside
-        a Qt slot, mid-acquisition. All three shapes `tiled.py` emits happen to carry
-        them today, which is the only reason indexing has held (FIB-402).
-
-        `total` is guarded rather than defaulted, because it is a divisor: a payload
-        reporting nothing to do would take the bar out with a `ZeroDivisionError`
-        instead. Nothing is drawn for a payload that cannot say how far along it is,
-        which leaves the last real progress standing -- true, rather than reset to zero.
-
-        `FibsemOverviewWidget._apply_progress` reads the same signal the same way.
+        Count-bearing beam variants update the bar; only a completed-tile event carries
+        a beam canvas to draw. Other shapes cannot accidentally masquerade as either.
 
         Beam runs only. This tab drives a beam overview and assigns the payload's mosaic
         straight into its napari layer, so a fluorescence run reaching here would be
         drawn into the beam minimap -- and the fluorescence preview is keyed `image`
         already, deliberately, to match this signal (FIB-725).
         """
-        if not is_modality(ddict, MODALITY_BEAM):
+        if not is_modality(event, MODALITY_BEAM):
             return
 
-        # track counts for result dict
-        counter = ddict.get("counter")
-        total = ddict.get("total")
-        if counter is not None and total:
-            self._tiles_acquired = counter
-            self._tile_total_count = total
+        counted_types = (
+            CountedTiledPhaseEvent,
+            BeamTileCompletedEvent,
+            CountedTiledTerminalEvent,
+        )
+        if isinstance(event, counted_types) and event.total:
+            self._tiles_acquired = event.completed
+            self._tile_total_count = event.total
 
             # progress bar
             self.progressBar_acquisition.setMaximum(100)
-            self.progressBar_acquisition.setValue(int(counter / total * 100))
+            self.progressBar_acquisition.setValue(
+                int(event.completed / event.total * 100)
+            )
             self.progressBar_acquisition.setFormat(
-                f"{ddict.get('msg', 'Acquiring')} — {counter}/{total} tiles (%p%)"
+                f"{event.message} — {event.completed}/{event.total} tiles (%p%)"
             )
 
-        image = ddict.get("image", None)
-        if image is not None:
-            self.update_viewer(image, tmp=True)
+        if isinstance(event, BeamTileCompletedEvent):
+            self.update_viewer(event.image, tmp=True)
 
     def cancel_acquisition(self):
         """Cancel the tiled acquisition."""

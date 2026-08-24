@@ -293,6 +293,11 @@ from unittest.mock import MagicMock
 
 from fibsem.cancellation import OperationCancelledError
 from fibsem.imaging.tiled import TiledAcquisitionRunner
+from fibsem.imaging.tiling.progress import (
+    CountedTiledPhaseEvent,
+    CountedTiledTerminalEvent,
+    TiledOutcome,
+)
 
 
 def _runner_with_recorded_signal(monkeypatch, settings=None):
@@ -326,10 +331,10 @@ def test_run_emits_a_terminal_state_on_success(monkeypatch):
 
     runner.run()
 
-    assert emitted[-1]["finished"] is True
-    assert emitted[-1]["outcome"] == "finished"
-    assert emitted[-1]["counter"] == 6
-    assert emitted[-1]["total"] == 6
+    assert isinstance(emitted[-1], CountedTiledTerminalEvent)
+    assert emitted[-1].outcome is TiledOutcome.FINISHED
+    assert emitted[-1].completed == 6
+    assert emitted[-1].total == 6
 
 
 def test_run_emits_a_terminal_state_when_cancelled(monkeypatch):
@@ -344,8 +349,8 @@ def test_run_emits_a_terminal_state_when_cancelled(monkeypatch):
     with pytest.raises(OperationCancelledError):
         runner.run()
 
-    assert emitted[-1]["outcome"] == "cancelled"
-    assert emitted[-1]["counter"] == 2, "partial progress is reported, not reset"
+    assert emitted[-1].outcome is TiledOutcome.CANCELLED
+    assert emitted[-1].completed == 2, "partial progress is reported, not reset"
 
 
 def test_run_emits_a_terminal_state_when_it_fails(monkeypatch):
@@ -360,18 +365,19 @@ def test_run_emits_a_terminal_state_when_it_fails(monkeypatch):
     with pytest.raises(RuntimeError):
         runner.run()
 
-    assert emitted[-1]["outcome"] == "failed"
+    assert emitted[-1].outcome is TiledOutcome.FAILED
 
 
-def test_the_terminal_payload_satisfies_existing_consumers(monkeypatch):
-    """The minimap handler indexes counter/total/msg directly and would raise."""
+def test_the_terminal_event_satisfies_typed_consumers(monkeypatch):
     runner, emitted = _runner_with_recorded_signal(monkeypatch)
     runner._run_tile_loop = lambda: setattr(runner, "_n_tiles_acquired", 6)
 
     runner.run()
 
-    for key in ("msg", "counter", "total"):
-        assert key in emitted[-1], f"consumers index {key!r} without a default"
+    terminal = emitted[-1]
+    assert isinstance(terminal, CountedTiledTerminalEvent)
+    assert terminal.message == "Acquisition Complete"
+    assert terminal.completed == terminal.total == 6
 
 
 # ---------------------------------------------------------------------------
@@ -461,17 +467,18 @@ def test_a_masked_run_does_not_report_a_short_count(tmp_path):
     runner, emitted = _demo_runner(settings, tmp_path)
 
     assert emitted, "the runner said nothing while planning"
-    assert emitted[0]["total"] == 7
+    assert isinstance(emitted[0], CountedTiledPhaseEvent)
+    assert emitted[0].total == 7
 
     runner._n_tiles_acquired = 7
-    runner._emit_terminal("finished", "Acquisition Complete")
-    assert emitted[-1]["counter"] == emitted[-1]["total"] == 7
+    runner._emit_terminal(TiledOutcome.FINISHED, "Acquisition Complete")
+    assert emitted[-1].completed == emitted[-1].total == 7
 
 
 def test_an_unmasked_run_still_reports_the_whole_grid(tmp_path):
     """The other half: no mask must not quietly change what a dense run reports."""
     runner, emitted = _demo_runner(_make_settings(2, 3), tmp_path)
-    assert emitted[0]["total"] == 6
+    assert emitted[0].total == 6
     assert len(runner._ordered) == 6
 
 

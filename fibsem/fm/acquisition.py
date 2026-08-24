@@ -33,7 +33,15 @@ from fibsem.imaging.tiling.geometry import (
     order_tiles,
     raise_if_outside_stage_limits,
 )
-from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE
+from fibsem.imaging.tiling.progress import (
+    MODALITY_FLUORESCENCE,
+    FluorescenceTileCompletedEvent,
+    FluorescenceTileCountEvent,
+    TiledAcquisitionEvent,
+    TiledPhase,
+    TiledPhaseEvent,
+    TileStartedEvent,
+)
 from fibsem.structures import BeamType, FibsemStagePosition, TileOrderStrategy
 
 if TYPE_CHECKING:
@@ -478,7 +486,11 @@ class FMTiledAcquisitionRunner:
         # in the same place; it is only that the fluorescence stitch and save happen in
         # two different objects, so they are announced separately -- the save from the
         # widget that performs it.
-        self._emit({"state": "stitching", "task": "tileset"})
+        self._emit(
+            TiledPhaseEvent(
+                modality=MODALITY_FLUORESCENCE, phase=TiledPhase.STITCHING
+            )
+        )
         return stitch_tileset(
             self.tileset,
             self.overview_parameters.overlap,
@@ -748,7 +760,11 @@ class FMTiledAcquisitionRunner:
 
         self._init_preview_canvas()
 
-        self._emit({"state": "moving", "task": "tileset"})
+        self._emit(
+            TiledPhaseEvent(
+                modality=MODALITY_FLUORESCENCE, phase=TiledPhase.MOVING
+            )
+        )
         # The run's opening report: nothing acquired, and how long it should take. A
         # progress report rather than an announcement -- it carries no tile coordinates,
         # because it is not about a tile. It used to name the first one *and* claim a
@@ -758,14 +774,14 @@ class FMTiledAcquisitionRunner:
         # `total` counts tiles that will actually be acquired, not grid cells -- a
         # progress bar that stops at 9/25 on a successful sparse run reads as a failure.
         self._emit(
-            {
-                "state": "acquiring",
-                "task": "tileset",
-                "counter": 0,
-                "total": len(self._ordered),
-                "estimated_total_time": self._total_estimated_time,
-                "estimated_remaining_time": self._total_estimated_time,
-            }
+            FluorescenceTileCountEvent(
+                modality=MODALITY_FLUORESCENCE,
+                completed=0,
+                total=len(self._ordered),
+                estimated_total_seconds=self._total_estimated_time,
+                estimated_remaining_seconds=self._total_estimated_time,
+                elapsed_seconds=0.0,
+            )
         )
 
     def _init_preview_canvas(self) -> None:
@@ -867,7 +883,11 @@ class FMTiledAcquisitionRunner:
             self._emit_preview(tile)
 
             if tile is not self._ordered[-1]:
-                self._emit({"state": "moving", "task": "tileset"})
+                self._emit(
+                    TiledPhaseEvent(
+                        modality=MODALITY_FLUORESCENCE, phase=TiledPhase.MOVING
+                    )
+                )
 
     def _acquire_tile(self, row: int, col: int) -> FluorescenceImage:
         """Move to one tile and acquire it.
@@ -944,11 +964,16 @@ class FMTiledAcquisitionRunner:
         logging.info("Returning to initial position")
         self.microscope.safe_absolute_stage_movement(self._initial_position)
         self.microscope.fm.objective.move_absolute(self._initial_objective_position)
-        self._emit({"state": "finished"})
+        self._emit(
+            TiledPhaseEvent(
+                modality=MODALITY_FLUORESCENCE,
+                phase=TiledPhase.TILES_ACQUIRED,
+            )
+        )
 
     # ── helpers ──────────────────────────────────────────────────────────
 
-    def _emit(self, payload: dict) -> None:
+    def _emit(self, event: TiledAcquisitionEvent) -> None:
         """Report a phase of this run.
 
         On `tiled_acquisition_signal`, not the detector's own progress signal. This is
@@ -961,22 +986,17 @@ class FMTiledAcquisitionRunner:
         What stays on the detector's signal is the work *inside* a tile: those are a
         different scale, and `FMOverviewWidget` draws them in a different bar.
 
-        Stamped with the modality on the way out, so no consumer has to remember to. Two
-        of them draw a beam overview from this signal and would otherwise paint a
-        fluorescence mosaic into it.
+        Events are constructed with their modality at the call site, where the typed
+        variant and its required fields are visible together.
         """
-        self.microscope.tiled_acquisition_signal.emit(
-            {"modality": MODALITY_FLUORESCENCE, **payload}
-        )
+        self.microscope.tiled_acquisition_signal.emit(event)
 
     def _emit_preview(self, tile: TilePosition) -> None:
         """Publish the mosaic-so-far, so a viewer can watch it fill in.
 
-        Keyed `image`, matching what `TiledAcquisitionRunner` emits and what
-        `FibsemMinimapWidget.handle_tile_acquisition_progress` already reads, so a
-        consumer of one reads the other. The whole canvas goes out rather than the
-        single tile: the receiver then needs no state of its own and simply redisplays
-        what it is given, which is also what makes a late subscriber correct.
+        The completed-tile event carries the whole canvas rather than one tile: the
+        receiver needs no state of its own and simply redisplays what it is given,
+        which is also what makes a late subscriber correct.
 
         A *copy* goes out, unlike the beam tiler, which emits its live canvas directly.
         The acquisition runs on a worker thread, so the signal is queued and the slot
@@ -987,30 +1007,29 @@ class FMTiledAcquisitionRunner:
         """
         estimated_total, estimated_remaining, elapsed = self._time_estimate()
         self._emit(
-            {
-                "state": "tile",
-                "task": "tileset",
-                "row": tile.row,
-                "col": tile.col,
-                "total_rows": self._rows,
-                "total_cols": self._cols,
+            FluorescenceTileCompletedEvent(
+                modality=MODALITY_FLUORESCENCE,
+                row_index=tile.row,
+                column_index=tile.col,
+                rows=self._rows,
+                columns=self._cols,
                 # **Tiles completed**, which is what `counter` means on this signal -- the
                 # beam tiler increments and then emits, so its count has always meant this.
                 # The fluorescence side used to say it twice per tile with two meanings: the
                 # tile *starting* before the acquisition and the tally after. One key cannot
                 # be both, and a consumer choosing between them got a bar that changed scale
                 # at every boundary (FIB-736, FIB-739).
-                "counter": self._n_acquired,
-                "total": len(self._ordered),
+                completed=self._n_acquired,
+                total=len(self._ordered),
                 # The estimate rides with the count rather than with the announcement below,
                 # so one payload carries the whole picture and a consumer never has to
                 # assemble progress from two.
-                "estimated_total_time": estimated_total,
-                "estimated_remaining_time": estimated_remaining,
-                "elapsed_time": elapsed,
-                "image": self._preview.canvas.copy(),
-                "preview_stride": self._preview.stride,
-            }
+                estimated_total_seconds=estimated_total,
+                estimated_remaining_seconds=estimated_remaining,
+                elapsed_seconds=elapsed,
+                image=self._preview.canvas.copy(),
+                preview_stride=self._preview.stride,
+            )
         )
 
     def _time_estimate(self):
@@ -1044,14 +1063,13 @@ class FMTiledAcquisitionRunner:
         the tile, with the preview.
         """
         self._emit(
-            {
-                "state": "acquiring",
-                "task": "tileset",
-                "row": row + 1,
-                "col": col + 1,
-                "total_rows": self._rows,
-                "total_cols": self._cols,
-            }
+            TileStartedEvent(
+                modality=MODALITY_FLUORESCENCE,
+                row_index=row,
+                column_index=col,
+                rows=self._rows,
+                columns=self._cols,
+            )
         )
 
 

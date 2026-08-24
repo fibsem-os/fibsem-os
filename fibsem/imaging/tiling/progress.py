@@ -1,61 +1,199 @@
-"""What a tiled acquisition says about itself while it runs.
+"""Typed events emitted while a tiled acquisition runs.
 
-`FibsemMicroscope.tiled_acquisition_signal` carries a bare dict and has no declared
-contract, so a consumer works out what it received from which keys are present. That was
-survivable while `imaging.tiled` was its only emitter: three payload shapes, all from one
-class, all carrying the same keys.
-
-It stops being survivable with a second producer. The fluorescence tileset runner reports
-the same thing -- tile *n* of *N*, and a mosaic so far -- and reports it somewhere else
-entirely, on a signal hanging off the detector that also carries z-stacks, channel
-acquisitions and autofocus sweeps (FIB-725). Bringing it here needs consumers to be able
-to tell whose run they are looking at, because most of them want exactly one:
-
-* `FibsemMinimapWidget` and `FibsemOverviewWidget` each drive a *beam* overview, and hand
-  the payload's mosaic straight to their own canvas. Handed a fluorescence one they would
-  draw it into the beam mosaic -- and the fluorescence preview is keyed `image` already,
-  deliberately, to match this signal.
-* `AutoLamellaSingleWindowUI` shows whichever is running in the status bar, and needs to
-  say *which*, or a glance tells you a run is going and not what it is.
-
-Hence `modality`: the one thing that differs, in the word this codebase already uses for
-it. Everything on this signal is a tiled run by definition -- that is what the signal is
-named for -- so the kind of *work* needs no discriminator; what varies is what is imaging.
-
-# Reading a payload
-
-Use :func:`is_modality`, not `payload["modality"]`. The key is new, and a consumer that
-demands it would ignore every payload emitted by an older producer -- including anything
-outside this repository subscribing to a public signal. Absent means beam, which is what
-it was before this existed.
+``FibsemMicroscope.tiled_acquisition_signal`` is shared by the beam and fluorescence
+tilers. The event class identifies what happened; ``modality`` identifies which
+imaging path produced it. Missing modality retains the signal's historical meaning:
+beam.
 """
 
 from __future__ import annotations
 
-# The beam tiler: SEM or FIB, since no consumer distinguishes them -- both draw into the
-# same overview.
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Union
+
+import numpy as np
+
+from fibsem.structures import FibsemImage
+
 MODALITY_BEAM = "beam"
-# The fluorescence tileset runner.
 MODALITY_FLUORESCENCE = "fluorescence"
 
-__all__ = ["MODALITY_BEAM", "MODALITY_FLUORESCENCE", "modality_of", "is_modality"]
+
+class TiledEventType(str, Enum):
+    """Closed set of event shapes carried by the tiled signal."""
+
+    PHASE = "phase"
+    COUNTED_PHASE = "counted-phase"
+    TILE_STARTED = "tile-started"
+    FLUORESCENCE_TILE_COUNT = "fluorescence-tile-count"
+    BEAM_TILE_COMPLETED = "beam-tile-completed"
+    FLUORESCENCE_TILE_COMPLETED = "fluorescence-tile-completed"
+    TERMINAL = "terminal"
+    COUNTED_TERMINAL = "counted-terminal"
 
 
-def modality_of(payload: dict) -> str:
-    """Which imaging modality produced *payload*.
+class TiledPhase(str, Enum):
+    """Non-terminal work surrounding the completed-tile tally."""
 
-    Defaults to the beam rather than raising or returning None: this signal carried
-    nothing else for its whole life, so an unlabelled payload is a beam run from a
-    producer that predates the key.
+    COMPUTING_POSITIONS = "computing-positions"
+    MOVING = "moving"
+    ACQUIRING = "acquiring"
+    TILES_ACQUIRED = "tiles-acquired"
+    STITCHING = "stitching"
+    SAVING = "saving"
+
+
+class TiledOutcome(str, Enum):
+    """How an originating tiled acquisition ended."""
+
+    FINISHED = "finished"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True, kw_only=True)
+class TiledAcquisitionEvent:
+    """Base type for every event on ``tiled_acquisition_signal``.
+
+    ``modality`` intentionally remains a string rather than an enum: consumers can
+    safely ignore or generically present a future modality, and omitting it continues
+    to mean beam for callers constructing an event with the default.
     """
-    return payload.get("modality") or MODALITY_BEAM
+
+    modality: str = MODALITY_BEAM
 
 
-def is_modality(payload: dict, modality: str) -> bool:
-    """Whether *payload* came from *modality*, treating unlabelled as beam.
+@dataclass(frozen=True, kw_only=True)
+class TiledPhaseEvent(TiledAcquisitionEvent):
+    event_type: TiledEventType = field(init=False, default=TiledEventType.PHASE)
+    phase: TiledPhase
 
-    The form consumers should use. `payload.get("modality") == MODALITY_BEAM` looks
-    equivalent and is not: it drops every payload from a producer that has not been
-    taught the key, which on a public signal is not only the ones in this repository.
-    """
-    return modality_of(payload) == modality
+
+@dataclass(frozen=True, kw_only=True)
+class CountedTiledPhaseEvent(TiledAcquisitionEvent):
+    event_type: TiledEventType = field(
+        init=False, default=TiledEventType.COUNTED_PHASE
+    )
+    phase: TiledPhase
+    completed: int
+    total: int
+    message: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class TileStartedEvent(TiledAcquisitionEvent):
+    event_type: TiledEventType = field(init=False, default=TiledEventType.TILE_STARTED)
+    row_index: int
+    column_index: int
+    rows: int
+    columns: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class FluorescenceTileCountEvent(TiledAcquisitionEvent):
+    event_type: TiledEventType = field(
+        init=False, default=TiledEventType.FLUORESCENCE_TILE_COUNT
+    )
+    completed: int
+    total: int
+    estimated_total_seconds: float
+    estimated_remaining_seconds: float
+    elapsed_seconds: float
+
+
+@dataclass(frozen=True, kw_only=True)
+class BeamTileCompletedEvent(TiledAcquisitionEvent):
+    event_type: TiledEventType = field(
+        init=False, default=TiledEventType.BEAM_TILE_COMPLETED
+    )
+    completed: int
+    total: int
+    row_index: int
+    column_index: int
+    rows: int
+    columns: int
+    image: np.ndarray
+    preview: FibsemImage
+    message: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class FluorescenceTileCompletedEvent(TiledAcquisitionEvent):
+    event_type: TiledEventType = field(
+        init=False, default=TiledEventType.FLUORESCENCE_TILE_COMPLETED
+    )
+    completed: int
+    total: int
+    row_index: int
+    column_index: int
+    rows: int
+    columns: int
+    image: np.ndarray
+    preview_stride: int
+    estimated_total_seconds: float
+    estimated_remaining_seconds: float
+    elapsed_seconds: float
+
+
+@dataclass(frozen=True, kw_only=True)
+class TiledTerminalEvent(TiledAcquisitionEvent):
+    event_type: TiledEventType = field(init=False, default=TiledEventType.TERMINAL)
+    outcome: TiledOutcome
+    message: str
+    error: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class CountedTiledTerminalEvent(TiledAcquisitionEvent):
+    event_type: TiledEventType = field(
+        init=False, default=TiledEventType.COUNTED_TERMINAL
+    )
+    outcome: TiledOutcome
+    message: str
+    completed: int
+    total: int
+    error: str | None = None
+
+
+TiledEvent = Union[
+    TiledPhaseEvent,
+    CountedTiledPhaseEvent,
+    TileStartedEvent,
+    FluorescenceTileCountEvent,
+    BeamTileCompletedEvent,
+    FluorescenceTileCompletedEvent,
+    TiledTerminalEvent,
+    CountedTiledTerminalEvent,
+]
+
+
+def modality_of(event: TiledAcquisitionEvent) -> str:
+    """Return the producer modality, with the legacy beam default."""
+    return event.modality or MODALITY_BEAM
+
+
+def is_modality(event: TiledAcquisitionEvent, modality: str) -> bool:
+    """Whether *event* came from *modality*."""
+    return modality_of(event) == modality
+
+
+__all__ = [
+    "MODALITY_BEAM",
+    "MODALITY_FLUORESCENCE",
+    "TiledEventType",
+    "TiledPhase",
+    "TiledOutcome",
+    "TiledAcquisitionEvent",
+    "TiledPhaseEvent",
+    "CountedTiledPhaseEvent",
+    "TileStartedEvent",
+    "FluorescenceTileCountEvent",
+    "BeamTileCompletedEvent",
+    "FluorescenceTileCompletedEvent",
+    "TiledTerminalEvent",
+    "CountedTiledTerminalEvent",
+    "TiledEvent",
+    "modality_of",
+    "is_modality",
+]

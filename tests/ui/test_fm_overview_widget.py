@@ -20,11 +20,23 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QLabel
 
+from fibsem.cancellation import OperationCancelledError
 from fibsem.fm.structures import (
     AutoFocusMode,
     ChannelSettings,
     OverviewParameters,
     ZParameters,
+)
+from fibsem.imaging.tiling.progress import (
+    MODALITY_FLUORESCENCE,
+    BeamTileCompletedEvent,
+    FluorescenceTileCompletedEvent,
+    FluorescenceTileCountEvent,
+    TiledOutcome,
+    TiledPhase,
+    TiledPhaseEvent,
+    TiledTerminalEvent,
+    TileStartedEvent,
 )
 from fibsem.structures import CameraImageTransform, TileOrderStrategy
 from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
@@ -334,18 +346,51 @@ def _bar(widget):
     return widget._bar
 
 
+def _fm_count(
+    completed,
+    total,
+    remaining=0.0,
+    estimated_total=0.0,
+    modality=MODALITY_FLUORESCENCE,
+):
+    return FluorescenceTileCountEvent(
+        modality=modality,
+        completed=completed,
+        total=total,
+        estimated_total_seconds=estimated_total,
+        estimated_remaining_seconds=remaining,
+        elapsed_seconds=max(estimated_total - remaining, 0.0),
+    )
+
+
+def _fm_completed(
+    completed,
+    total,
+    remaining=0.0,
+    estimated_total=0.0,
+    image=None,
+    preview_stride=1,
+):
+    return FluorescenceTileCompletedEvent(
+        modality=MODALITY_FLUORESCENCE,
+        completed=completed,
+        total=total,
+        row_index=0,
+        column_index=max(completed - 1, 0),
+        rows=1,
+        columns=total,
+        image=image if image is not None else np.zeros((1, 2, 2), dtype=np.uint8),
+        preview_stride=preview_stride,
+        estimated_total_seconds=estimated_total,
+        estimated_remaining_seconds=remaining,
+        elapsed_seconds=max(estimated_total - remaining, 0.0),
+    )
+
+
 def test_a_tileset_payload_moves_only_the_tile_bar(qapp):
     router = _Router()
 
-    router._apply_tile_progress(
-        {
-            "modality": "fluorescence",
-            "state": "acquiring",
-            "task": "tileset",
-            "counter": 4,
-            "total": 9,
-        }
-    )
+    router._apply_tile_progress(_fm_count(4, 9))
 
     # value/maximum directly, not a percentage -- the widget counts items.
     assert (
@@ -412,15 +457,7 @@ def test_a_completed_tile_leaves_the_detail_bar_alone(qapp):
         }
     )
 
-    router._apply_tile_progress(
-        {
-            "modality": "fluorescence",
-            "state": "tile",
-            "task": "tileset",
-            "current": 1,
-            "total": 9,
-        }
-    )
+    router._apply_tile_progress(_fm_completed(1, 9))
 
     assert router.progress_tile_detail.isVisible()
 
@@ -450,13 +487,27 @@ def test_a_beam_payload_moves_neither_bar(qapp):
     router = _Router()
 
     router._apply_tile_progress(
-        {
-            "modality": "beam",
-            "counter": 8,
-            "total": 9,
-            "msg": "Tile Collected",
-        }
+        BeamTileCompletedEvent(
+            completed=8,
+            total=9,
+            row_index=0,
+            column_index=7,
+            rows=1,
+            columns=9,
+            image=object(),
+            preview=object(),
+            message="Tile Collected",
+        )
     )
+
+    assert not router.progress_tiles.isVisible()
+    assert not router.progress_tile_detail.isVisible()
+
+
+def test_an_unknown_modality_moves_neither_bar(qapp):
+    router = _Router()
+
+    router._apply_tile_progress(_fm_count(2, 9, modality="future"))
 
     assert not router.progress_tiles.isVisible()
     assert not router.progress_tile_detail.isVisible()
@@ -465,17 +516,7 @@ def test_a_beam_payload_moves_neither_bar(qapp):
 def test_the_estimate_is_shown_when_the_payload_carries_one(qapp):
     router = _Router()
 
-    router._apply_tile_progress(
-        {
-            "modality": "fluorescence",
-            "state": "acquiring",
-            "task": "tileset",
-            "counter": 2,
-            "total": 9,
-            "estimated_remaining_time": 134.0,
-            "estimated_total_time": 180.0,
-        }
-    )
+    router._apply_tile_progress(_fm_count(2, 9, 134.0, 180.0))
 
     assert "remaining" in _bar(router.progress_tiles).format()
 
@@ -487,18 +528,12 @@ def test_a_stage_move_does_not_fill_the_bar(qapp):
     goes to the status label.
     """
     router = _Router()
-    router._apply_tile_progress(
-        {
-            "modality": "fluorescence",
-            "state": "acquiring",
-            "task": "tileset",
-            "counter": 3,
-            "total": 9,
-        }
-    )
+    router._apply_tile_progress(_fm_count(3, 9))
 
     router._apply_tile_progress(
-        {"modality": "fluorescence", "state": "moving", "task": "tileset"}
+        TiledPhaseEvent(
+            modality=MODALITY_FLUORESCENCE, phase=TiledPhase.MOVING
+        )
     )
 
     assert (
@@ -509,13 +544,13 @@ def test_a_stage_move_does_not_fill_the_bar(qapp):
 
 
 @pytest.mark.parametrize(
-    "state, label",
+    "phase, label",
     [
-        ("stitching", "Stitching tiles…"),
-        ("saving", "Saving overview…"),
+        (TiledPhase.STITCHING, "Stitching tiles…"),
+        (TiledPhase.SAVING, "Saving overview…"),
     ],
 )
-def test_the_end_of_a_run_is_not_silent(qapp, state, label):
+def test_the_end_of_a_run_is_not_silent(qapp, phase, label):
     """Between the last tile and a finished run the app builds and writes a mosaic —
     ~2.1 s per GB, about 7 s for a 5x5 at ARCTIS resolution in four channels. That was
     reported as nothing at all, so a long run appeared to hang just as it completed.
@@ -526,18 +561,10 @@ def test_the_end_of_a_run_is_not_silent(qapp, state, label):
     impression these phases exist to correct.
     """
     router = _Router()
-    router._apply_tile_progress(
-        {
-            "modality": "fluorescence",
-            "state": "acquiring",
-            "task": "tileset",
-            "counter": 9,
-            "total": 9,
-        }
-    )
+    router._apply_tile_progress(_fm_count(9, 9))
 
     router._apply_tile_progress(
-        {"modality": "fluorescence", "state": state, "task": "tileset"}
+        TiledPhaseEvent(modality=MODALITY_FLUORESCENCE, phase=phase)
     )
 
     assert router.status.text() == label
@@ -551,19 +578,13 @@ def test_a_phase_label_is_cleared_by_the_next_tile(qapp):
     """Otherwise "Stitching tiles…" would still be on screen through the next run."""
     router = _Router()
     router._apply_tile_progress(
-        {"modality": "fluorescence", "state": "saving", "task": "tileset"}
+        TiledPhaseEvent(
+            modality=MODALITY_FLUORESCENCE, phase=TiledPhase.SAVING
+        )
     )
     assert router.status.text() == "Saving overview…"
 
-    router._apply_tile_progress(
-        {
-            "modality": "fluorescence",
-            "state": "acquiring",
-            "task": "tileset",
-            "counter": 1,
-            "total": 9,
-        }
-    )
+    router._apply_tile_progress(_fm_count(1, 9))
     assert router.status.text() == ""
 
 
@@ -1001,7 +1022,7 @@ def test_the_first_preview_frame_lands_at_the_right_scale(qapp, overview_widget)
     tile_ps = widget.fm.camera.pixel_size[0]
     preview = np.zeros((1, 64, 128), dtype=np.uint8)  # (C, H, W), already decimated
 
-    widget._show_preview({"image": preview, "preview_stride": stride})
+    widget._show_preview(_fm_completed(1, 1, image=preview, preview_stride=stride))
     qapp.processEvents()
 
     placed = widget.canvas.canvas._placed
@@ -2459,7 +2480,7 @@ def test_a_finished_run_keeps_its_outcome_on_screen(qapp):
     qapp.processEvents()
     widget._set_running(True)
 
-    widget._finish("overview-failed", "nope")
+    widget._finish(TiledOutcome.FAILED, "nope")
     qapp.processEvents()
 
     assert widget.progress_tiles.isVisible()
@@ -4482,7 +4503,7 @@ def test_the_live_preview_never_becomes_a_record(qapp, blank_canvas):
     import numpy as np
 
     widget._show_preview(
-        {"image": np.zeros((4, 4), dtype=np.uint16), "preview_stride": 1}
+        _fm_completed(1, 1, image=np.zeros((4, 4), dtype=np.uint16))
     )
     qapp.processEvents()
 
@@ -5215,11 +5236,52 @@ def test_the_worker_announces_the_save_before_it_writes(
             saved,
         )
 
-    states = [p.get("state") for p in seen if p.get("task") == "tileset"]
-    assert "saving" in states, "the write is still silent"
-    assert states.index("saving") < states.index("overview-finished"), (
+    saving = next(
+        i for i, event in enumerate(seen)
+        if isinstance(event, TiledPhaseEvent) and event.phase is TiledPhase.SAVING
+    )
+    finished = next(
+        i for i, event in enumerate(seen)
+        if isinstance(event, TiledTerminalEvent)
+        and event.outcome is TiledOutcome.FINISHED
+    )
+    assert saving < finished, (
         "the save was announced after it had already happened"
     )
+
+
+@pytest.mark.parametrize(
+    "exception, outcome, error",
+    [
+        (
+            OperationCancelledError("stopped"),
+            TiledOutcome.CANCELLED,
+            None,
+        ),
+        (RuntimeError("camera failed"), TiledOutcome.FAILED, "camera failed"),
+    ],
+)
+def test_the_worker_emits_typed_cancel_and_failure_terminals(
+    overview_widget, exception, outcome, error
+):
+    class _StubRunner:
+        def run_and_stitch(self):
+            raise exception
+
+    widget = overview_widget
+    seen = []
+    widget.microscope.tiled_acquisition_signal.connect(seen.append)
+    original_runner = widget._runner
+    try:
+        widget._runner = _StubRunner()
+        widget._acquire_worker()
+    finally:
+        widget._runner = original_runner
+        widget.microscope.tiled_acquisition_signal.disconnect(seen.append)
+
+    terminal = next(event for event in seen if isinstance(event, TiledTerminalEvent))
+    assert terminal.outcome is outcome
+    assert terminal.error == error
 
 
 def test_a_tileset_payload_reaches_the_real_widget(qapp, overview_widget):
@@ -5232,15 +5294,7 @@ def test_a_tileset_payload_reaches_the_real_widget(qapp, overview_widget):
     test noticing.
     """
     widget = overview_widget
-    widget.microscope.tiled_acquisition_signal.emit(
-        {
-            "modality": "fluorescence",
-            "state": "acquiring",
-            "task": "tileset",
-            "counter": 4,
-            "total": 9,
-        }
-    )
+    widget.microscope.tiled_acquisition_signal.emit(_fm_count(4, 9))
     qapp.processEvents()
 
     assert "4 / 9" in _bar(widget.progress_tiles).format()
@@ -5298,26 +5352,22 @@ def test_a_beam_run_does_not_drive_the_fluorescence_bar(qapp, overview_widget):
     a `task` key would be a reasonable thing for it to do.
     """
     widget = overview_widget
-    widget.microscope.tiled_acquisition_signal.emit(
-        {
-            "modality": "fluorescence",
-            "state": "acquiring",
-            "task": "tileset",
-            "counter": 4,
-            "total": 9,
-        }
-    )
+    widget.microscope.tiled_acquisition_signal.emit(_fm_count(4, 9))
     qapp.processEvents()
     before = _bar(widget.progress_tiles).format()
 
     widget.microscope.tiled_acquisition_signal.emit(
-        {
-            "modality": "beam",
-            "task": "tileset",
-            "counter": 8,
-            "total": 9,
-            "msg": "Tile Collected",
-        }
+        BeamTileCompletedEvent(
+            completed=8,
+            total=9,
+            row_index=0,
+            column_index=7,
+            rows=1,
+            columns=9,
+            image=object(),
+            preview=object(),
+            message="Tile Collected",
+        )
     )
     qapp.processEvents()
 
@@ -5339,17 +5389,7 @@ def test_the_announcement_payload_does_not_redraw_the_tile_bar(qapp):
     counts at all, which settles both.
     """
     router = _Router()
-    router._apply_tile_progress(
-        {
-            "modality": "fluorescence",
-            "state": "tile",
-            "task": "tileset",
-            "counter": 2,
-            "total": 4,
-            "estimated_remaining_time": 18.0,
-            "estimated_total_time": 24.0,
-        }
-    )
+    router._apply_tile_progress(_fm_completed(2, 4, 18.0, 24.0))
     before = (
         _bar(router.progress_tiles).value(),
         _bar(router.progress_tiles).maximum(),
@@ -5357,15 +5397,13 @@ def test_the_announcement_payload_does_not_redraw_the_tile_bar(qapp):
     )
 
     router._apply_tile_progress(
-        {
-            "modality": "fluorescence",
-            "state": "acquiring",
-            "task": "tileset",
-            "row": 2,
-            "col": 3,
-            "total_rows": 2,
-            "total_cols": 2,
-        }
+        TileStartedEvent(
+            modality=MODALITY_FLUORESCENCE,
+            row_index=1,
+            column_index=2,
+            rows=2,
+            columns=3,
+        )
     )
 
     after = (
@@ -5383,16 +5421,10 @@ def test_the_preview_is_still_shown(qapp):
     router = _Router()
     router._show_preview = shown.append
 
-    payload = {
-        "modality": "fluorescence",
-        "state": "tile",
-        "task": "tileset",
-        "counter": 2,
-        "total": 4,
-    }
-    router._apply_tile_progress(payload)
+    event = _fm_completed(2, 4)
+    router._apply_tile_progress(event)
 
-    assert shown == [payload]
+    assert shown == [event]
 
 
 # ── a grid beyond the stage's travel (FIB-741) ───────────────────────────

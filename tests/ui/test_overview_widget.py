@@ -35,6 +35,11 @@ from PyQt5.QtWidgets import QApplication, QDialog  # noqa: E402
 
 from fibsem import utils  # noqa: E402
 from fibsem.imaging import tiled  # noqa: E402
+from fibsem.imaging.tiling.progress import (  # noqa: E402
+    MODALITY_FLUORESCENCE,
+    BeamTileCompletedEvent,
+    FluorescenceTileCountEvent,
+)
 from fibsem.structures import (  # noqa: E402
     BeamType,
     FibsemImage,
@@ -118,6 +123,21 @@ def _tile(microscope, position: FibsemStagePosition, shape=(64, 64), hfw=100e-6)
     image.metadata.system_info = microscope.system.info
     image.metadata.hardware_geometry = microscope.hardware_geometry()
     return image
+
+
+def _beam_progress(completed, total, preview=None, modality="beam"):
+    return BeamTileCompletedEvent(
+        modality=modality,
+        completed=completed,
+        total=total,
+        row_index=0,
+        column_index=max(completed - 1, 0),
+        rows=1,
+        columns=total,
+        image=object(),
+        preview=preview if preview is not None else object(),
+        message="Tile Collected",
+    )
 
 
 def _at(base: FibsemStagePosition, dx: float = 0.0, dy: float = 0.0, name=None):
@@ -731,10 +751,9 @@ class TestThingsOnlyRunningItFound:
         assert widget.overview_list._list.count() == 1
 
         for i in (1, 2, 3):
-            widget._apply_progress({
-                "msg": "Tile Collected", "counter": i, "total": 3,
-                "preview": _tile(microscope, _at(base)),
-            })
+            widget._apply_progress(
+                _beam_progress(i, 3, _tile(microscope, _at(base)))
+            )
             row = widget.overview_list._rows["run"]
             assert row.detail_label.text().startswith(f"{i} tile"), (
                 f"after {i} tile(s) the row still reads {row.detail_label.text()!r}"
@@ -750,7 +769,7 @@ class TestThingsOnlyRunningItFound:
         widget._set_running(True)
         assert widget.label_status.text() == "", "a stale outcome survived into the run"
 
-        widget._apply_progress({"counter": 2, "total": 9, "msg": "Tile Collected"})
+        widget._apply_progress(_beam_progress(2, 9))
         assert widget.label_status.text() == "", "the label competed with the bar"
 
         widget._on_finished({})
@@ -1985,10 +2004,7 @@ class TestThePlanHoldsStillWhileTheRunWalksTheGrid:
     def _run_a_tile(self, widget, microscope, position):
         """One tile of a run: the stage arrives, then a preview lands."""
         widget._on_stage_moved(position)
-        widget._apply_progress({
-            "msg": "Tile Collected", "counter": 1, "total": 3,
-            "preview": _tile(microscope, position),
-        })
+        widget._apply_progress(_beam_progress(1, 3, _tile(microscope, position)))
 
     def test_the_planned_grid_does_not_follow_the_stage(self, widget, microscope):
         from fibsem.ui.widgets.overview_widget import OverviewRecord
@@ -2082,10 +2098,9 @@ class TestThePlanHoldsStillWhileTheRunWalksTheGrid:
         # The stage sets off, and the first preview arrives from a tile away -- which is
         # the redraw, because it is what un-provisions the origin.
         widget._on_stage_moved(_at(base, dx=300e-6, dy=300e-6))
-        widget._apply_progress({
-            "msg": "Tile Collected", "counter": 1, "total": 9,
-            "preview": _tile(microscope, _at(base)),
-        })
+        widget._apply_progress(
+            _beam_progress(1, 9, _tile(microscope, _at(base)))
+        )
 
         assert widget.tile_grid_overlay._anchor() == pytest.approx(anchored_at), (
             "the plan was redrawn around the tile being acquired, not around the run"
@@ -2206,10 +2221,9 @@ class TestARunDoesNotReFrameTheCanvas:
         widget._active_record = "run"
         widget._set_running(True)
         for counter in range(1, tiles + 1):
-            widget._apply_progress({
-                "msg": "Tile Collected", "counter": counter, "total": tiles,
-                "preview": _tile(microscope, _at(base)),
-            })
+            widget._apply_progress(
+                _beam_progress(counter, tiles, _tile(microscope, _at(base)))
+            )
         widget._mosaic = _tile(microscope, _at(base), shape=(128, 128))
         widget._on_finished({})
 
@@ -4007,26 +4021,30 @@ class TestItOnlyDrawsItsOwnRuns:
     """
 
     def test_a_fluorescence_run_is_ignored(self, widget):
-        from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE
-
         widget._tiles_acquired = 0
-        widget._apply_progress({
-            "modality": MODALITY_FLUORESCENCE,
-            "counter": 7, "total": 9, "msg": "Tile Collected",
-        })
+        widget._apply_progress(
+            FluorescenceTileCountEvent(
+                modality=MODALITY_FLUORESCENCE,
+                completed=7,
+                total=9,
+                estimated_total_seconds=9.0,
+                estimated_remaining_seconds=2.0,
+                elapsed_seconds=7.0,
+            )
+        )
         assert widget._tiles_acquired == 0, "a fluorescence run moved this tab's count"
 
     def test_a_beam_run_is_still_drawn(self, widget):
         widget._tiles_acquired = 0
-        widget._apply_progress({
-            "modality": "beam",
-            "counter": 7, "total": 9, "msg": "Tile Collected",
-        })
+        widget._apply_progress(_beam_progress(7, 9))
         assert widget._tiles_acquired == 7
 
-    def test_an_unlabelled_run_is_still_drawn(self, widget):
-        """Anything predating the key — including a producer outside this repository
-        subscribing to a public signal — must keep working."""
+    def test_the_default_modality_is_still_drawn(self, widget):
         widget._tiles_acquired = 0
-        widget._apply_progress({"counter": 7, "total": 9, "msg": "Tile Collected"})
+        widget._apply_progress(_beam_progress(7, 9))
         assert widget._tiles_acquired == 7
+
+    def test_an_unknown_modality_is_ignored(self, widget):
+        widget._tiles_acquired = 0
+        widget._apply_progress(_beam_progress(7, 9, modality="future"))
+        assert widget._tiles_acquired == 0

@@ -1,19 +1,10 @@
-"""What the tiled acquisition tells its consumers, per tile.
+"""The typed contract carried by ``tiled_acquisition_signal``."""
 
-`tiled_acquisition_signal` is shared: the FIB/SEM overview places tiles from it, the
-AutoLamella window branches on it, and a progress bar reads its counters. So the shape
-of the payload is a contract between modules that never see each other, and the sort of
-thing that gets edited by someone looking at one consumer.
-
-Deliberately **not** under `tests/ui`. The overview widget is the only consumer of the
-`tile` key today and it is a Qt widget, so this test naturally wanted to live beside it
--- where CI, which installs `.[test]` and so has no PyQt5, would have skipped the whole
-module and never checked the acquisition code at all.
-
-Run directly:
-    python -m pytest tests/test_tiled_progress_payload.py
-"""
 from __future__ import annotations
+
+import ast
+from dataclasses import MISSING, FrozenInstanceError, fields
+from pathlib import Path
 
 import pytest
 
@@ -22,14 +13,24 @@ from fibsem.imaging.tiled import TiledAcquisitionRunner
 from fibsem.imaging.tiling.progress import (
     MODALITY_BEAM,
     MODALITY_FLUORESCENCE,
+    BeamTileCompletedEvent,
+    CountedTiledPhaseEvent,
+    CountedTiledTerminalEvent,
+    FluorescenceTileCompletedEvent,
+    FluorescenceTileCountEvent,
+    TiledAcquisitionEvent,
+    TiledEventType,
+    TiledOutcome,
+    TiledPhase,
+    TiledPhaseEvent,
+    TiledTerminalEvent,
+    TileStartedEvent,
     is_modality,
     modality_of,
 )
-from fibsem.structures import (
-    BeamType,
-    ImageSettings,
-    OverviewAcquisitionSettings,
-)
+from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
+
+FIBSEM_ROOT = Path(__import__("fibsem").__file__).parent
 
 
 @pytest.fixture(scope="module")
@@ -39,9 +40,7 @@ def microscope():
 
 
 @pytest.fixture(scope="module")
-def payloads(microscope, tmp_path_factory):
-    """One small run, captured. Module-scoped: the simulator sleeps per tile, and every
-    assertion below reads the same run rather than paying for its own."""
+def events(microscope, tmp_path_factory):
     collected = []
     microscope.tiled_acquisition_signal.connect(collected.append)
     try:
@@ -49,10 +48,15 @@ def payloads(microscope, tmp_path_factory):
             microscope,
             OverviewAcquisitionSettings(
                 image_settings=ImageSettings(
-                    hfw=100e-6, resolution=(64, 64), beam_type=BeamType.ELECTRON,
-                    save=False, path=str(tmp_path_factory.mktemp("tiles")), filename="t",
+                    hfw=100e-6,
+                    resolution=(64, 64),
+                    beam_type=BeamType.ELECTRON,
+                    save=False,
+                    path=str(tmp_path_factory.mktemp("tiles")),
+                    filename="t",
                 ),
-                nrows=1, ncols=2,
+                nrows=1,
+                ncols=2,
             ),
         ).run()
     finally:
@@ -60,100 +64,255 @@ def payloads(microscope, tmp_path_factory):
     return collected
 
 
-def _per_tile(payloads):
-    return [p for p in payloads if p.get("msg") == "Tile Collected"]
+def _per_tile(events):
+    return [event for event in events if isinstance(event, BeamTileCompletedEvent)]
 
 
-def test_every_tile_update_carries_the_keys_its_consumers_index(payloads):
-    """`counter`, `total` and `msg` are what every consumer draws its bar from.
+def _all_event_variants():
+    image = object()
+    common_fm = dict(modality=MODALITY_FLUORESCENCE)
+    return [
+        TiledPhaseEvent(phase=TiledPhase.MOVING),
+        CountedTiledPhaseEvent(
+            phase=TiledPhase.COMPUTING_POSITIONS,
+            completed=0,
+            total=2,
+            message="Computing Tile Positions",
+        ),
+        TileStartedEvent(
+            **common_fm, row_index=0, column_index=0, rows=1, columns=2
+        ),
+        FluorescenceTileCountEvent(
+            **common_fm,
+            completed=0,
+            total=2,
+            estimated_total_seconds=10.0,
+            estimated_remaining_seconds=10.0,
+            elapsed_seconds=0.0,
+        ),
+        BeamTileCompletedEvent(
+            completed=1,
+            total=2,
+            row_index=0,
+            column_index=0,
+            rows=1,
+            columns=2,
+            image=image,
+            preview=image,
+            message="Tile Collected",
+        ),
+        FluorescenceTileCompletedEvent(
+            **common_fm,
+            completed=1,
+            total=2,
+            row_index=0,
+            column_index=0,
+            rows=1,
+            columns=2,
+            image=image,
+            preview_stride=2,
+            estimated_total_seconds=10.0,
+            estimated_remaining_seconds=5.0,
+            elapsed_seconds=5.0,
+        ),
+        TiledTerminalEvent(
+            **common_fm, outcome=TiledOutcome.FINISHED, message="Overview Complete"
+        ),
+        CountedTiledTerminalEvent(
+            outcome=TiledOutcome.FINISHED,
+            message="Acquisition Complete",
+            completed=2,
+            total=2,
+        ),
+    ]
 
-    They used to be *indexed* -- `FibsemMinimapWidget.handle_tile_acquisition_progress`
-    raised on a payload without them, so this test stood between that consumer and a
-    `KeyError` mid-acquisition. Both consumers now read with `.get` and skip the update
-    instead (FIB-402), so the stake is lower: a per-tile payload missing these shows no
-    progress rather than taking the widget out. Still a contract, and still worth
-    asserting -- a run whose progress silently stops moving is its own bug."""
-    updates = _per_tile(payloads)
-    assert len(updates) == 2, "expected one update per tile"
-    for payload in updates:
-        assert {"counter", "total", "msg", "image"} <= set(payload)
-        assert payload["total"] == 2
 
-    # Present is not enough: a counter stuck at its initial value satisfies every
-    # structural check above while every consumer shows "0 / 2" for the whole run.
-    assert [p["counter"] for p in updates] == [1, 2]
+def test_every_variant_is_frozen_and_tagged():
+    variants = _all_event_variants()
+    assert {event.event_type for event in variants} == set(TiledEventType)
+    for event in variants:
+        with pytest.raises(FrozenInstanceError):
+            event.modality = "changed"
 
 
-def test_a_tile_update_carries_a_placeable_preview(payloads):
-    """The key the real-space overview places from.
+@pytest.mark.parametrize(
+    "event_class, required",
+    [
+        (TiledPhaseEvent, {"phase"}),
+        (
+            CountedTiledPhaseEvent,
+            {"phase", "completed", "total", "message"},
+        ),
+        (TileStartedEvent, {"row_index", "column_index", "rows", "columns"}),
+        (
+            FluorescenceTileCountEvent,
+            {
+                "completed",
+                "total",
+                "estimated_total_seconds",
+                "estimated_remaining_seconds",
+                "elapsed_seconds",
+            },
+        ),
+        (
+            BeamTileCompletedEvent,
+            {
+                "completed",
+                "total",
+                "row_index",
+                "column_index",
+                "rows",
+                "columns",
+                "image",
+                "preview",
+                "message",
+            },
+        ),
+        (
+            FluorescenceTileCompletedEvent,
+            {
+                "completed",
+                "total",
+                "row_index",
+                "column_index",
+                "rows",
+                "columns",
+                "image",
+                "preview_stride",
+                "estimated_total_seconds",
+                "estimated_remaining_seconds",
+                "elapsed_seconds",
+            },
+        ),
+        (TiledTerminalEvent, {"outcome", "message"}),
+        (
+            CountedTiledTerminalEvent,
+            {"outcome", "message", "completed", "total"},
+        ),
+    ],
+)
+def test_each_event_shape_declares_its_required_fields(event_class, required):
+    actual = {
+        item.name
+        for item in fields(event_class)
+        if item.init and item.default is MISSING and item.default_factory is MISSING
+    }
+    assert actual == required
+    with pytest.raises(TypeError):
+        event_class()
 
-    `image` alongside it is the full-size buffer as a bare array, which the napari
-    minimap assigns straight into a layer -- so it cannot answer *where* the mosaic
-    is. `preview` is the same mosaic, decimated, carrying the metadata a real-space
-    display needs to place it: position, pixel size, beam and geometry.
-    """
-    for payload in _per_tile(payloads):
-        preview = payload.get("preview")
-        assert preview is not None, "the per-tile update stopped carrying its preview"
+
+def test_phase_and_outcome_vocabularies_are_closed():
+    assert set(TiledPhase) == {
+        TiledPhase.COMPUTING_POSITIONS,
+        TiledPhase.MOVING,
+        TiledPhase.ACQUIRING,
+        TiledPhase.TILES_ACQUIRED,
+        TiledPhase.STITCHING,
+        TiledPhase.SAVING,
+    }
+    assert set(TiledOutcome) == {
+        TiledOutcome.FINISHED,
+        TiledOutcome.CANCELLED,
+        TiledOutcome.FAILED,
+    }
+
+
+def test_modality_defaults_to_beam_and_unknown_values_are_retained():
+    beam = TiledPhaseEvent(phase=TiledPhase.MOVING)
+    future = TiledPhaseEvent(modality="future", phase=TiledPhase.MOVING)
+    assert modality_of(beam) == MODALITY_BEAM
+    assert is_modality(beam, MODALITY_BEAM)
+    assert modality_of(future) == "future"
+    assert not is_modality(future, MODALITY_BEAM)
+
+
+def test_every_beam_emit_is_a_typed_beam_event(events):
+    assert events
+    assert all(modality_of(event) == MODALITY_BEAM for event in events)
+    assert isinstance(events[0], CountedTiledPhaseEvent)
+    assert events[0].phase is TiledPhase.COMPUTING_POSITIONS
+    assert isinstance(events[-1], CountedTiledTerminalEvent)
+    assert events[-1].outcome is TiledOutcome.FINISHED
+
+
+def test_every_completed_tile_has_the_full_contract(events):
+    updates = _per_tile(events)
+    assert len(updates) == 2
+    assert [event.completed for event in updates] == [1, 2]
+    assert all(event.total == 2 for event in updates)
+    assert all(event.message == "Tile Collected" for event in updates)
+    assert [(event.row_index, event.column_index) for event in updates] == [(0, 0), (0, 1)]
+
+
+def test_a_tile_update_carries_a_placeable_preview(events):
+    for event in _per_tile(events):
+        preview = event.preview
         assert preview.metadata.stage_position is not None
-        assert preview.metadata.pixel_size.x, "a mosaic with no scale cannot be placed"
+        assert preview.metadata.pixel_size.x
         assert preview.metadata.hardware_geometry is not None
         assert preview.metadata.image_settings.beam_type is not None
 
 
-def test_the_preview_fills_as_the_run_goes(payloads):
-    """A preview that never changed would satisfy every structural check above while
-    showing the same empty mosaic for the length of the run."""
-    filled = [
-        int((p["preview"].data > 0).sum()) for p in _per_tile(payloads)
-    ]
-    assert filled[-1] > filled[0], f"the preview did not fill: {filled}"
+def test_the_preview_fills_without_changing_shape(events):
+    previews = [event.preview for event in _per_tile(events)]
+    filled = [int((preview.data > 0).sum()) for preview in previews]
+    assert filled[-1] > filled[0]
+    assert len({preview.data.shape for preview in previews}) == 1
 
 
-def test_the_preview_describes_the_whole_grid_from_the_first_tile(payloads):
-    """It is the mosaic, not the tile: its shape is the finished grid's from the
-    start, so a display places it once rather than resizing it on every update."""
-    shapes = {p["preview"].data.shape for p in _per_tile(payloads)}
-    assert len(shapes) == 1, f"the preview changed shape mid-run: {shapes}"
+def test_the_signal_declaration_names_the_event_contract():
+    from fibsem.microscope import FibsemMicroscope
+
+    source = (FIBSEM_ROOT / "microscope.py").read_text(encoding="utf-8")
+    assert "tiled_acquisition_signal = Signal(TiledAcquisitionEvent)" in source
+    parameter = next(iter(FibsemMicroscope.tiled_acquisition_signal.signature.parameters.values()))
+    assert parameter.annotation is TiledAcquisitionEvent
 
 
-def test_the_run_ends_with_a_terminal_update(payloads):
-    """Consumers branch on `finished` to stop showing progress; without it the bar just
-    stops moving and nothing says whether the run succeeded."""
-    terminal = [p for p in payloads if p.get("finished")]
-    assert terminal, "no terminal update was emitted"
-    assert terminal[-1].get("outcome") == "finished"
+def test_producers_no_longer_emit_dicts_or_the_vestigial_task_tag():
+    for relative in (
+        "imaging/tiled.py",
+        "fm/acquisition.py",
+        "ui/fm/widgets/fm_overview_widget.py",
+    ):
+        source = (FIBSEM_ROOT / relative).read_text(encoding="utf-8")
+        assert '"task": "tileset"' not in source
+        tree = ast.parse(source)
+        for call in (node for node in ast.walk(tree) if isinstance(node, ast.Call)):
+            function = call.func
+            if not (
+                isinstance(function, ast.Attribute)
+                and function.attr == "emit"
+                and isinstance(function.value, ast.Attribute)
+                and function.value.attr == "tiled_acquisition_signal"
+            ):
+                continue
+            assert not call.args or not isinstance(call.args[0], ast.Dict), relative
 
 
-def test_every_payload_says_which_modality_produced_it(payloads):
-    """The discriminator this signal never had.
-
-    Consumers used to work out what they had received from which keys were present,
-    which was survivable while `imaging/tiled.py` was the only emitter. It is not once a
-    second producer reports here: two consumers hand the payload's mosaic straight to a
-    *beam* canvas, and the fluorescence preview is keyed `image` already — deliberately,
-    to match this signal (FIB-725).
-
-    Asserted on every payload, not just the per-tile ones: a terminal update that could
-    not say whose run had finished would leave a consumer unable to decide whether to
-    clear its own progress.
-    """
-    assert payloads, "the run emitted nothing"
-    for payload in payloads:
-        assert payload.get("modality") == MODALITY_BEAM, payload.get("msg")
-
-
-def test_an_unlabelled_payload_reads_as_a_beam_run():
-    """`modality` is new, so a producer that predates it — including anything outside
-    this repository subscribing to a public signal — emits without it. Absent means
-    beam, which is what this signal carried for its whole life. A consumer written as
-    `payload.get("modality") == MODALITY_BEAM` would silently drop all of it."""
-    assert modality_of({}) == MODALITY_BEAM
-    assert is_modality({"counter": 1, "total": 2}, MODALITY_BEAM)
-    assert not is_modality({}, MODALITY_FLUORESCENCE)
-
-
-def test_a_fluorescence_payload_is_not_mistaken_for_a_beam_one():
-    payload = {"modality": MODALITY_FLUORESCENCE, "counter": 1, "total": 2}
-    assert is_modality(payload, MODALITY_FLUORESCENCE)
-    assert not is_modality(payload, MODALITY_BEAM)
+def test_tiled_consumers_use_typed_attributes_not_mapping_access():
+    consumers = {
+        "ui/FibsemMinimapWidget.py": "handle_tile_acquisition_progress",
+        "ui/widgets/overview_widget.py": "_apply_progress",
+        "ui/fm/widgets/fm_overview_widget.py": "_apply_tile_progress",
+        "applications/autolamella/ui/AutoLamellaMainUI.py": (
+            "_on_tile_acquisition_progress"
+        ),
+    }
+    for relative, method_name in consumers.items():
+        tree = ast.parse((FIBSEM_ROOT / relative).read_text(encoding="utf-8"))
+        method = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == method_name
+        )
+        assert not any(isinstance(node, ast.Subscript) for node in ast.walk(method))
+        assert not any(
+            isinstance(node, ast.Attribute)
+            and node.attr == "get"
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "event"
+            for node in ast.walk(method)
+        )

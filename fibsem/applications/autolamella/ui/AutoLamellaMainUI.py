@@ -80,6 +80,16 @@ from fibsem.applications.autolamella.workflows.workflow_estimate import (
     estimate_addition,
     estimate_workflow,
 )
+from fibsem.imaging.tiling.progress import (
+    BeamTileCompletedEvent,
+    CountedTiledPhaseEvent,
+    CountedTiledTerminalEvent,
+    FluorescenceTileCompletedEvent,
+    FluorescenceTileCountEvent,
+    TiledAcquisitionEvent,
+    TiledOutcome,
+    TiledTerminalEvent,
+)
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service
 from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
@@ -1620,49 +1630,53 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             QTimer.singleShot(2000, self.progress_widget.reset_if_finished)
 
     @ensure_main_thread
-    def _on_tile_acquisition_progress(self, ddict: dict) -> None:
+    def _on_tile_acquisition_progress(self, event: TiledAcquisitionEvent) -> None:
         """Handle tiled acquisition progress updates from the microscope.
 
         Deliberately **not** filtered by `modality`, unlike the two overview widgets
         that read this signal. They each drive one modality's canvas and must ignore the
         other's run; the status bar is the one consumer that wants both, because its
         whole job is saying what is happening while you are looking at another tab
-        (FIB-725). What it will need, once a fluorescence run emits here, is to say
-        *which* -- not to drop one.
+        (FIB-725). Modality-specific presentation belongs here rather than in either
+        producer; FIB-742 adds that wording after the typed contract is in place.
         """
-        counter = ddict.get("counter")
-        total = ddict.get("total")
-        msg = ddict.get("msg", "Collecting tiles")
+        terminal_types = (TiledTerminalEvent, CountedTiledTerminalEvent)
+        if isinstance(event, terminal_types):
+            self.progress_widget.update_progress(self._overview_outcome(event))
+            # Hide the Done state after a moment, the same way spot burn does above.
+            QTimer.singleShot(2000, self.progress_widget.reset_if_finished)
+            return
 
-        if not ddict.get("finished") and (counter is None or not total):
+        counted_types = (
+            CountedTiledPhaseEvent,
+            BeamTileCompletedEvent,
+            FluorescenceTileCountEvent,
+            FluorescenceTileCompletedEvent,
+        )
+        if not isinstance(event, counted_types):
             # A phase that carries no counts: a stage move, a stitch, a save. The
             # fluorescence runner reports several of these and the beam tiler none, so
             # this only started mattering when both reported here (FIB-725).
             #
             # Nothing is drawn for them, which leaves the last real count standing --
-            # still true while the stage moves or the mosaic is written. Defaulting
-            # instead, as this did, meant `counter=0, total=1` on every such payload:
-            # the bar snapped back to zero at every tile boundary.
+            # still true while the stage moves or the mosaic is written.
             return
 
-        if ddict.get("finished"):
-            self.progress_widget.update_progress(self._overview_outcome(ddict, msg))
-            # Hide the Done state after a moment, the same way spot burn does above.
-            # It used to be cleared by `_on_tile_acquisition_finished`, which is wired
-            # to the napari minimap's own signal -- so a run driven from anywhere else
-            # left "Done" in the status bar for the rest of the session. Doing it from
-            # the progress signal covers every producer of it, and `reset_if_finished`
-            # leaves the widget alone if something else has started reporting since.
-            QTimer.singleShot(2000, self.progress_widget.reset_if_finished)
-        elif counter >= total:
+        if not event.total:
+            return
+
+        msg = getattr(event, "message", "") or "Collecting tiles"
+        if event.completed >= event.total:
             self.progress_widget.update_progress(ProgressUpdate.indeterminate(msg))
         else:
             self.progress_widget.update_progress(
-                ProgressUpdate.numeric(counter, total, msg)
+                ProgressUpdate.numeric(event.completed, event.total, msg)
             )
 
     @staticmethod
-    def _overview_outcome(ddict: dict, msg: str) -> ProgressUpdate:
+    def _overview_outcome(
+        event: TiledTerminalEvent | CountedTiledTerminalEvent,
+    ) -> ProgressUpdate:
         """How a finished tiled acquisition reads once the bar is full.
 
         Everything terminal used to take one branch and say "Done", so a run that was
@@ -1673,11 +1687,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         A cancel is deliberately not `failed`, which paints the bar red: it is someone
         getting what they asked for.
         """
-        outcome = ddict.get("outcome")
-        if outcome == "failed":
-            return ProgressUpdate.failed(msg)
-        if outcome == "cancelled":
-            return ProgressUpdate(finished=True, message=msg)
+        if event.outcome is TiledOutcome.FAILED:
+            return ProgressUpdate.failed(event.message)
+        if event.outcome is TiledOutcome.CANCELLED:
+            return ProgressUpdate(finished=True, message=event.message)
         return ProgressUpdate.done()
 
     def _on_tile_acquisition_finished(self, result: dict) -> None:

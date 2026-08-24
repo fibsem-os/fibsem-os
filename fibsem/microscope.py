@@ -101,6 +101,7 @@ except Exception:
 
 import fibsem.constants as constants
 from fibsem.fm.microscope import FluorescenceMicroscope
+from fibsem.imaging.tiling.progress import TiledAcquisitionEvent
 from fibsem.microscopes.autoscript import (
     fibsem_image_from_adorned_image,
     manipulator_position_from_autoscript,
@@ -162,7 +163,7 @@ class FibsemMicroscope(ABC):
     # @superqt.ensure_main_thread; a bare .connect() of a GUI handler is a
     # crash-on-hardware bug that won't reproduce on a dev machine.
     milling_progress_signal = Signal(dict)
-    tiled_acquisition_signal = Signal(dict)
+    tiled_acquisition_signal = Signal(TiledAcquisitionEvent)
     spot_burn_progress_signal = Signal(dict)
     _last_imaging_settings: ImageSettings
     system: SystemSettings

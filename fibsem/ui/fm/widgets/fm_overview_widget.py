@@ -42,7 +42,18 @@ from fibsem.fm.structures import (
 )
 from fibsem.imaging.tiling import unreachable_tiles
 from fibsem.imaging.tiling.geometry import TilePosition, compute_tile_grid_from_fov
-from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE, is_modality
+from fibsem.imaging.tiling.progress import (
+    MODALITY_FLUORESCENCE,
+    FluorescenceTileCompletedEvent,
+    FluorescenceTileCountEvent,
+    TiledAcquisitionEvent,
+    TiledOutcome,
+    TiledPhase,
+    TiledPhaseEvent,
+    TiledTerminalEvent,
+    TileStartedEvent,
+    is_modality,
+)
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemStagePosition
 from fibsem.ui import notification_service, stylesheets
@@ -180,9 +191,9 @@ class PlacedOverviewImageRecord:
 # way and for the same reason: the bar keeps its last count, which stays true
 # throughout, and the phase goes to the status label instead.
 PHASE_LABELS = {
-    "moving": "Moving stage…",
-    "stitching": "Stitching tiles…",
-    "saving": "Saving overview…",
+    TiledPhase.MOVING: "Moving stage…",
+    TiledPhase.STITCHING: "Stitching tiles…",
+    TiledPhase.SAVING: "Saving overview…",
 }
 
 
@@ -221,7 +232,7 @@ class FMOverviewWidget(QWidget):
     #
     # One per source, because the two describe different things at different scales and
     # each drives its own bar: the run as a whole, and the tile currently being taken.
-    _tile_progress_received = pyqtSignal(dict)
+    _tile_progress_received = pyqtSignal(object)
     _fm_progress_received = pyqtSignal(dict)
     # Same hop for stage moves: `stage_position_changed` is a psygnal, so it fires
     # on whichever thread moved the stage -- a worker, during an acquisition.
@@ -2588,7 +2599,7 @@ class FMOverviewWidget(QWidget):
             )
             return None
 
-    def _emit_state(self, state: str) -> None:
+    def _emit_state(self, phase: TiledPhase) -> None:
         """Announce a phase of this run that carries no counts.
 
         The tile bar keeps whatever it last showed -- N/N is still true while the mosaic
@@ -2597,42 +2608,26 @@ class FMOverviewWidget(QWidget):
         *full* bar, which is exactly the "it finished" impression they exist to correct.
         """
         self.microscope.tiled_acquisition_signal.emit(
-            {"modality": MODALITY_FLUORESCENCE, "state": state, "task": "tileset"}
+            TiledPhaseEvent(modality=MODALITY_FLUORESCENCE, phase=phase)
         )
 
     # What a finished run is called on the shared signal, per outcome.
     TERMINAL_MESSAGES = {
-        "finished": "Overview Complete",
-        "cancelled": "Overview Cancelled",
-        "failed": "Overview Failed",
+        TiledOutcome.FINISHED: "Overview Complete",
+        TiledOutcome.CANCELLED: "Overview Cancelled",
+        TiledOutcome.FAILED: "Overview Failed",
     }
 
-    def _emit_terminal(self, state: str, outcome: str, error: str = "") -> None:
-        """Say how the run ended, in both vocabularies.
-
-        `state` is this widget's own -- `_apply_tile_progress` and `_finish` branch on it,
-        and it distinguishes "the mosaic is saved" from the runner's "the tiles are in".
-
-        `finished` and `outcome` are the shared signal's, which the beam tiler has used
-        since it learned to report every outcome. Carried as well, not instead: a
-        consumer reads whichever it understands, and the window's status bar reads the
-        second (FIB-725). Redundant on purpose -- collapsing the two vocabularies into
-        one is the typed-payload work, not this.
-
-        Without `finished`, the status bar would never clear after a fluorescence run:
-        the terminal it recognises is a key this widget did not send.
-        """
-        payload = {
-            "modality": MODALITY_FLUORESCENCE,
-            "state": state,
-            "task": "tileset",
-            "finished": True,
-            "outcome": outcome,
-            "msg": self.TERMINAL_MESSAGES.get(outcome, "Overview"),
-        }
-        if error:
-            payload["error"] = error
-        self.microscope.tiled_acquisition_signal.emit(payload)
+    def _emit_terminal(self, outcome: TiledOutcome, error: str | None = None) -> None:
+        """Say how the originating overview run ended."""
+        self.microscope.tiled_acquisition_signal.emit(
+            TiledTerminalEvent(
+                modality=MODALITY_FLUORESCENCE,
+                outcome=outcome,
+                message=self.TERMINAL_MESSAGES[outcome],
+                error=error,
+            )
+        )
 
     def _acquire_worker(self) -> None:
         """Runs off the GUI thread. Only signals may cross back."""
@@ -2649,16 +2644,16 @@ class FMOverviewWidget(QWidget):
                 # the stitch is a memcpy into a preallocated canvas (~0.3 s for 1.3 GB)
                 # and the write is most of the rest (~2.3 s for the same). Silent until
                 # now, so a big run appeared to hang just as it completed.
-                self._emit_state("saving")
+                self._emit_state(TiledPhase.SAVING)
                 self._saved_path = self._destination.save_mosaic(mosaic)
             self.overview_acquired.emit(mosaic)
-            self._emit_terminal("overview-finished", "finished")
+            self._emit_terminal(TiledOutcome.FINISHED)
         except OperationCancelledError:
             logging.info("Overview acquisition cancelled")
-            self._emit_terminal("overview-cancelled", "cancelled")
+            self._emit_terminal(TiledOutcome.CANCELLED)
         except Exception as e:
             logging.error(f"Overview acquisition failed: {e}", exc_info=True)
-            self._emit_terminal("overview-failed", "failed", str(e))
+            self._emit_terminal(TiledOutcome.FAILED, str(e))
         finally:
             # A run that ends still marked as acquiring leaves the FM unusable for
             # the rest of the session, with nothing on screen to say why -- so this goes
@@ -2712,9 +2707,9 @@ class FMOverviewWidget(QWidget):
 
     # ── progress ─────────────────────────────────────────────────────────
 
-    def _on_tile_progress(self, payload: dict) -> None:
+    def _on_tile_progress(self, event: TiledAcquisitionEvent) -> None:
         """Called by psygnal, on whichever thread emitted. Touches no widgets."""
-        self._tile_progress_received.emit(payload)
+        self._tile_progress_received.emit(event)
 
     def _on_fm_progress(self, payload: dict) -> None:
         """Called by psygnal, on whichever thread emitted. Touches no widgets."""
@@ -2733,26 +2728,27 @@ class FMOverviewWidget(QWidget):
         if payload.get("operation") in ("z-stack", "channels", "autofocus"):
             self.progress_tile_detail.update_progress(self._tile_detail_update(payload))
 
-    def _apply_tile_progress(self, payload: dict) -> None:
+    def _apply_tile_progress(self, event: TiledAcquisitionEvent) -> None:
         """The run as a whole, on the tile bar.
 
         Runs on the GUI thread, queued via `_tile_progress_received`.
         """
-        if not is_modality(payload, MODALITY_FLUORESCENCE):
+        if not is_modality(event, MODALITY_FLUORESCENCE):
             # A beam run, on the signal this shares with the beam tiler. Checked before
             # anything else, terminal states included: the two tilers write into
             # different canvases and different bars, and the only payload this widget
             # has any business acting on is its own (FIB-725).
             return
 
-        state = payload.get("state")
-
-        if state in ("overview-finished", "overview-cancelled", "overview-failed"):
-            self._finish(state, payload.get("error"))
+        if isinstance(event, TiledTerminalEvent):
+            self._finish(event.outcome, event.error)
             return
 
-        label = PHASE_LABELS.get(state or "")
-        if label is not None:
+        if isinstance(event, TiledPhaseEvent):
+            label = PHASE_LABELS.get(event.phase)
+            if label is None:
+                self.status.setText("")
+                return
             # Deliberately not `indeterminate`: that paints a *full* bar with a
             # spinner, so every stage move looked like the run had just completed.
             # The bar keeps the last tile count -- which is still true between tiles,
@@ -2763,14 +2759,13 @@ class FMOverviewWidget(QWidget):
 
         self.status.setText("")
 
-        if state == "tile":
+        if isinstance(event, FluorescenceTileCompletedEvent):
             # Deliberately does *not* clear the within-tile bar. It used to, which made
             # it vanish and reappear at every tile boundary -- a flicker for the whole
             # run. The next tile's first payload overwrites it a moment later anyway.
-            self._show_preview(payload)
+            self._show_preview(event)
 
-        current, total = payload.get("counter"), payload.get("total")
-        if current is None or not total:
+        if isinstance(event, TileStartedEvent):
             # An announcement rather than a progress report: the payload that says which
             # tile is starting carries no counts, because emitted *before* the tile it
             # could only ever be one short -- a bar driven from it stopped at 3/4 for the
@@ -2782,27 +2777,34 @@ class FMOverviewWidget(QWidget):
             # changed scale at every boundary (FIB-739); now exactly one of them does.
             return
 
+        if not isinstance(
+            event, (FluorescenceTileCountEvent, FluorescenceTileCompletedEvent)
+        ):
+            return
+
         # The final payload of a run reports 0 remaining and so renders as a plain
         # count -- `FibsemProgressWidget` picks the shape from `remaining_seconds > 0`,
         # not from the caller. That is the run finishing rather than a flicker: one
         # transition at the end, where the bar is full either way.
-        remaining = payload.get("estimated_remaining_time")
+        remaining = event.estimated_remaining_seconds
         # The widget renders the count itself, so the message says what is being
         # counted and nothing more -- otherwise it reads "Tile 4/9 — 4/9".
         message = "Tiles"
         if remaining:
             self.progress_tiles.update_progress(
                 ProgressUpdate.combined(
-                    current=current,
-                    total=total,
+                    current=event.completed,
+                    total=event.total,
                     remaining_seconds=remaining,
-                    total_seconds=payload.get("estimated_total_time", 0.0),
+                    total_seconds=event.estimated_total_seconds,
                     message=message,
                 )
             )
         else:
             self.progress_tiles.update_progress(
-                ProgressUpdate.numeric(current=current, total=total, message=message)
+                ProgressUpdate.numeric(
+                    current=event.completed, total=event.total, message=message
+                )
             )
 
     def _tile_detail_update(self, payload: dict) -> ProgressUpdate:
@@ -2836,18 +2838,15 @@ class FMOverviewWidget(QWidget):
             current=index, total=total, message=f"{channel} channels"
         )
 
-    def _show_preview(self, payload: dict) -> None:
+    def _show_preview(self, event: FluorescenceTileCompletedEvent) -> None:
         """Paint the mosaic-so-far onto the canvas.
 
         The runner publishes the whole preview canvas each tile, so this stays
         stateless -- it redisplays what it is given rather than accumulating tiles of
         its own, which is also what makes it correct if a frame is dropped.
         """
-        image = payload.get("image")
-        if image is None:
-            return
         try:
-            planes = np.asarray(image)
+            planes = np.asarray(event.image)
             if planes.ndim == 2:
                 planes = planes[np.newaxis]
 
@@ -2872,7 +2871,7 @@ class FMOverviewWidget(QWidget):
             # `preview_stride` times coarser than a tile's. Placement is by pixel size,
             # so saying so is all that is needed: coarser pixels over the same count
             # cover the same ground, and the mosaic lands at the size it represents.
-            stride = payload.get("preview_stride", 1) or 1
+            stride = event.preview_stride or 1
             # Off the kept projection: read from the camera this is an `active_channel()`
             # scope, and this runs once a tile *during the run* -- so the display was
             # taking the shared channel from the acquisition that was using it. `acquire`
@@ -2916,7 +2915,7 @@ class FMOverviewWidget(QWidget):
             return "  ·  not saved", "Could not be written to disk — see the log."
         return "", ""
 
-    def _finish(self, state: str, error: Optional[str]) -> None:
+    def _finish(self, outcome: TiledOutcome, error: Optional[str]) -> None:
         # Hides both bars. The per-tile one stays hidden -- there is no tile in progress
         # to describe -- but the overall bar is shown again below whenever it has a
         # terminal state worth reading: `FibsemProgressWidget` paints finished and
@@ -2925,7 +2924,7 @@ class FMOverviewWidget(QWidget):
         self._worker = None
         self.progress_tile_detail.reset()
 
-        if state == "overview-finished" and self._mosaic is not None:
+        if outcome is TiledOutcome.FINISHED and self._mosaic is not None:
             # Swap the decimated preview for the real thing. Dropped rather than left
             # underneath: it covers the same ground at a coarser scale, so keeping it
             # would only be a blurred copy hidden behind the stitch.
@@ -2939,7 +2938,7 @@ class FMOverviewWidget(QWidget):
             self.status.setToolTip(tooltip)
             self.progress_tiles.update_progress(ProgressUpdate.done())
             self.progress_tiles.show()
-        elif state == "overview-cancelled":
+        elif outcome is TiledOutcome.CANCELLED:
             self.status.setText("Cancelled. Tiles acquired so far are still shown.")
             # Nothing to show: a cancel has no terminal state of its own, and the status
             # line already says what happened.

@@ -65,7 +65,14 @@ from fibsem.fm.composite import auto_clim
 from fibsem.imaging import tiled
 from fibsem.imaging.reduce import downsample, downsample_mask
 from fibsem.imaging.tiling import unreachable_tiles
-from fibsem.imaging.tiling.progress import MODALITY_BEAM, is_modality
+from fibsem.imaging.tiling.progress import (
+    MODALITY_BEAM,
+    BeamTileCompletedEvent,
+    CountedTiledPhaseEvent,
+    CountedTiledTerminalEvent,
+    TiledAcquisitionEvent,
+    is_modality,
+)
 from fibsem.microscope import FibsemMicroscope
 from fibsem.projection import BeamStageProjection
 from fibsem.structures import (
@@ -486,7 +493,7 @@ class FibsemOverviewWidget(QWidget):
     # synchronously on whichever thread emitted -- during a run, the acquisition
     # worker. Touching widgets from there is a cross-thread GUI access; re-emitting as
     # a Qt signal gets it queued onto the GUI thread, because this widget lives there.
-    _progress_received = pyqtSignal(dict)
+    _progress_received = pyqtSignal(object)
     _stage_moved = pyqtSignal(object)
     _acquisition_finished = pyqtSignal(dict)
 
@@ -3064,47 +3071,46 @@ class FibsemOverviewWidget(QWidget):
 
     # ── progress ─────────────────────────────────────────────────────────
 
-    def _on_progress(self, payload: dict) -> None:
+    def _on_progress(self, event: TiledAcquisitionEvent) -> None:
         """Called by psygnal, on whichever thread emitted. Touches no widgets."""
-        self._progress_received.emit(payload)
+        self._progress_received.emit(event)
 
     @ensure_main_thread
-    @pyqtSlot(dict)
-    def _apply_progress(self, payload: dict) -> None:
+    @pyqtSlot(object)
+    def _apply_progress(self, event: TiledAcquisitionEvent) -> None:
         """Runs on the GUI thread, queued via `_progress_received`.
-
-        Reads with `.get`, not indexing: this signal is emitted from several places with
-        several shapes, and the terminal update carries none of the per-tile keys.
 
         Beam runs only. This widget places the payload's mosaic on its own canvas and
         counts the tiles into its own record, so a fluorescence run reaching here would
         be drawn as one of this tab's overviews (FIB-725).
         """
-        if not is_modality(payload, MODALITY_BEAM):
+        if not is_modality(event, MODALITY_BEAM):
             return
 
-        counter = payload.get("counter")
-        total = payload.get("total")
-        if counter is not None and total:
-            self._tiles_acquired = counter
+        counted_types = (
+            CountedTiledPhaseEvent,
+            BeamTileCompletedEvent,
+            CountedTiledTerminalEvent,
+        )
+        if isinstance(event, counted_types) and event.total:
+            self._tiles_acquired = event.completed
             self.progress.update_progress(
                 ProgressUpdate.numeric(
-                    current=counter,
-                    total=total,
-                    message=payload.get("msg", "Acquiring"),
+                    current=event.completed,
+                    total=event.total,
+                    message=event.message,
                 )
             )
 
-        preview = payload.get("preview")
         record = self._records.get(getattr(self, "_active_record", None) or "")
-        if preview is not None and record is not None:
-            self._show_preview(preview)
+        if isinstance(event, BeamTileCompletedEvent) and record is not None:
+            self._show_preview(event.preview)
             # The row says how many tiles this run has, and it says it while the run is
             # going -- a row reading "0 tiles" beside a filling mosaic is the list
             # contradicting the canvas.
-            if counter:
-                record.tiles = counter
-                record.pixel_size = self._pixel_size_of(preview)
+            if event.completed:
+                record.tiles = event.completed
+                record.pixel_size = self._pixel_size_of(event.preview)
                 self._refresh_overview_list()
 
     # ── lifecycle ────────────────────────────────────────────────────────
