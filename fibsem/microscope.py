@@ -1270,6 +1270,16 @@ class FibsemMicroscope(ABC):
         self.set("working_distance", wd, beam_type)
         return self.get("working_distance", beam_type)
 
+    def is_working_distance_settable(self, beam_type: BeamType) -> bool:
+        """Whether set_working_distance actually reaches the hardware for this beam.
+
+        The image-based autofocus sweep gates on this: on backends where the write is
+        a best-effort no-op (TESCAN ION -- focus there is preset-driven, the SDK has
+        no FIB working-distance control), the sweep would score images against a focus
+        that never moved and report a working distance that was never applied (FIB-508).
+        """
+        return True
+
     def get_dwell_time(self, beam_type: BeamType) -> float:
         """Get the dwell time for the specified beam type."""
         return self.get("dwell_time", beam_type)
