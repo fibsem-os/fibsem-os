@@ -2730,7 +2730,7 @@ class FMOverviewWidget(QWidget):
         something this widget is not showing, and is dropped rather than rendered as a
         bar with nothing in it.
         """
-        if payload.get("task") in ("z-stack", "channels", "autofocus"):
+        if payload.get("operation") in ("z-stack", "channels", "autofocus"):
             self.progress_tile_detail.update_progress(self._tile_detail_update(payload))
 
     def _apply_tile_progress(self, payload: dict) -> None:
@@ -2815,7 +2815,7 @@ class FMOverviewWidget(QWidget):
         channel = payload.get("channel", "")
         zlevel, total_z = payload.get("zlevel"), payload.get("total_zlevels")
         if zlevel and total_z:
-            if payload.get("task") == "autofocus":
+            if payload.get("operation") == "autofocus":
                 # Say which pass, so a coarse sweep followed by a fine one does not
                 # look like the same bar inexplicably starting over.
                 total_passes = payload.get("total_passes", 1)

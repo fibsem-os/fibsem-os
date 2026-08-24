@@ -529,7 +529,7 @@ class FMControlWidget(QWidget):
         progress_total_zlevels = progress.get("total_zlevels", None)
         channel_name = progress.get("channel", None)
         progress_state = progress.get("state", None)
-        progress_task = progress.get("task", None)
+        progress_operation = progress.get("operation", None)
 
         if progress_state == "moving":
             self.progressText.setText("Moving stage...")
@@ -548,7 +548,7 @@ class FMControlWidget(QWidget):
             return
 
         # set progress message
-        if progress_task == "autofocus":
+        if progress_operation == "autofocus":
             # Handled before the channel branch, not inside it: a sweep with no channel
             # reports an empty name, which used to render "Acquiring  (1/1)..." and now
             # would leave the previous message sitting there instead.
@@ -569,7 +569,7 @@ class FMControlWidget(QWidget):
                 else 0
             )
             self.progressBar_current_acquisition.setValue(percentage_zlevel)
-            if progress_task == "autofocus":
+            if progress_operation == "autofocus":
                 # A focus sweep steps the objective through a search range. Calling
                 # those positions "Z-level" names the z-stack, which is not running --
                 # and says which pass, so a coarse sweep followed by a fine one does

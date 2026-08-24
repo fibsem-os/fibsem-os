@@ -361,7 +361,7 @@ def test_a_zstack_payload_moves_only_the_detail_bar(qapp):
     router._apply_fm_progress(
         {
             "state": "acquiring",
-            "task": "z-stack",
+            "operation": "z-stack",
             "channel": "GFP",
             "zlevel": 7,
             "total_zlevels": 21,
@@ -383,7 +383,7 @@ def test_a_channels_payload_drives_the_detail_bar_too(qapp):
     router._apply_fm_progress(
         {
             "state": "acquiring",
-            "task": "channels",
+            "operation": "channels",
             "channel": "RFP",
             "channel_index": 2,
             "total_channels": 3,
@@ -405,7 +405,7 @@ def test_a_completed_tile_leaves_the_detail_bar_alone(qapp):
     router._apply_fm_progress(
         {
             "state": "acquiring",
-            "task": "z-stack",
+            "operation": "z-stack",
             "channel": "GFP",
             "zlevel": 21,
             "total_zlevels": 21,
@@ -433,7 +433,7 @@ def test_an_unknown_task_moves_nothing(qapp):
     """
     router = _Router()
 
-    router._apply_fm_progress({"state": "acquiring", "task": "something-else"})
+    router._apply_fm_progress({"state": "acquiring", "operation": "something-else"})
     router._apply_fm_progress({"state": "finished"})
 
     assert not router.progress_tiles.isVisible()
@@ -5258,7 +5258,7 @@ def test_an_fm_payload_reaches_the_real_widget(qapp, overview_widget):
     widget.fm.acquisition_progress_signal.emit(
         {
             "state": "acquiring",
-            "task": "z-stack",
+            "operation": "z-stack",
             "channel": "GFP",
             "zlevel": 7,
             "total_zlevels": 21,
