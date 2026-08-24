@@ -955,6 +955,30 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 message, notification_type
             )
 
+    def offer_connection_at_launch(self) -> None:
+        """Open the connection dialog as the session starts.
+
+        Connecting is the first thing every session does, and until the dialog
+        existed the only way to do it was a tab -- which is why `--quickstart` was
+        written, to skip the two clicks nobody could avoid. Offering it outright is
+        what that flag was working around.
+
+        Not chained into create-or-load afterwards. The header already carries both
+        as primary buttons the moment a connection succeeds, and a second modal
+        before the application is usable would be a worse version of the same step.
+
+        Nothing happens if a microscope is already attached (`--quickstart` got
+        there first) or if the feature is off, which is also what keeps this out of
+        the way of the Connection tab while that is still how people connect.
+        """
+        if not self._connection_chip_enabled:
+            return
+        if self.autolamella_ui is None:
+            return
+        if self.autolamella_ui.system_widget.microscope is not None:
+            return
+        self._on_connect_microscope()
+
     def _on_connect_microscope(self):
         """Connect from the dialog, then hand the session to the system widget.
 
@@ -3248,6 +3272,12 @@ def run_ui(argv: Optional[List[str]] = None):
         QTimer.singleShot(
             0, lambda: window.autolamella_ui.quickstart(load_experiment=args.quickload)
         )
+    else:
+        # Same reasoning, and the same zero timer: the dialog is modal, and opening
+        # it before the window behind it has painted shows a dialog floating over an
+        # empty frame. `--quickstart` and `--quickload` skip it because they are
+        # already doing what it asks for.
+        QTimer.singleShot(0, window.offer_connection_at_launch)
     sys.exit(app.exec_())
 
 
