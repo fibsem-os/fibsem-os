@@ -64,7 +64,9 @@ def test_a_connection_flag_is_honoured_from_either_position(flag, dest, given, _
 
 
 @pytest.mark.parametrize("_flag,dest,_given,absent", CONNECTION_FLAGS, ids=_IDS)
-def test_the_declared_default_still_applies_when_the_flag_is_absent(_flag, dest, _given, absent):
+def test_the_declared_default_still_applies_when_the_flag_is_absent(
+    _flag, dest, _given, absent
+):
     """Suppressing the subparsers' defaults must not suppress them everywhere.
 
     The root parser's copy is the one that guarantees the attribute exists at
@@ -99,7 +101,12 @@ def test_the_sweep_covers_every_subcommand():
     coverage quietly stops one subcommand short.
     """
     for subcommand in _subcommand_names():
-        argv = ["--manufacturer", "Thermo", subcommand, *POSITIONALS.get(subcommand, [])]
+        argv = [
+            "--manufacturer",
+            "Thermo",
+            subcommand,
+            *POSITIONALS.get(subcommand, []),
+        ]
         try:
             _parse(*argv)
         except SystemExit:
