@@ -341,7 +341,8 @@ class TescanMicroscope(FibsemMicroscope):
         )
 
     def disconnect(self) -> None:
-        self.connection.Disconnect()
+        with self._connection_lock:
+            self.connection.Disconnect()
         del self.connection
         self.connection = None
 
@@ -477,28 +478,35 @@ class TescanMicroscope(FibsemMicroscope):
 
         image_roi = effective_image_settings.reduced_area
 
-        if image_roi is not None:
-            left, top, right, bottom = to_tescan_image_roi(
-                rect=image_roi, image_shape=(image_width, image_height)
-            )
-            image: Document = beam.Scan.AcquireROI(
-                Detector=self._active_detector[effective_beam_type],
-                Width=image_width,
-                Height=image_height,
-                Left=left,
-                Top=top,
-                Right=right,
-                Bottom=bottom,
-                DwellTime=dwell_time_ns,
-            )
-        else:
-            image: Document = beam.Scan.AcquireImage(
-                Detector=self._active_detector[effective_beam_type],
-                Bpp=Bpp.Grayscale_8_bit,
-                Width=image_width,
-                Height=image_height,
-                DwellTime=dwell_time_ns,
-            )
+        # The frame transfer is the longest SharkSEM operation there is, and the SDK
+        # has no locking of its own: every Recv is a paired send+receive on the shared
+        # control socket, and AcquireImage mixes control exchanges (ScScanXY) with the
+        # data-socket fetch inside one call. The whole SDK call is therefore the
+        # smallest unit an external lock can protect -- holding it for the full frame
+        # is what keeps other threads' calls from tearing the stream (FIB-786).
+        with self._connection_lock:
+            if image_roi is not None:
+                left, top, right, bottom = to_tescan_image_roi(
+                    rect=image_roi, image_shape=(image_width, image_height)
+                )
+                image: Document = beam.Scan.AcquireROI(
+                    Detector=self._active_detector[effective_beam_type],
+                    Width=image_width,
+                    Height=image_height,
+                    Left=left,
+                    Top=top,
+                    Right=right,
+                    Bottom=bottom,
+                    DwellTime=dwell_time_ns,
+                )
+            else:
+                image: Document = beam.Scan.AcquireImage(
+                    Detector=self._active_detector[effective_beam_type],
+                    Bpp=Bpp.Grayscale_8_bit,
+                    Width=image_width,
+                    Height=image_height,
+                    DwellTime=dwell_time_ns,
+                )
 
         if image is None:
             raise ValueError("Failed to acquire image from microscope.")
@@ -551,8 +559,9 @@ class TescanMicroscope(FibsemMicroscope):
         API (SEM.Scan/FIB.Scan expose single AcquireImage calls), so this simply re-acquires
         with the current beam settings -- the same shape as the simulator worker.
 
-        acquire_image already serialises its SharkSEM traffic through the connection lock, so
-        the loop is safe against the UI thread's own socket use.
+        acquire_image holds the connection lock for the whole frame transfer (FIB-786), so
+        the loop is safe against other threads' socket use -- their calls queue between
+        frames rather than interleaving bytes mid-transfer.
         """
         try:
             while not self._stop_acquisition_event.is_set():
@@ -594,7 +603,8 @@ class TescanMicroscope(FibsemMicroscope):
     def acquire_chamber_image(self) -> FibsemImage:
         """Acquire an image of the chamber inside."""
         return NotImplemented
-        image = self.connection.Camera.AcquireImage()
+        with self._connection_lock:
+            image = self.connection.Camera.AcquireImage()
         logging.debug({"msg": "acquire_chamber_image"})
         return FibsemImage(data=np.array(image.Image), metadata=None)
 
@@ -608,7 +618,8 @@ class TescanMicroscope(FibsemMicroscope):
         """
         beam = self._prepare_beam(beam_type=beam_type)
         logging.info(f"Running autocontrast on {beam_type.name}.")
-        beam.Detector.AutoSignal(Detector=self._active_detector[beam_type])
+        with self._connection_lock:
+            beam.Detector.AutoSignal(Detector=self._active_detector[beam_type])
         return
 
     def auto_focus(
@@ -620,7 +631,8 @@ class TescanMicroscope(FibsemMicroscope):
             )
             return
         beam = self._prepare_beam(beam_type=beam_type)
-        beam.AutoWDFine(self._active_detector[beam_type])
+        with self._connection_lock:
+            beam.AutoWDFine(self._active_detector[beam_type])
         return
 
     def beam_shift(
@@ -971,7 +983,8 @@ class TescanMicroscope(FibsemMicroscope):
 
     def get_manipulator_position(self) -> FibsemManipulatorPosition:
         index = 0
-        output_position = self.connection.Nanomanipulator.GetPosition(Index=index)
+        with self._connection_lock:
+            output_position = self.connection.Nanomanipulator.GetPosition(Index=index)
 
         # GetPosition returns tuple in the form (x, y, z, r)
         # x,y,z in mm and r in degrees, no tilt information
@@ -1006,13 +1019,15 @@ class TescanMicroscope(FibsemMicroscope):
 
         index = 0
         logging.info(f"Inserting Nanomanipulator to {name} position")
-        self.connection.Nanomanipulator.MoveToPosition(
-            Index=index, Position=insert_position
-        )
+        with self._connection_lock:
+            self.connection.Nanomanipulator.MoveToPosition(
+                Index=index, Position=insert_position
+            )
 
     def _check_manipulator_limits(self, x, y, z, r):
 
-        limits = self.connection.Nanomanipulator.GetLimits(Index=0, Type=0)
+        with self._connection_lock:
+            limits = self.connection.Nanomanipulator.GetLimits(Index=0, Type=0)
 
         xmin = limits[0]
         xmax = limits[1]
@@ -1039,17 +1054,19 @@ class TescanMicroscope(FibsemMicroscope):
     def retract_manipulator(self):
         retract_position = getattr(self.connection.Nanomanipulator.Position, "Parking")
         index = 0
-        self.connection.Nanomanipulator.MoveToPosition(
-            Index=index, Position=retract_position
-        )
+        with self._connection_lock:
+            self.connection.Nanomanipulator.MoveToPosition(
+                Index=index, Position=retract_position
+            )
 
     def move_manipulator_relative(
         self, position: FibsemManipulatorPosition, name: str = None
     ):
 
-        if self.connection.Nanomanipulator.IsCalibrated(0) is False:
-            logging.info("Calibrating manipulator")
-            self.connection.Nanomanipulator.Calibrate(0)
+        with self._connection_lock:
+            if self.connection.Nanomanipulator.IsCalibrated(0) is False:
+                logging.info("Calibrating manipulator")
+                self.connection.Nanomanipulator.Calibrate(0)
 
         current_position = self.get_manipulator_position()
 
@@ -1063,7 +1080,10 @@ class TescanMicroscope(FibsemMicroscope):
 
         logging.info(f"moving manipulator by {position}")
         try:
-            self.connection.Nanomanipulator.MoveTo(Index=index, X=x, Y=y, Z=z, Rot=r)
+            with self._connection_lock:
+                self.connection.Nanomanipulator.MoveTo(
+                    Index=index, X=x, Y=y, Z=z, Rot=r
+                )
         except Exception as e:
             logging.error(e)
             return e
@@ -1072,9 +1092,10 @@ class TescanMicroscope(FibsemMicroscope):
         self, position: FibsemManipulatorPosition, name: str = None
     ):
 
-        if self.connection.Nanomanipulator.IsCalibrated(0) is False:
-            logging.info("Calibrating manipulator")
-            self.connection.Nanomanipulator.Calibrate(0)
+        with self._connection_lock:
+            if self.connection.Nanomanipulator.IsCalibrated(0) is False:
+                logging.info("Calibrating manipulator")
+                self.connection.Nanomanipulator.Calibrate(0)
 
         x = position.x * constants.METRE_TO_MILLIMETRE
         y = position.y * constants.METRE_TO_MILLIMETRE
@@ -1086,11 +1107,13 @@ class TescanMicroscope(FibsemMicroscope):
 
         logging.info(f"moving manipulator to {position}")
 
-        self.connection.Nanomanipulator.MoveTo(Index=index, X=x, Y=y, Z=z, Rot=r)
+        with self._connection_lock:
+            self.connection.Nanomanipulator.MoveTo(Index=index, X=x, Y=y, Z=z, Rot=r)
 
     def calibrate_manipulator(self):
         logging.info("Calibrating manipulator")
-        self.connection.Nanomanipulator.Calibrate(0)
+        with self._connection_lock:
+            self.connection.Nanomanipulator.Calibrate(0)
 
     def _x_corrected_needle_movement(
         self, expected_x: float
@@ -1155,9 +1178,10 @@ class TescanMicroscope(FibsemMicroscope):
             beam_type (BeamType, optional): the beam type to move in. Defaults to BeamType.ELECTRON.
         """
 
-        if self.connection.Nanomanipulator.IsCalibrated(0) is False:
-            logging.info("Calibrating manipulator")
-            self.connection.Nanomanipulator.Calibrate(0)
+        with self._connection_lock:
+            if self.connection.Nanomanipulator.IsCalibrated(0) is False:
+                logging.info("Calibrating manipulator")
+                self.connection.Nanomanipulator.Calibrate(0)
         stage_tilt = self.get_stage_position().t
 
         # # xy
@@ -1235,7 +1259,8 @@ class TescanMicroscope(FibsemMicroscope):
         )
 
         # TODO: change the layer name to milling stage name
-        self.layer = self.connection.DrawBeam.Layer("Layer1", layer_settings)
+        with self._connection_lock:
+            self.layer = self.connection.DrawBeam.Layer("Layer1", layer_settings)
 
     def run_milling(
         self, milling_current: float, milling_voltage: float, asynch: bool = False
@@ -1251,7 +1276,8 @@ class TescanMicroscope(FibsemMicroscope):
         """
         self._prepare_beam(self.milling_channel)
 
-        self.connection.DrawBeam.LoadLayer(self.layer)
+        with self._connection_lock:
+            self.connection.DrawBeam.LoadLayer(self.layer)
         logging.info("running ion beam milling now...")
 
         # estimate milling time (must be done before starting milling, but after loading layer)
@@ -1260,17 +1286,18 @@ class TescanMicroscope(FibsemMicroscope):
         remaining_time = estimated_time
 
         # start milling
-        self.connection.DrawBeam.Start()
+        with self._connection_lock:
+            self.connection.DrawBeam.Start()
 
-        # display progress bar in tescan ui
-        self.connection.Progress.Show(
-            Title="DrawBeam Milling (OpenFIBSEM)",
-            Text="Layer 1 in progress",
-            HideButton=True,
-            Marquee=False,
-            ProgressMin=0,
-            ProgressMax=100,
-        )
+            # display progress bar in tescan ui
+            self.connection.Progress.Show(
+                Title="DrawBeam Milling (OpenFIBSEM)",
+                Text="Layer 1 in progress",
+                HideButton=True,
+                Marquee=False,
+                ProgressMin=0,
+                ProgressMax=100,
+            )
 
         if asynch:
             return  # up to the user to monitor the milling process/progress
@@ -1279,13 +1306,19 @@ class TescanMicroscope(FibsemMicroscope):
         err = None
         try:
             while self.get_milling_state() in ACTIVE_MILLING_STATES:
-                status = self.connection.DrawBeam.GetStatus()  # status, total, elapsed
+                # lock per call, never across the sleep: the poll loop runs for the
+                # whole mill and must let other threads' calls through between polls
+                with self._connection_lock:
+                    status = (
+                        self.connection.DrawBeam.GetStatus()
+                    )  # status, total, elapsed
                 milling_status, total_time, elapsed_time = status
                 if self.get_milling_state() is MillingState.RUNNING:
                     progress = 0
                     if total_time > 0:
                         progress = min(100, elapsed_time / total_time * 100)
-                    self.connection.Progress.SetPercents(progress)
+                    with self._connection_lock:
+                        self.connection.Progress.SetPercents(progress)
                     remaining_time -= MILLING_SLEEP_TIME
                 time.sleep(MILLING_SLEEP_TIME)
 
@@ -1306,9 +1339,11 @@ class TescanMicroscope(FibsemMicroscope):
             logging.error(f"Error in run_milling: {err}")
             pass
         finally:
-            self.connection.Progress.Hide()
+            with self._connection_lock:
+                self.connection.Progress.Hide()
             if err:
-                self.connection.DrawBeam.Stop()
+                with self._connection_lock:
+                    self.connection.DrawBeam.Stop()
                 self.clear_patterns()
 
     # def run_milling_drift_corrected(self, milling_current: float,
@@ -1434,21 +1469,26 @@ class TescanMicroscope(FibsemMicroscope):
         clear patterns without first tracking whether a layer exists.
         """
         try:
-            self.connection.DrawBeam.UnloadLayer()
+            with self._connection_lock:
+                self.connection.DrawBeam.UnloadLayer()
         except Exception as e:
             logging.debug(f"Error unloading layer: {e}")
 
     def start_milling(self) -> None:
-        self.connection.DrawBeam.Start()
+        with self._connection_lock:
+            self.connection.DrawBeam.Start()
 
     def pause_milling(self):
-        self.connection.DrawBeam.Pause()
+        with self._connection_lock:
+            self.connection.DrawBeam.Pause()
 
     def resume_milling(self):
-        self.connection.DrawBeam.Resume()
+        with self._connection_lock:
+            self.connection.DrawBeam.Resume()
 
     def get_milling_state(self):
-        state = self.connection.DrawBeam.GetStatus()[0]
+        with self._connection_lock:
+            state = self.connection.DrawBeam.GetStatus()[0]
         return DrawBeamStatusToPatterningState[state]
 
     @staticmethod
@@ -1504,7 +1544,8 @@ class TescanMicroscope(FibsemMicroscope):
             preset=SPOT_BURN_PRESET,
             spacing=defaults.spacing,
         )
-        layer = self.connection.DrawBeam.Layer("SpotBurn", layer_settings)
+        with self._connection_lock:
+            layer = self.connection.DrawBeam.Layer("SpotBurn", layer_settings)
 
         # DepthUnit.Second makes Depth an exposure time rather than a depth, which is
         # exactly a spot burn -- park on the point and expose for this long.
@@ -1597,7 +1638,8 @@ class TescanMicroscope(FibsemMicroscope):
         estimated_time = total_points * exposure_time
         start_time = time.time()
 
-        self.connection.DrawBeam.LoadLayer(layer)
+        with self._connection_lock:
+            self.connection.DrawBeam.LoadLayer(layer)
         logging.info(
             f"running spot burn now: {total_points} point(s), "
             f"{exposure_time}s each, {estimated_time}s total..."
@@ -1613,7 +1655,8 @@ class TescanMicroscope(FibsemMicroscope):
             }
         )
 
-        self.connection.DrawBeam.Start()
+        with self._connection_lock:
+            self.connection.DrawBeam.Start()
 
         try:
             while self.get_milling_state() in ACTIVE_MILLING_STATES:
@@ -1657,7 +1700,8 @@ class TescanMicroscope(FibsemMicroscope):
         # self.connection.DrawBeam.LoadLayer(self.layer)
         est_time = 0
         try:
-            est_time = self.connection.DrawBeam.EstimateTime()
+            with self._connection_lock:
+                est_time = self.connection.DrawBeam.EstimateTime()
         except Exception as e:
             logging.error(f"Error in estimating milling time: {e}")
 
@@ -1838,7 +1882,11 @@ class TescanMicroscope(FibsemMicroscope):
     ) -> None:
         """Wait for the beam to become ready (not busy)."""
         start_time = time.monotonic()
-        while beam.IsBusy():
+        while True:
+            with self._connection_lock:
+                busy = beam.IsBusy()
+            if not busy:
+                break
             logging.debug(
                 f"Waiting for the {beam_type.name} beam to become ready after {operation}."
             )
@@ -1855,29 +1903,32 @@ class TescanMicroscope(FibsemMicroscope):
         """Prepare the beam for imaging, milling, or other operations."""
         beam = self._get_beam(beam_type)
 
-        # check the beam is on
-        status = beam.Beam.GetStatus()
-        if status != beam.Beam.Status.BeamOn:
-            beam.Beam.On()
+        with self._connection_lock:
+            # check the beam is on
+            status = beam.Beam.GetStatus()
+            if status != beam.Beam.Status.BeamOn:
+                beam.Beam.On()
 
-        # stop the scanning before we start scanning or before automatic procedures,
-        beam.Scan.Stop()
+            # stop the scanning before we start scanning or before automatic procedures,
+            beam.Scan.Stop()
 
         self._wait_for_beam_ready(beam, beam_type, operation="preparation")
 
         return beam
 
     def _get_presets(self, beam_type: BeamType) -> List[str]:
-        presets = self._get_beam(beam_type=beam_type).Preset.Enum()
+        with self._connection_lock:
+            presets = self._get_beam(beam_type=beam_type).Preset.Enum()
         return sorted(presets)
 
     def _get_available_detectors(self, beam_type: BeamType) -> List[str]:
         """Get a list of available detectors for the given beam type."""
         detectors = []
-        if beam_type == BeamType.ELECTRON:
-            detectors = self.connection.SEM.Detector.Enum()
-        elif beam_type == BeamType.ION:
-            detectors = self.connection.FIB.Detector.Enum()
+        with self._connection_lock:
+            if beam_type == BeamType.ELECTRON:
+                detectors = self.connection.SEM.Detector.Enum()
+            elif beam_type == BeamType.ION:
+                detectors = self.connection.FIB.Detector.Enum()
         return detectors
 
     def _get_detector(
@@ -2089,7 +2140,9 @@ class TescanMicroscope(FibsemMicroscope):
     ) -> None:
         """Activate a preset, preserving rotation/FOV/shift when self._preserve_settings_on_preset_change is set."""
         # Check if preset is available
-        if not beam.Preset.IsAvailable(preset_name):
+        with self._connection_lock:
+            available = beam.Preset.IsAvailable(preset_name)
+        if not available:
             logging.warning(f"Preset {preset_name} not available for {beam_type}.")
             return
 
@@ -2102,18 +2155,20 @@ class TescanMicroscope(FibsemMicroscope):
         image_shift_y = None
 
         if preserve_settings:
-            image_rotation = beam.Optics.GetImageRotation()
+            with self._connection_lock:
+                image_rotation = beam.Optics.GetImageRotation()
+                view_field = beam.Optics.GetViewfield()
+                image_shift_x, image_shift_y = beam.Optics.GetImageShift()
             logging.debug(f"Image rotation before changing preset: {image_rotation}.")
-            view_field = beam.Optics.GetViewfield()
             logging.debug(f"FOV before changing preset: {view_field}.")
-            image_shift_x, image_shift_y = beam.Optics.GetImageShift()
             logging.debug(
                 f"XY shift before changing preset: {image_shift_x}, {image_shift_y}."
             )
 
         try:
             # Activate preset
-            beam.Preset.Activate(preset_name)
+            with self._connection_lock:
+                beam.Preset.Activate(preset_name)
             logging.info(f"Preset {preset_name} activated for {beam_type}.")
 
             # Wait for preset to fully apply
@@ -2132,15 +2187,16 @@ class TescanMicroscope(FibsemMicroscope):
             # Restore settings if requested
             if preserve_settings:
                 try:
-                    beam.Optics.SetImageRotation(image_rotation)
+                    with self._connection_lock:
+                        beam.Optics.SetImageRotation(image_rotation)
+                        beam.Optics.SetViewfield(view_field)
+                        beam.Optics.SetImageShift(image_shift_x, image_shift_y)
                     logging.debug(
                         f"Restored image rotation after changing preset to {image_rotation}."
                     )
-                    beam.Optics.SetViewfield(view_field)
                     logging.debug(
                         f"Restored FOV after changing preset to {view_field}."
                     )
-                    beam.Optics.SetImageShift(image_shift_x, image_shift_y)
                     logging.debug(
                         f"Restored XY shift after changing preset to {image_shift_x}, {image_shift_y}."
                     )
