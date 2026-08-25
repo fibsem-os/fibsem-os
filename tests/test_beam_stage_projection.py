@@ -398,15 +398,16 @@ class TestRoundTrip:
     @pytest.mark.parametrize("tilt_deg", TESCAN_TILTS)
     def test_tescan_survives_a_round_trip_too(self, beam_type, tilt_deg):
         """Tescan gets its own case because it is a genuinely different derivation --
-        z below the tilt axis, and stage x inverted against image x -- so it shares
-        none of the arithmetic the cases above exercise.
+        the y-axis rides the tilt module while z stays chamber-vertical, and stage x
+        is inverted against image x -- so it shares none of the arithmetic the cases
+        above exercise.
 
         Built from an explicit geometry rather than the shared microscope fixture. That
         fixture is module-scoped and every pose test mutates its pre-tilt and
         orientations, so a Tescan case reading it was really testing whatever the
-        previous parameter left behind -- which is how it ended up at a sample
-        inclination past 45 degrees, where `test_the_chamber_frame_inversion_is_pinned`
-        explains this round trip goes blind.
+        previous parameter left behind -- which is how it ended up at a pose where the
+        inverse's z branch made the round trip blind to the y sign
+        (`test_the_chamber_frame_inversion_is_pinned` explains).
         """
         projection = BeamStageProjection(
             geometry=_TESCAN_GEOMETRY, beam_type=beam_type, scan_rotation=0.0,
@@ -423,15 +424,15 @@ class TestRoundTrip:
 
     @pytest.mark.parametrize("tilt_deg", TESCAN_TILTS)
     def test_the_chamber_frame_inversion_is_pinned(self, tilt_deg):
-        """`stable_move` inverts stage y against the chamber frame; assert it directly.
+        """`stable_move` inverts stage y against the stage frame; assert it directly.
 
         A round trip cannot be trusted to catch this. The Tescan inverse recovers the
-        sample-plane move from whichever of dy/dz is the larger component, so once the
-        sample inclination passes 45 degrees it reads **dz alone** and never looks at
-        dy -- at which point flipping the y sign changes nothing that comes back, and
-        the round-trip test passes over a projection that would drive the stage the
-        wrong way. Verified: this assertion fails under that flip at every tilt here,
-        while the round trip above only fails below 45 degrees.
+        sample-plane move from whichever forward component is better conditioned (y
+        carries cos(inclination), z carries sin(pretilt)); whenever the z branch is
+        selected it never looks at dy -- at which point flipping the y sign changes
+        nothing that comes back, and the round-trip test passes over a projection
+        that would drive the stage the wrong way. Pinning the inversion directly is
+        immune to the branch choice.
         """
         projection = BeamStageProjection(
             geometry=_TESCAN_GEOMETRY, beam_type=BeamType.ELECTRON, scan_rotation=0.0,
