@@ -10,6 +10,7 @@ from fibsem.imaging.tiled import (
     validate_tile_stage_positions,
 )
 from fibsem.imaging.tiling import grid_centre_offset, unreachable_tiles
+from fibsem.imaging.tiling.progress import TiledStatus
 from fibsem.structures import (
     FibsemStagePosition,
     ImageSettings,
@@ -302,10 +303,9 @@ def test_validate_positions_empty():
 # ---------------------------------------------------------------------------
 # Terminal progress state
 #
-# The only terminal emission used to come from _stitch, so run() on its own -- and
-# any cancelled or failed run -- left consumers with a progress bar that just stopped
-# moving. AutoLamellaMainUI already branched on ddict.get("finished"), which nothing
-# on those paths ever set.
+# The only terminal emission used to come from _stitch, so run() on its own -- and any
+# cancelled or failed run -- left consumers with a progress bar that just stopped moving.
+# Every path emits one now, and `TiledStatus.is_terminal` is what a consumer branches on.
 # ---------------------------------------------------------------------------
 
 import threading
@@ -346,10 +346,10 @@ def test_run_emits_a_terminal_state_on_success(monkeypatch):
 
     runner.run()
 
-    assert emitted[-1]["finished"] is True
-    assert emitted[-1]["outcome"] == "finished"
-    assert emitted[-1]["counter"] == 6
-    assert emitted[-1]["total"] == 6
+    assert emitted[-1].status is TiledStatus.FINISHED
+    assert emitted[-1].status.is_terminal
+    assert emitted[-1].completed == 6
+    assert emitted[-1].total == 6
 
 
 def test_run_emits_a_terminal_state_when_cancelled(monkeypatch):
@@ -364,8 +364,8 @@ def test_run_emits_a_terminal_state_when_cancelled(monkeypatch):
     with pytest.raises(OperationCancelledError):
         runner.run()
 
-    assert emitted[-1]["outcome"] == "cancelled"
-    assert emitted[-1]["counter"] == 2, "partial progress is reported, not reset"
+    assert emitted[-1].status is TiledStatus.CANCELLED
+    assert emitted[-1].completed == 2, "partial progress is reported, not reset"
 
 
 def test_run_emits_a_terminal_state_when_it_fails(monkeypatch):
@@ -380,18 +380,23 @@ def test_run_emits_a_terminal_state_when_it_fails(monkeypatch):
     with pytest.raises(RuntimeError):
         runner.run()
 
-    assert emitted[-1]["outcome"] == "failed"
+    assert emitted[-1].status is TiledStatus.FAILED
+    assert emitted[-1].error and "stage fell over" in emitted[-1].error, (
+        "the reason was logged and thrown away, leaving the UI to say only that it failed"
+    )
 
 
-def test_the_terminal_payload_satisfies_existing_consumers(monkeypatch):
-    """The minimap handler indexes counter/total/msg directly and would raise."""
+def test_the_terminal_report_carries_what_consumers_draw(monkeypatch):
+    """A terminal that could not say how far the run got would leave the bar showing
+    whatever it last had, which for a cancel is a lie about how much was acquired."""
     runner, emitted = _runner_with_recorded_signal(monkeypatch)
     runner._run_tile_loop = lambda: setattr(runner, "_n_tiles_acquired", 6)
 
     runner.run()
 
-    for key in ("msg", "counter", "total"):
-        assert key in emitted[-1], f"consumers index {key!r} without a default"
+    terminal = emitted[-1]
+    assert terminal.status.is_terminal
+    assert terminal.completed is not None and terminal.total
 
 
 # ---------------------------------------------------------------------------
@@ -481,17 +486,17 @@ def test_a_masked_run_does_not_report_a_short_count(tmp_path):
     runner, emitted = _demo_runner(settings, tmp_path)
 
     assert emitted, "the runner said nothing while planning"
-    assert emitted[0]["total"] == 7
+    assert emitted[0].total == 7
 
     runner._n_tiles_acquired = 7
     runner._emit_terminal("finished", "Acquisition Complete")
-    assert emitted[-1]["counter"] == emitted[-1]["total"] == 7
+    assert emitted[-1].completed == emitted[-1].total == 7
 
 
 def test_an_unmasked_run_still_reports_the_whole_grid(tmp_path):
     """The other half: no mask must not quietly change what a dense run reports."""
     runner, emitted = _demo_runner(_make_settings(2, 3), tmp_path)
-    assert emitted[0]["total"] == 6
+    assert emitted[0].total == 6
     assert len(runner._ordered) == 6
 
 

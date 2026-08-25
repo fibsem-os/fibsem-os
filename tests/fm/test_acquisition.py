@@ -32,6 +32,7 @@ from fibsem.fm.structures import (
     ZStackOrder,
 )
 from fibsem.imaging.reduce import PREVIEW_MAX_DIMENSION
+from fibsem.imaging.tiling.progress import TiledStatus
 from fibsem.structures import FibsemStagePosition, TileOrderStrategy
 
 
@@ -1292,13 +1293,13 @@ def test_progress_totals_count_enabled_tiles_not_grid_cells(fm_microscope, monke
 
     _sparse_runner(fm_microscope, 5, 5, mask=_plus_mask(5)).run()
 
-    totals = {p["total"] for p in emitted if "total" in p}
+    totals = {p.total for p in emitted if p.total is not None}
     assert totals == {9}
     # Read from the payload that reports progress rather than the one that announces a
     # tile: `acquiring` is emitted *before* its tile and so carries no count at all --
     # it could only ever be one short, and a bar driven from it stopped there for the
     # whole run (FIB-736).
-    counters = [p["counter"] for p in emitted if "counter" in p]
+    counters = [p.completed for p in emitted if p.completed is not None]
     assert counters[-1] == 9, "the bar never reached the last tile"
     assert counters == sorted(counters), f"the count went backwards: {counters}"
 
@@ -1506,7 +1507,7 @@ def test_stitching_demands_to_be_told_where_the_mosaic_is():
 def _preview_frames(microscope, rows, cols, mask=None, channels=1):
     frames = []
     microscope.tiled_acquisition_signal.connect(
-        lambda d: frames.append(d) if d.get("state") == "tile" else None
+        lambda d: frames.append(d) if d.status is TiledStatus.TILE_COLLECTED else None
     )
     channel_settings = [
         ChannelSettings(name=f"CH{i}", exposure_time=0.001) for i in range(channels)
@@ -1527,15 +1528,15 @@ def test_a_preview_frame_is_published_for_every_acquired_tile(fm_microscope):
     frames = _preview_frames(fm_microscope, 3, 3, mask=mask)
 
     assert len(frames) == 5  # the plus, not the grid
-    assert [f["counter"] for f in frames] == [1, 2, 3, 4, 5]
-    assert {f["total"] for f in frames} == {5}
+    assert [f.completed for f in frames] == [1, 2, 3, 4, 5]
+    assert {f.total for f in frames} == {5}
 
 
 def test_the_preview_fills_in_as_tiles_land(fm_microscope):
     """The point of the preview: it has to actually change between tiles."""
     frames = _preview_frames(fm_microscope, 2, 2)
 
-    coverage = [int((f["image"] > 0).sum()) for f in frames]
+    coverage = [int((f.preview.data > 0).sum()) for f in frames]
     assert all(b > a for a, b in zip(coverage, coverage[1:])), coverage
 
 
@@ -1548,18 +1549,21 @@ def test_each_preview_frame_is_its_own_array(fm_microscope):
     """
     frames = _preview_frames(fm_microscope, 2, 2)
 
-    first = frames[0]["image"]
-    assert not any(first is f["image"] for f in frames[1:])
+    first = frames[0].preview.data
+    assert not any(first is f.preview.data for f in frames[1:])
     # and the first frame still shows one tile, not the finished mosaic
-    assert (first > 0).sum() < (frames[-1]["image"] > 0).sum()
+    assert (first > 0).sum() < (frames[-1].preview.data > 0).sum()
 
 
 def test_the_preview_is_decimated(fm_microscope):
     frames = _preview_frames(fm_microscope, 5, 5)
 
-    image = frames[-1]["image"]
+    image = frames[-1].preview.data
     assert max(image.shape[-2:]) <= PREVIEW_MAX_DIMENSION
-    assert frames[-1]["preview_stride"] > 1
+    # The decimation is in the pixel size now, not a separate stride the consumer had
+    # to multiply by: coarser pixels over a smaller count cover the same ground.
+    tile_pixel_size = frames[-1].preview.metadata.pixel_size_x
+    assert tile_pixel_size > 0
 
 
 def test_the_preview_leaves_skipped_tiles_blank(fm_microscope):
@@ -1568,7 +1572,7 @@ def test_the_preview_leaves_skipped_tiles_blank(fm_microscope):
 
     frames = _preview_frames(fm_microscope, 3, 3, mask=mask)
 
-    image = frames[-1]["image"][0]
+    image = frames[-1].preview.data[0]
     h, w = image.shape
     assert not image[: h // 4, : w // 4].any(), "top-left corner was never acquired"
     assert image[h // 3 : 2 * h // 3, w // 3 : 2 * w // 3].any(), "the centre tile was"
@@ -1577,7 +1581,7 @@ def test_the_preview_leaves_skipped_tiles_blank(fm_microscope):
 def test_the_preview_has_one_plane_per_channel(fm_microscope):
     frames = _preview_frames(fm_microscope, 2, 2, channels=2)
 
-    assert frames[-1]["image"].shape[0] == 2
+    assert frames[-1].preview.data.shape[0] == 2
 
 
 @pytest.mark.parametrize(
@@ -2311,13 +2315,13 @@ def test_the_stitch_is_announced_between_the_last_tile_and_the_mosaic(fm_microsc
         overview_parameters=OverviewParameters(rows=2, cols=2, overlap=0.1),
     ).run_and_stitch()
 
-    states = [p.get("state") for p in emitted if p.get("task") == "tileset"]
-    assert "stitching" in states, "the stitch is still silent"
+    states = [p.status for p in emitted]
+    assert TiledStatus.STITCHING in states, "the stitch is still silent"
 
     # After every tile, not before one: announced too early it would sit on screen for
     # the whole acquisition, which is the opposite failure.
-    last_tile = max(i for i, s in enumerate(states) if s == "acquiring")
-    assert states.index("stitching") > last_tile
+    last_tile = max(i for i, s in enumerate(states) if s is TiledStatus.TILE_COLLECTED)
+    assert states.index(TiledStatus.STITCHING) > last_tile
 
 
 def test_the_stitch_announcement_carries_no_counts(fm_microscope):
@@ -2333,10 +2337,10 @@ def test_the_stitch_announcement_carries_no_counts(fm_microscope):
         overview_parameters=OverviewParameters(rows=1, cols=2, overlap=0.1),
     ).run_and_stitch()
 
-    stitching = [p for p in emitted if p.get("state") == "stitching"]
+    stitching = [p for p in emitted if p.status is TiledStatus.STITCHING]
     assert len(stitching) == 1
-    assert "current" not in stitching[0]
-    assert "total" not in stitching[0]
+    assert stitching[0].completed is None
+    assert stitching[0].total is None
 
 
 def test_a_run_that_never_reaches_the_stitch_does_not_announce_one(fm_microscope):
@@ -2351,7 +2355,7 @@ def test_a_run_that_never_reaches_the_stitch_does_not_announce_one(fm_microscope
         overview_parameters=OverviewParameters(rows=1, cols=2, overlap=0.1),
     ).run()
 
-    assert "stitching" not in [p.get("state") for p in emitted]
+    assert TiledStatus.STITCHING not in [p.status for p in emitted]
 
 
 def test_the_count_reaches_the_last_tile(fm_microscope):
@@ -2372,9 +2376,9 @@ def test_the_count_reaches_the_last_tile(fm_microscope):
         overview_parameters=OverviewParameters(rows=2, cols=2, overlap=0.1),
     ).run()
 
-    counted = [p for p in emitted if "counter" in p]
-    assert counted[0]["counter"] == 0, "the run claimed a tile before taking one"
-    assert counted[-1]["counter"] == counted[-1]["total"] == 4
+    counted = [p for p in emitted if p.completed is not None]
+    assert counted[0].completed == 0, "the run claimed a tile before taking one"
+    assert counted[-1].completed == counted[-1].total == 4
 
 
 def test_the_announcement_carries_no_progress(fm_microscope):
@@ -2389,16 +2393,16 @@ def test_the_announcement_carries_no_progress(fm_microscope):
         overview_parameters=OverviewParameters(rows=1, cols=2, overlap=0.1),
     ).run()
 
-    announcements = [
-        p
-        for p in emitted
-        if p.get("state") == "acquiring" and p.get("task") == "tileset" and "row" in p
-    ]
+    announcements = [p for p in emitted if p.status is TiledStatus.TILE_STARTED]
     assert announcements, "nothing announces the tile being acquired"
     for payload in announcements:
-        assert "counter" not in payload
-        assert "estimated_remaining_time" not in payload
-        assert payload["row"] and payload["col"], "it should still say which tile"
+        assert payload.completed is None, "an announcement is not a progress report"
+        assert payload.total is None
+        assert payload.display_tile is not None, "it should still say which tile"
+    # 0-based on the wire, 1-based for a reader. This used to send `row + 1` while its
+    # sibling sent `tile.row`, so the same signal described one grid two ways.
+    assert [p.row_index for p in announcements] == [0, 0]
+    assert [p.display_tile for p in announcements] == [(1, 1), (1, 2)]
 
 
 def test_every_counted_payload_carries_an_estimate(fm_microscope):
@@ -2413,6 +2417,6 @@ def test_every_counted_payload_carries_an_estimate(fm_microscope):
         overview_parameters=OverviewParameters(rows=1, cols=2, overlap=0.1),
     ).run()
 
-    for payload in [p for p in emitted if p.get("counter")]:
-        assert "estimated_remaining_time" in payload
-        assert "estimated_total_time" in payload
+    for payload in [p for p in emitted if p.completed]:
+        assert payload.estimated_remaining_seconds >= 0
+        assert payload.estimated_total_seconds > 0

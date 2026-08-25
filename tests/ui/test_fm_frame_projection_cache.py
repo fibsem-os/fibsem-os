@@ -128,7 +128,9 @@ class TestTheProjectionIsKept:
             f"events — this is what stuttered on hardware"
         )
 
-    def test_redrawing_the_planned_grid_does_not_read_the_microscope(self, widget, reads):
+    def test_redrawing_the_planned_grid_does_not_read_the_microscope(
+        self, widget, reads
+    ):
         """`_refresh_tile_grid` had its own camera reads, separate from `_frame`.
 
         Caching the frame's projection alone left these, so a drag still took the shared
@@ -146,18 +148,44 @@ class TestTheProjectionIsKept:
         )
 
     def test_showing_a_preview_tile_does_not_read_the_microscope(self, widget, reads):
-        """Runs once a tile *during* a run, so it competes with the acquisition."""
+        """Runs once a tile *during* a run, so it competes with the acquisition.
+
+        It used to read twice over: `_projection()` for the pixel size, under an
+        `active_channel()` scope, and the widget's own channel list. Both now arrive on
+        the preview, so this asserts a property the code no longer has a way to break --
+        which is the point of moving them.
+        """
         import numpy as np
+
+        from fibsem.fm.structures import (
+            FluorescenceChannelMetadata,
+            FluorescenceImage,
+            FluorescenceImageMetadata,
+        )
 
         widget._frame()
         reads.clear()
 
-        payload = {
-            "image": np.zeros((1, 64, 64), np.uint8),
-            "preview_stride": 4,
-        }
+        preview = FluorescenceImage(
+            data=np.zeros((1, 64, 64), np.uint8),
+            metadata=FluorescenceImageMetadata(
+                acquisition_date="2026-08-25T09:00:00",
+                pixel_size_x=4e-7,
+                pixel_size_y=4e-7,
+                channels=[
+                    FluorescenceChannelMetadata(
+                        name="CH0",
+                        excitation_wavelength=488.0,
+                        power=0.5,
+                        exposure_time=0.1,
+                        gain=1.0,
+                        offset=0.0,
+                    )
+                ],
+            ),
+        )
         for _ in range(10):
-            widget._show_preview(payload)
+            widget._show_preview(preview)
 
         assert reads == [], (
             f"the preview took the channel {len(reads)} times over 10 tiles — "

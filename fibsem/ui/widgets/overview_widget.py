@@ -69,7 +69,6 @@ from fibsem.imaging.tiling.progress import (
     MODALITY_BEAM,
     TiledProgress,
     TiledStatus,
-    is_modality,
 )
 from fibsem.microscope import FibsemMicroscope
 from fibsem.projection import BeamStageProjection
@@ -3132,12 +3131,10 @@ class FibsemOverviewWidget(QWidget):
         TiledStatus.FAILED: "Acquisition Failed",
     }
 
-    def _apply_tiled_progress(self, event: TiledProgress) -> None:
-        """The typed form of `_apply_progress` (FIB-402).
-
-        Not reached until `imaging.tiled` flips; written and tested now so that the flip
-        touches one producer rather than a producer and three consumers at once.
-        """
+    @ensure_main_thread
+    @pyqtSlot(object)
+    def _apply_progress(self, event: TiledProgress) -> None:
+        """Runs on the GUI thread, queued via `_progress_received`."""
         if event.modality != MODALITY_BEAM:
             # Beam runs only: this widget places the mosaic on its own canvas and counts
             # the tiles into its own record, so a fluorescence run reaching here would be
@@ -3163,52 +3160,6 @@ class FibsemOverviewWidget(QWidget):
             if event.completed:
                 record.tiles = event.completed
                 record.pixel_size = self._pixel_size_of(event.preview)
-                self._refresh_overview_list()
-
-    @ensure_main_thread
-    @pyqtSlot(object)
-    def _apply_progress(self, payload: dict) -> None:
-        """Runs on the GUI thread, queued via `_progress_received`.
-
-        Reads with `.get`, not indexing: this signal is emitted from several places with
-        several shapes, and the terminal update carries none of the per-tile keys.
-
-        Beam runs only. This widget places the payload's mosaic on its own canvas and
-        counts the tiles into its own record, so a fluorescence run reaching here would
-        be drawn as one of this tab's overviews (FIB-725).
-
-        Dicts only -- a typed `TiledProgress` is handed to `_apply_tiled_progress`
-        above. The two paths sit side by side until the producers flip (FIB-402).
-        """
-        if isinstance(payload, TiledProgress):
-            self._apply_tiled_progress(payload)
-            return
-
-        if not is_modality(payload, MODALITY_BEAM):
-            return
-
-        counter = payload.get("counter")
-        total = payload.get("total")
-        if counter is not None and total:
-            self._tiles_acquired = counter
-            self.progress.update_progress(
-                ProgressUpdate.numeric(
-                    current=counter,
-                    total=total,
-                    message=payload.get("msg", "Acquiring"),
-                )
-            )
-
-        preview = payload.get("preview")
-        record = self._records.get(getattr(self, "_active_record", None) or "")
-        if preview is not None and record is not None:
-            self._show_preview(preview)
-            # The row says how many tiles this run has, and it says it while the run is
-            # going -- a row reading "0 tiles" beside a filling mosaic is the list
-            # contradicting the canvas.
-            if counter:
-                record.tiles = counter
-                record.pixel_size = self._pixel_size_of(preview)
                 self._refresh_overview_list()
 
     # ── lifecycle ────────────────────────────────────────────────────────

@@ -26,6 +26,12 @@ from fibsem.fm.structures import (
     OverviewParameters,
     ZParameters,
 )
+from fibsem.imaging.tiling.progress import (
+    MODALITY_BEAM,
+    MODALITY_FLUORESCENCE,
+    TiledProgress,
+    TiledStatus,
+)
 from fibsem.structures import CameraImageTransform, TileOrderStrategy
 from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
     FMOverviewConfirmationDialog,
@@ -311,6 +317,52 @@ def test_without_a_format_fn_the_built_in_rendering_still_applies(qapp):
 # key both producers happen to agree on.
 
 
+def _fm(status, **fields):
+    fields.setdefault("modality", MODALITY_FLUORESCENCE)
+    return TiledProgress(status=status, **fields)
+
+
+def _fm_preview(
+    channels=("DAPI", "GFP"), size=4, pixel_size=2e-7, position=None, data=None
+):
+    """A fluorescence preview carrying everything needed to place it.
+
+    Which is the point of the type: pixel size with the decimation already folded in,
+    the stage position the run was centred on, and the channels with their colours.
+    """
+    import numpy as np
+
+    from fibsem.fm.structures import (
+        FluorescenceChannelMetadata,
+        FluorescenceImage,
+        FluorescenceImageMetadata,
+    )
+
+    return FluorescenceImage(
+        data=np.zeros((len(channels), size, size), dtype=np.uint16)
+        if data is None
+        else data,
+        metadata=FluorescenceImageMetadata(
+            acquisition_date="2026-08-25T09:00:00",
+            pixel_size_x=pixel_size,
+            pixel_size_y=pixel_size,
+            stage_position=position,
+            channels=[
+                FluorescenceChannelMetadata(
+                    name=name,
+                    excitation_wavelength=488.0,
+                    power=0.5,
+                    exposure_time=0.1,
+                    gain=1.0,
+                    offset=0.0,
+                    color="cyan" if index == 0 else "magenta",
+                )
+                for index, name in enumerate(channels)
+            ],
+        ),
+    )
+
+
 class _Router:
     """The routing half of FMOverviewWidget, without needing a microscope."""
 
@@ -322,20 +374,14 @@ class _Router:
     _apply_tile_progress = FMOverviewWidget._apply_tile_progress
     _apply_fm_progress = FMOverviewWidget._apply_fm_progress
     _tile_detail_update = FMOverviewWidget._tile_detail_update
-    # The typed path the dict one is heading for (FIB-402), borrowed the same way.
-    _apply_tiled_progress = FMOverviewWidget._apply_tiled_progress
     _STATUS_LABELS = FMOverviewWidget._STATUS_LABELS
-    _FINISH_STATES = FMOverviewWidget._FINISH_STATES
 
-    def _show_preview(self, payload):
-        pass
-
-    def _show_typed_preview(self, preview):
+    def _show_preview(self, preview):
         self.previews = getattr(self, "previews", [])
         self.previews.append(preview)
 
-    def _finish(self, state, error):
-        self.finished = (state, error)
+    def _finish(self, status, error):
+        self.finished = (status, error)
 
 
 def _bar(widget):
@@ -345,15 +391,7 @@ def _bar(widget):
 def test_a_tileset_payload_moves_only_the_tile_bar(qapp):
     router = _Router()
 
-    router._apply_tile_progress(
-        {
-            "modality": "fluorescence",
-            "state": "acquiring",
-            "task": "tileset",
-            "counter": 4,
-            "total": 9,
-        }
-    )
+    router._apply_tile_progress(_fm(TiledStatus.TILE_COLLECTED, completed=4, total=9))
 
     # value/maximum directly, not a percentage -- the widget counts items.
     assert (
@@ -420,15 +458,7 @@ def test_a_completed_tile_leaves_the_detail_bar_alone(qapp):
         }
     )
 
-    router._apply_tile_progress(
-        {
-            "modality": "fluorescence",
-            "state": "tile",
-            "task": "tileset",
-            "current": 1,
-            "total": 9,
-        }
-    )
+    router._apply_tile_progress(_fm(TiledStatus.TILE_COLLECTED, completed=1, total=9))
 
     assert router.progress_tile_detail.isVisible()
 
@@ -458,12 +488,12 @@ def test_a_beam_payload_moves_neither_bar(qapp):
     router = _Router()
 
     router._apply_tile_progress(
-        {
-            "modality": "beam",
-            "counter": 8,
-            "total": 9,
-            "msg": "Tile Collected",
-        }
+        _fm(
+            TiledStatus.TILE_COLLECTED,
+            modality=MODALITY_BEAM,
+            completed=8,
+            total=9,
+        )
     )
 
     assert not router.progress_tiles.isVisible()
@@ -474,15 +504,13 @@ def test_the_estimate_is_shown_when_the_payload_carries_one(qapp):
     router = _Router()
 
     router._apply_tile_progress(
-        {
-            "modality": "fluorescence",
-            "state": "acquiring",
-            "task": "tileset",
-            "counter": 2,
-            "total": 9,
-            "estimated_remaining_time": 134.0,
-            "estimated_total_time": 180.0,
-        }
+        _fm(
+            TiledStatus.TILE_COLLECTED,
+            completed=2,
+            total=9,
+            estimated_remaining_seconds=134.0,
+            estimated_total_seconds=180.0,
+        )
     )
 
     assert "remaining" in _bar(router.progress_tiles).format()
@@ -495,19 +523,9 @@ def test_a_stage_move_does_not_fill_the_bar(qapp):
     goes to the status label.
     """
     router = _Router()
-    router._apply_tile_progress(
-        {
-            "modality": "fluorescence",
-            "state": "acquiring",
-            "task": "tileset",
-            "counter": 3,
-            "total": 9,
-        }
-    )
+    router._apply_tile_progress(_fm(TiledStatus.TILE_COLLECTED, completed=3, total=9))
 
-    router._apply_tile_progress(
-        {"modality": "fluorescence", "state": "moving", "task": "tileset"}
-    )
+    router._apply_tile_progress(_fm(TiledStatus.MOVING))
 
     assert (
         _bar(router.progress_tiles).value(),
@@ -519,8 +537,8 @@ def test_a_stage_move_does_not_fill_the_bar(qapp):
 @pytest.mark.parametrize(
     "state, label",
     [
-        ("stitching", "Stitching tiles…"),
-        ("saving", "Saving overview…"),
+        (TiledStatus.STITCHING, "Stitching tiles…"),
+        (TiledStatus.SAVING, "Saving overview…"),
     ],
 )
 def test_the_end_of_a_run_is_not_silent(qapp, state, label):
@@ -534,19 +552,9 @@ def test_the_end_of_a_run_is_not_silent(qapp, state, label):
     impression these phases exist to correct.
     """
     router = _Router()
-    router._apply_tile_progress(
-        {
-            "modality": "fluorescence",
-            "state": "acquiring",
-            "task": "tileset",
-            "counter": 9,
-            "total": 9,
-        }
-    )
+    router._apply_tile_progress(_fm(TiledStatus.TILE_COLLECTED, completed=9, total=9))
 
-    router._apply_tile_progress(
-        {"modality": "fluorescence", "state": state, "task": "tileset"}
-    )
+    router._apply_tile_progress(_fm(state))
 
     assert router.status.text() == label
     assert (
@@ -558,20 +566,10 @@ def test_the_end_of_a_run_is_not_silent(qapp, state, label):
 def test_a_phase_label_is_cleared_by_the_next_tile(qapp):
     """Otherwise "Stitching tiles…" would still be on screen through the next run."""
     router = _Router()
-    router._apply_tile_progress(
-        {"modality": "fluorescence", "state": "saving", "task": "tileset"}
-    )
+    router._apply_tile_progress(_fm(TiledStatus.SAVING))
     assert router.status.text() == "Saving overview…"
 
-    router._apply_tile_progress(
-        {
-            "modality": "fluorescence",
-            "state": "acquiring",
-            "task": "tileset",
-            "counter": 1,
-            "total": 9,
-        }
-    )
+    router._apply_tile_progress(_fm(TiledStatus.TILE_COLLECTED, completed=1, total=9))
     assert router.status.text() == ""
 
 
@@ -1009,7 +1007,15 @@ def test_the_first_preview_frame_lands_at_the_right_scale(qapp, overview_widget)
     tile_ps = widget.fm.camera.pixel_size[0]
     preview = np.zeros((1, 64, 128), dtype=np.uint8)  # (C, H, W), already decimated
 
-    widget._show_preview({"image": preview, "preview_stride": stride})
+    widget._show_preview(
+        _fm_preview(
+            channels=("CH0",),
+            # Already decimated, and the pixel size says so: `stride` times coarser
+            # than a tile's, which is the whole of what a display needs to place it.
+            pixel_size=tile_ps * stride,
+            data=preview,
+        )
+    )
     qapp.processEvents()
 
     placed = widget.canvas.canvas._placed
@@ -1203,7 +1209,11 @@ def test_the_grid_keeps_its_scale_under_a_decimated_preview(qapp, overview_widge
     before = widget.tile_grid_overlay._rect_for(widget.tile_grid_overlay._tiles[0])
 
     widget._show_preview(
-        {"image": np.zeros((1, 256, 256), np.uint8), "preview_stride": 4}
+        _fm_preview(
+            channels=("CH0",),
+            pixel_size=widget.fm.camera.pixel_size[0] * 4,
+            data=np.zeros((1, 256, 256), np.uint8),
+        )
     )
     qapp.processEvents()
 
@@ -2485,7 +2495,7 @@ def test_a_finished_run_keeps_its_outcome_on_screen(qapp):
     qapp.processEvents()
     widget._set_running(True)
 
-    widget._finish("overview-failed", "nope")
+    widget._finish(TiledStatus.FAILED, "nope")
     qapp.processEvents()
 
     assert widget.progress_tiles.isVisible()
@@ -4508,7 +4518,7 @@ def test_the_live_preview_never_becomes_a_record(qapp, blank_canvas):
     import numpy as np
 
     widget._show_preview(
-        {"image": np.zeros((4, 4), dtype=np.uint16), "preview_stride": 1}
+        _fm_preview(channels=("CH0",), data=np.zeros((1, 4, 4), dtype=np.uint16))
     )
     qapp.processEvents()
 
@@ -4651,7 +4661,7 @@ def test_the_list_does_not_grow_a_row_for_the_live_preview(qapp, blank_canvas):
     import numpy as np
 
     widget._show_preview(
-        {"image": np.zeros((4, 4), dtype=np.uint16), "preview_stride": 1}
+        _fm_preview(channels=("CH0",), data=np.zeros((1, 4, 4), dtype=np.uint16))
     )
     qapp.processEvents()
 
@@ -5241,9 +5251,9 @@ def test_the_worker_announces_the_save_before_it_writes(
             saved,
         )
 
-    states = [p.get("state") for p in seen if p.get("task") == "tileset"]
-    assert "saving" in states, "the write is still silent"
-    assert states.index("saving") < states.index("overview-finished"), (
+    states = [p.status for p in seen]
+    assert TiledStatus.SAVING in states, "the write is still silent"
+    assert states.index(TiledStatus.SAVING) < states.index(TiledStatus.FINISHED), (
         "the save was announced after it had already happened"
     )
 
@@ -5259,13 +5269,7 @@ def test_a_tileset_payload_reaches_the_real_widget(qapp, overview_widget):
     """
     widget = overview_widget
     widget.microscope.tiled_acquisition_signal.emit(
-        {
-            "modality": "fluorescence",
-            "state": "acquiring",
-            "task": "tileset",
-            "counter": 4,
-            "total": 9,
-        }
+        _fm(TiledStatus.TILE_COLLECTED, completed=4, total=9)
     )
     qapp.processEvents()
 
@@ -5325,25 +5329,18 @@ def test_a_beam_run_does_not_drive_the_fluorescence_bar(qapp, overview_widget):
     """
     widget = overview_widget
     widget.microscope.tiled_acquisition_signal.emit(
-        {
-            "modality": "fluorescence",
-            "state": "acquiring",
-            "task": "tileset",
-            "counter": 4,
-            "total": 9,
-        }
+        _fm(TiledStatus.TILE_COLLECTED, completed=4, total=9)
     )
     qapp.processEvents()
     before = _bar(widget.progress_tiles).format()
 
     widget.microscope.tiled_acquisition_signal.emit(
-        {
-            "modality": "beam",
-            "task": "tileset",
-            "counter": 8,
-            "total": 9,
-            "msg": "Tile Collected",
-        }
+        _fm(
+            TiledStatus.TILE_COLLECTED,
+            modality=MODALITY_BEAM,
+            completed=8,
+            total=9,
+        )
     )
     qapp.processEvents()
 
@@ -5366,15 +5363,13 @@ def test_the_announcement_payload_does_not_redraw_the_tile_bar(qapp):
     """
     router = _Router()
     router._apply_tile_progress(
-        {
-            "modality": "fluorescence",
-            "state": "tile",
-            "task": "tileset",
-            "counter": 2,
-            "total": 4,
-            "estimated_remaining_time": 18.0,
-            "estimated_total_time": 24.0,
-        }
+        _fm(
+            TiledStatus.TILE_COLLECTED,
+            completed=2,
+            total=4,
+            estimated_remaining_seconds=18.0,
+            estimated_total_seconds=24.0,
+        )
     )
     before = (
         _bar(router.progress_tiles).value(),
@@ -5383,15 +5378,13 @@ def test_the_announcement_payload_does_not_redraw_the_tile_bar(qapp):
     )
 
     router._apply_tile_progress(
-        {
-            "modality": "fluorescence",
-            "state": "acquiring",
-            "task": "tileset",
-            "row": 2,
-            "col": 3,
-            "total_rows": 2,
-            "total_cols": 2,
-        }
+        _fm(
+            TiledStatus.TILE_STARTED,
+            row_index=1,
+            column_index=2,
+            rows=2,
+            columns=2,
+        )
     )
 
     after = (
@@ -5409,16 +5402,12 @@ def test_the_preview_is_still_shown(qapp):
     router = _Router()
     router._show_preview = shown.append
 
-    payload = {
-        "modality": "fluorescence",
-        "state": "tile",
-        "task": "tileset",
-        "counter": 2,
-        "total": 4,
-    }
-    router._apply_tile_progress(payload)
+    preview = _fm_preview()
+    router._apply_tile_progress(
+        _fm(TiledStatus.TILE_COLLECTED, completed=2, total=4, preview=preview)
+    )
 
-    assert shown == [payload]
+    assert shown == [preview]
 
 
 # ── a grid beyond the stage's travel (FIB-741) ───────────────────────────
@@ -5727,50 +5716,6 @@ def test_the_fm_tab_finishes_the_drag_when_the_overlay_says_so(qapp, grid_of):
 # to the producers alone.
 
 
-def _fm(status, **fields):
-    from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE, TiledProgress
-
-    fields.setdefault("modality", MODALITY_FLUORESCENCE)
-    return TiledProgress(status=status, **fields)
-
-
-def _fm_preview(channels=("DAPI", "GFP"), size=4, pixel_size=2e-7, position=None):
-    """A fluorescence preview carrying everything needed to place it.
-
-    Which is the point of the type: pixel size with the decimation already folded in,
-    the stage position the run was centred on, and the channels with their colours.
-    """
-    import numpy as np
-
-    from fibsem.fm.structures import (
-        FluorescenceChannelMetadata,
-        FluorescenceImage,
-        FluorescenceImageMetadata,
-    )
-
-    return FluorescenceImage(
-        data=np.zeros((len(channels), size, size), dtype=np.uint16),
-        metadata=FluorescenceImageMetadata(
-            acquisition_date="2026-08-25T09:00:00",
-            pixel_size_x=pixel_size,
-            pixel_size_y=pixel_size,
-            stage_position=position,
-            channels=[
-                FluorescenceChannelMetadata(
-                    name=name,
-                    excitation_wavelength=488.0,
-                    power=0.5,
-                    exposure_time=0.1,
-                    gain=1.0,
-                    offset=0.0,
-                    color="cyan" if index == 0 else "magenta",
-                )
-                for index, name in enumerate(channels)
-            ],
-        ),
-    )
-
-
 def test_a_typed_tile_report_moves_only_the_tile_bar(qapp):
     from fibsem.imaging.tiling.progress import TiledStatus
 
@@ -5849,15 +5794,8 @@ def test_a_typed_tile_announcement_does_not_move_the_bar(qapp):
     ) == (4, 9)
 
 
-@pytest.mark.parametrize(
-    "status, expected",
-    [
-        ("FINISHED", "overview-finished"),
-        ("CANCELLED", "overview-cancelled"),
-        ("FAILED", "overview-failed"),
-    ],
-)
-def test_every_typed_terminal_state_finishes_the_run(qapp, status, expected):
+@pytest.mark.parametrize("status", ["FINISHED", "CANCELLED", "FAILED"])
+def test_every_terminal_state_finishes_the_run(qapp, status):
     """`_finish` is this widget's only exit path: it swaps the preview for the stitch,
     clears the worker and re-enables the tab. A terminal state that misses it leaves the
     FM unusable for the rest of the session with nothing on screen to say why."""
@@ -5869,7 +5807,10 @@ def test_every_typed_terminal_state_finishes_the_run(qapp, status, expected):
         _fm(getattr(TiledStatus, status), error="why" if status == "FAILED" else None)
     )
 
-    assert router.finished == (expected, "why" if status == "FAILED" else None)
+    assert router.finished == (
+        getattr(TiledStatus, status),
+        "why" if status == "FAILED" else None,
+    )
 
 
 def test_a_typed_preview_is_drawn_once_per_completed_tile(qapp):
@@ -5918,7 +5859,7 @@ class _PreviewHost:
     below fail. That absence is the test.
     """
 
-    _show_typed_preview = FMOverviewWidget._show_typed_preview
+    _show_preview = FMOverviewWidget._show_preview
 
     def __init__(self):
         self.canvas = _FakeCanvas()
@@ -5943,7 +5884,7 @@ def test_a_typed_preview_places_itself_from_its_own_metadata(qapp):
     host = _PreviewHost()
     position = FibsemStagePosition(x=1e-3, y=2e-3, z=0.0)
 
-    host._show_typed_preview(_fm_preview(pixel_size=2e-7, position=position))
+    host._show_preview(_fm_preview(pixel_size=2e-7, position=position))
 
     assert host.canvas.composite_key == PREVIEW_KEY
     assert host.offsets == [position]
@@ -5960,7 +5901,7 @@ def test_a_typed_preview_without_a_position_still_draws(qapp):
     all — the same fallback the dict form had."""
     host = _PreviewHost()
 
-    host._show_typed_preview(_fm_preview(position=None))
+    host._show_preview(_fm_preview(position=None))
 
     assert host.offsets == []
     assert host.canvas.placement == (0.0, 0.0)
