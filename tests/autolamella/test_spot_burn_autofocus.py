@@ -4,6 +4,7 @@ Covers the config field round-trip, the ordering (focus before the reference ima
 the points are placed on), and the `_run_autofocus` helper — which until now read
 `self.image_settings`, an attribute the base class never defines.
 """
+
 from unittest.mock import MagicMock
 
 import pytest
@@ -42,7 +43,9 @@ def test_autofocus_is_exposed_as_a_task_parameter():
 
 def test_autofocus_is_not_part_of_the_run_payload():
     """SpotBurnSettings is what to burn; autofocus is a workflow concern (see #211)."""
-    settings = SpotBurnFiducialTaskConfig(task_name="Spot Burn", autofocus=True).to_settings()
+    settings = SpotBurnFiducialTaskConfig(
+        task_name="Spot Burn", autofocus=True
+    ).to_settings()
     assert not hasattr(settings, "autofocus")
 
 
@@ -70,9 +73,15 @@ def _record_run(task, calls):
     """Stub out everything _run does except the autofocus/reference-image ordering."""
     task._move_to_milling_pose = lambda: calls.append(("move", None))
     task._align_reference_image = lambda *a, **k: calls.append(("align", None))
-    task._run_autofocus = lambda beam_type, hfw=None: calls.append(("autofocus", (beam_type, hfw)))
-    task._acquire_reference_image = lambda *a, **k: calls.append(("reference", k.get("field_of_view")))
-    task._acquire_set_of_reference_images = lambda *a, **k: calls.append(("final", None))
+    task._run_autofocus = lambda beam_type, hfw=None: calls.append(
+        ("autofocus", (beam_type, hfw))
+    )
+    task._acquire_reference_image = lambda *a, **k: calls.append(
+        ("reference", k.get("field_of_view"))
+    )
+    task._acquire_set_of_reference_images = lambda *a, **k: calls.append(
+        ("final", None)
+    )
     task.update_spot_burn_parameters_ui = lambda: calls.append(("burn", None))
     task.log_status_message = lambda *a, **k: None
 
