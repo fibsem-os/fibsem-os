@@ -7,6 +7,7 @@ with a ``QFileSystemWatcher`` rather than attaching a logging.Handler, so it
 is unaffected by ``logging.basicConfig(..., force=True)`` re-pointing the
 root logger at a new experiment.
 """
+
 from __future__ import annotations
 
 import os
@@ -61,9 +62,11 @@ _LEVEL_COLOR = {
 _FILTER_LEVELS = [("Debug", 10), ("Info", 20), ("Warning", 30), ("Error", 40)]
 
 _MAX_ENTRIES = 2000  # bounded scrollback, so a long session can't grow this unbounded
-_MAX_INITIAL_BYTES = 200_000  # how much of an existing (resumed) logfile to backfill on attach
+_MAX_INITIAL_BYTES = (
+    200_000  # how much of an existing (resumed) logfile to backfill on attach
+)
 _DEBOUNCE_MS = 200  # coalesce a burst of writes (e.g. a running workflow logging at
-                     # DEBUG on every hardware call) into one read+render pass
+# DEBUG on every hardware call) into one read+render pass
 
 
 @dataclass
@@ -78,7 +81,9 @@ class _LogEntry:
 
 
 def _format_entry(entry: _LogEntry) -> str:
-    time_only = entry.timestamp[11:19] if len(entry.timestamp) >= 19 else entry.timestamp
+    time_only = (
+        entry.timestamp[11:19] if len(entry.timestamp) >= 19 else entry.timestamp
+    )
     return f"{time_only}  {entry.level:<8}{entry.message}"
 
 
@@ -125,7 +130,9 @@ class LogPanelWidget(QFrame):
 
         top = QHBoxLayout()
         top.setContentsMargins(6, 3, 6, 3)
-        top.addWidget(QLabel("Level:", styleSheet=f"color: {TEXT_MUTED_COLOR}; font-size: 11px;"))
+        top.addWidget(
+            QLabel("Level:", styleSheet=f"color: {TEXT_MUTED_COLOR}; font-size: 11px;")
+        )
         top.addWidget(self._filter)
         top.addStretch(1)
 
@@ -260,7 +267,9 @@ class LogPanelWidget(QFrame):
             return False
         m = _LOG_LINE_RE.match(line)
         if m:
-            entry = _LogEntry(timestamp=m.group("ts"), level=m.group("level"), message=m.group("msg"))
+            entry = _LogEntry(
+                timestamp=m.group("ts"), level=m.group("level"), message=m.group("msg")
+            )
             self._entries.append(entry)
             if entry.severity < self._min_severity:
                 self._last_item = None

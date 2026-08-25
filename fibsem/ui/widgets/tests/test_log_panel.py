@@ -9,6 +9,7 @@ produces, backfills a LogPanelWidget from it, then shows a window with an
 rather than relying on inotify timing) so you can watch the level filter and
 auto-scroll live.
 """
+
 import logging
 import os
 import sys
@@ -57,7 +58,9 @@ def _run_checks(path: str) -> None:
     assert len(w._entries) == 6, f"expected 6 parsed entries, got {len(w._entries)}"
     assert w._entries[0].level == "DEBUG"
     assert w._entries[3].level == "ERROR"
-    assert "\n" in w._entries[4].message, "traceback lines should fold into the exception entry"
+    assert "\n" in w._entries[4].message, (
+        "traceback lines should fold into the exception entry"
+    )
     # default filter is Info: the DEBUG row should be backfilled but not rendered
     assert w._list.count() == 5, f"expected 5 rows at Info level, got {w._list.count()}"
 
@@ -65,7 +68,9 @@ def _run_checks(path: str) -> None:
     assert w._list.count() == 6
 
     w._filter.setCurrentIndex(3)  # Error: only ERROR/CRITICAL-severity rows
-    assert w._list.count() == 2, f"expected 2 error-or-worse rows, got {w._list.count()}"
+    assert w._list.count() == 2, (
+        f"expected 2 error-or-worse rows, got {w._list.count()}"
+    )
 
     w.set_log_path(None)
     assert w._list.count() == 0
@@ -88,7 +93,9 @@ def _check_scroll_survives_hidden_start(path: str) -> None:
     w.hide()
     w.set_log_path(path)
     with open(path, "a", encoding="utf-8") as f:
-        f.write("2026-08-25 12:00:00,000 — root — INFO — poll:1 — freshest line while hidden\n")
+        f.write(
+            "2026-08-25 12:00:00,000 — root — INFO — poll:1 — freshest line while hidden\n"
+        )
     w._read_new_lines()
 
     w.show()
@@ -116,12 +123,16 @@ def _check_burst_does_not_hang() -> None:
     n = 5000
     with open(path, "a", encoding="utf-8") as f:
         for i in range(n):
-            f.write(f"2026-08-25 11:00:00,000 — root — DEBUG — poll:1 — hardware poll {i}\n")
+            f.write(
+                f"2026-08-25 11:00:00,000 — root — DEBUG — poll:1 — hardware poll {i}\n"
+            )
 
     start = time.perf_counter()
     w._read_new_lines()
     elapsed = time.perf_counter() - start
-    assert elapsed < 2.0, f"burst of {n} lines took {elapsed:.2f}s -- likely back to per-line scrollToBottom()"
+    assert elapsed < 2.0, (
+        f"burst of {n} lines took {elapsed:.2f}s -- likely back to per-line scrollToBottom()"
+    )
     last = w._list.item(w._list.count() - 1)
     assert last is not None and f"hardware poll {n - 1}" in last.text()
     w.deleteLater()
@@ -151,8 +162,8 @@ def main() -> None:
         levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
         level = levels[counter["n"] % 4]
         line = (
-            f'2026-08-25 12:00:{counter["n"]:02d},000 — demo — {level} — append_line:1 — '
-            f'live line {counter["n"]}\n'
+            f"2026-08-25 12:00:{counter['n']:02d},000 — demo — {level} — append_line:1 — "
+            f"live line {counter['n']}\n"
         )
         with open(path, "a", encoding="utf-8") as f:
             f.write(line)
@@ -161,7 +172,9 @@ def main() -> None:
     btn = QPushButton("Append line")
     btn.clicked.connect(append_line)
 
-    info = QLabel("Backfilled from a seeded logfile. Use the level filter, or append new lines.")
+    info = QLabel(
+        "Backfilled from a seeded logfile. Use the level filter, or append new lines."
+    )
     info.setWordWrap(True)
 
     bar = QHBoxLayout()
