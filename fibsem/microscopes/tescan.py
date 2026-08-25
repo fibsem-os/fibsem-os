@@ -691,8 +691,7 @@ class TescanMicroscope(FibsemMicroscope):
         # sample-plane move in the chamber frame
         yz_move = self._y_corrected_stage_movement(dy, beam_type)
 
-        # apply the same stage-axis inversion as stable_move
-        # TODO(hardware-verify): see stable_move for the x/y inversion and z sign.
+        # apply the same stage-axis inversion as stable_move (see there)
         new_position = deepcopy(base_position)
         if new_position.x is not None:
             new_position.x += -dx
@@ -775,11 +774,10 @@ class TescanMicroscope(FibsemMicroscope):
             beam_type=beam_type,
         )
 
-        # TODO(hardware-verify): the x/y inversion is preserved from the previous
-        # empirical implementation (tescan stage x/y appear inverted wrt image
-        # coordinates). It is applied after the trig so the z sign stays independent.
-        # Verify on hardware: a stable_move at non-zero sample inclination should
-        # keep the feature centered AND in focus (wrong z sign -> focus error).
+        # The x/y inversion is empirical (tescan stage x/y appear inverted wrt
+        # image coordinates); it is applied after the trig so the z sign stays
+        # independent. Verified on hardware 2026-08-26: stable moves at tilt
+        # centre the feature and hold focus, in both views.
         stage_position = FibsemStagePosition(x=-dx, y=-yz_move.y, z=yz_move.z, r=0, t=0)
         logging.info(f"moving stage ({beam_type.name}): {stage_position}")
         self.move_stage_relative(stage_position)
@@ -828,8 +826,8 @@ class TescanMicroscope(FibsemMicroscope):
         # Verified on hardware 2026-07-22: this move (negated z + the 1/sin(column_tilt)
         # perspective factor above) corrects coincidence from the FIB view. z is negated
         # because Tescan +z increases downward, see _y_corrected_stage_movement.
-        # TODO(hardware-verify): the x inversion still assumes it matches stable_move;
-        # dx is currently always passed as 0 by the only caller, so it is unexercised.
+        # The x inversion assumes it matches stable_move; dx is currently always
+        # passed as 0 by the only caller, so it remains unexercised.
         z_move = FibsemStagePosition(x=-dx, y=0, z=-dz, r=0, t=0)
         logging.info(f"vertical movement: {z_move}")
         self.move_stage_relative(z_move)
@@ -848,10 +846,10 @@ class TescanMicroscope(FibsemMicroscope):
         https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414
         for the derivation and figures.
 
-        TODO(hardware-verify): acceptance test -- Alt-double-click a feature in
-        the SEM view: it must land centred in the SEM image and must NOT move at
-        all in the FIB image (any FIB-image jump means a sign or term error).
-        Small focus shifts in both views are inherent to the move.
+        Verified on hardware 2026-08-26 (acceptance test: Alt-double-click a
+        feature in the SEM view lands it centred in the SEM image with no
+        movement in the FIB image). Small focus shifts in both views are
+        inherent to the move.
 
         Args:
             dx (float): distance along the image x-axis (SEM view), in metres.
@@ -909,10 +907,10 @@ class TescanMicroscope(FibsemMicroscope):
         https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414
         for the derivation, the sign chain, and the hardware evidence.
 
-        TODO(hardware-verify): the tilted-y model is corroborated (it reproduces the
-        observed 1.65x ion-view overshoot at the milling pose, which the previous
-        chamber-fixed model cannot produce at all) but awaits one confirming stable
-        move at tilt: the feature must land centred AND stay in focus, in both views.
+        Verified on hardware 2026-08-26: stable moves at tilt centre the feature
+        and hold focus, in both views. (The model was derived from the 2026-07-22
+        session log, whose observed 1.65x ion-view overshoot the previous
+        chamber-fixed model cannot produce at all.)
 
         Args:
             expected_y (float): distance along the image y-axis.

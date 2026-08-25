@@ -571,8 +571,8 @@ def inverse_y_corrected_stage_movement_tescan_from_geometry(
     Returns:
         float: expected_y input that would produce the given dy, dz movements.
     """
-    # undo the stage-axis inversion applied in stable_move (y_stage = -y_move)
-    # TODO(hardware-verify): keep in sync with the x/y inversion in TescanMicroscope.stable_move.
+    # undo the stage-axis inversion applied in stable_move (y_stage = -y_move);
+    # keep in sync with the x/y inversion in TescanMicroscope.stable_move
     dy = -dy
 
     stage_tilt, corrected_pretilt_angle, sample_inclination = _tescan_pose_angles(
