@@ -559,7 +559,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         layer_controls_menu.addAction(self.action_layer_controls_overview)
 
         view_menu.addAction(self.action_show_minimap)
-        view_menu.addAction(self.action_show_log)
+        # Not exposed yet -- land the log viewer disabled, flip this on once it's
+        # had more review. self.action_show_log / _on_toggle_log_widget / the
+        # floating log_panel_widget are all still built and wired.
+        # view_menu.addAction(self.action_show_log)
 
         # Quad-view display controls. The F5/Esc shortcuts live on these QActions — one
         # source of truth for the menu item and its keybinding (Qt renders the shortcut
