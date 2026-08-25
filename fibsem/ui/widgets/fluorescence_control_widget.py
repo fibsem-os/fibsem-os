@@ -516,8 +516,82 @@ class FMControlWidget(QWidget):
         self._update_acquisition_button_states()
 
     @ensure_main_thread
+    def _apply_typed_progress(self, report: "FluorescenceAcquisitionProgress") -> None:
+        """The typed form of `_on_acquisition_progress` (FIB-401).
+
+        Not reached until the producers flip. Two branches the dict form carried are
+        absent rather than ported:
+
+        * `state == "moving"` -- nothing has emitted a stage move on this signal since
+          the workflow emits were deleted in step 1 of this issue. The two remaining
+          `state: "moving"` sites in `fm/acquisition.py` belong to the tileset runner
+          and go to `tiled_acquisition_signal`.
+        * `state == "autofocus"` -- the sweep-start announcement, deleted in this stack.
+          It set "Running Autofocus…" and reset the bar, and the per-step report that
+          arrives microseconds later overwrote both with something strictly better,
+          having named the channel and the step.
+        """
+        from fibsem.fm.progress import FluorescenceAcquisitionStatus
+
+        if not self.progressBar_current_acquisition.isVisible():
+            self.progressBar_current_acquisition.show()
+        if not self.progressText.isVisible():
+            self.progressText.show()
+
+        if report.status is FluorescenceAcquisitionStatus.FINISHED:
+            self.progressBar_current_acquisition.hide()
+            self.progressText.setText("Acquisition complete.")
+            self.progressText.hide()
+            return
+
+        channel = report.channel
+        is_autofocus = (
+            report.status is FluorescenceAcquisitionStatus.ACQUIRING_AUTOFOCUS
+        )
+
+        if is_autofocus:
+            # Handled before the channel branch, not inside it: a sweep with no channel
+            # reports an empty name, which used to render "Acquiring  (1/1)..." and now
+            # would leave the previous message sitting there instead.
+            self.progressText.setText(
+                f"Focusing on {channel}..." if channel else "Focusing..."
+            )
+        elif channel:
+            index = report.channel_index or 1
+            total = report.total_channels or 1
+            self.progressText.setText(f"Acquiring {channel} ({index}/{total})...")
+
+        if report.zlevel and report.total_zlevels:
+            self.progressBar_current_acquisition.setValue(
+                int((report.zlevel / report.total_zlevels) * 100)
+            )
+            if is_autofocus:
+                # A focus sweep steps the objective through a search range. Calling
+                # those positions "Z-level" names the z-stack, which is not running --
+                # and says which pass, so a coarse sweep followed by a fine one does
+                # not look like the same bar inexplicably starting over.
+                total_passes = report.total_passes or 1
+                which = (
+                    f" · pass {report.pass_index or 1}/{total_passes}"
+                    if total_passes > 1
+                    else ""
+                )
+                label = f"Focus {report.zlevel}/{report.total_zlevels}{which}"
+            else:
+                label = f"Z-level {report.zlevel}/{report.total_zlevels}"
+            self.progressBar_current_acquisition.setFormat(label)
+
     def _on_acquisition_progress(self, progress: dict):
-        """Update progress bars on acquisition signal"""
+        """Update progress bars on acquisition signal.
+
+        Dicts only -- a typed report goes to `_apply_typed_progress` above. The two sit
+        side by side until the producers flip (FIB-401).
+        """
+        from fibsem.fm.progress import FluorescenceAcquisitionProgress
+
+        if isinstance(progress, FluorescenceAcquisitionProgress):
+            self._apply_typed_progress(progress)
+            return
 
         # Show progress bar when acquisition progress is updated
         if not self.progressBar_current_acquisition.isVisible():
