@@ -16,9 +16,9 @@ all, so the observation refuted it). See
 https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414 for the derivation.
 
 These tests lock in the derived math and the internal sign contracts
-(stable_move <-> inverse round trips). The remaining hardware confirmation (a
-stable move at tilt must centre the feature AND hold focus, in both views) is
-flagged with TODO(hardware-verify) in code.
+(stable_move <-> inverse round trips). Hardware-confirmed 2026-08-26: stable
+moves at tilt centre the feature and hold focus in both views, and the
+coincident move from the SEM leaves the FIB image untouched.
 
 No hardware or Tescan SDK required: the microscope object is created without
 __init__ and the stage state is stubbed.
