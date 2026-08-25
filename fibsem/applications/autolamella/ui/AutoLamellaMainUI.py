@@ -439,6 +439,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Read once, here, because both the menu entry and the header chip are gated
         # on it and the menu is built before the tabs are.
         self._connection_chip_enabled = self._preferences.features.connection_chip
+        self._log_viewer_enabled = self._preferences.features.log_viewer_enabled
 
         # User attention tracking
         self._user_interaction_sound_played = False  # Track if sound was played
@@ -559,10 +560,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         layer_controls_menu.addAction(self.action_layer_controls_overview)
 
         view_menu.addAction(self.action_show_minimap)
-        # Not exposed yet -- land the log viewer disabled, flip this on once it's
-        # had more review. self.action_show_log / _on_toggle_log_widget / the
-        # floating log_panel_widget are all still built and wired.
-        # view_menu.addAction(self.action_show_log)
+        # Behind features.log_viewer_enabled (off by default) -- see FeatureFlags.
+        # The action is built either way; nothing offers it until the flag is on.
+        if self._log_viewer_enabled:
+            view_menu.addAction(self.action_show_log)
 
         # Quad-view display controls. The F5/Esc shortcuts live on these QActions — one
         # source of truth for the menu item and its keybinding (Qt renders the shortcut

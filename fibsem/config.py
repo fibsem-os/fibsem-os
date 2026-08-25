@@ -409,6 +409,12 @@ class FeatureFlags:
     # goes, and the geometry it rests on is only checkable against real data
     # (FIB-597). Staging, like the flag above -- deleted when it ships, not kept.
     sparse_fm_selection: bool = False
+    # View -> Show Log: a floating window tailing the raw per-experiment logfile
+    # (DEBUG and up), independent of the quad-view microscope tab. Off while it has
+    # had no bench time: raw hardware/workflow logging is a power-user/diagnostic
+    # view, not something a normal user should be offered unasked. Staging, like the
+    # flags above -- deleted (made unconditional) once it's had review, not kept.
+    log_viewer_enabled: bool = False
 
 
 @dataclass
