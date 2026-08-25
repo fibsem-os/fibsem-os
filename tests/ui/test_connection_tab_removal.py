@@ -78,7 +78,6 @@ def test_the_tab_is_gone_with_the_flag_on(qapp, prefs):
 
 def test_the_offer_shows_on_a_fresh_install(qapp, prefs, monkeypatch):
     monkeypatch.setattr(guided_setup, "is_first_run", lambda: True)
-    prefs.features.guided_setup_enabled = True
     prefs.display.guided_setup_dismissed = False
 
     dialog = ConnectionDialog()
@@ -90,24 +89,20 @@ def test_the_offer_shows_on_a_fresh_install(qapp, prefs, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "flag, dismissed, first_run",
+    "dismissed, first_run",
     [
-        (False, False, True),  # the feature is off
-        (True, True, True),  # already declined
-        (True, False, False),  # something is configured already
+        (True, True),  # already declined
+        (False, False),  # something is configured already
     ],
 )
-def test_the_offer_stays_away_otherwise(
-    qapp, prefs, monkeypatch, flag, dismissed, first_run
-):
-    """Three separate conditions, as the tab applied them.
+def test_the_offer_stays_away_otherwise(qapp, prefs, monkeypatch, dismissed, first_run):
+    """Two separate conditions, as the tab applied them.
 
-    Folding the first two together is what broke this the first time: the flag
-    lives in the file whose absence means "fresh install", so turning the flag on
-    suppressed the offer it enables.
+    Folding them together is what broke this the first time: dismissal used to be
+    inferred from the file whose absence means "fresh install", which made a write
+    that recorded a dismissal look like the same thing as undoing it.
     """
     monkeypatch.setattr(guided_setup, "is_first_run", lambda: first_run)
-    prefs.features.guided_setup_enabled = flag
     prefs.display.guided_setup_dismissed = dismissed
 
     dialog = ConnectionDialog()
@@ -120,7 +115,6 @@ def test_the_offer_stays_away_otherwise(
 
 def test_declining_the_offer_records_it(qapp, prefs, monkeypatch):
     monkeypatch.setattr(guided_setup, "is_first_run", lambda: True)
-    prefs.features.guided_setup_enabled = True
     recorded = []
     monkeypatch.setattr(
         guided_setup, "dismiss_first_run", lambda: recorded.append(True)
@@ -140,7 +134,6 @@ def test_declining_the_offer_records_it(qapp, prefs, monkeypatch):
 def test_finishing_the_wizard_selects_what_it_wrote(qapp, prefs, monkeypatch):
     """Otherwise the dialog still points at whatever was selected before it ran."""
     monkeypatch.setattr(guided_setup, "is_first_run", lambda: True)
-    prefs.features.guided_setup_enabled = True
 
     dialog = ConnectionDialog()
     try:
