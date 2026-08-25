@@ -10,6 +10,7 @@ The window cannot be constructed here — it builds the napari minimap, and a
 a host holding a real `FibsemProgressWidget`. That is enough: the handler's whole job is
 turning a payload into a rendered bar, and the bar here is the real one.
 """
+
 from __future__ import annotations
 
 import os
@@ -65,7 +66,9 @@ def test_a_completed_run_says_done(status):
 
 
 def test_a_cancelled_run_does_not_claim_to_have_finished(status):
-    status._on_tile_acquisition_progress(_terminal("cancelled", "Acquisition Cancelled"))
+    status._on_tile_acquisition_progress(
+        _terminal("cancelled", "Acquisition Cancelled")
+    )
     assert "Cancelled" in _text(status)
     assert "Done" not in _text(status)
 
@@ -73,7 +76,9 @@ def test_a_cancelled_run_does_not_claim_to_have_finished(status):
 def test_a_cancelled_run_is_not_painted_as_a_failure(status):
     """A cancel is someone getting what they asked for, so the bar does not go red —
     the distinction FIB-375 drew between a completed operation and a failed one."""
-    status._on_tile_acquisition_progress(_terminal("cancelled", "Acquisition Cancelled"))
+    status._on_tile_acquisition_progress(
+        _terminal("cancelled", "Acquisition Cancelled")
+    )
     assert not _is_red(status)
 
 

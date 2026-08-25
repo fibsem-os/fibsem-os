@@ -22,10 +22,13 @@ from fibsem.structures import (
 # compute_tile_grid
 # ---------------------------------------------------------------------------
 
+
 def _make_settings(nrows, ncols, hfw=100e-6, resolution=(1024, 1024), overlap=0.0):
     return OverviewAcquisitionSettings(
         image_settings=ImageSettings(resolution=resolution, hfw=hfw),
-        nrows=nrows, ncols=ncols, overlap=overlap,
+        nrows=nrows,
+        ncols=ncols,
+        overlap=overlap,
     )
 
 
@@ -66,7 +69,7 @@ def test_compute_tile_grid_dy_no_overlap():
     hfw = 100e-6
     s = _make_settings(3, 1, hfw=hfw, resolution=(1024, 1024), overlap=0.0)
     tiles = compute_tile_grid(s)
-    assert tiles[1].dy == pytest.approx(-hfw)   # row 1, one step down
+    assert tiles[1].dy == pytest.approx(-hfw)  # row 1, one step down
     assert tiles[2].dy == pytest.approx(-2 * hfw)
 
 
@@ -77,8 +80,8 @@ def test_compute_tile_grid_with_overlap():
     s = _make_settings(2, 2, hfw=hfw, overlap=overlap)
     tiles = compute_tile_grid(s)
     step = hfw * (1 - overlap)
-    assert tiles[1].dx == pytest.approx(step)    # col 1
-    assert tiles[2].dy == pytest.approx(-step)   # row 1 (index 2 in row-major for 2x2)
+    assert tiles[1].dx == pytest.approx(step)  # col 1
+    assert tiles[2].dy == pytest.approx(-step)  # row 1 (index 2 in row-major for 2x2)
 
 
 def test_compute_tile_grid_non_square_dy():
@@ -128,6 +131,7 @@ def test_compute_tile_grid_single_tile():
 # ---------------------------------------------------------------------------
 # order_tiles
 # ---------------------------------------------------------------------------
+
 
 def _grid_3x4():
     return compute_tile_grid(_make_settings(3, 4))
@@ -215,7 +219,15 @@ def test_order_tiles_spiral_same_set():
 
 def test_spiral_order_helper_3x3():
     assert _spiral_order(3, 3) == [
-        (1, 1), (1, 2), (2, 2), (2, 1), (2, 0), (1, 0), (0, 0), (0, 1), (0, 2)
+        (1, 1),
+        (1, 2),
+        (2, 2),
+        (2, 1),
+        (2, 0),
+        (1, 0),
+        (0, 0),
+        (0, 1),
+        (0, 2),
     ]
 
 
@@ -227,12 +239,17 @@ def test_spiral_order_helper_1x1():
 # plot_tile_positions
 # ---------------------------------------------------------------------------
 
+
 def test_plot_tile_positions_returns_figure():
     import matplotlib
+
     matplotlib.use("Agg")
     s = OverviewAcquisitionSettings(
         image_settings=ImageSettings(resolution=(1536, 1024), hfw=150e-6),
-        nrows=3, ncols=4, overlap=0.1, tile_order=TileOrderStrategy.SERPENTINE,
+        nrows=3,
+        ncols=4,
+        overlap=0.1,
+        tile_order=TileOrderStrategy.SERPENTINE,
     )
     tiles = order_tiles(compute_tile_grid(s), s.tile_order)
     fig = plot_tile_positions(tiles, s)
@@ -243,6 +260,7 @@ def test_plot_tile_positions_returns_figure():
 # validate_tile_stage_positions
 # ---------------------------------------------------------------------------
 
+
 def _make_limits(x_max=100e-3, y_max=100e-3):
     return {
         "x": RangeLimit(min=-x_max, max=x_max),
@@ -252,8 +270,10 @@ def _make_limits(x_max=100e-3, y_max=100e-3):
 
 def _make_pairs(positions_xy):
     """Build (TilePosition list, FibsemStagePosition list) from (x, y) tuples."""
-    tiles = [TilePosition(row=i, col=0, dx=0, dy=0, canvas_x=0, canvas_y=0)
-             for i in range(len(positions_xy))]
+    tiles = [
+        TilePosition(row=i, col=0, dx=0, dy=0, canvas_x=0, canvas_y=0)
+        for i in range(len(positions_xy))
+    ]
     stage_positions = [FibsemStagePosition(x=x, y=y) for x, y in positions_xy]
     return tiles, stage_positions
 
@@ -494,9 +514,7 @@ def test_the_grid_is_measured_from_the_centre_it_is_given(tmp_path):
     settings = _make_settings(1, 1)
     settings.image_settings.path = str(tmp_path)
     settings.image_settings.filename = "overview-image"
-    runner = TiledAcquisitionRunner(
-        microscope, settings, centre_position=elsewhere
-    )
+    runner = TiledAcquisitionRunner(microscope, settings, centre_position=elsewhere)
     runner._setup()
     runner._compute_grid()
 
@@ -616,9 +634,15 @@ def test_the_helper_asks_about_the_offsets_the_runner_projects(tmp_path, monkeyp
 def test_a_grid_within_the_travel_is_not_flagged():
     settings = _make_settings(3, 3, hfw=100e-6, resolution=(1024, 1024))
     tiles = compute_tile_grid(settings)
-    assert unreachable_tiles(
-        tiles, settings.tile_order, _identity_projection, _make_limits(150e-6, 150e-6)
-    ) == []
+    assert (
+        unreachable_tiles(
+            tiles,
+            settings.tile_order,
+            _identity_projection,
+            _make_limits(150e-6, 150e-6),
+        )
+        == []
+    )
 
 
 def test_masking_off_what_cannot_be_reached_makes_a_grid_acquirable():
@@ -641,17 +665,24 @@ def test_masking_off_what_cannot_be_reached_makes_a_grid_acquirable():
     assert sorted(flagged) == [(0, 2), (1, 2), (2, 2)]
 
     mask = [[True, True, False] for _ in range(3)]
-    assert unreachable_tiles(
-        compute_tile_grid(settings, mask=mask),
-        settings.tile_order,
-        _identity_projection,
-        limits,
-    ) == []
+    assert (
+        unreachable_tiles(
+            compute_tile_grid(settings, mask=mask),
+            settings.tile_order,
+            _identity_projection,
+            limits,
+        )
+        == []
+    )
 
 
 @pytest.mark.parametrize(
     "strategy",
-    [TileOrderStrategy.TYPEWRITER, TileOrderStrategy.SERPENTINE, TileOrderStrategy.SPIRAL],
+    [
+        TileOrderStrategy.TYPEWRITER,
+        TileOrderStrategy.SERPENTINE,
+        TileOrderStrategy.SPIRAL,
+    ],
 )
 def test_the_traversal_does_not_change_which_tiles_are_out_of_range(strategy):
     """Order decides the sequence, not the reach. Pinned because the check goes through
@@ -696,12 +727,15 @@ def test_a_grid_with_nothing_enabled_is_not_asked_about():
     "nothing is out of range" for it would be true and useless."""
     settings = _make_settings(2, 2)
     mask = [[False, False], [False, False]]
-    assert unreachable_tiles(
-        compute_tile_grid(settings, mask=mask),
-        settings.tile_order,
-        _identity_projection,
-        _make_limits(1e-9, 1e-9),
-    ) == []
+    assert (
+        unreachable_tiles(
+            compute_tile_grid(settings, mask=mask),
+            settings.tile_order,
+            _identity_projection,
+            _make_limits(1e-9, 1e-9),
+        )
+        == []
+    )
 
 
 def test_the_centring_comes_from_the_grid_it_is_given():
