@@ -504,6 +504,17 @@ class AutoLamellaTask(ABC):
             settings=settings,
             stop_event=self._stop_event,
         )
+        if result is None:
+            # run_auto_focus declined the sweep (the working distance is not settable
+            # for this beam on this backend -- TESCAN ION, see FIB-508). Say "skipped"
+            # and save nothing: a placeholder result would write a completed-looking
+            # artifact directory and log a working distance that was never applied.
+            self.log_status_message(
+                "AUTOFOCUS",
+                f"Autofocus skipped: the {beam_type.name} working distance is not settable on this system.",
+                f"Autofocus skipped ({beam_type.name})",
+            )
+            return
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         result.save(path=os.path.join(self.lamella.path, "autofunctions"), name=f"{self.task_name}_autofocus_{ts}")
         self.log_status_message(

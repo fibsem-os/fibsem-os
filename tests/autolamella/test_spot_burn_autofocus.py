@@ -201,3 +201,44 @@ def test_run_autofocus_lets_cancellation_propagate(tmp_path, monkeypatch):
         task._run_autofocus(BeamType.ION, hfw=150e-6)
 
     assert task._is_cancellation(OperationCancelledError("stopped")) is True
+
+
+# --- the None skip (FIB-508: backends that cannot set the working distance) --
+
+
+def test_run_autofocus_skips_cleanly_when_the_sweep_is_declined(tmp_path, monkeypatch):
+    """run_auto_focus returns None where the working distance is not settable
+    (TESCAN ION). The task must say "skipped" and save nothing — before the guard
+    this was an AttributeError on result.save, killing the task the first time a
+    Tescan protocol enabled autofocus. A placeholder result instead of None would
+    be worse: it would write a completed-looking artifact directory and log a
+    working distance that was never applied."""
+    import os
+
+    import fibsem.autofunctions.autofocus as af
+
+    task = _make_task(tmp_path, autofocus=True)
+    (tmp_path / "lam").mkdir(parents=True, exist_ok=True)
+    messages = []
+    task.log_status_message = lambda *a, **k: messages.append((a, k))
+    monkeypatch.setattr(af, "run_auto_focus", lambda microscope, **kwargs: None)
+
+    task._run_autofocus(BeamType.ION, hfw=150e-6)  # must not raise
+
+    assert any("skipped" in str(m).lower() for m in messages)
+    assert not os.path.exists(os.path.join(task.lamella.path, "autofunctions"))
+
+
+def test_run_autofocus_still_saves_when_the_sweep_ran(tmp_path, monkeypatch):
+    """The guard must not swallow real results: a returned result is still saved."""
+    import fibsem.autofunctions.autofocus as af
+
+    task = _make_task(tmp_path, autofocus=True)
+    (tmp_path / "lam").mkdir(parents=True, exist_ok=True)
+    task.log_status_message = lambda *a, **k: None
+    result = MagicMock(working_distance=16.5e-3, focus_score=1.0)
+    monkeypatch.setattr(af, "run_auto_focus", lambda microscope, **kwargs: result)
+
+    task._run_autofocus(BeamType.ION, hfw=150e-6)
+
+    result.save.assert_called_once()
