@@ -100,6 +100,7 @@ from fibsem.applications.autolamella.ui.autolamella_load_task_protocol_widget im
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import HookManager
 from fibsem.ui.fm.widgets import MinimapPlotWidget
+from fibsem.ui.widgets.canvas.log_panel import LogPanelWidget
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
 
@@ -214,6 +215,16 @@ class AutoLamellaUI(QMainWindow):
         self.minimap_plot_widget.setWindowFlags(Qt.Tool)
         self.minimap_plot_widget.setWindowTitle("Minimap Plot")
         self.minimap_plot_widget.hide()
+
+        # log widget — a floating tool window, hidden by default. Raw DEBUG/INFO
+        # logging is a power-user/diagnostic view, not something a normal user
+        # should see unasked; kept out of the always-visible quad grid for that
+        # reason (Patrick, 2026-08-25).
+        self.log_panel_widget = LogPanelWidget(self)
+        self.log_panel_widget.setWindowFlags(Qt.Tool)
+        self.log_panel_widget.setWindowTitle("Log")
+        self.log_panel_widget.resize(520, 380)
+        self.log_panel_widget.hide()
 
         # add widgets to tabs.
         #
@@ -589,8 +600,9 @@ class AutoLamellaUI(QMainWindow):
         # Assign the experiment
         self.experiment = experiment
 
-        experiment.configure_logging()
+        logfile = experiment.configure_logging()
         logging.info(f"Logging to experiment {experiment.name} at {experiment.path}")
+        self.log_panel_widget.set_log_path(logfile)
 
         # Setup experiment connections and update UI
         self._setup_experiment_connections()

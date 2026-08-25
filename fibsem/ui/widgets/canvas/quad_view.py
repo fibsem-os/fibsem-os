@@ -61,7 +61,6 @@ _logger = logging.getLogger(__name__)
 _TITLE_STYLE = (
     f"color: #888; font-size: 11px; padding: 2px 6px; background: {CANVAS_BG};"
 )
-_PLACEHOLDER_STYLE = "color: #777; font-size: 12px;"
 # Selected-view border: the primary accent (matches PRIMARY_BUTTON_STYLESHEET), kept subtle.
 # A transparent border of the same width is always present so selection causes no layout shift,
 # and it's scoped via the #viewPanel object name so it never cascades onto the title / canvas.
@@ -103,7 +102,7 @@ class PlaceholderPanel(QFrame):
         super().__init__()
         self.setStyleSheet(f"background: {_BG};")
         lbl = QLabel(text, alignment=Qt.AlignCenter)
-        lbl.setStyleSheet(_PLACEHOLDER_STYLE)
+        lbl.setStyleSheet("color: #777; font-size: 12px;")
         lay = QVBoxLayout(self)
         lay.addWidget(lbl)
 
