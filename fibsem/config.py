@@ -409,16 +409,6 @@ class FeatureFlags:
     # goes, and the geometry it rests on is only checkable against real data
     # (FIB-597). Staging, like the flag above -- deleted when it ships, not kept.
     sparse_fm_selection: bool = False
-    # The first-run guided setup: the callout on the connection tab, and Tools ->
-    # Guided Setup (FIB-740). A staging flag, like the two above, and it goes the same
-    # way -- deleted once the wizard is the route a new install takes, not kept as a
-    # preference.
-    #
-    # Off by default for a reason specific to this one: it is *offered* on first run,
-    # to someone who has no way to judge whether it is trustworthy yet, and it writes
-    # a configuration file plus two registry entries. Until it has had bench time on
-    # real instruments, that offer should be made deliberately rather than by default.
-    guided_setup_enabled: bool = False
 
 
 @dataclass

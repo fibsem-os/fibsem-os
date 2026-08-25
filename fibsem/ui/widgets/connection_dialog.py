@@ -207,17 +207,16 @@ class ConnectionDialog(QDialog):
         return frame
 
     def refresh_first_run_offer(self, preferences=None) -> None:
-        """Show the offer when the flag is on, nothing is configured, and it stands.
+        """Show the offer when nothing is configured yet and it has not been dismissed.
 
-        The same three conditions the Connection tab applied, and separate for the
-        same reason: the flag lives in the file whose absence means "fresh install",
-        so folding the first two together suppresses the offer it enables.
+        The same two conditions the Connection tab applied, and separate for the
+        same reason: dismissal must not be inferred from the file whose absence
+        means "fresh install".
         """
         if preferences is None:
             preferences = cfg.load_user_preferences()
         self.first_run_frame.setVisible(
-            preferences.features.guided_setup_enabled
-            and not preferences.display.guided_setup_dismissed
+            not preferences.display.guided_setup_dismissed
             and guided_setup.is_first_run()
         )
 

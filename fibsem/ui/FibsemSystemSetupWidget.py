@@ -164,11 +164,12 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         return frame
 
     def refresh_first_run_offer(self, preferences=None) -> None:
-        """Show the offer when the flag is on, nothing is configured, and it stands.
+        """Show the offer when nothing is configured yet and it has not been dismissed.
 
-        Three separate conditions on purpose. Folding the first two together is what
-        broke this the first time: the flag lived in the file whose absence meant
-        "fresh install", so turning the flag on suppressed the offer it enabled.
+        Two separate conditions on purpose. Folding them together is what broke this
+        the first time: dismissal used to be inferred from the same file whose
+        absence meant "fresh install", which made recording a dismissal look like an
+        undo of it.
 
         Takes the whole preferences object rather than a bool, so AutoLamella's
         `_apply_preferences` can pass the one it already holds. None reads them, for
@@ -177,8 +178,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         if preferences is None:
             preferences = cfg.load_user_preferences()
         self._frame_first_run.setVisible(
-            preferences.features.guided_setup_enabled
-            and not preferences.display.guided_setup_dismissed
+            not preferences.display.guided_setup_dismissed
             and guided_setup.is_first_run()
         )
 

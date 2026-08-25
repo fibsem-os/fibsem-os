@@ -805,30 +805,15 @@ def test_a_save_that_fails_leaves_the_dialog_open(dialog, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def _enable_flag(enabled: bool = True) -> None:
-    """Write the feature flag, as the preferences dialog would."""
-    preferences = cfg.load_user_preferences()
-    preferences.features.guided_setup_enabled = enabled
-    cfg.save_user_preferences(preferences)
-
-
 @pytest.fixture
 def connection_tab(qapp, isolated_state, monkeypatch):
-    """The connection tab with the flag on, since that is what most of these test.
-
-    Nothing is faked here any more. Enabling the flag writes the preferences file, and
-    that is now simply not the first-run signal -- which is the whole point of the fix.
-    The previous version of this fixture wrote the flag, deleted the file and
-    monkeypatched the reader to keep both true at once; that it had to invent a state
-    the disk cannot hold was the defect, showing up in the harness.
-    """
+    """The connection tab on a fresh install, since that is what most of these test."""
     pytest.importorskip("napari")
     from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 
     monkeypatch.setattr(
         "fibsem.ui.notification_service.show_toast", lambda *a, **k: None
     )
-    _enable_flag(True)
     widget = FibsemSystemSetupWidget()
     yield widget
     widget.deleteLater()
@@ -838,14 +823,14 @@ def test_the_offer_appears_on_a_fresh_install(connection_tab):
     assert not connection_tab._frame_first_run.isHidden()
 
 
-def test_turning_the_flag_on_does_not_suppress_the_offer(
+def test_writing_preferences_does_not_suppress_the_offer(
     qapp, isolated_state, monkeypatch
 ):
     """The defect this whole arrangement exists to prevent, at the widget.
 
-    The flag lives in the preferences file. When that file's absence was the first-run
-    signal, every route to enabling the flag -- the dialog, or writing the file by
-    hand -- also ended the first run, so the callout could not be reached at all.
+    Dismissal used to be inferred from the preferences file's absence, so any write to
+    that file -- for any preference -- also ended the first run, and the callout could
+    not be reached at all.
     """
     pytest.importorskip("napari")
     from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
@@ -853,7 +838,9 @@ def test_turning_the_flag_on_does_not_suppress_the_offer(
     monkeypatch.setattr(
         "fibsem.ui.notification_service.show_toast", lambda *a, **k: None
     )
-    _enable_flag(True)  # writes user-preferences.yaml, exactly as the dialog does
+    preferences = cfg.load_user_preferences()
+    preferences.display.sound_enabled = True
+    cfg.save_user_preferences(preferences)
     assert os.path.exists(cfg.USER_PREFERENCES_PATH)
 
     widget = FibsemSystemSetupWidget()
@@ -863,38 +850,7 @@ def test_turning_the_flag_on_does_not_suppress_the_offer(
         widget.deleteLater()
 
 
-def test_the_offer_is_behind_the_feature_flag(qapp, isolated_state, monkeypatch):
-    """A fresh install with the flag off is offered nothing.
-
-    The wizard writes a configuration file and two registry entries, and it is offered
-    to someone with no way yet to judge whether it is trustworthy. Until it has bench
-    time that offer is opt-in.
-    """
-    pytest.importorskip("napari")
-    from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
-
-    monkeypatch.setattr(
-        "fibsem.ui.notification_service.show_toast", lambda *a, **k: None
-    )
-    assert wizard.is_first_run()  # the offer has something to appear for
-    widget = FibsemSystemSetupWidget()
-    try:
-        assert widget._frame_first_run.isHidden()
-        # And it appears the moment the flag is turned on, without a restart.
-        preferences = cfg.load_user_preferences()
-        preferences.features.guided_setup_enabled = True
-        widget.refresh_first_run_offer(preferences)
-        assert not widget._frame_first_run.isHidden()
-        preferences.features.guided_setup_enabled = False
-        widget.refresh_first_run_offer(preferences)
-        assert widget._frame_first_run.isHidden()
-    finally:
-        widget.deleteLater()
-
-
-def test_a_dismissed_offer_stays_dismissed_with_the_flag_on(
-    qapp, isolated_state, monkeypatch
-):
+def test_a_dismissed_offer_stays_dismissed(qapp, isolated_state, monkeypatch):
     """Dismissal is its own answer, not a side effect of anything else."""
     pytest.importorskip("napari")
     from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
@@ -902,7 +858,6 @@ def test_a_dismissed_offer_stays_dismissed_with_the_flag_on(
     monkeypatch.setattr(
         "fibsem.ui.notification_service.show_toast", lambda *a, **k: None
     )
-    _enable_flag(True)
     wizard.dismiss_first_run()
 
     widget = FibsemSystemSetupWidget()
@@ -937,7 +892,6 @@ def test_the_offer_is_absent_once_a_configuration_is_registered(
     pytest.importorskip("napari")
     from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 
-    _enable_flag(True)
     cfg.register_configuration(
         path=cfg.MICROSCOPE_CONFIGURATION_PATH, configuration_name="Bay 2"
     )

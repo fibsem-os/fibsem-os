@@ -544,16 +544,15 @@ def test_first_run_is_the_absence_of_a_registered_configuration(isolated_registr
 def test_writing_preferences_does_not_end_the_first_run(isolated_registry):
     """The regression test for the defect that made the offer unreachable.
 
-    The feature flag that gates the offer lives in the preferences file. When that
-    file's absence *was* the first-run signal, turning the flag on created it and the
-    offer could never appear -- through the dialog or by hand, every route to enabling
-    it also suppressed it. Any signal a preference write can extinguish is the wrong
+    When dismissal *was* inferred from the preferences file's absence, any write to
+    that file -- for any preference, guided setup or otherwise -- looked the same as
+    dismissing the offer. Any signal a preference write can extinguish is the wrong
     signal for "nothing has been configured yet".
     """
     assert wizard.is_first_run()
 
     preferences = cfg.load_user_preferences()
-    preferences.features.guided_setup_enabled = True
+    preferences.display.sound_enabled = True
     cfg.save_user_preferences(preferences)
 
     assert os.path.exists(cfg.USER_PREFERENCES_PATH)
