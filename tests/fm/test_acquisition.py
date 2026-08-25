@@ -608,6 +608,65 @@ def test_acquire_image(fm_microscope):
     assert result.metadata.acquisition_date is not None
 
 
+def test_acquire_image_saves_and_names_the_description_from_the_filename(
+    fm_microscope, tmp_path
+):
+    """Passing `filename` writes the image and derives `description` from the name.
+
+    Both halves matter. `acquire_image` swallows everything the save block raises and
+    only logs it, so a break in there loses the image with no traceback and no
+    failing caller -- which is exactly how a Python 3.8 `AttributeError` on
+    `str.removesuffix` (3.9+) hid: it fired on the *first* line of the block, so the
+    file was never written at all. Asserting the file exists is what makes this a
+    regression test rather than a check of one assignment.
+    """
+    microscope = fm_microscope
+    channel = ChannelSettings(
+        name="GFP",
+        excitation_wavelength=488,
+        emission_wavelength=509,
+        power=0.2,
+        exposure_time=0.3,
+    )
+
+    filename = str(tmp_path / "lamella-01.ome.tiff")
+    result = acquire_image(
+        microscope=microscope.fm, channel_settings=channel, filename=filename
+    )
+
+    assert isinstance(result, FluorescenceImage)
+    assert result.metadata.description == "lamella-01"
+    assert result.metadata.filename == filename
+    # The save block ran all the way through, rather than being swallowed part-way.
+    assert os.path.exists(filename)
+
+
+def test_acquire_image_description_keeps_an_unrecognised_extension(
+    fm_microscope, tmp_path
+):
+    """Only `.ome.tiff` is stripped; anything else stays on the description.
+
+    Pins the narrow behaviour rather than "some suffix goes", so swapping the helper
+    for something greedier (`os.path.splitext`, say) fails here.
+    """
+    microscope = fm_microscope
+    channel = ChannelSettings(
+        name="GFP",
+        excitation_wavelength=488,
+        emission_wavelength=509,
+        power=0.2,
+        exposure_time=0.3,
+    )
+
+    filename = str(tmp_path / "lamella-01.tif")
+    result = acquire_image(
+        microscope=microscope.fm, channel_settings=channel, filename=filename
+    )
+
+    assert result.metadata.description == "lamella-01.tif"
+    assert os.path.exists(filename)
+
+
 def test_acquire_and_stitch_tileset(fm_microscope):
     """Test acquire_and_stitch_tileset auto-converts single channel to list."""
     microscope = fm_microscope
