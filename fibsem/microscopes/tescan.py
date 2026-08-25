@@ -840,79 +840,53 @@ class TescanMicroscope(FibsemMicroscope):
         beam_type: BeamType = BeamType.ELECTRON,
     ) -> FibsemStagePosition:
         """
-        Calculate the y corrected stage movement for a move along the sample plane,
-        corrected for the shuttle pre-tilt and the current stage tilt.
+        Calculate the stage command for a move along the sample plane, corrected for
+        the shuttle pre-tilt, the current stage tilt, and the viewing beam's
+        perspective.
 
-        Tescan stages have the z-axis BELOW the tilt axis: the y/z translation axes
-        are fixed in the chamber frame and do not rotate with stage tilt (unlike
-        ThermoFisher, where y/z ride on the tilt module and only the pre-tilt
-        appears in the decomposition). The sample-plane move must therefore be
-        decomposed using the full chamber-frame inclination of the sample.
-        See https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414 for the derivation.
+        Tescan stage axes (corrected 2026-08-25 from the 2026-07-22 session log): the
+        y-axis is mounted ON the tilt module -- a y command travels along the tilted
+        stage plate -- while z stays chamber-vertical (+z down, verified on hardware
+        2026-07-23). The axes are therefore non-orthogonal at tilt. The math lives in
+        reprojection.py (single source, shared with the image-metadata path and the
+        overview canvas). See
+        https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414
+        for the derivation, the sign chain, and the hardware evidence.
+
+        TODO(hardware-verify): the tilted-y model is corroborated (it reproduces the
+        observed 1.65x ion-view overshoot at the milling pose, which the previous
+        chamber-fixed model cannot produce at all) but awaits one confirming stable
+        move at tilt: the feature must land centred AND stay in focus, in both views.
 
         Args:
             expected_y (float): distance along the image y-axis.
             beam_type (BeamType, optional): beam perspective to correct for. Defaults to BeamType.ELECTRON.
 
         Returns:
-            FibsemStagePosition: relative stage movement in the chamber frame
-                (before the stage-axis inversion applied by the caller).
+            FibsemStagePosition: relative stage movement (before the stage-axis
+                inversion applied by the caller).
         """
-
-        # all angles in radians
-        sem_column_tilt = np.deg2rad(self.system.electron.column_tilt)
-        fib_column_tilt = np.deg2rad(self.system.ion.column_tilt)
-
-        stage_pretilt = np.deg2rad(self.system.stage.shuttle_pre_tilt)
-
-        stage_rotation_flat_to_eb = np.deg2rad(self.system.stage.rotation_reference) % (
-            2 * np.pi
-        )
-        stage_rotation_flat_to_ion = np.deg2rad(self.system.stage.rotation_180) % (
-            2 * np.pi
+        from fibsem.imaging.tiling.reprojection import (
+            _tescan_pose_angles,
+            y_corrected_stage_movement_tescan_from_geometry,
         )
 
-        # current stage position
+        geometry = self.hardware_geometry()
         current_stage_position = self.get_stage_position()
-        stage_rotation = current_stage_position.r % (2 * np.pi)
-        stage_tilt = current_stage_position.t
 
-        # pre-tilt sign flips when the stage is rotated 180 deg to face the ion beam
-        PRETILT_SIGN = 1.0
-        from fibsem import movement
-
-        if movement.rotation_angle_is_smaller(
-            stage_rotation, stage_rotation_flat_to_eb, atol=5
-        ):
-            PRETILT_SIGN = 1.0
-        if movement.rotation_angle_is_smaller(
-            stage_rotation, stage_rotation_flat_to_ion, atol=5
-        ):
-            PRETILT_SIGN = -1.0
-
-        corrected_pretilt_angle = PRETILT_SIGN * (stage_pretilt + sem_column_tilt)
-
-        # inclination of the sample plane relative to the chamber horizontal
-        # (sample is flat to the SEM when stage_tilt == corrected_pretilt_angle)
-        # TODO(hardware-verify): assumes positive stage tilt tips the sample
-        # toward the FIB (same sense as ThermoFisher). If opposite, negate stage_tilt here.
-        sample_inclination = stage_tilt - corrected_pretilt_angle
-
-        beam_tilt = (
-            sem_column_tilt if beam_type is BeamType.ELECTRON else fib_column_tilt
+        y_move, z_move = y_corrected_stage_movement_tescan_from_geometry(
+            geometry=geometry,
+            stage_position=current_stage_position,
+            expected_y=expected_y,
+            beam_type=beam_type,
         )
 
-        # perspective: image-projected dy -> true distance along the sample plane
-        y_sample_move = expected_y / np.cos(sample_inclination - beam_tilt)
-
-        # decompose the sample-plane move into the chamber-fixed stage axes
-        y_move = y_sample_move * np.cos(sample_inclination)
-        # Tescan +z increases DOWNWARD (away from the SEM column), opposite to Thermo
-        # RAW — hence the negation. Verified on hardware 2026-07-23: flipping the z
-        # sign alone corrected the coincidence move, while the tilt sense was already
-        # right. Keep _inverse_y_corrected_stage_movement's sin branch in sync.
-        z_move = -y_sample_move * np.sin(sample_inclination)
-
+        # the angle terms are logged so a session log alone can reconstruct the
+        # geometry the move was computed under (this is how the 2026-07-22 ion-view
+        # overshoot was diagnosed after the fact)
+        stage_tilt, corrected_pretilt_angle, sample_inclination = _tescan_pose_angles(
+            geometry, current_stage_position
+        )
         logging.debug(
             {
                 "msg": "_y_corrected_stage_movement",

@@ -17,6 +17,7 @@ agreements:
 Run directly:
     PYTHONPATH=$PWD python -m pytest tests/test_beam_stage_projection.py
 """
+
 from __future__ import annotations
 
 import itertools
@@ -40,7 +41,10 @@ from fibsem.structures import (
     ImageSettings,
 )
 
-SHAPE = (1024, 1536)  # (height, width) -- deliberately non-square, so an axis swap shows
+SHAPE = (
+    1024,
+    1536,
+)  # (height, width) -- deliberately non-square, so an axis swap shows
 PIXEL_SIZE = 2e-7
 
 
@@ -75,7 +79,9 @@ def _pose(microscope, *, compustage, pretilt_deg, rotation_deg, tilt_deg):
     microscope.system.stage.shuttle_pre_tilt = pretilt_deg
     microscope._update_orientations()
     position = FibsemStagePosition(
-        x=0.0, y=0.0, z=0.0,
+        x=0.0,
+        y=0.0,
+        z=0.0,
         r=np.deg2rad(rotation_deg),
         t=np.deg2rad(tilt_deg),
     )
@@ -132,12 +138,22 @@ class TestParityWithTheLiveMicroscope:
     @pytest.mark.parametrize("beam_type", BEAMS)
     @pytest.mark.parametrize("scan_rotation", SCAN_ROTATIONS)
     def test_the_inverse_matches_project_stable_move(
-        self, microscope, compustage, pretilt, rot, tilt, beam_type, scan_rotation,
+        self,
+        microscope,
+        compustage,
+        pretilt,
+        rot,
+        tilt,
+        beam_type,
+        scan_rotation,
         monkeypatch,
     ):
         base = _pose(
-            microscope, compustage=compustage, pretilt_deg=pretilt,
-            rotation_deg=rot, tilt_deg=tilt,
+            microscope,
+            compustage=compustage,
+            pretilt_deg=pretilt,
+            rotation_deg=rot,
+            tilt_deg=tilt,
         )
         monkeypatch.setattr(
             microscope, "get_scan_rotation", lambda beam_type: scan_rotation
@@ -175,7 +191,9 @@ class TestParityWithTheLiveMicroscope:
 
         monkeypatch.setattr(microscope, "get_scan_rotation", counting)
         projection = BeamStageProjection.from_microscope(microscope, BeamType.ELECTRON)
-        assert len(calls) == 1, "construction should read the scan rotation exactly once"
+        assert len(calls) == 1, (
+            "construction should read the scan rotation exactly once"
+        )
 
         base = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=0.0)
         for _ in range(20):
@@ -212,16 +230,30 @@ class TestParityWithTheTiledReprojection:
     @pytest.mark.parametrize("beam_type", BEAMS)
     @pytest.mark.parametrize("scan_rotation", SCAN_ROTATIONS)
     def test_the_forward_matches_the_tiled_reprojection(
-        self, microscope, compustage, pretilt, rot, tilt, beam_type, scan_rotation,
+        self,
+        microscope,
+        compustage,
+        pretilt,
+        rot,
+        tilt,
+        beam_type,
+        scan_rotation,
     ):
         base = _pose(
-            microscope, compustage=compustage, pretilt_deg=pretilt,
-            rotation_deg=rot, tilt_deg=tilt,
+            microscope,
+            compustage=compustage,
+            pretilt_deg=pretilt,
+            rotation_deg=rot,
+            tilt_deg=tilt,
         )
         image = self._image(microscope, base, beam_type, scan_rotation)
 
         target = FibsemStagePosition(
-            x=base.x + 120e-6, y=base.y - 45e-6, z=base.z + 8e-6, r=base.r, t=base.t,
+            x=base.x + 120e-6,
+            y=base.y - 45e-6,
+            z=base.z + 8e-6,
+            r=base.r,
+            t=base.t,
         )
         (point,) = reproject_stage_positions_onto_image2(image, [target])
         # The tiled function answers in pixels from the image corner; the projection
@@ -255,9 +287,7 @@ class TestParityWithTheTiledReprojection:
         from_image = BeamStageProjection.from_image(image)
         from_live = BeamStageProjection.from_microscope(microscope, BeamType.ELECTRON)
 
-        target = FibsemStagePosition(
-            x=100e-6, y=0.0, z=0.0, r=base.r, t=base.t
-        )
+        target = FibsemStagePosition(x=100e-6, y=0.0, z=0.0, r=base.r, t=base.t)
         assert from_image.to_plane(target, base)[0] == pytest.approx(100e-6)
         assert from_live.to_plane(target, base)[0] == pytest.approx(-100e-6), (
             "the live projection should have flipped -- otherwise this test proves nothing"
@@ -376,11 +406,21 @@ class TestRoundTrip:
     @pytest.mark.parametrize("beam_type", BEAMS)
     @pytest.mark.parametrize("scan_rotation", SCAN_ROTATIONS)
     def test_a_position_survives_a_round_trip(
-        self, microscope, compustage, pretilt, rot, tilt, beam_type, scan_rotation,
+        self,
+        microscope,
+        compustage,
+        pretilt,
+        rot,
+        tilt,
+        beam_type,
+        scan_rotation,
     ):
         base = _pose(
-            microscope, compustage=compustage, pretilt_deg=pretilt,
-            rotation_deg=rot, tilt_deg=tilt,
+            microscope,
+            compustage=compustage,
+            pretilt_deg=pretilt,
+            rotation_deg=rot,
+            tilt_deg=tilt,
         )
         projection = BeamStageProjection(
             geometry=_geometry(microscope, compustage),
@@ -398,18 +438,21 @@ class TestRoundTrip:
     @pytest.mark.parametrize("tilt_deg", TESCAN_TILTS)
     def test_tescan_survives_a_round_trip_too(self, beam_type, tilt_deg):
         """Tescan gets its own case because it is a genuinely different derivation --
-        z below the tilt axis, and stage x inverted against image x -- so it shares
-        none of the arithmetic the cases above exercise.
+        the y-axis rides the tilt module while z stays chamber-vertical, and stage x
+        is inverted against image x -- so it shares none of the arithmetic the cases
+        above exercise.
 
         Built from an explicit geometry rather than the shared microscope fixture. That
         fixture is module-scoped and every pose test mutates its pre-tilt and
         orientations, so a Tescan case reading it was really testing whatever the
-        previous parameter left behind -- which is how it ended up at a sample
-        inclination past 45 degrees, where `test_the_chamber_frame_inversion_is_pinned`
-        explains this round trip goes blind.
+        previous parameter left behind -- which is how it ended up at a pose where the
+        inverse's z branch made the round trip blind to the y sign
+        (`test_the_chamber_frame_inversion_is_pinned` explains).
         """
         projection = BeamStageProjection(
-            geometry=_TESCAN_GEOMETRY, beam_type=beam_type, scan_rotation=0.0,
+            geometry=_TESCAN_GEOMETRY,
+            beam_type=beam_type,
+            scan_rotation=0.0,
             is_tescan=True,
         )
         base = FibsemStagePosition(
@@ -423,26 +466,28 @@ class TestRoundTrip:
 
     @pytest.mark.parametrize("tilt_deg", TESCAN_TILTS)
     def test_the_chamber_frame_inversion_is_pinned(self, tilt_deg):
-        """`stable_move` inverts stage y against the chamber frame; assert it directly.
+        """`stable_move` inverts stage y against the stage frame; assert it directly.
 
         A round trip cannot be trusted to catch this. The Tescan inverse recovers the
-        sample-plane move from whichever of dy/dz is the larger component, so once the
-        sample inclination passes 45 degrees it reads **dz alone** and never looks at
-        dy -- at which point flipping the y sign changes nothing that comes back, and
-        the round-trip test passes over a projection that would drive the stage the
-        wrong way. Verified: this assertion fails under that flip at every tilt here,
-        while the round trip above only fails below 45 degrees.
+        sample-plane move from whichever forward component is better conditioned (y
+        carries cos(inclination), z carries sin(pretilt)); whenever the z branch is
+        selected it never looks at dy -- at which point flipping the y sign changes
+        nothing that comes back, and the round-trip test passes over a projection
+        that would drive the stage the wrong way. Pinning the inversion directly is
+        immune to the branch choice.
         """
         projection = BeamStageProjection(
-            geometry=_TESCAN_GEOMETRY, beam_type=BeamType.ELECTRON, scan_rotation=0.0,
+            geometry=_TESCAN_GEOMETRY,
+            beam_type=BeamType.ELECTRON,
+            scan_rotation=0.0,
             is_tescan=True,
         )
-        base = FibsemStagePosition(
-            x=0.0, y=0.0, z=0.0, r=0.0, t=np.deg2rad(tilt_deg)
-        )
+        base = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=np.deg2rad(tilt_deg))
         # The canvas plane's y runs down, so this is +30 um in the microscope's image y.
         y_chamber, z_chamber = y_corrected_stage_movement_tescan_from_geometry(
-            geometry=_TESCAN_GEOMETRY, stage_position=base, expected_y=30e-6,
+            geometry=_TESCAN_GEOMETRY,
+            stage_position=base,
+            expected_y=30e-6,
             beam_type=BeamType.ELECTRON,
         )
 
@@ -566,6 +611,8 @@ class TestSurfaceForeshortening:
         )
         projection = BeamStageProjection(
             geometry=_geometry(microscope, compustage=False),
-            beam_type=BeamType.ELECTRON, scan_rotation=0.0, is_tescan=False,
+            beam_type=BeamType.ELECTRON,
+            scan_rotation=0.0,
+            is_tescan=False,
         )
         assert surface_foreshortening(projection, base) == pytest.approx(1.0, abs=1e-6)
