@@ -490,6 +490,57 @@ def y_corrected_stage_movement_tescan_from_geometry(
     return float(y_move), float(z_move)
 
 
+def coincident_from_sem_stage_movement_tescan_from_geometry(
+    geometry: FibsemHardwareGeometry,
+    stage_position: FibsemStagePosition,
+    dy: float,
+) -> Tuple[float, float]:
+    """Tescan coincidence correction from the SEM view — the single source of the math.
+
+    The SEM-view mirror of ``vertical_move``: slide the sample along the FIB line
+    of sight, which is invisible in the FIB image, until the offset seen in the
+    SEM closes. A feature already positioned in the FIB view therefore lands on
+    both beam axes at once — at the coincidence point. Both gestures move the
+    sample by dy/sin(angle between the two axes), symmetric in the two
+    directions.
+
+    The FIB axis is chamber-fixed, so the sample plane — and with it the shuttle
+    pre-tilt — cancels out of this move entirely; only the stage tilt (the
+    y-axis rides the tilt module) and the column tilts appear:
+
+        y_move = dy * sin(fib) / (cos(tilt) * sin(fib - sem))
+        z_move = dy * cos(fib - tilt) / (cos(tilt) * sin(fib - sem))
+
+    which for a vertical SEM column (sem = 0) reduces to y = dy/cos(tilt),
+    z = dy*(tan(tilt) + cot(fib)). See
+    https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414
+    for the derivation, the figures, and how the signs are pinned by the two
+    hardware-verified moves.
+
+    Args:
+        geometry: fixed instrument geometry (only the column tilts are used —
+            the pre-tilt and rotation references drop out of this move).
+        stage_position: stage pose (tilt t, radians).
+        dy: offset along the image y-axis in the SEM view, in metres.
+
+    Returns:
+        (y_move, z_move) in metres — before the stage-axis inversion the caller
+        applies (``y_stage = -y_move``, z unchanged), the same convention as
+        :func:`y_corrected_stage_movement_tescan_from_geometry`.
+    """
+    stage_tilt = stage_position.t if stage_position.t is not None else 0.0
+    sem_column_tilt = np.deg2rad(geometry.column_tilt)
+    fib_column_tilt = np.deg2rad(geometry.fib_column_tilt)
+
+    # distance along the FIB axis that closes a SEM-view offset of dy: one
+    # beam axis, seen from the other, is foreshortened by sin(angle between them)
+    axis_move = dy / np.sin(fib_column_tilt - sem_column_tilt)
+
+    y_move = axis_move * np.sin(fib_column_tilt) / np.cos(stage_tilt)
+    z_move = axis_move * np.cos(fib_column_tilt - stage_tilt) / np.cos(stage_tilt)
+    return float(y_move), float(z_move)
+
+
 def inverse_y_corrected_stage_movement_tescan_from_geometry(
     geometry: FibsemHardwareGeometry,
     stage_position: FibsemStagePosition,

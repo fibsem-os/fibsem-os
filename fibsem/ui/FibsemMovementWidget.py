@@ -584,8 +584,8 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         )
 
         # refuse rather than silently fall through to stable_move below: on backends
-        # without move_coincident_from_sem (e.g. TESCAN) the operator would ask to
-        # restore coincidence and get a sample-plane move instead
+        # without move_coincident_from_sem (e.g. the simulator) the operator would
+        # ask to restore coincidence and get a sample-plane move instead
         if (
             beam_type is BeamType.ELECTRON
             and vertical_move

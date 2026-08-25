@@ -834,6 +834,62 @@ class TescanMicroscope(FibsemMicroscope):
         logging.info(f"vertical movement: {z_move}")
         self.move_stage_relative(z_move)
 
+    def move_coincident_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
+        """Correct the coincidence point from the SEM view.
+
+        The SEM-view mirror of vertical_move: the stage slides along the FIB
+        line of sight, which is invisible in the FIB image, until the clicked
+        feature is centred in the SEM. A feature already positioned in the FIB
+        view (e.g. just milled, or just corrected with vertical_move) therefore
+        lands on both beam axes at once -- at the coincidence point. The math
+        lives in reprojection.py (single source); the sample plane, and with it
+        the shuttle pre-tilt, cancels out of this move, so only the stage tilt
+        and the column tilts appear. See
+        https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414
+        for the derivation and figures.
+
+        TODO(hardware-verify): acceptance test -- Alt-double-click a feature in
+        the SEM view: it must land centred in the SEM image and must NOT move at
+        all in the FIB image (any FIB-image jump means a sign or term error).
+        Small focus shifts in both views are inherent to the move.
+
+        Args:
+            dx (float): distance along the image x-axis (SEM view), in metres.
+            dy (float): distance along the image y-axis (SEM view), in metres.
+        """
+        from fibsem.imaging.tiling.reprojection import (
+            coincident_from_sem_stage_movement_tescan_from_geometry,
+        )
+
+        # adjust for scan rotation (radians, codebase convention)
+        scan_rotation = self.get_scan_rotation(BeamType.ELECTRON)
+        if np.isclose(scan_rotation, np.pi):
+            dx *= -1.0
+            dy *= -1.0
+
+        y_move, z_move = coincident_from_sem_stage_movement_tescan_from_geometry(
+            geometry=self.hardware_geometry(),
+            stage_position=self.get_stage_position(),
+            dy=dy,
+        )
+
+        # same empirical x/y stage-axis inversion as stable_move (see there);
+        # z is commanded as computed (+z is down).
+        stage_position = FibsemStagePosition(x=-dx, y=-y_move, z=z_move, r=0, t=0)
+        logging.info(f"coincident move from SEM: {stage_position}")
+        self.move_stage_relative(stage_position)
+
+        logging.debug(
+            {
+                "msg": "move_coincident_from_sem",
+                "dx": dx,
+                "dy": dy,
+                "scan_rotation": scan_rotation,
+                "position": stage_position.to_dict(),
+            }
+        )
+        return self.get_stage_position()
+
     def _y_corrected_stage_movement(
         self,
         expected_y: float,
