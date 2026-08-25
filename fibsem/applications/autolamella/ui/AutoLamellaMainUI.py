@@ -536,6 +536,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_show_minimap.setCheckable(True)
         self.action_show_minimap.setChecked(False)
         self.action_show_minimap.triggered.connect(self._on_toggle_minimap_widget)
+        # Hidden pending rework of the minimap widget itself.
+        self.action_show_minimap.setVisible(False)
 
         layer_controls_menu = view_menu.addMenu("Show Layer Controls")
 
@@ -1041,12 +1043,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         PluginsDialog(parent=self).exec_()
 
     def _on_toggle_minimap_widget(self, checked: bool):
-        """Toggle the minimap plot dock widget visibility."""
+        """Toggle the minimap plot widget visibility."""
         if self.autolamella_ui is not None and hasattr(
-            self.autolamella_ui, "minimap_plot_dock"
+            self.autolamella_ui, "minimap_plot_widget"
         ):
-            self.autolamella_ui.minimap_plot_dock.setVisible(checked)
-            self.autolamella_ui.minimap_plot_dock.activateWindow()
+            self.autolamella_ui.minimap_plot_widget.setVisible(checked)
+            self.autolamella_ui.minimap_plot_widget.activateWindow()
 
     def _sync_view_menu(self) -> None:
         """Refresh the View menu's dynamic state right before it opens: reflect whether a
