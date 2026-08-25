@@ -20,6 +20,10 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QLabel
 
+from fibsem.fm.progress import (
+    FluorescenceAcquisitionProgress,
+    FluorescenceAcquisitionStatus,
+)
 from fibsem.fm.structures import (
     AutoFocusMode,
     ChannelSettings,
@@ -363,6 +367,11 @@ def _fm_preview(
     )
 
 
+def _fm_report(status, **fields):
+    """A report on the detector's own signal -- the *within-tile* scale."""
+    return FluorescenceAcquisitionProgress(status=status, **fields)
+
+
 class _Router:
     """The routing half of FMOverviewWidget, without needing a microscope."""
 
@@ -373,11 +382,8 @@ class _Router:
 
     _apply_tile_progress = FMOverviewWidget._apply_tile_progress
     _apply_fm_progress = FMOverviewWidget._apply_fm_progress
-    # The typed path the dict one is heading for (FIB-401), borrowed the same way.
-    _apply_typed_fm_progress = FMOverviewWidget._apply_typed_fm_progress
-    _typed_tile_detail_update = staticmethod(FMOverviewWidget._typed_tile_detail_update)
+    _tile_detail_update = staticmethod(FMOverviewWidget._tile_detail_update)
     _DETAIL_STATUSES = FMOverviewWidget._DETAIL_STATUSES
-    _tile_detail_update = FMOverviewWidget._tile_detail_update
     _STATUS_LABELS = FMOverviewWidget._STATUS_LABELS
 
     def _show_preview(self, preview):
@@ -409,13 +415,12 @@ def test_a_zstack_payload_moves_only_the_detail_bar(qapp):
     router = _Router()
 
     router._apply_fm_progress(
-        {
-            "state": "acquiring",
-            "operation": "z-stack",
-            "channel": "GFP",
-            "zlevel": 7,
-            "total_zlevels": 21,
-        }
+        _fm_report(
+            FluorescenceAcquisitionStatus.ACQUIRING_ZSTACK,
+            channel="GFP",
+            zlevel=7,
+            total_zlevels=21,
+        )
     )
 
     assert "z-stack" in _bar(router.progress_tile_detail).format()
@@ -431,13 +436,12 @@ def test_a_channels_payload_drives_the_detail_bar_too(qapp):
     router = _Router()
 
     router._apply_fm_progress(
-        {
-            "state": "acquiring",
-            "operation": "channels",
-            "channel": "RFP",
-            "channel_index": 2,
-            "total_channels": 3,
-        }
+        _fm_report(
+            FluorescenceAcquisitionStatus.ACQUIRING_CHANNELS,
+            channel="RFP",
+            channel_index=2,
+            total_channels=3,
+        )
     )
 
     assert "RFP" in _bar(router.progress_tile_detail).format()
@@ -453,13 +457,12 @@ def test_a_completed_tile_leaves_the_detail_bar_alone(qapp):
     anyway, so the stale count is never seen."""
     router = _Router()
     router._apply_fm_progress(
-        {
-            "state": "acquiring",
-            "operation": "z-stack",
-            "channel": "GFP",
-            "zlevel": 21,
-            "total_zlevels": 21,
-        }
+        _fm_report(
+            FluorescenceAcquisitionStatus.ACQUIRING_ZSTACK,
+            channel="GFP",
+            zlevel=21,
+            total_zlevels=21,
+        )
     )
 
     router._apply_tile_progress(_fm(TiledStatus.TILE_COLLECTED, completed=1, total=9))
@@ -467,18 +470,20 @@ def test_a_completed_tile_leaves_the_detail_bar_alone(qapp):
     assert router.progress_tile_detail.isVisible()
 
 
-def test_an_unknown_task_moves_nothing(qapp):
+def test_a_state_this_bar_cannot_render_moves_nothing(qapp):
     """The detector reports whatever it is doing, tileset or not.
 
-    A workflow task driving the FM while this tab is open emits its own task name, and
-    `finished` arrives with no task at all. Neither describes the tile being taken.
+    `FINISHED` describes the acquisition ending rather than progress within it, so it is
+    dropped rather than drawn as a bar with nothing in it. The free-form task names that
+    used to arrive here are gone -- step 1 of FIB-401 deleted the workflow emits -- so a
+    closed enum is now the whole vocabulary and there is no "unknown task" left to test.
     """
     router = _Router()
 
-    router._apply_fm_progress({"state": "acquiring", "operation": "something-else"})
-    router._apply_fm_progress({"state": "finished"})
+    router._apply_fm_progress(_fm_report(FluorescenceAcquisitionStatus.FINISHED))
 
     assert not router.progress_tiles.isVisible()
+    assert not router.progress_tile_detail.isVisible()
     assert not router.progress_tile_detail.isVisible()
 
 
@@ -5299,13 +5304,12 @@ def test_an_fm_payload_reaches_the_real_widget(qapp, overview_widget):
     """
     widget = overview_widget
     widget.fm.acquisition_progress_signal.emit(
-        {
-            "state": "acquiring",
-            "operation": "z-stack",
-            "channel": "GFP",
-            "zlevel": 7,
-            "total_zlevels": 21,
-        }
+        _fm_report(
+            FluorescenceAcquisitionStatus.ACQUIRING_ZSTACK,
+            channel="GFP",
+            zlevel=7,
+            total_zlevels=21,
+        )
     )
     qapp.processEvents()
 
@@ -5926,12 +5930,6 @@ def test_a_typed_preview_without_a_position_still_draws(qapp):
 # The detector's own signal, which drives the *within-tile* bar -- a different scale from
 # the tileset progress above, and a different signal. Nothing emits a typed report yet;
 # the dict tests above are what proves that path has not moved.
-
-
-def _fm_report(status, **fields):
-    from fibsem.fm.progress import FluorescenceAcquisitionProgress
-
-    return FluorescenceAcquisitionProgress(status=status, **fields)
 
 
 def test_a_typed_zstack_report_counts_planes_on_the_detail_bar(qapp):

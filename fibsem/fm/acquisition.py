@@ -12,6 +12,10 @@ from fibsem import utils
 from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
 from fibsem.fm.calibration import run_coarse_fine_autofocus
 from fibsem.fm.microscope import FluorescenceMicroscope
+from fibsem.fm.progress import (
+    FluorescenceAcquisitionProgress,
+    FluorescenceAcquisitionStatus,
+)
 from fibsem.fm.structures import (
     AutoFocusMode,
     AutoFocusSettings,
@@ -62,13 +66,12 @@ def acquire_channels(
         # multi-channel acquisition was silent, so anything watching progress within a
         # tile had nothing to show unless a z-stack happened to be enabled.
         microscope.acquisition_progress_signal.emit(
-            {
-                "state": "acquiring",
-                "operation": "channels",
-                "channel": channel.name,
-                "channel_index": i + 1,
-                "total_channels": len(channel_settings),
-            }
+            FluorescenceAcquisitionProgress(
+                status=FluorescenceAcquisitionStatus.ACQUIRING_CHANNELS,
+                channel=channel.name,
+                channel_index=i + 1,
+                total_channels=len(channel_settings),
+            )
         )
 
         # Check for cancellation before each channel
@@ -117,15 +120,14 @@ def acquire_z_stack(
                 ch_images: List[FluorescenceImage] = []
                 for i, ch in enumerate(channel_settings):
                     microscope.acquisition_progress_signal.emit(
-                        {
-                            "state": "acquiring",
-                            "operation": "z-stack",
-                            "channel": ch.name,
-                            "channel_index": i + 1,
-                            "total_channels": len(channel_settings),
-                            "zlevel": j + 1,
-                            "total_zlevels": len(z_positions),
-                        }
+                        FluorescenceAcquisitionProgress(
+                            status=FluorescenceAcquisitionStatus.ACQUIRING_ZSTACK,
+                            channel=ch.name,
+                            channel_index=i + 1,
+                            total_channels=len(channel_settings),
+                            zlevel=j + 1,
+                            total_zlevels=len(z_positions),
+                        )
                     )
                     if stop_event and stop_event.is_set():
                         logging.info(
@@ -153,15 +155,14 @@ def acquire_z_stack(
                 ch_images = []
                 for j, z in enumerate(z_positions):
                     microscope.acquisition_progress_signal.emit(
-                        {
-                            "state": "acquiring",
-                            "operation": "z-stack",
-                            "channel": ch.name,
-                            "channel_index": i + 1,
-                            "total_channels": len(channel_settings),
-                            "zlevel": j + 1,
-                            "total_zlevels": len(z_positions),
-                        }
+                        FluorescenceAcquisitionProgress(
+                            status=FluorescenceAcquisitionStatus.ACQUIRING_ZSTACK,
+                            channel=ch.name,
+                            channel_index=i + 1,
+                            total_channels=len(channel_settings),
+                            zlevel=j + 1,
+                            total_zlevels=len(z_positions),
+                        )
                     )
                     if stop_event and stop_event.is_set():
                         logging.info("Z-stack acquisition cancelled during z-stack")
@@ -223,7 +224,9 @@ def acquire_image(
         except Exception as e:
             logging.error(f"Failed to save image to {filename}: {e}")
 
-    microscope.acquisition_progress_signal.emit({"state": "finished"})
+    microscope.acquisition_progress_signal.emit(
+        FluorescenceAcquisitionProgress(status=FluorescenceAcquisitionStatus.FINISHED)
+    )
 
     return image
 

@@ -516,11 +516,12 @@ class FMControlWidget(QWidget):
         self._update_acquisition_button_states()
 
     @ensure_main_thread
-    def _apply_typed_progress(self, report: "FluorescenceAcquisitionProgress") -> None:
-        """The typed form of `_on_acquisition_progress` (FIB-401).
+    def _on_acquisition_progress(
+        self, report: "FluorescenceAcquisitionProgress"
+    ) -> None:
+        """Update progress bars on acquisition signal.
 
-        Not reached until the producers flip. Two branches the dict form carried are
-        absent rather than ported:
+        Two branches the dict form carried are absent rather than ported:
 
         * `state == "moving"` -- nothing has emitted a stage move on this signal since
           the workflow emits were deleted in step 1 of this issue. The two remaining
@@ -579,84 +580,6 @@ class FMControlWidget(QWidget):
                 label = f"Focus {report.zlevel}/{report.total_zlevels}{which}"
             else:
                 label = f"Z-level {report.zlevel}/{report.total_zlevels}"
-            self.progressBar_current_acquisition.setFormat(label)
-
-    def _on_acquisition_progress(self, progress: dict):
-        """Update progress bars on acquisition signal.
-
-        Dicts only -- a typed report goes to `_apply_typed_progress` above. The two sit
-        side by side until the producers flip (FIB-401).
-        """
-        from fibsem.fm.progress import FluorescenceAcquisitionProgress
-
-        if isinstance(progress, FluorescenceAcquisitionProgress):
-            self._apply_typed_progress(progress)
-            return
-
-        # Show progress bar when acquisition progress is updated
-        if not self.progressBar_current_acquisition.isVisible():
-            self.progressBar_current_acquisition.show()
-        if not self.progressText.isVisible():
-            self.progressText.show()
-
-        progress_zlevels = progress.get("zlevel", None)
-        progress_total_zlevels = progress.get("total_zlevels", None)
-        channel_name = progress.get("channel", None)
-        progress_state = progress.get("state", None)
-        progress_operation = progress.get("operation", None)
-
-        if progress_state == "moving":
-            self.progressText.setText("Moving stage...")
-            self.progressBar_current_acquisition.setValue(0)
-            self.progressBar_current_acquisition.setFormat("")
-
-        if progress_state == "autofocus":
-            self.progressText.setText("Running Autofocus...")
-            self.progressBar_current_acquisition.setValue(0)
-            self.progressBar_current_acquisition.setFormat("")
-
-        if progress_state == "finished":
-            self.progressBar_current_acquisition.hide()
-            self.progressText.setText("Acquisition complete.")
-            self.progressText.hide()
-            return
-
-        # set progress message
-        if progress_operation == "autofocus":
-            # Handled before the channel branch, not inside it: a sweep with no channel
-            # reports an empty name, which used to render "Acquiring  (1/1)..." and now
-            # would leave the previous message sitting there instead.
-            self.progressText.setText(
-                f"Focusing on {channel_name}..." if channel_name else "Focusing..."
-            )
-        elif channel_name:
-            channel_index = progress.get("channel_index", 1)
-            total_channels = progress.get("total_channels", 1)
-            msg = f"Acquiring {channel_name} ({channel_index}/{total_channels})..."
-            self.progressText.setText(msg)
-
-        # set individual image acquisition progress bar
-        if progress_zlevels and progress_total_zlevels:
-            percentage_zlevel = (
-                int((progress_zlevels / progress_total_zlevels) * 100)
-                if progress_total_zlevels > 0
-                else 0
-            )
-            self.progressBar_current_acquisition.setValue(percentage_zlevel)
-            if progress_operation == "autofocus":
-                # A focus sweep steps the objective through a search range. Calling
-                # those positions "Z-level" names the z-stack, which is not running --
-                # and says which pass, so a coarse sweep followed by a fine one does
-                # not look like the same bar inexplicably starting over.
-                total_passes = progress.get("total_passes", 1)
-                which = (
-                    f" · pass {progress.get('pass_index', 1)}/{total_passes}"
-                    if total_passes > 1
-                    else ""
-                )
-                label = f"Focus {progress_zlevels}/{progress_total_zlevels}{which}"
-            else:
-                label = f"Z-level {progress_zlevels}/{progress_total_zlevels}"
             self.progressBar_current_acquisition.setFormat(label)
 
     @ensure_main_thread
