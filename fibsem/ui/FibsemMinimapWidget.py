@@ -48,7 +48,12 @@ from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
 )
 from fibsem.conversions import is_inside_image_bounds
 from fibsem.imaging import tiled
-from fibsem.imaging.tiling.progress import MODALITY_BEAM, is_modality
+from fibsem.imaging.tiling.progress import (
+    MODALITY_BEAM,
+    TiledProgress,
+    TiledStatus,
+    is_modality,
+)
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import FibsemMillingStage
 from fibsem.structures import (
@@ -680,6 +685,65 @@ class FibsemMinimapWidget(QWidget):
             }
             self._acquisition_finished.emit(result)
 
+    # What this tab calls each state of a run. Its own table rather than a shared one:
+    # the words belong to whoever is showing them, and this bar is read while watching
+    # the acquisition it describes -- the status bar in the main window is read from
+    # another tab entirely and says something shorter (FIB-402).
+    #
+    # Only the states a beam run actually reaches. `.get` with a fallback, so a state
+    # this table has not been taught degrades to a generic label rather than a KeyError
+    # inside a Qt slot.
+    _STATUS_LABELS = {
+        TiledStatus.STARTING: "Computing Tile Positions",
+        TiledStatus.MOVING: "Moving Stage",
+        TiledStatus.TILE_STARTED: "Acquiring",
+        TiledStatus.TILE_COLLECTED: "Tile Collected",
+        TiledStatus.TILES_ACQUIRED: "Tiles Acquired",
+        TiledStatus.STITCHING: "Stitching Tiles",
+        TiledStatus.SAVING: "Saving",
+        TiledStatus.FINISHED: "Done",
+        TiledStatus.CANCELLED: "Acquisition Cancelled",
+        TiledStatus.FAILED: "Acquisition Failed",
+    }
+
+    def _apply_tile_progress(self, event: TiledProgress) -> None:
+        """The typed form of `handle_tile_acquisition_progress` (FIB-402).
+
+        Not reached yet: the producers still emit dicts, and this runs only once
+        `imaging.tiled` flips. It is written and tested now so that the flip is a
+        change to one producer rather than to a producer and three consumers at once.
+
+        `total` is guarded because it is a divisor: a run reporting nothing to do would
+        take the bar out with a `ZeroDivisionError`. Nothing is drawn for a report that
+        cannot say how far along it is, which leaves the last real progress standing --
+        true, rather than reset to zero.
+        """
+        if event.modality != MODALITY_BEAM:
+            # Beam runs only. This tab drives a beam overview and assigns the mosaic
+            # straight into its napari layer, so a fluorescence run reaching here would
+            # be drawn into the beam minimap (FIB-725).
+            return
+
+        if event.completed is not None and event.total:
+            self._tiles_acquired = event.completed
+            self._tile_total_count = event.total
+
+            label = self._STATUS_LABELS.get(event.status, "Acquiring")
+            self.progressBar_acquisition.setMaximum(100)
+            self.progressBar_acquisition.setValue(
+                int(event.completed / event.total * 100)
+            )
+            self.progressBar_acquisition.setFormat(
+                f"{label} — {event.completed}/{event.total} tiles (%p%)"
+            )
+
+        if event.preview is not None:
+            # `.data`, so this tab shows the decimated mosaic rather than the live
+            # full-resolution canvas it used to be handed. Deliberate: a preview is a
+            # preview, this tab is being retired, and the array it was given before was
+            # the one the acquisition thread was still writing into.
+            self.update_viewer(event.preview.data, tmp=True)
+
     @ensure_main_thread
     def handle_tile_acquisition_progress(self, ddict: dict) -> None:
         """Callback for handling the tile acquisition progress.
@@ -701,7 +765,16 @@ class FibsemMinimapWidget(QWidget):
         straight into its napari layer, so a fluorescence run reaching here would be
         drawn into the beam minimap -- and the fluorescence preview is keyed `image`
         already, deliberately, to match this signal (FIB-725).
+
+        Dicts only. A typed `TiledProgress` goes to `_apply_tile_progress` above, which
+        is where this method is heading -- the two paths sit side by side until the
+        producers flip, so that the dict path this branch guards is provably the one
+        still running (FIB-402).
         """
+        if isinstance(ddict, TiledProgress):
+            self._apply_tile_progress(ddict)
+            return
+
         if not is_modality(ddict, MODALITY_BEAM):
             return
 

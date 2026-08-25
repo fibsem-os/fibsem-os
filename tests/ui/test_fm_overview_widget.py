@@ -322,9 +322,17 @@ class _Router:
     _apply_tile_progress = FMOverviewWidget._apply_tile_progress
     _apply_fm_progress = FMOverviewWidget._apply_fm_progress
     _tile_detail_update = FMOverviewWidget._tile_detail_update
+    # The typed path the dict one is heading for (FIB-402), borrowed the same way.
+    _apply_tiled_progress = FMOverviewWidget._apply_tiled_progress
+    _STATUS_LABELS = FMOverviewWidget._STATUS_LABELS
+    _FINISH_STATES = FMOverviewWidget._FINISH_STATES
 
     def _show_preview(self, payload):
         pass
+
+    def _show_typed_preview(self, preview):
+        self.previews = getattr(self, "previews", [])
+        self.previews.append(preview)
 
     def _finish(self, state, error):
         self.finished = (state, error)
@@ -5710,3 +5718,250 @@ def test_the_fm_tab_finishes_the_drag_when_the_overlay_says_so(qapp, grid_of):
         widget.canvas.set_world_extent = original
 
     assert calls, "drag_finished is not wired to anything on this tab"
+
+
+# ── the typed contract (FIB-402) ─────────────────────────────────────────────
+#
+# Nothing emits a `TiledProgress` yet. The dict tests above are what proves that path
+# has not moved; these drive the typed path directly, so the producer flip is a change
+# to the producers alone.
+
+
+def _fm(status, **fields):
+    from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE, TiledProgress
+
+    fields.setdefault("modality", MODALITY_FLUORESCENCE)
+    return TiledProgress(status=status, **fields)
+
+
+def _fm_preview(channels=("DAPI", "GFP"), size=4, pixel_size=2e-7, position=None):
+    """A fluorescence preview carrying everything needed to place it.
+
+    Which is the point of the type: pixel size with the decimation already folded in,
+    the stage position the run was centred on, and the channels with their colours.
+    """
+    import numpy as np
+
+    from fibsem.fm.structures import (
+        FluorescenceChannelMetadata,
+        FluorescenceImage,
+        FluorescenceImageMetadata,
+    )
+
+    return FluorescenceImage(
+        data=np.zeros((len(channels), size, size), dtype=np.uint16),
+        metadata=FluorescenceImageMetadata(
+            acquisition_date="2026-08-25T09:00:00",
+            pixel_size_x=pixel_size,
+            pixel_size_y=pixel_size,
+            stage_position=position,
+            channels=[
+                FluorescenceChannelMetadata(
+                    name=name,
+                    excitation_wavelength=488.0,
+                    power=0.5,
+                    exposure_time=0.1,
+                    gain=1.0,
+                    offset=0.0,
+                    color="cyan" if index == 0 else "magenta",
+                )
+                for index, name in enumerate(channels)
+            ],
+        ),
+    )
+
+
+def test_a_typed_tile_report_moves_only_the_tile_bar(qapp):
+    from fibsem.imaging.tiling.progress import TiledStatus
+
+    router = _Router()
+
+    router._apply_tile_progress(_fm(TiledStatus.TILE_COLLECTED, completed=4, total=9))
+
+    assert (
+        _bar(router.progress_tiles).value(),
+        _bar(router.progress_tiles).maximum(),
+    ) == (4, 9)
+    assert not router.progress_tile_detail.isVisible()
+
+
+def test_a_typed_beam_report_is_ignored_entirely(qapp):
+    """The two tilers write into different canvases and different bars, so the modality
+    is checked before anything else — terminal states included (FIB-725)."""
+    from fibsem.imaging.tiling.progress import MODALITY_BEAM, TiledStatus
+
+    router = _Router()
+
+    router._apply_tile_progress(
+        _fm(TiledStatus.FINISHED, modality=MODALITY_BEAM, completed=9, total=9)
+    )
+
+    assert not hasattr(router, "finished")
+    assert _bar(router.progress_tiles).maximum() != 9
+
+
+def test_a_typed_stage_move_labels_rather_than_filling_the_bar(qapp):
+    """`indeterminate` paints a *full* bar with a spinner, so every stage move looked
+    like the run had just completed. The count stays; the state goes to the label."""
+    from fibsem.imaging.tiling.progress import TiledStatus
+
+    router = _Router()
+    router._apply_tile_progress(_fm(TiledStatus.TILE_COLLECTED, completed=4, total=9))
+
+    router._apply_tile_progress(_fm(TiledStatus.MOVING))
+
+    assert router.status.text() == "Moving stage…"
+    assert (
+        _bar(router.progress_tiles).value(),
+        _bar(router.progress_tiles).maximum(),
+    ) == (4, 9)
+
+
+def test_a_typed_state_with_nothing_to_say_clears_the_label(qapp):
+    """`TILES_ACQUIRED` is a real transition with no wording of its own — the label the
+    stage move put up has to come down rather than sit there through the stitch."""
+    from fibsem.imaging.tiling.progress import TiledStatus
+
+    router = _Router()
+    router._apply_tile_progress(_fm(TiledStatus.MOVING))
+    assert router.status.text() == "Moving stage…"
+
+    router._apply_tile_progress(_fm(TiledStatus.TILES_ACQUIRED))
+
+    assert router.status.text() == ""
+
+
+def test_a_typed_tile_announcement_does_not_move_the_bar(qapp):
+    """Emitted *before* the tile, so a count taken from it is always one short — a bar
+    driven off it stopped at 3/4 for a whole four-tile run (FIB-736)."""
+    from fibsem.imaging.tiling.progress import TiledStatus
+
+    router = _Router()
+    router._apply_tile_progress(_fm(TiledStatus.TILE_COLLECTED, completed=4, total=9))
+
+    router._apply_tile_progress(
+        _fm(TiledStatus.TILE_STARTED, row_index=1, column_index=2, rows=3, columns=3)
+    )
+
+    assert (
+        _bar(router.progress_tiles).value(),
+        _bar(router.progress_tiles).maximum(),
+    ) == (4, 9)
+
+
+@pytest.mark.parametrize(
+    "status, expected",
+    [
+        ("FINISHED", "overview-finished"),
+        ("CANCELLED", "overview-cancelled"),
+        ("FAILED", "overview-failed"),
+    ],
+)
+def test_every_typed_terminal_state_finishes_the_run(qapp, status, expected):
+    """`_finish` is this widget's only exit path: it swaps the preview for the stitch,
+    clears the worker and re-enables the tab. A terminal state that misses it leaves the
+    FM unusable for the rest of the session with nothing on screen to say why."""
+    from fibsem.imaging.tiling.progress import TiledStatus
+
+    router = _Router()
+
+    router._apply_tile_progress(
+        _fm(getattr(TiledStatus, status), error="why" if status == "FAILED" else None)
+    )
+
+    assert router.finished == (expected, "why" if status == "FAILED" else None)
+
+
+def test_a_typed_preview_is_drawn_once_per_completed_tile(qapp):
+    from fibsem.imaging.tiling.progress import TiledStatus
+
+    router = _Router()
+    preview = _fm_preview()
+
+    router._apply_tile_progress(
+        _fm(TiledStatus.TILE_COLLECTED, completed=1, total=9, preview=preview)
+    )
+
+    assert router.previews == [preview]
+
+
+class _FakeCanvas:
+    def __init__(self):
+        self.composite_key = None
+        self.placement = None
+        self.pixel_size = None
+        self.retained = None
+        self.channels = None
+
+    def set_composite_key(self, key):
+        self.composite_key = key
+
+    def set_placement(self, offset):
+        self.placement = offset
+
+    def set_pixel_size(self, size):
+        self.pixel_size = size
+
+    def retain_channels(self, names):
+        self.retained = list(names)
+
+    def set_channels(self, channels):
+        self.channels = list(channels)
+
+
+class _PreviewHost:
+    """Only what `_show_typed_preview` is allowed to touch.
+
+    Deliberately missing `_runner`, `_projection` and `channels`. The dict version read
+    all three; if the typed one still reaches for any of them it raises `AttributeError`
+    into the method's own `except`, the canvas is never touched, and the assertions
+    below fail. That absence is the test.
+    """
+
+    _show_typed_preview = FMOverviewWidget._show_typed_preview
+
+    def __init__(self):
+        self.canvas = _FakeCanvas()
+        self.offsets = []
+
+    def _offset_from_origin(self, position):
+        self.offsets.append(position)
+        return (1.0, 2.0)
+
+
+def test_a_typed_preview_places_itself_from_its_own_metadata(qapp):
+    """Where, at what scale, and which channels — all off the preview.
+
+    The dict form took the centre from `self._runner`, the pixel size from
+    `self._projection().pixel_size * stride`, and the channels from the widget. The
+    middle one reads the camera under an `active_channel()` scope once a tile *during*
+    a run, so the display was taking the shared channel from the acquisition using it.
+    """
+    from fibsem.structures import FibsemStagePosition
+    from fibsem.ui.fm.widgets.fm_overview_widget import PREVIEW_KEY
+
+    host = _PreviewHost()
+    position = FibsemStagePosition(x=1e-3, y=2e-3, z=0.0)
+
+    host._show_typed_preview(_fm_preview(pixel_size=2e-7, position=position))
+
+    assert host.canvas.composite_key == PREVIEW_KEY
+    assert host.offsets == [position]
+    assert host.canvas.placement == (1.0, 2.0)
+    # Already stride-scaled by the producer: no multiply on this side.
+    assert host.canvas.pixel_size == 2e-7
+    assert host.canvas.retained == ["DAPI", "GFP"]
+    assert [name for name, _, _ in host.canvas.channels] == ["DAPI", "GFP"]
+    assert [colour for _, _, colour in host.canvas.channels] == ["cyan", "magenta"]
+
+
+def test_a_typed_preview_without_a_position_still_draws(qapp):
+    """A run that could not resolve a centre lands at the origin rather than not at
+    all — the same fallback the dict form had."""
+    host = _PreviewHost()
+
+    host._show_typed_preview(_fm_preview(position=None))
+
+    assert host.offsets == []
+    assert host.canvas.placement == (0.0, 0.0)
+    assert host.canvas.channels is not None

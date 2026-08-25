@@ -65,7 +65,12 @@ from fibsem.fm.composite import auto_clim
 from fibsem.imaging import tiled
 from fibsem.imaging.reduce import downsample, downsample_mask
 from fibsem.imaging.tiling import unreachable_tiles
-from fibsem.imaging.tiling.progress import MODALITY_BEAM, is_modality
+from fibsem.imaging.tiling.progress import (
+    MODALITY_BEAM,
+    TiledProgress,
+    TiledStatus,
+    is_modality,
+)
 from fibsem.microscope import FibsemMicroscope
 from fibsem.projection import BeamStageProjection
 from fibsem.structures import (
@@ -527,7 +532,10 @@ class FibsemOverviewWidget(QWidget):
     # synchronously on whichever thread emitted -- during a run, the acquisition
     # worker. Touching widgets from there is a cross-thread GUI access; re-emitting as
     # a Qt signal gets it queued onto the GUI thread, because this widget lives there.
-    _progress_received = pyqtSignal(dict)
+    # `object`, not `dict`: this carries a dict today and a `TiledProgress` once the
+    # producers flip (FIB-402). Both marshal to `PyQt_PyObject` either way, so widening
+    # it changes nothing at the Qt level -- it just stops the declaration lying.
+    _progress_received = pyqtSignal(object)
     _stage_moved = pyqtSignal(object)
     _acquisition_finished = pyqtSignal(dict)
 
@@ -3109,8 +3117,56 @@ class FibsemOverviewWidget(QWidget):
         """Called by psygnal, on whichever thread emitted. Touches no widgets."""
         self._progress_received.emit(payload)
 
+    # This tab's own words for each state of a run, for the same reason the minimap has
+    # its own: the words belong to whoever shows them (FIB-402).
+    _STATUS_LABELS = {
+        TiledStatus.STARTING: "Computing Tile Positions",
+        TiledStatus.MOVING: "Moving Stage",
+        TiledStatus.TILE_STARTED: "Acquiring",
+        TiledStatus.TILE_COLLECTED: "Tile Collected",
+        TiledStatus.TILES_ACQUIRED: "Tiles Acquired",
+        TiledStatus.STITCHING: "Stitching Tiles",
+        TiledStatus.SAVING: "Saving",
+        TiledStatus.FINISHED: "Done",
+        TiledStatus.CANCELLED: "Acquisition Cancelled",
+        TiledStatus.FAILED: "Acquisition Failed",
+    }
+
+    def _apply_tiled_progress(self, event: TiledProgress) -> None:
+        """The typed form of `_apply_progress` (FIB-402).
+
+        Not reached until `imaging.tiled` flips; written and tested now so that the flip
+        touches one producer rather than a producer and three consumers at once.
+        """
+        if event.modality != MODALITY_BEAM:
+            # Beam runs only: this widget places the mosaic on its own canvas and counts
+            # the tiles into its own record, so a fluorescence run reaching here would be
+            # drawn as one of this tab's overviews (FIB-725).
+            return
+
+        if event.completed is not None and event.total:
+            self._tiles_acquired = event.completed
+            self.progress.update_progress(
+                ProgressUpdate.numeric(
+                    current=event.completed,
+                    total=event.total,
+                    message=self._STATUS_LABELS.get(event.status, "Acquiring"),
+                )
+            )
+
+        record = self._records.get(getattr(self, "_active_record", None) or "")
+        if event.preview is not None and record is not None:
+            self._show_preview(event.preview)
+            # The row says how many tiles this run has, and it says it while the run is
+            # going -- a row reading "0 tiles" beside a filling mosaic is the list
+            # contradicting the canvas.
+            if event.completed:
+                record.tiles = event.completed
+                record.pixel_size = self._pixel_size_of(event.preview)
+                self._refresh_overview_list()
+
     @ensure_main_thread
-    @pyqtSlot(dict)
+    @pyqtSlot(object)
     def _apply_progress(self, payload: dict) -> None:
         """Runs on the GUI thread, queued via `_progress_received`.
 
@@ -3120,7 +3176,14 @@ class FibsemOverviewWidget(QWidget):
         Beam runs only. This widget places the payload's mosaic on its own canvas and
         counts the tiles into its own record, so a fluorescence run reaching here would
         be drawn as one of this tab's overviews (FIB-725).
+
+        Dicts only -- a typed `TiledProgress` is handed to `_apply_tiled_progress`
+        above. The two paths sit side by side until the producers flip (FIB-402).
         """
+        if isinstance(payload, TiledProgress):
+            self._apply_tiled_progress(payload)
+            return
+
         if not is_modality(payload, MODALITY_BEAM):
             return
 
