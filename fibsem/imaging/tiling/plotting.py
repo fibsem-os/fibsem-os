@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 from typing import Dict, List, Optional, Tuple
 
-import matplotlib.patheffects as path_effects
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.figure import Figure
@@ -58,6 +57,54 @@ _AUTO_FIGURE_WIDTH_IN = 10.0
 
 # Clear space between a marker's edge and its label, in points.
 _LABEL_GAP_POINTS = 6.0
+
+# What a marker's label sits on. A chip, rather than the black outline it replaces, for
+# one reason that decides it: an outline only *partly* darkens what is behind the glyphs,
+# so the contrast still depends on the image. One overview holds bright ice and black
+# vacuum, and cyan-over-ice stayed marginal however thick the stroke was drawn. A chip
+# fixes the ground, so the contrast is chosen once and holds everywhere on the page. It
+# also stops the outline thickening the letterforms, which at 8-9pt was most of why the
+# old labels looked crude.
+#
+# The values are the real-space canvas's, not new ones: `RulerOverlay` labels a point on
+# the image with exactly this -- `round,pad=0.3` on `CANVAS_BG`, a 0.8pt edge in the
+# artist's own colour, alpha 0.8 -- and `FibsemCanvasBase` gives its title the same chip
+# without the edge. The exported map is the canvas on paper, so it should be the same
+# object. The ruler's alpha rather than the title's 0.55 because the ruler is the sibling
+# that sits *on the image*, where what is behind the chip is not known in advance.
+#
+# Literals rather than an import of `fibsem.ui.stylesheets.CANVAS_BG`, for the reason
+# given above `DEFECT_FAILURE_COLOUR`: importing anything from `fibsem.ui` drags in Qt,
+# and this module has to render from a workflow hook and on CI. Keep them in step by
+# hand. `dict(...)` the chip at the call site -- matplotlib keeps a reference to the dict
+# it is handed, and two annotations sharing one is a bug waiting to be written.
+_LABEL_CHIP_PAD = 0.3
+_LABEL_CHIP = {
+    "boxstyle": f"round,pad={_LABEL_CHIP_PAD}",
+    "facecolor": "#1e2124",  # CANVAS_BG
+    "alpha": 0.8,
+    "edgecolor": "none",
+    "linewidth": 0.8,
+}
+
+# The description under a name: smaller, and the canvas's text-on-a-dark-panel grey
+# rather than the marker's colour. On this figure colour means one thing -- what a human
+# flagged -- and a description repeating it turns a grid of unflagged lamellae into a
+# wall of cyan with nothing standing out.
+_SUB_LABEL_SCALE = 0.7
+_MIN_LABEL_POINTS = 6.0
+_SUB_LABEL_COLOUR = "#e8e8e8"
+
+# How the scalebar is drawn, again the canvas's own: white on a `CANVAS_BG` panel at 0.6,
+# and 8pt rather than matplotlib's 10pt default, which is large against everything else
+# on the figure (FIB-583). This was black-on-white, which is the one combination that
+# cannot be mistaken for part of the canvas.
+_SCALEBAR = {
+    "color": "white",
+    "box_color": "#1e2124",  # CANVAS_BG
+    "box_alpha": 0.6,
+    "font_properties": {"size": 8},
+}
 
 # How near an edge a marker must be before its label is placed on the other side of it.
 # A fraction of the image rather than a pixel count, because overviews differ by orders
@@ -146,15 +193,25 @@ def _draw_position_label(
     The two are drawn as separate artists rather than one two-line string so the
     description can be smaller, and they are stacked so that the block reads downwards
     from the name wherever :func:`_label_placement` put it.
+
+    Each sits on its own chip -- see :data:`_LABEL_CHIP` for why that beats the outline
+    it replaces.
+
+    Once they are chips rather than bare text the gap between them has to be *derived*
+    from the chip geometry rather than picked. The literal it replaces happens to abut at
+    the sizes in use today, but it does not track the padding: raising
+    :data:`_LABEL_CHIP_PAD` from 0.25 to 0.7 moves the two chips from touching to 13px of
+    overlap, because the boxes grow and the gap does not. Half of each chip's height is
+    the value that keeps them meeting whatever the padding and the sub-size become.
     """
     (dx, dy), ha, va = _label_placement(x, y, image_shape, marker_half_points)
 
-    # A halo, rather than the transparency it replaces. A single overview holds bright
-    # ice and black vacuum, and text at alpha 0.75 was hard to read on both.
-    halo = [path_effects.withStroke(linewidth=2.0, foreground="black", alpha=0.7)]
-
-    line_gap = fontsize + 2.0
-    sub_size = max(6.0, fontsize * 0.7)
+    sub_size = max(_MIN_LABEL_POINTS, fontsize * _SUB_LABEL_SCALE)
+    # Half of each chip's height, so their edges meet. A chip is the text's own height
+    # plus its padding above and below, which is what the `1 + 2 * pad` is.
+    line_gap = (
+        fontsize * (1 + 2 * _LABEL_CHIP_PAD) + sub_size * (1 + 2 * _LABEL_CHIP_PAD)
+    ) / 2.0
 
     # Above the marker, the name goes on top and the description sits between it and the
     # marker; below the marker, the order is the other way up. Either way the name is the
@@ -165,6 +222,12 @@ def _draw_position_label(
     else:
         name_dy, sub_dy = dy, dy
 
+    # The name's chip is ringed in the marker's own colour, which is what ties a label
+    # to the crosshair it belongs to when several sit close together -- and is what
+    # `RulerOverlay` does with `edgecolor=self._color`. The description's is not: two
+    # abutting chips with different edges read as two objects, and the ring on the block
+    # as a whole is the name's.
+    name_chip = dict(_LABEL_CHIP, edgecolor=colour)
     ax.annotate(
         label,
         xy=(x, y),
@@ -174,7 +237,7 @@ def _draw_position_label(
         color=colour,
         ha=ha,
         va=va,
-        path_effects=halo,
+        bbox=name_chip,
         annotation_clip=False,
     )
 
@@ -185,10 +248,13 @@ def _draw_position_label(
             xytext=(dx, sub_dy),
             textcoords="offset points",
             fontsize=sub_size,
-            color=colour,
+            # Neutral, not the marker's colour. On this figure colour means one thing --
+            # what a human flagged -- and a description repeating it makes a grid of
+            # unflagged lamellae into a wall of cyan with nothing standing out.
+            color=_SUB_LABEL_COLOUR,
             ha=ha,
             va=va,
-            path_effects=halo,
+            bbox=dict(_LABEL_CHIP),
             annotation_clip=False,
         )
 
@@ -589,10 +655,8 @@ def plot_minimap(
             ax.add_artist(
                 ScaleBar(
                     dx=image.metadata.pixel_size.x,
-                    color="black",
-                    box_color="white",
-                    box_alpha=0.5,
                     location="lower right",
+                    **_SCALEBAR,
                 )
             )
         except Exception as e:
@@ -793,10 +857,8 @@ def plot_overview_composite(
             ax.add_artist(
                 ScaleBar(
                     dx=reference.metadata.pixel_size.x,
-                    color="black",
-                    box_color="white",
-                    box_alpha=0.6,
                     location="lower right",
+                    **_SCALEBAR,
                 )
             )
         except Exception as e:
