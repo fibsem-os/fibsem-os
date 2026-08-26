@@ -34,9 +34,9 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         self.microscope: Optional[FibsemMicroscope] = None
         self.settings: Optional[MicroscopeSettings] = None
         # Why the last attempt failed, or None if the last thing that happened was not
-        # a failure. Held rather than only toasted: toasts are off by default
-        # (`display.toasts_enabled`), so a toast alone turns the crash this guards
-        # against into silence, which is not much of an improvement.
+        # a failure. Held rather than only toasted: a toast is gone in five seconds,
+        # and the reason a connection failed is exactly what the status card should
+        # keep showing until the next attempt.
         self._last_connection_error: Optional[str] = None
 
         # grid layout

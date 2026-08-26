@@ -7,8 +7,8 @@ tab, because five of the six paths that start a stage move start it from somewhe
 else, and a message on a hidden tab is one nobody reads. The info bar sits beside the
 canvas that was clicked and is visible from every tab.
 
-They are invisible today because ``display.toasts_enabled`` defaults to False. This is
-what has to be true before that default can change.
+Toasts show unconditionally (FIB-781), so this is what keeps a single click from
+producing four popups.
 """
 
 from __future__ import annotations
