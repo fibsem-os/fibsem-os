@@ -1273,13 +1273,21 @@ class TescanMicroscope(FibsemMicroscope):
         if mill_settings.milling_channel is not BeamType.ION:
             raise ValueError("Only FIB milling is currently supported.")
 
-        # fail before touching the hardware: TESCAN milling is preset-driven, so a
-        # stage without a preset has no beam conditions -- inheriting whatever
-        # preset happens to be active would be silent condition-dependence
-        if mill_settings.preset is None:
+        # TESCAN milling is preset-driven, so a stage without a preset has no beam
+        # conditions. Resolve stage preset -> system-config default -> hard error
+        # (before touching the hardware): stock protocols carry no preset, so they
+        # mill at the preset the site chose in its machine config, while inheriting
+        # whatever preset happens to be active would be silent condition-dependence.
+        preset = mill_settings.preset or self.system.milling.preset
+        if preset is None:
             raise ValueError(
-                "The milling stage has no preset. TESCAN milling is preset-driven: "
-                "choose a preset in the milling settings before milling."
+                "The milling stage has no preset and the system configuration "
+                "defines no default milling preset. TESCAN milling is "
+                "preset-driven: choose a preset in the milling settings."
+            )
+        if mill_settings.preset is None:
+            logging.info(
+                f"Milling stage has no preset; using the system default {preset!r}."
             )
 
         self._prepare_beam(mill_settings.milling_channel)
@@ -1299,7 +1307,7 @@ class TescanMicroscope(FibsemMicroscope):
             )
 
         self.set(
-            "preset", mill_settings.preset, BeamType.ION
+            "preset", preset, BeamType.ION
         )  # QUERY: do we need to set this here as it is also set in IEtching?
 
         layer_settings = IEtching(
@@ -1310,7 +1318,7 @@ class TescanMicroscope(FibsemMicroscope):
             rate=mill_settings.rate,
             dwellTime=mill_settings.dwell_time,
             parallel=bool(mill_settings.patterning_mode == "Parallel"),
-            preset=mill_settings.preset,
+            preset=preset,
             spacing=mill_settings.spacing,
         )
 

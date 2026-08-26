@@ -2124,6 +2124,12 @@ class SystemSettings:
     gis: GISSystemSettings
     info: SystemInfo
     sim: Dict[str, Union[str, bool]] = field(default_factory=dict)
+    # Per-system milling defaults from the machine config's `milling:` block (e.g.
+    # the site's default TESCAN milling preset). A read-only convenience copy so
+    # the drivers -- which only receive SystemSettings -- can reach it; the block's
+    # canonical home stays MicroscopeSettings.milling, so to_dict deliberately does
+    # not emit it (MicroscopeSettings.to_dict would otherwise carry it twice).
+    milling: FibsemMillingSettings = field(default_factory=FibsemMillingSettings)
 
     def to_dict(self):
         return {
@@ -2151,6 +2157,9 @@ class SystemSettings:
             gis=GISSystemSettings.from_dict(settings["gis"]),
             info=SystemInfo.from_dict(settings["info"]),
             sim=settings.get("sim", {}),
+            milling=FibsemMillingSettings.from_dict(settings["milling"])
+            if settings.get("milling")
+            else FibsemMillingSettings(),
         )
 
 

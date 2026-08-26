@@ -8,14 +8,19 @@ No hardware or Tescan SDK required: the microscope object is created without __i
 connection is stubbed, and the SDK names the driver imports are monkeypatched in.
 """
 
+import os
 import threading
 from typing import List, Optional
 
 import pytest
 
+import fibsem.config as cfg
+from fibsem import utils
 from fibsem.microscopes import tescan as tescan_module
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import BeamType, FibsemMillingSettings
+
+TESCAN_CONFIG_PATH = os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
 
 
 class FakeDrawBeam:
@@ -38,17 +43,28 @@ class FakeConnection:
         self.DrawBeam = FakeDrawBeam(unload_error)
 
 
-def make_microscope(monkeypatch, current_preset="30 keV; 20 pA", unload_error=None):
+def make_microscope(
+    monkeypatch,
+    current_preset="30 keV; 20 pA",
+    unload_error=None,
+    system_default_preset: Optional[str] = "30 keV; 1nA",
+):
     """Create a TescanMicroscope with the SDK and connection stubbed out.
 
     finish_milling restores the preset through the base set_preset() -> set("preset"),
     so preset changes are captured in state["set_calls"] rather than a raw SDK call.
     state["fail_preset"] arms a failure on the next set("preset") to simulate the restore
     step raising while leaving setup's own preset set intact.
+
+    ``system_default_preset`` is the machine config's default milling preset, which
+    setup_milling falls back to for a stage without one; None models a config that
+    defines no default.
     """
     microscope = object.__new__(TescanMicroscope)
     microscope._connection_lock = threading.RLock()
     microscope.connection = FakeConnection(unload_error)
+    microscope.system = utils.load_microscope_configuration(TESCAN_CONFIG_PATH).system
+    microscope.system.milling.preset = system_default_preset
     microscope.milling_channel = BeamType.ION
     microscope._preset_before_milling = None
     microscope._prepare_beam = lambda beam_type: None
@@ -228,14 +244,34 @@ def test_setup_milling_rejects_electron_channel(monkeypatch):
         m.setup_milling(FibsemMillingSettings(milling_channel=BeamType.ELECTRON))
 
 
-def test_setup_milling_refuses_a_stage_without_a_preset(monkeypatch):
+def test_setup_milling_refuses_when_no_preset_anywhere(monkeypatch):
     """TESCAN milling is preset-driven: a stage with preset=None (the field default)
-    is a hard error before anything reaches the hardware -- inheriting whatever
-    preset is active would be silent condition-dependence."""
-    m = make_microscope(monkeypatch)
+    on a system whose config defines no default either is a hard error before
+    anything reaches the hardware -- inheriting whatever preset is active would be
+    silent condition-dependence."""
+    m = make_microscope(monkeypatch, system_default_preset=None)
 
     with pytest.raises(ValueError, match="preset"):
         m.setup_milling(FibsemMillingSettings(preset=None))
 
     assert m.connection.DrawBeam.calls == []
     assert m._test_state["set_calls"] == []
+
+
+def test_setup_milling_falls_back_to_the_system_default_preset(monkeypatch):
+    """A stage without a preset (stock protocols carry none) mills at the machine
+    config's default milling preset, so default protocols work out of the box."""
+    m = make_microscope(monkeypatch, system_default_preset="30 keV; 1nA")
+
+    m.setup_milling(FibsemMillingSettings(preset=None))
+
+    assert ("preset", "30 keV; 1nA") in m._test_state["set_calls"]
+
+
+def test_setup_milling_stage_preset_wins_over_the_system_default(monkeypatch):
+    m = make_microscope(monkeypatch, system_default_preset="30 keV; 1nA")
+
+    m.setup_milling(FibsemMillingSettings(preset="30 keV; 100 pA"))
+
+    assert ("preset", "30 keV; 100 pA") in m._test_state["set_calls"]
+    assert ("preset", "30 keV; 1nA") not in m._test_state["set_calls"]

@@ -59,4 +59,4 @@ milling:
     rate:                       1.3e-08                     # the cryo ion etching rate         (TESCAN)          [m3/A/s]  [USER]
     spacing:                    0.005                       # the cryo exposition mesh spacing  (TESCAN)      [dimensionless][USER]
     spot_size:                  1.0e-06                     # the cryo milling spot size        (TESCAN)            [metres][USER]
-    preset:                     "30 keV; 20 nA"             # the default milling preset        (TESCAN)                    [USER]
+    preset:                     "30 keV; 1nA"               # the default milling preset        (TESCAN)                    [USER]
