@@ -71,9 +71,6 @@ if (
 from psygnal import EmissionInfo
 from superqt import ensure_main_thread
 
-# Paired with the disabled completion_summary hook in setup_hooks; FunctionHook and
-# HookEvent come back from fibsem.hooks below at the same time.
-# from fibsem.applications.autolamella.tools.artifacts import write_completion_summary
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.hook_defaults import build_hook_manager
@@ -88,6 +85,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
+from fibsem.applications.autolamella.tools.artifacts import write_handoff_map
 from fibsem.applications.autolamella.ui.autolamella_create_experiment_widget import (
     create_experiment_dialog,
 )
@@ -98,7 +96,7 @@ from fibsem.applications.autolamella.ui.autolamella_load_task_protocol_widget im
     load_task_protocol_dialog,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
-from fibsem.hooks import HookManager
+from fibsem.hooks import FunctionHook, HookEvent, HookManager
 from fibsem.ui.fm.widgets import MinimapPlotWidget
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
@@ -1068,35 +1066,38 @@ class AutoLamellaUI(QMainWindow):
         preferences = fibsem_cfg.load_user_preferences()
         manager = build_hook_manager(preferences.hooks)
 
-        # Deliberately not registered yet. The trigger is proven end to end and the
-        # writer is tested, but completion-summary.json is a placeholder for the real
-        # artifacts (the PDF and the overview PNG), and turning it on here would start
-        # writing a throwaway file into every user's lamella directories. Re-enable when
-        # the artifact is the one people actually want -- see FIB-461. Three imports at
-        # the top of this file come back with it: write_completion_summary, and
-        # FunctionHook + HookEvent from fibsem.hooks.
+        # The completion-summary.json placeholder stays unregistered: it was standing
+        # in for a real artifact, and the real artifact now exists. Re-enable it only if
+        # something wants a machine-readable per-lamella record; the imports it needs are
+        # named at the top of this file.
         #
-        # Per lamella, not per experiment: a lamella is what gets delivered, and an
-        # experiment with one abandoned lamella never reaches completion at all, so
-        # hanging the artifact off the experiment would mean it was almost never
-        # written.
+        # The handoff map is registered, and gated on the same flag as the menu entry it
+        # complements. That gate is the point: the map is most valuable when written by
+        # whatever finished the work rather than by someone who remembered to open a
+        # dialog, but writing a PDF into every user's experiment directory is not
+        # something to switch on for everyone before it has been read by anyone.
+        #
+        # WORKFLOW_COMPLETED, not ITEM_COMPLETED. The document covers the whole grid --
+        # including the lamellae that did *not* finish, which is the case people
+        # actually hit and the one worth looking at -- so there is one answer per run,
+        # not one per lamella. It also re-renders every map and every lamella image, so
+        # per-lamella would repeat that work once per lamella for a file only the last
+        # version of which is ever read.
         #
         # A FunctionHook rather than a template-driven one because this needs the
-        # experiment itself, which the context deliberately does not carry -- the path
-        # is derivable from the record, and in-process hooks can reach the record. A
-        # webhook could not, which is the distinction.
+        # experiment itself, which the context deliberately does not carry. In-process
+        # hooks can reach the record; a webhook could not, which is the distinction.
         #
-        # HookManager.fire contains what this raises, so a summary that cannot be
-        # written is logged and the run carries on. FIB-461 asks for exactly that, and
-        # it comes for free rather than needing a second guard here.
-        #
-        # manager.register(
-        #     FunctionHook(
-        #         name="completion_summary",
-        #         events=[HookEvent.ITEM_COMPLETED],
-        #         callback=lambda ctx: write_completion_summary(self.experiment, ctx),
-        #     )
-        # )
+        # HookManager.fire contains what this raises, so a map that cannot be written is
+        # logged and the run carries on.
+        if preferences.features.handoff_map:
+            manager.register(
+                FunctionHook(
+                    name="handoff_map",
+                    events=[HookEvent.WORKFLOW_COMPLETED],
+                    callback=lambda ctx: write_handoff_map(self.experiment, ctx),
+                )
+            )
         # Signals are thread-safe to emit; hooks fire on the task worker thread.
         manager.set_notifier(self._hook_toast_signal.emit)
         return manager
