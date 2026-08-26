@@ -1437,6 +1437,80 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._view_moved_by_user()
         self._schedule_redraw()
 
+    # ── export ───────────────────────────────────────────────────────────
+
+    def save_view(
+        self,
+        path: str,
+        dpi: int = 300,
+        width_in: float = 10.0,
+        facecolor: Optional[str] = None,
+    ) -> str:
+        """Write what the canvas is currently showing to an image file.
+
+        Nothing under this package could export anything before this existed, so the
+        only way to get a picture out of an overview was to open a separate dialog that
+        re-rendered the data with a different renderer. Both overview tabs get "save this
+        view" from here, and so does anything headless that wants the same picture.
+
+        **The figure is resized before saving, and that is the whole point.** A
+        FigureCanvasQTAgg keeps its figure the size of the *widget*, so saving the figure
+        as it stands writes a page shaped like whatever the window happened to be --
+        typically a wide overview letterboxed into a tall panel, with the difference
+        spent on empty background that no `bbox_inches="tight"` can trim, because a
+        bounding box is a rectangle. Here the page is sized to the *view*, so the export
+        is the picture and nothing else.
+
+        The size and facecolor are restored in a finally, and a redraw is scheduled, so a
+        failed save leaves the canvas as it found it.
+
+        Args:
+            path: Where to write. The extension chooses the format.
+            dpi: Dots per inch. 300 is print quality for a figure this size.
+            width_in: Page width in inches; the height follows the view's aspect.
+            facecolor: The ground the content sits on. None keeps the canvas's own --
+                pass "white" for something destined for a document rather than a screen.
+                Only visible where there *is* ground: the axes fills the figure and an
+                image fills the axes, so a view framed tightly on its content shows none
+                of it.
+        Returns:
+            The path written.
+        """
+        xlim = self._ax.get_xlim()
+        ylim = self._ax.get_ylim()
+        x_span = abs(xlim[1] - xlim[0])
+        y_span = abs(ylim[1] - ylim[0])
+
+        if x_span > 0 and y_span > 0:
+            # Clamped like figsize_for_image, and for the same reason: a view zoomed to a
+            # sliver would otherwise ask for a page with no room to draw on.
+            aspect = min(max(y_span / x_span, 0.2), 5.0)
+        else:
+            aspect = 1.0
+
+        original_size = self._fig.get_size_inches()
+        original_fig_face = self._fig.get_facecolor()
+        original_ax_face = self._ax.get_facecolor()
+        try:
+            self._fig.set_size_inches(width_in, width_in * aspect, forward=False)
+            if facecolor is not None:
+                self._fig.set_facecolor(facecolor)
+                self._ax.set_facecolor(facecolor)
+            self._fig.savefig(
+                path,
+                dpi=dpi,
+                facecolor=self._fig.get_facecolor(),
+                edgecolor="none",
+            )
+        finally:
+            self._fig.set_size_inches(original_size, forward=False)
+            self._fig.set_facecolor(original_fig_face)
+            self._ax.set_facecolor(original_ax_face)
+            self._schedule_redraw()
+
+        _logger.info(f"Saved canvas view to {path}")
+        return path
+
     def _zoom_allowed(self, span: float) -> bool:
         """Whether the view may show *span* data units across.
 
