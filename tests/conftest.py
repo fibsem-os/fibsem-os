@@ -26,19 +26,27 @@ def _isolate_cwd(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _isolate_user_preferences(monkeypatch):
+def _isolate_user_preferences(monkeypatch, tmp_path):
     """Never let the developer's real user-preferences.yaml reach a test.
 
-    Preferences now change behaviour, not just presentation: `alignment.validation`
+    Preferences change behaviour, not just presentation: `alignment.validation_*`
     decides whether an alignment may refuse to move, and `alignment.abort_on_failure`
     decides whether that stops the task. A machine with those switched on would fail
     tests that never mention preferences -- which is exactly what happened when the
     application was used to turn them on and tests/milling stopped producing
     post-milling files, because the alignment refused and milling never ran.
+
+    Redirect the PATH, do not stub the function. An earlier version of this fixture
+    replaced `load_user_preferences` with a lambda returning fresh defaults, which
+    isolated the file but also broke every save-then-load round trip in the suite --
+    a test that wrote a preference read back the default instead. Pointing at a
+    tmp_path keeps the real file out while leaving load/save behaving normally.
     """
     import fibsem.config as cfg
 
-    monkeypatch.setattr(cfg, "load_user_preferences", lambda: cfg.UserPreferences())
+    monkeypatch.setattr(
+        cfg, "USER_PREFERENCES_PATH", str(tmp_path / "user-preferences.yaml")
+    )
 
 
 @pytest.fixture(scope="module")
