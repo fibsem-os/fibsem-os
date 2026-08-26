@@ -21,6 +21,9 @@ import pytest
 
 from fibsem import utils
 from fibsem.imaging.tiling.plotting import (
+    _LABEL_CHIP,
+    _SCALEBAR,
+    _SUB_LABEL_COLOUR,
     _label_placement,
     figsize_for_image,
     plot_minimap,
@@ -202,6 +205,132 @@ class TestLabelPlacement:
             assert box.x0 >= axes_box.x0 - 1, "the label ran off the left of the image"
         finally:
             plt.close(fig)
+
+
+class TestLabelChips:
+    """A marker's label sits on a chip, not inside a black outline.
+
+    The outline only partly darkened what was behind the glyphs, so contrast still varied
+    with the image -- cyan over bright ice stayed marginal however thick the stroke was
+    drawn -- and at 8-9pt it thickened the letterforms until they looked crude.
+    """
+
+    def _labelled(self, wide_overview, description: str = ""):
+        state = wide_overview.metadata.microscope_state
+        position = FibsemStagePosition(
+            x=state.stage_position.x,
+            y=state.stage_position.y,
+            z=state.stage_position.z,
+            r=state.stage_position.r,
+            t=state.stage_position.t,
+            coordinate_system="RAW",
+        )
+        position.name = "01-fancy-mite"
+        return plot_minimap(
+            wide_overview,
+            positions=[position],
+            show_names=True,
+            show_descriptions=bool(description),
+            descriptions={"01-fancy-mite": description} if description else None,
+            figsize=None,
+        )
+
+    def test_the_name_is_on_a_chip_and_not_in_an_outline(self, wide_overview):
+        fig = self._labelled(wide_overview)
+        try:
+            (name,) = [a for a in fig.axes[0].texts if a.get_text() == "01-fancy-mite"]
+            assert name.get_bbox_patch() is not None, "the name has no chip behind it"
+            assert not name.get_path_effects(), "the outline is still being drawn"
+        finally:
+            plt.close(fig)
+
+    def test_the_description_is_neutral_rather_than_the_marker_colour(
+        self, wide_overview
+    ):
+        """Colour on this figure means one thing: what a human flagged. A description
+        repeating it turns a grid of unflagged lamellae into a wall of one colour."""
+        fig = self._labelled(wide_overview, description="mitochondria cluster")
+        try:
+            texts = {a.get_text(): a for a in fig.axes[0].texts}
+            name, sub = texts["01-fancy-mite"], texts["mitochondria cluster"]
+            assert sub.get_color() != name.get_color()
+            assert sub.get_color() == _SUB_LABEL_COLOUR
+            assert sub.get_bbox_patch() is not None
+        finally:
+            plt.close(fig)
+
+    def test_the_two_chips_abut(self, wide_overview):
+        """The stack is derived from the chip geometry, not picked to suit today's sizes.
+
+        Measured on the drawn patches rather than on the offsets that produce them,
+        because the coupling is what this guards: the literal the derived gap replaces
+        also abuts at the current sizes, but raising `_LABEL_CHIP_PAD` from 0.25 to 0.7
+        takes it to 13px of overlap while the derived gap stays at 1px.
+        """
+        fig = self._labelled(wide_overview, description="mitochondria cluster")
+        try:
+            fig.canvas.draw()
+            renderer = fig.canvas.get_renderer()
+            texts = {a.get_text(): a for a in fig.axes[0].texts}
+            boxes = [
+                texts[key].get_bbox_patch().get_window_extent(renderer)
+                for key in ("01-fancy-mite", "mitochondria cluster")
+            ]
+            boxes.sort(key=lambda b: b.y0)
+            gap = boxes[1].y0 - boxes[0].y1
+            assert abs(gap) <= 1.5, f"the chips are {gap:.1f}px apart, not abutting"
+        finally:
+            plt.close(fig)
+
+    def test_each_label_gets_its_own_chip_dict(self, wide_overview):
+        """Matplotlib keeps a reference to the dict it is handed, so a shared one lets
+        a change to either label reach into the other."""
+        fig = self._labelled(wide_overview, description="mitochondria cluster")
+        try:
+            texts = {a.get_text(): a for a in fig.axes[0].texts}
+            patches = [
+                texts[key].get_bbox_patch()
+                for key in ("01-fancy-mite", "mitochondria cluster")
+            ]
+            assert patches[0] is not patches[1]
+        finally:
+            plt.close(fig)
+
+
+class TestTheCanvasValuesHaveNotDrifted:
+    """The exported map is the canvas on paper, so it uses the canvas's own values.
+
+    They are copied by hand rather than imported, because `fibsem/ui/__init__` pulls in
+    the whole Qt widget stack and this module has to render from a workflow hook and on
+    CI, where PyQt5 is absent. A hand copy is exactly the thing that drifts, so this
+    checks it -- and skips where the originals cannot be imported, which is the same
+    place the copies exist for.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _needs_qt(self):
+        pytest.importorskip("PyQt5")
+
+    def test_the_label_chip_is_the_canvas_background(self):
+        from fibsem.ui.tokens import CANVAS_BG
+
+        assert _LABEL_CHIP["facecolor"] == CANVAS_BG
+
+    def test_the_scalebar_panel_is_the_canvas_background(self):
+        from fibsem.ui.tokens import CANVAS_BG
+
+        assert _SCALEBAR["box_color"] == CANVAS_BG
+
+    def test_the_defect_colours_are_the_palette_s(self):
+        """Pre-existing copies, guarded for the first time by the same argument."""
+        from fibsem.imaging.tiling.plotting import (
+            DEFECT_FAILURE_COLOUR,
+            DEFECT_REWORK_COLOUR,
+        )
+        from fibsem.ui.tokens import ERROR_COLOR, WARN_COLOR
+
+        assert DEFECT_FAILURE_COLOUR == ERROR_COLOR
+        assert DEFECT_REWORK_COLOUR == WARN_COLOR
 
 
 class TestTitledPanelHeader:
