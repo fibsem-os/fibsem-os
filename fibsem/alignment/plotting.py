@@ -97,18 +97,28 @@ def plot_multi_step_alignment(
         dx_px = r.shift.x / pixel_size
         dy_px = r.shift.y / pixel_size
         colour = "lime" if r.score >= 0.7 else ("orange" if r.score >= 0.5 else "red")
+        label = f"dx={dx_px:.1f}px  dy={dy_px:.1f}px"
+        if not r.accepted:
+            # a refused step moved nothing, so the reported shift is not a correction
+            colour = "red"
+            label = f"REFUSED ({r.disagreement_px:.1f}px)"
         axes[0, 1 + i].text(
             0.04, 0.04,
-            f"dx={dx_px:.1f}px  dy={dy_px:.1f}px",
+            label,
             transform=axes[0, 1 + i].transAxes,
             color=colour, fontsize=7, va="bottom", fontfamily="monospace",
             bbox=dict(boxstyle="round,pad=0.2", facecolor="black", alpha=0.6, edgecolor="none"),
         )
-        cx, cy = r.image.data.shape[1] // 2, r.image.data.shape[0] // 2
-        axes[0, 1 + i].annotate(
-            "", xy=(cx + dx_px, cy + dy_px), xytext=(cx, cy),
-            arrowprops=dict(arrowstyle="->", color=colour, lw=2),
-        )
+        if r.accepted:
+            cx, cy = r.image.data.shape[1] // 2, r.image.data.shape[0] // 2
+            axes[0, 1 + i].annotate(
+                "", xy=(cx + dx_px, cy + dy_px), xytext=(cx, cy),
+                arrowprops=dict(arrowstyle="->", color=colour, lw=2),
+            )
+        else:
+            for spine in axes[0, 1 + i].spines.values():
+                spine.set_edgecolor("red")
+                spine.set_linewidth(3)
 
     # row 1: convergence chart + xcorr maps
     step_nums = list(range(1, len(alignment_results) + 1))
@@ -130,15 +140,33 @@ def plot_multi_step_alignment(
         ax_conv.set_xticks(step_nums)
     ax_conv.set_xlabel("Step")
     ax_conv.set_ylabel("Shift (nm)")
-    ax_conv.set_title("Convergence")
+    n_refused = sum(1 for r in alignment_results if not r.accepted)
+    if n_refused:
+        ax_conv.set_title(f"Convergence — {n_refused} step(s) refused", color="red")
+        ax_conv.text(
+            0.5, 0.5,
+            f"{n_refused}/{len(alignment_results)} steps refused;\n"
+            "their shifts are zeroed, so a flat\nline here means nothing moved",
+            transform=ax_conv.transAxes, ha="center", va="center",
+            fontsize=8, color="red", style="italic",
+        )
+    else:
+        ax_conv.set_title("Convergence")
 
     for i, r in enumerate(alignment_results):
         col = 1 + i
         colour = "lime" if r.score >= 0.7 else ("orange" if r.score >= 0.5 else "red")
         if r.xcorr is not None:
             axes[1, col].imshow(r.xcorr, cmap="inferno")
+        extra = ""
+        if not np.isnan(r.disagreement_px):
+            verdict = "accepted" if r.accepted else "REFUSED"
+            extra = f"\nvalidator {r.disagreement_px:.1f}px -> {verdict}"
+        if not r.accepted:
+            colour = "red"
         axes[1, col].set_title(
-            f"XCorr {i + 1}\ndx={r.shift.x * 1e9:.1f}nm, dy={r.shift.y * 1e9:.1f}nm\nscore={r.score:.2f}",
+            f"XCorr {i + 1}\ndx={r.shift.x * 1e9:.1f}nm, dy={r.shift.y * 1e9:.1f}nm\n"
+            f"score={r.score:.2f}{extra}",
             fontsize="small",
             color=colour,
         )
@@ -167,4 +195,92 @@ def plot_multi_step_alignment(
     if save:
         save_path = os.path.join(ref_path, "figure.png")
         fig.savefig(save_path, dpi=80)
+    return fig
+
+def plot_preprocessing_comparison(
+    ref_image: FibsemImage,
+    new_image: FibsemImage,
+    lowpass: int = 50,
+    highpass: int = 4,
+    sigma: int = 5,
+    title: Optional[str] = None,
+    save: bool = False,
+    path: Optional[str] = None,
+):
+    """Compare the zscore and dog preprocessing profiles on one image pair.
+
+    Shows, per profile, what the correlation was fed and the surface it produced,
+    and reports how far apart the two answers are. That distance is the quantity a
+    validated alignment mode gates on: on a healthy pair the profiles agree to
+    around a pixel, and where the intensity path false-locks they disagree by tens
+    to hundreds of pixels (see FIB-711).
+
+    Use this to inspect a suspect alignment, or to check the agreement tolerance
+    against a new instrument before trusting a validated mode on it.
+
+    Args:
+        ref_image: the reference image.
+        new_image: the newly acquired image.
+        lowpass, highpass, sigma: Fourier band-pass parameters, applied to both profiles.
+        title: figure title. Defaults to a generated one.
+        save: whether to write the figure next to the other alignment diagnostics.
+        path: directory to save into. Defaults to the usual alignment save path.
+
+    Returns:
+        matplotlib.figure.Figure
+    """
+    from matplotlib.figure import Figure
+
+    from fibsem.alignment.methods import (
+        PREPROCESSING_PROFILES,
+        get_preprocessing_profile,
+        shift_from_crosscorrelation,
+    )
+
+    pixel_size = new_image.metadata.pixel_size.x if new_image.metadata else 1.0
+    kw = dict(lowpass=lowpass, highpass=highpass, sigma=sigma)
+
+    results = {}
+    for name in PREPROCESSING_PROFILES:
+        dx, dy, xcorr, score = shift_from_crosscorrelation(
+            ref_image, new_image, **get_preprocessing_profile(name), **kw
+        )
+        results[name] = (dx / pixel_size, dy / pixel_size, xcorr, score)
+
+    (zx, zy, _, _) = results["zscore"]
+    (dx_, dy_, _, _) = results["dog"]
+    disagreement = float(np.hypot(zx - dx_, zy - dy_))
+
+    if title is None:
+        title = "Preprocessing comparison"
+    fig = Figure(figsize=(4 * len(results), 8))
+    fig.suptitle(f"{title} — profiles disagree by {disagreement:.1f} px")
+    axes = fig.subplots(2, len(results))
+
+    for col, (name, (sx, sy, xcorr, score)) in enumerate(results.items()):
+        prof = get_preprocessing_profile(name)
+        _plot_image_with_crosshair(
+            axes[0, col], xcorr, f"{name} — xcorr (score {score:.2f})"
+        )
+        axes[1, col].axis("off")
+        axes[1, col].text(
+            0.02,
+            0.95,
+            f"shift  ({sx:+.1f}, {sy:+.1f}) px\n"
+            f"preprocess   {prof['preprocess']}\n"
+            f"rect mask    {prof['use_rect_mask']}\n"
+            f"hann window  {prof['use_hann_window']}\n"
+            f"subpixel     {prof['subpixel']}",
+            va="top",
+            family="monospace",
+            fontsize=9,
+            transform=axes[1, col].transAxes,
+        )
+
+    if save:
+        save_path = path if path is not None else _alignment_save_path(ref_image)[0]
+        os.makedirs(save_path, exist_ok=True)
+        fig.savefig(
+            os.path.join(save_path, "preprocessing_comparison.png"), bbox_inches="tight"
+        )
     return fig

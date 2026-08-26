@@ -34,6 +34,59 @@ if TYPE_CHECKING:
 
 USE_SUBPIXEL_PEAK = False        # True → parabolic sub-pixel refinement; False → integer argmax
 
+# ---------------------------------------------------------------------------
+# Preprocessing profiles
+# ---------------------------------------------------------------------------
+# Each entry is the set of `shift_from_crosscorrelation` keyword arguments that
+# defines how the image pair is conditioned before correlating. This is a
+# separate axis from AlignmentMethod, which selects the correlation *algorithm*
+# (cross / phase / skimage-phase); a profile only changes what that algorithm is
+# fed.
+#
+# "zscore" is the historical production pipeline and stays the default
+# everywhere. "dog" is the difference-of-Gaussians pipeline: band-pass
+# preprocessing, a Hann window in place of the rectangular mask, and a parabolic
+# sub-pixel peak fit.
+#
+# "dog" is NOT a better estimator -- on a harvested corpus of 383 converged
+# alignments it is catastrophically wrong on 26 cases where "zscore" is correct.
+# Its value is that it fails on a *disjoint* set of images, so it can serve as an
+# independent validator of the zscore estimate. See FIB-711.
+PREPROCESSING_PROFILES = {
+    "zscore": {
+        "preprocess": "zscore",
+        "use_rect_mask": True,
+        "use_hann_window": False,
+        "subpixel": False,
+    },
+    "dog": {
+        "preprocess": "dog",
+        "use_rect_mask": False,
+        "use_hann_window": True,
+        "subpixel": True,
+    },
+}
+DEFAULT_PREPROCESSING_PROFILE = "zscore"
+
+
+def get_preprocessing_profile(profile: Optional[str]) -> dict:
+    """Resolve a profile name to `shift_from_crosscorrelation` kwargs.
+
+    Args:
+        profile: a key of `PREPROCESSING_PROFILES`, or None for the default.
+
+    Raises:
+        ValueError: if the name is not a known profile.
+    """
+    if profile is None:
+        profile = DEFAULT_PREPROCESSING_PROFILE
+    if profile not in PREPROCESSING_PROFILES:
+        raise ValueError(
+            f"Unknown preprocessing profile {profile!r}. "
+            f"Available profiles: {sorted(PREPROCESSING_PROFILES)}"
+        )
+    return dict(PREPROCESSING_PROFILES[profile])
+
 
 def _subpixel_peak(xcorr: np.ndarray, row: int, col: int) -> Tuple[float, float]:
     """Refine an integer xcorr peak to sub-pixel precision using a parabolic fit.
@@ -76,6 +129,10 @@ def shift_from_crosscorrelation(
     ref_mask: Optional[np.ndarray] = None,
     xcorr_limit: Optional[int] = None,
     save: bool = False,
+    preprocess: str = "zscore",
+    dog_sigmas: Tuple[float, float] = (1.5, 16.0),
+    use_hann_window: bool = False,
+    subpixel: Optional[bool] = None,
 ) -> Tuple[float, float, np.ndarray, float]:
     """Calculates the shift between two images by cross-correlating them and finding the position of maximum correlation.
 
@@ -98,9 +155,23 @@ def shift_from_crosscorrelation(
             with sides of length 2 * xcorr_limit + 1, centred on the maximum correlation peak. This can be used to
             limit the search range and improve the accuracy of the shift. Defaults to None.
 
+        preprocess (str, optional): Per-image preprocessing applied before correlation.
+            "zscore" subtracts the mean and divides by the standard deviation (the historical
+            behaviour). "dog" applies a difference-of-Gaussians band-pass instead, which is
+            insensitive to a charging or illumination gradient that differs between the two
+            images -- the failure mode behind FIB-711. Defaults to "zscore".
+        dog_sigmas (Tuple[float, float], optional): (low_sigma, high_sigma) in pixels for the
+            "dog" preprocessing. Ignored otherwise. Defaults to (1.5, 16.0).
+        use_hann_window (bool, optional): Whether to taper both images with a Hann window
+            before correlating, which removes FFT wrap-around edge energy. Use instead of
+            `use_rect_mask`, not in addition to it. Defaults to False.
+        subpixel (bool, optional): Whether to refine the correlation peak with a parabolic
+            fit. None uses the module-wide USE_SUBPIXEL_PEAK. Defaults to None.
+
     Returns:
-        A tuple (x_shift, y_shift, xcorr), where x_shift and y_shift are the shifts along x and y (in meters),
-        and xcorr is the cross-correlation map between the images.
+        A tuple (x_shift, y_shift, xcorr, score), where x_shift and y_shift are the shifts
+        along x and y (in meters), xcorr is the cross-correlation map between the images,
+        and score is the normalised correlation peak in [0, 1].
     """
     # get pixel_size
     pixelsize_x = new_image.metadata.pixel_size.x
@@ -112,9 +183,22 @@ def shift_from_crosscorrelation(
             np.uint8
         )
 
-    # normalise both images
-    ref_data_norm = image_utils.normalise_image(ref_image)
-    new_data_norm = image_utils.normalise_image(new_image)
+    # preprocess both images
+    if preprocess == "dog":
+        low_sigma, high_sigma = dog_sigmas
+        ref_data_norm = image_utils.difference_of_gaussians(
+            ref_image.data, low_sigma, high_sigma
+        )
+        new_data_norm = image_utils.difference_of_gaussians(
+            new_image.data, low_sigma, high_sigma
+        )
+    elif preprocess == "zscore":
+        ref_data_norm = image_utils.normalise_image(ref_image)
+        new_data_norm = image_utils.normalise_image(new_image)
+    else:
+        raise ValueError(
+            f"Unknown preprocess {preprocess!r}, expected 'zscore' or 'dog'"
+        )
 
     # cross-correlate normalised images
     if use_rect_mask:
@@ -124,6 +208,13 @@ def shift_from_crosscorrelation(
 
     if ref_mask is not None:
         ref_data_norm = ref_mask * ref_data_norm  # mask the reference
+
+    # taper the borders to suppress FFT wrap-around energy. an alternative to
+    # use_rect_mask, not an addition to it -- applying both tapers twice.
+    if use_hann_window:
+        window = image_utils.hann_window(ref_data_norm.shape)
+        ref_data_norm = (ref_data_norm - ref_data_norm.mean()) * window
+        new_data_norm = (new_data_norm - new_data_norm.mean()) * window
 
     # bandpass mask
     bandpass = masks.create_bandpass_mask(
@@ -144,7 +235,9 @@ def shift_from_crosscorrelation(
 
     # np.unravel_index returns (row, col); row=Y, col=X
     maxRow, maxCol = np.unravel_index(np.argmax(xcorr), xcorr.shape)
-    if USE_SUBPIXEL_PEAK:
+    # per-call override; None keeps the module-wide default
+    use_subpixel = USE_SUBPIXEL_PEAK if subpixel is None else subpixel
+    if use_subpixel:
         maxRow, maxCol = _subpixel_peak(xcorr, maxRow, maxCol)
     cen = np.asarray(xcorr.shape) / 2
     err = cen - np.array([maxRow, maxCol])  # float when USE_SUBPIXEL_PEAK, int-valued otherwise
@@ -169,6 +262,11 @@ def shift_from_crosscorrelation(
             lowpass=lowpass,
             highpass=highpass,
             sigma=sigma,
+            ref_prep=ref_data_norm,
+            new_prep=new_data_norm,
+            preprocess=preprocess,
+            use_hann_window=use_hann_window,
+            subpixel=use_subpixel,
             dx=dx,
             dy=dy,
             pixelsize_x=pixelsize_x,
@@ -310,12 +408,17 @@ def _save_alignment_data(
     new_image: FibsemImage,
     bandpass: np.ndarray,
     xcorr: np.ndarray,
+    ref_prep: np.ndarray = None,
+    new_prep: np.ndarray = None,
     ref_mask: np.ndarray = None,
     lowpass: float = None,
     highpass: float = None,
     sigma: float = None,
     xcorr_limit: float = None,
     use_rect_mask: bool = False,
+    preprocess: str = "zscore",
+    use_hann_window: bool = False,
+    subpixel: bool = False,
     dx: float = None,
     dy: float = None,
     pixelsize_x: float = None,
@@ -336,6 +439,13 @@ def _save_alignment_data(
     # convert to tiff , save
     tff.imwrite(fname + "_xcorr.tif", xcorr)
     tff.imwrite(fname + "_bandpass.tif", bandpass)
+    # what the correlation actually saw. with preprocess="dog" these look nothing
+    # like the raw images, and that difference is the whole point -- without them
+    # a bad DoG result is indistinguishable from a bad correlation.
+    if ref_prep is not None:
+        tff.imwrite(fname + "_ref_prep.tif", np.asarray(ref_prep, dtype=np.float32))
+    if new_prep is not None:
+        tff.imwrite(fname + "_new_prep.tif", np.asarray(new_prep, dtype=np.float32))
     if ref_mask is not None:
         tff.imwrite(fname + "_ref_mask.tif", ref_mask)
 
@@ -343,6 +453,7 @@ def _save_alignment_data(
         "lowpass": lowpass, "highpass": highpass, "sigma": sigma,
         "pixelsize_x": pixelsize_x, "pixelsize_y": pixelsize_y,
         "use_rect_mask": use_rect_mask, "xcorr_limit": xcorr_limit, "ref_mask": ref_mask is not None,
+        "preprocess": preprocess, "use_hann_window": use_hann_window, "subpixel": subpixel,
         "dx": dx, "dy": dy, "fname": fname, "timestamp": ts }
 
     df = pd.DataFrame.from_dict(info, orient='index').T

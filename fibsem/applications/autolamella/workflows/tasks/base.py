@@ -458,12 +458,26 @@ class AutoLamellaTask(ABC):
 
         # load reference image, align
         ref_image = FibsemImage.load(full_filename)
-        alignment.multi_step_alignment_v2(microscope=self.microscope,
+        run = alignment.multi_step_alignment_v2(microscope=self.microscope,
                                         ref_image=ref_image,
                                         use_autocontrast=True,
                                         steps=MAX_ALIGNMENT_ATTEMPTS,
                                         stop_event=self._stop_event,
+                                        # aligning TO a reference: large first-step
+                                        # corrections are legitimate here (FIB-807)
+                                        context=alignment.AlignmentContext.WORKFLOW,
                                         run_name=f"{self.lamella.name} - {self.task_name}")
+
+        if not run.aligned and run.outcome == "all_steps_rejected":
+            # Under a validated mode every step refused to move: the position is
+            # whatever it was before, not where the reference says it should be.
+            # If the user asked to abort on failure this is unreachable -- the
+            # alignment raised AlignmentFailedError instead of returning.
+            logging.warning(
+                f"{self.lamella.name}/{self.task_name}: alignment rejected on every "
+                f"attempt ({run.n_rejected} steps); no beam shift was applied. "
+                "The position is unverified."
+            )
 
     def _run_autofocus(self, beam_type: BeamType, hfw: Optional[float] = None) -> None:
         """Run the image-based autofocus sweep, saving diagnostics to the lamella path.

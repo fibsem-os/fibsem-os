@@ -56,6 +56,10 @@ def setup_milling(
             run_name=milling_stage.name,
             acquire_final_image=True,
             stop_event=stop_event,  # abort between alignment steps
+            # drift correction from an already-aligned position: a large shift here
+            # is much more likely to be a false lock than a real correction, so this
+            # context gets its own validation setting (FIB-807)
+            context=alignment.AlignmentContext.MILLING,
         )  # high current -> damaging
 
 

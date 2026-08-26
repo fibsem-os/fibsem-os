@@ -34,8 +34,33 @@ from fibsem.alignment.plotting import (
     _alignment_save_path,
     plot_multi_step_alignment,
 )
+from fibsem.alignment.verified import (
+    AlignmentContext,
+    DEFAULT_ALIGNMENT_CONTEXT,
+    VALIDATION_MODES,
+    DEFAULT_VALIDATION_MODE,
+    ValidationMode,
+    ValidatedAlignment,
+    AlignmentFailedError,
+    correlation_psr,
+    get_validation_mode,
+    get_configured_validation,
+    get_configured_clip_fraction,
+    should_abort_on_failure,
+    shift_from_crosscorrelation_validated,
+)
 
 ALIGNMENT_SUBDIR = "Alignment"
+
+
+def _nan_to_none(value: float) -> Optional[float]:
+    """NaN -> None, so the value survives json.dump as `null` rather than `NaN`."""
+    return None if value is None or np.isnan(value) else float(value)
+
+
+def _none_to_nan(value: Optional[float]) -> float:
+    """Inverse of _nan_to_none. Absent keys (pre-FIB-711 records) also read as NaN."""
+    return float("nan") if value is None else float(value)
 
 
 class AlignmentSubsystem(Enum):
@@ -63,6 +88,13 @@ class AlignmentIteration:
     xcorr: Optional[np.ndarray] = None  # cross-correlation map (bandpass method only)
     success: bool = True  # False if score < minimum_response (shift was zeroed)
     method: Optional[AlignmentMethod] = None  # which method produced this result
+    # Validated-mode decision (FIB-711). Under an unvalidated mode accepted is
+    # always True and disagreement_px is NaN, matching historical behaviour.
+    accepted: bool = True  # False when the estimate could not be corroborated
+    reason: str = "accepted"  # why it was rejected, when it was
+    disagreement_px: float = float("nan")  # estimator vs validator distance
+    psr: float = float("nan")  # peak-to-sidelobe ratio (diagnostic only)
+    clipped: bool = False  # the shift was bounded to the ROI before being applied
 
     @property
     def shift_px(self) -> Point:
@@ -80,6 +112,14 @@ class AlignmentIteration:
             "shift_px": self.shift_px.to_dict(),
             "success": self.success,
             "method": self.method.value if self.method else None,
+            "accepted": self.accepted,
+            "reason": self.reason,
+            # NaN is not valid JSON -- json.dump would write a bare `NaN` token that
+            # strict parsers (JS JSON.parse, jq, the workflow monitor) reject. These
+            # are NaN on every unvalidated run, so this would be in every record.
+            "disagreement_px": _nan_to_none(self.disagreement_px),
+            "psr": _nan_to_none(self.psr),
+            "clipped": self.clipped,
         }
 
     @staticmethod
@@ -90,6 +130,12 @@ class AlignmentIteration:
             image=image,
             success=d.get("success", True),
             method=AlignmentMethod(d["method"]) if d.get("method") else None,
+            # pre-FIB-711 runs applied every shift unconditionally
+            accepted=d.get("accepted", True),
+            reason=d.get("reason", "accepted"),
+            disagreement_px=_none_to_nan(d.get("disagreement_px")),
+            psr=_none_to_nan(d.get("psr")),
+            clipped=d.get("clipped", False),
         )
 
 
@@ -137,6 +183,13 @@ class AlignmentResult:
     results: list[AlignmentIteration]
     final_image: Optional[FibsemImage] = None
     validation: Optional[AlignmentDifferential] = None
+    # Outcome under a validated mode (FIB-711). Under an unvalidated mode every
+    # step is accepted, so aligned is True whenever any step ran.
+    mode: str = DEFAULT_VALIDATION_MODE
+    aligned: bool = True  # at least one step produced an applied shift
+    n_accepted: int = 0
+    n_rejected: int = 0
+    outcome: str = "aligned"  # aligned | all_steps_rejected | stop_event | no_steps
 
     def to_dict(self) -> dict:
         return {
@@ -145,6 +198,11 @@ class AlignmentResult:
             "method": self.method.value,
             "results": [r.to_dict() for r in self.results],
             "validation": self.validation.to_dict() if self.validation else None,
+            "mode": self.mode,
+            "aligned": self.aligned,
+            "n_accepted": self.n_accepted,
+            "n_rejected": self.n_rejected,
+            "outcome": self.outcome,
         }
 
     def save(
@@ -173,6 +231,11 @@ class AlignmentResult:
     def plot(
         self, title: Optional[str] = None, save: bool = True, path: Optional[str] = None
     ) -> "Figure":
+        # surface the run verdict on the figure, so a saved plot shows at a glance
+        # whether the alignment was trusted
+        if self.n_rejected:
+            suffix = f"{self.outcome} — {self.n_rejected}/{len(self.results)} steps refused"
+            title = f"{title} [{suffix}]" if title else suffix
         fig = plot_multi_step_alignment(
             self.reference_image,
             self.results,
@@ -210,6 +273,17 @@ class AlignmentResult:
             else None
         )
 
+        # Records written before these fields existed have no verdict. Derive one from
+        # the steps rather than defaulting to the dataclass values, which assert success
+        # -- reloading a refused run as "aligned" would invert exactly the fact this
+        # change exists to record.
+        n_accepted = sum(1 for r in results if r.accepted)
+        n_rejected = len(results) - n_accepted
+        default_outcome = (
+            "no_steps" if not results
+            else "all_steps_rejected" if n_accepted == 0
+            else "aligned"
+        )
         return cls(
             name=d["name"],
             reference_image=reference_image,
@@ -218,6 +292,11 @@ class AlignmentResult:
             results=results,
             final_image=final_image,
             validation=validation,
+            mode=d.get("mode", DEFAULT_VALIDATION_MODE),
+            aligned=d.get("aligned", n_accepted > 0),
+            n_accepted=d.get("n_accepted", n_accepted),
+            n_rejected=d.get("n_rejected", n_rejected),
+            outcome=d.get("outcome", default_outcome),
         )
 
 
@@ -248,8 +327,20 @@ def _calculate_shift(
     ref_image: FibsemImage,
     new_image: FibsemImage,
     method: AlignmentMethod = DEFAULT_ALIGNMENT_METHOD,
+    alignment_validation: Optional[str] = None,
+    clip_fraction: Optional[float] = None,
 ) -> AlignmentIteration:
-    """Calculate the shift between two images using the specified alignment method."""
+    """Calculate the shift between two images using the specified alignment method.
+
+    `alignment_validation` selects an `VALIDATION_MODES` entry. A validated mode such as
+    "verified" may return an iteration with `accepted=False` and a zeroed shift,
+    meaning the estimate could not be corroborated and nothing should be moved.
+    It applies to the cross-correlation method only -- the phase-correlation
+    methods have no validated variant and are always accepted.
+
+    `clip_fraction` bounds an accepted shift to that fraction of the half-ROI;
+    None uses the user preference. Also cross-correlation only.
+    """
     logging.debug(f"Calculating shift using method: {method.value}...")
     if method is AlignmentMethod.SKIMAGE_PHASE_CORRELATION:
         result = shift_from_skimage_phase_correlation(ref_image, new_image)
@@ -259,13 +350,29 @@ def _calculate_shift(
         dx, dy, score = shift_from_crosscorrelation_v2(ref_image, new_image)
         xcorr = None
     else:
-        dx, dy, xcorr, score = shift_from_crosscorrelation(
-            ref_image,
-            new_image,
-            lowpass=50,
-            highpass=4,
-            sigma=5,
-            use_rect_mask=True,
+        validated = shift_from_crosscorrelation_validated(
+            ref_image, new_image, mode=alignment_validation, clip_fraction=clip_fraction
+        )
+        if not validated.accepted:
+            # Per-step detail only. The run-level summary in multi_step_alignment_v2
+            # is the one that warns -- a validated run legitimately refuses steps, and
+            # a warning per step buries everything else in the log during a session.
+            logging.debug(
+                "Alignment step rejected: %s. metrics=%s",
+                validated.reason,
+                validated.to_dict(),
+            )
+        return AlignmentIteration(
+            shift=validated.shift,
+            score=validated.score,
+            image=new_image,
+            xcorr=validated.xcorr,
+            method=method,
+            accepted=validated.accepted,
+            reason=validated.reason,
+            disagreement_px=validated.disagreement_px,
+            psr=validated.psr,
+            clipped=validated.clipped,
         )
     return AlignmentIteration(
         shift=Point(dx, dy),
@@ -368,6 +475,8 @@ def align_with_reference_image(
     use_autofocus: bool = False,
     subsystem: AlignmentSubsystem = AlignmentSubsystem.BEAM_SHIFT,
     method: AlignmentMethod = DEFAULT_ALIGNMENT_METHOD,
+    alignment_validation: Optional[str] = None,
+    context: AlignmentContext = DEFAULT_ALIGNMENT_CONTEXT,
 ) -> AlignmentIteration:
     """Align to a reference image. Delegates to beam_shift_alignment_v2."""
     return beam_shift_alignment_v2(
@@ -377,6 +486,8 @@ def align_with_reference_image(
         use_autofocus=use_autofocus,
         subsystem=subsystem,
         method=method,
+        alignment_validation=alignment_validation,
+        context=context,
     )
 
 
@@ -387,6 +498,8 @@ def beam_shift_alignment_v2(
     use_autofocus: bool = False,
     subsystem: AlignmentSubsystem = AlignmentSubsystem.BEAM_SHIFT,
     method: AlignmentMethod = DEFAULT_ALIGNMENT_METHOD,
+    alignment_validation: Optional[str] = None,
+    context: AlignmentContext = DEFAULT_ALIGNMENT_CONTEXT,
 ):
     """Aligns the images by adjusting the beam shift instead of moving the stage.
 
@@ -403,6 +516,9 @@ def beam_shift_alignment_v2(
             BEAM_SHIFT applies correction via beam shift (default).
             STAGE moves the stage instead. STAGE_VERTICAL uses vertical stage movement.
         method (AlignmentMethod): Cross-correlation method to use. Defaults to DEFAULT_ALIGNMENT_METHOD.
+        alignment_validation (Optional[str]): Name of the alignment mode, a key of `VALIDATION_MODES`.
+            A validated mode such as "verified" may refuse to move: check `accepted` on the
+            result. Defaults to None, i.e. `DEFAULT_VALIDATION_MODE`.
 
     Raises:
         ValueError: If the reference image does not have a valid beam type.
@@ -418,7 +534,19 @@ def beam_shift_alignment_v2(
         use_autofocus=use_autofocus,
     )
 
-    result = _calculate_shift(ref_image, new_image, method)
+    # Resolve here too, not only in multi_step_alignment_v2: this is a public entry
+    # point that moves the beam, and a global safety preference that some callers
+    # silently ignore is not a safety preference. multi_step_alignment_v2 resolves
+    # first and passes a concrete name, so this is a no-op for that path.
+    if alignment_validation is None:
+        alignment_validation = get_configured_validation(context)
+
+    result = _calculate_shift(ref_image, new_image, method, alignment_validation=alignment_validation)
+
+    if not result.accepted:
+        # the estimate could not be corroborated: move nothing at all.
+        # _calculate_shift already logged the detail; do not log the same event twice.
+        return result
 
     _apply_shift(
         microscope=microscope,
@@ -448,8 +576,27 @@ def multi_step_alignment_v2(
     validate: bool = True,
     path: Optional[str] = None,
     method: AlignmentMethod = DEFAULT_ALIGNMENT_METHOD,
+    alignment_validation: Optional[str] = None,
+    context: AlignmentContext = DEFAULT_ALIGNMENT_CONTEXT,
 ) -> AlignmentResult:
-    """Runs the beam shift alignment multiple times."""
+    """Runs the beam shift alignment multiple times.
+
+    `alignment_validation` selects a `VALIDATION_MODES` entry; None uses the user's
+    preference for `context` (`user-preferences.yaml`, `alignment.validation_workflow`
+    or `alignment.validation_milling`), which defaults to `DEFAULT_VALIDATION_MODE`.
+    The two contexts are configured separately because refusing a shift costs 23% of
+    good workflow alignments but only 8% of milling ones -- see `verified.py`. Under a validated mode a step that cannot be
+    corroborated applies no shift and the loop continues, because the next step
+    re-acquires and a fresh image often correlates cleanly. If every step is
+    rejected the returned result says so via `aligned` / `outcome`, and the caller
+    should surface that rather than mill at an unverified position.
+    """
+    # None means "whatever the user configured"; resolve it once, here, so the whole
+    # run and its saved record agree on which mode was used
+    if alignment_validation is None:
+        alignment_validation = get_configured_validation(context)
+    # fail before touching the microscope if the mode name is wrong
+    get_validation_mode(alignment_validation)
 
     alignment_results = []
     aborted = False
@@ -467,6 +614,8 @@ def multi_step_alignment_v2(
             use_autofocus=use_autofocus,
             subsystem=subsystem,
             method=method,
+            alignment_validation=alignment_validation,
+            context=context,
         )
         alignment_results.append(result)
 
@@ -482,6 +631,9 @@ def multi_step_alignment_v2(
             subsystem=subsystem,
             method=method,
             results=[],
+            mode=alignment_validation,
+            aligned=False,
+            outcome="stop_event" if aborted else "no_steps",
         )
 
     if validate:
@@ -504,6 +656,37 @@ def multi_step_alignment_v2(
                     f"{validation.max_disagreement_px:.2f}px across methods."
                 )
 
+    n_accepted = sum(1 for r in alignment_results if r.accepted)
+    n_rejected = len(alignment_results) - n_accepted
+    if not alignment_results:
+        outcome = "stop_event" if aborted else "no_steps"
+    elif n_accepted == 0:
+        outcome = "all_steps_rejected"
+    elif aborted:
+        outcome = "stop_event"
+    else:
+        outcome = "aligned"
+
+    disagreements = [
+        r.disagreement_px
+        for r in alignment_results
+        if not r.accepted and not np.isnan(r.disagreement_px)
+    ]
+    if n_rejected:
+        # One warning per run, carrying the range of disagreements so a marginal
+        # refusal (a few px over tolerance) is distinguishable at a glance from a
+        # gross one (a false lock, tens to hundreds of px) without opening data.json.
+        spread = (
+            f", disagreement {min(disagreements):.1f}-{max(disagreements):.1f}px"
+            if disagreements else ""
+        )
+        logging.warning(
+            "Alignment '%s' [%s]: %d/%d steps refused%s. %s",
+            run_name, alignment_validation, n_rejected, len(alignment_results), spread,
+            "No shift was applied at all -- the position is unverified."
+            if n_accepted == 0 else "The accepted steps were applied.",
+        )
+
     ts = utils.current_timestamp_v3(timeonly=True)
     run = AlignmentResult(
         name=f"{run_name}-{ts}",
@@ -513,10 +696,40 @@ def multi_step_alignment_v2(
         results=alignment_results,
         final_image=final_image,
         validation=validation,
+        mode=alignment_validation,
+        aligned=n_accepted > 0,
+        n_accepted=n_accepted,
+        n_rejected=n_rejected,
+        outcome=outcome,
     )
 
     save_path: str = path if path is not None else _alignment_save_path(ref_image)[0]
     run.save(save_path, plot_title=run_name)
+    if n_rejected:
+        # the path lives here rather than in the error message, where it wrapped to two
+        # lines in the workflow list and buried the reason
+        logging.warning("Alignment diagnostics: %s", save_path)
+
+    # Raised only after the run is saved: the plot and data.json are the evidence for
+    # why the alignment was refused, and they are most wanted precisely when it fails.
+    # "aborted" is a user Stop, not an alignment failure, so it is excluded.
+    if outcome == "all_steps_rejected" and should_abort_on_failure():
+        # Written to be read in the workflow list, where it is the only explanation the
+        # operator gets. So: no lamella/task prefix (the UI already shows both), no mode
+        # name, no absolute path (it wrapped to two lines and buried everything else).
+        # What it does carry is the one number that says how badly the two measurements
+        # disagreed, and what to do about it. The path stays in the log warning above.
+        tolerance = get_validation_mode(alignment_validation).tolerance_px
+        by = (
+            f" by {max(disagreements):.0f} px (limit {tolerance:.0f} px)"
+            if disagreements else ""
+        )
+        raise AlignmentFailedError(
+            f"Could not verify the alignment: two independent measurements "
+            f"disagreed{by}. The beam was not moved and milling was stopped rather "
+            f"than risk cutting in the wrong place. Check the alignment images for "
+            f"this task."
+        )
 
     return run
 

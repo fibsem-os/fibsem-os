@@ -1,6 +1,9 @@
+from typing import Tuple
+
 import numpy as np
 from fibsem.structures import Point, FibsemImage
 from PIL import Image
+from scipy import ndimage as ndi
 
 
 def create_distance_map_px(w: int, h: int) -> np.ndarray:
@@ -28,6 +31,55 @@ def rotate_image(image: FibsemImage):
 def normalise_image(img: FibsemImage) -> np.ndarray:
     """Normalise the image"""
     return (img.data - np.mean(img.data)) / np.std(img.data)
+
+
+def difference_of_gaussians(
+    data: np.ndarray, low_sigma: float = 1.5, high_sigma: float = 16.0
+) -> np.ndarray:
+    """Difference-of-Gaussians band-pass filter.
+
+    Suppresses both the slow background gradient (charging, uneven illumination)
+    and the pixel noise, leaving the spatial band that the fiducial occupies.
+    Unlike `normalise_image`, the result is offset-free by construction rather
+    than by subtracting a global mean, so a gradient that differs between the
+    reference and the new image cannot bias the correlation.
+
+    `low_sigma` must stay below the fiducial arm width and `high_sigma` well
+    below the alignment ROI, or the fiducial itself is removed. Both are in
+    pixels, so at a different resolution or HFW they are a different physical
+    scale -- see FIB-711.
+
+    Args:
+        data: 2-D image data. Not modified.
+        low_sigma: standard deviation of the fine-scale Gaussian, in pixels.
+        high_sigma: standard deviation of the coarse-scale Gaussian, in pixels.
+
+    Returns:
+        float64 array of the same shape.
+    """
+    if high_sigma <= low_sigma:
+        raise ValueError(
+            f"high_sigma ({high_sigma}) must be greater than low_sigma ({low_sigma})"
+        )
+    f = np.asarray(data, dtype=np.float64)
+    return ndi.gaussian_filter(f, low_sigma) - ndi.gaussian_filter(f, high_sigma)
+
+
+def hann_window(shape: Tuple[int, int]) -> np.ndarray:
+    """Separable 2-D Hann window.
+
+    Applied before an FFT-based correlation it tapers the image to zero at the
+    border, which removes the wrap-around edge energy that otherwise appears as
+    a cross-shaped artefact through the centre of the correlation surface.
+
+    Args:
+        shape: (height, width) of the image to window.
+
+    Returns:
+        float64 array of the given shape, values in [0, 1].
+    """
+    h, w = shape
+    return np.outer(np.hanning(h), np.hanning(w))
 
 
 def cosine_stretch(img: FibsemImage, tilt_degrees: float):

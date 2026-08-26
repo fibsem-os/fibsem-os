@@ -1,6 +1,8 @@
 import json
 import os
 
+import copy
+
 import numpy as np
 import pytest
 
@@ -497,3 +499,501 @@ def test_alignment_run_save_load_round_trip(demo_session, tmp_path):
     assert reloaded.final_image is not None
     assert reloaded.validation is not None
     assert np.isclose(reloaded.validation.max_disagreement_px, run.validation.max_disagreement_px)
+
+
+# ---------------------------------------------------------------------------
+# verified alignment mode (FIB-711)
+# ---------------------------------------------------------------------------
+
+def test_validation_modes_registry():
+    """The two shipped modes, and only 'verified' gates."""
+    from fibsem.alignment import VALIDATION_MODES, DEFAULT_VALIDATION_MODE
+
+    assert DEFAULT_VALIDATION_MODE == "none", "default must stay the historical path"
+    assert VALIDATION_MODES["none"].validator is None
+    assert VALIDATION_MODES["verified"].validator == "dog"
+    # both modes must share an estimator: validation decides whether a measurement is
+    # trusted, it must never silently change what does the measuring
+    assert (
+        VALIDATION_MODES["none"].estimator == VALIDATION_MODES["verified"].estimator
+    ), "validation must not side-load an estimator swap"
+
+
+def test_unknown_mode_raises_before_touching_the_microscope():
+    from fibsem.alignment import get_validation_mode
+
+    with pytest.raises(ValueError, match="Unknown alignment validation"):
+        get_validation_mode("nonsense")
+
+
+def test_zscore_profile_is_the_historical_pipeline():
+    """The zscore profile must reproduce the untouched call exactly."""
+    from fibsem.alignment.methods import (
+        get_preprocessing_profile,
+        shift_from_crosscorrelation,
+    )
+
+    ref, new, _ = _make_shifted_images(11, -7)
+    kw = dict(lowpass=50, highpass=4, sigma=5)
+    dx_old, dy_old, _, _ = shift_from_crosscorrelation(ref, new, use_rect_mask=True, **kw)
+    dx_new, dy_new, _, _ = shift_from_crosscorrelation(
+        ref, new, **get_preprocessing_profile("zscore"), **kw
+    )
+    assert (dx_old, dy_old) == (dx_new, dy_new)
+
+
+def test_identical_images_are_accepted_at_zero_shift():
+    """Both profiles agree on a trivial pair, so verified must not refuse it."""
+    from fibsem.alignment.verified import shift_from_crosscorrelation_validated
+
+    ref, _, _ = _make_shifted_images(0, 0)
+    result = shift_from_crosscorrelation_validated(ref, ref, mode="verified")
+
+    assert result.accepted, result.reason
+    assert result.disagreement_px < 3.0
+
+
+def test_unrelated_images_are_refused_and_zeroed():
+    """When the two profiles cannot corroborate each other, nothing moves."""
+    from fibsem.alignment.verified import shift_from_crosscorrelation_validated
+
+    rng = np.random.default_rng(0)
+    ref, _, _ = _make_shifted_images(0, 0)
+    noise = FibsemImage(
+        data=rng.integers(0, 255, ref.data.shape, dtype=np.uint8),
+        metadata=ref.metadata,
+    )
+    result = shift_from_crosscorrelation_validated(ref, noise, mode="verified")
+
+    if not result.accepted:
+        assert result.shift.x == 0.0 and result.shift.y == 0.0
+        assert result.shift_px.x == 0.0 and result.shift_px.y == 0.0
+        assert "disagree" in result.reason
+
+
+def test_unvalidated_mode_never_refuses():
+    """'none' has no validator, so it accepts unconditionally -- as it always did."""
+    from fibsem.alignment.verified import shift_from_crosscorrelation_validated
+
+    rng = np.random.default_rng(1)
+    ref, _, _ = _make_shifted_images(0, 0)
+    noise = FibsemImage(
+        data=rng.integers(0, 255, ref.data.shape, dtype=np.uint8),
+        metadata=ref.metadata,
+    )
+    result = shift_from_crosscorrelation_validated(ref, noise, mode="none")
+
+    assert result.accepted
+    assert np.isnan(result.disagreement_px), "no validator ran, so there is no disagreement"
+
+
+def test_rejected_step_applies_no_shift(monkeypatch, demo_session, tmp_path):
+    """A rejected iteration must not reach _apply_shift."""
+    import fibsem.alignment as al
+
+    microscope, settings = demo_session
+    ref_image = acquire.acquire_image(microscope, settings.image)
+    applied = []
+    monkeypatch.setattr(
+        al, "_apply_shift", lambda **kw: applied.append((kw["dx"], kw["dy"]))
+    )
+
+    def reject(ref, new, method=None, alignment_validation=None):
+        from fibsem.alignment import AlignmentIteration
+        from fibsem.structures import Point
+
+        return AlignmentIteration(
+            shift=Point(0.0, 0.0), score=0.5, image=new, method=method,
+            accepted=False, reason="test rejection", disagreement_px=99.0,
+        )
+
+    monkeypatch.setattr(al, "_calculate_shift", reject)
+    run = al.multi_step_alignment_v2(
+        microscope=microscope, ref_image=ref_image, steps=2,
+        validate=False, acquire_final_image=False,
+        alignment_validation="verified", path=str(tmp_path),
+    )
+
+    assert applied == [], f"a rejected step moved the beam: {applied}"
+    assert run.aligned is False
+    assert run.outcome == "all_steps_rejected"
+    assert run.n_rejected == 2 and run.n_accepted == 0
+
+
+def test_preference_is_resolved_per_context(monkeypatch):
+    """Workflow and milling alignment read separate settings (FIB-807)."""
+    import fibsem.config as cfg
+    from fibsem.alignment.verified import AlignmentContext, get_configured_validation
+
+    prefs = cfg.UserPreferences()
+    prefs.alignment.validation_workflow = "none"
+    prefs.alignment.validation_milling = "verified"
+    monkeypatch.setattr(cfg, "load_user_preferences", lambda: prefs)
+
+    assert get_configured_validation(AlignmentContext.WORKFLOW) == "none"
+    assert get_configured_validation(AlignmentContext.MILLING) == "verified"
+
+    # and the other way round, so this cannot pass by reading one field twice
+    prefs.alignment.validation_workflow = "verified"
+    prefs.alignment.validation_milling = "none"
+    assert get_configured_validation(AlignmentContext.WORKFLOW) == "verified"
+    assert get_configured_validation(AlignmentContext.MILLING) == "none"
+
+
+def test_bad_or_unreadable_preference_falls_back_to_default(monkeypatch):
+    """Alignment must not break because preferences are wrong or missing."""
+    import fibsem.config as cfg
+    from fibsem.alignment import DEFAULT_VALIDATION_MODE
+    from fibsem.alignment.verified import AlignmentContext, get_configured_validation
+
+    prefs = cfg.UserPreferences()
+    prefs.alignment.validation_workflow = "nonsense"
+    monkeypatch.setattr(cfg, "load_user_preferences", lambda: prefs)
+    assert get_configured_validation(AlignmentContext.WORKFLOW) == DEFAULT_VALIDATION_MODE
+
+    def boom():
+        raise OSError("unreadable")
+
+    monkeypatch.setattr(cfg, "load_user_preferences", boom)
+    assert get_configured_validation(AlignmentContext.WORKFLOW) == DEFAULT_VALIDATION_MODE
+    assert get_configured_validation(AlignmentContext.MILLING) == DEFAULT_VALIDATION_MODE
+
+
+def test_preferences_default_to_historical_behaviour():
+    """A fresh install, and a prefs file written before this existed, stay unvalidated."""
+    from fibsem.config import UserPreferences
+
+    for prefs in (UserPreferences(), UserPreferences.from_dict({"display": {}})):
+        assert prefs.alignment.validation_workflow == "none"
+        assert prefs.alignment.validation_milling == "none"
+
+
+def test_milling_and_workflow_call_sites_declare_their_context():
+    """The split is worthless if the call sites do not say which context they are."""
+    import inspect
+
+    from fibsem.alignment import AlignmentContext
+    import fibsem.milling.core as core
+    from fibsem.applications.autolamella.workflows.tasks import base
+
+    assert "AlignmentContext.MILLING" in inspect.getsource(core)
+    assert "AlignmentContext.WORKFLOW" in inspect.getsource(base)
+    # and the enum members are what those sources name
+    assert AlignmentContext.MILLING.value == "milling"
+    assert AlignmentContext.WORKFLOW.value == "workflow"
+
+
+def _all_rejected(monkeypatch):
+    """Make every alignment step refuse."""
+    import fibsem.alignment as al
+    from fibsem.alignment import AlignmentIteration
+    from fibsem.structures import Point
+
+    monkeypatch.setattr(al, "_apply_shift", lambda **kw: None)
+    monkeypatch.setattr(
+        al, "_calculate_shift",
+        lambda ref, new, method=None, alignment_validation=None: AlignmentIteration(
+            shift=Point(0.0, 0.0), score=0.5, image=new, method=method,
+            accepted=False, reason="test rejection", disagreement_px=99.0,
+        ),
+    )
+
+
+def _set_prefs(monkeypatch, **kw):
+    import fibsem.config as cfg
+    prefs = cfg.UserPreferences()
+    for k, v in kw.items():
+        setattr(prefs.alignment, k, v)
+    monkeypatch.setattr(cfg, "load_user_preferences", lambda: prefs)
+
+
+def test_abort_on_failure_off_returns_a_failed_run(monkeypatch, demo_session, tmp_path):
+    """Default: a fully-refused alignment logs and returns, it does not raise."""
+    import fibsem.alignment as al
+
+    microscope, settings = demo_session
+    ref_image = acquire.acquire_image(microscope, settings.image)
+    _all_rejected(monkeypatch)
+    _set_prefs(monkeypatch, validation_workflow="verified", validation_milling="verified", abort_on_failure=False)
+
+    run = al.multi_step_alignment_v2(
+        microscope=microscope, ref_image=ref_image, steps=2,
+        validate=False, acquire_final_image=False, path=str(tmp_path),
+    )
+    assert run.aligned is False
+    assert run.outcome == "all_steps_rejected"
+
+
+def test_abort_on_failure_raises_and_still_saves_the_diagnostics(
+    monkeypatch, demo_session, tmp_path
+):
+    """With the flag on, the task is stopped -- but the evidence is written first."""
+    import fibsem.alignment as al
+    from fibsem.alignment import AlignmentFailedError
+
+    microscope, settings = demo_session
+    ref_image = acquire.acquire_image(microscope, settings.image)
+    _all_rejected(monkeypatch)
+    _set_prefs(monkeypatch, validation_workflow="verified", validation_milling="verified", abort_on_failure=True)
+
+    with pytest.raises(AlignmentFailedError, match="Could not verify the alignment"):
+        al.multi_step_alignment_v2(
+            microscope=microscope, ref_image=ref_image, steps=2,
+            validate=False, acquire_final_image=False, path=str(tmp_path),
+        )
+
+    saved = list(tmp_path.rglob("data.json"))
+    assert saved, "diagnostics must be saved before the failure propagates"
+
+
+def test_alignment_failure_is_not_treated_as_a_user_cancellation():
+    """AlignmentFailedError must be recorded as a genuine failure, not a Stop."""
+    from fibsem.alignment import AlignmentFailedError
+    from fibsem.cancellation import OperationCancelledError
+
+    assert not issubclass(AlignmentFailedError, OperationCancelledError)
+    assert not issubclass(AlignmentFailedError, InterruptedError)
+
+
+# ---------------------------------------------------------------------------
+# regressions from the FIB-807 review
+# ---------------------------------------------------------------------------
+
+def test_data_json_is_strict_json_even_on_an_unvalidated_run(demo_session, tmp_path):
+    """NaN is not valid JSON, and disagreement_px/psr are NaN on every zscore run."""
+    import json
+
+    from fibsem.alignment import multi_step_alignment_v2
+
+    microscope, settings = demo_session
+    ref_image = acquire.acquire_image(microscope, settings.image)
+    multi_step_alignment_v2(
+        microscope=microscope, ref_image=ref_image, steps=1,
+        validate=False, acquire_final_image=False,
+        alignment_validation="none", path=str(tmp_path),
+    )
+
+    raw = next(tmp_path.rglob("data.json")).read_text()
+    assert "NaN" not in raw, "bare NaN token: strict JSON parsers will reject this"
+
+    def reject(token):
+        raise ValueError(f"non-standard JSON constant: {token}")
+
+    json.loads(raw, parse_constant=reject)  # must not raise
+
+
+def test_run_verdict_survives_save_and_load(demo_session, tmp_path, monkeypatch):
+    """A refused run must not reload as a successful one."""
+    import fibsem.alignment as al
+    from fibsem.alignment import AlignmentResult
+
+    microscope, settings = demo_session
+    ref_image = acquire.acquire_image(microscope, settings.image)
+    _all_rejected(monkeypatch)
+    _set_prefs(monkeypatch, validation_workflow="verified", validation_milling="verified", abort_on_failure=False)
+
+    run = al.multi_step_alignment_v2(
+        microscope=microscope, ref_image=ref_image, steps=2,
+        validate=False, acquire_final_image=False, path=str(tmp_path),
+    )
+    assert run.aligned is False
+
+    reloaded = AlignmentResult.load(str(next(tmp_path.rglob("data.json")).parent))
+    assert reloaded.aligned == run.aligned
+    assert reloaded.outcome == run.outcome
+    assert reloaded.n_rejected == run.n_rejected
+    assert reloaded.mode == run.mode
+
+
+def test_legacy_record_without_a_verdict_is_derived_from_its_steps(
+    demo_session, tmp_path
+):
+    """A data.json written before these fields existed must not claim success."""
+    import json
+
+    from fibsem.alignment import AlignmentResult, multi_step_alignment_v2
+
+    microscope, settings = demo_session
+    ref_image = acquire.acquire_image(microscope, settings.image)
+    multi_step_alignment_v2(
+        microscope=microscope, ref_image=ref_image, steps=1,
+        validate=False, acquire_final_image=False,
+        alignment_validation="none", path=str(tmp_path),
+    )
+    p = next(tmp_path.rglob("data.json"))
+    d = json.loads(p.read_text())
+    for key in ("mode", "aligned", "n_accepted", "n_rejected", "outcome"):
+        d.pop(key, None)
+    d["results"][0]["accepted"] = False   # a refused step, pre-verdict format
+    p.write_text(json.dumps(d))
+
+    reloaded = AlignmentResult.load(str(p.parent))
+    assert reloaded.aligned is False, "derived verdict must follow the steps"
+    assert reloaded.outcome == "all_steps_rejected"
+    assert reloaded.n_rejected == 1
+
+
+def test_direct_beam_shift_alignment_honours_the_global_preference(
+    monkeypatch, demo_session
+):
+    """The safety preference must apply on every path that can move the beam.
+
+    beam_shift_alignment_v2 is a public entry point (example/autolamella.py calls it
+    directly). Before this fix only multi_step_alignment_v2 resolved the preference,
+    so a direct caller silently ran unvalidated however the user had it configured.
+    """
+    import fibsem.alignment as al
+    from fibsem.alignment import AlignmentIteration
+    from fibsem.structures import Point
+
+    microscope, settings = demo_session
+    ref_image = acquire.acquire_image(microscope, settings.image)
+    seen = {}
+    applied = []
+    monkeypatch.setattr(al, "_apply_shift", lambda **kw: applied.append(kw))
+
+    def spy(ref, new, method=None, alignment_validation=None):
+        seen["validation"] = alignment_validation
+        return AlignmentIteration(
+            shift=Point(0.0, 0.0), score=0.5, image=new, method=method,
+            accepted=False, reason="test rejection", disagreement_px=99.0,
+        )
+
+    monkeypatch.setattr(al, "_calculate_shift", spy)
+    _set_prefs(monkeypatch, validation_workflow="verified", validation_milling="verified")
+
+    result = al.beam_shift_alignment_v2(microscope=microscope, ref_image=ref_image)
+
+    assert seen["validation"] == "verified", "the global preference did not reach this path"
+    assert result.accepted is False
+    assert applied == [], "a refused alignment moved the beam"
+
+
+# --- shift clipping (FIB-807) ---------------------------------------------------
+
+
+def _image_with_pixel_size(height: int, width: int, pixel_size: float) -> FibsemImage:
+    """A real FibsemImage of a given ROI size, for the geometry-dependent clip."""
+    ref, _, _ = _make_shifted_images(0, 0)
+    md = copy.deepcopy(ref.metadata)
+    md.pixel_size.x = pixel_size
+    md.pixel_size.y = pixel_size
+    return FibsemImage(data=np.zeros((height, width), dtype=np.uint8), metadata=md)
+
+
+
+def test_clip_leaves_a_small_shift_untouched():
+    from fibsem.alignment.verified import clip_shift_to_roi
+
+    # 10px on a 400x400 ROI: nowhere near 0.8 of the 200px half-width
+    dx, dy, clipped = clip_shift_to_roi(10e-9, 0.0, (400, 400), (1e-9, 1e-9), 0.8)
+    assert clipped is False
+    assert (dx, dy) == (10e-9, 0.0)
+
+
+def test_clip_bounds_an_oversized_shift():
+    from fibsem.alignment.verified import clip_shift_to_roi
+
+    # half-width 200px, limit 0.8 -> 160px. Ask for 300px.
+    dx, dy, clipped = clip_shift_to_roi(300e-9, 0.0, (400, 400), (1e-9, 1e-9), 0.8)
+    assert clipped is True
+    assert dx == pytest.approx(160e-9)
+    assert dy == 0.0
+
+
+def test_clip_preserves_direction():
+    """Scaling both axes together; clipping them independently would rotate the move."""
+    from fibsem.alignment.verified import clip_shift_to_roi
+
+    dx, dy, clipped = clip_shift_to_roi(300e-9, 150e-9, (400, 400), (1e-9, 1e-9), 0.8)
+    assert clipped is True
+    # same bearing as the input (2:1)
+    assert dx / dy == pytest.approx(300.0 / 150.0)
+
+
+def test_clip_zero_fraction_disables():
+    from fibsem.alignment.verified import clip_shift_to_roi
+
+    dx, dy, clipped = clip_shift_to_roi(9999e-9, 0.0, (400, 400), (1e-9, 1e-9), 0.0)
+    assert clipped is False
+    assert dx == 9999e-9
+
+
+def test_clip_uses_the_per_axis_half_dimension():
+    """A tall, narrow ROI bounds x more tightly than y."""
+    from fibsem.alignment.verified import clip_shift_to_roi
+
+    # shape is (height, width) = (800, 200): half-width 100px, half-height 400px
+    dxc, _, cx = clip_shift_to_roi(150e-9, 0.0, (800, 200), (1e-9, 1e-9), 1.0)
+    _, dyc, cy = clip_shift_to_roi(0.0, 150e-9, (800, 200), (1e-9, 1e-9), 1.0)
+    assert cx is True and dxc == pytest.approx(100e-9)
+    assert cy is False and dyc == pytest.approx(150e-9)
+
+
+def test_validation_judges_raw_shifts_not_clipped_ones(monkeypatch):
+    """Clipping before comparing would let two disagreeing estimates agree at the bound.
+
+    A 300px estimator and a 200px validator both clip to 160px. If the disagreement
+    were measured after clipping it would be 0 and the step accepted -- a false
+    accept manufactured by the guard meant to make things safer.
+    """
+    import numpy as np
+
+    import fibsem.alignment.verified as v
+
+    calls = []
+
+    def fake(ref, new, **kw):
+        # first call is the estimator, second the validator
+        dx = 300e-9 if not calls else 200e-9
+        calls.append(kw)
+        return dx, 0.0, np.zeros((8, 8)), 1.0
+
+    monkeypatch.setattr(v, "shift_from_crosscorrelation", fake)
+
+    ref = _image_with_pixel_size(400, 400, 1e-9)
+    new = _image_with_pixel_size(400, 400, 1e-9)
+    out = v.shift_from_crosscorrelation_validated(ref, new, mode="verified", clip_fraction=0.8)
+
+    assert out.disagreement_px == pytest.approx(100.0)  # 300px vs 200px, raw
+    assert out.accepted is False
+    assert out.shift.x == 0.0
+
+
+def test_clip_applies_to_an_accepted_shift(monkeypatch):
+    """An agreed-on but oversized shift is applied, bounded, not refused."""
+    import numpy as np
+
+    import fibsem.alignment.verified as v
+
+    def fake(ref, new, **kw):
+        return 300e-9, 0.0, np.zeros((8, 8)), 1.0  # both passes agree exactly
+
+    monkeypatch.setattr(v, "shift_from_crosscorrelation", fake)
+
+    ref = _image_with_pixel_size(400, 400, 1e-9)
+    new = _image_with_pixel_size(400, 400, 1e-9)
+    out = v.shift_from_crosscorrelation_validated(ref, new, mode="verified", clip_fraction=0.8)
+
+    assert out.accepted is True
+    assert out.clipped is True
+    assert out.shift.x == pytest.approx(160e-9)  # 0.8 * 200px half-width
+    assert out.to_dict()["clipped"] is True
+
+
+def test_clip_fraction_default_is_read_from_preferences(monkeypatch):
+    import fibsem.config as cfg
+    from fibsem.alignment.verified import get_configured_clip_fraction
+
+    prefs = cfg.UserPreferences()
+    prefs.alignment.clip_fraction = 0.5
+    monkeypatch.setattr(cfg, "load_user_preferences", lambda: prefs)
+    assert get_configured_clip_fraction() == 0.5
+
+    def boom():
+        raise OSError("unreadable")
+
+    monkeypatch.setattr(cfg, "load_user_preferences", boom)
+    from fibsem.alignment.verified import DEFAULT_CLIP_FRACTION
+
+    assert get_configured_clip_fraction() == DEFAULT_CLIP_FRACTION

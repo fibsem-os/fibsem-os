@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
     QLineEdit,
@@ -16,6 +17,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.alignment import VALIDATION_MODES, DEFAULT_VALIDATION_MODE
+from fibsem.ui.utils import WheelBlocker
 from fibsem.config import (
     CARD_MODES,
     DisplayPreferences,
@@ -42,6 +45,45 @@ _TIP_CARD_MODE     = (
 )
 _LBL_DEV_MODE      = "Enable Development Mode"
 _TIP_DEV_MODE      = "Show advanced developer tools and diagnostic menus. Intended for developers only."
+
+# Alignment
+_TIP_ALIGN_COMMON = (
+    "\n\nnone — the standard path: the measured shift is always applied.\n"
+    "verified — the same measurement, but an independent second opinion must agree "
+    "within 3 px before the beam is moved. When they disagree nothing is moved.\n\n"
+    "Both use the same measurement; validation only decides whether it is trusted."
+)
+_LBL_ALIGN_WORKFLOW      = "Validate Workflow Alignment"
+_TIP_ALIGN_WORKFLOW      = (
+    "Validation for the workflow reference alignment, which aligns to a stored "
+    "reference image at the start of a task.\n\n"
+    "Large first-step corrections are normal here, so validation refuses more good "
+    "alignments in this context (measured: catches 11 of 12 bad shifts, but refuses "
+    "23% of good ones)." + _TIP_ALIGN_COMMON
+)
+_LBL_ALIGN_MILLING       = "Validate Milling Alignment"
+_TIP_ALIGN_MILLING       = (
+    "Validation for the milling drift correction, which runs at the milling current "
+    "just before each stage.\n\n"
+    "This starts from an already-aligned position, so a large shift really is "
+    "suspect and validation costs much less here (measured: catches 7 of 11 bad "
+    "shifts, refusing 8% of good ones)." + _TIP_ALIGN_COMMON
+)
+_LBL_ALIGN_ABORT   = "Abort Task on Failed Alignment"
+_TIP_ALIGN_ABORT   = (
+    "When an alignment cannot be trusted, stop the task and record the lamella as "
+    "failed rather than milling at an unverified position.\n\n"
+    "Has no effect where validation is 'none', which never reports failure."
+)
+_LBL_ALIGN_CLIP    = "Clip Alignment Shift"
+_TIP_ALIGN_CLIP    = (
+    "Bound every applied shift to this fraction of the alignment area's half-width.\n\n"
+    "Beyond 1.0 the two images overlap by less than half, so the fiducial cannot "
+    "have been in both. Unlike validation this clips rather than refuses, so a "
+    "correct large shift is not lost — the step applies the bounded move and the "
+    "next step covers the remainder.\n\n"
+    "Set 0 to disable. Default 0.8."
+)
 
 # Features
 _LBL_COINCIDENCE   = "Enable Coincidence Milling Viewer"
@@ -113,7 +155,9 @@ class PreferencesDialog(QDialog):
 
         self._sidebar = QListWidget()
         self._sidebar.setFixedWidth(120)
-        self._sidebar.addItems(["Display", "Features", "Experiment", "Movement"])
+        self._sidebar.addItems(
+            ["Display", "Features", "Experiment", "Microscope"]
+        )
         self._sidebar.setCurrentRow(0)
 
         self._stack = QStackedWidget()
@@ -186,7 +230,9 @@ class PreferencesDialog(QDialog):
         experiment_form.addRow(_LBL_EXP_ORG, self._edit_exp_organisation)
         self._stack.addWidget(experiment_page)
 
-        # --- Movement ---
+        # --- Microscope ---
+        # Sidebar label only. The preferences group behind it is still `movement`,
+        # because renaming that would break every existing user-preferences.yaml.
         movement_page = QWidget()
         movement_form = QFormLayout(movement_page)
         self._chk_acquire_sem = QCheckBox()
@@ -195,6 +241,33 @@ class PreferencesDialog(QDialog):
         self._chk_acquire_fib.setToolTip(_TIP_ACQ_FIB)
         movement_form.addRow(_LBL_ACQ_SEM, self._chk_acquire_sem)
         movement_form.addRow(_LBL_ACQ_FIB, self._chk_acquire_fib)
+
+        # Alignment. Validation is per context -- the cost of refusing a shift differs
+        # sharply between them (FIB-807). Values are carried as item data so the
+        # labels can be reworded without changing what lands in the preferences file.
+        self._combo_alignment_workflow = QComboBox()
+        self._combo_alignment_workflow.setToolTip(_TIP_ALIGN_WORKFLOW)
+        self._combo_alignment_milling = QComboBox()
+        self._combo_alignment_milling.setToolTip(_TIP_ALIGN_MILLING)
+        for combo in (self._combo_alignment_workflow, self._combo_alignment_milling):
+            for mode in sorted(VALIDATION_MODES):
+                combo.addItem(mode, mode)
+        self._chk_alignment_abort = QCheckBox()
+        self._chk_alignment_abort.setToolTip(_TIP_ALIGN_ABORT)
+        self._spin_alignment_clip = QDoubleSpinBox()
+        self._spin_alignment_clip.setRange(0.0, 1.0)
+        self._spin_alignment_clip.setSingleStep(0.05)
+        self._spin_alignment_clip.setDecimals(2)
+        self._spin_alignment_clip.setSpecialValueText("disabled")
+        self._spin_alignment_clip.setToolTip(_TIP_ALIGN_CLIP)
+        self._spin_alignment_clip.installEventFilter(WheelBlocker(self._spin_alignment_clip))
+        movement_form.addRow(_LBL_ALIGN_WORKFLOW, self._combo_alignment_workflow)
+        movement_form.addRow(_LBL_ALIGN_MILLING, self._combo_alignment_milling)
+        movement_form.addRow(_LBL_ALIGN_ABORT, self._chk_alignment_abort)
+        movement_form.addRow(_LBL_ALIGN_CLIP, self._spin_alignment_clip)
+        # abort only means anything when at least one context can refuse
+        for combo in (self._combo_alignment_workflow, self._combo_alignment_milling):
+            combo.currentTextChanged.connect(self._on_alignment_validation_changed)
         self._stack.addWidget(movement_page)
 
         self._sidebar.currentRowChanged.connect(self._stack.setCurrentIndex)
@@ -244,9 +317,33 @@ class PreferencesDialog(QDialog):
         self._edit_exp_project.setText(e.project)
         self._edit_exp_organisation.setText(e.organisation)
 
+        a = prefs.alignment
+        for combo, value in (
+            (self._combo_alignment_workflow, a.validation_workflow),
+            (self._combo_alignment_milling, a.validation_milling),
+        ):
+            idx = combo.findData(value)
+            if idx == -1:
+                # a mode this build does not offer, or a hand-edited file. show the
+                # same default the alignment falls back to, so the dialog is not
+                # claiming a mode that is not actually in use.
+                idx = combo.findData(DEFAULT_VALIDATION_MODE)
+            combo.setCurrentIndex(idx)
+        self._chk_alignment_abort.setChecked(a.abort_on_failure)
+        self._spin_alignment_clip.setValue(a.clip_fraction)
+        self._on_alignment_validation_changed()
+
         m = prefs.movement
         self._chk_acquire_sem.setChecked(m.acquire_sem_after_stage_movement)
         self._chk_acquire_fib.setChecked(m.acquire_fib_after_stage_movement)
+
+    def _on_alignment_validation_changed(self, *args) -> None:
+        """Grey out the abort checkbox when no context can report failure."""
+        can_refuse = False
+        for combo in (self._combo_alignment_workflow, self._combo_alignment_milling):
+            entry = VALIDATION_MODES.get(combo.currentData())
+            can_refuse = can_refuse or (entry is not None and entry.validator is not None)
+        self._chk_alignment_abort.setEnabled(can_refuse)
 
     def _on_restore_defaults(self):
         reply = QMessageBox.question(
@@ -287,6 +384,7 @@ class PreferencesDialog(QDialog):
     def get_preferences(self) -> UserPreferences:
         """Build a UserPreferences instance from current widget state."""
         from fibsem.config import (
+            AlignmentPreferences,
             DisplayPreferences,
             ExperimentPreferences,
             FeatureFlags,
@@ -307,6 +405,12 @@ class PreferencesDialog(QDialog):
                 bug_report_enabled=self._chk_bug_report.isChecked(),
                 scripts_enabled=self._chk_scripts.isChecked(),
                 overview_canvas_tab=self._chk_overview_canvas.isChecked(),
+            ),
+            alignment=AlignmentPreferences(
+                validation_workflow=self._combo_alignment_workflow.currentData(),
+                validation_milling=self._combo_alignment_milling.currentData(),
+                abort_on_failure=self._chk_alignment_abort.isChecked(),
+                clip_fraction=self._spin_alignment_clip.value(),
             ),
             movement=MovementPreferences(
                 acquire_sem_after_stage_movement=self._chk_acquire_sem.isChecked(),

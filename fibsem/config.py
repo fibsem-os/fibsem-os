@@ -391,8 +391,50 @@ class ReportingPreferences:
     update_check_enabled: bool = False
 
 @dataclass
+class AlignmentPreferences:
+    # Validation is configured PER CONTEXT, because the cost of refusing a shift
+    # differs sharply between them (measured, FIB-807):
+    #
+    #   workflow  catches 11/12 bad shifts, but refuses 22/96 good ones (23%)
+    #   milling   catches  7/11 bad shifts, but refuses  7/85 good ones ( 8%)
+    #
+    # Workflow alignment aligns *to* a reference and legitimately makes ~130px
+    # first-step corrections, so refusing large shifts is expensive there. Milling
+    # drift correction runs from an already-aligned position where a large shift
+    # really is suspect. One global setting cannot serve both.
+    #
+    # Each is a key of fibsem.alignment.VALIDATION_MODES. "none" is the historical
+    # path: the measured shift is always applied. "verified" requires an independent
+    # band-passed second opinion to agree within 3px, and applies no shift when they
+    # disagree. Both use the SAME estimator by design -- validation never silently
+    # changes what measures the shift; swapping the estimator is a deliberate code
+    # change, not a config toggle. Not imported from fibsem.alignment here -- config
+    # is imported by almost everything, and alignment imports config.
+    validation_workflow: str = "none"
+    validation_milling: str = "none"
+    # What to do when an alignment cannot be trusted. False (default) keeps the
+    # historical behaviour: log a warning and carry on, milling at whatever position
+    # the stage happens to be in. True aborts the task instead, so the lamella is
+    # recorded as failed rather than milled at an unverified position.
+    #
+    # Only has an effect where validation is on; with validation off nothing ever
+    # reports failure, so this is inert under "none".
+    abort_on_failure: bool = False
+    # Bound every applied shift to this fraction of the half-ROI. Unlike validation
+    # this CLIPS rather than refuses, so a correct large shift is not lost -- the
+    # step applies the bounded move and the next step walks the remainder. That is
+    # why it is on by default and validation is not.
+    #
+    # At 0.8 it flags 11 steps of which 10 are genuinely bad (10:1), against the
+    # 1:1 of an absolute pixel threshold -- magnitude alone does not separate good
+    # from bad. 0 disables it.
+    clip_fraction: float = 0.8
+
+
+@dataclass
 class UserPreferences:
     display: DisplayPreferences = field(default_factory=DisplayPreferences)
+    alignment: AlignmentPreferences = field(default_factory=AlignmentPreferences)
     features: FeatureFlags = field(default_factory=FeatureFlags)
     movement: MovementPreferences = field(default_factory=MovementPreferences)
     experiment: ExperimentPreferences = field(default_factory=ExperimentPreferences)
@@ -416,9 +458,10 @@ class UserPreferences:
     def from_dict(cls, d: dict) -> "UserPreferences":
         """Reconstruct from a dict, handling both nested and legacy flat formats."""
         if any(k in d for k in ("display", "features", "movement", "experiment",
-                                "reporting", "hooks")):
+                                "reporting", "alignment", "hooks")):
             return cls(
                 display=_sub_from_dict(DisplayPreferences, d.get("display", {})),
+                alignment=_sub_from_dict(AlignmentPreferences, d.get("alignment", {})),
                 features=_sub_from_dict(FeatureFlags, d.get("features", {})),
                 movement=_sub_from_dict(MovementPreferences, d.get("movement", {})),
                 experiment=_sub_from_dict(ExperimentPreferences, d.get("experiment", {})),

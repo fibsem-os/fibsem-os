@@ -25,6 +25,22 @@ def _isolate_cwd(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
 
+@pytest.fixture(autouse=True)
+def _isolate_user_preferences(monkeypatch):
+    """Never let the developer's real user-preferences.yaml reach a test.
+
+    Preferences now change behaviour, not just presentation: `alignment.validation`
+    decides whether an alignment may refuse to move, and `alignment.abort_on_failure`
+    decides whether that stops the task. A machine with those switched on would fail
+    tests that never mention preferences -- which is exactly what happened when the
+    application was used to turn them on and tests/milling stopped producing
+    post-milling files, because the alignment refused and milling never ran.
+    """
+    import fibsem.config as cfg
+
+    monkeypatch.setattr(cfg, "load_user_preferences", lambda: cfg.UserPreferences())
+
+
 @pytest.fixture(scope="module")
 def qapp():
     """Shared offscreen QApplication for widget tests.
