@@ -71,7 +71,7 @@ class QFilePathLineEdit(QWidget):
 
     def text(self) -> str:
         return self.lineEdit.text()
-    
+
     def setText(self, text: str) -> None:
         self.lineEdit.setText(text)
 
@@ -100,7 +100,9 @@ class QDirectoryLineEdit(QWidget):
         self.lineEdit.editingFinished.connect(self.editingFinished.emit)
 
     def browse_directory(self):
-        directory = QFileDialog.getExistingDirectory(self, "Select Directory", self.lineEdit.text())
+        directory = QFileDialog.getExistingDirectory(
+            self, "Select Directory", self.lineEdit.text()
+        )
         if directory:
             self.lineEdit.setText(directory)
             self.textChanged.emit(directory)
@@ -111,6 +113,7 @@ class QDirectoryLineEdit(QWidget):
 
     def setText(self, text: str) -> None:
         self.lineEdit.setText(text)
+
 
 class QFileLineEdit(QWidget):
     """Line edit with a browse button that opens a file picker dialog."""
@@ -153,11 +156,13 @@ class QFileLineEdit(QWidget):
         self.lineEdit.setText(text)
 
 
-def _create_combobox_control(value: Union[str, int, float, Enum],
-                             items: list, 
-                             units: Optional[str], 
-                             format_fn: Optional[Callable] = None, 
-                             control: Optional[QComboBox] = None) -> QComboBox:
+def _create_combobox_control(
+    value: Union[str, int, float, Enum],
+    items: list,
+    units: Optional[str],
+    format_fn: Optional[Callable] = None,
+    control: Optional[QComboBox] = None,
+) -> QComboBox:
     """Create a QComboBox control for selecting from a list of items."""
     if control is None:
         control = QComboBox()
@@ -165,7 +170,7 @@ def _create_combobox_control(value: Union[str, int, float, Enum],
         if isinstance(item, (float, int)):
             item_str = format_value(val=item, unit=units, precision=1)
         elif isinstance(item, Enum):
-            item_str = item.name # TODO: migrate to QEnumComboBox
+            item_str = item.name  # TODO: migrate to QEnumComboBox
         elif format_fn is not None:
             item_str = format_fn(item)
         else:
@@ -186,7 +191,9 @@ def _create_combobox_control(value: Union[str, int, float, Enum],
         if len(items) == 0:
             logging.warning(f"No items available for combobox with value {value}")
         else:
-            logging.debug(f"Warning: No matching item or nearest found for {items} with value {value}. Using first item.")
+            logging.debug(
+                f"Warning: No matching item or nearest found for {items} with value {value}. Using first item."
+            )
             idx = 0
 
     if idx >= 0:
@@ -327,7 +334,10 @@ class ValueSpinBox(QDoubleSpinBox):
         super().__init__(parent)
         if suffix:
             self.setSuffix(f" {suffix}")
-        self.setRange(minimum if minimum is not None else 0.0, maximum if maximum is not None else 1e6)
+        self.setRange(
+            minimum if minimum is not None else 0.0,
+            maximum if maximum is not None else 1e6,
+        )
         self.setSingleStep(step if step is not None else 0.01)
         self.setDecimals(decimals if decimals is not None else 3)
         if tooltip:
@@ -341,6 +351,7 @@ class ValueSpinBox(QDoubleSpinBox):
 @dataclass
 class ContextMenuAction:
     """Represents a single action in a context menu."""
+
     label: str
     callback: Optional[Callable] = None
     icon: Optional[QIcon] = None
@@ -353,6 +364,7 @@ class ContextMenuAction:
 @dataclass
 class ContextMenuConfig:
     """Configuration for a context menu."""
+
     actions: list[ContextMenuAction] = field(default_factory=list)
 
     def add_action(
@@ -366,15 +378,17 @@ class ContextMenuConfig:
         data: Optional[Any] = None,
     ) -> "ContextMenuConfig":
         """Add an action to the menu configuration. Returns self for chaining."""
-        self.actions.append(ContextMenuAction(
-            label=label,
-            callback=callback,
-            icon=icon,
-            tooltip=tooltip,
-            enabled=enabled,
-            separator_after=separator_after,
-            data=data,
-        ))
+        self.actions.append(
+            ContextMenuAction(
+                label=label,
+                callback=callback,
+                icon=icon,
+                tooltip=tooltip,
+                enabled=enabled,
+                separator_after=separator_after,
+                data=data,
+            )
+        )
         return self
 
     def add_separator(self) -> "ContextMenuConfig":
@@ -476,7 +490,9 @@ class ContextMenu(QMenu):
             if menu_action.callback is not None:
                 menu_action.callback()
         except Exception:
-            logging.exception("Context menu action '%s' raised an exception.", menu_action.label)
+            logging.exception(
+                "Context menu action '%s' raised an exception.", menu_action.label
+            )
             try:
                 from fibsem.ui import notification_service
 
@@ -514,6 +530,7 @@ def show_context_menu(
     selected = menu.show_at_cursor()
     return selected.label if selected else None
 
+
 class TitledPanel(QWidget):
     """A styled panel with a dark header row (title label + optional widgets) and a collapsible content area.
 
@@ -525,8 +542,13 @@ class TitledPanel(QWidget):
         fixed = TitledPanel("Setup", content=setup_widget, collapsible=False)
     """
 
-    def __init__(self, title: str, content: Optional[QWidget] = None,
-                 collapsible: bool = True, parent=None) -> None:
+    def __init__(
+        self,
+        title: str,
+        content: Optional[QWidget] = None,
+        collapsible: bool = True,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self._collapsible = collapsible
         self.setObjectName("TitledPanel")
@@ -540,7 +562,9 @@ class TitledPanel(QWidget):
 
         # Header
         self._header = QWidget()
-        self._header.setStyleSheet(f"background: {CANVAS_BG}; border-radius: 3px 3px 0 0;")
+        self._header.setStyleSheet(
+            f"background: {CANVAS_BG}; border-radius: 3px 3px 0 0;"
+        )
         self._header_layout = QHBoxLayout(self._header)
         self._header_layout.setContentsMargins(8, 3, 4, 3)
         self._header_layout.setSpacing(4)
@@ -615,8 +639,15 @@ class _SpinnerLabel(QLabel):
     it ``autostart`` and drive visibility via :meth:`start`/:meth:`stop`.
     """
 
-    def __init__(self, icon_name="mdi:loading", color="#4fc3f7", size=24,
-                 step_deg=20, interval_ms=40, parent=None):
+    def __init__(
+        self,
+        icon_name="mdi:loading",
+        color="#4fc3f7",
+        size=24,
+        step_deg=20,
+        interval_ms=40,
+        parent=None,
+    ):
         super().__init__(parent)
         self._spin = qta.Spin(self, interval=interval_ms, step=step_deg)
         self._icon = fibsem_icon(icon_name, color=color, animation=self._spin)
@@ -645,7 +676,7 @@ class _SpinnerLabel(QLabel):
     def stop(self):
         self._active = False
         self._spin.stop()
-        self.update()        # repaint blank
+        self.update()  # repaint blank
 
     def clear(self):
         # blanking the spinner implies stopping its animation
@@ -699,11 +730,17 @@ class IconToolButton(QToolButton):
         self._icon = icon
         self._color = color
         self._checked_icon = checked_icon if checked_icon is not None else icon
-        self._checked_color = checked_color if checked_color is not None else stylesheets.GRAY_WHITE_COLOR
+        self._checked_color = (
+            checked_color if checked_color is not None else stylesheets.GRAY_WHITE_COLOR
+        )
         self._tooltip = tooltip
-        self._checked_tooltip = checked_tooltip if checked_tooltip is not None else tooltip
+        self._checked_tooltip = (
+            checked_tooltip if checked_tooltip is not None else tooltip
+        )
 
-        self._has_state = checkable or checked_icon is not None or checked_color is not None
+        self._has_state = (
+            checkable or checked_icon is not None or checked_color is not None
+        )
 
         self.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
         if size is not None:
@@ -765,7 +802,9 @@ class TaskNameListWidget(QWidget):
         header_layout.addWidget(lbl)
         header_layout.addStretch()
         self.btn_add = IconToolButton("mdi:plus", tooltip="Add task", size=24)
-        self.btn_remove = IconToolButton("mdi:trash-can-outline", tooltip="Remove task", size=24)
+        self.btn_remove = IconToolButton(
+            "mdi:trash-can-outline", tooltip="Remove task", size=24
+        )
         header_layout.addWidget(self.btn_add)
         header_layout.addWidget(self.btn_remove)
         outer.addWidget(header)
@@ -819,8 +858,6 @@ class TaskNameListWidget(QWidget):
             self.select(preferred)
         elif self._list.count() > 0:
             self._list.setCurrentRow(0)
-
-
 
 
 # ---------------------------------------------------------------------------
