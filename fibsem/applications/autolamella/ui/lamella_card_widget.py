@@ -38,7 +38,7 @@ from fibsem.ui.tokens import (
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
 
 _CARD_WIDTH = 300
-_THUMB_PADDING = 6        # inset from card edges so rounded corners stay visible
+_THUMB_PADDING = 6  # inset from card edges so rounded corners stay visible
 # 3:2, matching the 1536x1024 frames the microscope acquires, so the thumbnail
 # scales rather than crops -- _thumbnail_image expands to fill. Kept small: at this
 # size it is a scanning cue ("which of these looks milled"), and every pixel of
@@ -146,7 +146,8 @@ def _thumbnail_image(lamella: Lamella, w: int, h: int) -> QImage:
         return image
 
     image = _arr_to_qimage(lamella.get_thumbnail()).scaled(
-        w, h,
+        w,
+        h,
         Qt.AspectRatioMode.KeepAspectRatioByExpanding,
         Qt.TransformationMode.SmoothTransformation,
     )
@@ -159,11 +160,11 @@ def _thumbnail_image(lamella: Lamella, w: int, h: int) -> QImage:
 class LamellaCardWidget(QWidget):
     """Modern card-style widget for a single Lamella."""
 
-    clicked = pyqtSignal(object)                    # Lamella
-    defect_changed = pyqtSignal(object)             # Lamella
-    move_to_requested = pyqtSignal(object)          # Lamella
+    clicked = pyqtSignal(object)  # Lamella
+    defect_changed = pyqtSignal(object)  # Lamella
+    move_to_requested = pyqtSignal(object)  # Lamella
     update_position_requested = pyqtSignal(object)  # Lamella
-    remove_requested = pyqtSignal(object)           # Lamella
+    remove_requested = pyqtSignal(object)  # Lamella
 
     def __init__(
         self,
@@ -198,7 +199,9 @@ class LamellaCardWidget(QWidget):
         # ── thumbnail ───────────────────────────────────────────────────
         self._thumb_label = QLabel()
         self._thumb_label.setAlignment(Qt.AlignCenter)
-        self._thumb_label.setStyleSheet(f"background: {NEUTRAL_900}; border-radius: 4px;")
+        self._thumb_label.setStyleSheet(
+            f"background: {NEUTRAL_900}; border-radius: 4px;"
+        )
 
         self._name_label = QLabel()
         self._name_label.setStyleSheet(
@@ -207,23 +210,34 @@ class LamellaCardWidget(QWidget):
 
         self._btn_actions = QToolButton()
         self._btn_actions.setFixedSize(_BTN_SIZE, _BTN_SIZE)
-        self._btn_actions.setStyleSheet(_BTN_STYLE + " QToolButton::menu-indicator { image: none; }")
-        self._btn_actions.setIcon(fibsem_icon("mdi:dots-horizontal", color=stylesheets.GRAY_ICON_COLOR))
+        self._btn_actions.setStyleSheet(
+            _BTN_STYLE + " QToolButton::menu-indicator { image: none; }"
+        )
+        self._btn_actions.setIcon(
+            fibsem_icon("mdi:dots-horizontal", color=stylesheets.GRAY_ICON_COLOR)
+        )
         self._btn_actions.setToolTip("Actions")
         self._btn_actions.setPopupMode(QToolButton.InstantPopup)
         _actions_menu = QMenu(self)
         self._action_move = _actions_menu.addAction(
-            fibsem_icon(ICON_MOVE_TO_POSITION, color=stylesheets.GRAY_ICON_COLOR), "Move to Position"
+            fibsem_icon(ICON_MOVE_TO_POSITION, color=stylesheets.GRAY_ICON_COLOR),
+            "Move to Position",
         )
         self._action_update = _actions_menu.addAction(
-            fibsem_icon(ICON_UPDATE_POSITION, color=stylesheets.GRAY_ICON_COLOR), "Update Position"
+            fibsem_icon(ICON_UPDATE_POSITION, color=stylesheets.GRAY_ICON_COLOR),
+            "Update Position",
         )
         self._action_remove = _actions_menu.addAction(
-            fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR), "Remove"
+            fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR),
+            "Remove",
         )
         self._btn_actions.setMenu(_actions_menu)
-        self._action_move.triggered.connect(lambda: self.move_to_requested.emit(self.lamella))
-        self._action_update.triggered.connect(lambda: self.update_position_requested.emit(self.lamella))
+        self._action_move.triggered.connect(
+            lambda: self.move_to_requested.emit(self.lamella)
+        )
+        self._action_update.triggered.connect(
+            lambda: self.update_position_requested.emit(self.lamella)
+        )
         self._action_remove.triggered.connect(self._on_remove_clicked)
 
         self._btn_defect = QToolButton()
@@ -260,8 +274,8 @@ class LamellaCardWidget(QWidget):
         # fatal. Delete these once FIB-604 lands a trigger that fires after the write.
         # lamella.task_state.events.name.connect(self.refresh)    # DISABLED: FIB-604
         # lamella.task_state.events.status.connect(self.refresh)  # DISABLED: FIB-604
-        lamella.events.defect.connect(self.refresh)             # type: ignore[union-attr]
-        lamella.events.description.connect(self.refresh)        # type: ignore[union-attr]
+        lamella.events.defect.connect(self.refresh)  # type: ignore[union-attr]
+        lamella.events.description.connect(self.refresh)  # type: ignore[union-attr]
 
         self.refresh()
 
@@ -288,8 +302,13 @@ class LamellaCardWidget(QWidget):
         if self._content is not None:
             # Re-parent the shared children out first, or deleting their container
             # takes them with it.
-            for widget in (self._thumb_label, self._name_label,
-                           self._status_label, self._btn_defect, self._btn_actions):
+            for widget in (
+                self._thumb_label,
+                self._name_label,
+                self._status_label,
+                self._btn_defect,
+                self._btn_actions,
+            ):
                 widget.setParent(None)
             self._frame_layout.removeWidget(self._content)
             self._content.deleteLater()
@@ -308,8 +327,12 @@ class LamellaCardWidget(QWidget):
         # says "visible once the parent is".
         self._content.show()
 
-        for widget in (self._name_label, self._status_label,
-                       self._btn_defect, self._btn_actions):
+        for widget in (
+            self._name_label,
+            self._status_label,
+            self._btn_defect,
+            self._btn_actions,
+        ):
             widget.show()
         # The compact arrangement leaves the thumbnail out of the layout entirely;
         # showing an unparented widget would pop it up as its own top-level window.
@@ -332,7 +355,9 @@ class LamellaCardWidget(QWidget):
 
         content = QWidget()
         row = QHBoxLayout(content)
-        row.setContentsMargins(_THUMB_PADDING, _THUMB_PADDING, _THUMB_PADDING, _THUMB_PADDING)
+        row.setContentsMargins(
+            _THUMB_PADDING, _THUMB_PADDING, _THUMB_PADDING, _THUMB_PADDING
+        )
         row.setSpacing(6)
         row.addWidget(self._thumb_label)
 
@@ -437,9 +462,7 @@ class LamellaCardWidget(QWidget):
         super().mousePressEvent(event)
 
     def set_selected(self, selected: bool) -> None:
-        self._card.setStyleSheet(
-            _CARD_SELECTED_STYLE if selected else _CARD_STYLE
-        )
+        self._card.setStyleSheet(_CARD_SELECTED_STYLE if selected else _CARD_STYLE)
 
     def _on_remove_clicked(self) -> None:
         reply = QMessageBox.question(
@@ -458,15 +481,17 @@ class LamellaCardWidget(QWidget):
             fibsem_icon("mdi:check-circle", color=stylesheets.GREEN_COLOR), "No defect"
         )
         action_rework = menu.addAction(
-            fibsem_icon("mdi:refresh-circle", color=stylesheets.DEFECT_ORANGE_COLOR), "Rework required"
+            fibsem_icon("mdi:refresh-circle", color=stylesheets.DEFECT_ORANGE_COLOR),
+            "Rework required",
         )
         action_failure = menu.addAction(
-            fibsem_icon("mdi:close-circle", color=stylesheets.DEFECT_RED_COLOR), "Failure"
+            fibsem_icon("mdi:close-circle", color=stylesheets.DEFECT_RED_COLOR),
+            "Failure",
         )
 
-        chosen = menu.exec_(self._btn_defect.mapToGlobal(
-            self._btn_defect.rect().bottomLeft()
-        ))
+        chosen = menu.exec_(
+            self._btn_defect.mapToGlobal(self._btn_defect.rect().bottomLeft())
+        )
 
         if chosen == action_none:
             self.lamella.defect = DefectState(state=DefectType.NONE)
@@ -487,11 +512,11 @@ _N_COLS = 4
 class LamellaCardContainer(QWidget):
     """Grid container that displays LamellaCardWidget in 4 columns."""
 
-    lamella_selected = pyqtSignal(object)           # Lamella | None
-    defect_changed = pyqtSignal(object)             # Lamella
-    move_to_requested = pyqtSignal(object)          # Lamella
+    lamella_selected = pyqtSignal(object)  # Lamella | None
+    defect_changed = pyqtSignal(object)  # Lamella
+    move_to_requested = pyqtSignal(object)  # Lamella
     update_position_requested = pyqtSignal(object)  # Lamella
-    remove_requested = pyqtSignal(object)           # Lamella
+    remove_requested = pyqtSignal(object)  # Lamella
 
     def __init__(
         self,
@@ -500,7 +525,7 @@ class LamellaCardContainer(QWidget):
         mode: str = MODE_COZY,
     ) -> None:
         super().__init__(parent)
-        self._cards: Dict[str, LamellaCardWidget] = {}   # lamella.id → card
+        self._cards: Dict[str, LamellaCardWidget] = {}  # lamella.id → card
         self._selected_id: Optional[str] = None
         self._n_cols: int = max(1, columns)
         self._mode: str = mode if mode in CARD_MODES else MODE_COZY

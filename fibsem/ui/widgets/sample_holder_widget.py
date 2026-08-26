@@ -48,10 +48,10 @@ _LOADED_STYLE = "background: transparent;"
 
 
 class _GridSlotRowWidget(QWidget):
-    move_clicked = pyqtSignal(object)    # GridSlot
-    capture_clicked = pyqtSignal(object) # GridSlot
-    clear_clicked = pyqtSignal(object)   # GridSlot
-    row_clicked = pyqtSignal(object)     # GridSlot
+    move_clicked = pyqtSignal(object)  # GridSlot
+    capture_clicked = pyqtSignal(object)  # GridSlot
+    clear_clicked = pyqtSignal(object)  # GridSlot
+    row_clicked = pyqtSignal(object)  # GridSlot
 
     def __init__(
         self,
@@ -82,7 +82,9 @@ class _GridSlotRowWidget(QWidget):
         self.btn_move = QToolButton()
         self.btn_move.setFixedSize(_ACTIONS_BTN_SIZE, _ACTIONS_BTN_SIZE)
         self.btn_move.setStyleSheet(_BTN_STYLE)
-        self.btn_move.setIcon(fibsem_icon(ICON_MOVE_TO_POSITION, color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_move.setIcon(
+            fibsem_icon(ICON_MOVE_TO_POSITION, color=stylesheets.GRAY_ICON_COLOR)
+        )
         self.btn_move.setToolTip("Move to Position")
         self.btn_move.setVisible(_show_move)
         self.btn_move.clicked.connect(lambda: self.move_clicked.emit(self.slot))
@@ -92,7 +94,9 @@ class _GridSlotRowWidget(QWidget):
         self.btn_capture = QToolButton()
         self.btn_capture.setFixedSize(_ACTIONS_BTN_SIZE, _ACTIONS_BTN_SIZE)
         self.btn_capture.setStyleSheet(_BTN_STYLE)
-        self.btn_capture.setIcon(fibsem_icon(ICON_UPDATE_POSITION, color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_capture.setIcon(
+            fibsem_icon(ICON_UPDATE_POSITION, color=stylesheets.GRAY_ICON_COLOR)
+        )
         self.btn_capture.setToolTip("Update Position")
         self.btn_capture.setVisible(_show_move)
         self.btn_capture.clicked.connect(lambda: self.capture_clicked.emit(self.slot))
@@ -483,6 +487,7 @@ class SampleHolderWidget(QWidget):
         if holder is None:
             return
         from fibsem import config as cfg
+
         try:
             holder.save(cfg.SAMPLE_HOLDER_CONFIGURATION_PATH)
         except Exception as e:
