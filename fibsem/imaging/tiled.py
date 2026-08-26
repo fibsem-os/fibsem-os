@@ -29,6 +29,7 @@ from fibsem.imaging.tiling.plotting import (  # noqa: E402,F401
     DEFECT_REWORK_COLOUR,
     POSITION_COLOURS,
     plot_minimap,
+    plot_overview_composite,
     plot_stage_positions_on_image,
     plot_tile_positions,
 )
