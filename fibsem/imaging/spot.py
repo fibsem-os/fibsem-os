@@ -26,7 +26,7 @@ class SpotBurnSettings:
 
     coordinates: List[Point] = field(default_factory=list)
     milling_current: float = 60e-12  # amperes
-    exposure_time: float = 10.0      # seconds
+    exposure_time: float = 10.0  # seconds
     # beam preset for preset-driven backends (TESCAN); None means the backend's
     # default. milling_current is ignored wherever a preset drives the beam.
     preset: Optional[str] = None
@@ -49,10 +49,12 @@ class SpotBurnSettings:
         )
 
 
-def run_spot_burn(microscope: FibsemMicroscope,
-                  settings: SpotBurnSettings,
-                  beam_type: BeamType = BeamType.ION,
-                  stop_event: Optional[threading.Event] = None) -> None:
+def run_spot_burn(
+    microscope: FibsemMicroscope,
+    settings: SpotBurnSettings,
+    beam_type: BeamType = BeamType.ION,
+    stop_event: Optional[threading.Event] = None,
+) -> None:
     """Run a spot burn job on the microscope. Exposes the coordinates in *settings* for
     the exposure time at the milling current it specifies.
 

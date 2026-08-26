@@ -1,4 +1,3 @@
-
 ######## SPOT BURN FIDUCIAL TASK DEFINITIONS ########
 from __future__ import annotations
 
@@ -26,35 +25,30 @@ from fibsem.structures import BeamType, Point, field_meta
 @dataclass
 class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the SpotBurnFiducialTask."""
+
     task_type: ClassVar[str] = "SPOT_BURN_FIDUCIAL"
     display_name: ClassVar[str] = "Spot Burn Fiducial"
     milling_current: float = field(
         default=60.0e-12,  # in Amperes
-        metadata=field_meta(
-            tooltip='Milling current in Amperes',
-            unit='A',
-            scale=1e12
-        )
+        metadata=field_meta(tooltip="Milling current in Amperes", unit="A", scale=1e12),
     )
     exposure_time: int = field(
         default=10,
-        metadata=field_meta(
-            tooltip='Exposure time in seconds',
-            unit='s',
-            scale=1
-        )
+        metadata=field_meta(tooltip="Exposure time in seconds", unit="s", scale=1),
     )
     autofocus: bool = field(
         default=False,
         metadata=field_meta(
             tooltip="Run a FIB autofocus before acquiring the reference image, so the "
-                    "points are placed on (and burned into) a focused image",
+            "points are placed on (and burned into) a focused image",
             label="Autofocus",
         ),
     )
     coordinates: list[Point] = field(
         default_factory=list,
-        metadata=field_meta(tooltip="Spot burn positions in normalised image coordinates (0-1)"),
+        metadata=field_meta(
+            tooltip="Spot burn positions in normalised image coordinates (0-1)"
+        ),
     )
     # beam preset for preset-driven backends (TESCAN); None means the backend default.
     # Chosen in the spot burn tab's preset combo, not the generic parameter form.
@@ -64,7 +58,9 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
     def parameters(self) -> tuple[str, ...]:
         # coordinates are edited on the canvas, the preset in the spot burn tab's
         # combo -- neither belongs in the generic parameter form
-        return tuple(p for p in super().parameters if p not in ("coordinates", "preset"))
+        return tuple(
+            p for p in super().parameters if p not in ("coordinates", "preset")
+        )
 
     @property
     def opens_with_reference_alignment(self) -> bool:
@@ -83,7 +79,7 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
         Each point costs its exposure plus a blank/park/unblank cycle.
         """
         total = super().estimated_duration
-        total += 2 * timing.BEAM_CURRENT_CHANGE_S     # into the burn current and back
+        total += 2 * timing.BEAM_CURRENT_CHANGE_S  # into the burn current and back
         total += len(self.coordinates) * (
             self.exposure_time + timing.SPOT_BURN_POINT_OVERHEAD_S
         )
@@ -105,7 +101,7 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
         return ddict
 
     @classmethod
-    def from_dict(cls, ddict: dict) -> 'SpotBurnFiducialTaskConfig':
+    def from_dict(cls, ddict: dict) -> "SpotBurnFiducialTaskConfig":
         cfg = AutoLamellaTaskConfig.from_dict(ddict)
         params = ddict.get("parameters", {})
         coordinates = [Point.from_dict(pt) for pt in ddict.get("coordinates", [])]
@@ -140,6 +136,7 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
 
 class SpotBurnFiducialTask(AutoLamellaTask):
     """Task to mill spot fiducial markers for correlation."""
+
     config: SpotBurnFiducialTaskConfig
     config_cls: ClassVar[Type[SpotBurnFiducialTaskConfig]] = SpotBurnFiducialTaskConfig
 
@@ -189,10 +186,12 @@ class SpotBurnFiducialTask(AutoLamellaTask):
                 )
                 return
             # burn the stored coordinates directly (progress via the microscope signal)
-            run_spot_burn(microscope=self.microscope,
-                          settings=self.config.to_settings(),
-                          beam_type=BeamType.ION,
-                          stop_event=self._stop_event)
+            run_spot_burn(
+                microscope=self.microscope,
+                settings=self.config.to_settings(),
+                beam_type=BeamType.ION,
+                stop_event=self._stop_event,
+            )
             return
 
         # supervised path: task-orchestrated run/wait/re-prompt loop (mirrors milling).
@@ -211,7 +210,9 @@ class SpotBurnFiducialTask(AutoLamellaTask):
         # before continuing so the workflow can't advance mid-burn.
         spot_burn_widget = self.parent_ui.spot_burn_widget
         msg = f"Place points and run the spot burn for {self.lamella.name}. Press Continue when finished."
-        response = ask_user(self.parent_ui, msg=msg, pos="Run Spot Burn", neg="Continue", spot_burn=True)
+        response = ask_user(
+            self.parent_ui, msg=msg, pos="Run Spot Burn", neg="Continue", spot_burn=True
+        )
         while response:
             self.update_status_ui("Running Spot Burn...")
             spot_burn_widget.start_spot_burn_signal.emit()
@@ -229,7 +230,13 @@ class SpotBurnFiducialTask(AutoLamellaTask):
                 # a threading.Event, so it is safe to call from the task thread.
                 spot_burn_widget.cancel_spot_burn()
                 raise
-            response = ask_user(self.parent_ui, msg=msg, pos="Run Spot Burn", neg="Continue", spot_burn=True)
+            response = ask_user(
+                self.parent_ui,
+                msg=msg,
+                pos="Run Spot Burn",
+                neg="Continue",
+                spot_burn=True,
+            )
 
         # store the user's settings (coordinates + current/exposure) back to the config
         self.config.apply_settings(spot_burn_widget.get_settings())

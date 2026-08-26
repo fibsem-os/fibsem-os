@@ -85,7 +85,9 @@ class FibsemSpotBurnWidget(QWidget):
 
         # coordinate editor (shared canvas overlay + list)
         self.coord_editor = SpotBurnCoordinatesWidget(
-            controller=self._view_controller(), beam=BeamType.ION, parent=self,
+            controller=self._view_controller(),
+            beam=BeamType.ION,
+            parent=self,
         )
         layout.addWidget(self.coord_editor)
 
@@ -113,11 +115,17 @@ class FibsemSpotBurnWidget(QWidget):
             )
             closest = min(beam_currents, key=lambda x: abs(x - DEFAULT_BEAM_CURRENT))
             self.comboBox_beam_current = ValueComboBox(
-                items=beam_currents, value=closest, unit="A", decimals=1,
+                items=beam_currents,
+                value=closest,
+                unit="A",
+                decimals=1,
             )
             form.addRow("Beam Current", self.comboBox_beam_current)
         self.doubleSpinBox_exposure_time = ValueSpinBox(
-            suffix="s", minimum=0.1, maximum=60, decimals=3,
+            suffix="s",
+            minimum=0.1,
+            maximum=60,
+            decimals=3,
         )
         self.doubleSpinBox_exposure_time.setValue(10)
         form.addRow("Exposure Time", self.doubleSpinBox_exposure_time)
@@ -158,7 +166,9 @@ class FibsemSpotBurnWidget(QWidget):
 
         # run button
         self.pushButton_run_spot_burn.clicked.connect(self.run_spot_burn_worker)
-        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+        self.pushButton_run_spot_burn.setStyleSheet(
+            stylesheets.PRIMARY_BUTTON_STYLESHEET
+        )
         self.pushButton_run_spot_burn.setEnabled(False)
 
         # the workflow task drives the burn via start_spot_burn_signal (mirrors milling).
@@ -166,7 +176,8 @@ class FibsemSpotBurnWidget(QWidget):
         # so the burn is then either in progress (is_burning=True) or was refused (no
         # in-bounds points), in which case the task re-prompts.
         self.start_spot_burn_signal.connect(
-            self.run_spot_burn_worker, Qt.BlockingQueuedConnection  # type: ignore
+            self.run_spot_burn_worker,
+            Qt.BlockingQueuedConnection,  # type: ignore
         )
 
         # coordinate signal
@@ -249,7 +260,9 @@ class FibsemSpotBurnWidget(QWidget):
         would fire ``_update_progress_bar`` on a deleted object.
         """
         try:
-            self.microscope.spot_burn_progress_signal.disconnect(self._update_progress_bar)
+            self.microscope.spot_burn_progress_signal.disconnect(
+                self._update_progress_bar
+            )
         except Exception:
             pass
 
@@ -305,7 +318,9 @@ class FibsemSpotBurnWidget(QWidget):
 
         self._feed_image_shape()
         # the editor only owns coordinates; current/exposure live on the form
-        self.coord_editor.set_settings(SpotBurnSettings(coordinates=list(settings.coordinates)))
+        self.coord_editor.set_settings(
+            SpotBurnSettings(coordinates=list(settings.coordinates))
+        )
         self._refresh_info()  # set_settings is programmatic (no settings_changed)
 
     def get_settings(self) -> SpotBurnSettings:
@@ -368,7 +383,9 @@ class FibsemSpotBurnWidget(QWidget):
         self.stop_event.clear()
         self._is_burning = True
         self.pushButton_run_spot_burn.setText("Cancel")
-        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.DANGER_BUTTON_STYLESHEET)
+        self.pushButton_run_spot_burn.setStyleSheet(
+            stylesheets.DANGER_BUTTON_STYLESHEET
+        )
         self.pushButton_run_spot_burn.clicked.disconnect()
         self.pushButton_run_spot_burn.clicked.connect(self.cancel_spot_burn)
         # in workflow mode the button is hidden when idle — show it as "Cancel" while burning
@@ -389,10 +406,12 @@ class FibsemSpotBurnWidget(QWidget):
         ``microscope.spot_burn_progress_signal``; completion is delivered on the GUI
         thread via the FunctionWorker's returned / errored signals, so a failure anywhere
         here — including the post-burn acquire — resets the UI via spot_burn_errored."""
-        run_spot_burn(microscope=self.microscope,
-                      settings=settings,
-                      beam_type=BeamType.ION,
-                      stop_event=self.stop_event)
+        run_spot_burn(
+            microscope=self.microscope,
+            settings=settings,
+            beam_type=BeamType.ION,
+            stop_event=self.stop_event,
+        )
         # acquire a post-burn fib image and push it to the view (off the GUI thread)
         image = self.microscope.acquire_image(beam_type=BeamType.ION)
         self.microscope.fib_acquisition_signal.emit(image)
@@ -403,7 +422,9 @@ class FibsemSpotBurnWidget(QWidget):
         # hide the "Done" bar after a moment, so it doesn't linger for the rest of the
         # session (mirrors the status bar). reset_if_finished leaves the widget alone if
         # another burn has already started rendering progress in the meantime.
-        QTimer.singleShot(HIDE_PROGRESS_DELAY_MS, self.progress_widget.reset_if_finished)
+        QTimer.singleShot(
+            HIDE_PROGRESS_DELAY_MS, self.progress_widget.reset_if_finished
+        )
 
     def spot_burn_errored(self, error) -> None:
         """Called when the spot burn fails.
@@ -412,7 +433,9 @@ class FibsemSpotBurnWidget(QWidget):
         still visible if the user was not watching when it happened.
         """
         logging.error(f"Spot burn failed: {error}")
-        self.microscope.spot_burn_progress_signal.emit({"finished": True, "error": True})
+        self.microscope.spot_burn_progress_signal.emit(
+            {"finished": True, "error": True}
+        )
         self._restore_idle_state()
 
     def _restore_idle_state(self) -> None:
@@ -422,7 +445,9 @@ class FibsemSpotBurnWidget(QWidget):
         self.pushButton_run_spot_burn.clicked.connect(self.run_spot_burn_worker)
         self.pushButton_run_spot_burn.setEnabled(True)
         self.pushButton_run_spot_burn.setText("Run Spot Burn")
-        self.pushButton_run_spot_burn.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+        self.pushButton_run_spot_burn.setStyleSheet(
+            stylesheets.PRIMARY_BUTTON_STYLESHEET
+        )
         # in workflow mode, hide the button again now the burn is done
         self._update_run_button_visibility()
 
