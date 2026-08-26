@@ -54,6 +54,7 @@ except Exception as e:
     logging.debug(f"Automation (TESCAN) not installed. {e}")
 
 from fibsem.imaging.spot import SpotBurnSettings
+from fibsem.milling.base import set_preset_driven_estimation
 from fibsem.structures import (  # noqa
     ACTIVE_MILLING_STATES,
     BeamSettings,
@@ -333,6 +334,12 @@ class TescanMicroscope(FibsemMicroscope):
             BeamType.ION: BeamSettings(BeamType.ION),
         }
 
+        # TESCAN milling is preset-driven, so milling time estimates must come from
+        # the dose model (stage rate x preset current), not the legacy current-keyed
+        # table. Registered here because the planning stack estimates without a
+        # microscope in scope; disconnect() hands the legacy model back.
+        set_preset_driven_estimation(True)
+
         # logging
         logging.debug(
             {
@@ -346,6 +353,8 @@ class TescanMicroscope(FibsemMicroscope):
             self.connection.Disconnect()
         del self.connection
         self.connection = None
+        # hand milling time estimation back to the legacy model (see __init__)
+        set_preset_driven_estimation(False)
 
     def connect_to_microscope(
         self,
