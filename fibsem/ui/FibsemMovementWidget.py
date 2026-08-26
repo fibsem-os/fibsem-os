@@ -381,8 +381,8 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         the refreshing images do not already show. On the info bar the same words stay
         put for the duration of the move, which is when they are worth reading.
 
-        They are invisible today because `display.toasts_enabled` defaults to False.
-        That default should change, and this is what has to be true first.
+        Toasts show unconditionally (FIB-781), so that wall of popups is what these
+        messages would actually produce rather than a thing to worry about later.
         """
         msg = ddict.get("msg", None)
         if msg is not None:

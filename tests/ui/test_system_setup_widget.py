@@ -117,9 +117,9 @@ def test_an_unexpected_failure_is_caught_too(widget, monkeypatch, toasts):
 
 
 def test_a_failed_connection_is_visible_without_toasts(widget, monkeypatch, toasts):
-    """Toasts are off by default (`display.toasts_enabled`), and `show_toast`
-    deliberately does not reach notification history -- so a toast alone would turn
-    the crash this guards against into silence. The status card is always on screen.
+    """`show_toast` deliberately does not reach notification history, and a toast is
+    gone in five seconds -- so a toast alone would leave nothing on screen explaining
+    why the connection failed. The status card is always there.
     """
     _fail_to_connect(monkeypatch, Exception(AUTOSCRIPT_MISSING))
     monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: "/some/path.yaml")

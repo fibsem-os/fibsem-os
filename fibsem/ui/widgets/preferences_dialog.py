@@ -31,10 +31,6 @@ from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, QFileLineEdit
 # Display
 _LBL_SOUND = "Enable Sound Notifications"
 _TIP_SOUND = "Play an audio alert when the workflow requires the user's attention."
-_LBL_TOASTS = "Enable Toast Notifications"
-_TIP_TOASTS = (
-    "Show brief pop-up messages in the corner of the screen for workflow events."
-)
 _LBL_BORDER = "Enable Workflow Border"
 _TIP_BORDER = "Highlight the viewport border while an automated workflow is running."
 _LBL_CARD_MODE = "Lamella Card Layout"
@@ -145,8 +141,6 @@ class PreferencesDialog(QDialog):
         display_form = QFormLayout(display_page)
         self._chk_sound = QCheckBox()
         self._chk_sound.setToolTip(_TIP_SOUND)
-        self._chk_toasts = QCheckBox()
-        self._chk_toasts.setToolTip(_TIP_TOASTS)
         self._chk_border = QCheckBox()
         self._chk_border.setToolTip(_TIP_BORDER)
         self._chk_dev_mode = QCheckBox()
@@ -159,7 +153,6 @@ class PreferencesDialog(QDialog):
         for mode in CARD_MODES:
             self._combo_card_mode.addItem(card_mode_label(mode), mode)
         display_form.addRow(_LBL_SOUND, self._chk_sound)
-        display_form.addRow(_LBL_TOASTS, self._chk_toasts)
         display_form.addRow(_LBL_BORDER, self._chk_border)
         display_form.addRow(_LBL_CARD_MODE, self._combo_card_mode)
         display_form.addRow(_LBL_DEV_MODE, self._chk_dev_mode)
@@ -237,7 +230,6 @@ class PreferencesDialog(QDialog):
         """Populate widgets from a UserPreferences instance."""
         d = prefs.display
         self._chk_sound.setChecked(d.sound_enabled)
-        self._chk_toasts.setChecked(d.toasts_enabled)
         self._chk_border.setChecked(d.border_enabled)
         self._chk_dev_mode.setChecked(d.dev_mode)
         card_index = self._combo_card_mode.findData(d.lamella_card_mode)
@@ -319,7 +311,6 @@ class PreferencesDialog(QDialog):
         return UserPreferences(
             display=DisplayPreferences(
                 sound_enabled=self._chk_sound.isChecked(),
-                toasts_enabled=self._chk_toasts.isChecked(),
                 border_enabled=self._chk_border.isChecked(),
                 dev_mode=self._chk_dev_mode.isChecked(),
                 lamella_card_mode=self._combo_card_mode.currentData(),

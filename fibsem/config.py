@@ -353,7 +353,17 @@ def card_mode_label(mode: str) -> str:
 @dataclass
 class DisplayPreferences:
     sound_enabled: bool = False
-    toasts_enabled: bool = False
+    # No `toasts_enabled` here: toasts are how the application talks, not a nicety
+    # sitting beside sound. It was a preference defaulting to False, which meant 165
+    # call sites emitted feedback that reached nowhere at all -- `show_toast`
+    # deliberately bypasses notification history, so off was not "quieter", it was
+    # silent.
+    #
+    # Removed rather than flipped. `to_dict` is `dataclasses.asdict`, so every save
+    # writes the key and opening an experiment is enough to trigger a save: a new
+    # default would have reached only a machine that had never run the app, while
+    # everyone else kept the pinned `false` (FIB-781). Older files still carry the
+    # key and `_sub_from_dict` drops it.
     border_enabled: bool = True
     dev_mode: bool = False
     # How the lamella strip draws each card: "cozy" (large thumbnail), "standard"

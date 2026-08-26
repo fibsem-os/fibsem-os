@@ -443,7 +443,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # User attention tracking
         self._user_interaction_sound_played = False  # Track if sound was played
         self._sound_enabled = self._preferences.display.sound_enabled
-        self._toasts_enabled = self._preferences.display.toasts_enabled
         self._border_enabled = self._preferences.display.border_enabled
         self.dev_mode = self._preferences.display.dev_mode
 
@@ -761,11 +760,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_sound_toggle.setChecked(self._sound_enabled)
         self.action_sound_toggle.triggered.connect(self._on_sound_toggle)
 
-        self.action_toasts_toggle = QAction("Toasts Enabled", self)
-        self.action_toasts_toggle.setCheckable(True)
-        self.action_toasts_toggle.setChecked(self._toasts_enabled)
-        self.action_toasts_toggle.triggered.connect(self._on_toasts_toggle)
-
         # Border state test actions
         self.action_border_toggle = QAction("Show Workflow Border", self)
         self.action_border_toggle.setCheckable(True)
@@ -828,7 +822,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         test_menu.addSeparator()  # type: ignore
         test_menu.addAction(self.action_beep)  # type: ignore
         test_menu.addAction(self.action_sound_toggle)  # type: ignore
-        test_menu.addAction(self.action_toasts_toggle)  # type: ignore
 
         self._test_menu = test_menu
         self._test_menu.menuAction().setVisible(self.dev_mode)
@@ -837,12 +830,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Handle sound toggle."""
         self._sound_enabled = checked
         self._preferences.display.sound_enabled = checked
-        fibsem_cfg.save_user_preferences(self._preferences)
-
-    def _on_toasts_toggle(self, checked: bool):
-        """Handle toasts toggle."""
-        self._toasts_enabled = checked
-        self._preferences.display.toasts_enabled = checked
         fibsem_cfg.save_user_preferences(self._preferences)
 
     def _on_border_toggle(self, checked: bool):
@@ -867,7 +854,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Apply current preferences to UI state."""
         d = self._preferences.display
         self._sound_enabled = d.sound_enabled
-        self._toasts_enabled = d.toasts_enabled
         self._border_enabled = d.border_enabled
         self.dev_mode = d.dev_mode
         # The lamella strip's density. Guarded because _apply_preferences also runs
@@ -876,7 +862,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.lamella_card_container.set_mode(d.lamella_card_mode)
         # Sync Test menu toggle actions
         self.action_sound_toggle.setChecked(d.sound_enabled)
-        self.action_toasts_toggle.setChecked(d.toasts_enabled)
         self.action_border_toggle.setChecked(d.border_enabled)
         # Toggle dev/test menu visibility
         self._dev_menu.menuAction().setVisible(d.dev_mode)
@@ -939,16 +924,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         duration: int = 5000,
         temporary: bool = False,
     ):
-        """Show a toast notification."""
-        if self._toasts_enabled:
-            self.toast_manager.show_toast(
-                message, notification_type, duration, temporary=temporary
-            )
-        elif self.toast_manager.notification_bell and not temporary:
-            # Still log to notification bell even when toasts are disabled
-            self.toast_manager.notification_bell.add_notification(
-                message, notification_type
-            )
+        """Show a toast notification.
+
+        Unconditional: there is no longer a preference for turning toasts off, so the
+        branch that used to route a suppressed message to the notification bell has
+        gone with it. Nothing is lost -- `ToastManager.show_toast` records every
+        non-temporary message in the bell itself.
+        """
+        self.toast_manager.show_toast(
+            message, notification_type, duration, temporary=temporary
+        )
 
     def _on_connect_microscope(self):
         """Connect from the dialog, then hand the session to the system widget.
