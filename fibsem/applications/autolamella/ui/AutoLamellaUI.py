@@ -100,6 +100,7 @@ from fibsem.applications.autolamella.ui.autolamella_load_task_protocol_widget im
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import HookManager
 from fibsem.ui.fm.widgets import MinimapPlotWidget
+from fibsem.ui.widgets.canvas.log_panel import LogPanelWidget
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
 
@@ -200,6 +201,9 @@ class AutoLamellaUI(QMainWindow):
         self._connection_chip_enabled = (
             fibsem_cfg.load_user_preferences().features.connection_chip
         )
+        self._log_viewer_enabled = (
+            fibsem_cfg.load_user_preferences().features.log_viewer_enabled
+        )
         self.system_widget = FibsemSystemSetupWidget(parent=self)
         self.image_widget: Optional[FibsemImageSettingsWidget] = None
         self.movement_widget: Optional[FibsemMovementWidget] = None
@@ -214,6 +218,16 @@ class AutoLamellaUI(QMainWindow):
         self.minimap_plot_widget.setWindowFlags(Qt.Tool)
         self.minimap_plot_widget.setWindowTitle("Minimap Plot")
         self.minimap_plot_widget.hide()
+
+        # log widget — a floating tool window, hidden by default. Raw DEBUG/INFO
+        # logging is a power-user/diagnostic view, not something a normal user
+        # should see unasked; kept out of the always-visible quad grid for that
+        # reason (Patrick, 2026-08-25).
+        self.log_panel_widget = LogPanelWidget(self)
+        self.log_panel_widget.setWindowFlags(Qt.Tool)
+        self.log_panel_widget.setWindowTitle("Log")
+        self.log_panel_widget.resize(520, 380)
+        self.log_panel_widget.hide()
 
         # add widgets to tabs.
         #
@@ -589,8 +603,14 @@ class AutoLamellaUI(QMainWindow):
         # Assign the experiment
         self.experiment = experiment
 
-        experiment.configure_logging()
+        logfile = experiment.configure_logging()
         logging.info(f"Logging to experiment {experiment.name} at {experiment.path}")
+        # Gated on the flag, not just the menu item that opens the window: without this,
+        # a "disabled" log viewer still backfills + tails the real logfile (a live
+        # QFileSystemWatcher, up to 2000 QListWidgetItems rebuilt on every experiment
+        # load) for the whole session with nothing offering a way to see it.
+        if self._log_viewer_enabled:
+            self.log_panel_widget.set_log_path(logfile)
 
         # Setup experiment connections and update UI
         self._setup_experiment_connections()

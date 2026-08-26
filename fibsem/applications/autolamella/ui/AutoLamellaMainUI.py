@@ -439,6 +439,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Read once, here, because both the menu entry and the header chip are gated
         # on it and the menu is built before the tabs are.
         self._connection_chip_enabled = self._preferences.features.connection_chip
+        self._log_viewer_enabled = self._preferences.features.log_viewer_enabled
 
         # User attention tracking
         self._user_interaction_sound_played = False  # Track if sound was played
@@ -539,6 +540,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Hidden pending rework of the minimap widget itself.
         self.action_show_minimap.setVisible(False)
 
+        self.action_show_log = QAction("Show Log", self)
+        self.action_show_log.setCheckable(True)
+        self.action_show_log.setChecked(False)
+        self.action_show_log.triggered.connect(self._on_toggle_log_widget)
+
         layer_controls_menu = view_menu.addMenu("Show Layer Controls")
 
         self.action_layer_controls_overview = QAction("Overview", self)
@@ -554,6 +560,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         layer_controls_menu.addAction(self.action_layer_controls_overview)
 
         view_menu.addAction(self.action_show_minimap)
+        # Behind features.log_viewer_enabled (off by default) -- see FeatureFlags.
+        # The action is built either way; nothing offers it until the flag is on.
+        if self._log_viewer_enabled:
+            view_menu.addAction(self.action_show_log)
 
         # Quad-view display controls. The F5/Esc shortcuts live on these QActions — one
         # source of truth for the menu item and its keybinding (Qt renders the shortcut
@@ -1043,6 +1053,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         ):
             self.autolamella_ui.minimap_plot_widget.setVisible(checked)
             self.autolamella_ui.minimap_plot_widget.activateWindow()
+
+    def _on_toggle_log_widget(self, checked: bool):
+        """Toggle the floating log window's visibility."""
+        if self.autolamella_ui is not None and hasattr(
+            self.autolamella_ui, "log_panel_widget"
+        ):
+            self.autolamella_ui.log_panel_widget.setVisible(checked)
+            self.autolamella_ui.log_panel_widget.activateWindow()
 
     def _sync_view_menu(self) -> None:
         """Refresh the View menu's dynamic state right before it opens: reflect whether a
