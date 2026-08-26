@@ -1,9 +1,9 @@
 """Widget for generating final overview images with customizable markers and text."""
 
-import glob
 import logging
 import os
-from typing import TYPE_CHECKING, Optional
+from datetime import datetime
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
@@ -27,8 +27,13 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import Experiment
-from fibsem.imaging.tiled import plot_minimap
+from fibsem.applications.autolamella.structures import DefectType, Experiment
+from fibsem.constants import DATETIME_DISPLAY_SHORT as DATETIME_DISPLAY
+from fibsem.imaging.tiled import (
+    DEFECT_FAILURE_COLOUR,
+    DEFECT_REWORK_COLOUR,
+    plot_minimap,
+)
 from fibsem.structures import FibsemImage
 from fibsem.ui.tokens import (
     NEUTRAL_400,
@@ -175,6 +180,12 @@ class OverviewImageWidget(QWidget):
         display_layout = QFormLayout(display_content)
         display_layout.setContentsMargins(0, 0, 0, 0)
 
+        # Which overview to draw on. Populated from the experiment; the Load Image
+        # button still reaches anything else on disk.
+        self.overview_combo = QComboBox()
+        self.overview_combo.setStyleSheet(COMBOBOX_STYLESHEET)
+        self.overview_combo.currentIndexChanged.connect(self._on_overview_selected)
+
         # Title Text
         self.title_textbox = QLineEdit()
         self.title_textbox.setStyleSheet(LINEEDIT_STYLESHEET)
@@ -222,7 +233,21 @@ class OverviewImageWidget(QWidget):
         self.show_scalebar_checkbox.setStyleSheet(CHECKBOX_STYLESHEET)
         self.show_scalebar_checkbox.setChecked(True)
 
+        # Colour the flagged lamellae differently from the rest. On by default: a
+        # defective lamella drawn identically to a good one is the map's most
+        # consequential omission, since the recipient plans their session from it.
+        self.show_defects_checkbox = QCheckBox("")
+        self.show_defects_checkbox.setStyleSheet(CHECKBOX_STYLESHEET)
+        self.show_defects_checkbox.setChecked(True)
+
+        # Instrument, operator, date and version along the bottom. An exported map gets
+        # forwarded; without this it is a picture of some grid, somewhere, at some point.
+        self.show_provenance_checkbox = QCheckBox("")
+        self.show_provenance_checkbox.setStyleSheet(CHECKBOX_STYLESHEET)
+        self.show_provenance_checkbox.setChecked(True)
+
         # display layout
+        display_layout.addRow("Overview", self.overview_combo)
         display_layout.addRow("Title", self.title_textbox)
         display_layout.addRow("Marker Color", color_layout)
         display_layout.addRow("Text Size", self.text_size_spinbox)
@@ -230,6 +255,8 @@ class OverviewImageWidget(QWidget):
         display_layout.addRow("Show Names", self.show_names_checkbox)
         display_layout.addRow("Show Descriptions", self.show_descriptions_checkbox)
         display_layout.addRow("Show Scalebar", self.show_scalebar_checkbox)
+        display_layout.addRow("Mark Defects", self.show_defects_checkbox)
+        display_layout.addRow("Show Provenance", self.show_provenance_checkbox)
 
         display_group = TitledPanel(
             "Display Options", content=display_content, collapsible=False
@@ -241,6 +268,8 @@ class OverviewImageWidget(QWidget):
         self.show_names_checkbox.stateChanged.connect(self._on_preview_clicked)
         self.show_descriptions_checkbox.stateChanged.connect(self._on_preview_clicked)
         self.show_scalebar_checkbox.stateChanged.connect(self._on_preview_clicked)
+        self.show_defects_checkbox.stateChanged.connect(self._on_preview_clicked)
+        self.show_provenance_checkbox.stateChanged.connect(self._on_preview_clicked)
         self.title_textbox.editingFinished.connect(self._on_preview_clicked)
 
         # Preview canvas
@@ -541,11 +570,44 @@ class OverviewImageWidget(QWidget):
             self.stage_positions.clear()
             self.stage_positions = self.experiment.get_milling_positions()
 
-            filenames = glob.glob(os.path.join(experiment.path, "*overview*.tif"))
-            if filenames:
-                self._load_overview_image(filenames[-1])
+            self._populate_overview_picker()
         else:
             self.info_label.setText("No experiment loaded")
+
+    def _populate_overview_picker(self):
+        """List every overview in the experiment, and select the most recent.
+
+        Selecting the most recent rather than an arbitrary one: the dialog used to glob
+        for itself and take `filenames[-1]`, which is the last in *name* order and had no
+        UI behind it at all -- an experiment with three overviews reported on one of them
+        and gave no way to see the others.
+        """
+        self.overview_combo.blockSignals(True)
+        self.overview_combo.clear()
+        paths = self.experiment.find_overview_images()
+        for path in paths:
+            self.overview_combo.addItem(os.path.basename(path), path)
+        self.overview_combo.blockSignals(False)
+
+        # Fluorescence overviews are a different view of the sample and cannot be drawn
+        # on a beam overview's axes, so they are counted here rather than offered. Saying
+        # how many exist stops "my FM overview is missing" being a mystery.
+        fm_count = len(self.experiment.find_fluorescence_overview_images())
+        self._fm_overview_count = fm_count
+
+        if paths:
+            self.overview_combo.setCurrentIndex(len(paths) - 1)
+            self._load_overview_image(paths[-1])
+        else:
+            self.info_label.setText(
+                "No overview image found in the experiment - use Load Image."
+            )
+
+    def _on_overview_selected(self, index: int):
+        """A different overview was picked from the list."""
+        path = self.overview_combo.itemData(index)
+        if path:
+            self._load_overview_image(path)
 
     def _on_browse_image_clicked(self):
         """Handle browse button click for selecting and loading overview image."""
@@ -608,6 +670,7 @@ class OverviewImageWidget(QWidget):
             show_names=self.show_names_checkbox.isChecked(),
             show_descriptions=self.show_descriptions_checkbox.isChecked(),
             descriptions=descriptions,
+            colors=self._defect_colors(),
             # None sizes the figure to the overview's aspect. Only the starting point
             # for the preview, whose figure is then resized to the canvas widget -- but
             # it is what the export is built at, and there it decides everything.
@@ -617,8 +680,90 @@ class OverviewImageWidget(QWidget):
         title_text = self.title_textbox.text().strip()
         if title_text:
             fig.suptitle(title_text, fontsize=14, color=title_color)
-        fig.tight_layout(rect=(0, 0, 1, 0.98))
+
+        bottom = 0.0
+        if self.show_provenance_checkbox.isChecked():
+            provenance = self._provenance_text()
+            if provenance:
+                fig.text(
+                    0.5,
+                    0.012,
+                    provenance,
+                    ha="center",
+                    va="bottom",
+                    fontsize=7,
+                    color=title_color,
+                    alpha=0.75,
+                )
+                bottom = 0.045
+
+        fig.tight_layout(rect=(0, bottom, 1, 0.98))
         return fig
+
+    def _defect_colors(self) -> Dict[str, str]:
+        """Lamella name -> marker colour, for the ones a human has flagged.
+
+        Only the flagged ones. Everything else is absent from the mapping and keeps
+        whatever the Marker Color control is set to, so choosing a colour still does what
+        it says for the lamellae that have nothing wrong with them.
+
+        Driven by `defect.state` alone -- the one field a person actually set. Nothing
+        here is derived from task history: a lamella whose polishing task never ran is
+        unfinished, which is not the same claim as defective, and a report that quietly
+        promotes one to the other is inventing a judgement nobody made.
+        """
+        if not self.show_defects_checkbox.isChecked():
+            return {}
+        colours: Dict[str, str] = {}
+        for lamella in self.experiment.positions:
+            state = lamella.defect.state
+            if state is DefectType.FAILURE:
+                colours[lamella.name] = DEFECT_FAILURE_COLOUR
+            elif state is DefectType.REWORK:
+                colours[lamella.name] = DEFECT_REWORK_COLOUR
+        return colours
+
+    def _provenance_text(self) -> str:
+        """One line naming the instrument, the operator, and when.
+
+        An exported map gets forwarded, and three months later a picture of a grid with
+        no instrument, date or software version on it cannot be tied back to anything.
+        `Experiment.session` carries all of it already.
+
+        Absent for an experiment no session has adopted, and for every experiment written
+        before the session record existed. That returns an empty string rather than a
+        line of "unknown"s -- a caption that admits nothing is better than one that
+        asserts blanks.
+        """
+        session = getattr(self.experiment, "session", None)
+        parts: List[str] = []
+        if session is not None:
+            system = getattr(session, "system", None)
+            user = getattr(session, "user", None)
+            model = getattr(system, "model", "") or ""
+            serial = getattr(system, "serial_number", "") or ""
+            if model:
+                parts.append(f"{model} ({serial})" if serial else model)
+            operator = getattr(user, "name", "") or ""
+            if operator:
+                parts.append(operator)
+            version = getattr(system, "fibsem_version", "") or ""
+            if version:
+                parts.append(f"fibsemOS {version}")
+
+        created = getattr(self.experiment, "created_at", None)
+        if created:
+            try:
+                parts.append(
+                    f"milled {datetime.fromtimestamp(created).strftime(DATETIME_DISPLAY)}"
+                )
+            except (ValueError, OSError, TypeError):
+                pass
+
+        if not parts:
+            return ""
+        parts.append(f"map {datetime.now().strftime(DATETIME_DISPLAY)}")
+        return "  |  ".join(parts)
 
     def _on_preview_clicked(self):
         """Generate and display preview of the overview image."""
