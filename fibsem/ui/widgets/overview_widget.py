@@ -875,6 +875,18 @@ class FibsemOverviewWidget(QWidget):
         self.button_load.clicked.connect(self._prompt_for_overview)
         overviews_panel.add_header_widget(self.button_load)
 
+        # Beside Load, because the pair is the section's two directions. Saving the view
+        # rather than the overview: what you are looking at, markers and grid bars and
+        # all, at whatever zoom you set -- which is the picture worth sending someone,
+        # and until `save_view` existed no canvas in the application could produce one.
+        self.button_save_view = IconToolButton(
+            icon="mdi:content-save-outline",
+            tooltip="Save this view as an image",
+            size=_HEADER_BTN_SIZE,
+        )
+        self.button_save_view.clicked.connect(self._prompt_to_save_view)
+        overviews_panel.add_header_widget(self.button_save_view)
+
         controls = QWidget()
         controls_layout = QVBoxLayout(controls)
         self._controls_layout = controls_layout
@@ -1996,6 +2008,30 @@ class FibsemOverviewWidget(QWidget):
         if not path:
             return
         self.load_overview(path)
+
+    def _prompt_to_save_view(self) -> None:
+        """Write the current view to a PNG the user picks."""
+        default = os.path.join(
+            str(self._save_directory or os.getcwd()),
+            f"{self._current_view.label if self._current_view else 'overview'}-view.png",
+        )
+        path = ui_utils.open_save_file_dialog(
+            msg="Save this view as an image",
+            path=default,
+            _filter="PNG Image (*.png)",
+            parent=self,
+        )
+        if not path:
+            return
+        try:
+            # White, not the canvas's near-black: this is going into a document or an
+            # email, and a page of dark grey is a page of dark grey wherever it lands.
+            self.canvas.save_view(path, facecolor="white")
+        except Exception as e:
+            logger.error(f"Could not save the view to {path}: {e}")
+            notification_service.show_toast(f"Could not save the view: {e}", "error")
+            return
+        notification_service.show_toast(f"Saved {os.path.basename(path)}", "success")
 
     # ── overlays ─────────────────────────────────────────────────────────
 
