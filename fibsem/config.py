@@ -404,11 +404,6 @@ class FeatureFlags:
     # A staging flag like `overview_canvas_tab`, and it goes the same way: deleted
     # when the chip replaces the tab, not kept as a preference.
     connection_chip: bool = False
-    # Planning a sparse fluorescence overview by drawing regions on a FIB/SEM one.
-    # Off while it has had no bench time: it decides where an expensive acquisition
-    # goes, and the geometry it rests on is only checkable against real data
-    # (FIB-597). Staging, like the flag above -- deleted when it ships, not kept.
-    sparse_fm_selection: bool = False
 
 
 @dataclass

@@ -284,7 +284,6 @@ class FMOverviewWidget(QWidget):
         # Set only while `_on_drag_finished` is running the refresh a drag deferred.
         # See there: that refresh must not re-frame the view.
         self._finishing_drag = False
-        self._sparse_selection_enabled = False
         # Where acquired overviews are written. None means nowhere: the widget opens
         # standalone against a simulator as often as it runs inside an experiment, and
         # inventing a directory for those runs would scatter files through whatever
@@ -575,7 +574,6 @@ class FMOverviewWidget(QWidget):
             size=_HEADER_BTN_SIZE,
         )
         self.button_select_ground.clicked.connect(self.select_ground_to_image)
-        self.button_select_ground.setVisible(False)
         self.settings_widget.add_grid_header_widget(self.button_select_ground)
 
         buttons = QWidget()
@@ -1220,17 +1218,6 @@ class FMOverviewWidget(QWidget):
         """Where a run would write, as the Output panel has it."""
         return self.settings_widget.save_directory
 
-    def set_sparse_selection_enabled(self, enabled: bool) -> None:
-        """Offer planning an overview by selecting on a FIB/SEM one, or do not.
-
-        Part of the host contract, like `set_save_directory`: this widget is handed a
-        microscope and knows nothing about preferences. Carried past the button rather
-        than only to it -- a control nobody can see is not a feature that is off, and
-        `select_ground_to_image` refuses on the same flag.
-        """
-        self._sparse_selection_enabled = bool(enabled)
-        self.button_select_ground.setVisible(self._sparse_selection_enabled)
-
     def select_ground_to_image(self) -> None:
         """Draw regions on a saved beam overview, and take the grid they produce.
 
@@ -1243,8 +1230,6 @@ class FMOverviewWidget(QWidget):
             beam_overviews_in,
         )
 
-        if not self._sparse_selection_enabled:
-            return
         views = beam_overviews_in(self._save_directory, self.microscope)
         if not views:
             notification_service.show_toast(

@@ -141,11 +141,8 @@ def widget(microscope, experiment):
     return built
 
 
-def test_the_button_is_hidden_until_the_feature_is_turned_on(widget):
-    assert widget.button_select_ground.isVisibleTo(widget) is False
-
-    widget.set_sparse_selection_enabled(True)
-
+def test_the_button_is_there(widget):
+    """No flag left to turn it on: the entry point ships with the tab (FIB-597)."""
     assert widget.button_select_ground.isVisibleTo(widget) is True
 
 
@@ -183,24 +180,12 @@ def test_the_button_sits_with_the_grid_it_sets(widget):
     assert header.isAncestorOf(widget.button_select_ground)
 
 
-def test_the_flag_is_carried_past_the_button(widget):
-    """A control nobody can see is not a feature that is off. Someone reaching the
-    method another way must meet the same answer as someone looking for the button."""
-    widget.set_sparse_selection_enabled(False)
-
-    with dialog_never_opens() as opened:
-        widget.select_ground_to_image()
-
-    assert opened == []
-
-
 def test_with_no_overviews_it_says_so_rather_than_opening_an_empty_dialog(
     microscope, tmp_path
 ):
     """A dialog offering nothing to select on is a dead end with a Cancel button."""
     built = FMOverviewWidget(microscope)
     built.set_save_directory(str(tmp_path))
-    built.set_sparse_selection_enabled(True)
 
     with dialog_never_opens() as opened:
         built.select_ground_to_image()
@@ -210,8 +195,6 @@ def test_with_no_overviews_it_says_so_rather_than_opening_an_empty_dialog(
 
 def test_it_does_open_when_there_is_something_to_select_on(widget):
     """The guard above has to be a guard, not the only path."""
-    widget.set_sparse_selection_enabled(True)
-
     with dialog_never_opens() as opened:
         widget.select_ground_to_image()
 

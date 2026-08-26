@@ -893,7 +893,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # match. The FM Overview tab used to be here too; it ships to everyone with an
         # FM now (FIB-611), so its visibility follows the instrument rather than a flag.
         self._apply_overview_canvas_visibility()
-        self._apply_sparse_fm_selection_flag()
         # Toggle Tools -> Scripts. Hiding the menu hides the whole feature: it is the
         # only route to the manager dialog, and the dialog is the only thing that runs
         # a script. If a script is mid-run, leave it visible -- taking away the only
@@ -1531,7 +1530,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Same for the rebuilt Overview tab, which holds its microscope for life and
         # has to be handed the new one (or let go of the old) on every connection.
         self._apply_overview_canvas_visibility()
-        self._apply_sparse_fm_selection_flag()
         if (
             self.autolamella_ui is not None
             and self.autolamella_ui.microscope is not None
@@ -2961,23 +2959,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.tab_widget.indexOf(self.overview_canvas_tab), False
         )
         self._apply_overview_canvas_visibility()
-        self._apply_sparse_fm_selection_flag()
-
-    def _apply_sparse_fm_selection_flag(self) -> None:
-        """Offer planning an FM overview from a beam one, or do not.
-
-        A control inside a tab rather than a tab, so there is nothing to show or hide
-        here -- the widget is told and decides. Read off `self._preferences` for the same
-        reason as the flag below: this is a method on the window that owns them, and a
-        module-level copy would only be a second thing to keep in step.
-        """
-        tab = getattr(self, "fm_overview_tab", None)
-        overview = getattr(tab, "overview", None) if tab is not None else None
-        if overview is None:
-            return
-        overview.set_sparse_selection_enabled(
-            self._preferences.features.sparse_fm_selection
-        )
 
     def _apply_overview_canvas_visibility(self) -> None:
         """Show or hide the rebuilt Overview tab, and build or tear down its widget.
