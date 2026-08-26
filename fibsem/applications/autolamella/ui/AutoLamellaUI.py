@@ -765,6 +765,24 @@ class AutoLamellaUI(QMainWindow):
         generate_report_dialog(self.experiment, parent=self)
         return
 
+    def action_export_handoff_map(self) -> None:
+        """Export the multi-page document the grid travels to the TEM with."""
+        if self.experiment is None:
+            return
+
+        if not REPORTING_AVAILABLE:
+            notification_service.show_toast(
+                "Reporting tools are not available.", "warning"
+            )
+            return
+
+        from fibsem.applications.autolamella.ui.autolamella_handoff_map_widget import (
+            create_handoff_map_dialog,
+        )
+
+        dialog = create_handoff_map_dialog(experiment=self.experiment, parent=self)
+        dialog.exec_()
+
     def action_generate_overview_plot(self) -> None:
         """Generate an plot with the lamella position on an overview image."""
         if self.experiment is None:
