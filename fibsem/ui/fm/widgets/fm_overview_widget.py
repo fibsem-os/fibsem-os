@@ -436,7 +436,7 @@ class FMOverviewWidget(QWidget):
         # draws: the origin explains why everything sits where it does, this is what
         # you steer by. They coincide until the stage moves, then diverge.
         self.current_position_overlay = PointsOverlay(
-            color=CURRENT_POSITION_COLOUR, marker="+", size=13
+            color=CURRENT_POSITION_COLOUR, marker="+", size=15, edge_width=2.8
         )
         self.canvas.canvas.add_overlay(self.current_position_overlay)
 
