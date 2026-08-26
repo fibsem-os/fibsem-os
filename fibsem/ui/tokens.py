@@ -46,7 +46,11 @@ PRIMARY_ACCENT = "#3a6ea5"  # matches the quad-view selection border
 # defined privately in the FM overview and would have been copied verbatim into the
 # second one, which is how two constants that must agree stop agreeing.
 CURRENT_POSITION_COLOUR = "#ffee58"  # where the stage is now
-SAVED_POSITION_COLOUR = "#26c6da"  # a marked position
+# Cyan A400, not Cyan 400: an accent, matching SELECTED's Light Green A400 below,
+# and the value already used for points drawn over image data elsewhere (the
+# correlation overlay's FM points, the tile-grid colour picker). The 400-series
+# value it replaced was muted enough to disappear into a bright overview.
+SAVED_POSITION_COLOUR = "#00e5ff"  # a marked position
 SELECTED_POSITION_COLOUR = "#76ff03"  # the marked position under the selection
 
 # The sample holder, drawn under everything else on the same canvases. Here for the

@@ -31,12 +31,14 @@ class PointsOverlay(CanvasOverlay):
         marker: str = "o",
         size: int = 8,
         label_prefix: str = "",
+        edge_width: Optional[float] = None,
     ):
         self._points = list(points)
         self._color = color
         self._marker = marker
         self._size = size
         self._label_prefix = label_prefix
+        self._edge_width = edge_width
         self._labels: Optional[List[str]] = None
         self._ax = None
         self._canvas = None
@@ -94,12 +96,20 @@ class PointsOverlay(CanvasOverlay):
         legible against a bright image.
 
         Same rule as `PointOverlay._marker_edge` below, which had it right.
+
+        `edge_width` overrides the width for one overlay. For an unfilled marker that
+        is the stroke thickness of the glyph itself, so it is the only way to give a
+        bare crosshair more ink -- which the current-stage marker needs and its
+        neighbours do not: it carries no field-of-view box and no label (it is passed
+        an empty one), deliberately, so that driving to a lamella does not double that
+        lamella's box. The glyph is all it has. Left as None everywhere else so this
+        stays a property of that one marker rather than of every point on the canvas.
         """
         from matplotlib.lines import Line2D
 
         if self._marker in Line2D.filled_markers:
-            return "white", 0.8
-        return self._color, 2.0
+            return "white", self._edge_width or 0.8
+        return self._color, self._edge_width or 2.0
 
     def _draw(self):
         if self._ax is None:
@@ -158,12 +168,32 @@ class PointsOverlay(CanvasOverlay):
         self._artists.append(ann)
 
 
-# How the field-of-view box is drawn. Deliberately light: the box is context for the
-# marker, not the subject. At full weight its edge competes with the magenta lattice
-# behind it -- gridbars on the beam tab, the planned tile grid on either -- and the box
-# reads as part of that grid rather than as one position.
-FOV_BOX_LINEWIDTH = 0.6
-FOV_LABEL_FONTSIZE = 6.5
+# How the field-of-view box is drawn. Light, because the box is context for the
+# marker rather than the subject -- but not as light as it was.
+#
+# These were 0.6 and 6.5, and reported from a session as hard to see on bright
+# FIB/SEM overviews. Not a contrast problem: nothing here sets an alpha, and a
+# saturated colour separates from greyscale image data by hue at any brightness.
+# There was simply too little of it. At 0.6 this was the thinnest line on the canvas
+# by some way, against 1.0-2.5 for every sibling overlay (alignment 2.5, pattern 1.5,
+# milling 1.0), and the label was the smallest text on it.
+#
+# The original 0.6 had a reason, which is why this is not a straight increase: at
+# full weight the edge was expected to compete with the magenta lattice behind it --
+# gridbars on the beam tab, the planned tile grid on either -- and read as part of
+# that grid rather than as one position. Re-checked at 1.2 against that lattice and
+# it does not happen. What separates the two is hue, not weight: the box is cyan and
+# the lattice is magenta, about as far apart as the wheel allows. 1.2 also matches
+# the lattice's own 1.0, so the box reads as a peer of the grid rather than as a
+# hairline drawn on top of it. Anything that narrows that hue gap -- recolouring
+# either the box or the tile grid -- brings the original concern back, so re-check
+# then rather than assuming this settled it.
+#
+# An outline was tried before reaching for weight, and looked worse: a halo wider
+# than the line it surrounds reads as a botched double border rather than a haloed
+# line. More ink, not more halo.
+FOV_BOX_LINEWIDTH = 1.2
+FOV_LABEL_FONTSIZE = 7.5
 
 
 class FieldOfViewOverlay(PointsOverlay):
