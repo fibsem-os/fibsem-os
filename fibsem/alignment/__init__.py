@@ -24,10 +24,8 @@ if TYPE_CHECKING:
 
 
 from fibsem.alignment.methods import (
-    crosscorrelation_cv2,
     crosscorrelation_v2,
     shift_from_crosscorrelation,
-    shift_from_crosscorrelation_v2,
     shift_from_skimage_phase_correlation,
 )
 from fibsem.alignment.plotting import (
@@ -73,7 +71,6 @@ class AlignmentSubsystem(Enum):
 
 class AlignmentMethod(Enum):
     CROSS_CORRELATION = "cross-correlation"
-    PHASE_CORRELATION = "phase-correlation"
     SKIMAGE_PHASE_CORRELATION = "skimage-phase-correlation"
 
 
@@ -355,7 +352,7 @@ def _calculate_shift(
     "verified" may return an iteration with `accepted=False` and a zeroed shift,
     meaning the estimate could not be corroborated and nothing should be moved.
     It applies to the cross-correlation method only -- the phase-correlation
-    methods have no validated variant and are always accepted.
+    method has no validated variant and is always accepted.
 
     `clip_fraction` bounds an accepted shift to that fraction of the half-ROI;
     None uses the user preference. Also cross-correlation only.
@@ -365,9 +362,6 @@ def _calculate_shift(
         result = shift_from_skimage_phase_correlation(ref_image, new_image)
         result.method = method
         return result
-    elif method is AlignmentMethod.PHASE_CORRELATION:
-        dx, dy, score = shift_from_crosscorrelation_v2(ref_image, new_image)
-        xcorr = None
     else:
         validated = shift_from_crosscorrelation_validated(
             ref_image, new_image, mode=alignment_validation, clip_fraction=clip_fraction
@@ -393,13 +387,6 @@ def _calculate_shift(
             psr=validated.psr,
             clipped=validated.clipped,
         )
-    return AlignmentIteration(
-        shift=Point(dx, dy),
-        score=score,
-        image=new_image,
-        xcorr=xcorr,
-        method=method,
-    )
 
 
 def compare_alignment_methods(

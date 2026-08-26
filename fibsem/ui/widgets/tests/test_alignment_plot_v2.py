@@ -9,11 +9,10 @@ import numpy as np
 from fibsem import acquire, utils
 from fibsem.alignment import (
     AlignmentIteration,
-    crosscorrelation_cv2,
+    AlignmentMethod,
+    _calculate_shift,
     plot_multi_step_alignment,
-    shift_from_crosscorrelation_v2,
 )
-from fibsem.structures import Point
 
 
 def make_shifted_image(ref_image, offset_x: int, offset_y: int):
@@ -42,18 +41,15 @@ def main():
 
     for i, (ox, oy) in enumerate(offsets):
         new = make_shifted_image(ref, ox, oy)
-        shift_x, shift_y, score = crosscorrelation_cv2(ref.data, new.data)
-        dx, dy, _ = shift_from_crosscorrelation_v2(ref, new)
-        r = AlignmentIteration(
-            shift=Point(dx, dy),
-            score=score,
-            image=new,
+        r = _calculate_shift(
+            ref, new, AlignmentMethod.CROSS_CORRELATION,
+            alignment_validation="none", clip_fraction=0.0,
         )
         results.append(r)
         print(
             f"Step {i + 1}: offset=({ox},{oy})px  "
-            f"detected=({shift_x:.2f},{shift_y:.2f})px  "
-            f"dx={r.shift.x * 1e9:.1f}nm dy={r.shift.y * 1e9:.1f}nm  score={score:.3f}"
+            f"detected=({r.shift_px.x:.2f},{r.shift_px.y:.2f})px  "
+            f"dx={r.shift.x * 1e9:.1f}nm dy={r.shift.y * 1e9:.1f}nm  score={r.score:.3f}"
         )
 
     fig = plot_multi_step_alignment(

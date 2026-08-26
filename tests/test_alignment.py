@@ -15,10 +15,8 @@ from fibsem.alignment import (
     AlignmentResult,
     AlignmentSubsystem,
     compare_alignment_methods,
-    crosscorrelation_cv2,
     multi_step_alignment_v2,
     shift_from_crosscorrelation,
-    shift_from_crosscorrelation_v2,
     shift_from_skimage_phase_correlation,
 )
 from fibsem.alignment.methods import _subpixel_peak
@@ -43,147 +41,15 @@ def test_align_from_crosscorrelation(offset):
 
 
 # ---------------------------------------------------------------------------
-# crosscorrelation_cv2
-# ---------------------------------------------------------------------------
-
-def test_crosscorrelation_cv2_known_shift():
-    """crosscorrelation_cv2 recovers a known integer shift within 1 pixel."""
-    rng = np.random.default_rng(42)
-    img = rng.random((256, 256), dtype=np.float32)
-    shift_col, shift_row = 15, -10
-    shifted = np.roll(np.roll(img, shift_row, axis=0), shift_col, axis=1)
-
-    sx, sy, response = crosscorrelation_cv2(img, shifted)
-
-    assert abs(sx - shift_col) < 1.0, f"x shift {sx:.2f} != expected {shift_col}"
-    assert abs(sy - shift_row) < 1.0, f"y shift {sy:.2f} != expected {shift_row}"
-
-
-def test_crosscorrelation_cv2_response_good_match():
-    """Response is high (> 0.5) for a well-matched pair."""
-    rng = np.random.default_rng(7)
-    img = rng.random((256, 256), dtype=np.float32)
-    shifted = np.roll(img, 5, axis=1)
-
-    _, _, response = crosscorrelation_cv2(img, shifted)
-
-    assert response > 0.5, f"Expected high response, got {response:.3f}"
-
-
-def test_crosscorrelation_cv2_response_low_for_noise():
-    """Response is low (< 0.3) when the two images are unrelated noise."""
-    rng = np.random.default_rng(99)
-    img1 = rng.random((256, 256), dtype=np.float32)
-    img2 = rng.random((256, 256), dtype=np.float32)
-
-    _, _, response = crosscorrelation_cv2(img1, img2)
-
-    assert response < 0.3, f"Expected low response for noise pair, got {response:.3f}"
-
-
-def test_crosscorrelation_cv2_zero_shift():
-    """Identical images should return near-zero shift and high response."""
-    rng = np.random.default_rng(1)
-    img = rng.random((256, 256), dtype=np.float32)
-
-    sx, sy, response = crosscorrelation_cv2(img, img)
-
-    assert abs(sx) < 0.5, f"x shift {sx:.3f} should be ~0 for identical images"
-    assert abs(sy) < 0.5, f"y shift {sy:.3f} should be ~0 for identical images"
-    assert response > 0.8, f"Response {response:.3f} should be high for identical images"
-
-
-# ---------------------------------------------------------------------------
-# shift_from_crosscorrelation_v2
-# ---------------------------------------------------------------------------
-
-def test_shift_from_crosscorrelation_v2_known_shift():
-    """v2 recovers a known shift in metres within 1 pixel."""
-    ref_image = FibsemImage.generate_blank_image(resolution=(512, 512), hfw=50e-6)
-    new_image = FibsemImage.generate_blank_image(resolution=(512, 512), hfw=50e-6)
-
-    w = h = 150
-    offset = 20
-    x, y = 200, 200
-    ref_image.data[y:y + h, x:x + w] = 255
-    new_image.data[y + offset:y + h + offset, x + offset:x + w + offset] = 255
-
-    pixel_size = ref_image.metadata.pixel_size.x
-
-    dx_v2, dy_v2, response = shift_from_crosscorrelation_v2(ref_image, new_image)
-
-    assert response > 0.0, "response should be positive"
-    assert np.isclose(dx_v2, offset * pixel_size, atol=pixel_size), \
-        f"dx_v2={dx_v2:.2e}, expected {offset * pixel_size:.2e}"
-    assert np.isclose(dy_v2, offset * pixel_size, atol=pixel_size), \
-        f"dy_v2={dy_v2:.2e}, expected {offset * pixel_size:.2e}"
-
-
-# ---------------------------------------------------------------------------
-# _subpixel_peak
-# ---------------------------------------------------------------------------
-
-def _make_parabola(shape, peak_row, peak_col, amplitude=100.0):
-    """Build a 2D parabolic surface with its maximum at (peak_row, peak_col)."""
-    h, w = shape
-    r = np.arange(h, dtype=np.float64)
-    c = np.arange(w, dtype=np.float64)
-    rr, cc = np.meshgrid(r, c, indexing="ij")
-    return amplitude - (rr - peak_row) ** 2 - (cc - peak_col) ** 2
-
-
-def test_subpixel_peak_recovers_fractional_offset():
-    """A parabolic surface with peak at a non-integer position is recovered to < 0.01 px."""
-    true_row, true_col = 10.3, 15.7
-    xcorr = _make_parabola((32, 32), true_row, true_col)
-
-    # integer argmax lands at the nearest integer bin
-    int_row, int_col = np.unravel_index(np.argmax(xcorr), xcorr.shape)
-    row_sub, col_sub = _subpixel_peak(xcorr, int_row, int_col)
-
-    assert abs(row_sub - true_row) < 0.01, f"row error {abs(row_sub - true_row):.4f} >= 0.01"
-    assert abs(col_sub - true_col) < 0.01, f"col error {abs(col_sub - true_col):.4f} >= 0.01"
-
-
-def test_subpixel_peak_symmetric_returns_integer():
-    """A peak sampled exactly at an integer position returns that integer (no offset)."""
-    xcorr = _make_parabola((32, 32), 16.0, 16.0)
-    row_sub, col_sub = _subpixel_peak(xcorr, 16, 16)
-
-    assert abs(row_sub - 16.0) < 1e-9, f"unexpected row shift {row_sub - 16.0}"
-    assert abs(col_sub - 16.0) < 1e-9, f"unexpected col shift {col_sub - 16.0}"
-
-
-def test_subpixel_peak_border_falls_back_to_integer():
-    """Peak on the image border (row=0 or col=0) returns the integer coordinate unchanged."""
-    xcorr = np.zeros((16, 16), dtype=np.float64)
-    xcorr[0, 8] = 10.0  # peak at top row border
-
-    row_sub, col_sub = _subpixel_peak(xcorr, 0, 8)
-
-    assert row_sub == 0.0, f"border row should not be refined, got {row_sub}"
-
-
-def test_subpixel_peak_flat_denom_no_crash():
-    """When all three samples are equal (zero denominator) the integer position is returned."""
-    xcorr = np.ones((16, 16), dtype=np.float64)
-    # All neighbours are equal → denom == 0 → no refinement
-    row_sub, col_sub = _subpixel_peak(xcorr, 8, 8)
-
-    assert row_sub == 8.0
-    assert col_sub == 8.0
-
-
-# ---------------------------------------------------------------------------
-# Method agreement: all three methods should agree on magnitude and direction
+# the surviving alignment methods
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("shift_x,shift_y", [(20, 20), (20, -20), (-15, 10), (0, 25)])
 def test_alignment_methods_agree(shift_x, shift_y):
-    """All three alignment methods recover the same shift direction and magnitude.
+    """Both surviving methods recover the same shift direction and magnitude.
 
-    Tolerance is 2 pixels — the bandpass cross-correlation method is less precise
-    than the phase-correlation variants, so agreement is checked loosely.
+    Tolerance is 2 pixels -- the bandpass cross-correlation is less precise than
+    the phase-correlation variant, so agreement is checked loosely.
     """
     ref_image, new_image, pixel_size = _make_shifted_images(shift_x, shift_y)
     atol = 2 * pixel_size
@@ -191,38 +57,18 @@ def test_alignment_methods_agree(shift_x, shift_y):
     dx_cc, dy_cc, _, _ = shift_from_crosscorrelation(
         ref_image, new_image, lowpass=50, highpass=4, sigma=5, use_rect_mask=True
     )
-    dx_cv2, dy_cv2, _ = shift_from_crosscorrelation_v2(ref_image, new_image)
     result_sk = shift_from_skimage_phase_correlation(ref_image, new_image)
     dx_sk, dy_sk = result_sk.shift.x, result_sk.shift.y
 
-    # all three should agree on direction (sign) when shift is non-zero
     if shift_x != 0:
         assert np.sign(dx_cc) == np.sign(shift_x * pixel_size), f"cc dx sign wrong: {dx_cc:.2e}"
-        assert np.sign(dx_cv2) == np.sign(shift_x * pixel_size), f"cv2 dx sign wrong: {dx_cv2:.2e}"
         assert np.sign(dx_sk) == np.sign(shift_x * pixel_size), f"sk dx sign wrong: {dx_sk:.2e}"
     if shift_y != 0:
         assert np.sign(dy_cc) == np.sign(shift_y * pixel_size), f"cc dy sign wrong: {dy_cc:.2e}"
-        assert np.sign(dy_cv2) == np.sign(shift_y * pixel_size), f"cv2 dy sign wrong: {dy_cv2:.2e}"
         assert np.sign(dy_sk) == np.sign(shift_y * pixel_size), f"sk dy sign wrong: {dy_sk:.2e}"
 
-    # all three should agree on magnitude within atol
-    assert abs(dx_cc - dx_cv2) < atol, f"cc vs cv2 dx disagree: {dx_cc:.2e} vs {dx_cv2:.2e}"
-    assert abs(dy_cc - dy_cv2) < atol, f"cc vs cv2 dy disagree: {dy_cc:.2e} vs {dy_cv2:.2e}"
     assert abs(dx_cc - dx_sk) < atol, f"cc vs sk dx disagree: {dx_cc:.2e} vs {dx_sk:.2e}"
     assert abs(dy_cc - dy_sk) < atol, f"cc vs sk dy disagree: {dy_cc:.2e} vs {dy_sk:.2e}"
-    assert abs(dx_cv2 - dx_sk) < atol, f"cv2 vs sk dx disagree: {dx_cv2:.2e} vs {dx_sk:.2e}"
-    assert abs(dy_cv2 - dy_sk) < atol, f"cv2 vs sk dy disagree: {dy_cv2:.2e} vs {dy_sk:.2e}"
-
-
-def test_shift_from_crosscorrelation_v2_minimum_response_gate():
-    """When response is below minimum_response, (0, 0, response) is returned."""
-    ref_image = FibsemImage.generate_blank_image(resolution=(512, 512), hfw=50e-6, random=True)
-    new_image = FibsemImage.generate_blank_image(resolution=(512, 512), hfw=50e-6, random=True)
-
-    dx, dy, response = shift_from_crosscorrelation_v2(ref_image, new_image, minimum_response=1.0)
-
-    assert dx == 0.0 and dy == 0.0, \
-        f"Expected zero shift when response {response:.3f} < minimum_response"
 
 
 # ---------------------------------------------------------------------------
@@ -1258,3 +1104,54 @@ def test_convergence_does_not_trigger_abort(monkeypatch, demo_session, tmp_path)
     )
     assert run.converged is False
     assert run.aligned is True  # returned normally; no AlignmentFailedError raised
+
+
+# --- cv2 phase correlation removed (FIB-809) ---------------------------------
+
+
+def test_cv2_phase_correlation_is_gone():
+    """It agreed with the skimage variant on 93% of runs -- one opinion counted twice.
+
+    Removed in favour of skimage, which is twice as precise on sub-pixel shifts
+    (0.10px median vs 0.21px over 125 trials) and returns a full AlignmentIteration.
+    Leaves three independent families in the differential: intensity, phase, band-pass.
+    """
+    import fibsem.alignment as al
+
+    assert not hasattr(al.AlignmentMethod, "PHASE_CORRELATION")
+    assert not hasattr(al, "shift_from_crosscorrelation_v2")
+    assert not hasattr(al, "crosscorrelation_cv2")
+    assert {m.value for m in al.AlignmentMethod} == {
+        "cross-correlation", "skimage-phase-correlation",
+    }
+
+
+def test_records_naming_the_removed_method_still_load(demo_session, tmp_path):
+    """Saved differentials carry 'phase-correlation' as a shifts_px KEY.
+
+    Those keys are plain strings, never parsed through the enum, so every record
+    written before the removal must still load. If this breaks, every historical
+    experiment becomes unreadable.
+    """
+    import json
+
+    import fibsem.alignment as al
+
+    microscope, settings = demo_session
+    ref_image = acquire.acquire_image(microscope, settings.image)
+    run = al.multi_step_alignment_v2(
+        microscope=microscope, ref_image=ref_image, steps=1,
+        validate=True, path=str(tmp_path),
+    )
+    run_dir = os.path.join(str(tmp_path), run.name)
+    dj = os.path.join(run_dir, "data.json")
+    with open(dj) as fh:
+        d = json.load(fh)
+    # re-introduce the key exactly as older records carry it
+    d["validation"]["shifts_px"]["phase-correlation"] = {"x": 1.0, "y": -2.0}
+    with open(dj, "w") as fh:
+        json.dump(d, fh)
+
+    loaded = al.AlignmentResult.load(run_dir)
+    assert "phase-correlation" in loaded.validation.shifts_px
+    assert loaded.validation.shifts_px["phase-correlation"].x == 1.0
