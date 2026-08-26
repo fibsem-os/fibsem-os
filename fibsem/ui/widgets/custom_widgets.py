@@ -562,6 +562,12 @@ class TitledPanel(QWidget):
 
         # Header
         self._header = QWidget()
+        # Fixed height, or the header absorbs whatever vertical slack the panel is given.
+        # A QVBoxLayout hands spare space to every child that will take it, and a bare
+        # QWidget will: in a horizontal layout beside a tall canvas that grew the header
+        # row to 416 px, leaving the title floating in the middle of an empty block with
+        # the controls pushed below it.
+        self._header.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self._header.setStyleSheet(
             f"background: {CANVAS_BG}; border-radius: 3px 3px 0 0;"
         )
