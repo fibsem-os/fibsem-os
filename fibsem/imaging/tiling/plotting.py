@@ -36,6 +36,21 @@ POSITION_COLOURS = [
     "red",
 ]
 
+# What a grid position and the live stage position are drawn in. Constants rather than
+# literals inside the draw loop, because they used to be reached by sniffing the
+# position's name for "Grid" / "Current Position".
+GRID_POSITION_COLOUR = "red"
+CURRENT_POSITION_COLOUR = "yellow"
+
+# How a position a human has flagged is drawn. Literals rather than an import of
+# `fibsem.ui.tokens.ERROR_COLOR` / `WARN_COLOR`, which they mirror: `fibsem/ui/__init__`
+# eagerly imports the whole Qt widget stack, so importing anything from that package --
+# tokens included, despite tokens itself being Qt-free -- makes the importing module
+# unimportable wherever PyQt5 is absent. The PDF report is one such module, and CI is one
+# such place. Keep these in step with tokens.py by hand.
+DEFECT_FAILURE_COLOUR = "#d04040"
+DEFECT_REWORK_COLOUR = "#e0a030"
+
 # Figure width in inches when the size is derived from the image. The height follows the
 # image's aspect, so a 3:1 overview gets a 3:1 figure.
 _AUTO_FIGURE_WIDTH_IN = 10.0
@@ -375,89 +390,51 @@ def plot_stage_positions_on_image(
     show_names: bool = True,
     figsize: Optional[Tuple[int, int]] = None,
 ) -> Figure:
-    """Plot stage positions reprojected on an image as matplotlib figure. Assumes image is flat to beam.
+    """Plot stage positions reprojected on an image. Assumes image is flat to beam.
+
+    A thin adapter over :func:`plot_minimap`, which is the one renderer. It used to be a
+    second, near-identical implementation, and the two had drifted: different marker
+    sizes, different label offsets, a scalebar added through a different call. That
+    mattered because this one drew the PDF report's overview page while `plot_minimap`
+    drew the dialog's preview -- so what you tuned on screen was not what landed in the
+    report.
+
+    The one behaviour kept from the old implementation is `color=None` meaning "walk the
+    colour cycle", which is what the statistics plots rely on to tell tracks apart.
+
     Args:
         image: The image.
         positions: The positions.
         show: Whether to show the plot.
         bound: Whether to only plot points inside the image.
-        color: The color of the points. (None -> default colour cycle)
-        figsize: Figure size in inches. None (the default) sizes the figure to the
-            image's aspect -- see :func:`figsize_for_image`.
+        color: The colour of the points. None walks POSITION_COLOURS per position.
+        show_scalebar: Whether to add a scalebar.
+        show_names: Whether to label each position with its name.
+        figsize: Figure size in inches; None sizes it to the image's aspect.
     Returns:
         The matplotlib figure."""
-    if image.metadata is None or image.metadata.microscope_state is None:
-        raise ValueError(
-            "Image metadata or microscope state is not set. Cannot reproject stage positions."
-        )
+    per_position: Optional[Dict[str, str]] = None
+    if color is None:
+        # Named, because plot_minimap keys its overrides by name. A position with no
+        # name is given the same placeholder plot_minimap would give it, so the two
+        # agree on what to look up.
+        per_position = {}
+        for i, pos in enumerate(positions):
+            name = getattr(pos, "name", None) or f"Position {i:02d}"
+            per_position[name] = POSITION_COLOURS[i % len(POSITION_COLOURS)]
 
-    # reproject stage positions onto image
-    points = reproject_stage_positions_onto_image2(image=image, positions=positions)
-
-    # construct matplotlib figure
-    if figsize is None:
-        figsize = figsize_for_image(image.data.shape)
-    fig = plt.figure(figsize=figsize)
-    ax = fig.gca()
-    ax.imshow(image.data, cmap="gray")
-
-    # `ms` is the marker's width in points, so it reaches half that from its centre.
-    marker_size_points = 20
-    for i, pt in enumerate(points):
-        # if points outside image, don't plot
-        if bound and not is_inside_image_bounds(
-            (pt.y, pt.x), (image.data.shape[0], image.data.shape[1])
-        ):
-            continue
-
-        if color is None:
-            c = POSITION_COLOURS[i % len(POSITION_COLOURS)]
-        else:
-            c = color
-        ax.plot(
-            pt.x,
-            pt.y,
-            ms=marker_size_points,
-            c=c,
-            marker="+",
-            markeredgewidth=2,
-            label=f"{pt.name}",
-        )
-
-        if show_names:
-            # draw position name next to point
-            _draw_position_label(
-                ax,
-                pt.x,
-                pt.y,
-                label=pt.name if pt.name else f"Position {i:02d}",
-                colour=c,
-                fontsize=14,
-                image_shape=image.data.shape,
-                marker_half_points=marker_size_points / 2.0,
-            )
-
-    if show_scalebar:
-        try:
-            # add scalebar
-            from matplotlib_scalebar.scalebar import ScaleBar
-
-            scalebar = ScaleBar(
-                dx=image.metadata.pixel_size.x,
-                color="black",
-                box_color="white",
-                box_alpha=0.5,
-                location="lower right",
-            )
-            ax.add_artist(scalebar)
-        except Exception as e:
-            logging.debug(f"Could not add scalebar: {e}")
-
-    ax.axis("off")
-    if show:
-        plt.show()
-
-    return fig
+    return plot_minimap(
+        image=image,
+        positions=positions,
+        show=show,
+        bound=bound,
+        color=color if color is not None else POSITION_COLOURS[0],
+        colors=per_position,
+        show_scalebar=show_scalebar,
+        show_names=show_names,
+        fontsize=14,
+        figsize=figsize,
+    )
 
 
 def plot_minimap(
@@ -472,6 +449,7 @@ def plot_minimap(
     show_names: bool = True,
     show_descriptions: bool = False,
     descriptions: Optional[Dict[str, str]] = None,
+    colors: Optional[Dict[str, str]] = None,
     show_grid_radius: bool = False,
     fontsize: int = 12,
     markersize: int = 20,
@@ -486,9 +464,14 @@ def plot_minimap(
         grid_positions: Optional grid positions to show
         show: Whether to show the plot.
         bound: Whether to only plot points inside the image.
-        color: The color of the points.
+        color: The color of the points, for any position `colors` does not name.
         show_scalebar: Whether to show a scalebar
         show_names: Whether to show position names as labels
+        descriptions: Position name -> free text, drawn under the name when
+            `show_descriptions` is set.
+        colors: Position name -> colour, overriding `color` for those positions.
+            How a caller says that some positions differ from the rest -- a defective
+            lamella, say -- without this function needing to know why.
         fontsize: Font size for position name labels (default: 14)
         figsize: Figure size in inches. None (the default) sizes the figure to the
             image's aspect -- see :func:`figsize_for_image` for why that is not merely
@@ -500,11 +483,19 @@ def plot_minimap(
             "Image metadata or microscope state is not set. Cannot reproject stage positions."
         )
 
+    # Which list a position came from decides how it is drawn, so that is tracked here
+    # rather than recovered later. It used to be recovered later, by testing whether the
+    # position's *name* contained "Grid" or "Current Position" -- which quietly drew a
+    # lamella called "Grid square 4" in the grid colour, and would have drawn one called
+    # "Current Position" in yellow.
     all_positions = list(positions)
+    kinds = ["position"] * len(all_positions)
     if current_position is not None:
         all_positions.append(current_position)
+        kinds.append("current")
     if grid_positions is not None:
         all_positions.extend(grid_positions)
+        kinds.extend(["grid"] * len(grid_positions))
 
     # construct matplotlib figure/axes
     if ax is None:
@@ -529,11 +520,17 @@ def plot_minimap(
         if pt.name is None:
             pt.name = f"Position {i:02d}"
 
-        c = color
-        if "Grid" in pt.name:
-            c = "red"
-        elif "Current Position" in pt.name:
-            c = "yellow"
+        kind = kinds[i] if i < len(kinds) else "position"
+        if kind == "grid":
+            c = GRID_POSITION_COLOUR
+        elif kind == "current":
+            c = CURRENT_POSITION_COLOUR
+        else:
+            # A caller that knows something about an individual position -- that this
+            # lamella was flagged defective, say -- says so here. Everything unnamed in
+            # the mapping keeps the single `color`, so callers with nothing to
+            # distinguish are unaffected.
+            c = (colors or {}).get(pt.name, color)
 
         marker_entries.append(
             {
@@ -545,7 +542,7 @@ def plot_minimap(
         )
 
         # show grid radius
-        if c == "red" and show_grid_radius:
+        if kind == "grid" and show_grid_radius:
             r_pixels = 1000e-6 / image.metadata.pixel_size.x
             ax.add_artist(
                 plt.Circle(

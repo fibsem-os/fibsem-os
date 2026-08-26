@@ -27,6 +27,7 @@ from scipy.ndimage import median_filter
 from skimage.transform import resize
 
 from fibsem.applications.autolamella.structures import (
+    DefectType,
     Experiment,
     Lamella,
 )
@@ -35,7 +36,11 @@ from fibsem.applications.autolamella.tools.data import (
     parse_logfile,
 )
 from fibsem.constants import DATE_LONG
-from fibsem.imaging.tiled import plot_stage_positions_on_image
+from fibsem.imaging.tiled import (
+    DEFECT_FAILURE_COLOUR,
+    DEFECT_REWORK_COLOUR,
+    plot_minimap,
+)
 from fibsem.milling import plot_milling_patterns
 from fibsem.structures import FibsemImage
 
@@ -369,7 +374,7 @@ def generate_report2(
     # Overview image with positions
     if sections["overview"]:
         try:
-            filenames = glob.glob(os.path.join(experiment.path, "*overview*.tif"))
+            filenames = experiment.find_overview_images()
             if len(filenames) > 0:
                 pdf.add_page_break()
                 pdf.add_heading("Overview (Positions)")
@@ -640,6 +645,7 @@ def generate_final_overview_image(
     """
 
     sem_positions = []
+    defect_colours = {}
     for p in exp.positions:
         pstate = p.poses.get(state, p.milling_pose)
         if pstate is None or pstate.stage_position is None:
@@ -647,9 +653,21 @@ def generate_final_overview_image(
         pos = pstate.stage_position
         pos.name = p.name
         sem_positions.append(pos)
+        # Same rule as the export dialog: colour only what a human flagged, and read
+        # nothing into task history. See OverviewImageWidget._defect_colors.
+        if p.defect.state is DefectType.FAILURE:
+            defect_colours[p.name] = DEFECT_FAILURE_COLOUR
+        elif p.defect.state is DefectType.REWORK:
+            defect_colours[p.name] = DEFECT_REWORK_COLOUR
 
-    fig = plot_stage_positions_on_image(
-        image, sem_positions, show=False, color="cyan", show_scalebar=True, figsize=None
+    fig = plot_minimap(
+        image,
+        sem_positions,
+        show=False,
+        color="cyan",
+        colors=defect_colours,
+        show_scalebar=True,
+        figsize=None,
     )
 
     # plot details

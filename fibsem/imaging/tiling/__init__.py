@@ -14,6 +14,8 @@ from fibsem.imaging.tiling.geometry import (
     validate_tile_stage_positions,
 )
 from fibsem.imaging.tiling.plotting import (
+    DEFECT_FAILURE_COLOUR,
+    DEFECT_REWORK_COLOUR,
     plot_minimap,
     plot_stage_positions_on_image,
     plot_tile_grid,
@@ -27,6 +29,8 @@ from fibsem.imaging.tiling.reprojection import (
 )
 
 __all__ = [
+    "DEFECT_FAILURE_COLOUR",
+    "DEFECT_REWORK_COLOUR",
     "TilePosition",
     "calculate_reprojected_stage_position",
     "calculate_reprojected_stage_position2",
