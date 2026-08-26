@@ -1,4 +1,11 @@
-"""The Overview (Canvas) tab is wired into every lifecycle point its twin is.
+"""Both overview modalities are wired into every lifecycle point the other is.
+
+The two used to be separate tabs. They are now two pages of one Overview tab
+(`AutoLamellaOverviewContainerTab`, FIB-780) -- but both host tabs stay built and stay
+subscribed under the stack, and the window still tells each of them the things only it
+can answer, so the parity these tests check is exactly as necessary as it was. What
+changed is that a third name has to be checked too: anything the *container* is told
+reaches both, and anything a host tab is told individually must be told to both.
 
 Checked *statically*, against the window's source, because the window cannot be built
 here: it still constructs the napari minimap, and a `napari.Viewer` segfaults under the
@@ -17,6 +24,7 @@ which builds the tab against a live simulator.
 Run directly:
     python -m pytest tests/ui/test_overview_tab_wiring.py
 """
+
 from __future__ import annotations
 
 import ast
@@ -25,13 +33,30 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-WINDOW = REPO_ROOT / "fibsem" / "applications" / "autolamella" / "ui" / "AutoLamellaMainUI.py"
+WINDOW = (
+    REPO_ROOT
+    / "fibsem"
+    / "applications"
+    / "autolamella"
+    / "ui"
+    / "AutoLamellaMainUI.py"
+)
+CONTAINER_SOURCE = (
+    REPO_ROOT
+    / "fibsem"
+    / "applications"
+    / "autolamella"
+    / "ui"
+    / "overview_container_tab.py"
+)
 
-# The tab the new one was modelled on, and the calls that keep it in step with the
-# window. Anything the fluorescence tab is told, the beam one has to be told too --
-# they are the same shape of thing in the same window.
+# The two host tabs, under the names the window keeps for them. Anything the
+# fluorescence one is told, the beam one has to be told too -- they are the same shape of
+# thing in the same window, and they were the pair that kept drifting (FIB-765).
 TWIN = "fm_overview_tab"
-NEW = "overview_canvas_tab"
+NEW = "beam_overview_tab"
+# The tab that holds them both, and the only thing in the tab bar.
+CONTAINER = "overview_tab"
 
 
 @pytest.fixture(scope="module")
@@ -106,15 +131,28 @@ def _is_own_method(caller: str, tab_attribute: str) -> bool:
     return _stem(tab_attribute) in caller
 
 
-def test_the_new_tab_is_created(window_source):
-    assert "self.add_overview_canvas_tab()" in window_source, (
+def test_the_overview_tab_is_created(window_source):
+    assert "self.add_overview_tab()" in window_source, (
         "the tab is defined but never added to the window"
     )
 
 
+def test_both_host_tabs_are_reachable_from_the_window(window_source):
+    """The container owns them; the window keeps its own names for them.
+
+    Not cosmetic. Every per-tab call below goes through these names, and the pair is what
+    `_apply_overview_locks` reads to decide whether either may drive the stage -- a
+    binding dropped here would take the lock's second input with it silently (FIB-706).
+    """
+    assert "self.fm_overview_tab = self.overview_tab.fm_tab" in window_source
+    assert "self.beam_overview_tab = self.overview_tab.beam_tab" in window_source
+
+
 @pytest.mark.parametrize(
     "method",
-    ["refresh_microscope", "refresh_experiment", "set_interactive", "set_selected"],
+    # `refresh_microscope` is not here any more: it is asked of the container, which
+    # fans it out to both. `test_the_container_rebuilds_both` is what covers it.
+    ["refresh_experiment", "set_interactive", "set_selected"],
 )
 def test_the_new_tab_is_told_what_its_twin_is_told(method, methods_calling):
     """Each of these is a way the window's state changes underneath a tab.
@@ -142,28 +180,38 @@ def test_the_new_tab_is_told_what_its_twin_is_told(method, methods_calling):
     )
 
 
-def test_the_new_tab_is_rebuilt_wherever_its_twin_is(self_calls):
-    """The per-tab builders are self-calls, so the attribute-based check above cannot
-    see them -- each tab's builder is excluded there as its own method.
+def test_the_container_is_rebuilt_on_every_connection(self_calls):
+    """The per-tab builders were self-calls, so the attribute-based check above could not
+    see them. There is one builder now, and it is the same story one level up.
 
-    This is the one that matters most: the twin's builder is what hands a tab the
-    current microscope, and a tab that holds its microscope for life and is not told
-    about a reconnection goes on reading geometry from an instrument nobody is driving.
-    Both call sites count -- a preferences change and a connection -- and a mutation
-    removing only the connection one survived until this existed.
-
-    The twin's builder is `_refresh_fm_overview_microscope` since FIB-609 shipped that
-    tab to everyone with an FM: it no longer answers a preference, only "is there an
-    instrument". The assertion below is a superset check, so the new tab having the
-    extra preference-driven call site of its own is fine -- it still has a flag.
+    This is the one that matters most: the builder is what hands each tab the current
+    microscope, and a tab that holds its microscope for life and is not told about a
+    reconnection goes on reading geometry from an instrument nobody is driving. A
+    mutation removing the connection call site survived until a test like this existed.
     """
-    twin = self_calls.get("_refresh_fm_overview_microscope", set())
-    new = self_calls.get("_apply_overview_canvas_visibility", set())
-    assert twin, "the twin's builder is no longer called; this test is stale"
-    missing = {c for c in twin - new if "fm_overview" not in c and "overview_canvas" not in c}
-    assert not missing, (
-        f"_apply_overview_canvas_visibility() is not called from {sorted(missing)}, "
-        "where the fluorescence tab's builder is"
+    callers = self_calls.get("_refresh_overview_microscope", set())
+    assert "_on_microscope_connected" in callers, (
+        "the overview tabs are not rebuilt on a connection; each would go on driving "
+        "the previous microscope"
+    )
+
+
+def test_the_container_rebuilds_both(self_calls):
+    """One call has to reach two tabs, or the merge quietly halved this.
+
+    Checked against the container's source rather than the window's: the window can no
+    longer tell them apart, which is the point, so the fan-out is the container's promise
+    to keep.
+    """
+    container = ast.parse(CONTAINER_SOURCE.read_text(encoding="utf-8"))
+    for node in ast.walk(container):
+        if isinstance(node, ast.FunctionDef) and node.name == "refresh_microscope":
+            body = ast.dump(node)
+            break
+    else:
+        pytest.fail("the container has no refresh_microscope; this test is stale")
+    assert "self._tabs" in ast.unparse(node), (
+        "refresh_microscope no longer fans out over both tabs"
     )
 
 
@@ -184,70 +232,86 @@ def test_every_selection_handler_reaches_the_new_tab(methods_calling):
     assert not missing, f"the new tab is not synced from: {sorted(missing)}"
 
 
-def test_the_new_tab_is_behind_its_own_feature_flag(window_source):
-    """Beside the napari tab rather than replacing it, so it has to be possible to not
-    see it at all.
+def test_the_napari_tab_is_behind_the_flag(window_source):
+    """The flag points at the *old* tab now. The Overview tab ships to everyone.
 
     Read from the window's own preferences, not from a module-level `FEATURE_*` global.
     FIB-609 removed five of those; the one it kept exists because its caller is a widget
     constructor with no preferences to hand, which is not the case here.
     """
-    assert "self._preferences.features.overview_canvas_tab" in window_source
-    assert "FEATURE_OVERVIEW_CANVAS_TAB_ENABLED" not in window_source, (
+    assert "self._preferences.features.napari_overview_tab" in window_source
+    assert "FEATURE_NAPARI_OVERVIEW_TAB_ENABLED" not in window_source, (
         "the flag went back to a module global; read the preference directly"
     )
 
 
-def test_the_flag_reaches_the_widget_and_not_just_the_tab_bar(window_source):
-    """Off has to mean "not built", not "built and hidden".
+def test_the_retired_flag_is_gone_everywhere(window_source):
+    """`overview_canvas_tab` was retired rather than flipped.
 
-    The widget subscribes to the microscope for its lifetime, so one left behind goes on
-    working for a tab nobody can open. `set_enabled` is what carries the flag past the
-    tab bar; the behaviour it buys is tested in `test_overview_tab_host.py`.
+    A flipped flag would read as "off means the new tab is gone", and anyone who had
+    turned the old one on would silently have had the napari tab hidden instead. A new
+    name gets the new default on every install, including the ones with a saved
+    preferences file -- a changed default alone reaches only fresh ones.
+
+    So it has to be gone from the flags, from the dialog and from the window together: a
+    leftover reader would be reading a field that no longer exists.
     """
+    import fibsem.config as fibsem_cfg
+    from fibsem.ui.widgets import preferences_dialog
+
+    assert not hasattr(fibsem_cfg.FeatureFlags(), "overview_canvas_tab")
+    assert "overview_canvas_tab" not in window_source
+    assert "overview_canvas_tab" not in Path(preferences_dialog.__file__).read_text(
+        encoding="utf-8"
+    )
+
+
+def test_the_overview_tab_is_not_behind_any_flag(window_source):
+    """It replaced a tab that shipped to everyone with an FM (FIB-611). Putting the merged
+    tab behind a flag would take the fluorescence overview away from every user who had
+    not turned that flag on."""
     import re
 
-    body = re.search(
-        r"def _apply_overview_canvas_visibility\(.*?\n(?=    def )",
-        window_source,
-        re.S,
-    )
-    assert body, "_apply_overview_canvas_visibility is gone; this test is stale"
-    body = body.group(0)
-    assert "set_enabled(enabled)" in body, (
-        "the flag only reaches setTabVisible; the widget is still built when it is off"
+    body = re.search(r"def add_overview_tab\(.*?\n(?=    def )", window_source, re.S)
+    assert body, "add_overview_tab is gone; this test is stale"
+    assert "features." not in body.group(0), (
+        "the Overview tab reads a feature flag; it ships to everyone"
     )
 
 
-def test_the_flag_exists_and_is_off_by_default():
-    """Off by default: the napari Overview tab is the one people are relying on until
-    this has had bench time."""
+def test_the_flag_exists_and_is_on_by_default():
+    """On by default: the napari tab is still there for anyone relying on it, and this
+    flag is what removes it rather than what adds anything."""
     import fibsem.config as fibsem_cfg
 
-    assert fibsem_cfg.FeatureFlags().overview_canvas_tab is False
+    assert fibsem_cfg.FeatureFlags().napari_overview_tab is True
 
 
 def test_the_flag_survives_a_preferences_round_trip(tmp_path):
-    """A flag that does not persist cannot be turned on by the person who wants it,
-    which is the only way this tab gets exercised before the swap.
+    """A flag that does not persist cannot be turned off by the person who wants it gone.
 
-    Through `to_dict`/`from_dict` rather than through `apply_feature_flags`, which no
-    longer carries this one — saving and reloading is what the preferences dialog
-    actually does, and it is the step that would silently drop an unknown field.
+    Through `to_dict`/`from_dict` rather than through `apply_feature_flags`, which does
+    not carry this one — saving and reloading is what the preferences dialog actually
+    does, and it is the step that would silently drop an unknown field.
     """
     import fibsem.config as fibsem_cfg
 
     prefs = fibsem_cfg.UserPreferences()
-    prefs.features.overview_canvas_tab = True
+    prefs.features.napari_overview_tab = False
     reloaded = fibsem_cfg.UserPreferences.from_dict(prefs.to_dict())
-    assert reloaded.features.overview_canvas_tab is True
+    assert reloaded.features.napari_overview_tab is False
 
 
-def test_the_napari_overview_tab_is_untouched(window_source):
-    """This change adds a tab; it does not remove one. The old tab is what a user falls
-    back to, and the swap is its own change."""
+def test_the_napari_tab_is_still_built(window_source):
+    """This change merges two tabs; it does not remove the third. The old tab is what a
+    user falls back to, and removing it is its own change (FIB-405).
+
+    It is renamed, though: "Minimap", because the canvas tab took the name "Overview" and
+    two tabs called Overview would leave a user guessing which is which.
+    """
     assert "self.add_minimap_tab()" in window_source
     assert "FibsemMinimapWidget(" in window_source
+    assert '"Minimap"' in window_source
 
 
 def test_the_done_state_in_the_status_bar_clears_itself(window_source):
@@ -263,7 +327,8 @@ def test_the_done_state_in_the_status_bar_clears_itself(window_source):
 
     tree = ast.parse(window_source)
     handler = next(
-        node for node in ast.walk(tree)
+        node
+        for node in ast.walk(tree)
         if isinstance(node, ast.FunctionDef)
         and node.name == "_on_tile_acquisition_progress"
     )
@@ -279,14 +344,16 @@ def test_the_done_state_in_the_status_bar_clears_itself(window_source):
 UI_DIR = REPO_ROOT / "fibsem" / "applications" / "autolamella" / "ui"
 HOST_TABS = {
     "AutoLamellaOverviewTab": UI_DIR / "autolamella_overview_tab.py",
-    "AutoLamellaFluorescenceOverviewTab": UI_DIR / "autolamella_fluorescence_overview_tab.py",
+    "AutoLamellaFluorescenceOverviewTab": UI_DIR
+    / "autolamella_fluorescence_overview_tab.py",
 }
 
 
 def _class_def(path: Path, name: str) -> ast.ClassDef:
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    return next(n for n in ast.walk(tree)
-                if isinstance(n, ast.ClassDef) and n.name == name)
+    return next(
+        n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == name
+    )
 
 
 def test_the_two_host_tabs_share_one_base():
@@ -306,19 +373,34 @@ def test_the_two_host_tabs_share_one_base():
     one tab and derives both on the other, after asking. Those are different operations
     sharing a name.
     """
-    shared = {"is_available", "is_acquiring", "microscope", "experiment",
-              "refresh_experiment", "refresh_microscope", "refresh_positions",
-              "set_selected", "set_interactive", "_drop_overview",
-              "_on_list_selection", "_on_marker_clicked", "_on_move_to_requested",
-              "_on_add_requested", "_on_remove_requested"}
+    shared = {
+        "is_available",
+        "is_acquiring",
+        "microscope",
+        "experiment",
+        "refresh_experiment",
+        "refresh_microscope",
+        "refresh_positions",
+        "set_selected",
+        "set_interactive",
+        "_drop_overview",
+        "_on_list_selection",
+        "_on_marker_clicked",
+        "_on_move_to_requested",
+        "_on_add_requested",
+        "_on_remove_requested",
+    }
 
     for name, path in HOST_TABS.items():
         cls = _class_def(path, name)
         bases = {b.id for b in cls.bases if isinstance(b, ast.Name)}
         assert "AutoLamellaOverviewTabBase" in bases, f"{name} bases are {bases}"
 
-        defined = {n.name for n in cls.body
-                   if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        defined = {
+            n.name
+            for n in cls.body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
         again = defined & shared
         assert not again, (
             f"{name} defines {sorted(again)} again; the base is what stops the two tabs "
@@ -332,8 +414,13 @@ def test_the_two_host_tabs_share_one_base():
 
         # Both signals are declared once, on the base. A subclass redeclaring one
         # shadows it, and the window connects to whichever it happens to see first.
-        assigned = {t.id for n in cls.body if isinstance(n, ast.Assign)
-                    for t in n.targets if isinstance(t, ast.Name)}
+        assigned = {
+            t.id
+            for n in cls.body
+            if isinstance(n, ast.Assign)
+            for t in n.targets
+            if isinstance(t, ast.Name)
+        }
         assert not assigned & {"availability_changed", "lamella_selected"}, (
             f"{name} redeclares a signal the base owns"
         )
@@ -341,8 +428,13 @@ def test_the_two_host_tabs_share_one_base():
 
 def test_the_base_owns_the_signals_the_window_connects_to():
     base = _class_def(UI_DIR / "overview_tab_base.py", "AutoLamellaOverviewTabBase")
-    assigned = {t.id for n in base.body if isinstance(n, ast.Assign)
-                for t in n.targets if isinstance(t, ast.Name)}
+    assigned = {
+        t.id
+        for n in base.body
+        if isinstance(n, ast.Assign)
+        for t in n.targets
+        if isinstance(t, ast.Name)
+    }
     assert {"availability_changed", "lamella_selected"} <= assigned
 
 
@@ -364,8 +456,12 @@ def test_a_lamella_added_anywhere_reaches_both_canvases(window_source):
     """
     tree = ast.parse(window_source)
     handler = next(
-        (n for n in ast.walk(tree)
-         if isinstance(n, ast.FunctionDef) and n.name == "_refresh_overview_positions"),
+        (
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.FunctionDef)
+            and n.name == "_refresh_overview_positions"
+        ),
         None,
     )
     assert handler is not None, (
@@ -377,7 +473,9 @@ def test_a_lamella_added_anywhere_reaches_both_canvases(window_source):
     # `self.<tab>.refresh_positions` never appears as an attribute chain to walk.
     body = ast.get_source_segment(window_source, handler) or ""
     for tab in (TWIN, NEW):
-        assert tab in body, f"{tab} is not re-marked when the experiment's lamellae change"
+        assert tab in body, (
+            f"{tab} is not re-marked when the experiment's lamellae change"
+        )
     assert "refresh_positions" in body
 
     # And the handler has to be what the experiment's events actually reach.
@@ -400,6 +498,7 @@ def test_both_tabs_tell_the_window_when_they_start_acquiring(window_source):
             f"{tab} never tells the window it is acquiring, so the other overview is "
             "free to drive the stage during its run"
         )
-    assert window_source.count("acquiring_changed.connect(self._apply_overview_locks)") == 2, (
-        "the tabs report to something other than the one place that derives the lock"
-    )
+    assert (
+        window_source.count("acquiring_changed.connect(self._apply_overview_locks)")
+        == 2
+    ), "the tabs report to something other than the one place that derives the lock"

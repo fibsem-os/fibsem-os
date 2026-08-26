@@ -61,10 +61,17 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
 
     def __init__(self, autolamella_ui, parent: Optional[QWidget] = None):
         super().__init__(autolamella_ui, parent)
-        # Whether the host wants a live widget here at all -- the feature flag, as far
-        # as this object is concerned. True by default so that building this tab and
-        # calling `refresh_microscope` is enough on its own, which is how it is used
-        # standalone and in tests; the window sets it from the flag on the way in.
+        # Whether the host wants a live widget here at all. True by default so that
+        # building this tab and calling `refresh_microscope` is enough on its own, which
+        # is how it is used standalone and in tests.
+        #
+        # **Nothing in production sets this any more.** It carried
+        # `features.overview_canvas_tab` while this tab was staged in beside the napari
+        # one; that flag is retired (FIB-780) and the tab ships to everyone, so the only
+        # callers left are the tests below. Kept rather than deleted because it is the
+        # beam-side half of the build-or-drop pair the fluorescence tab answers with
+        # `_can_build`, and a modality that can be switched off is a plausible thing to
+        # want back -- but it is dead code today and should be read as such.
         self._enabled = True
 
     # ── what makes this the beam side ────────────────────────────────────
