@@ -17,6 +17,7 @@ from matplotlib.figure import Figure
 
 from fibsem import constants
 from fibsem.conversions import is_inside_image_bounds
+from fibsem.imaging.reduce import downsample
 from fibsem.imaging.tiling.geometry import TilePosition
 from fibsem.imaging.tiling.reprojection import reproject_stage_positions_onto_image2
 from fibsem.structures import (
@@ -601,4 +602,205 @@ def plot_minimap(
     if show:
         plt.show()
 
+    return fig
+
+
+# How many pixels each placed image is drawn at when compositing. A stitched mosaic is
+# tens of thousands of pixels across and a PDF page is a few thousand at 200 dpi, so the
+# full array is thrown away by the rasteriser anyway -- reducing first turns a
+# multi-second render into a fast one. Box-averaged, so a feature smaller than a drawn
+# pixel dims into its neighbours rather than disappearing.
+_COMPOSITE_MAX_PX = 3000
+
+
+def compose_overview_extent(
+    image: FibsemImage,
+    reference: FibsemImage,
+    centre: Tuple[float, float],
+) -> Tuple[float, float, float, float]:
+    """Where *image* lands on *reference*'s pixel grid, as an imshow extent.
+
+    *centre* is where *image* was acquired, already reprojected into *reference*'s
+    pixels. The rest is the scale difference between the two: an image acquired at a
+    finer pixel size covers proportionally less ground per pixel, so it is drawn smaller.
+
+    The same arithmetic `FibsemRealSpaceCanvas._extent_for` does, and deliberately
+    duplicated in about six lines rather than reached for through that class -- the
+    canvas is a `FigureCanvasQTAgg`, and this runs from a workflow hook that has no
+    display. What is Qt about the canvas is the widget around this, not this.
+    """
+    scale = image.metadata.pixel_size.x / reference.metadata.pixel_size.x
+    half_w = image.data.shape[1] * scale / 2.0
+    half_h = image.data.shape[0] * scale / 2.0
+    cx, cy = centre
+    # y descending, because an image's rows run downwards and imshow was given
+    # origin="upper" for the reference.
+    return (cx - half_w, cx + half_w, cy + half_h, cy - half_h)
+
+
+def plot_overview_composite(
+    images: List[FibsemImage],
+    positions: List[FibsemStagePosition],
+    color: str = "cyan",
+    colors: Optional[Dict[str, str]] = None,
+    descriptions: Optional[Dict[str, str]] = None,
+    show_names: bool = True,
+    show_descriptions: bool = False,
+    show_scalebar: bool = True,
+    fontsize: int = 10,
+    markersize: int = 20,
+    figsize: Optional[Tuple[int, int]] = None,
+    ax: Optional[plt.Axes] = None,
+) -> Figure:
+    """Draw several overviews of the *same view* on one set of axes, and mark positions.
+
+    Only ever call this with images that register with each other -- same beam, same
+    stage orientation. Two overviews taken through different beams, or at different
+    orientations, are pictures from different directions: compositing them would place
+    real pixels at coordinates they were never acquired at, and the result would look
+    exactly as authoritative as a correct one. `OverviewView` in the Overview tab draws
+    the same line for the same reason.
+
+    Placement is relative to `images[0]`, whose pixel grid becomes the frame. Every other
+    image's acquisition position is reprojected into that grid by the *same* function the
+    position markers use, so the images and the markers agree by construction rather than
+    by two implementations happening to match.
+
+    Args:
+        images: overviews of one view. The first is the frame; order otherwise decides
+            what draws over what, so pass coarse before fine.
+        positions: stage positions to mark, named.
+        color: marker colour for anything `colors` does not name.
+        colors: position name -> colour, for positions that differ from the rest.
+        descriptions: position name -> free text, drawn under the name.
+        figsize: None sizes the figure to the composed extent's aspect.
+    Returns:
+        The matplotlib figure.
+    """
+    if not images:
+        raise ValueError("plot_overview_composite needs at least one image")
+
+    reference = images[0]
+    if reference.metadata is None or reference.metadata.microscope_state is None:
+        raise ValueError(
+            "The reference overview has no microscope state, so nothing can be placed "
+            "relative to it."
+        )
+
+    placements: List[Tuple[FibsemImage, Tuple[float, float, float, float]]] = []
+    ref_h, ref_w = reference.data.shape[0], reference.data.shape[1]
+    placements.append((reference, (-0.5, ref_w - 0.5, ref_h - 0.5, -0.5)))
+
+    for image in images[1:]:
+        state = getattr(image.metadata, "microscope_state", None)
+        centre_position = getattr(state, "stage_position", None)
+        if centre_position is None:
+            logging.warning(
+                "Skipping an overview with no recorded stage position: it cannot be "
+                "placed relative to the others."
+            )
+            continue
+        try:
+            point = reproject_stage_positions_onto_image2(
+                image=reference, positions=[centre_position]
+            )[0]
+        except Exception as e:
+            logging.warning(f"Could not place an overview on the composite: {e}")
+            continue
+        placements.append(
+            (image, compose_overview_extent(image, reference, (point.x, point.y)))
+        )
+
+    x0 = min(p[1][0] for p in placements)
+    x1 = max(p[1][1] for p in placements)
+    y_bottom = max(p[1][2] for p in placements)
+    y_top = min(p[1][3] for p in placements)
+
+    if ax is None:
+        if figsize is None:
+            span_w = abs(x1 - x0)
+            span_h = abs(y_bottom - y_top)
+            figsize = figsize_for_image((span_h, span_w))
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.figure
+
+    for image, extent in placements:
+        ax.imshow(
+            downsample(image.data, _COMPOSITE_MAX_PX),
+            cmap="gray",
+            extent=extent,
+            origin="upper",
+            aspect="equal",
+            interpolation="nearest",
+        )
+
+    ax.set_xlim(x0, x1)
+    ax.set_ylim(y_bottom, y_top)
+
+    points = reproject_stage_positions_onto_image2(image=reference, positions=positions)
+    marker_entries = []
+    for i, pt in enumerate(points):
+        # Bounded against the *composed* extent rather than the reference image, which
+        # is the point of compositing: a lamella off the edge of the first overview but
+        # inside a second one is on this page, and must be drawn.
+        if not (x0 <= pt.x <= x1 and y_top <= pt.y <= y_bottom):
+            continue
+        if pt.name is None:
+            pt.name = f"Position {i:02d}"
+        marker_entries.append(
+            {
+                "point": (pt.x, pt.y),
+                "color": (colors or {}).get(pt.name, color),
+                "label": pt.name,
+                "description": (descriptions or {}).get(pt.name, ""),
+            }
+        )
+
+    if marker_entries:
+        scatter = np.array([e["point"] for e in marker_entries])
+        ax.scatter(
+            scatter[:, 0],
+            scatter[:, 1],
+            c=[e["color"] for e in marker_entries],
+            marker="+",
+            s=markersize**2,
+            linewidths=2,
+        )
+        if show_names:
+            shape = (abs(y_bottom - y_top), abs(x1 - x0))
+            for entry in marker_entries:
+                x, y = entry["point"]
+                _draw_position_label(
+                    ax,
+                    x,
+                    y,
+                    label=entry["label"],
+                    colour=entry["color"],
+                    fontsize=fontsize,
+                    # Offsets are measured from the *drawn* extent, not the reference
+                    # image, so a marker near the edge of the composite flips inwards
+                    # rather than a marker near the edge of one tile of it.
+                    image_shape=shape,
+                    marker_half_points=markersize / 2.0,
+                    description=entry["description"] if show_descriptions else "",
+                )
+
+    if show_scalebar:
+        try:
+            from matplotlib_scalebar.scalebar import ScaleBar
+
+            ax.add_artist(
+                ScaleBar(
+                    dx=reference.metadata.pixel_size.x,
+                    color="black",
+                    box_color="white",
+                    box_alpha=0.6,
+                    location="lower right",
+                )
+            )
+        except Exception as e:
+            logging.debug(f"Could not add a scalebar: {e}")
+
+    ax.axis("off")
     return fig
