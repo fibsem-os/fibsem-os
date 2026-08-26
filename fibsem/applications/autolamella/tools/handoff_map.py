@@ -29,9 +29,10 @@ from __future__ import annotations
 
 import logging
 import os
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fibsem.applications.autolamella.structures import (
     DefectType,
@@ -49,6 +50,11 @@ DEFECT_LABELS = {
     DefectType.REWORK: "rework",
     DefectType.FAILURE: "failed",
 }
+
+# What a geometry column says when no trench has been cut yet. Spelled out rather than
+# left as a dash: a dash in a numeric column reads as a value that failed to render,
+# and this document is read by someone with no way to check.
+NOT_MILLED = "not milled"
 
 
 @dataclass
@@ -73,10 +79,27 @@ class HandoffOptions:
     # None means every lamella. A list of names means only those, in the experiment's
     # own order -- so a map of the four that survived is a matter of unticking the rest.
     lamella_names: Optional[List[str]] = None
+    # None means every overview the experiment holds. A list of paths means only those.
+    overview_paths: Optional[List[str]] = None
+    # Which images go on each lamella's card. All three by default: they answer
+    # different questions -- the ion view shows how it was cut, the electron view shows
+    # it from above, and the fluorescence projection is the only one that says whether
+    # the thing worth imaging is actually inside it.
+    include_ion_image: bool = True
+    include_electron_image: bool = True
+    include_fluorescence_image: bool = True
     marker_color: str = "cyan"
     show_descriptions: bool = True
     dpi: int = 200
     extra: Dict[str, Any] = field(default_factory=dict)
+
+    def selected_overviews(self, experiment: Experiment) -> List[str]:
+        """The overview files this document draws."""
+        available = experiment.find_overview_images()
+        if self.overview_paths is None:
+            return available
+        wanted = set(self.overview_paths)
+        return [p for p in available if p in wanted]
 
     def selected(self, experiment: Experiment) -> List[Lamella]:
         """The lamellae this document covers."""
@@ -161,21 +184,43 @@ def lamella_row(lamella: Lamella) -> Dict[str, str]:
         except (ValueError, OSError, TypeError):
             finished = "-"
 
-    fm_count = 0
-    for task in lamella.task_history:
-        fm_count += len((task.outputs or {}).get("fluorescence", []))
-
+    # Column order is the order the questions get asked: which lamella, how far did it
+    # get, when, then its geometry, then the one judgement anyone recorded, then the
+    # free text. Fluorescence is deliberately not a column any more -- a count of
+    # stacks told the reader nothing they could act on, and the projection itself is
+    # on the lamella's card, which is where "is my target in it" is actually answered.
     return {
         "Lamella": lamella.name,
-        "Defect": DEFECT_LABELS.get(lamella.defect.state, "-"),
         "Last task": last.name if last is not None else "-",
-        "Thickness": f"{thickness * SI_TO_NANO:.0f} nm" if thickness else "-",
-        "Width": f"{width * SI_TO_MICRO:.1f} um" if width else "-",
-        "Angle": f"{angle:.1f} deg" if angle is not None else "-",
         "Finished": finished,
-        "FM": str(fm_count) if fm_count else "-",
+        "Angle": f"{angle:.1f} deg" if angle is not None else "-",
+        "Thickness": f"{thickness * SI_TO_NANO:.0f} nm" if thickness else NOT_MILLED,
+        "Width": f"{width * SI_TO_MICRO:.1f} um" if width else NOT_MILLED,
+        "Defect": DEFECT_LABELS.get(lamella.defect.state, "-"),
         "Note": lamella.description or lamella.defect.description or "",
     }
+
+
+# The order the table draws, and which of those read as numbers.
+TABLE_COLUMNS = (
+    "Lamella",
+    "Last task",
+    "Finished",
+    "Angle",
+    "Thickness",
+    "Width",
+    "Defect",
+    "Note",
+)
+NUMERIC_COLUMNS = ("Finished", "Angle", "Thickness", "Width")
+
+
+def fluorescence_stacks(lamella: Lamella) -> List[str]:
+    """Every fluorescence stack this lamella recorded, newest last."""
+    out: List[str] = []
+    for task in lamella.task_history:
+        out.extend((task.outputs or {}).get("fluorescence", []))
+    return out
 
 
 def provenance_line(experiment: Experiment) -> str:
@@ -249,72 +294,101 @@ def generate_handoff_map(
     """Write the handoff document for *experiment* to *output_filename*.
 
     No Qt anywhere in here, deliberately: the artifact is most wanted at the end of a run
-    that nobody stayed for, so it has to be reachable from a workflow hook and not only
-    from a dialog someone remembered to open.
+    nobody stayed for, so it has to be reachable from a workflow hook and not only from a
+    dialog someone remembered to open.
 
     Returns:
         The path written.
     """
-    # Imported here rather than at module scope so that reading a lamella's geometry --
-    # which the dialog does on every keystroke -- does not cost a reportlab import.
-    from reportlab.lib.units import inch
-
-    from fibsem.applications.autolamella.tools.reporting import PDFReportGenerator
+    from fibsem.applications.autolamella.tools.handoff_document import HandoffDocument
 
     options = options or HandoffOptions()
     lamellae = options.selected(experiment)
 
-    pdf = PDFReportGenerator(output_filename=output_filename)
-    pdf.add_title(
-        options.title or f"Handoff Map: {experiment.name}",
-        summary_line(experiment, options),
+    doc = HandoffDocument(output_filename)
+    doc.masthead(
+        name=options.title or experiment.name,
+        summary=summary_line(experiment, options),
+        provenance=provenance_line(experiment),
     )
+    doc.note(options.note)
 
-    provenance = provenance_line(experiment)
-    if provenance:
-        pdf.add_paragraph(provenance)
-    if options.note:
-        pdf.add_paragraph(options.note)
+    # Whether anything has been placed since the masthead. A band that is first on the
+    # page follows the masthead directly; every later one opens its own page. Without
+    # this, turning the map off leaves page one holding a masthead and nothing else.
+    placed = False
 
     if options.include_map:
-        _add_map_pages(pdf, experiment, lamellae, options, inch)
+        placed = _add_map_pages(doc, experiment, lamellae, options)
 
     if options.include_table:
-        _add_table_page(pdf, lamellae)
+        doc.band("Lamellae", new_page=placed)
+        doc.table(
+            TABLE_COLUMNS,
+            [lamella_row(lam) for lam in lamellae],
+            numeric=NUMERIC_COLUMNS,
+        )
+        placed = True
 
     if options.include_cards:
-        _add_card_pages(pdf, lamellae, inch)
+        _add_card_pages(doc, lamellae, options, new_page=placed)
 
-    pdf.generate()
+    doc.build()
     logger.info(f"Wrote handoff map for {experiment.name} to {output_filename}")
     return output_filename
 
 
-def _add_map_pages(pdf, experiment, lamellae, options: HandoffOptions, inch) -> None:
-    """A page per beam overview, each marked with the selected lamellae.
+def view_key(image) -> Tuple[str, int, int]:
+    """What decides whether two overviews may share a page.
 
-    A page *per overview* rather than one page with everything on it. Two overviews of
-    the same grid at different times are two pictures, and a fluorescence overview is a
-    picture from a different direction entirely -- so there is no single set of axes they
-    all belong on.
+    The beam, and the stage orientation to the nearest degree. Two images register with
+    each other only if they were taken through the same beam with the stage in the same
+    place; anything else is a picture from a different direction, and compositing them
+    would put real pixels at coordinates they were never acquired at -- which would look
+    exactly as authoritative as a correct page.
+
+    Rounded degrees rather than the orientation's *name* (SEM / FIB / MILLING), because
+    naming it needs `FibsemMicroscope.get_stage_orientation` and this runs from a hook
+    with no microscope. FIB-811 makes the name derivable; this becomes it when it lands.
+    """
+    import math
+
+    beam = getattr(getattr(image.metadata, "image_settings", None), "beam_type", None)
+    state = getattr(image.metadata, "microscope_state", None)
+    position = getattr(state, "stage_position", None)
+    r = getattr(position, "r", None) or 0.0
+    t = getattr(position, "t", None) or 0.0
+    name = getattr(beam, "name", None) or str(beam)
+    return (name, int(round(math.degrees(r))), int(round(math.degrees(t))))
+
+
+def view_label(key: Tuple[str, int, int]) -> str:
+    """How a view is named on the page, given that its real name is unavailable."""
+    beam, r, t = key
+    beam_name = {"ELECTRON": "Electron beam", "ION": "Ion beam"}.get(beam, str(beam))
+    return f"{beam_name}  -  stage r {r} deg, t {t} deg"
+
+
+def _add_map_pages(doc, experiment, lamellae, options: "HandoffOptions") -> bool:
+    """One page per *view*, with every selected overview of that view composited on it.
+
+    Per view rather than per file, because several overviews of one view are several
+    pictures of one thing: a re-acquired overview, or two covering different parts of the
+    same grid. Given one page each, the reader has to stitch them mentally and has
+    nothing telling them which is current. Composited, a lamella that falls off the edge
+    of one overview but inside another is simply on the page.
+
+    Returns whether it placed anything, so the caller knows whether the next band starts
+    a page or follows on this one.
     """
     from fibsem.imaging.tiled import (
         DEFECT_FAILURE_COLOUR,
         DEFECT_REWORK_COLOUR,
-        plot_minimap,
+        plot_overview_composite,
     )
     from fibsem.structures import FibsemImage
 
-    paths = experiment.find_overview_images()
-    if not paths:
-        pdf.add_page_break()
-        pdf.add_heading("Map")
-        pdf.add_paragraph(
-            "No overview image was saved with this experiment, so there is no map. "
-            "The table below still locates each lamella by stage position."
-        )
-        return
-
+    paths = options.selected_overviews(experiment)
     selected = {lam.name for lam in lamellae}
     positions = [
         pos for pos in experiment.get_milling_positions() if pos.name in selected
@@ -327,135 +401,238 @@ def _add_map_pages(pdf, experiment, lamellae, options: HandoffOptions, inch) -> 
         elif lam.defect.state is DefectType.REWORK:
             colours[lam.name] = DEFECT_REWORK_COLOUR
 
+    if not paths:
+        doc.note(
+            "No overview image was saved with this experiment, so there is no map. "
+            "The table below still locates each lamella by stage position."
+        )
+        return False
+
+    # Grouped in the order the files were found, so the groups themselves come out in
+    # acquisition order rather than in whatever order a dict happened to build.
+    groups: "OrderedDict[Tuple[str, int, int], List[Any]]" = OrderedDict()
     for path in paths:
         try:
             image = FibsemImage.load(path)
         except Exception as e:
             logger.warning(f"Could not load the overview {path}: {e}")
             continue
+        groups.setdefault(view_key(image), []).append((path, image))
+
+    first = True
+    for key, entries in groups.items():
+        images = [image for _, image in entries]
         try:
-            fig = plot_minimap(
-                image,
+            fig = plot_overview_composite(
+                images,
                 positions,
                 color=options.marker_color,
                 colors=colours,
-                show_scalebar=True,
+                descriptions=descriptions,
                 show_names=True,
                 show_descriptions=options.show_descriptions,
-                descriptions=descriptions,
+                show_scalebar=True,
                 figsize=None,
             )
         except Exception as e:
-            logger.warning(f"Could not draw the map for {path}: {e}")
+            logger.warning(f"Could not draw the map for {view_label(key)}: {e}")
             continue
 
-        pdf.add_page_break()
-        pdf.add_heading(f"Map - {os.path.basename(path)}")
-        pdf.add_mpl_figure(fig, width=6.5 * inch, height=4.0 * inch)
+        # The first map goes straight under the masthead: the reader opened this to see
+        # where the lamellae are, and a heading between the masthead and the picture is
+        # a line of text standing between them and the answer. A second view is a new
+        # page, and needs its own band to say what it is.
+        if not first:
+            doc.band(f"Map  -  {view_label(key)}")
+        first = False
 
-    fm_paths = experiment.find_fluorescence_overview_images()
-    if fm_paths:
-        # Named rather than drawn. They belong to a different view and cannot be marked
-        # on these axes, but a reader who knows a fluorescence overview was acquired
-        # should not have to wonder where it went.
-        pdf.add_paragraph(
-            f"{len(fm_paths)} fluorescence overview(s) were also acquired, and are not "
-            "shown here: they are a different view of the sample and do not register "
-            "with a beam overview. Files: "
-            + ", ".join(os.path.basename(p) for p in fm_paths)
+        doc.figure(fig)
+        doc.legend(_map_legend(key, lamellae, options))
+
+        marked = count_marked(images, positions)
+        detail = f"{len(images)} overview(s) composited"
+        if positions:
+            # Said explicitly, because a page can legitimately come out with no markers
+            # on it -- an overview of ground where no lamella was placed. Without this
+            # an empty map reads as a rendering failure.
+            detail += f"  -  {marked} of {len(positions)} selected lamellae fall here"
+        detail += "  -  " + ", ".join(os.path.basename(p) for p, _ in entries)
+        doc.caption(detail)
+
+    return not first
+
+
+def _map_legend(key, lamellae, options: "HandoffOptions"):
+    """What the markers on this map mean, and which view it was drawn in.
+
+    Only the states actually on the grid get a line: a key listing "rework" on a page
+    with no amber marker on it invites the reader to hunt for one.
+
+    The swatches are the *marker* colours, taken from the same constants the map is drawn
+    with, so the key cannot drift from the picture. `plot_overview_composite` colours a
+    marker by defect and falls back to `marker_color`, and this reproduces that mapping
+    rather than restating it in colours chosen to look better on paper.
+    """
+    from reportlab.lib import colors as rl_colors
+
+    from fibsem.imaging.tiled import DEFECT_FAILURE_COLOUR, DEFECT_REWORK_COLOUR
+
+    states = {lam.defect.state for lam in lamellae}
+    entries = []
+    if any(s is DefectType.NONE for s in states):
+        entries.append((rl_colors.toColor(options.marker_color), "no defect flagged"))
+    if DefectType.REWORK in states:
+        entries.append((rl_colors.toColor(DEFECT_REWORK_COLOUR), "rework"))
+    if DefectType.FAILURE in states:
+        entries.append((rl_colors.toColor(DEFECT_FAILURE_COLOUR), "failed"))
+    entries.append((None, view_label(key)))
+    return entries
+
+
+def count_marked(images, positions) -> int:
+    """How many of *positions* land inside any of *images*.
+
+    Computed against the images rather than read off the figure, so the caption cannot
+    disagree with the picture by being derived from something else.
+    """
+    from fibsem.conversions import is_inside_image_bounds
+    from fibsem.imaging.tiled import reproject_stage_positions_onto_image2
+
+    seen = set()
+    for image in images:
+        try:
+            points = reproject_stage_positions_onto_image2(image, positions)
+        except Exception:
+            continue
+        shape = (image.data.shape[0], image.data.shape[1])
+        for pt in points:
+            if is_inside_image_bounds((pt.y, pt.x), shape):
+                seen.add(pt.name)
+    return len(seen)
+
+
+def _add_card_pages(
+    doc, lamellae, options: "HandoffOptions", new_page: bool = True
+) -> None:
+    """One card per lamella: a fact line, then whichever images were asked for."""
+    if not lamellae:
+        return
+
+    doc.band("Lamella detail", new_page=new_page)
+
+    for i, lam in enumerate(lamellae):
+        row = lamella_row(lam)
+        facts = [
+            ("Defect", row["Defect"] if row["Defect"] != "-" else "none flagged"),
+            ("Last task", row["Last task"]),
+            ("Thickness", row["Thickness"]),
+            ("Width", row["Width"]),
+            ("Angle", row["Angle"]),
+        ]
+        doc.lamella_card(
+            name=lam.name,
+            facts=facts,
+            note=row["Note"],
+            shots=_card_shots(lam, options),
+            first=(i == 0),
         )
 
 
-def _add_table_page(pdf, lamellae) -> None:
-    """Every lamella, and the numbers that decide whether to spend beam time on it."""
-    import pandas as pd
+def _card_shots(lamella: Lamella, options: "HandoffOptions"):
+    """The images for one card, as (label, figure or None, why-not) triples.
 
-    pdf.add_page_break()
-    pdf.add_heading("Lamellae")
-    if not lamellae:
-        pdf.add_paragraph("No lamellae were selected for this map.")
-        return
-    rows = [lamella_row(lam) for lam in lamellae]
-    pdf.add_dataframe(pd.DataFrame(rows))
-
-
-def _add_card_pages(pdf, lamellae, inch) -> None:
-    """One card per lamella: its final ion-beam image, so it can be recognised.
-
-    The ion beam rather than the electron beam: the ion image is the view the lamella was
-    milled in, and so the one that shows the trenches, the tabs and the curtaining a
-    reader is checking for.
+    A modality that was never acquired keeps its slot and says so. Closing up would make
+    a two-image card look like a short one, and "not acquired" would be indistinguishable
+    from "did not render".
     """
+    from fibsem.applications.autolamella.tools.handoff_document import (
+        bare_image_figure,
+        fluorescence_figure,
+    )
+
+    shots = []
+
+    if options.include_ion_image:
+        # The ion view first: it is the one the lamella was milled in, so it shows the
+        # trenches, the tabs and the curtaining a reader is checking for.
+        shots.append(_beam_shot(lamella, "final_fib", "Ion beam", bare_image_figure))
+    if options.include_electron_image:
+        shots.append(
+            _beam_shot(lamella, "final_sem", "Electron beam", bare_image_figure)
+        )
+    if options.include_fluorescence_image:
+        shots.append(_fluorescence_shot(lamella, fluorescence_figure))
+
+    return shots
+
+
+def _beam_shot(lamella: Lamella, key: str, label: str, make_figure):
     from fibsem.structures import FibsemImage
 
-    if not lamellae:
-        return
-
-    pdf.add_page_break()
-    pdf.add_heading("Lamella detail")
-
-    for lam in lamellae:
-        row = lamella_row(lam)
-        pdf.add_heading(lam.name, level=3)
-        pdf.add_paragraph(
-            " | ".join(
-                f"{key}: {row[key]}"
-                for key in ("Defect", "Last task", "Thickness", "Width", "Angle", "FM")
-            )
-        )
-        if row["Note"]:
-            pdf.add_paragraph(row["Note"])
-
-        path = _final_ion_image(lam)
-        if path is None:
-            pdf.add_paragraph("No final ion-beam image was recorded for this lamella.")
-            continue
-        try:
-            image = FibsemImage.load(path)
-        except Exception as e:
-            logger.warning(f"Could not load {path} for {lam.name}: {e}")
-            continue
-        fig = _plot_bare_image(image)
-        pdf.add_mpl_figure(fig, width=4.0 * inch, height=3.0 * inch)
+    path = latest_output(lamella, key)
+    if path is None:
+        return (label, None, "Not acquired")
+    try:
+        image = FibsemImage.load(path)
+        return (label, make_figure(image), field_width(image))
+    except Exception as e:
+        logger.warning(f"Could not render {path} for {lamella.name}: {e}")
+        return (label, None, "Could not be read")
 
 
-def _final_ion_image(lamella: Lamella) -> Optional[str]:
-    """The last final ion-beam reference image the lamella recorded, or None.
+def field_width(image) -> str:
+    """How wide a field the picture covers, for the label under it.
 
-    From `task_history[].outputs`, which records paths relative to the lamella directory
-    -- which is where they are, so they resolve against it as-is.
+    The three pictures on a card differ in field of view by more than an order of
+    magnitude -- an ion image of a trench against a fluorescence stack of the cell it was
+    cut from -- and each carries its own scalebar for that reason. The number says which
+    is which without measuring the bar, which matters to someone about to look for the
+    same object in a third instrument.
+
+    Read from the recorded field width where there is one and computed from the pixel
+    size otherwise, so it holds for a fluorescence stack as well as a beam image.
     """
+    metadata = getattr(image, "metadata", None)
+    hfw = getattr(getattr(metadata, "image_settings", None), "hfw", None)
+    if not hfw:
+        pixel_size = getattr(getattr(metadata, "pixel_size", None), "x", None)
+        if pixel_size is None:
+            pixel_size = getattr(metadata, "pixel_size_x", None)
+        data = getattr(image, "data", None)
+        if pixel_size and data is not None and getattr(data, "ndim", 0) >= 2:
+            hfw = pixel_size * data.shape[-1]
+    if not hfw:
+        return ""
+    return f"fov {hfw * SI_TO_MICRO:.0f} um"
+
+
+def _fluorescence_shot(lamella: Lamella, make_figure):
+    """The newest fluorescence stack, blended the way the application blends it."""
+    paths = fluorescence_stacks(lamella)
+    if not paths:
+        return ("Fluorescence, max proj.", None, "No fluorescence acquired")
+    path = os.path.join(str(lamella.path), paths[-1])
+    if not os.path.exists(path):
+        return ("Fluorescence, max proj.", None, "Not acquired")
+    try:
+        from fibsem.fm.structures import FluorescenceImage
+
+        image = FluorescenceImage.load(path)
+        return (
+            "Fluorescence, max proj.",
+            make_figure(image),
+            field_width(image),
+        )
+    except Exception as e:
+        logger.warning(f"Could not render {path} for {lamella.name}: {e}")
+        return ("Fluorescence, max proj.", None, "Could not be read")
+
+
+def latest_output(lamella: Lamella, key: str) -> Optional[str]:
+    """The last file recorded under *key* that is actually on disk, or None."""
     for task in reversed(lamella.task_history):
-        names = (task.outputs or {}).get("final_fib", [])
-        for name in reversed(names):
+        for name in reversed((task.outputs or {}).get(key, [])):
             path = os.path.join(str(lamella.path), name)
             if os.path.exists(path):
                 return path
     return None
-
-
-def _plot_bare_image(image) -> "Any":
-    """The image, a scalebar, and nothing else."""
-    import matplotlib.pyplot as plt
-
-    from fibsem.imaging.tiling.plotting import figsize_for_image
-
-    fig, ax = plt.subplots(figsize=figsize_for_image(image.data.shape, width_in=6.0))
-    ax.imshow(image.data, cmap="gray")
-    ax.axis("off")
-    try:
-        from matplotlib_scalebar.scalebar import ScaleBar
-
-        ax.add_artist(
-            ScaleBar(
-                dx=image.metadata.pixel_size.x,
-                color="black",
-                box_color="white",
-                box_alpha=0.5,
-                location="lower right",
-            )
-        )
-    except Exception as e:
-        logger.debug(f"Could not add a scalebar: {e}")
-    fig.tight_layout()
-    return fig

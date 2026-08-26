@@ -116,12 +116,43 @@ class TestFinalGeometry:
 
 
 class TestTheRow:
-    def test_unknown_values_are_dashes_not_zeroes(self, lamella):
+    def test_unknown_geometry_says_so_rather_than_dashing(self, lamella):
+        """A dash in a numeric column reads as a value that failed to render.
+
+        This document is read by someone with no way to check, so an absence has to
+        state itself. Non-numeric columns keep the dash, which is unambiguous in a
+        column of words.
+        """
         row = lamella_row(lamella)
-        assert row["Thickness"] == "-"
-        assert row["Width"] == "-"
+        assert row["Thickness"] == "not milled"
+        assert row["Width"] == "not milled"
         assert row["Last task"] == "-"
         assert row["Finished"] == "-"
+
+    def test_the_column_order_puts_identity_before_judgement(self):
+        """Which lamella, how far it got, when, its geometry, then the one judgement."""
+        from fibsem.applications.autolamella.tools.handoff_map import TABLE_COLUMNS
+
+        assert TABLE_COLUMNS == (
+            "Lamella",
+            "Last task",
+            "Finished",
+            "Angle",
+            "Thickness",
+            "Width",
+            "Defect",
+            "Note",
+        )
+
+    def test_fluorescence_is_not_a_column(self):
+        """A count of stacks told the reader nothing they could act on.
+
+        The projection itself is on the lamella's card, which is where "is my target
+        inside it" is actually answered.
+        """
+        from fibsem.applications.autolamella.tools.handoff_map import TABLE_COLUMNS
+
+        assert not any("FM" in c or "luoresc" in c for c in TABLE_COLUMNS)
 
     def test_a_flagged_lamella_says_so(self, lamella):
         lamella.defect.set_defect("lost the fiducial", DefectType.FAILURE)
