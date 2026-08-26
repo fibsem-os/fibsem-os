@@ -429,6 +429,24 @@ class AlignmentPreferences:
     # 1:1 of an absolute pixel threshold -- magnitude alone does not separate good
     # from bad. 0 disables it.
     clip_fraction: float = 0.8
+    # A run is "converged" when the FINAL image sits within this many pixels of the
+    # reference. This is the only check that asks whether the run ENDED aligned --
+    # everything else judges individual steps, and a run whose steps all look
+    # reasonable can still finish in the wrong place (FIB-809).
+    #
+    # The default is not finely tuned and does not need to be: on the reference
+    # corpus the residuals are strongly bimodal -- 95 of 102 runs below 10px, then a
+    # 14.5px gap, then 24, 27, 46, 114, 138, 180, 198. Any tolerance from 10 to 20
+    # flags exactly the same 7 runs, so the result is insensitive across that range.
+    #
+    # Pixels, not nanometres, matching how the residual is measured and reported.
+    # A physical tolerance would be better once someone specifies the milling
+    # precision this should protect; the pixel size is in the image metadata, so
+    # nanometres are derivable from what is already recorded.
+    #
+    # Currently drives a warning only. Deliberately NOT wired to abort_on_failure --
+    # see the note in multi_step_alignment_v2.
+    convergence_tolerance_px: float = 10.0
 
 
 @dataclass

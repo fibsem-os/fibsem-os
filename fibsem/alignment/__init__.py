@@ -46,6 +46,8 @@ from fibsem.alignment.verified import (
     get_validation_mode,
     get_configured_validation,
     get_configured_clip_fraction,
+    get_configured_convergence_tolerance,
+    DEFAULT_CONVERGENCE_TOLERANCE_PX,
     should_abort_on_failure,
     shift_from_crosscorrelation_validated,
 )
@@ -196,6 +198,10 @@ class AlignmentResult:
     # reasonable can still finish in the wrong place. None when no final image was
     # acquired. Recorded only; nothing acts on it yet.
     final_residual_px: Optional[float] = None
+    # Whether that residual is within the configured tolerance. None when no final
+    # image was acquired, so "not converged" and "not measured" stay distinguishable
+    # -- collapsing them would report every stop_event run as a convergence failure.
+    converged: Optional[bool] = None
 
     def to_dict(self) -> dict:
         return {
@@ -210,6 +216,7 @@ class AlignmentResult:
             "n_rejected": self.n_rejected,
             "outcome": self.outcome,
             "final_residual_px": _nan_to_none(self.final_residual_px),
+            "converged": self.converged,
         }
 
     def save(
@@ -252,6 +259,7 @@ class AlignmentResult:
             path=path,
             validation=self.validation,
             final_residual_px=self.final_residual_px,
+            converged=self.converged,
         )
         return fig
 
@@ -307,6 +315,7 @@ class AlignmentResult:
             outcome=d.get("outcome", default_outcome),
             # absent from records written before FIB-809
             final_residual_px=d.get("final_residual_px"),
+            converged=d.get("converged"),
         )
 
 
@@ -646,6 +655,18 @@ def multi_step_alignment_v2(
     re-acquires and a fresh image often correlates cleanly. If every step is
     rejected the returned result says so via `aligned` / `outcome`, and the caller
     should surface that rather than mill at an unverified position.
+
+    Separately, `final_residual_px` / `converged` record whether the run actually
+    ended up matching the reference (FIB-809). That is a different question from
+    whether any step was trustworthy, and a run can be `aligned=True` with every
+    step accepted and still be `converged=False`.
+
+    `converged` is deliberately NOT wired to `abort_on_failure`. That flag currently
+    means "every step was refused", and silently giving it a second, unrelated
+    trigger would start failing tasks for users who enabled it for the first reason
+    -- a behaviour change smuggled in behind a diagnostic. The tolerance also rests
+    on one instrument. Warn now; wire it to a stop only once the threshold has been
+    checked somewhere else.
     """
     # None means "whatever the user configured"; resolve it once, here, so the whole
     # run and its saved record agree on which mode was used
@@ -698,6 +719,7 @@ def multi_step_alignment_v2(
     final_image = None
     validation = None
     final_residual_px = None
+    converged = None
     if acquire_final_image:
         final_image = _acquire_from_reference_image(
             microscope=microscope,
@@ -715,6 +737,19 @@ def multi_step_alignment_v2(
         final_residual_px = _measure_final_residual(
             ref_image, final_image, validation, method
         )
+        if final_residual_px is not None:
+            tolerance = get_configured_convergence_tolerance()
+            converged = final_residual_px <= tolerance
+            if not converged:
+                # The one warning that describes the OUTCOME rather than a step. A
+                # run can reach here with every step accepted and still be wrong,
+                # which is the whole reason this check exists.
+                logging.warning(
+                    "Alignment '%s': finished %.1fpx from the reference "
+                    "(tolerance %.1fpx). The steps completed, but the position "
+                    "does not match the reference image.",
+                    run_name, final_residual_px, tolerance,
+                )
 
     n_accepted = sum(1 for r in alignment_results if r.accepted)
     n_rejected = len(alignment_results) - n_accepted
@@ -762,6 +797,7 @@ def multi_step_alignment_v2(
         n_rejected=n_rejected,
         outcome=outcome,
         final_residual_px=final_residual_px,
+        converged=converged,
     )
 
     save_path: str = path if path is not None else _alignment_save_path(ref_image)[0]

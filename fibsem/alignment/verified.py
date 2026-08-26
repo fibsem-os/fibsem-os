@@ -132,6 +132,12 @@ DEFAULT_VALIDATION_MODE = "none"
 #: convergence, not a refused alignment.
 DEFAULT_CLIP_FRACTION = 0.8
 
+#: A run is converged when its final image sits within this many pixels of the
+#: reference. Insensitive across 10-20 px on the reference corpus: the residuals
+#: are bimodal (95 of 102 below 10 px, then a 14.5 px gap), so every value in that
+#: range flags the same 7 runs. Diagnostic only -- it drives a warning, not a stop.
+DEFAULT_CONVERGENCE_TOLERANCE_PX = 10.0
+
 
 def get_configured_validation(
     context: AlignmentContext = DEFAULT_ALIGNMENT_CONTEXT,
@@ -190,6 +196,28 @@ def should_abort_on_failure() -> bool:
     except Exception as e:  # noqa: BLE001 - never let prefs break alignment
         logging.warning(f"Could not read alignment abort preference: {e}")
         return False
+
+
+def get_configured_convergence_tolerance() -> float:
+    """The user's convergence tolerance in pixels, from user-preferences.yaml.
+
+    Falls back to the default if preferences cannot be read -- a diagnostic
+    threshold must never be the reason an alignment fails to run.
+    """
+    try:
+        from fibsem.config import load_user_preferences
+
+        v = float(load_user_preferences().alignment.convergence_tolerance_px)
+    except Exception as e:  # noqa: BLE001 - never let prefs break alignment
+        logging.warning(f"Could not read convergence tolerance preference: {e}")
+        return DEFAULT_CONVERGENCE_TOLERANCE_PX
+    if v <= 0:
+        logging.warning(
+            f"Non-positive convergence tolerance {v}; using "
+            f"{DEFAULT_CONVERGENCE_TOLERANCE_PX}."
+        )
+        return DEFAULT_CONVERGENCE_TOLERANCE_PX
+    return v
 
 
 def get_validation_mode(mode: Optional[str]) -> ValidationMode:

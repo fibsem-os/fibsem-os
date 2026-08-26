@@ -1124,3 +1124,137 @@ def test_measure_final_residual_never_raises(demo_session):
     assert al._measure_final_residual(
         ref_image, Broken(), None, al.DEFAULT_ALIGNMENT_METHOD
     ) is None
+
+
+# --- convergence verdict (FIB-809 layer 2) -----------------------------------
+
+
+def test_converged_true_when_the_run_ends_close(demo_session, tmp_path):
+    import fibsem.alignment as al
+
+    microscope, settings = demo_session
+    ref_image = acquire.acquire_image(microscope, settings.image)
+    run = al.multi_step_alignment_v2(
+        microscope=microscope, ref_image=ref_image, steps=1,
+        validate=False, acquire_final_image=True, path=str(tmp_path),
+    )
+    assert run.final_residual_px is not None
+    assert run.converged is True
+
+
+def _residual_of(monkeypatch, px: float):
+    """Pin the measured final residual, so the verdict is tested and not the simulator."""
+    import fibsem.alignment as al
+
+    monkeypatch.setattr(al, "_measure_final_residual", lambda *a, **kw: px)
+
+
+def test_converged_false_when_the_residual_exceeds_the_tolerance(
+    monkeypatch, demo_session, tmp_path
+):
+    """A run can pass every step and still not have arrived."""
+    import fibsem.alignment as al
+
+    microscope, settings = demo_session
+    ref_image = acquire.acquire_image(microscope, settings.image)
+    _set_prefs(monkeypatch, convergence_tolerance_px=10.0)
+    _residual_of(monkeypatch, 50.0)
+
+    run = al.multi_step_alignment_v2(
+        microscope=microscope, ref_image=ref_image, steps=1,
+        validate=False, acquire_final_image=True, path=str(tmp_path),
+    )
+    assert run.final_residual_px == pytest.approx(50.0)
+    assert run.converged is False
+    assert run.aligned is True, "every step was accepted -- this is an OUTCOME failure"
+
+
+def test_converged_is_none_without_a_final_image(demo_session, tmp_path):
+    """'not measured' must stay distinguishable from 'did not converge'."""
+    import fibsem.alignment as al
+
+    microscope, settings = demo_session
+    ref_image = acquire.acquire_image(microscope, settings.image)
+    run = al.multi_step_alignment_v2(
+        microscope=microscope, ref_image=ref_image, steps=1,
+        validate=False, acquire_final_image=False, path=str(tmp_path),
+    )
+    assert run.converged is None
+    assert run.final_residual_px is None
+
+
+def test_converged_survives_a_round_trip(monkeypatch, demo_session, tmp_path):
+    import fibsem.alignment as al
+
+    microscope, settings = demo_session
+    ref_image = acquire.acquire_image(microscope, settings.image)
+    _set_prefs(monkeypatch, convergence_tolerance_px=10.0)
+    _residual_of(monkeypatch, 50.0)
+    run = al.multi_step_alignment_v2(
+        microscope=microscope, ref_image=ref_image, steps=1,
+        validate=False, acquire_final_image=True, path=str(tmp_path),
+    )
+    loaded = al.AlignmentResult.load(os.path.join(str(tmp_path), run.name))
+    assert loaded.converged is False
+    assert loaded.final_residual_px == pytest.approx(50.0)
+    assert loaded.converged == run.converged
+
+
+def test_older_records_load_with_no_verdict(demo_session, tmp_path):
+    import json
+
+    import fibsem.alignment as al
+
+    microscope, settings = demo_session
+    ref_image = acquire.acquire_image(microscope, settings.image)
+    run = al.multi_step_alignment_v2(
+        microscope=microscope, ref_image=ref_image, steps=1,
+        validate=False, acquire_final_image=True, path=str(tmp_path),
+    )
+    dj = os.path.join(str(tmp_path), run.name, "data.json")
+    with open(dj) as fh:
+        d = json.load(fh)
+    del d["converged"]
+    with open(dj, "w") as fh:
+        json.dump(d, fh)
+    assert al.AlignmentResult.load(os.path.join(str(tmp_path), run.name)).converged is None
+
+
+def test_a_bad_tolerance_falls_back_to_the_default(monkeypatch):
+    import fibsem.config as cfg
+    from fibsem.alignment.verified import (
+        DEFAULT_CONVERGENCE_TOLERANCE_PX,
+        get_configured_convergence_tolerance,
+    )
+
+    prefs = cfg.UserPreferences()
+    prefs.alignment.convergence_tolerance_px = 0.0
+    monkeypatch.setattr(cfg, "load_user_preferences", lambda: prefs)
+    assert get_configured_convergence_tolerance() == DEFAULT_CONVERGENCE_TOLERANCE_PX
+
+    def boom():
+        raise OSError("unreadable")
+
+    monkeypatch.setattr(cfg, "load_user_preferences", boom)
+    assert get_configured_convergence_tolerance() == DEFAULT_CONVERGENCE_TOLERANCE_PX
+
+
+def test_convergence_does_not_trigger_abort(monkeypatch, demo_session, tmp_path):
+    """abort_on_failure means 'every step refused'. Giving it a second, unrelated
+    trigger would start failing tasks for users who enabled it for the first."""
+    import fibsem.alignment as al
+
+    microscope, settings = demo_session
+    ref_image = acquire.acquire_image(microscope, settings.image)
+    _set_prefs(monkeypatch, convergence_tolerance_px=10.0, abort_on_failure=True,
+               validation_workflow="verified", validation_milling="verified")
+    _residual_of(monkeypatch, 50.0)
+
+    # steps all succeed, so the only failure available is non-convergence
+    run = al.multi_step_alignment_v2(
+        microscope=microscope, ref_image=ref_image, steps=1,
+        validate=False, acquire_final_image=True, path=str(tmp_path),
+        alignment_validation="none",
+    )
+    assert run.converged is False
+    assert run.aligned is True  # returned normally; no AlignmentFailedError raised

@@ -56,6 +56,7 @@ def plot_multi_step_alignment(
     path: Optional[str] = None,
     validation: Optional[AlignmentDifferential] = None,
     final_residual_px: Optional[float] = None,
+    converged: Optional[bool] = None,
 ):
     """Plot the reference image and each alignment step with cross-correlation maps.
 
@@ -183,7 +184,13 @@ def plot_multi_step_alignment(
         final_title = "Final"
         if final_residual_px is not None:
             final_title = f"Final  -  {final_residual_px:.1f}px from the reference"
+            if converged is False:
+                final_title += "  [NOT CONVERGED]"
         _plot_image_with_crosshair(axes[2, n_cols - 1], final_image.data, final_title)
+        if converged is False:
+            # The steps can all look fine and the run still end in the wrong place,
+            # so this needs to be visible without reading the per-method numbers.
+            axes[2, n_cols - 1].title.set_color("red")
         if validation is not None:
             colour = "lime" if validation.agreement else "orange"
             lines = []
