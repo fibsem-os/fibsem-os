@@ -5,6 +5,7 @@ FIB/SEM tab -- that tab keeps pixels and a position, not the metadata a projecti
 read from. And applying what comes back, which has to reach the *acquisition* rather than
 only the drawing, or the grid on screen and the run would disagree.
 """
+
 import os
 from contextlib import contextmanager
 
@@ -207,7 +208,9 @@ def test_it_does_open_when_there_is_something_to_select_on(widget):
 def selection(rows=4, cols=3, enabled=((0, 0), (1, 1))):
     mask = [[(r, c) in enabled for c in range(cols)] for r in range(rows)]
     return SparseSelection(
-        parameters=OverviewParameters(rows=rows, cols=cols, overlap=0.1, tile_mask=mask),
+        parameters=OverviewParameters(
+            rows=rows, cols=cols, overlap=0.1, tile_mask=mask
+        ),
         centre_position=FibsemStagePosition(
             x=1e-4, y=2e-4, z=0.0, r=0.0, t=-3.141592653589793
         ),
@@ -243,5 +246,7 @@ def test_it_says_the_grid_came_from_a_selection_and_will_be_replaced(widget):
     """
     widget.apply_sparse_selection(selection(rows=4, cols=3))
 
-    assert "2 of 12 tiles came from a selection" in widget.button_select_ground.toolTip()
+    assert (
+        "2 of 12 tiles came from a selection" in widget.button_select_ground.toolTip()
+    )
     assert "replaces it" in widget.button_select_ground.toolTip()
