@@ -404,3 +404,27 @@ def test_exposure_time_spinbox_has_seconds_suffix(qapp):
     widget = AutoLamellaTaskParametersConfigWidget(cfg)
 
     assert _control_widget(widget, "exposure_time").suffix() == " s"
+
+
+def test_preset_round_trips_and_defaults_to_none():
+    """The burn preset survives save/load and to_settings; protocols written before
+    the field existed load as None (backend default)."""
+    cfg = SpotBurnFiducialTaskConfig(
+        task_name="Spot Burn Fiducial", preset="30 keV; 1 nA; my cool preset"
+    )
+
+    loaded = SpotBurnFiducialTaskConfig.from_dict(cfg.to_dict())
+    assert loaded.preset == "30 keV; 1 nA; my cool preset"
+    assert loaded.to_settings().preset == "30 keV; 1 nA; my cool preset"
+
+    d = cfg.to_dict()
+    del d["parameters"]["preset"]  # pre-preset protocol
+    assert SpotBurnFiducialTaskConfig.from_dict(d).preset is None
+
+
+def test_preset_stays_out_of_the_generic_parameter_form():
+    """The preset is chosen in the spot burn tab's combo (like coordinates on the
+    canvas) -- the generic parameter form must not render it as a free-text field."""
+    cfg = SpotBurnFiducialTaskConfig(task_name="Spot Burn Fiducial")
+    assert "preset" not in cfg.parameters
+    assert "coordinates" not in cfg.parameters

@@ -5,6 +5,7 @@ import threading
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
+    QComboBox,
     QFormLayout,
     QLabel,
     QPushButton,
@@ -13,6 +14,7 @@ from PyQt5.QtWidgets import (
 )
 from superqt import ensure_main_thread
 
+from fibsem import manufacturers
 from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType
@@ -87,18 +89,37 @@ class FibsemSpotBurnWidget(QWidget):
         )
         layout.addWidget(self.coord_editor)
 
-        # beam current + exposure
-        beam_currents = self.microscope.get_available_values("current", BeamType.ION)
-        closest = min(beam_currents, key=lambda x: abs(x - DEFAULT_BEAM_CURRENT))
-        self.comboBox_beam_current = ValueComboBox(
-            items=beam_currents, value=closest, unit="A", decimals=1,
-        )
+        # beam conditions + exposure. On preset-driven backends (TESCAN) the burn
+        # conditions are an ION preset, so the current combo would be a lie -- the
+        # driver ignores milling_current there. The preset list comes from the cached
+        # getter: building a tab must not query the microscope.
+        presets = []
+        if manufacturers.is_tescan(self.microscope.manufacturer):
+            presets = self.microscope.get_available_values_cached(
+                "preset", BeamType.ION
+            )
+        self._use_presets = bool(presets)
+
+        form = QFormLayout()
+        if self._use_presets:
+            self.comboBox_beam_current = None
+            self.comboBox_preset = QComboBox()
+            self.comboBox_preset.addItems([str(p) for p in presets])
+            form.addRow("Preset", self.comboBox_preset)
+        else:
+            self.comboBox_preset = None
+            beam_currents = self.microscope.get_available_values_cached(
+                "current", BeamType.ION
+            )
+            closest = min(beam_currents, key=lambda x: abs(x - DEFAULT_BEAM_CURRENT))
+            self.comboBox_beam_current = ValueComboBox(
+                items=beam_currents, value=closest, unit="A", decimals=1,
+            )
+            form.addRow("Beam Current", self.comboBox_beam_current)
         self.doubleSpinBox_exposure_time = ValueSpinBox(
             suffix="s", minimum=0.1, maximum=60, decimals=3,
         )
         self.doubleSpinBox_exposure_time.setValue(10)
-        form = QFormLayout()
-        form.addRow("Beam Current", self.comboBox_beam_current)
         form.addRow("Exposure Time", self.doubleSpinBox_exposure_time)
         layout.addLayout(form)
 
@@ -129,7 +150,10 @@ class FibsemSpotBurnWidget(QWidget):
         layout.addStretch()
 
     def _setup_connections(self) -> None:
-        self.comboBox_beam_current.currentIndexChanged.connect(self._refresh_info)
+        conditions_combo = (
+            self.comboBox_preset if self._use_presets else self.comboBox_beam_current
+        )
+        conditions_combo.currentIndexChanged.connect(self._refresh_info)
         self.doubleSpinBox_exposure_time.valueChanged.connect(self._refresh_info)
 
         # run button
@@ -260,15 +284,23 @@ class FibsemSpotBurnWidget(QWidget):
     # ------------------------------------------------------------------
 
     def set_settings(self, settings: SpotBurnSettings) -> None:
-        """Apply a settings payload (current / exposure / coordinates)."""
-        # keep an off-grid (protocol) current exactly selectable so an untouched value
-        # round-trips losslessly — otherwise the closest-match snap would rewrite the config
-        if self.comboBox_beam_current.findData(settings.milling_current) == -1:
-            self.comboBox_beam_current.addItem(
-                format_value(settings.milling_current, unit="A", precision=1),
-                settings.milling_current,
-            )
-        self.comboBox_beam_current.set_value(settings.milling_current)
+        """Apply a settings payload (conditions / exposure / coordinates)."""
+        if self._use_presets:
+            # keep an off-list (protocol) preset exactly selectable so an untouched
+            # value round-trips losslessly
+            if settings.preset:
+                if self.comboBox_preset.findText(settings.preset) == -1:
+                    self.comboBox_preset.addItem(settings.preset)
+                self.comboBox_preset.setCurrentText(settings.preset)
+        else:
+            # keep an off-grid (protocol) current exactly selectable so an untouched value
+            # round-trips losslessly — otherwise the closest-match snap would rewrite the config
+            if self.comboBox_beam_current.findData(settings.milling_current) == -1:
+                self.comboBox_beam_current.addItem(
+                    format_value(settings.milling_current, unit="A", precision=1),
+                    settings.milling_current,
+                )
+            self.comboBox_beam_current.set_value(settings.milling_current)
         self.doubleSpinBox_exposure_time.setValue(settings.exposure_time)
 
         self._feed_image_shape()
@@ -277,11 +309,16 @@ class FibsemSpotBurnWidget(QWidget):
         self._refresh_info()  # set_settings is programmatic (no settings_changed)
 
     def get_settings(self) -> SpotBurnSettings:
-        """The run payload — coordinates from the editor, current/exposure from the form."""
+        """The run payload — coordinates from the editor, conditions/exposure from the form."""
         return SpotBurnSettings(
             coordinates=self.get_coordinates(),
-            milling_current=self.comboBox_beam_current.value(),
+            milling_current=(
+                DEFAULT_BEAM_CURRENT
+                if self._use_presets
+                else self.comboBox_beam_current.value()
+            ),
             exposure_time=self.doubleSpinBox_exposure_time.value(),
+            preset=self.comboBox_preset.currentText() if self._use_presets else None,
         )
 
     def get_coordinates(self) -> list:
@@ -318,9 +355,14 @@ class FibsemSpotBurnWidget(QWidget):
             )
             return
 
+        conditions = (
+            f"Preset: {settings.preset!r}"
+            if settings.preset
+            else f"Beam current: {settings.milling_current} A"
+        )
         logging.info(
             f"Running spot burn with {len(settings.coordinates)} points. "
-            f"Beam current: {settings.milling_current} A, exposure time: {settings.exposure_time} s"
+            f"{conditions}, exposure time: {settings.exposure_time} s"
         )
 
         self.stop_event.clear()

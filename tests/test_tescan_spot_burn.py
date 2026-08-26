@@ -272,6 +272,23 @@ def test_layer_settings_use_the_spot_burn_preset_and_configured_defaults(monkeyp
     assert layer_settings["parallel"] is False
 
 
+def test_settings_preset_overrides_the_default(monkeypatch):
+    """A preset on the settings payload (chosen in the GUI / protocol) wins over
+    SPOT_BURN_PRESET. Preset names are free-form on the instrument."""
+    m = make_microscope(monkeypatch)
+
+    m.run_spot_burn(
+        SpotBurnSettings(
+            coordinates=[Point(0.5, 0.5)],
+            exposure_time=1.0,
+            preset="30 keV; 1 nA; my cool preset",
+        )
+    )
+
+    layer_settings = m.connection.DrawBeam.layers[0].settings
+    assert layer_settings["preset"] == "30 keV; 1 nA; my cool preset"
+
+
 # --------------------------------------------------------------------------
 # cancellation
 # --------------------------------------------------------------------------

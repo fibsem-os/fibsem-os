@@ -1564,11 +1564,12 @@ class TescanMicroscope(FibsemMicroscope):
         exposure_time: float,
         hfw: float,
         resolution: Tuple[int, int],
+        preset: str,
     ) -> "Automation.DrawBeam.Layer":
         """Build a DrawBeam layer holding one timed dot per coordinate.
 
-        The layer runs at SPOT_BURN_PRESET; the remaining IEtching fields are mandatory, so
-        they come from the configured milling defaults.
+        The layer runs at the given preset; the remaining IEtching fields are mandatory,
+        so they come from the configured milling defaults.
         """
         defaults = FibsemMillingSettings()
         layer_settings = IEtching(
@@ -1579,7 +1580,7 @@ class TescanMicroscope(FibsemMicroscope):
             rate=defaults.rate,
             dwellTime=defaults.dwell_time,
             parallel=False,
-            preset=SPOT_BURN_PRESET,
+            preset=preset,
             spacing=defaults.spacing,
         )
         with self._connection_lock:
@@ -1625,8 +1626,9 @@ class TescanMicroscope(FibsemMicroscope):
 
         Args:
             settings: coordinates to burn (normalised image coordinates, 0-1) and the
-                exposure time per point. ``settings.milling_current`` is ignored on
-                TESCAN; the beam conditions come from SPOT_BURN_PRESET.
+                exposure time per point. Beam conditions come from ``settings.preset``,
+                falling back to SPOT_BURN_PRESET when unset;
+                ``settings.milling_current`` is ignored on TESCAN.
             beam_type: must be BeamType.ION.
             stop_event: set to cancel the exposition.
         """
@@ -1639,10 +1641,11 @@ class TescanMicroscope(FibsemMicroscope):
         if exposure_time <= 0:
             raise ValueError(f"exposure_time must be positive, got {exposure_time}.")
 
+        preset = settings.preset or SPOT_BURN_PRESET
         if settings.milling_current is not None:
             logging.info(
                 f"Spot burn milling_current is ignored on TESCAN; using preset "
-                f"{SPOT_BURN_PRESET!r}. (requested: {settings.milling_current})"
+                f"{preset!r}. (requested: {settings.milling_current})"
             )
 
         # drop points outside the image bounds, matching the shared implementation
@@ -1670,6 +1673,7 @@ class TescanMicroscope(FibsemMicroscope):
             exposure_time=exposure_time,
             hfw=hfw,
             resolution=resolution,
+            preset=preset,
         )
 
         total_points = len(coordinates)

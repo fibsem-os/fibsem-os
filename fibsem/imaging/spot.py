@@ -27,12 +27,16 @@ class SpotBurnSettings:
     coordinates: List[Point] = field(default_factory=list)
     milling_current: float = 60e-12  # amperes
     exposure_time: float = 10.0      # seconds
+    # beam preset for preset-driven backends (TESCAN); None means the backend's
+    # default. milling_current is ignored wherever a preset drives the beam.
+    preset: Optional[str] = None
 
     def to_dict(self) -> dict:
         return {
             "coordinates": [pt.to_dict() for pt in self.coordinates],
             "milling_current": self.milling_current,
             "exposure_time": self.exposure_time,
+            "preset": self.preset,
         }
 
     @classmethod
@@ -41,6 +45,7 @@ class SpotBurnSettings:
             coordinates=[Point.from_dict(pt) for pt in ddict.get("coordinates", [])],
             milling_current=ddict.get("milling_current", 60e-12),
             exposure_time=ddict.get("exposure_time", 10.0),
+            preset=ddict.get("preset", None),
         )
 
 

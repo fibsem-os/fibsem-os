@@ -56,10 +56,15 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
         default_factory=list,
         metadata=field_meta(tooltip="Spot burn positions in normalised image coordinates (0-1)"),
     )
+    # beam preset for preset-driven backends (TESCAN); None means the backend default.
+    # Chosen in the spot burn tab's preset combo, not the generic parameter form.
+    preset: Optional[str] = None
 
     @property
     def parameters(self) -> tuple[str, ...]:
-        return tuple(p for p in super().parameters if p != "coordinates")
+        # coordinates are edited on the canvas, the preset in the spot burn tab's
+        # combo -- neither belongs in the generic parameter form
+        return tuple(p for p in super().parameters if p not in ("coordinates", "preset"))
 
     @property
     def opens_with_reference_alignment(self) -> bool:
@@ -91,6 +96,7 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
             "milling_current": self.milling_current,
             "exposure_time": self.exposure_time,
             "autofocus": self.autofocus,
+            "preset": self.preset,
         }
         ddict["milling"] = {k: v.to_dict() for k, v in self.milling.items()}
         if self.reference_imaging is not None:
@@ -111,22 +117,25 @@ class SpotBurnFiducialTaskConfig(AutoLamellaTaskConfig):
             milling_current=float(params.get("milling_current", 60.0e-12)),
             exposure_time=int(float(params.get("exposure_time", 10))),
             autofocus=bool(params.get("autofocus", False)),
+            preset=params.get("preset", None),
             coordinates=coordinates,
         )
 
     def to_settings(self) -> SpotBurnSettings:
-        """The run payload (coordinates + current + exposure) for this task."""
+        """The run payload (coordinates + conditions + exposure) for this task."""
         return SpotBurnSettings(
             coordinates=list(self.coordinates),
             milling_current=self.milling_current,
             exposure_time=float(self.exposure_time),
+            preset=self.preset,
         )
 
     def apply_settings(self, settings: SpotBurnSettings) -> None:
-        """Apply a run payload back onto this task config (coordinates + current + exposure)."""
+        """Apply a run payload back onto this task config (coordinates + conditions + exposure)."""
         self.coordinates = list(settings.coordinates)
         self.milling_current = settings.milling_current
         self.exposure_time = settings.exposure_time
+        self.preset = settings.preset
 
 
 class SpotBurnFiducialTask(AutoLamellaTask):
