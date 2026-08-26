@@ -190,6 +190,12 @@ class AlignmentResult:
     n_accepted: int = 0
     n_rejected: int = 0
     outcome: str = "aligned"  # aligned | all_steps_rejected | stop_event | no_steps
+    # How far the FINAL image still sits from the reference, in pixels (FIB-809).
+    # This is the only field that answers "did this run end up aligned?" -- every
+    # other field describes individual steps, and a run whose steps all look
+    # reasonable can still finish in the wrong place. None when no final image was
+    # acquired. Recorded only; nothing acts on it yet.
+    final_residual_px: Optional[float] = None
 
     def to_dict(self) -> dict:
         return {
@@ -203,6 +209,7 @@ class AlignmentResult:
             "n_accepted": self.n_accepted,
             "n_rejected": self.n_rejected,
             "outcome": self.outcome,
+            "final_residual_px": _nan_to_none(self.final_residual_px),
         }
 
     def save(
@@ -244,6 +251,7 @@ class AlignmentResult:
             final_image=self.final_image,
             path=path,
             validation=self.validation,
+            final_residual_px=self.final_residual_px,
         )
         return fig
 
@@ -297,6 +305,8 @@ class AlignmentResult:
             n_accepted=d.get("n_accepted", n_accepted),
             n_rejected=d.get("n_rejected", n_rejected),
             outcome=d.get("outcome", default_outcome),
+            # absent from records written before FIB-809
+            final_residual_px=d.get("final_residual_px"),
         )
 
 
@@ -404,7 +414,14 @@ def compare_alignment_methods(
     pixel_size = new_image.metadata.pixel_size.x if new_image.metadata else 1.0
 
     methods = list(AlignmentMethod)
-    results = [_calculate_shift(ref_image, new_image, method) for method in methods]
+    # clip_fraction=0: this is a measurement, not a movement. Clipping would
+    # understate a large residual, and it applies only to the cross-correlation
+    # path, so it would also inflate the disagreement against the two phase
+    # methods and could flip `agreement` on exactly the runs that matter most.
+    results = [
+        _calculate_shift(ref_image, new_image, method, clip_fraction=0.0)
+        for method in methods
+    ]
 
     shifts_px = {
         method.value: Point(r.shift.x / pixel_size, r.shift.y / pixel_size)
@@ -563,6 +580,45 @@ def beam_shift_alignment_v2(
     return result
 
 
+def _measure_final_residual(
+    ref_image: FibsemImage,
+    final_image: FibsemImage,
+    validation: Optional[AlignmentDifferential],
+    method: AlignmentMethod,
+) -> Optional[float]:
+    """How far the final image still sits from the reference, in pixels (FIB-809).
+
+    This answers a different question from anything per-step: not "was that
+    measurement trustworthy?" but "did the run end up where the reference says it
+    should be?". A run whose every step looked reasonable can still finish in the
+    wrong place, and nothing recorded before this could show that.
+
+    Reuses the differential when `validate` already computed it, so the common path
+    costs nothing. Measured with validation off and clipping off deliberately: a
+    validated measurement can be zeroed by a refusal, which would record a badly
+    misaligned run as a perfect one, and a clipped measurement understates exactly
+    the large residuals this exists to catch.
+
+    Returns None if the residual cannot be measured, never raises -- this is a
+    diagnostic, and failing to record it must not fail the alignment.
+    """
+    try:
+        if validation is not None:
+            shift_px = validation.shifts_px.get(method.value)
+            if shift_px is not None:
+                return float(np.hypot(shift_px.x, shift_px.y))
+        it = _calculate_shift(
+            ref_image, final_image, method,
+            alignment_validation="none", clip_fraction=0.0,
+        )
+        px = final_image.metadata.pixel_size.x
+        py = final_image.metadata.pixel_size.y
+        return float(np.hypot(it.shift.x / px, it.shift.y / py))
+    except Exception as e:  # noqa: BLE001 - a diagnostic must never break a run
+        logging.warning(f"Could not measure the final alignment residual: {e}")
+        return None
+
+
 def multi_step_alignment_v2(
     microscope: FibsemMicroscope,
     ref_image: FibsemImage,
@@ -641,6 +697,7 @@ def multi_step_alignment_v2(
 
     final_image = None
     validation = None
+    final_residual_px = None
     if acquire_final_image:
         final_image = _acquire_from_reference_image(
             microscope=microscope,
@@ -655,6 +712,9 @@ def multi_step_alignment_v2(
                     f"Alignment validation failed: max disagreement "
                     f"{validation.max_disagreement_px:.2f}px across methods."
                 )
+        final_residual_px = _measure_final_residual(
+            ref_image, final_image, validation, method
+        )
 
     n_accepted = sum(1 for r in alignment_results if r.accepted)
     n_rejected = len(alignment_results) - n_accepted
@@ -701,6 +761,7 @@ def multi_step_alignment_v2(
         n_accepted=n_accepted,
         n_rejected=n_rejected,
         outcome=outcome,
+        final_residual_px=final_residual_px,
     )
 
     save_path: str = path if path is not None else _alignment_save_path(ref_image)[0]

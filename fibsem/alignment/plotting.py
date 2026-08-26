@@ -55,6 +55,7 @@ def plot_multi_step_alignment(
     final_image: Optional[FibsemImage] = None,
     path: Optional[str] = None,
     validation: Optional[AlignmentDifferential] = None,
+    final_residual_px: Optional[float] = None,
 ):
     """Plot the reference image and each alignment step with cross-correlation maps.
 
@@ -177,7 +178,12 @@ def plot_multi_step_alignment(
         for c in range(n_cols):
             axes[2, c].axis("off")
         _plot_image_with_crosshair(axes[2, 0], ref_image.data, "Reference")
-        _plot_image_with_crosshair(axes[2, n_cols - 1], final_image.data, "Final")
+        # The residual is the run-level answer -- did this end up aligned? -- so it
+        # goes in the title rather than the corner text, which is per-method detail.
+        final_title = "Final"
+        if final_residual_px is not None:
+            final_title = f"Final  -  {final_residual_px:.1f}px from the reference"
+        _plot_image_with_crosshair(axes[2, n_cols - 1], final_image.data, final_title)
         if validation is not None:
             colour = "lime" if validation.agreement else "orange"
             lines = []

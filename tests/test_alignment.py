@@ -598,7 +598,7 @@ def test_rejected_step_applies_no_shift(monkeypatch, demo_session, tmp_path):
         al, "_apply_shift", lambda **kw: applied.append((kw["dx"], kw["dy"]))
     )
 
-    def reject(ref, new, method=None, alignment_validation=None):
+    def reject(ref, new, method=None, alignment_validation=None, **kw):
         from fibsem.alignment import AlignmentIteration
         from fibsem.structures import Point
 
@@ -692,7 +692,7 @@ def _all_rejected(monkeypatch):
     monkeypatch.setattr(al, "_apply_shift", lambda **kw: None)
     monkeypatch.setattr(
         al, "_calculate_shift",
-        lambda ref, new, method=None, alignment_validation=None: AlignmentIteration(
+        lambda ref, new, method=None, alignment_validation=None, **kw: AlignmentIteration(
             shift=Point(0.0, 0.0), score=0.5, image=new, method=method,
             accepted=False, reason="test rejection", disagreement_px=99.0,
         ),
@@ -852,7 +852,7 @@ def test_direct_beam_shift_alignment_honours_the_global_preference(
     applied = []
     monkeypatch.setattr(al, "_apply_shift", lambda **kw: applied.append(kw))
 
-    def spy(ref, new, method=None, alignment_validation=None):
+    def spy(ref, new, method=None, alignment_validation=None, **kw):
         seen["validation"] = alignment_validation
         return AlignmentIteration(
             shift=Point(0.0, 0.0), score=0.5, image=new, method=method,
@@ -997,3 +997,130 @@ def test_clip_fraction_default_is_read_from_preferences(monkeypatch):
     from fibsem.alignment.verified import DEFAULT_CLIP_FRACTION
 
     assert get_configured_clip_fraction() == DEFAULT_CLIP_FRACTION
+
+
+# --- final residual: did the run end up aligned? (FIB-809 layer 1) ------------
+
+
+def test_final_residual_is_recorded(monkeypatch, demo_session, tmp_path):
+    """A run with a final image records how far that image sits from the reference."""
+    import fibsem.alignment as al
+
+    microscope, settings = demo_session
+    ref_image = acquire.acquire_image(microscope, settings.image)
+
+    run = al.multi_step_alignment_v2(
+        microscope=microscope, ref_image=ref_image, steps=1,
+        validate=False, acquire_final_image=True, path=str(tmp_path),
+    )
+    assert run.final_residual_px is not None
+    assert run.final_residual_px >= 0.0
+
+
+def test_final_residual_is_none_without_a_final_image(monkeypatch, demo_session, tmp_path):
+    import fibsem.alignment as al
+
+    microscope, settings = demo_session
+    ref_image = acquire.acquire_image(microscope, settings.image)
+
+    run = al.multi_step_alignment_v2(
+        microscope=microscope, ref_image=ref_image, steps=1,
+        validate=False, acquire_final_image=False, path=str(tmp_path),
+    )
+    assert run.final_residual_px is None
+
+
+def test_final_residual_survives_a_save_load_round_trip(demo_session, tmp_path):
+    import fibsem.alignment as al
+
+    microscope, settings = demo_session
+    ref_image = acquire.acquire_image(microscope, settings.image)
+    run = al.multi_step_alignment_v2(
+        microscope=microscope, ref_image=ref_image, steps=1,
+        validate=False, acquire_final_image=True, path=str(tmp_path),
+    )
+    loaded = al.AlignmentResult.load(os.path.join(str(tmp_path), run.name))
+    assert loaded.final_residual_px == pytest.approx(run.final_residual_px)
+
+
+def test_records_written_before_this_load_with_no_residual(demo_session, tmp_path):
+    """Older data.json has no final_residual_px; loading must not fail."""
+    import json
+
+    import fibsem.alignment as al
+
+    microscope, settings = demo_session
+    ref_image = acquire.acquire_image(microscope, settings.image)
+    run = al.multi_step_alignment_v2(
+        microscope=microscope, ref_image=ref_image, steps=1,
+        validate=False, acquire_final_image=True, path=str(tmp_path),
+    )
+    run_dir = os.path.join(str(tmp_path), run.name)
+    dj = os.path.join(run_dir, "data.json")
+    with open(dj) as fh:
+        d = json.load(fh)
+    del d["final_residual_px"]
+    with open(dj, "w") as fh:
+        json.dump(d, fh)
+
+    assert al.AlignmentResult.load(run_dir).final_residual_px is None
+
+
+def test_final_residual_is_not_zeroed_by_a_refusal(monkeypatch, demo_session, tmp_path):
+    """The residual measures where the run ENDED, so a refusal must not zero it.
+
+    Measuring it through the validated path would record a badly misaligned run as
+    a perfect one -- the exact inversion this field exists to prevent.
+    """
+    import fibsem.alignment as al
+
+    microscope, settings = demo_session
+    ref_image = acquire.acquire_image(microscope, settings.image)
+    _all_rejected(monkeypatch)
+    _set_prefs(monkeypatch, validation_workflow="verified", validation_milling="verified")
+
+    run = al.multi_step_alignment_v2(
+        microscope=microscope, ref_image=ref_image, steps=2,
+        validate=False, acquire_final_image=True, path=str(tmp_path),
+        alignment_validation="verified",
+    )
+    assert run.aligned is False, "precondition: every step was refused"
+    # the measurement still happened; it is not None just because nothing moved
+    assert run.final_residual_px is not None
+
+
+def test_the_differential_never_clips():
+    """compare_alignment_methods measures, it does not move.
+
+    Clipping applies only to the cross-correlation path, so leaking the user's
+    clip_fraction in here would both understate a large residual and inflate the
+    disagreement against the two phase methods, potentially flipping `agreement`
+    on exactly the runs that matter most.
+    """
+    import inspect
+
+    import fibsem.alignment as al
+
+    src = inspect.getsource(al.compare_alignment_methods)
+    assert "clip_fraction=0.0" in src
+
+
+def test_measure_final_residual_never_raises(demo_session):
+    """A diagnostic must not be able to fail an alignment."""
+    import fibsem.alignment as al
+
+    microscope, settings = demo_session
+    ref_image = acquire.acquire_image(microscope, settings.image)
+
+    class Broken:
+        @property
+        def metadata(self):
+            raise RuntimeError("no metadata")
+
+        @property
+        def data(self):
+            raise RuntimeError("no data")
+
+    assert al._measure_final_residual(
+        ref_image, Broken(), None, al.DEFAULT_ALIGNMENT_METHOD
+    ) is None
