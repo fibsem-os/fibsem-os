@@ -201,6 +201,9 @@ class AutoLamellaUI(QMainWindow):
         self._connection_chip_enabled = (
             fibsem_cfg.load_user_preferences().features.connection_chip
         )
+        self._log_viewer_enabled = (
+            fibsem_cfg.load_user_preferences().features.log_viewer_enabled
+        )
         self.system_widget = FibsemSystemSetupWidget(parent=self)
         self.image_widget: Optional[FibsemImageSettingsWidget] = None
         self.movement_widget: Optional[FibsemMovementWidget] = None
@@ -602,7 +605,12 @@ class AutoLamellaUI(QMainWindow):
 
         logfile = experiment.configure_logging()
         logging.info(f"Logging to experiment {experiment.name} at {experiment.path}")
-        self.log_panel_widget.set_log_path(logfile)
+        # Gated on the flag, not just the menu item that opens the window: without this,
+        # a "disabled" log viewer still backfills + tails the real logfile (a live
+        # QFileSystemWatcher, up to 2000 QListWidgetItems rebuilt on every experiment
+        # load) for the whole session with nothing offering a way to see it.
+        if self._log_viewer_enabled:
+            self.log_panel_widget.set_log_path(logfile)
 
         # Setup experiment connections and update UI
         self._setup_experiment_connections()
