@@ -58,7 +58,6 @@ def test_milling_stage():
     }
     new_milling_stage = FibsemMillingStage.from_dict(dict_repr)
 
-
     assert new_milling_stage.name == "Test Stage"
     assert new_milling_stage.num == 1
     assert isinstance(new_milling_stage.milling, FibsemMillingSettings)
@@ -66,6 +65,7 @@ def test_milling_stage():
     assert isinstance(new_milling_stage.strategy, MillingStrategy)
     assert isinstance(new_milling_stage.alignment, MillingAlignment)
     assert new_milling_stage.imaging.path is None
+
 
 def test_get_strategy():
     # Test with default strategy

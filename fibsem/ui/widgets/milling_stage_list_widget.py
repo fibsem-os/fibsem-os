@@ -106,10 +106,10 @@ class _DraggableStageList(QListWidget):
 
 
 class MillingStageRowWidget(QWidget):
-    enabled_changed = pyqtSignal(object, bool)   # FibsemMillingStage, enabled
-    remove_clicked = pyqtSignal(object)          # FibsemMillingStage
-    row_clicked = pyqtSignal(object)             # FibsemMillingStage
-    stage_changed = pyqtSignal(object)           # FibsemMillingStage after inline mutation
+    enabled_changed = pyqtSignal(object, bool)  # FibsemMillingStage, enabled
+    remove_clicked = pyqtSignal(object)  # FibsemMillingStage
+    row_clicked = pyqtSignal(object)  # FibsemMillingStage
+    stage_changed = pyqtSignal(object)  # FibsemMillingStage after inline mutation
 
     def __init__(
         self,
@@ -155,7 +155,9 @@ class MillingStageRowWidget(QWidget):
         self.pattern_combo.setToolTip("Pattern type")
         _add_flex_column(layout, self.pattern_combo, _COL_PATTERN)
 
-        self.depth_spin = ValueSpinBox(suffix="µm", minimum=0.01, maximum=1000.0, step=0.1, decimals=1)
+        self.depth_spin = ValueSpinBox(
+            suffix="µm", minimum=0.01, maximum=1000.0, step=0.1, decimals=1
+        )
         self.depth_spin.setToolTip("Depth (µm)")
         # keep the column slot when hidden (patterns without depth) so rows stay aligned
         depth_sp = self.depth_spin.sizePolicy()
@@ -166,7 +168,11 @@ class MillingStageRowWidget(QWidget):
         # Current and Preset share one column: Tescan mills by preset (milling_current is
         # a no-op on that backend), every other backend mills by current. Exactly one is
         # ever visible, so the column boundaries still line up with the header.
-        _current_items = self._current_values if self._current_values else [stage.milling.milling_current]
+        _current_items = (
+            self._current_values
+            if self._current_values
+            else [stage.milling.milling_current]
+        )
         self.current_combo = ValueComboBox(items=_current_items, unit="A")
         self.current_combo.setToolTip("Milling current")
         _add_flex_column(layout, self.current_combo, _COL_CURRENT)
@@ -211,8 +217,14 @@ class MillingStageRowWidget(QWidget):
         )
         self.btn_remove.clicked.connect(lambda: self.remove_clicked.emit(self.stage))
 
-        for w in (self.name_edit, self.pattern_combo, self.depth_spin,
-                  self.current_combo, self.preset_combo, self.strategy_combo):
+        for w in (
+            self.name_edit,
+            self.pattern_combo,
+            self.depth_spin,
+            self.current_combo,
+            self.preset_combo,
+            self.strategy_combo,
+        ):
             w.installEventFilter(self)
 
         self._connect_signals()
@@ -235,12 +247,21 @@ class MillingStageRowWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _block_controls(self, block: bool) -> None:
-        for w in (self.name_edit, self.pattern_combo, self.depth_spin,
-                  self.current_combo, self.preset_combo, self.strategy_combo):
+        for w in (
+            self.name_edit,
+            self.pattern_combo,
+            self.depth_spin,
+            self.current_combo,
+            self.preset_combo,
+            self.strategy_combo,
+        ):
             w.blockSignals(block)
 
     def _update_depth_visibility(self) -> None:
-        has_depth = hasattr(self.stage.pattern, "depth") and self.stage.pattern.depth is not None
+        has_depth = (
+            hasattr(self.stage.pattern, "depth")
+            and self.stage.pattern.depth is not None
+        )
         self.depth_spin.setVisible(has_depth)
         self.depth_spin.setEnabled(has_depth)
 
@@ -387,7 +408,9 @@ class _MillingStageListHeader(QWidget):
             if label_text == "Pattern":
                 self.lbl_pattern = lbl  # toggled with the pattern column (eye button)
             if label_text == "Current":
-                self.lbl_current = lbl  # retitled "Preset" on backends that mill by preset
+                self.lbl_current = (
+                    lbl  # retitled "Preset" on backends that mill by preset
+                )
 
         # trailing spacer matches the row's color+remove+drag vs the header's eye+add,
         # so the strategy column's right edge lines up with the rows
@@ -425,13 +448,15 @@ class _MillingStageListHeader(QWidget):
 class MillingStageListWidget(QWidget):
     """Multi-column list widget for FibsemMillingStage objects."""
 
-    stage_selected = pyqtSignal(object)    # FibsemMillingStage
-    stage_added = pyqtSignal(object)       # FibsemMillingStage (new stage, distinct from selection)
-    stage_removed = pyqtSignal(object)     # FibsemMillingStage
-    stage_changed = pyqtSignal(object)     # FibsemMillingStage (inline field edit)
-    enabled_changed = pyqtSignal(list)     # List[FibsemMillingStage] (enabled only)
-    order_changed = pyqtSignal(list)       # List[FibsemMillingStage] in new order
-    eye_toggled = pyqtSignal(bool)         # True = patterns visible
+    stage_selected = pyqtSignal(object)  # FibsemMillingStage
+    stage_added = pyqtSignal(
+        object
+    )  # FibsemMillingStage (new stage, distinct from selection)
+    stage_removed = pyqtSignal(object)  # FibsemMillingStage
+    stage_changed = pyqtSignal(object)  # FibsemMillingStage (inline field edit)
+    enabled_changed = pyqtSignal(list)  # List[FibsemMillingStage] (enabled only)
+    order_changed = pyqtSignal(list)  # List[FibsemMillingStage] in new order
+    eye_toggled = pyqtSignal(bool)  # True = patterns visible
 
     def __init__(
         self,
@@ -478,12 +503,16 @@ class MillingStageListWidget(QWidget):
         layout.addWidget(self._list)
 
         self._empty_label = QLabel("No milling stages. Click + to add one.")
-        self._empty_label.setStyleSheet(f"color: {NEUTRAL_700}; font-style: italic; padding: 12px;")
+        self._empty_label.setStyleSheet(
+            f"color: {NEUTRAL_700}; font-style: italic; padding: 12px;"
+        )
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._empty_label)
 
         self._status_label = QLabel("")
-        self._status_label.setStyleSheet(f"color: {ORANGE_COLOR}; font-style: italic; padding: 2px 12px;")
+        self._status_label.setStyleSheet(
+            f"color: {ORANGE_COLOR}; font-style: italic; padding: 2px 12px;"
+        )
         self._status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self._status_label.setVisible(False)
         layout.addWidget(self._status_label)
@@ -517,7 +546,8 @@ class MillingStageListWidget(QWidget):
         index = self._list.count()
         stage.enabled = enabled
         row = MillingStageRowWidget(
-            stage, index=index,
+            stage,
+            index=index,
             pattern_names=self._pattern_names,
             strategy_names=self._strategy_names,
             current_values=self._current_values,
@@ -649,7 +679,11 @@ class MillingStageListWidget(QWidget):
         row.stage_changed.connect(self._on_row_stage_changed, type=Qt.QueuedConnection)
 
     def _is_name_available(self, name: str, row: MillingStageRowWidget) -> bool:
-        existing = {self._row(i).stage.name for i in range(self._list.count()) if self._row(i) is not row}
+        existing = {
+            self._row(i).stage.name
+            for i in range(self._list.count())
+            if self._row(i) is not row
+        }
         return name not in existing
 
     def _show_name_error(self, name: str) -> None:
@@ -677,7 +711,8 @@ class MillingStageListWidget(QWidget):
                 continue
             enabled = stage.enabled
             row = MillingStageRowWidget(
-                stage, index=i,
+                stage,
+                index=i,
                 pattern_names=self._pattern_names,
                 strategy_names=self._strategy_names,
                 current_values=self._current_values,
