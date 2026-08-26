@@ -164,6 +164,7 @@ _CANVAS_CHROME_MARGIN = 8
 # Gap between view chips.
 VIEW_CHIP_SPACING = 4
 
+
 # Chips as they have always looked -- dark and rounded rather than the app's button
 # styling, because they read as a set of states rather than a toolbar.
 #
@@ -218,9 +219,7 @@ VIEW_CHIP_STYLE_ACTIVE = _chip_style(
 # view, so "selected" means one thing across the row rather than grey at one level and
 # blue at the other. No border: the border is the acquisition-view marker and means
 # something the modality has no equivalent of.
-MODALITY_CHIP_STYLE = _chip_style(
-    border="transparent", checked_background=ACCENT_COLOR
-)
+MODALITY_CHIP_STYLE = _chip_style(border="transparent", checked_background=ACCENT_COLOR)
 
 # The strip the chips live on. Distinct from the canvas rather than seamless: seamless is
 # only seamless while the canvas is empty and dark, and the moment an overview is on

@@ -41,6 +41,7 @@ WINDOW = (
     / "ui"
     / "AutoLamellaMainUI.py"
 )
+PREFERENCES_DIALOG = REPO_ROOT / "fibsem" / "ui" / "widgets" / "preferences_dialog.py"
 CONTAINER_SOURCE = (
     REPO_ROOT
     / "fibsem"
@@ -257,13 +258,13 @@ def test_the_retired_flag_is_gone_everywhere(window_source):
     leftover reader would be reading a field that no longer exists.
     """
     import fibsem.config as fibsem_cfg
-    from fibsem.ui.widgets import preferences_dialog
 
     assert not hasattr(fibsem_cfg.FeatureFlags(), "overview_canvas_tab")
     assert "overview_canvas_tab" not in window_source
-    assert "overview_canvas_tab" not in Path(preferences_dialog.__file__).read_text(
-        encoding="utf-8"
-    )
+    # Read from disk, not imported. This is one of the few CI runs *without* PyQt5, and
+    # `import preferences_dialog` pulls it in -- taking the whole module down at
+    # collection, which is the failure the static approach here exists to avoid.
+    assert "overview_canvas_tab" not in PREFERENCES_DIALOG.read_text(encoding="utf-8")
 
 
 def test_the_overview_tab_is_not_behind_any_flag(window_source):
