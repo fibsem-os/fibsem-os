@@ -7,6 +7,7 @@ import numpy as np
 
 from fibsem import utils
 from fibsem.constants import DATETIME_DISPLAY
+from fibsem.alignment.verified import DEFAULT_CONVERGENCE_TOLERANCE_PX
 from fibsem.structures import ImageSettings
 
 if TYPE_CHECKING:
@@ -47,6 +48,62 @@ def _alignment_save_path(ref_image: FibsemImage) -> tuple:
     return ref_path, prefix, ts
 
 
+# Verdict colours. Semantic, and deliberately not the inferno ramp used for the
+# correlation surfaces -- a reader should never have to ask whether a colour means
+# "this is the peak" or "this is the verdict".
+_OK, _BAD, _DIM = "#2F6F58", "#B23257", "#6E6880"
+_UNSURE = "#B45F0E"
+_CROSSHAIR = "#FFD166"
+
+
+def _panel(
+    ax: Axes,
+    data: np.ndarray,
+    title: str,
+    subtitle: str = "",
+    colour: Optional[str] = None,
+    xcorr: Optional[np.ndarray] = None,
+    scale: float = 1.0,
+) -> None:
+    """One image in the timeline, with an optional correlation surface inset.
+
+    The inset sits on the step it belongs to rather than in a separate strip: the
+    surface is read as "sharp peak or mush", and that judgement is only useful
+    next to the image that produced it.
+    """
+    ax.imshow(data, cmap="gray")
+    h, w = data.shape
+    ax.axhline(h / 2, color=_CROSSHAIR, lw=0.7, alpha=0.9)
+    ax.axvline(w / 2, color=_CROSSHAIR, lw=0.7, alpha=0.9)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_title(title, fontsize=9.5 * scale, color=colour or "black", pad=4)
+    if subtitle:
+        ax.set_xlabel(subtitle, fontsize=8 * scale, color=colour or _DIM, labelpad=3)
+    for spine in ax.spines.values():
+        spine.set_color(colour or "#cccccc")
+        spine.set_linewidth(1.6 if colour else 0.8)
+    if xcorr is not None:
+        # Sized off the SHORTER side so the inset stays readable on a wide frame,
+        # where a fraction-of-width box would be a thin letterbox.
+        frac_w = 0.34 if w <= h else 0.34 * (h / w)
+        frac_h = 0.34 if h <= w else 0.34 * (w / h)
+        inset = ax.inset_axes([0.98 - frac_w, 0.02, frac_w, frac_h])
+        # Stretch to the bulk of the surface, not its single brightest pixel. A
+        # sharp peak is one bright pixel against a mid-grey field; on the default
+        # scale that renders as an empty dark box at inset size, which is exactly
+        # the judgement -- sharp peak or mush -- the inset exists to support.
+        surf = np.asarray(xcorr, dtype=float)
+        lo, hi = np.percentile(surf, 2), np.percentile(surf, 99.5)
+        inset.imshow(surf, cmap="inferno",
+                     vmin=lo, vmax=hi if hi > lo else None)
+        inset.set_xticks([])
+        inset.set_yticks([])
+        for spine in inset.spines.values():
+            spine.set_color(_CROSSHAIR)
+            spine.set_linewidth(0.9)
+
+
 def plot_multi_step_alignment(
     ref_image: FibsemImage,
     alignment_results: list[AlignmentIteration],
@@ -57,15 +114,27 @@ def plot_multi_step_alignment(
     validation: Optional[AlignmentDifferential] = None,
     final_residual_px: Optional[float] = None,
     converged: Optional[bool] = None,
+    tolerance_px: Optional[float] = None,
 ):
-    """Plot the reference image and each alignment step with cross-correlation maps.
+    """Plot an alignment run as a timeline, with the verdict stated once.
+
+    Reference, each step, and the final image sit in one row, because that is the
+    order they happened in. Correlation surfaces are insets on their own step. The
+    lower row carries the verdict and the only chart that answers the question the
+    plot exists for: did the run get closer to the reference?
+
+    That chart plots `measured_px` -- what each step SAW -- not the shift it
+    applied. A refused step applies nothing, so plotting applied shifts draws a
+    refused run converging neatly to zero, which is the opposite of what happened.
 
     Args:
-        ref_image: The reference image used for alignment.
-        alignment_results: List of AlignmentIteration from multi_step_alignment_v2.
-        save: Whether to save the figure to disk. Defaults to True.
-        final_image: Optional post-alignment image acquired after all steps. When provided,
-            a third row is added comparing the reference and final images side by side.
+        ref_image: the reference image aligned to.
+        alignment_results: the per-step results.
+        final_image: image acquired after the last step, if one was taken.
+        validation: cross-method comparison on the final image.
+        final_residual_px: how far the final image sits from the reference.
+        converged: whether that is within tolerance. None when not measured.
+        tolerance_px: the limit used, drawn on the chart.
 
     Returns:
         matplotlib.figure.Figure
@@ -73,6 +142,8 @@ def plot_multi_step_alignment(
     from datetime import datetime
 
     from matplotlib.figure import Figure
+    from matplotlib.gridspec import GridSpec
+    from matplotlib.patches import Rectangle
 
     ref_path, prefix, ts = _alignment_save_path(ref_image)
     if path is not None:
@@ -84,131 +155,158 @@ def plot_multi_step_alignment(
     else:
         title = f"{title} — {timestamp_str}"
 
-    # row 0 = images, row 1 = xcorr/convergence, row 2 = ref vs final (when final_image provided)
-    n_cols = 1 + len(alignment_results)
-    n_rows = 3 if final_image is not None else 2
-    fig = Figure(figsize=(4 * n_cols, 4 * n_rows))
-    axes = fig.subplots(n_rows, n_cols)
-    fig.suptitle(title)
+    n = len(alignment_results)
+    n_cols = n + (2 if final_image is not None else 1)
+    if tolerance_px is None:
+        tolerance_px = DEFAULT_CONVERGENCE_TOLERANCE_PX
 
-    # row 0: reference + each alignment step image
-    _plot_image_with_crosshair(axes[0, 0], ref_image.data, "Reference")
-    for i, r in enumerate(alignment_results):
-        _plot_image_with_crosshair(axes[0, 1 + i], r.image.data, f"Step {i + 1}")
-        pixel_size = r.image.metadata.pixel_size.x if r.image.metadata else 1.0
-        dx_px = r.shift.x / pixel_size
-        dy_px = r.shift.y / pixel_size
-        colour = "lime" if r.score >= 0.7 else ("orange" if r.score >= 0.5 else "red")
-        label = f"dx={dx_px:.1f}px  dy={dy_px:.1f}px"
-        if not r.accepted:
-            # a refused step moved nothing, so the reported shift is not a correction
-            colour = "red"
-            label = f"REFUSED ({r.disagreement_px:.1f}px)"
-        axes[0, 1 + i].text(
-            0.04, 0.04,
-            label,
-            transform=axes[0, 1 + i].transAxes,
-            color=colour, fontsize=7, va="bottom", fontfamily="monospace",
-            bbox=dict(boxstyle="round,pad=0.2", facecolor="black", alpha=0.6, edgecolor="none"),
-        )
-        if r.accepted:
-            cx, cy = r.image.data.shape[1] // 2, r.image.data.shape[0] // 2
-            axes[0, 1 + i].annotate(
-                "", xy=(cx + dx_px, cy + dy_px), xytext=(cx, cy),
-                arrowprops=dict(arrowstyle="->", color=colour, lw=2),
-            )
-        else:
-            for spine in axes[0, 1 + i].spines.values():
-                spine.set_edgecolor("red")
-                spine.set_linewidth(3)
+    # Adapt the row heights to the image shape. Alignment ROIs range from tall
+    # and narrow (a fiducial crop, ~366x464) to short and wide (a full frame,
+    # ~1312x853); a fixed row height leaves a dead band above the chart on the
+    # wide ones and squashes the tall ones.
+    _CHART_H = 2.45          # inches for the verdict + chart row
+    _MAX_W = 20.0            # a figure wider than this is unreadable anywhere
+    grid_cols_pre = max(n_cols, 3)
+    # Narrow the columns rather than growing without bound: a run with many steps
+    # would otherwise produce a figure several feet wide.
+    _PANEL_W = min(3.05, _MAX_W / grid_cols_pre)
+    h_px, w_px = ref_image.data.shape
+    aspect = h_px / w_px if w_px else 1.0
+    # keep the image row within sane bounds regardless of an extreme aspect
+    top_h = min(max(_PANEL_W * aspect, 1.7), 4.4)
+    grid_cols = max(n_cols, 3)
+    fig = Figure(figsize=(_PANEL_W * grid_cols, top_h + _CHART_H))
+    gs = GridSpec(2, grid_cols, figure=fig, height_ratios=[top_h, _CHART_H],
+                  hspace=0.34, wspace=0.30)
 
-    # row 1: convergence chart + xcorr maps
-    step_nums = list(range(1, len(alignment_results) + 1))
-    ax_conv: Axes = axes[1, 0]
-    if step_nums:
-        ax_conv.plot(
-            step_nums,
-            [abs(r.shift.x) * 1e9 for r in alignment_results],
-            "o-",
-            label="dx",
-        )
-        ax_conv.plot(
-            step_nums,
-            [abs(r.shift.y) * 1e9 for r in alignment_results],
-            "s-",
-            label="dy",
-        )
-        ax_conv.legend(fontsize="small")
-        ax_conv.set_xticks(step_nums)
-    ax_conv.set_xlabel("Step")
-    ax_conv.set_ylabel("Shift (nm)")
+    # Narrow columns need smaller labels, and the verdict block needs more than one
+    # of them or its text runs into the chart.
+    scale = min(1.0, _PANEL_W / 3.05)
+    v_cols = 1 if _PANEL_W >= 2.6 else 2
+
     n_refused = sum(1 for r in alignment_results if not r.accepted)
-    if n_refused:
-        ax_conv.set_title(f"Convergence — {n_refused} step(s) refused", color="red")
-        ax_conv.text(
-            0.5, 0.5,
-            f"{n_refused}/{len(alignment_results)} steps refused;\n"
-            "their shifts are zeroed, so a flat\nline here means nothing moved",
-            transform=ax_conv.transAxes, ha="center", va="center",
-            fontsize=8, color="red", style="italic",
-        )
-    else:
-        ax_conv.set_title("Convergence")
+    colour = _BAD if converged is False else (
+        _UNSURE if (validation is not None and not validation.agreement) else _OK)
 
+    # --- row 0: the timeline, in the order it happened -----------------------
+    _panel(fig.add_subplot(gs[0, 0]), ref_image.data, "Reference", "the target",
+           scale=scale)
     for i, r in enumerate(alignment_results):
-        col = 1 + i
-        colour = "lime" if r.score >= 0.7 else ("orange" if r.score >= 0.5 else "red")
-        if r.xcorr is not None:
-            axes[1, col].imshow(r.xcorr, cmap="inferno")
-        extra = ""
-        if not np.isnan(r.disagreement_px):
-            verdict = "accepted" if r.accepted else "REFUSED"
-            extra = f"\nvalidator {r.disagreement_px:.1f}px -> {verdict}"
-        if not r.accepted:
-            colour = "red"
-        axes[1, col].set_title(
-            f"XCorr {i + 1}\ndx={r.shift.x * 1e9:.1f}nm, dy={r.shift.y * 1e9:.1f}nm\n"
-            f"score={r.score:.2f}{extra}",
-            fontsize="small",
-            color=colour,
-        )
-        axes[1, col].axis("off")
-
-    # row 2: ref vs final comparison
+        step_colour = None if r.accepted else _BAD
+        if r.accepted:
+            sub = f"applied {r.shift_px.x:+.0f}, {r.shift_px.y:+.0f} px"
+            if r.clipped:
+                sub += "  (clipped)"
+        else:
+            sub = f"REFUSED ({r.disagreement_px:.0f} px apart)"
+        _panel(fig.add_subplot(gs[0, 1 + i]), r.image.data, f"Step {i + 1}",
+               sub, step_colour, r.xcorr, scale=scale)
     if final_image is not None:
-        for c in range(n_cols):
-            axes[2, c].axis("off")
-        _plot_image_with_crosshair(axes[2, 0], ref_image.data, "Reference")
-        # The residual is the run-level answer -- did this end up aligned? -- so it
-        # goes in the title rather than the corner text, which is per-method detail.
-        final_title = "Final"
-        if final_residual_px is not None:
-            final_title = f"Final  -  {final_residual_px:.1f}px from the reference"
-            if converged is False:
-                final_title += "  [NOT CONVERGED]"
-        _plot_image_with_crosshair(axes[2, n_cols - 1], final_image.data, final_title)
-        if converged is False:
-            # The steps can all look fine and the run still end in the wrong place,
-            # so this needs to be visible without reading the per-method numbers.
-            axes[2, n_cols - 1].title.set_color("red")
-        if validation is not None:
-            colour = "lime" if validation.agreement else "orange"
-            lines = []
-            for method_name, shift_pt in validation.shifts_px.items():
-                mag = np.hypot(shift_pt.x, shift_pt.y)
-                lines.append(f"{method_name}: dx={shift_pt.x:.1f}  dy={shift_pt.y:.1f}  |{mag:.1f}|px")
-            axes[2, n_cols - 1].text(
-                0.04, 0.04, "\n".join(lines),
-                transform=axes[2, n_cols - 1].transAxes,
-                color=colour, fontsize=7, va="bottom", fontfamily="monospace",
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="black", alpha=0.6, edgecolor="none"),
-            )
+        sub = f"{final_residual_px:.1f} px out" if final_residual_px is not None else ""
+        _panel(fig.add_subplot(gs[0, n + 1]), final_image.data, "Final", sub, colour,
+               scale=scale)
 
-    fig.tight_layout()
+    # --- row 1, left: the verdict, in exactly one place ----------------------
+    axv = fig.add_subplot(gs[1, 0:v_cols])
+    axv.axis("off")
+    # The verdict rests on ONE method's measurement of the final image. When the
+    # methods disagree about where that image sits, a green pass would be claiming
+    # more than the data supports -- so agreement gates the confident verdict, but
+    # never rescues a bad residual: a large residual is a failure either way.
+    corroborated = validation is None or validation.agreement
+    if converged is None:
+        verdict = "NOT MEASURED" if final_image is None else "NO VERDICT"
+        vcolour = _DIM
+    elif not converged:
+        verdict = "NOT CONVERGED"
+        vcolour = _BAD
+    elif not corroborated:
+        verdict = "UNCERTAIN"
+        vcolour = _UNSURE
+    else:
+        verdict = "ALIGNED"
+        vcolour = _OK
+    axv.add_patch(Rectangle((0, 0.06), 1, 0.88, transform=axv.transAxes,
+                            facecolor=vcolour, alpha=0.10,
+                            edgecolor=vcolour, linewidth=1.4))
+    axv.text(0.5, 0.78, verdict, transform=axv.transAxes, fontsize=12 * scale,
+             fontweight="bold", color=vcolour, ha="center", va="center")
+    lines = []
+    if final_residual_px is not None:
+        lines.append(f"{final_residual_px:.1f} px out  (limit {tolerance_px:.0f})")
+    lines.append(f"{n - n_refused}/{n} steps applied")
+    if validation is not None:
+        if validation.agreement:
+            lines.append(f"methods agree ({validation.max_disagreement_px:.1f} px)")
+        else:
+            lines.append(f"methods DISAGREE by {validation.max_disagreement_px:.0f} px")
+            lines.append("so the number above")
+            lines.append("is not corroborated")
+    axv.text(0.5, 0.34, "\n".join(lines), transform=axv.transAxes, fontsize=8.0 * scale,
+             color="#333333", ha="center", va="center", family="monospace",
+             linespacing=1.7)
+
+    # --- row 1, right: did it get closer? ------------------------------------
+    axc = fig.add_subplot(gs[1, v_cols:])
+    xs = list(range(1, n + 1))
+    # what each step SAW, not what it applied -- see the docstring
+    ys = [r.measured_px for r in alignment_results]
+    labels = [(f"before step {i}" if n <= 5 else f"S{i}") for i in xs]
+    if final_residual_px is not None:
+        xs.append(n + 1)
+        ys.append(final_residual_px)
+        labels.append("final")
+
+    finite = [(x, y) for x, y in zip(xs, ys) if y is not None and np.isfinite(y)]
+    # Records written before measured_px existed have no per-step values. Say so:
+    # a chart showing only the final point otherwise reads as "one measurement"
+    # rather than "the step measurements were never recorded".
+    n_missing = sum(1 for r in alignment_results if not np.isfinite(r.measured_px))
+    if n_missing and finite:
+        axc.text(0.5, 0.92, f"step measurements not recorded for this run "
+                            f"({n_missing}/{n})", transform=axc.transAxes,
+                 ha="center", va="top", fontsize=7.5, color=_DIM, style="italic")
+    if finite:
+        fx, fy = zip(*finite)
+        axc.axhspan(0, tolerance_px, color=_OK, alpha=0.07)
+        axc.axhline(tolerance_px, color=_OK, lw=1.1, ls=":")
+        if final_residual_px is not None and len(fx) > 1:
+            axc.plot(fx[:-1], fy[:-1], "o-", color="#4A4458", lw=1.8, ms=6)
+            axc.plot(fx[-2:], fy[-2:], "--", color=colour, lw=1.5)
+            axc.plot(fx[-1], fy[-1], "o", color=colour, ms=9)
+        else:
+            axc.plot(fx, fy, "o-", color="#4A4458", lw=1.8, ms=6)
+        for x, y in finite:
+            axc.annotate(f"{y:.0f}", (x, y), textcoords="offset points",
+                         xytext=(0, 9), ha="center", fontsize=8, color=_DIM)
+        # a refused step measured something and moved nothing; say so on the point
+        for i, r in enumerate(alignment_results):
+            if not r.accepted and np.isfinite(r.measured_px):
+                axc.annotate("refused", (i + 1, r.measured_px),
+                             textcoords="offset points", xytext=(0, -15),
+                             ha="center", fontsize=7.5, color=_BAD)
+        axc.text(fx[0], tolerance_px, " tolerance", fontsize=7.5, color=_OK,
+                 va="bottom", ha="left")
+        axc.margins(x=0.07, y=0.22)
+    else:
+        axc.text(0.5, 0.5, "no measurements recorded", transform=axc.transAxes,
+                 ha="center", va="center", fontsize=9, color=_DIM)
+
+    axc.set_xticks(xs)
+    axc.set_xticklabels(labels, fontsize=8)
+    axc.set_ylabel("px from reference", fontsize=8.5, labelpad=2)
+    axc.tick_params(labelsize=8)
+    axc.set_title("Convergence", fontsize=9.5, loc="left", pad=6)
+    axc.grid(axis="y", alpha=0.18, lw=0.6)
+    for spine in ("top", "right"):
+        axc.spines[spine].set_visible(False)
+
+    fig.suptitle(title, fontsize=11, y=0.98)
     if save:
         save_path = os.path.join(ref_path, "figure.png")
-        fig.savefig(save_path, dpi=80)
+        fig.savefig(save_path, dpi=90, bbox_inches="tight", facecolor="white")
     return fig
+
 
 def plot_preprocessing_comparison(
     ref_image: FibsemImage,

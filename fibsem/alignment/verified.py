@@ -317,6 +317,11 @@ class ValidatedAlignment:
     psr: float  # estimator peak-to-sidelobe ratio (diagnostic)
     mode: str = DEFAULT_VALIDATION_MODE
     clipped: bool = False  # the shift was bounded to the ROI before being applied
+    # Magnitude of what the estimator MEASURED, in pixels, before any refusal
+    # zeroed it or any clip bounded it. `shift` records what was applied; without
+    # this the size of a refused measurement is unrecoverable from a saved run,
+    # and a plot of applied shifts draws a refused run converging to zero.
+    measured_px: float = 0.0
     xcorr: Optional[np.ndarray] = None
 
     def to_dict(self) -> dict:
@@ -331,6 +336,7 @@ class ValidatedAlignment:
             "psr": self.psr,
             "mode": self.mode,
             "clipped": self.clipped,
+            "measured_px": self.measured_px,
         }
 
 
@@ -386,6 +392,7 @@ def shift_from_crosscorrelation_validated(
         ref_image, new_image, **get_preprocessing_profile(m.estimator), **_BANDPASS
     )
     psr = correlation_psr(xcorr)
+    measured_px = float(np.hypot(dx / px, dy / py))  # before refusal or clipping
 
     if m.validator is None:
         accepted, disagreement = True, float("nan")
@@ -434,6 +441,7 @@ def shift_from_crosscorrelation_validated(
         psr=psr,
         mode=mode_name,
         clipped=clipped,
+        measured_px=measured_px,
         xcorr=xcorr,
     )
     logging.debug({"msg": "shift_from_crosscorrelation_validated", **result.to_dict()})

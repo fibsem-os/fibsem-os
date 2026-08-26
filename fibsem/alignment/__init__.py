@@ -94,6 +94,10 @@ class AlignmentIteration:
     disagreement_px: float = float("nan")  # estimator vs validator distance
     psr: float = float("nan")  # peak-to-sidelobe ratio (diagnostic only)
     clipped: bool = False  # the shift was bounded to the ROI before being applied
+    # What the estimator measured, in pixels, before a refusal zeroed it. `shift`
+    # is what was applied; this is what was seen. NaN for methods that do not
+    # report it. Without it a refused step is indistinguishable from a zero shift.
+    measured_px: float = float("nan")
 
     @property
     def shift_px(self) -> Point:
@@ -119,6 +123,7 @@ class AlignmentIteration:
             "disagreement_px": _nan_to_none(self.disagreement_px),
             "psr": _nan_to_none(self.psr),
             "clipped": self.clipped,
+            "measured_px": _nan_to_none(self.measured_px),
         }
 
     @staticmethod
@@ -135,6 +140,7 @@ class AlignmentIteration:
             disagreement_px=_none_to_nan(d.get("disagreement_px")),
             psr=_none_to_nan(d.get("psr")),
             clipped=d.get("clipped", False),
+            measured_px=_none_to_nan(d.get("measured_px")),
         )
 
 
@@ -257,6 +263,7 @@ class AlignmentResult:
             validation=self.validation,
             final_residual_px=self.final_residual_px,
             converged=self.converged,
+            tolerance_px=get_configured_convergence_tolerance(),
         )
         return fig
 
@@ -386,6 +393,7 @@ def _calculate_shift(
             disagreement_px=validated.disagreement_px,
             psr=validated.psr,
             clipped=validated.clipped,
+            measured_px=validated.measured_px,
         )
 
 
