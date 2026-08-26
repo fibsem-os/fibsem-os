@@ -207,13 +207,22 @@ def test_the_container_rebuilds_both(self_calls):
     container = ast.parse(CONTAINER_SOURCE.read_text(encoding="utf-8"))
     for node in ast.walk(container):
         if isinstance(node, ast.FunctionDef) and node.name == "refresh_microscope":
-            body = ast.dump(node)
             break
     else:
         pytest.fail("the container has no refresh_microscope; this test is stale")
-    assert "self._tabs" in ast.unparse(node), (
-        "refresh_microscope no longer fans out over both tabs"
+
+    # Walked rather than unparsed: `ast.unparse` is 3.9+ and CI still builds on 3.8,
+    # where it is an AttributeError at run time rather than anything a local run or a
+    # linter would show. Matching the node is also stricter than a substring -- it finds
+    # `self._tabs` as an actual attribute access and not as a mention in a comment.
+    reaches_both = any(
+        isinstance(inner, ast.Attribute)
+        and inner.attr == "_tabs"
+        and isinstance(inner.value, ast.Name)
+        and inner.value.id == "self"
+        for inner in ast.walk(node)
     )
+    assert reaches_both, "refresh_microscope no longer fans out over both tabs"
 
 
 def test_every_selection_handler_reaches_the_new_tab(methods_calling):
