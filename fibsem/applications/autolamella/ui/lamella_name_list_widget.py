@@ -125,14 +125,6 @@ class _LamellaRow(QWidget):
         self.btn_move_to.setVisible(False)
         layout.addWidget(self.btn_move_to)
 
-        self.btn_edit = QToolButton()
-        self.btn_edit.setIcon(fibsem_icon("mdi:pencil", color=stylesheets.GRAY_ICON_COLOR))
-        self.btn_edit.setToolTip("Edit Lamella")
-        self.btn_edit.setFixedSize(_LAMELLA_BTN_SIZE)
-        self.btn_edit.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
-        self.btn_edit.setVisible(False)
-        layout.addWidget(self.btn_edit)
-
         self.btn_update = QToolButton()
         self.btn_update.setIcon(fibsem_icon(ICON_UPDATE_POSITION, color=stylesheets.GRAY_ICON_COLOR))
         self.btn_update.setToolTip("Update Position")
@@ -140,6 +132,14 @@ class _LamellaRow(QWidget):
         self.btn_update.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
         self.btn_update.setVisible(False)
         layout.addWidget(self.btn_update)
+
+        self.btn_edit = QToolButton()
+        self.btn_edit.setIcon(fibsem_icon("mdi:pencil", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_edit.setToolTip("Edit Lamella")
+        self.btn_edit.setFixedSize(_LAMELLA_BTN_SIZE)
+        self.btn_edit.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self.btn_edit.setVisible(False)
+        layout.addWidget(self.btn_edit)
 
         self.btn_move_to.clicked.connect(lambda: self.move_to_clicked.emit(self.lamella))
         self.btn_edit.clicked.connect(lambda: self.edit_clicked.emit(self.lamella))

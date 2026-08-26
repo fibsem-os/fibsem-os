@@ -23,6 +23,7 @@ from PyQt5.QtWidgets import (
 from fibsem import config as cfg
 from fibsem.structures import FibsemStagePosition
 from fibsem.ui import stylesheets
+from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION
 from fibsem.ui.tokens import (
     CANVAS_BG,
 )
@@ -71,15 +72,15 @@ class SavedPositionRowWidget(QWidget):
         layout.addWidget(self.position_label, 1)
 
         self.btn_move = IconToolButton(
-            icon="mdi:crosshairs-gps",
-            tooltip="Move to position",
+            icon=ICON_MOVE_TO_POSITION,
+            tooltip="Move to Position",
             size=_BTN_SIZE.width(),
         )
         layout.addWidget(self.btn_move)
 
         self.btn_update = IconToolButton(
-            icon="mdi:map-marker-check",
-            tooltip="Update to current position",
+            icon=ICON_UPDATE_POSITION,
+            tooltip="Update Position",
             size=_BTN_SIZE.width(),
         )
         layout.addWidget(self.btn_update)

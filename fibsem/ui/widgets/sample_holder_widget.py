@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.microscopes._stage import GridSlot, SampleGrid, SampleHolder
 from fibsem.ui import stylesheets
-from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
 from fibsem.ui.tokens import (
     CANVAS_BG,
     NEUTRAL_500,
@@ -79,25 +79,25 @@ class _GridSlotRowWidget(QWidget):
 
         _show_move = has_microscope and show_move
 
-        self.btn_capture = QToolButton()
-        self.btn_capture.setFixedSize(_ACTIONS_BTN_SIZE, _ACTIONS_BTN_SIZE)
-        self.btn_capture.setStyleSheet(_BTN_STYLE)
-        self.btn_capture.setIcon(fibsem_icon("mdi:map-marker-plus", color=stylesheets.GRAY_ICON_COLOR))
-        self.btn_capture.setToolTip("Update Position")
-        self.btn_capture.setVisible(_show_move)
-        self.btn_capture.clicked.connect(lambda: self.capture_clicked.emit(self.slot))
-        self.btn_capture.installEventFilter(self)
-        layout.addWidget(self.btn_capture)
-
         self.btn_move = QToolButton()
         self.btn_move.setFixedSize(_ACTIONS_BTN_SIZE, _ACTIONS_BTN_SIZE)
         self.btn_move.setStyleSheet(_BTN_STYLE)
-        self.btn_move.setIcon(fibsem_icon("mdi:crosshairs-gps", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_move.setIcon(fibsem_icon(ICON_MOVE_TO_POSITION, color=stylesheets.GRAY_ICON_COLOR))
         self.btn_move.setToolTip("Move to Position")
         self.btn_move.setVisible(_show_move)
         self.btn_move.clicked.connect(lambda: self.move_clicked.emit(self.slot))
         self.btn_move.installEventFilter(self)
         layout.addWidget(self.btn_move)
+
+        self.btn_capture = QToolButton()
+        self.btn_capture.setFixedSize(_ACTIONS_BTN_SIZE, _ACTIONS_BTN_SIZE)
+        self.btn_capture.setStyleSheet(_BTN_STYLE)
+        self.btn_capture.setIcon(fibsem_icon(ICON_UPDATE_POSITION, color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_capture.setToolTip("Update Position")
+        self.btn_capture.setVisible(_show_move)
+        self.btn_capture.clicked.connect(lambda: self.capture_clicked.emit(self.slot))
+        self.btn_capture.installEventFilter(self)
+        layout.addWidget(self.btn_capture)
 
         # Clear button — always visible, enabled only when a grid is loaded
         self.btn_clear = QToolButton()

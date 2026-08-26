@@ -27,7 +27,7 @@ from fibsem.applications.autolamella.ui.lamella_list_widget import (
 )
 from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY, MODE_STANDARD
 from fibsem.ui import stylesheets
-from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
 from fibsem.ui.tokens import (
     NEUTRAL_200,
     NEUTRAL_550,
@@ -213,10 +213,10 @@ class LamellaCardWidget(QWidget):
         self._btn_actions.setPopupMode(QToolButton.InstantPopup)
         _actions_menu = QMenu(self)
         self._action_move = _actions_menu.addAction(
-            fibsem_icon("mdi:crosshairs-gps", color=stylesheets.GRAY_ICON_COLOR), "Move to Position"
+            fibsem_icon(ICON_MOVE_TO_POSITION, color=stylesheets.GRAY_ICON_COLOR), "Move to Position"
         )
         self._action_update = _actions_menu.addAction(
-            fibsem_icon("mdi:map-marker-check", color=stylesheets.GRAY_ICON_COLOR), "Update Position"
+            fibsem_icon(ICON_UPDATE_POSITION, color=stylesheets.GRAY_ICON_COLOR), "Update Position"
         )
         self._action_remove = _actions_menu.addAction(
             fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR), "Remove"

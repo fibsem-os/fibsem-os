@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.ui import stylesheets
+from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION
 from fibsem.ui.tokens import (
     CANVAS_BG,
     NEUTRAL_550,
@@ -55,19 +56,19 @@ class LamellaPoseRowWidget(QWidget):
         self.position_label.setStyleSheet(f"background: transparent; color: {NEUTRAL_550};")
         layout.addWidget(self.position_label, 1)
 
-        self.btn_update = IconToolButton(
-            icon="mdi:map-marker-check",
-            tooltip="Update Position",
-            size=_BTN_SIZE.width(),
-        )
-        layout.addWidget(self.btn_update)
-
         self.btn_move_to = IconToolButton(
-            icon="mdi:crosshairs-gps",
+            icon=ICON_MOVE_TO_POSITION,
             tooltip="Move to Position",
             size=_BTN_SIZE.width(),
         )
         layout.addWidget(self.btn_move_to)
+
+        self.btn_update = IconToolButton(
+            icon=ICON_UPDATE_POSITION,
+            tooltip="Update Position",
+            size=_BTN_SIZE.width(),
+        )
+        layout.addWidget(self.btn_update)
 
         self.btn_update.clicked.connect(lambda: self.update_clicked.emit(self.pose_name))
         self.btn_move_to.clicked.connect(lambda: self.move_to_clicked.emit(self.pose_name))
