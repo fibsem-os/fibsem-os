@@ -409,6 +409,15 @@ class FeatureFlags:
     # goes, and the geometry it rests on is only checkable against real data
     # (FIB-597). Staging, like the flag above -- deleted when it ships, not kept.
     sparse_fm_selection: bool = False
+    # Tools -> Reporting -> Export Handoff Map. The multi-page document a grid travels
+    # to the TEM with: a map page per view, the lamella table, then a card per lamella.
+    # Off while it sits *beside* the existing Generate Overview Plot rather than
+    # replacing it, so the plot people rely on is untouched while this is checked
+    # against real experiments.
+    #
+    # A staging flag like the three above, and it goes the same way: deleted when it
+    # replaces the overview plot, not kept as a preference.
+    handoff_map: bool = False
 
 
 @dataclass

@@ -622,8 +622,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_generate_overview_plot.triggered.connect(
             self._on_generate_overview_plot
         )
+        # The multi-page document a grid travels to the TEM with. Built unconditionally
+        # and hidden by _apply_preferences while the handoff_map flag is off, which is
+        # the default -- hidden rather than absent so toggling the preference takes
+        # effect without a restart, the same way Scripts does.
+        self.action_export_handoff_map = QAction("Export Handoff Map...", self)
+        self.action_export_handoff_map.triggered.connect(self._on_export_handoff_map)
         reporting_menu.addAction(self.action_generate_report)
         reporting_menu.addAction(self.action_generate_overview_plot)
+        reporting_menu.addAction(self.action_export_handoff_map)
 
         # user scripts (FIB-338). The menu itself is application-agnostic; this
         # supplies only the folder, the context, and how to notify.
@@ -899,6 +906,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # a script. If a script is mid-run, leave it visible -- taking away the only
         # Stop button while the microscope is moving would be worse than the flag
         # being briefly wrong.
+        self.action_export_handoff_map.setVisible(
+            self._preferences.features.handoff_map
+        )
         self.scripts_menu.menuAction().setVisible(
             self._preferences.features.scripts_enabled
             or self.script_menu_controller.runner.is_running
@@ -1144,6 +1154,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Handle Generate Report action."""
         if self.autolamella_ui is not None:
             self.autolamella_ui.action_generate_report()
+
+    def _on_export_handoff_map(self):
+        """Tools -> Reporting -> Export Handoff Map."""
+        if self.autolamella_ui is not None:
+            self.autolamella_ui.action_export_handoff_map()
 
     def _on_generate_overview_plot(self):
         """Handle Generate Overview Plot action."""

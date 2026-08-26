@@ -73,6 +73,12 @@ _TIP_OVERVIEW_CANVAS = (
     "Tiles are placed where they were acquired rather than stitched first. Still being "
     "finished, and it drives the same microscope as the Overview tab it will replace."
 )
+_LBL_HANDOFF_MAP = "Enable Handoff Map Export"
+_TIP_HANDOFF_MAP = (
+    "Add Tools > Reporting > Export Handoff Map: the multi-page document a grid "
+    "travels to the TEM with -- a map page per overview, the lamella table, and a "
+    "card per lamella. Also writes it automatically when a workflow run finishes."
+)
 _LBL_CONNECTION_CHIP = "Enable Connection Chip"
 _TIP_CONNECTION_CHIP = (
     "Show the connected instrument in the tab bar, beside the experiment, and add "
@@ -189,6 +195,8 @@ class PreferencesDialog(QDialog):
         self._chk_sparse_fm.setToolTip(_TIP_SPARSE_FM)
         self._chk_connection_chip = QCheckBox()
         self._chk_connection_chip.setToolTip(_TIP_CONNECTION_CHIP)
+        self._chk_handoff_map = QCheckBox()
+        self._chk_handoff_map.setToolTip(_TIP_HANDOFF_MAP)
         features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
         features_form.addRow(_LBL_SAMPLE_HOLDER, self._chk_sample_holder)
         features_form.addRow(_LBL_BUG_REPORT, self._chk_bug_report)
@@ -196,6 +204,7 @@ class PreferencesDialog(QDialog):
         features_form.addRow(_LBL_OVERVIEW_CANVAS, self._chk_overview_canvas)
         features_form.addRow(_LBL_SPARSE_FM, self._chk_sparse_fm)
         features_form.addRow(_LBL_CONNECTION_CHIP, self._chk_connection_chip)
+        features_form.addRow(_LBL_HANDOFF_MAP, self._chk_handoff_map)
         self._stack.addWidget(features_page)
 
         # --- Experiment Defaults ---
@@ -269,6 +278,7 @@ class PreferencesDialog(QDialog):
         self._chk_scripts.setChecked(f.scripts_enabled)
         self._chk_overview_canvas.setChecked(f.overview_canvas_tab)
         self._chk_sparse_fm.setChecked(f.sparse_fm_selection)
+        self._chk_handoff_map.setChecked(f.handoff_map)
         self._chk_connection_chip.setChecked(f.connection_chip)
 
         e = prefs.experiment
@@ -343,6 +353,7 @@ class PreferencesDialog(QDialog):
                 overview_canvas_tab=self._chk_overview_canvas.isChecked(),
                 connection_chip=self._chk_connection_chip.isChecked(),
                 sparse_fm_selection=self._chk_sparse_fm.isChecked(),
+                handoff_map=self._chk_handoff_map.isChecked(),
             ),
             movement=MovementPreferences(
                 acquire_sem_after_stage_movement=self._chk_acquire_sem.isChecked(),
