@@ -1684,8 +1684,13 @@ class FibsemMillingSettings:
             "tooltip": "The horizontal field width used for milling. Patterns must fit within this field of view.",
         },
     )
-    preset: str = field(
-        default="30 keV; 2nA",
+    # None means "not set": every non-preset-driven backend (ThermoFisher, the
+    # simulator) leaves it None, and a TESCAN stage without one is a hard error at
+    # setup_milling rather than a silent default. NOTE: protocols saved before this
+    # default carry the old "30 keV; 2nA" string explicitly, on every backend, so
+    # a set preset does NOT imply TESCAN.
+    preset: Optional[str] = field(
+        default=None,
         metadata={
             "label": "Preset",
             "type": str,

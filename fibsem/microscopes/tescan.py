@@ -1273,6 +1273,15 @@ class TescanMicroscope(FibsemMicroscope):
         if mill_settings.milling_channel is not BeamType.ION:
             raise ValueError("Only FIB milling is currently supported.")
 
+        # fail before touching the hardware: TESCAN milling is preset-driven, so a
+        # stage without a preset has no beam conditions -- inheriting whatever
+        # preset happens to be active would be silent condition-dependence
+        if mill_settings.preset is None:
+            raise ValueError(
+                "The milling stage has no preset. TESCAN milling is preset-driven: "
+                "choose a preset in the milling settings before milling."
+            )
+
         self._prepare_beam(mill_settings.milling_channel)
 
         self.clear_patterns()

@@ -73,7 +73,7 @@ def make_stage(
     "preset, expected",
     [
         ("30 keV; 100 pA", 100e-12),
-        ("30 keV; 2nA", 2e-9),  # the FibsemMillingSettings default, no space
+        ("30 keV; 2nA", 2e-9),  # the old field default; vendor style without a space
         ("30 keV; 1 nA; my cool preset", 1e-9),
         ("15 keV; 1.5 nA", 1.5e-9),
         ("20 keV; 500 uA", 500e-6),

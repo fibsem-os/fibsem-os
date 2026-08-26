@@ -307,8 +307,8 @@ def get_protocol_from_stages(
 # has no microscope in scope — so the connected backend registers its model here.
 # Only the TESCAN driver flips this (construction: True, disconnect: False); every
 # other backend keeps the legacy table by never touching it. Keying off the stage's
-# own fields instead would not work: FibsemMillingSettings.preset defaults to a
-# real-looking string on every backend.
+# own fields instead would not work: protocols saved before the preset default
+# became None carry a real-looking string ("30 keV; 2nA") on every backend.
 _PRESET_DRIVEN_ESTIMATION = False
 
 

@@ -226,3 +226,16 @@ def test_setup_milling_rejects_electron_channel(monkeypatch):
     m = make_microscope(monkeypatch)
     with pytest.raises(ValueError, match="FIB milling"):
         m.setup_milling(FibsemMillingSettings(milling_channel=BeamType.ELECTRON))
+
+
+def test_setup_milling_refuses_a_stage_without_a_preset(monkeypatch):
+    """TESCAN milling is preset-driven: a stage with preset=None (the field default)
+    is a hard error before anything reaches the hardware -- inheriting whatever
+    preset is active would be silent condition-dependence."""
+    m = make_microscope(monkeypatch)
+
+    with pytest.raises(ValueError, match="preset"):
+        m.setup_milling(FibsemMillingSettings(preset=None))
+
+    assert m.connection.DrawBeam.calls == []
+    assert m._test_state["set_calls"] == []

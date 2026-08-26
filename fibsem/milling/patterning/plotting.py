@@ -613,7 +613,7 @@ def draw_milling_patterns(
         extra_parts = []
         if show_current:
             extra_parts.append(format_value(stage.milling.milling_current, "A"))
-        if show_preset:
+        if show_preset and stage.milling.preset:
             extra_parts.append(stage.milling.preset)
         if show_depth:
             # Get depth from pattern

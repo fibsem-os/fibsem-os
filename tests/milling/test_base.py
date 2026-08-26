@@ -83,3 +83,16 @@ def test_get_strategy():
     strategy = get_strategy(name="NonExistentStrategy")
     assert isinstance(strategy, MillingStrategy)
     assert strategy.name == DEFAULT_STRATEGY.name
+
+
+def test_preset_defaults_to_none_and_round_trips():
+    """None means "not set" -- non-preset-driven backends never fill it in. Protocols
+    saved before the default changed carry the old string explicitly on every
+    backend, and keep it on load (so a set preset does NOT imply TESCAN)."""
+    settings = FibsemMillingSettings()
+    assert settings.preset is None
+    assert FibsemMillingSettings.from_dict(settings.to_dict()).preset is None
+
+    old_protocol = settings.to_dict()
+    old_protocol["preset"] = "30 keV; 2nA"
+    assert FibsemMillingSettings.from_dict(old_protocol).preset == "30 keV; 2nA"

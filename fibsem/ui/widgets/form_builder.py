@@ -347,7 +347,11 @@ def build_control(
 
     if items == "dynamic":
         resolved = dynamic_items(metadata["microscope_parameter"]) if dynamic_items else None
-        return _combo(resolved if resolved else [value], value, metadata)
+        if not resolved:
+            # keep the stored value selectable without a resolver; a None value
+            # (field not set) means an empty combo, not a literal "None" entry
+            resolved = [value] if value is not None else []
+        return _combo(resolved, value, metadata)
 
     if items:
         return _combo(items, value, metadata)

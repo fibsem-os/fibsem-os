@@ -171,7 +171,12 @@ class MillingStageRowWidget(QWidget):
         self.current_combo.setToolTip("Milling current")
         _add_flex_column(layout, self.current_combo, _COL_CURRENT)
 
-        _preset_items = self._preset_values if self._preset_values else [stage.milling.preset]
+        # preset may be None (not set): an empty combo, not a literal "None" entry
+        _preset_items = (
+            self._preset_values
+            if self._preset_values
+            else ([stage.milling.preset] if stage.milling.preset else [])
+        )
         self.preset_combo = ValueComboBox(items=_preset_items)
         self.preset_combo.setToolTip("Milling preset")
         _add_flex_column(layout, self.preset_combo, _COL_CURRENT)
