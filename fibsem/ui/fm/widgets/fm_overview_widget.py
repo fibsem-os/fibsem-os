@@ -31,6 +31,10 @@ from superqt import ensure_main_thread
 
 from fibsem import constants
 from fibsem.fm.acquisition import FMTiledAcquisitionRunner, OverviewDestination
+from fibsem.fm.progress import (
+    FluorescenceAcquisitionProgress,
+    FluorescenceAcquisitionStatus,
+)
 from fibsem.fm.structures import (
     AutoFocusMode,
     AutoFocusSettings,
@@ -224,7 +228,10 @@ class FMOverviewWidget(QWidget):
     # producers flip (FIB-402). Both marshal to `PyQt_PyObject`, so this changes nothing
     # at the Qt level -- it stops the declaration lying.
     _tile_progress_received = pyqtSignal(object)
-    _fm_progress_received = pyqtSignal(dict)
+    # `object`, not `dict`: carries a dict today and a typed report once the producers
+    # flip (FIB-401). Both marshal to `PyQt_PyObject`, so this changes nothing at the Qt
+    # level -- it stops the declaration lying.
+    _fm_progress_received = pyqtSignal(object)
     # Same hop for stage moves: `stage_position_changed` is a psygnal, so it fires
     # on whichever thread moved the stage -- a worker, during an acquisition.
     _stage_moved = pyqtSignal(object)
@@ -2703,16 +2710,80 @@ class FMOverviewWidget(QWidget):
         """Called by psygnal, on whichever thread emitted. Touches no widgets."""
         self._fm_progress_received.emit(payload)
 
+    # The states this bar can render. `FINISHED` is deliberately absent: it describes
+    # the acquisition ending rather than progress within it, and drawing it here would
+    # be a bar with nothing in it.
+    _DETAIL_STATUSES = (
+        FluorescenceAcquisitionStatus.ACQUIRING_CHANNELS,
+        FluorescenceAcquisitionStatus.ACQUIRING_ZSTACK,
+        FluorescenceAcquisitionStatus.ACQUIRING_AUTOFOCUS,
+    )
+
+    def _apply_typed_fm_progress(self, report: FluorescenceAcquisitionProgress) -> None:
+        """The typed form of `_apply_fm_progress` (FIB-401).
+
+        Not reached until the fluorescence producers flip; written and tested now so the
+        flip is a change to the producers alone.
+        """
+        if report.status in self._DETAIL_STATUSES:
+            self.progress_tile_detail.update_progress(
+                self._typed_tile_detail_update(report)
+            )
+
+    @staticmethod
+    def _typed_tile_detail_update(
+        report: FluorescenceAcquisitionProgress,
+    ) -> ProgressUpdate:
+        """Progress within the tile currently being acquired.
+
+        A z-stack counts planes and a plain multi-channel acquisition counts channels,
+        so the same bar reads sensibly either way rather than sitting empty whenever
+        z-stacking happens to be off.
+
+        The z branch is taken by *two* statuses, which is the whole reason this contract
+        is one record rather than a type per acquisition routine.
+        """
+        channel = report.channel or ""
+        if report.zlevel and report.total_zlevels:
+            if report.status is FluorescenceAcquisitionStatus.ACQUIRING_AUTOFOCUS:
+                # Say which pass, so a coarse sweep followed by a fine one does not
+                # look like the same bar inexplicably starting over.
+                total_passes = report.total_passes or 1
+                which = (
+                    f" {report.pass_index or 1}/{total_passes}"
+                    if total_passes > 1
+                    else ""
+                )
+                return ProgressUpdate.numeric(
+                    current=report.zlevel,
+                    total=report.total_zlevels,
+                    message=f"{channel} focus{which}",
+                )
+            return ProgressUpdate.numeric(
+                current=report.zlevel,
+                total=report.total_zlevels,
+                message=f"{channel} z-stack",
+            )
+        return ProgressUpdate.numeric(
+            current=report.channel_index or 1,
+            total=report.total_channels or 1,
+            message=f"{channel} channels",
+        )
+
     def _apply_fm_progress(self, payload: dict) -> None:
         """The tile currently being taken, on the detail bar.
 
         Runs on the GUI thread, queued via `_fm_progress_received`. The detector's
         progress signal reports whatever it is doing, tileset or not, so the tasks this
-        bar can render are named rather than assumed: everything else on it -- a
-        workflow task announcing a stage move, a `finished` with no task -- describes
-        something this widget is not showing, and is dropped rather than rendered as a
-        bar with nothing in it.
+        bar can render are named rather than assumed.
+
+        Dicts only -- a typed report goes to `_apply_typed_fm_progress` above. The two
+        sit side by side until the producers flip (FIB-401).
         """
+        if isinstance(payload, FluorescenceAcquisitionProgress):
+            self._apply_typed_fm_progress(payload)
+            return
+
         if payload.get("operation") in ("z-stack", "channels", "autofocus"):
             self.progress_tile_detail.update_progress(self._tile_detail_update(payload))
 

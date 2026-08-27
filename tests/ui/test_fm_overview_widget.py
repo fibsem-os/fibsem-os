@@ -373,6 +373,10 @@ class _Router:
 
     _apply_tile_progress = FMOverviewWidget._apply_tile_progress
     _apply_fm_progress = FMOverviewWidget._apply_fm_progress
+    # The typed path the dict one is heading for (FIB-401), borrowed the same way.
+    _apply_typed_fm_progress = FMOverviewWidget._apply_typed_fm_progress
+    _typed_tile_detail_update = staticmethod(FMOverviewWidget._typed_tile_detail_update)
+    _DETAIL_STATUSES = FMOverviewWidget._DETAIL_STATUSES
     _tile_detail_update = FMOverviewWidget._tile_detail_update
     _STATUS_LABELS = FMOverviewWidget._STATUS_LABELS
 
@@ -5915,3 +5919,106 @@ def test_a_typed_preview_without_a_position_still_draws(qapp):
     assert host.offsets == []
     assert host.canvas.placement == (0.0, 0.0)
     assert host.canvas.channels is not None
+
+
+# ── the typed fluorescence progress contract (FIB-401) ───────────────────────
+#
+# The detector's own signal, which drives the *within-tile* bar -- a different scale from
+# the tileset progress above, and a different signal. Nothing emits a typed report yet;
+# the dict tests above are what proves that path has not moved.
+
+
+def _fm_report(status, **fields):
+    from fibsem.fm.progress import FluorescenceAcquisitionProgress
+
+    return FluorescenceAcquisitionProgress(status=status, **fields)
+
+
+def test_a_typed_zstack_report_counts_planes_on_the_detail_bar(qapp):
+    from fibsem.fm.progress import FluorescenceAcquisitionStatus
+
+    router = _Router()
+
+    router._apply_fm_progress(
+        _fm_report(
+            FluorescenceAcquisitionStatus.ACQUIRING_ZSTACK,
+            channel="DAPI",
+            zlevel=3,
+            total_zlevels=7,
+        )
+    )
+
+    assert (
+        _bar(router.progress_tile_detail).value(),
+        _bar(router.progress_tile_detail).maximum(),
+    ) == (3, 7)
+
+
+def test_a_typed_channel_report_counts_channels_instead(qapp):
+    """The same bar reads sensibly either way, rather than sitting empty whenever
+    z-stacking happens to be off."""
+    from fibsem.fm.progress import FluorescenceAcquisitionStatus
+
+    router = _Router()
+
+    router._apply_fm_progress(
+        _fm_report(
+            FluorescenceAcquisitionStatus.ACQUIRING_CHANNELS,
+            channel="GFP",
+            channel_index=2,
+            total_channels=3,
+        )
+    )
+
+    assert (
+        _bar(router.progress_tile_detail).value(),
+        _bar(router.progress_tile_detail).maximum(),
+    ) == (2, 3)
+
+
+def test_a_typed_focus_sweep_is_labelled_as_focus_not_a_z_stack(qapp):
+    """Both statuses carry a z count and take the same branch -- which is exactly why
+    the contract is one record rather than a type per acquisition routine. What
+    separates them here is the wording."""
+    from fibsem.fm.progress import FluorescenceAcquisitionStatus
+
+    router = _Router()
+
+    router._apply_fm_progress(
+        _fm_report(
+            FluorescenceAcquisitionStatus.ACQUIRING_AUTOFOCUS,
+            channel="DAPI",
+            zlevel=3,
+            total_zlevels=7,
+            pass_index=2,
+            total_passes=2,
+        )
+    )
+
+    text = _bar(router.progress_tile_detail).format()
+    assert "focus" in text and "z-stack" not in text
+    assert "2/2" in text, "a multi-pass sweep should say which pass"
+
+
+def test_a_typed_finished_report_does_not_draw_the_detail_bar(qapp):
+    """It describes the acquisition ending rather than progress within it, so drawing it
+    would be a bar with nothing in it."""
+    from fibsem.fm.progress import FluorescenceAcquisitionStatus
+
+    router = _Router()
+    router._apply_fm_progress(
+        _fm_report(
+            FluorescenceAcquisitionStatus.ACQUIRING_ZSTACK, zlevel=2, total_zlevels=4
+        )
+    )
+    before = (
+        _bar(router.progress_tile_detail).value(),
+        _bar(router.progress_tile_detail).maximum(),
+    )
+
+    router._apply_fm_progress(_fm_report(FluorescenceAcquisitionStatus.FINISHED))
+
+    assert (
+        _bar(router.progress_tile_detail).value(),
+        _bar(router.progress_tile_detail).maximum(),
+    ) == before
