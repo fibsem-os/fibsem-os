@@ -1177,75 +1177,87 @@ class FibsemMicroscope(ABC):
             )
         )
 
-        cancelled = False
+        try:
+            cancelled = False
 
-        # set the beam current to the milling current
-        imaging_current = self.get_beam_current(beam_type=beam_type)
-        self.set_beam_current(current=milling_current, beam_type=beam_type)
+            # set the beam current to the milling current
+            imaging_current = self.get_beam_current(beam_type=beam_type)
+            self.set_beam_current(current=milling_current, beam_type=beam_type)
 
-        for i, pt in enumerate(coordinates, 1):
-            if stop_event is not None and stop_event.is_set():
-                logging.info(
-                    f"Spot burn cancelled before point {i}/{len(coordinates)}."
-                )
-                cancelled = True
-                break
-
-            logging.info(
-                f"burning spot {i}: {pt}, exposure time: {exposure_time}, milling current: {milling_current}"
-            )
-
-            self.blank(beam_type=beam_type)
-            self.set_spot_scanning_mode(point=pt, beam_type=beam_type)
-            self.unblank(beam_type=beam_type)
-
-            # countdown for the exposure time, emit progress signal
-            remaining_time = exposure_time
-            while remaining_time > 0:
+            for i, pt in enumerate(coordinates, 1):
                 if stop_event is not None and stop_event.is_set():
-                    self.blank(beam_type=beam_type)
                     logging.info(
-                        f"Spot burn cancelled during point {i}/{len(coordinates)}."
+                        f"Spot burn cancelled before point {i}/{len(coordinates)}."
                     )
                     cancelled = True
                     break
-                time.sleep(SLEEP_TIME)
-                remaining_time -= SLEEP_TIME
-                total_remaining_time -= SLEEP_TIME
-                self.spot_burn_progress_signal.emit(
-                    SpotBurnProgress(
-                        status=SpotBurnStatus.BURNING,
-                        current_point=i,
-                        total_points=len(coordinates),
-                        remaining_time=remaining_time,
-                        total_remaining_time=total_remaining_time,
-                        total_estimated_time=total_estimated_time,
-                    )
+
+                logging.info(
+                    f"burning spot {i}: {pt}, exposure time: {exposure_time}, milling current: {milling_current}"
                 )
 
-            if cancelled:
-                # The inner `break` only leaves this point's countdown. The outer
-                # loop's own stop_event check would catch it on the next iteration
-                # anyway, so this is not a fix -- it just stops the run here rather
-                # than one log line later, now that the outcome is recorded.
-                break
+                self.blank(beam_type=beam_type)
+                self.set_spot_scanning_mode(point=pt, beam_type=beam_type)
+                self.unblank(beam_type=beam_type)
 
-        # always restore full frame scanning mode and imaging current
-        self.set_full_frame_scanning_mode(beam_type=beam_type)
+                # countdown for the exposure time, emit progress signal
+                remaining_time = exposure_time
+                while remaining_time > 0:
+                    if stop_event is not None and stop_event.is_set():
+                        self.blank(beam_type=beam_type)
+                        logging.info(
+                            f"Spot burn cancelled during point {i}/{len(coordinates)}."
+                        )
+                        cancelled = True
+                        break
+                    time.sleep(SLEEP_TIME)
+                    remaining_time -= SLEEP_TIME
+                    total_remaining_time -= SLEEP_TIME
+                    self.spot_burn_progress_signal.emit(
+                        SpotBurnProgress(
+                            status=SpotBurnStatus.BURNING,
+                            current_point=i,
+                            total_points=len(coordinates),
+                            remaining_time=remaining_time,
+                            total_remaining_time=total_remaining_time,
+                            total_estimated_time=total_estimated_time,
+                        )
+                    )
 
-        # A cancelled burn is not a completed one. Both used to emit `{"finished": True}`,
-        # so cancelling rendered "Done" -- the defect the status enum exists to remove.
-        self.spot_burn_progress_signal.emit(
-            SpotBurnProgress(
-                status=SpotBurnStatus.CANCELLED
-                if cancelled
-                else SpotBurnStatus.FINISHED,
-                current_point=len(coordinates),
-                total_points=len(coordinates),
+                if cancelled:
+                    # The inner `break` only leaves this point's countdown. The outer
+                    # loop's own stop_event check would catch it on the next iteration
+                    # anyway, so this is not a fix -- it just stops the run here rather
+                    # than one log line later, now that the outcome is recorded.
+                    break
+
+            # always restore full frame scanning mode and imaging current
+            self.set_full_frame_scanning_mode(beam_type=beam_type)
+
+            # A cancelled burn is not a completed one. Both used to emit `{"finished": True}`,
+            # so cancelling rendered "Done" -- the defect the status enum exists to remove.
+            self.spot_burn_progress_signal.emit(
+                SpotBurnProgress(
+                    status=SpotBurnStatus.CANCELLED
+                    if cancelled
+                    else SpotBurnStatus.FINISHED,
+                    current_point=len(coordinates),
+                    total_points=len(coordinates),
+                )
             )
-        )
 
-        self.set_beam_current(current=imaging_current, beam_type=beam_type)
+            self.set_beam_current(current=imaging_current, beam_type=beam_type)
+        except Exception as e:
+            logging.error(f"Error in run_spot_burn: {e}")
+            # The failure terminal belongs to the producer. It used to be emitted by
+            # `FibsemSpotBurnWidget`, which only ever sees a burn it started itself --
+            # so an unsupervised workflow burn that raised (`tasks/spot_burn.py` calls
+            # this directly) reported nothing at all, and left the bar mid-run for the
+            # rest of the session.
+            self.spot_burn_progress_signal.emit(
+                SpotBurnProgress(status=SpotBurnStatus.FAILED, error=str(e))
+            )
+            raise
 
     def get_beam_current(self, beam_type: BeamType) -> float:
         """Get the beam current for the specified beam type."""

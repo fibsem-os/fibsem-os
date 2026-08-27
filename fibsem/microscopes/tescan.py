@@ -1752,6 +1752,13 @@ class TescanMicroscope(FibsemMicroscope):
             )
         except Exception as e:
             logging.error(f"Error in run_spot_burn: {e}")
+            # The failure terminal belongs to the producer. It used to be emitted by
+            # FibsemSpotBurnWidget, which only ever sees a burn it started itself --
+            # so an unsupervised workflow burn that raised reported nothing at all and
+            # left the bar mid-run for the session.
+            self.spot_burn_progress_signal.emit(
+                SpotBurnProgress(status=SpotBurnStatus.FAILED, error=str(e))
+            )
             raise
         finally:
             self.clear_patterns()

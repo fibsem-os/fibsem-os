@@ -405,16 +405,15 @@ class FibsemSpotBurnWidget(QWidget):
     def spot_burn_errored(self, error) -> None:
         """Called when the spot burn fails.
 
+        Restores the button only. The failure terminal is emitted by `run_spot_burn`
+        itself (FIB-824), because this widget only ever sees a burn it started: an
+        unsupervised workflow burn calls the producer directly, and used to report no
+        failure at all.
+
         The failed bar is deliberately left on screen (no auto-hide) so the failure is
         still visible if the user was not watching when it happened.
         """
         logging.error(f"Spot burn failed: {error}")
-        # Still emitted from the widget; FIB-824 PR 3 moves it into `run_spot_burn`,
-        # which is the only way the unsupervised workflow path can report a failure
-        # at all -- it never goes through this widget.
-        self.microscope.spot_burn_progress_signal.emit(
-            SpotBurnProgress(status=SpotBurnStatus.FAILED, error=str(error))
-        )
         self._restore_idle_state()
 
     def _restore_idle_state(self) -> None:
