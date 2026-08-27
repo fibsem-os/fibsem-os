@@ -2047,9 +2047,18 @@ def test_an_empty_grid_still_forbids_acquiring_after_a_lock_is_lifted(qapp):
 # ── the host side: building and retiring the tab ─────────────────────────
 
 
+# Aliased: this module already imports `MODALITY_FLUORESCENCE` from
+# `fibsem.imaging.tiling.progress` at the top, and the two are different strings for
+# different things -- 'fluorescence', the value carried on the wire, against
+# 'FLUORESCENCE', the key naming a page of the merged Overview tab. Imported bare, this
+# rebinds the module global, and `_fm()` above then stamps every report it builds with
+# the tab's key. The modality filter drops all of them and seventeen tests fail from
+# inside an early return.
 from fibsem.applications.autolamella.ui.overview_container_tab import (
-    MODALITY_FIBSEM,
-    MODALITY_FLUORESCENCE,
+    MODALITY_FIBSEM as TAB_MODALITY_FIBSEM,
+)
+from fibsem.applications.autolamella.ui.overview_container_tab import (
+    MODALITY_FLUORESCENCE as TAB_MODALITY_FLUORESCENCE,
 )
 
 
@@ -2193,7 +2202,7 @@ def test_a_microscope_without_fluorescence_greys_the_chip_and_says_why(qapp):
 
     host._refresh_overview_microscope()
 
-    chip = host.overview_tab.modality_chip(MODALITY_FLUORESCENCE)
+    chip = host.overview_tab.modality_chip(TAB_MODALITY_FLUORESCENCE)
     assert not chip.isEnabled()
     assert chip.toolTip() == "No Fluorescence Microscope Available"
     assert host.fm_overview_widget is None
@@ -2225,7 +2234,7 @@ def test_connecting_a_microscope_without_fluorescence_keeps_the_chip(qapp):
     does not move -- only the reason it gives changes, from 'connect one' to 'this system
     has none'."""
     host = _StubHost(microscope=None)
-    chip = host.overview_tab.modality_chip(MODALITY_FLUORESCENCE)
+    chip = host.overview_tab.modality_chip(TAB_MODALITY_FLUORESCENCE)
     assert not chip.isEnabled()
     assert chip.toolTip() == "Connect a microscope to use the Overview"
 
@@ -2245,7 +2254,7 @@ def test_a_microscope_with_fluorescence_brings_the_chip_back(qapp):
 
     host = _StubHost(microscope=_plain_microscope())
     host._refresh_overview_microscope()
-    chip = host.overview_tab.modality_chip(MODALITY_FLUORESCENCE)
+    chip = host.overview_tab.modality_chip(TAB_MODALITY_FLUORESCENCE)
     assert not chip.isEnabled()
 
     host.autolamella_ui.microscope = build_microscope()
@@ -2289,7 +2298,7 @@ def test_nothing_unreachable_is_ever_silent(qapp):
                 f"{label}: greyed out with nothing to say why"
             )
 
-        for modality in (MODALITY_FIBSEM, MODALITY_FLUORESCENCE):
+        for modality in (TAB_MODALITY_FIBSEM, TAB_MODALITY_FLUORESCENCE):
             chip = host.overview_tab.modality_chip(modality)
             assert chip.isVisible() or not host.overview_tab.isVisible(), (
                 f"{label}: the {modality} chip was withdrawn rather than greyed"
