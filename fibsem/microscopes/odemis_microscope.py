@@ -82,7 +82,7 @@ def stage_position_to_odemis_dict(position: FibsemStagePosition) -> dict:
     """Convert a FibsemStagePosition to a dict with the odemis keys"""
     pdict = position.to_dict()
     pdict.pop("name")
-    pdict.pop("coordinate_system") # no longer used in odemis
+    pdict.pop("coordinate_system")  # no longer used in odemis
     pdict["rz"] = pdict.pop("r")
     pdict["rx"] = pdict.pop("t")
 
@@ -165,6 +165,7 @@ def odemis_md_to_microscope_state(md) -> MicroscopeState:
 
     return ms
 
+
 def from_odemis_image(image: model.DataArray, path: str = None) -> FibsemImage:
     md = image.metadata
     ms = MicroscopeState.from_odemis_dict(md[model.MD_EXTRA_SETTINGS])
@@ -186,13 +187,13 @@ def from_odemis_image(image: model.DataArray, path: str = None) -> FibsemImage:
         filename = os.path.basename(path)
 
     image_settings = ImageSettings(
-        resolution = [image.shape[1], image.shape[0]],
+        resolution=[image.shape[1], image.shape[0]],
         dwell_time=sys_state.dwell_time,
         hfw=sys_state.hfw,
         beam_type=sys_state.beam_type,
-        path = path,
+        path=path,
         filename=filename,
-        save = True,
+        save=True,
         autocontrast=False,
     )
 
@@ -205,14 +206,16 @@ def from_odemis_image(image: model.DataArray, path: str = None) -> FibsemImage:
 
     # get the data
     da = image.getData() if isinstance(image, model.DataArrayShadow) else image
-    
+
     return FibsemImage(data=da, metadata=image_md)
+
 
 def load_odemis_image(path: str) -> FibsemImage:
     """Load an odemis image from a file and convert it to a FibsemImage"""
     acq = open_acquisition(path)
     image: FibsemImage = FibsemImage.from_odemis(acq[0], path=path)
     return image
+
 
 # add as class methods
 FibsemStagePosition.to_odemis_dict = stage_position_to_odemis_dict
@@ -230,9 +233,11 @@ beam_type_to_odemis = {
 
 # TODO: load default system settings?
 
+
 class OdemisThermoMicroscope(FibsemMicroscope):
     """TFS integration through Odemis.
     Requires Odemis installation, unlike ThermoMicroscope which provides direct TFS integration."""
+
     milling_progress_signal = Signal(dict)
     _last_imaging_settings: ImageSettings
 
@@ -270,6 +275,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         self.fm = None
         try:
             from fibsem.fm.odemis import OdemisFluorescenceMicroscope
+
             self.fm = OdemisFluorescenceMicroscope(self)
         except (ImportError, AttributeError) as e:
             logging.info(f"Fluorescence support is not available: {e}")
@@ -281,7 +287,9 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         except Exception as e:
             logging.warning(f"Could not create sample stage: {e}")
 
-    def connect_to_microscope(self, ip_address: str, port: int, reset_beam_shift: bool = True) -> None:
+    def connect_to_microscope(
+        self, ip_address: str, port: int, reset_beam_shift: bool = True
+    ) -> None:
         pass
 
     def disconnect(self):
@@ -300,18 +308,26 @@ class OdemisThermoMicroscope(FibsemMicroscope):
 
         # updated safe rotation move
         logging.info(f"moving flat to {beam_type.name}")
-        stage_position = FibsemStagePosition(r=rotation, t=tilt, coordinate_system="Raw")
+        stage_position = FibsemStagePosition(
+            r=rotation, t=tilt, coordinate_system="Raw"
+        )
 
         # imitate compucentric movements
-        if (stage_orientation in ["SEM", "MILLING"] and beam_type == BeamType.ION) or \
-           (stage_orientation == "FIB" and beam_type == BeamType.ELECTRON):
-
+        if (stage_orientation in ["SEM", "MILLING"] and beam_type == BeamType.ION) or (
+            stage_orientation == "FIB" and beam_type == BeamType.ELECTRON
+        ):
             current_stage_position = self.get_stage_position()
             stage_position.x = -current_stage_position.x
             stage_position.y = -current_stage_position.y
-            stage_position.z =  current_stage_position.z
+            stage_position.z = current_stage_position.z
 
-        logging.debug({"msg": "move_flat_to_beam", "stage_position": stage_position.to_dict(), "beam_type": beam_type.name})
+        logging.debug(
+            {
+                "msg": "move_flat_to_beam",
+                "stage_position": stage_position.to_dict(),
+                "beam_type": beam_type.name,
+            }
+        )
 
         if _safe:
             self.safe_absolute_stage_movement(stage_position)
@@ -334,17 +350,19 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         # reduced area imaging
         if image_settings.reduced_area is not None:
             reduced_area = image_settings.reduced_area
-            self.connection.set_reduced_area_scan_mode(channel=channel, 
-                                                       left=reduced_area.left,
-                                                       top=reduced_area.top,
-                                                       width=reduced_area.width,
-                                                       height=reduced_area.height)
+            self.connection.set_reduced_area_scan_mode(
+                channel=channel,
+                left=reduced_area.left,
+                top=reduced_area.top,
+                width=reduced_area.width,
+                height=reduced_area.height,
+            )
         else:
             self.connection.set_full_frame_scan_mode(channel=channel)
 
         # set imaging settings
         # TODO: this is a change in behaviour..., restore the previous conditions or use GrabFrameSettings?
-        # This is the source of the error with square resolutions. 
+        # This is the source of the error with square resolutions.
         # can't set square resolution, but can acquire an image with square
         frame_settings = None
         tmp_resolution = None
@@ -357,7 +375,9 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         self.set_imaging_settings(image_settings)
 
         # acquire image
-        image, _md = self.connection.acquire_image(channel=channel, frame_settings=frame_settings)
+        image, _md = self.connection.acquire_image(
+            channel=channel, frame_settings=frame_settings
+        )
 
         # restore to full frame imaging
         if image_settings.reduced_area is not None:
@@ -389,15 +409,21 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     def last_image(self, beam_type: BeamType) -> FibsemImage:
         pass
 
-    def autocontrast(self, beam_type: BeamType, reduced_area: FibsemRectangle = None) -> None:
+    def autocontrast(
+        self, beam_type: BeamType, reduced_area: FibsemRectangle = None
+    ) -> None:
         channel = beam_type_to_odemis[beam_type]
         if reduced_area is not None:
-            self.connection.set_reduced_area_scan_mode(channel, **reduced_area.to_dict())
+            self.connection.set_reduced_area_scan_mode(
+                channel, **reduced_area.to_dict()
+            )
         self.connection.run_auto_contrast_brightness(channel=channel)
         if reduced_area is not None:
             self.connection.set_full_frame_scan_mode(channel)
 
-    def auto_focus(self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None) -> None:        
+    def auto_focus(
+        self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
+    ) -> None:
         self.connection.run_auto_focus(beam_type_to_odemis[beam_type])
 
     def beam_shift(self, dx: float, dy: float, beam_type: BeamType) -> None:
@@ -588,7 +614,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
             logging.info(f"Patterning beam type set to {value} - {channel} .")
             return
 
-
         # beam control
         if key == "on":
             self.connection.set_beam_power(value, channel)
@@ -740,10 +765,10 @@ class OdemisThermoMicroscope(FibsemMicroscope):
                 return
 
         if key == "active_view":
-            self.connection.set_active_view(value.value) # value == BeamType
+            self.connection.set_active_view(value.value)  # value == BeamType
             return
         if key == "active_device":
-            self.connection.set_active_device(value.value) # value == BeamType
+            self.connection.set_active_device(value.value)  # value == BeamType
             return
 
         # known keys that are not implemented
@@ -772,7 +797,9 @@ class OdemisThermoMicroscope(FibsemMicroscope):
                 "choices"
             ]
         if key == "current":
-            values = self.connection.beam_current_info(beam_type_to_odemis[beam_type])["choices"]
+            values = self.connection.beam_current_info(beam_type_to_odemis[beam_type])[
+                "choices"
+            ]
             # xenon
             # values = [1.0e-12, 3.0e-12, 10e-12, 30e-12, 0.1e-9, 0.3e-9, 1e-9, 4e-9, 15e-9, 60e-9]
             # argon
@@ -821,11 +848,11 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     def stable_move(
         self, dx: float, dy: float, beam_type: BeamType, static_wd: bool = False
     ) -> FibsemStagePosition:
-        return ThermoMicroscope.stable_move(self, dx=dx, dy=dy, beam_type=beam_type, static_wd=static_wd)
+        return ThermoMicroscope.stable_move(
+            self, dx=dx, dy=dy, beam_type=beam_type, static_wd=static_wd
+        )
 
-    def vertical_move(
-        self, dy: float, dx: float = 0.0
-    ) -> FibsemStagePosition:
+    def vertical_move(self, dy: float, dx: float = 0.0) -> FibsemStagePosition:
         """Move the stage vertically by the specified amount."""
         return ThermoMicroscope.vertical_move(self, dy=dy, dx=dx)
 
@@ -838,8 +865,12 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     ) -> FibsemStagePosition:
         return ThermoMicroscope._y_corrected_stage_movement(self, expected_y, beam_type)
 
-    def _inverse_y_corrected_stage_movement(self, dy: float, dz: float, beam_type: BeamType = BeamType.ELECTRON) -> float:
-        return ThermoMicroscope._inverse_y_corrected_stage_movement(self, dy=dy, dz=dz, beam_type=beam_type)
+    def _inverse_y_corrected_stage_movement(
+        self, dy: float, dz: float, beam_type: BeamType = BeamType.ELECTRON
+    ) -> float:
+        return ThermoMicroscope._inverse_y_corrected_stage_movement(
+            self, dy=dy, dz=dz, beam_type=beam_type
+        )
 
     def project_stable_move(
         self,
@@ -848,10 +879,9 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         beam_type: BeamType,
         base_position: FibsemStagePosition,
     ) -> FibsemStagePosition:
-        return ThermoMicroscope.project_stable_move(self, 
-                                                    dx=dx, dy=dy, 
-                                                    beam_type=beam_type, 
-                                                    base_position=base_position)
+        return ThermoMicroscope.project_stable_move(
+            self, dx=dx, dy=dy, beam_type=beam_type, base_position=base_position
+        )
 
     def _safe_rotation_movement(self, stage_position: FibsemStagePosition) -> None:
         return ThermoMicroscope._safe_rotation_movement(self, stage_position)
@@ -958,7 +988,9 @@ class OdemisThermoMicroscope(FibsemMicroscope):
             {"msg": "setup_milling", "mill_settings": mill_settings.to_dict()}
         )
 
-    def run_milling(self, milling_current: float, milling_voltage: float, asynch: bool = False):
+    def run_milling(
+        self, milling_current: float, milling_voltage: float, asynch: bool = False
+    ):
         ThermoMicroscope.run_milling(self, milling_current, milling_voltage, asynch)
 
     def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
@@ -995,8 +1027,8 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         if self.get_milling_state() == MillingState.PAUSED:
             logging.info("Resuming milling...")
             self.connection.resume_milling()
-            logging.info("Milling resumed.")   
-    
+            logging.info("Milling resumed.")
+
     def estimate_milling_time(self) -> float:
         return self.connection.estimate_milling_time()
 
@@ -1005,7 +1037,7 @@ class OdemisTescanMicroscope(TescanMicroscope):
     """Tescan integration through Odemis.
     Currently wraps TescanMicroscope; will be extended
     to support Odemis-specific features (e.g., MicroscopePostureManager)."""
+
     def __init__(self, system_settings: SystemSettings):
         super().__init__(system_settings=system_settings)
         logging.info("OdemisTescanMicroscope initialized")
-
