@@ -39,8 +39,13 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        # UI deps (the [ui] extra) are intentionally not installed: the
-        # napari/PyQt5 tests importorskip and are skipped on CI.
+        # UI deps (the [ui] extra) are intentionally not installed *here*. Not
+        # because the tests that need them do not matter -- the `ui-tests` job
+        # below runs every one of them -- but because installing napari adds 100
+        # packages and 116 MB to a job that runs eight times, and registers three
+        # pytest plugins (napari, napari-plugin-engine, npe2) into the session,
+        # one of them an autouse fixture that would run around all 2000-odd tests
+        # here to serve none of them.
         python -m pip install ".[test]"
     - name: Install the plugin entry point fixture
       # A packaged plugin is the only way into two of the three extension
@@ -56,6 +61,65 @@ jobs:
         # leave the build green -- the exact silent breakage they exist to catch.
         FIBSEM_REQUIRE_PLUGIN_FIXTURE: "1"
       run: pytest tests/ -n auto --dist worksteal --timeout=300
+
+  ui-tests:
+    # The one job that installs the [ui] extra, and the only place the 2270 tests
+    # under tests/ui/ are ever run.
+    #
+    # Every file there opens with `pytest.importorskip("PyQt5")`. The matrix job
+    # above installs `.[test]` without it, so all 103 files skip silently and its
+    # green says nothing whatsoever about that directory. That is not theoretical:
+    # main reported success while tests/ui/test_fm_overview_widget.py failed 17
+    # tests locally, because two pull requests that were each green alone bound the
+    # same name to two different constants (#581). Only a run with PyQt5 installed
+    # could have caught it, and this is that run.
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        # One version, not the matrix. What this job answers -- does the UI code
+        # import, and does it behave -- does not vary across Python versions, so
+        # running it six times would repeat the same answer. 3.11 rather than the
+        # ends of the range because the `ui` extra resolves differently at both:
+        # 3.8 gets napari 0.4.x, a different codebase to the 0.5.x everyone
+        # develops against.
+        python-version: "3.11"
+        cache: 'pip'
+    - name: Install the libraries Qt's offscreen platform plugin links against
+      # libqoffscreen.so needs libGL, libX11, libXext, libfontconfig, libfreetype
+      # and libglib (read off the wheel's ELF DT_NEEDED entries). All but libGL are
+      # already on the runner image. Note it does NOT need the xcb/xkbcommon stack
+      # that the normal `xcb` platform pulls in -- that is the point of running
+      # offscreen rather than under a virtual display.
+      #
+      # If one of the others ever goes missing the failure is loud and immediate:
+      # Qt refuses to load the platform plugin, names the library, and every test
+      # errors at QApplication construction. There is no version of this that
+      # passes while broken.
+      run: sudo apt-get update && sudo apt-get install -y libgl1 libegl1
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install ".[test,ui]"
+    - name: Fail if the UI extra did not actually install
+      # A green job that skipped everything is the exact failure mode this job
+      # exists to end. Because every file guards on importorskip, a broken install
+      # does not turn the run red -- it empties it, and empty reads as passing.
+      # So check the imports directly, where absence is an error.
+      run: python -c "import PyQt5, napari, qtawesome"
+    - name: Test with pytest
+      env:
+        QT_QPA_PLATFORM: offscreen
+      # Deliberately serial, unlike the matrix job above. These tests share one
+      # QApplication and leak top-level widgets across files, so some of them
+      # depend on what the files before them left behind. `-n auto --dist
+      # worksteal` would shuffle that order differently on every run and turn a
+      # deterministic failure into a flake; `--dist loadfile` does not help either,
+      # since it only holds order *within* a file. Three minutes is a fair price
+      # for a result that means the same thing twice in a row.
+      run: pytest tests/ui/ -q --timeout=300
 
   lint:
     # Its own job, not a step inside the matrix above: ruff's result does not
