@@ -58,10 +58,10 @@ _TIP_BUG_REPORT = (
 )
 _LBL_NAPARI_OVERVIEW = "Show the old Minimap Tab"
 _TIP_NAPARI_OVERVIEW = (
-    "Keep the previous napari-based overview beside the Overview tab that replaced it. "
-    "The Overview tab places tiles where they were acquired rather than stitching them "
-    "first, and holds both the FIB/SEM and fluorescence overviews. This is here for "
-    "anyone still relying on the old tab, and is removed in a future release."
+    "Bring back the previous napari-based overview, beside the Overview tab that "
+    "replaced it. The Overview tab places tiles where they were acquired rather than "
+    "stitching them first, and holds both the FIB/SEM and fluorescence overviews. This "
+    "is here for anyone still relying on the old tab, and is removed in the next release."
 )
 _LBL_CONNECTION_CHIP = "Enable Connection Chip"
 _TIP_CONNECTION_CHIP = (
