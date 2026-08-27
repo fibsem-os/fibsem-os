@@ -53,7 +53,11 @@ try:
 except Exception as e:
     logging.debug(f"Automation (TESCAN) not installed. {e}")
 
-from fibsem.imaging.spot import SpotBurnSettings
+from fibsem.imaging.spot import (
+    SpotBurnProgress,
+    SpotBurnSettings,
+    SpotBurnStatus,
+)
 from fibsem.milling.base import set_preset_driven_estimation
 from fibsem.structures import (  # noqa
     ACTIVE_MILLING_STATES,
@@ -1693,14 +1697,17 @@ class TescanMicroscope(FibsemMicroscope):
         )
 
         self.spot_burn_progress_signal.emit(
-            {
-                "current_point": 0,
-                "total_points": total_points,
-                "remaining_time": exposure_time,
-                "total_remaining_time": estimated_time,
-                "total_estimated_time": estimated_time,
-            }
+            SpotBurnProgress(
+                status=SpotBurnStatus.BURNING,
+                current_point=0,
+                total_points=total_points,
+                remaining_time=exposure_time,
+                total_remaining_time=estimated_time,
+                total_estimated_time=estimated_time,
+            )
         )
+
+        cancelled = False
 
         with self._connection_lock:
             self.connection.DrawBeam.Start()
@@ -1710,6 +1717,7 @@ class TescanMicroscope(FibsemMicroscope):
                 if stop_event is not None and stop_event.is_set():
                     logging.info("Spot burn cancelled.")
                     self.stop_milling()
+                    cancelled = True
                     break
 
                 time.sleep(SPOT_BURN_POLL_INTERVAL)
@@ -1719,18 +1727,29 @@ class TescanMicroscope(FibsemMicroscope):
                 elapsed = time.time() - start_time
                 current_point = min(total_points, int(elapsed // exposure_time) + 1)
                 self.spot_burn_progress_signal.emit(
-                    {
-                        "current_point": current_point,
-                        "total_points": total_points,
-                        "remaining_time": max(
+                    SpotBurnProgress(
+                        status=SpotBurnStatus.BURNING,
+                        # Inferred from elapsed time, not measured: DrawBeam exposes
+                        # no per-dot progress. Not authoritative.
+                        current_point=current_point,
+                        total_points=total_points,
+                        remaining_time=max(
                             0.0, current_point * exposure_time - elapsed
                         ),
-                        "total_remaining_time": max(0.0, estimated_time - elapsed),
-                        "total_estimated_time": estimated_time,
-                    }
+                        total_remaining_time=max(0.0, estimated_time - elapsed),
+                        total_estimated_time=estimated_time,
+                    )
                 )
 
-            self.spot_burn_progress_signal.emit({"finished": True})
+            self.spot_burn_progress_signal.emit(
+                SpotBurnProgress(
+                    status=SpotBurnStatus.CANCELLED
+                    if cancelled
+                    else SpotBurnStatus.FINISHED,
+                    current_point=total_points,
+                    total_points=total_points,
+                )
+            )
         except Exception as e:
             logging.error(f"Error in run_spot_burn: {e}")
             raise

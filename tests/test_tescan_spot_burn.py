@@ -310,7 +310,9 @@ def test_stop_event_during_exposure_stops_the_exposition(monkeypatch):
 
 
 def test_progress_uses_the_spot_burn_widget_shape(monkeypatch):
-    """Progress goes out on spot_burn_progress_signal in the dict shape the widget parses."""
+    """Progress goes out on spot_burn_progress_signal as the typed report (FIB-824)."""
+    from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
+
     m = make_microscope(monkeypatch, busy_polls=2)
     events = collect_progress(m)
 
@@ -319,23 +321,45 @@ def test_progress_uses_the_spot_burn_widget_shape(monkeypatch):
     assert len(events) >= 3, "expected initial + at least one update + finished"
     initial, updates, finished = events[0], events[1:-1], events[-1]
 
-    assert initial["current_point"] == 0
-    assert initial["total_points"] == 2
-    assert initial["total_estimated_time"] == 4.0  # 2 points x 2s
+    assert all(isinstance(e, SpotBurnProgress) for e in events)
+
+    assert initial.status is SpotBurnStatus.BURNING
+    assert initial.current_point == 0
+    assert initial.total_points == 2
+    assert initial.total_estimated_time == 4.0  # 2 points x 2s
 
     for update in updates:
-        assert set(update) == {
-            "current_point",
-            "total_points",
-            "remaining_time",
-            "total_remaining_time",
-            "total_estimated_time",
-        }
-        assert 1 <= update["current_point"] <= 2
-        assert 0.0 <= update["remaining_time"] <= 2.0
-        assert 0.0 <= update["total_remaining_time"] <= 4.0
+        assert update.status is SpotBurnStatus.BURNING
+        # Inferred from elapsed time -- DrawBeam exposes no per-dot progress -- so the
+        # assertion is a range, not a value.
+        assert 1 <= update.current_point <= 2
+        assert 0.0 <= update.remaining_time <= 2.0
+        assert 0.0 <= update.total_remaining_time <= 4.0
 
-    assert finished == {"finished": True}
+    assert finished.status is SpotBurnStatus.FINISHED
+    assert finished.status.is_terminal
+
+
+def test_a_cancelled_tescan_burn_reports_cancelled(monkeypatch):
+    """The Tescan path had the same defect as the default one: a burn stopped by the
+    stop_event emitted the same terminal as a completed one, and rendered "Done"."""
+    import threading
+
+    from fibsem.imaging.spot import SpotBurnStatus
+
+    m = make_microscope(monkeypatch, busy_polls=4)
+    events = collect_progress(m)
+    stop_event = threading.Event()
+    stop_event.set()
+
+    run_burn(
+        m,
+        coordinates=[Point(0.5, 0.5), Point(0.2, 0.2)],
+        exposure_time=2.0,
+        stop_event=stop_event,
+    )
+
+    assert events[-1].status is SpotBurnStatus.CANCELLED
 
 
 def test_layer_is_unloaded_even_when_drawbeam_raises(monkeypatch):

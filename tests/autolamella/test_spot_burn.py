@@ -7,6 +7,7 @@ These cover the failure modes that crashed the unsupervised (automatic) path:
 - the widget factory rendering float/int fields as a text box instead of a spinbox.
 """
 
+import threading
 from unittest.mock import MagicMock
 
 import pytest
@@ -166,10 +167,57 @@ def test_run_spot_burn_emits_progress_via_microscope(mock_microscope):
         c.args[0] for c in mock_microscope.spot_burn_progress_signal.emit.call_args_list
     ]
     # initial progress reports the total number of points
-    assert emitted[0]["current_point"] == 0
-    assert emitted[0]["total_points"] == 2
-    # final emission signals completion
-    assert emitted[-1] == {"finished": True}
+    assert emitted[0].status is SpotBurnStatus.BURNING
+    assert emitted[0].current_point == 0
+    assert emitted[0].total_points == 2
+    # final emission signals completion, and says which kind
+    assert emitted[-1].status is SpotBurnStatus.FINISHED
+    assert emitted[-1].status.is_terminal
+
+
+def test_a_cancelled_burn_reports_cancelled_not_finished(mock_microscope):
+    """The defect this contract exists to remove.
+
+    Both outcomes used to emit `{"finished": True}`, so cancelling a burn rendered
+    "Done" in the status bar and in the widget. Cancel is a normal action here -- it is
+    on a button, and the workflow task passes a stop_event too.
+    """
+    stop_event = threading.Event()
+    stop_event.set()  # already cancelled before the first point
+
+    FibsemMicroscope.run_spot_burn(
+        mock_microscope,
+        settings=SpotBurnSettings(
+            coordinates=[Point(0.5, 0.5), Point(0.6, 0.6)],
+            exposure_time=1.0,
+            milling_current=30e-12,
+        ),
+        stop_event=stop_event,
+    )
+
+    emitted = [
+        c.args[0] for c in mock_microscope.spot_burn_progress_signal.emit.call_args_list
+    ]
+    assert emitted[-1].status is SpotBurnStatus.CANCELLED
+    assert emitted[-1].status is not SpotBurnStatus.FINISHED
+
+
+def test_a_cancelled_burn_stops_burning(mock_microscope):
+    """Not just a label: the run must actually stop placing spots."""
+    stop_event = threading.Event()
+    stop_event.set()
+
+    FibsemMicroscope.run_spot_burn(
+        mock_microscope,
+        settings=SpotBurnSettings(
+            coordinates=[Point(0.5, 0.5), Point(0.6, 0.6)],
+            exposure_time=1.0,
+            milling_current=30e-12,
+        ),
+        stop_event=stop_event,
+    )
+
+    assert mock_microscope.set_spot_scanning_mode.call_count == 0
 
 
 def test_run_spot_burn_module_function_delegates_to_the_microscope(mock_microscope):
@@ -187,30 +235,6 @@ def test_run_spot_burn_module_function_delegates_to_the_microscope(mock_microsco
     mock_microscope.run_spot_burn.assert_called_once_with(
         settings=settings, beam_type=BeamType.ION, stop_event=None
     )
-
-
-@requires_ui
-def test_build_spot_burn_progress_update_mapping():
-    """Progress dicts map to ProgressUpdate: running, done, and failed states."""
-    from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
-
-    running = build_spot_burn_progress_update(
-        {
-            "current_point": 1,
-            "total_points": 3,
-            "total_remaining_time": 20.0,
-            "total_estimated_time": 30.0,
-        }
-    )
-    assert (running.current, running.total) == (1, 3)
-    assert running.remaining_seconds == 20.0
-    assert not running.finished
-
-    done = build_spot_burn_progress_update({"finished": True})
-    assert done.finished and not done.message
-
-    failed = build_spot_burn_progress_update({"finished": True, "error": True})
-    assert failed.finished and failed.message == "Spot burn failed"
 
 
 def test_a_terminal_status_says_so_itself():
@@ -338,16 +362,6 @@ class TestTheTypedDecode:
 
         assert update.is_failed
         assert update.message == "Spot burn failed"
-
-    def test_the_dict_form_still_works(self):
-        """Both shapes flow until the producers flip, and the dict is the live one."""
-        from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
-
-        update = build_spot_burn_progress_update(
-            {"current_point": 2, "total_points": 4, "total_remaining_time": 5.0}
-        )
-
-        assert (update.current, update.total) == (2, 4)
 
 
 # --- SpotBurnFiducialTask.update_spot_burn_parameters_ui ------------------------

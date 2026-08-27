@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Union
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -33,26 +32,13 @@ DEFAULT_BEAM_CURRENT = 60e-12  # 60 pA
 HIDE_PROGRESS_DELAY_MS = 2000  # how long the "Done" bar stays up before hiding
 
 
-def build_spot_burn_progress_update(
-    report: Union[SpotBurnProgress, dict],
-) -> ProgressUpdate:
+def build_spot_burn_progress_update(report: SpotBurnProgress) -> ProgressUpdate:
     """Map a spot-burn progress report to a ProgressUpdate.
 
     Shared by the spot burn widget and the main-window status bar so both render
     progress with identical text and formatting. That sharing is why typing this
-    signal is cheap: there is one decode to migrate, not one per consumer.
-
-    Accepts both the typed report and the dict the signal still carries. The dict
-    branch goes when the producers flip; until then it is the live path, and the
-    typed one is exercised only by tests.
+    signal was cheap: there was one decode to migrate, not one per consumer.
     """
-    if isinstance(report, SpotBurnProgress):
-        return _typed_spot_burn_progress_update(report)
-    return _dict_spot_burn_progress_update(report)
-
-
-def _typed_spot_burn_progress_update(report: SpotBurnProgress) -> ProgressUpdate:
-    """The typed form. Not reached until the producers flip."""
     if report.status.is_terminal:
         return _spot_burn_outcome(report)
     return ProgressUpdate.combined(
@@ -76,25 +62,6 @@ def _spot_burn_outcome(report: SpotBurnProgress) -> ProgressUpdate:
     if report.status is SpotBurnStatus.CANCELLED:
         return ProgressUpdate(finished=True, message="Cancelled")
     return ProgressUpdate.done()
-
-
-def _dict_spot_burn_progress_update(ddict: dict) -> ProgressUpdate:
-    """The dict form, unchanged. Deleted once the producers flip.
-
-    Note what it cannot express: a cancelled burn arrives here as `{"finished": True}`,
-    indistinguishable from a completed one, and renders "Done".
-    """
-    if ddict.get("finished"):
-        if ddict.get("error"):
-            return ProgressUpdate.failed("Spot burn failed")
-        return ProgressUpdate.done()
-    return ProgressUpdate.combined(
-        current=ddict.get("current_point", 0),
-        total=ddict.get("total_points", 0),
-        remaining_seconds=ddict.get("total_remaining_time", 0.0),
-        total_seconds=ddict.get("total_estimated_time", 0.0),
-        message="Burning spots",
-    )
 
 
 class FibsemSpotBurnWidget(QWidget):
@@ -442,8 +409,11 @@ class FibsemSpotBurnWidget(QWidget):
         still visible if the user was not watching when it happened.
         """
         logging.error(f"Spot burn failed: {error}")
+        # Still emitted from the widget; FIB-824 PR 3 moves it into `run_spot_burn`,
+        # which is the only way the unsupervised workflow path can report a failure
+        # at all -- it never goes through this widget.
         self.microscope.spot_burn_progress_signal.emit(
-            {"finished": True, "error": True}
+            SpotBurnProgress(status=SpotBurnStatus.FAILED, error=str(error))
         )
         self._restore_idle_state()
 
