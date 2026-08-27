@@ -6,6 +6,7 @@ label built empty and filled later would have painted itself blank -- latent, si
 callers all passed the text to the constructor and never set it again. The surviving
 class is the overview's, whose behaviour these pin, plus the other's paint-time elide.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -81,7 +82,18 @@ class TestTheContract:
             label.repaint()
 
         assert label.text() == LONG
-        assert drawn(label).startswith("Overview acquisition")
+        painted = drawn(label)
+        # Not a fixed prefix: how much fits in 200px is the platform's font, not this
+        # widget's contract. macOS fits "Overview acquisition"; the Linux CI runner
+        # elides a character earlier, to "Overview acquisiti…", and the test failed
+        # there for a difference it was never about. What it is about is that the label
+        # paints the text it was given after construction rather than the empty string
+        # it was built with, so assert that: something was painted, and it is the start
+        # of the new text.
+        assert painted, "painted nothing: the label kept its empty constructor text"
+        assert LONG.startswith(painted.rstrip("…")), (
+            f"painted something that is not the start of the new text: {painted!r}"
+        )
 
     def test_none_is_not_the_string_none(self, shown):
         label = shown(LONG)
