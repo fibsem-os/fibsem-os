@@ -878,7 +878,10 @@ class WorkflowProgressWidget(QWidget):
         report = WorkflowStatusUpdate.from_payload(status)
 
         queue_items = report.queue_items
-        if not queue_items:
+        if queue_items is None:
+            # No snapshot in this payload -- leave the rows as they are. An *empty*
+            # snapshot is a different thing and does fall through, to reconcile the
+            # timeline down to zero rows.
             return
 
         task_status = report.status
@@ -900,7 +903,9 @@ class WorkflowProgressWidget(QWidget):
                 n for n, i in enumerate(self._items) if i.id == active_id
             )
             self._inner_finished = False
-            self._active_start_time = report.timestamp or time.time()
+            self._active_start_time = (
+                report.timestamp if report.timestamp is not None else time.time()
+            )
             # The pause accounting belongs to one task, not to the workflow.
             self._waiting_for_user = False
             self._paused_total = 0.0

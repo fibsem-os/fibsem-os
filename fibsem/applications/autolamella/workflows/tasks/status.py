@@ -51,7 +51,12 @@ class WorkflowStatusUpdate:
     # A snapshot of copies, not the live queue: `Queue.items` returns
     # `[copy.copy(i) for i in self._items]` under a lock. Safe to read from the GUI
     # thread, and no further defensive copying is wanted.
-    queue_items: List["WorkItem"] = field(default_factory=list)
+    #
+    # `None` rather than `[]` when absent, and the difference is load-bearing: the
+    # timeline treats "this payload carries no snapshot" as "leave the rows alone",
+    # and "the snapshot is empty" as "reconcile to zero rows". Defaulting to `[]`
+    # would collapse the two and leave stale rows on screen when a queue empties.
+    queue_items: Optional[List["WorkItem"]] = None
     # The plan this run was launched with. Informational only -- the live queue may
     # since have diverged from it. No in-repo production consumer reads either of
     # these; they are kept for the same reason `lamella_name` is, and should be
@@ -104,7 +109,11 @@ class WorkflowStatusUpdate:
             skip_reason=payload.get("skip_reason"),
             queue_position=payload.get("queue_position"),
             queue_total=payload.get("queue_total") or 0,
-            queue_items=list(payload.get("queue_items") or []),
+            queue_items=(
+                list(payload["queue_items"])
+                if payload.get("queue_items") is not None
+                else None
+            ),
             task_names=list(payload.get("task_names") or []),
             lamella_names=list(payload.get("lamella_names") or []),
         )

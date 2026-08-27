@@ -8,6 +8,7 @@ decode that can raise inside a Qt slot.
 """
 
 import dataclasses
+import inspect
 
 import pytest
 
@@ -80,6 +81,36 @@ class TestTheShape:
 
         assert report.lamella_name == "L99"
         assert "lamella_name" not in {f.name for f in dataclasses.fields(report)}
+
+
+class TestTheQueueSnapshot:
+    """`None` and `[]` mean different things, and the timeline acts on the difference.
+
+    The dict carried that distinction for free -- an absent key read as `None`, an empty
+    queue read as `[]`. A record defaulting the field to `[]` would collapse them, and
+    the visible symptom is stale rows left on screen when a queue empties.
+    """
+
+    def test_an_absent_snapshot_is_none_not_empty(self):
+        assert WorkflowStatusUpdate.from_payload({}).queue_items is None
+
+    def test_an_empty_snapshot_stays_empty(self):
+        report = WorkflowStatusUpdate.from_payload({"queue_items": []})
+
+        assert report.queue_items == []
+        assert report.queue_items is not None
+
+    def test_the_timeline_leaves_rows_alone_without_a_snapshot(self):
+        """ "No snapshot" means "this payload says nothing about the queue"."""
+        from fibsem.applications.autolamella.ui import workflow_timeline_widget
+
+        source = inspect.getsource(
+            workflow_timeline_widget.WorkflowProgressWidget.update_from_status
+        )
+        assert "is None" in source, (
+            "update_from_status must distinguish an absent snapshot from an empty one; "
+            "a falsy check collapses them and leaves stale rows when a queue empties"
+        )
 
 
 class TestQueuePosition:

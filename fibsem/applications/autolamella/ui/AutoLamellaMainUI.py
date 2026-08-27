@@ -2639,9 +2639,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             lamella_name = report.item_name
             queue_position = report.queue_position
             queue_total = report.queue_total
-            error_msg = report.error_message
-            timestamp = report.timestamp
-            task_duration = report.task_duration
+            # `error_message`, `timestamp` and `task_duration` were decoded here and
+            # never used -- dead before this change, so not converted into typed dead
+            # code. The timeline renders all three from the same report; the status bar
+            # never did. If the intent was for it to, that is a feature to add rather
+            # than three assignments to keep warm.
             msg = info.get("msg", "No message")
             status = report.status
 
