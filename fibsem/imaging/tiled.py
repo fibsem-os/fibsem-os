@@ -10,6 +10,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 
 from fibsem import acquire, conversions
+from fibsem.autofunctions.autofocus import run_auto_focus
 from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
 from fibsem.constants import DATETIME_FILE
 
@@ -185,6 +186,20 @@ class TiledAcquisitionRunner:
         image_settings = self.settings.image_settings
         self._focus_stack_settings = self.settings.focus_stack_settings
         self._af_mode = self.settings.autofocus_mode
+        self._af_settings = self.settings.autofocus_settings
+        # Once a working distance turns out not to be settable, say so once rather than
+        # per tile: on a 5 x 5 at EACH_TILE the per-tile version is 25 identical lines.
+        self._af_unavailable_logged = False
+
+        # Refused here rather than at the first tile. A sweep with every pass disabled
+        # raises inside `run_auto_focus`, and a run that dies on tile 1 of 25 has already
+        # moved the stage, made a folder and emitted progress. The fluorescence runner
+        # validates in its own `_setup_autofocus` for the same reason.
+        if self._af_mode is not AutoFocusMode.NONE and not self._af_settings.enabled:
+            raise ValueError(
+                f"Autofocus mode is {self._af_mode.value} but every sweep pass is "
+                f"disabled, so there is nothing to focus with."
+            )
 
         image_settings.autocontrast = False
         image_settings.save = True
@@ -513,13 +528,50 @@ class TiledAcquisitionRunner:
     # ── helpers ──────────────────────────────────────────────────────────
 
     def _autofocus_if_mode(self, mode: AutoFocusMode) -> None:
-        """Run autofocus and check for cancellation if the current af_mode matches."""
-        if self._af_mode is mode:
-            self.microscope.auto_focus(
-                beam_type=self._image_settings.beam_type,
-                reduced_area=self._image_settings.reduced_area,
+        """Run the configured focus sweep, if the current af_mode matches.
+
+        `run_auto_focus` rather than `microscope.auto_focus`: the vendor routine takes a
+        beam and a reduced area and nothing else, so this was the one acquisition in the
+        codebase that could be told *when* to focus but not *how* (FIB-646). It is also
+        the only autofocus path that was still vendor-specific -- `ThermoMicroscope`
+        forwards to `connection.auto_functions.run_auto_focus()`, and on Tescan and
+        Odemis that path had never been exercised for a tiled run at all.
+
+        `hfw` is the tile's own field of view, not the parameter default of 150 um. The
+        probe images have to frame what the tile frames, or the sweep scores a different
+        picture from the one being focused.
+
+        `reduced_area` comes from the sweep settings and defaults to None, which is what
+        the vendor call was passed anyway -- `_setup` clears `image_settings.reduced_area`
+        before every run, so nothing changes here yet. A centred half-frame is the thing
+        to try if tile edges turn out to drag the score around.
+        """
+        if self._af_mode is not mode:
+            return
+
+        result = run_auto_focus(
+            self.microscope,
+            beam_type=self._image_settings.beam_type,
+            hfw=self._image_settings.hfw,
+            settings=self._af_settings,
+            stop_event=self.stop_event,
+        )
+
+        # None means the backend cannot set the working distance for this beam, so the
+        # sweep declined to run rather than scoring images against a focus that never
+        # moved and reporting a WD it never applied (FIB-508, TESCAN ION). The tiles are
+        # still worth acquiring -- unfocused is not the same as wrong -- so this is a
+        # warning and not a stop. Cancellation is the case that *does* stop, and it
+        # arrives as OperationCancelledError from inside the sweep.
+        if result is None and not self._af_unavailable_logged:
+            self._af_unavailable_logged = True
+            logging.warning(
+                "Autofocus is unavailable on the %s beam for this microscope; the "
+                "overview will be acquired at the current working distance.",
+                self._image_settings.beam_type.name,
             )
-            _check_cancelled(self.stop_event)
+
+        _check_cancelled(self.stop_event)
 
     # ── future feature hooks ─────────────────────────────────────────────
 
