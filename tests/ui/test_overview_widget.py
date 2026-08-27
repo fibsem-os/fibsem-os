@@ -103,11 +103,20 @@ def microscope():
     return scope
 
 
+@pytest.fixture(autouse=True)
+def _destroy_widgets(destroy_widgets_after_test):
+    """Autouse because the leak is not confined to the `widget` fixture below: each
+    test leaves around nine live top-levels, most of them frames and buttons built
+    without a parent, and this file alone accounted for 2000 of the 2519 that
+    `tests/ui/` reached in a full run."""
+
+
 @pytest.fixture
 def widget(microscope):
     w = FibsemOverviewWidget(microscope)
     w.resize(900, 700)
     yield w
+    # close() only hides; _destroy_widgets above is what disposes of it.
     w.close()
 
 

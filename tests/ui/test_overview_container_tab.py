@@ -36,6 +36,11 @@ def qapp():
     yield app
 
 
+@pytest.fixture(autouse=True)
+def _destroy_widgets(destroy_widgets_after_test):
+    """The tabs below are built inline in each test and never torn down."""
+
+
 def _ui(microscope=None, experiment=None):
     return type("_UI", (), {"microscope": microscope, "experiment": experiment})()
 
