@@ -27,23 +27,34 @@ from fibsem.utils import current_timestamp_v3
 if TYPE_CHECKING:
     from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
 
+
 @dataclass
 class MillingTaskAcquisitionSettings:
     """Settings for the acquisition of images during a milling task."""
-    acquire_sem: bool = field(default=False, 
-                              metadata={
-                                  "label": "Acquire SEM Image",
-                                  "tooltip": "Whether to acquire SEM images between the milling task stages."})
-    acquire_fib: bool = field(default=False, 
-                              metadata={
-                                  "label": "Acquire FIB Image",
-                                  "tooltip": "Whether to acquire FIB images between the milling task stages."})
-    acquire_final_image: bool = field(default=True,
-                                      metadata={
-                                          "label": "Acquire Final Image",
-                                          "tooltip": "Refresh the FIB view with a single image once the task finishes. "
-                                                     "Disable for low-kV polishing, where imaging the lamella with a "
-                                                     "higher-voltage beam undoes the polish."})
+
+    acquire_sem: bool = field(
+        default=False,
+        metadata={
+            "label": "Acquire SEM Image",
+            "tooltip": "Whether to acquire SEM images between the milling task stages.",
+        },
+    )
+    acquire_fib: bool = field(
+        default=False,
+        metadata={
+            "label": "Acquire FIB Image",
+            "tooltip": "Whether to acquire FIB images between the milling task stages.",
+        },
+    )
+    acquire_final_image: bool = field(
+        default=True,
+        metadata={
+            "label": "Acquire Final Image",
+            "tooltip": "Refresh the FIB view with a single image once the task finishes. "
+            "Disable for low-kV polishing, where imaging the lamella with a "
+            "higher-voltage beam undoes the polish.",
+        },
+    )
     imaging: ImageSettings = field(default_factory=ImageSettings)
 
     @property
@@ -83,11 +94,14 @@ class MillingTaskAcquisitionSettings:
 @dataclass
 class FibsemMillingTaskConfig:
     """Configuration for a milling task."""
+
     name: str = "Milling Task"
     field_of_view: float = 150e-6
     channel: BeamType = BeamType.ION
     alignment: MillingAlignment = field(default_factory=MillingAlignment)
-    acquisition: MillingTaskAcquisitionSettings = field(default_factory=MillingTaskAcquisitionSettings)
+    acquisition: MillingTaskAcquisitionSettings = field(
+        default_factory=MillingTaskAcquisitionSettings
+    )
     stages: List[FibsemMillingStage] = field(default_factory=list)
 
     @property
@@ -115,11 +129,15 @@ class FibsemMillingTaskConfig:
             channel=BeamType[data.get("channel", BeamType.ION.name)],
             alignment=MillingAlignment.from_dict(alignment),
             acquisition=MillingTaskAcquisitionSettings.from_dict(acquisition),
-            stages=[FibsemMillingStage.from_dict(stage) for stage in data.get("stages", [])],
+            stages=[
+                FibsemMillingStage.from_dict(stage) for stage in data.get("stages", [])
+            ],
         )
 
     @classmethod
-    def from_stages(cls, stages: List[FibsemMillingStage], name: str = "Milling Task") -> "FibsemMillingTaskConfig":
+    def from_stages(
+        cls, stages: List[FibsemMillingStage], name: str = "Milling Task"
+    ) -> "FibsemMillingTaskConfig":
         """Create a FibsemMillingTaskConfig from a list of FibsemMillingStage."""
 
         if not stages:
@@ -151,13 +169,17 @@ class FibsemMillingTaskConfig:
         milling_time = sum(stage.estimated_time for stage in self.enabled_stages)
         return milling_time + self.acquisition.estimated_time
 
-    def compatible_stages(self, reference_idx: int = 0) -> List[Tuple[int, FibsemMillingStage]]:
+    def compatible_stages(
+        self, reference_idx: int = 0
+    ) -> List[Tuple[int, FibsemMillingStage]]:
         """Return stages whose milling settings & strategy match the stage at reference_idx."""
         if not self.stages:
             return []
 
         if reference_idx < 0 or reference_idx >= len(self.stages):
-            raise IndexError(f"reference_idx {reference_idx} out of range for {len(self.stages)} stages.")
+            raise IndexError(
+                f"reference_idx {reference_idx} out of range for {len(self.stages)} stages."
+            )
 
         reference_stage = self.stages[reference_idx]
         compatible: List[Tuple[int, FibsemMillingStage]] = []
@@ -168,9 +190,11 @@ class FibsemMillingTaskConfig:
 
         return compatible
 
-    def merge_compatible_stages(self, reference_idx: int = 0) -> 'FibsemMillingStage':
+    def merge_compatible_stages(self, reference_idx: int = 0) -> "FibsemMillingStage":
         compat_stages = self.compatible_stages(reference_idx=reference_idx)
-        logging.info(f"Compatible Stages: {[(idx, stage.name) for idx, stage in compat_stages]}") 
+        logging.info(
+            f"Compatible Stages: {[(idx, stage.name) for idx, stage in compat_stages]}"
+        )
 
         reference_stage = self.stages[reference_idx]
         if compat_stages:
@@ -179,6 +203,7 @@ class FibsemMillingTaskConfig:
                 reference_stage.patterns.append(self.stages[idx].pattern)
 
         return reference_stage
+
 
 # TODO: remove parent_ui arg, use microscope signal only, and stop_event -> need to migrate
 # TODO: restore current to initial current, rather than system.ion.beam.beam_current
@@ -189,9 +214,12 @@ class FibsemMillingTask:
     task_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     reference_image: Optional[FibsemImage] = None
 
-    def __init__(self, microscope: FibsemMicroscope,
-                 config: FibsemMillingTaskConfig,
-                 parent_ui: Optional['FibsemMillingWidget2'] = None):
+    def __init__(
+        self,
+        microscope: FibsemMicroscope,
+        config: FibsemMillingTaskConfig,
+        parent_ui: Optional["FibsemMillingWidget2"] = None,
+    ):
         self.config = config
         self.microscope = microscope
         self.parent_ui = parent_ui
@@ -230,7 +258,9 @@ class FibsemMillingTask:
         current = self.initial_imaging_current
         voltage = self.initial_imaging_voltage
         return (
-            current if current is not None else self.microscope.system.ion.beam.beam_current,
+            current
+            if current is not None
+            else self.microscope.system.ion.beam.beam_current,
             voltage if voltage is not None else self.microscope.system.ion.beam.voltage,
         )
 
@@ -248,9 +278,11 @@ class FibsemMillingTask:
         path = self.config.acquisition.imaging.path
         if path is None:
             path = fcfg.DATA_CC_PATH
-        self.config.acquisition.imaging.path = os.path.join(str(path), "Milling",
-                                                            self.name.replace(" ", "-"),
-                                                            )
+        self.config.acquisition.imaging.path = os.path.join(
+            str(path),
+            "Milling",
+            self.name.replace(" ", "-"),
+        )
 
     def run(self) -> None:
         """Run a list of milling stages, with a progress bar and notifications."""
@@ -258,11 +290,17 @@ class FibsemMillingTask:
         logging.info(f"Running milling task: {self.name} with ID: {self.task_id}")
 
         try:
-            self.initial_beam_shift = self.microscope.get_beam_shift(beam_type=self.config.channel)
+            self.initial_beam_shift = self.microscope.get_beam_shift(
+                beam_type=self.config.channel
+            )
             # Capture the live imaging current/voltage BEFORE setup_milling switches to the
             # milling current, so cleanup restores exactly what the user was imaging at.
-            self.initial_imaging_current = self.microscope.get_beam_current(self.config.channel)
-            self.initial_imaging_voltage = self.microscope.get_beam_voltage(self.config.channel)
+            self.initial_imaging_current = self.microscope.get_beam_current(
+                self.config.channel
+            )
+            self.initial_imaging_voltage = self.microscope.get_beam_voltage(
+                self.config.channel
+            )
 
             # configure acquisition filepaths
             self._configure_path()
@@ -283,10 +321,16 @@ class FibsemMillingTask:
         except Exception as e:
             logging.error(e)
         finally:
-            self._handle_progress({
-                "msg": f"Finished Milling Task: {self.name}. Restoring Imaging Conditions...",
-                "progress": {"state": "finished", "task_id": self.task_id, "task_name": self.name}
-            })
+            self._handle_progress(
+                {
+                    "msg": f"Finished Milling Task: {self.name}. Restoring Imaging Conditions...",
+                    "progress": {
+                        "state": "finished",
+                        "task_id": self.task_id,
+                        "task_name": self.name,
+                    },
+                }
+            )
             # restore the captured pre-milling imaging current/voltage
             imaging_current, imaging_voltage = self._imaging_conditions()
             self.microscope.finish_milling(
@@ -295,7 +339,9 @@ class FibsemMillingTask:
             )
             # restore initial beam shift
             if self.initial_beam_shift is not None:
-                self.microscope.set_beam_shift(self.initial_beam_shift, beam_type=self.config.channel)
+                self.microscope.set_beam_shift(
+                    self.initial_beam_shift, beam_type=self.config.channel
+                )
 
             self._post_task_acquisition()
 
@@ -305,9 +351,14 @@ class FibsemMillingTask:
             # refresh the view with a single image if the task didn't already acquire one.
             # NB: acquisition.enabled is (acquire_sem or acquire_fib), so it subsumes the
             # acquire_fib check this condition used to carry.
-            if self.config.acquisition.acquire_final_image and not self.config.acquisition.enabled:
+            if (
+                self.config.acquisition.acquire_final_image
+                and not self.config.acquisition.enabled
+            ):
                 self.microscope.autocontrast(beam_type=self.config.channel)
-                fib_image = self.microscope.acquire_image(image_settings=None, beam_type=self.config.channel)
+                fib_image = self.microscope.acquire_image(
+                    image_settings=None, beam_type=self.config.channel
+                )
                 self.microscope.fib_acquisition_signal.emit(fib_image)
         except Exception as e:
             logging.error(f"Error acquiring image after milling task: {e}")
@@ -322,20 +373,23 @@ class FibsemMillingTask:
         start_time = time.time()
         raise_if_cancelled(self._stop_event)
 
-        msgd =  {"msg": f"Preparing: {stage.name}",
-                "progress": {"state": "start", 
-                            "start_time": start_time,
-                            "current_stage": idx, 
-                            "total_stages": len(self.stages),
-                            "task_id": self.task_id,
-                            "task_name": self.name,
-                            "stage_name": stage.name,
-                            }}
+        msgd = {
+            "msg": f"Preparing: {stage.name}",
+            "progress": {
+                "state": "start",
+                "start_time": start_time,
+                "current_stage": idx,
+                "total_stages": len(self.stages),
+                "task_id": self.task_id,
+                "task_name": self.name,
+                "stage_name": stage.name,
+            },
+        }
         self._handle_progress(msgd)
 
         try:
             # if self.config.acquisition.enabled:
-                # self._acquire_milling_task_images(stage_name=stage.name, tag="start")
+            # self._acquire_milling_task_images(stage_name=stage.name, tag="start")
 
             # Set up the stage with the task configuration
             stage.reference_image = self.reference_image
@@ -354,24 +408,30 @@ class FibsemMillingTask:
             )
             # TODO: pass task as parent into strategy.run()?, allow logging from strategy?
             # performance logging
-            msgd = {"msg": "milling_task",
-                    "milling_task_id": self.task_id,
-                    "milling_task_name": self.name,
-                    "idx": idx,
-                    "stage": stage.to_dict(),
-                    "start_time": start_time,
-                    "end_time": time.time(),
-                    "timestamp": datetime.now().isoformat()}
+            msgd = {
+                "msg": "milling_task",
+                "milling_task_id": self.task_id,
+                "milling_task_name": self.name,
+                "idx": idx,
+                "stage": stage.to_dict(),
+                "start_time": start_time,
+                "end_time": time.time(),
+                "timestamp": datetime.now().isoformat(),
+            }
             logging.debug(f"{msgd}")
 
             # optionally acquire images after milling
             if self.config.acquisition.enabled:
-                self._acquire_milling_task_images(stage_name=f"{self.name}-{stage.name}", tag="finished")
+                self._acquire_milling_task_images(
+                    stage_name=f"{self.name}-{stage.name}", tag="finished"
+                )
 
         except OperationCancelledError:
             raise  # unwind to run() so the whole task aborts + restores conditions
         except Exception as e:
-            logging.error(f"Error running milling stage: {stage.name}, {e}", exc_info=True)
+            logging.error(
+                f"Error running milling stage: {stage.name}, {e}", exc_info=True
+            )
 
     def _acquire_reference_image(self) -> Optional[FibsemImage]:
         """Acquire a reference image for the milling task."""
@@ -383,7 +443,9 @@ class FibsemMillingTask:
         if path is None:
             path = Path(fcfg.DATA_CC_PATH)
 
-        filename = f"{self.name}_{fcfg.REFERENCE_FILENAME}_{current_timestamp_v3(timeonly=True)}".replace(' ', '-')
+        filename = f"{self.name}_{fcfg.REFERENCE_FILENAME}_{current_timestamp_v3(timeonly=True)}".replace(
+            " ", "-"
+        )
         image_settings = ImageSettings(
             hfw=self.config.field_of_view,
             dwell_time=self.config.alignment.imaging.dwell_time,
@@ -394,7 +456,9 @@ class FibsemMillingTask:
             path=path,
             filename=filename,
         )
-        self.reference_image = acquire.acquire_image(microscope=self.microscope, settings=image_settings)
+        self.reference_image = acquire.acquire_image(
+            microscope=self.microscope, settings=image_settings
+        )
 
     def _acquire_milling_task_images(
         self,
@@ -407,16 +471,23 @@ class FibsemMillingTask:
             tag (str): Tag to append to the filename
         """
         imaging_current, imaging_voltage = self._imaging_conditions()
-        self.microscope.finish_milling(imaging_current=imaging_current,
-                                       imaging_voltage=imaging_voltage)
+        self.microscope.finish_milling(
+            imaging_current=imaging_current, imaging_voltage=imaging_voltage
+        )
 
         acq_date = current_timestamp_v3(timeonly=True)
-        self.config.acquisition.imaging.filename = f"{stage_name}_{tag}_{acq_date}".replace(' ', '-')
+        self.config.acquisition.imaging.filename = (
+            f"{stage_name}_{tag}_{acq_date}".replace(" ", "-")
+        )
         self.config.acquisition.imaging.save = True
-        self.config.acquisition.imaging.hfw = self.config.field_of_view # force field of view to match task
+        self.config.acquisition.imaging.hfw = (
+            self.config.field_of_view
+        )  # force field of view to match task
 
         if self.config.acquisition.imaging.path is None:
-            self.config.acquisition.imaging.path = self.microscope._last_imaging_settings.path
+            self.config.acquisition.imaging.path = (
+                self.microscope._last_imaging_settings.path
+            )
 
         # support specifying acquiring sem and/or fib images only
         sem_image, fib_image = acquire.acquire_channels(
@@ -428,16 +499,18 @@ class FibsemMillingTask:
 
         try:
             if sem_image is not None:
-                self.microscope.sem_acquisition_signal.emit(sem_image) # sem image
+                self.microscope.sem_acquisition_signal.emit(sem_image)  # sem image
             if fib_image is not None:
-                self.microscope.fib_acquisition_signal.emit(fib_image) # ion image
+                self.microscope.fib_acquisition_signal.emit(fib_image)  # ion image
         except Exception as e:
             logging.error(f"Error emitting acquisition signals: {e}")
 
 
-def run_milling_task(microscope: FibsemMicroscope, 
-                     config: FibsemMillingTaskConfig, 
-                     parent_ui: Optional['FibsemMillingWidget2'] = None) -> FibsemMillingTask:
+def run_milling_task(
+    microscope: FibsemMicroscope,
+    config: FibsemMillingTaskConfig,
+    parent_ui: Optional["FibsemMillingWidget2"] = None,
+) -> FibsemMillingTask:
     """Run a milling task with the given configuration.
     Args:
         microscope (FibsemMicroscope): The microscope to use for milling.
@@ -446,8 +519,6 @@ def run_milling_task(microscope: FibsemMicroscope,
     Returns:
         FibsemMillingTask: The milling task that was run.
     """
-    task = FibsemMillingTask(microscope=microscope, 
-                             config=config, 
-                             parent_ui=parent_ui)
+    task = FibsemMillingTask(microscope=microscope, config=config, parent_ui=parent_ui)
     task.run()
     return task
