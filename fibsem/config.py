@@ -396,19 +396,24 @@ class FeatureFlags:
     # microscope and none of its guard rails, so the menu is not offered to anyone
     # who has not asked for it (FIB-338).
     scripts_enabled: bool = False
-    # The old napari Minimap tab, beside the Overview tab that replaced it. **On**, and
-    # that direction is the point: the canvas Overview now ships to everyone and holds
-    # both modalities (FIB-780), so this flag is not gating a new thing -- it is holding
-    # the door open on the old one while people finish moving off it.
+    # The old napari Minimap tab, beside the Overview tab that replaced it. **Off**: the
+    # canvas Overview ships to everyone and holds both modalities (FIB-780), so the old
+    # tab is not what anyone should land on -- it is here to be turned back on by anyone
+    # who finds something the new tab cannot do yet, for the one release before it goes.
     #
-    # It replaces `overview_canvas_tab`, which pointed the other way and was retired
-    # rather than flipped: a flipped flag reads as "off means the new tab is gone", and
-    # anyone who had turned the old one on would silently have the napari tab hidden
-    # instead. A new name gets the new default on every install, including the ones with
-    # a saved preferences file -- a changed default alone reaches only fresh ones.
+    # This hides the tab; it does not stop it being built. The widget owns a
+    # `napari.Viewer` that cannot be rebuilt safely mid-session, so it is constructed
+    # either way -- see `_apply_napari_overview_visibility`. Off means "not in the tab
+    # bar", not "not paid for".
+    #
+    # It replaces `overview_canvas_tab`, retired rather than flipped: that flag gated the
+    # *new* tab, and a flag that changes which tab it points at while keeping its name is
+    # a flag nobody can reason about from a preferences file. A new name also gets the
+    # new default on every install, including the ones with a saved preferences file --
+    # a changed default alone reaches only fresh ones.
     #
     # Deleted with the tab itself before the full release (FIB-405, FIB-413).
-    napari_overview_tab: bool = True
+    napari_overview_tab: bool = False
     # The connection chip in the tab-corner header, and the experiment buttons
     # waiting for a microscope alongside it. Off while the Connection tab is still
     # how people connect: this is the header half of FIB-775, landing ahead of the

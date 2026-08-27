@@ -258,10 +258,11 @@ def test_the_napari_tab_is_behind_the_flag(window_source):
 def test_the_retired_flag_is_gone_everywhere(window_source):
     """`overview_canvas_tab` was retired rather than flipped.
 
-    A flipped flag would read as "off means the new tab is gone", and anyone who had
-    turned the old one on would silently have had the napari tab hidden instead. A new
-    name gets the new default on every install, including the ones with a saved
-    preferences file -- a changed default alone reaches only fresh ones.
+    It gated the *new* tab. Keeping the name while pointing it at the old one would leave
+    a preferences file nobody can read: the same key meaning opposite things depending on
+    which version wrote it. A new name also gets the new default on every install,
+    including the ones with a saved preferences file -- a changed default alone reaches
+    only fresh ones.
 
     So it has to be gone from the flags, from the dialog and from the window together: a
     leftover reader would be reading a field that no longer exists.
@@ -289,16 +290,20 @@ def test_the_overview_tab_is_not_behind_any_flag(window_source):
     )
 
 
-def test_the_flag_exists_and_is_on_by_default():
-    """On by default: the napari tab is still there for anyone relying on it, and this
-    flag is what removes it rather than what adds anything."""
+def test_the_flag_exists_and_is_off_by_default():
+    """Off by default: the Overview tab is what a user lands on, and this flag is what
+    brings the superseded napari tab back for the one release before it is removed.
+
+    Asserted rather than left to the dataclass because the default is the whole of what
+    this flag does for almost everyone -- nobody opens Preferences to leave a checkbox
+    where it already was."""
     import fibsem.config as fibsem_cfg
 
-    assert fibsem_cfg.FeatureFlags().napari_overview_tab is True
+    assert fibsem_cfg.FeatureFlags().napari_overview_tab is False
 
 
 def test_the_flag_survives_a_preferences_round_trip(tmp_path):
-    """A flag that does not persist cannot be turned off by the person who wants it gone.
+    """A flag that does not persist cannot be turned on by the person who wants it back.
 
     Through `to_dict`/`from_dict` rather than through `apply_feature_flags`, which does
     not carry this one — saving and reloading is what the preferences dialog actually

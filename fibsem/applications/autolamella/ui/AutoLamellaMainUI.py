@@ -2927,10 +2927,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _apply_napari_overview_visibility(self) -> None:
         """Show or hide the old napari Minimap tab.
 
-        `features.napari_overview_tab`, on by default and on its way out: the canvas
-        Overview replaced this tab, and the flag is what holds the old one open for
-        anyone still moving off it. Both it and this method go with the tab before the
-        full release (FIB-405, FIB-413).
+        `features.napari_overview_tab`, off by default and on its way out: the canvas
+        Overview replaced this tab, and the flag is what brings the old one back for
+        anyone who needs it for the one release before it goes. Both it and this method
+        go with the tab before the full release (FIB-405, FIB-413).
 
         Visibility only, unlike the flag it replaced. The overview host tabs are built
         and dropped because their widgets subscribe to the microscope for their lifetime;
