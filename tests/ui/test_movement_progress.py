@@ -26,7 +26,7 @@ from PyQt5.QtCore import QEventLoop, QTimer
 
 # The real construction seam: a host with a view controller, a real image widget and a
 # Demo microscope. Building the widget through `__new__` and hand-injecting a label
-# would let every test here pass with `movement_progress_signal` disconnected.
+# would let every test here pass with the info bar never wired up at all.
 sys.path.insert(0, os.path.dirname(__file__))  # not str.rsplit: Windows paths
 from test_viewer_less_widgets import (  # noqa: E402
     _CanvasHost,
@@ -80,10 +80,30 @@ def _status(widget, beam: BeamType = BeamType.ELECTRON):
     return _info(widget, beam).get("move")
 
 
+def _spy_on_info(widget, record):
+    """Call *record* for every info-bar write, on the thread that writes it.
+
+    Hooked on the controller rather than on a signal. `movement_progress_signal` is
+    gone (FIB-825) -- the workers now call `_set_move_status` directly and
+    `@ensure_main_thread` marshals it -- so there is no emission to subscribe to.
+    Hooking the write itself is a truer observation anyway: it samples the value that
+    actually reached the bar, at the moment it reached it.
+    """
+    controller = widget._view_controller()
+    original = controller.set_info
+
+    def spy(beam, key, text):
+        original(beam, key, text)
+        if key == "move" and beam is BeamType.ELECTRON:
+            record(text)
+
+    controller.set_info = spy
+
+
 def _record(widget) -> list:
     """Every status the info bar held, in order, as the move ran."""
     seen = []
-    widget.movement_progress_signal.connect(lambda _d: seen.append(_status(widget)))
+    _spy_on_info(widget, seen.append)
     return seen
 
 
@@ -144,8 +164,8 @@ def test_the_status_shows_from_another_tab(movement):
 def test_the_instructions_label_is_left_alone(movement):
     """It says what a double-click does, which does not change while the stage moves."""
     seen = []
-    movement.movement_progress_signal.connect(
-        lambda _d: seen.append(movement.label_movement_instructions.text())
+    _spy_on_info(
+        movement, lambda _t: seen.append(movement.label_movement_instructions.text())
     )
     movement._move_to_absolute_position(TARGET)
     _run(lambda: seen and _status(movement) is None)
@@ -170,8 +190,7 @@ def test_progress_does_not_toast(movement, monkeypatch):
         "show_toast",
         lambda *a, **k: shown.append(a[0] if a else ""),
     )
-    progress = []
-    movement.movement_progress_signal.connect(lambda d: progress.append(d.get("msg")))
+    progress = _record(movement)
     movement._move_to_absolute_position(TARGET)
     _run(lambda: _status(movement) is None)
 
@@ -189,14 +208,15 @@ def test_it_clears_when_the_images_land_not_before(movement):
     the status cleared there it would read "nothing is happening" over the acquisition
     it just announced, and offer a double-click that is still disabled."""
     at_finished = []
-    movement.movement_progress_signal.connect(
-        lambda d: (
-            d.get("finished")
-            and at_finished.append(
-                (_status(movement), movement.image_widget.is_acquiring)
-            )
-        )
-    )
+    original = movement._on_move_finished
+
+    def spy():
+        # Sampled *before* the clear, which is the moment under test: the question is
+        # what the bar said while the acquisition was still running.
+        at_finished.append((_status(movement), movement.image_widget.is_acquiring))
+        original()
+
+    movement._on_move_finished = spy
     movement._move_to_absolute_position(TARGET)
     _run(lambda: at_finished and not movement.image_widget.is_acquiring)
 
@@ -271,15 +291,18 @@ def test_no_progress_message_says_updating_ui(movement):
 
 
 def test_the_status_is_written_on_the_gui_thread(movement):
-    """`movement_progress_signal` is a `pyqtSignal` on a widget with main-thread
-    affinity, so emitting it from a worker queues delivery onto the GUI thread -- which
-    is why the handler needs no `@ensure_main_thread` (`update_ui_after_movement` does,
-    because a worker calls *that* directly rather than through a signal). Asserted
-    rather than assumed: writing the info bar off-thread would be a Qt violation."""
+    """The invariant that survived deleting the signal (FIB-825).
+
+    It used to hold because `movement_progress_signal` was a `pyqtSignal` on a widget
+    with main-thread affinity, so emitting from a worker queued delivery onto the GUI
+    thread. It now holds because `_set_move_status` carries `@ensure_main_thread`,
+    which is what the workers call directly -- the same mechanism `update_ui` and
+    `update_ui_after_movement` in that class already used.
+
+    Asserted rather than assumed either way: writing a `QLabel` off-thread is a Qt
+    violation, and it is the one thing that change could plausibly have broken."""
     threads = []
-    movement.movement_progress_signal.connect(
-        lambda _d: threads.append(threading.current_thread().name)
-    )
+    _spy_on_info(movement, lambda _t: threads.append(threading.current_thread().name))
     movement._move_to_absolute_position(TARGET)
     _run(lambda: _status(movement) is None)
     assert threads, "the handler never ran"

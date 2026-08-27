@@ -37,8 +37,6 @@ ACQUIRING_IMAGES = "Acquiring images…"
 
 
 class FibsemMovementWidget(QtWidgets.QWidget):
-    movement_progress_signal = QtCore.pyqtSignal(dict)
-
     def __init__(
         self,
         microscope: FibsemMicroscope,
@@ -233,7 +231,6 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.saved_positions_widget.move_to_requested.connect(self.move_to_position)
 
         # signals
-        self.movement_progress_signal.connect(self.handle_movement_progress_update)
         self.image_widget.acquisition_progress_signal.connect(
             self.handle_acquisition_update
         )
@@ -372,42 +369,33 @@ class FibsemMovementWidget(QtWidgets.QWidget):
                 else SECONDARY_BUTTON_STYLESHEET
             )
 
-    def handle_movement_progress_update(self, ddict: dict) -> None:
-        """Handle movement progress updates from the microscope.
+    @ensure_main_thread
+    def _on_move_finished(self) -> None:
+        """A stage move is over: clear the status line and refresh the readout.
 
-        Written to the canvas info bar rather than shown as toasts. These messages
-        bracket a blocking move -- one click-to-move emits four of them inside ~45 ms
-        -- so as popups they stack into a wall that says nothing the moving stage and
-        the refreshing images do not already show. On the info bar the same words stay
-        put for the duration of the move, which is when they are worth reading.
+        Called directly from `move_stage_finished`, which Qt already runs on the GUI
+        thread -- the decorator is there so the contract holds wherever it is called
+        from, not because this path needs marshalling.
 
-        Toasts show unconditionally (FIB-781), so that wall of popups is what these
-        messages would actually produce rather than a thing to worry about later.
+        Cleared, or the last line sits there afterwards as though the stage were still
+        moving. Except while the images are still being retaken -- which is the usual
+        case, because `update_ui_after_movement` only *queues* the acquisition before
+        the worker returns. `move_stage_finished` already declines to re-enable the
+        buttons in that window; the status has to keep the same counsel or it says
+        "done" over a second of acquisition, and offers a double-click that is still
+        disabled. `handle_acquisition_update` clears it when the images actually land.
         """
-        msg = ddict.get("msg", None)
-        if msg is not None:
-            logging.debug(msg)
-            self._set_move_status(msg)
+        if not self.image_widget.is_acquiring:
+            self._set_move_status(None)
+        self._update_position_readout()
 
-        is_finished = ddict.get("finished", False)
-        if is_finished:
-            # Cleared, or the last line sits there afterwards as though the stage were
-            # still moving. Every path reaches here: each worker connects `finished` to
-            # `move_stage_finished`, which emits this.
-            #
-            # Except while the images are still being retaken -- which is the usual
-            # case, because `update_ui_after_movement` only *queues* the acquisition
-            # before the worker returns. `move_stage_finished` already declines to
-            # re-enable the buttons in that window; the status has to keep the same
-            # counsel or it says "done" over a second of acquisition, and offers a
-            # double-click that is still disabled. `handle_acquisition_update` clears
-            # it when the images actually land.
-            if not self.image_widget.is_acquiring:
-                self._set_move_status(None)
-            self._update_position_readout()
-
+    @ensure_main_thread
     def _set_move_status(self, msg: Optional[str]) -> None:
         """Put *msg* on the info bar of every canvas, or clear it when None.
+
+        Marshalled here rather than relayed through a signal: the workers call it
+        directly, and `@ensure_main_thread` is the contract the rest of the UI uses
+        -- `update_ui` and `update_ui_after_movement` in this same class already do.
 
         Not the instructions label on this tab. Five of the six paths that start a
         stage move start it from somewhere else -- the canvas beside the tabs (which
@@ -417,6 +405,8 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         the canvas that was clicked, is visible from every tab, and is already where
         the stage position this move is changing gets written.
         """
+        if msg is not None:
+            logging.debug(msg)
         controller = self._view_controller()
         if controller is None:
             return
@@ -517,16 +507,14 @@ class FibsemMovementWidget(QtWidgets.QWidget):
     @thread_worker
     def absolute_movement_worker(self, stage_position: FibsemStagePosition) -> None:
         """Worker function to move the stage to the specified position"""
-        self.movement_progress_signal.emit(
-            {"msg": f"Moving to {stage_position.pretty}…"}
-        )
+        self._set_move_status(f"Moving to {stage_position.pretty}…")
         self.microscope.safe_absolute_stage_movement(stage_position)
-        self.movement_progress_signal.emit({"msg": ACQUIRING_IMAGES})
+        self._set_move_status(ACQUIRING_IMAGES)
         self.update_ui_after_movement()
 
     def move_stage_finished(self):
         """Handle the completion of a stage movement"""
-        self.movement_progress_signal.emit({"finished": True})
+        self._on_move_finished()
         if self.image_widget.is_acquiring:
             return
         self._toggle_interactions(enable=True)
@@ -605,12 +593,8 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         # along the beam axis to hold eucentricity. "Vertically" rather than
         # "eucentric" so the message matches the words already on screen in
         # INSTRUCTIONS_TEXT.
-        self.movement_progress_signal.emit(
-            {
-                "msg": "Moving the stage vertically…"
-                if vertical_move
-                else "Moving the stage…"
-            }
+        self._set_move_status(
+            "Moving the stage vertically…" if vertical_move else "Moving the stage…"
         )
         # eucentric is only supported for ION beam
         if beam_type is BeamType.ION and vertical_move:
@@ -627,7 +611,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
                 dy=point.y,
                 beam_type=beam_type,
             )
-        self.movement_progress_signal.emit({"msg": ACQUIRING_IMAGES})
+        self._set_move_status(ACQUIRING_IMAGES)
         self.update_ui_after_movement()
 
     def _on_canvas_double_click(
@@ -692,11 +676,9 @@ class FibsemMovementWidget(QtWidgets.QWidget):
     @thread_worker
     def move_to_orientation_worker(self, orientation: str) -> None:
         """Threaded worker function to move the stage to the specified orientation"""
-        self.movement_progress_signal.emit(
-            {"msg": f"Moving to the {orientation} orientation…"}
-        )
+        self._set_move_status(f"Moving to the {orientation} orientation…")
         self.microscope.move_to_orientation(orientation)
         # The orientation path never said this, so the label sat on "Moving to the SEM
         # orientation…" while the move had finished and the images were being retaken.
-        self.movement_progress_signal.emit({"msg": ACQUIRING_IMAGES})
+        self._set_move_status(ACQUIRING_IMAGES)
         self.update_ui_after_movement()
