@@ -70,16 +70,17 @@ def _burned_points(mic: MagicMock) -> list:
 def test_run_spot_burn_filters_out_of_bounds_coordinates(mock_microscope):
     """Coordinates outside the 0-1 image bounds are skipped, not sent to set_spot."""
     coords = [
-        Point(0.5, 0.5),   # valid
-        Point(0.9, 0.2),   # valid
+        Point(0.5, 0.5),  # valid
+        Point(0.9, 0.2),  # valid
         Point(1.02, 0.5),  # x > 1
         Point(-0.1, 0.3),  # x < 0
-        Point(0.5, 1.5),   # y > 1
+        Point(0.5, 1.5),  # y > 1
     ]
     FibsemMicroscope.run_spot_burn(
         mock_microscope,
-        settings=SpotBurnSettings(coordinates=coords, exposure_time=1.0,
-                                  milling_current=30e-12),
+        settings=SpotBurnSettings(
+            coordinates=coords, exposure_time=1.0, milling_current=30e-12
+        ),
         beam_type=BeamType.ION,
     )
     assert _burned_points(mock_microscope) == [Point(0.5, 0.5), Point(0.9, 0.2)]
@@ -90,8 +91,9 @@ def test_run_spot_burn_keeps_boundary_coordinates(mock_microscope):
     coords = [Point(0.0, 0.0), Point(1.0, 1.0)]
     FibsemMicroscope.run_spot_burn(
         mock_microscope,
-        settings=SpotBurnSettings(coordinates=coords, exposure_time=1.0,
-                                  milling_current=30e-12),
+        settings=SpotBurnSettings(
+            coordinates=coords, exposure_time=1.0, milling_current=30e-12
+        ),
     )
     assert _burned_points(mock_microscope) == coords
 
@@ -100,8 +102,9 @@ def test_run_spot_burn_empty_coordinates_does_not_burn(mock_microscope):
     """No coordinates -> no spot exposures, but the beam state is still restored."""
     FibsemMicroscope.run_spot_burn(
         mock_microscope,
-        settings=SpotBurnSettings(coordinates=[], exposure_time=1.0,
-                                  milling_current=30e-12),
+        settings=SpotBurnSettings(
+            coordinates=[], exposure_time=1.0, milling_current=30e-12
+        ),
     )
     mock_microscope.set_spot_scanning_mode.assert_not_called()
     mock_microscope.set_full_frame_scanning_mode.assert_called_once()
@@ -114,8 +117,9 @@ def test_run_spot_burn_coerces_string_parameters(mock_microscope):
     """String milling_current/exposure_time (from the editor QLineEdit bug) don't crash."""
     FibsemMicroscope.run_spot_burn(
         mock_microscope,
-        settings=SpotBurnSettings(coordinates=[Point(0.5, 0.5)], exposure_time="2",
-                                  milling_current="3e-11"),
+        settings=SpotBurnSettings(
+            coordinates=[Point(0.5, 0.5)], exposure_time="2", milling_current="3e-11"
+        ),
         beam_type=BeamType.ION,
     )
     # the milling current is applied as a real float, not the string "3e-11"
@@ -131,8 +135,9 @@ def test_run_spot_burn_restores_full_frame_and_imaging_current(mock_microscope):
     """After burning, scanning returns to full frame and the imaging current is restored."""
     FibsemMicroscope.run_spot_burn(
         mock_microscope,
-        settings=SpotBurnSettings(coordinates=[Point(0.5, 0.5)], exposure_time=1.0,
-                                  milling_current=30e-12),
+        settings=SpotBurnSettings(
+            coordinates=[Point(0.5, 0.5)], exposure_time=1.0, milling_current=30e-12
+        ),
     )
     mock_microscope.set_full_frame_scanning_mode.assert_called_once()
     last_current = mock_microscope.set_beam_current.call_args_list[-1].kwargs["current"]
@@ -146,8 +151,11 @@ def test_run_spot_burn_emits_progress_via_microscope(mock_microscope):
     """Progress is reported through microscope.spot_burn_progress_signal (both run paths)."""
     FibsemMicroscope.run_spot_burn(
         mock_microscope,
-        settings=SpotBurnSettings(coordinates=[Point(0.5, 0.5), Point(0.6, 0.6)],
-                                  exposure_time=1.0, milling_current=30e-12),
+        settings=SpotBurnSettings(
+            coordinates=[Point(0.5, 0.5), Point(0.6, 0.6)],
+            exposure_time=1.0,
+            milling_current=30e-12,
+        ),
     )
     emitted = [
         c.args[0] for c in mock_microscope.spot_burn_progress_signal.emit.call_args_list
@@ -162,10 +170,15 @@ def test_run_spot_burn_emits_progress_via_microscope(mock_microscope):
 def test_run_spot_burn_module_function_delegates_to_the_microscope(mock_microscope):
     """The module entry point dispatches polymorphically (FIB-297): the default
     implementation parks the beam per point, TESCAN overrides with DrawBeam dots."""
-    settings = SpotBurnSettings(coordinates=[Point(0.5, 0.5)], exposure_time=1.0,
-                                milling_current=30e-12)
-    run_spot_burn(microscope=mock_microscope, settings=settings,
-                  beam_type=BeamType.ION, stop_event=None)
+    settings = SpotBurnSettings(
+        coordinates=[Point(0.5, 0.5)], exposure_time=1.0, milling_current=30e-12
+    )
+    run_spot_burn(
+        microscope=mock_microscope,
+        settings=settings,
+        beam_type=BeamType.ION,
+        stop_event=None,
+    )
     mock_microscope.run_spot_burn.assert_called_once_with(
         settings=settings, beam_type=BeamType.ION, stop_event=None
     )
@@ -177,8 +190,12 @@ def test_build_spot_burn_progress_update_mapping():
     from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
 
     running = build_spot_burn_progress_update(
-        {"current_point": 1, "total_points": 3,
-         "total_remaining_time": 20.0, "total_estimated_time": 30.0}
+        {
+            "current_point": 1,
+            "total_points": 3,
+            "total_remaining_time": 20.0,
+            "total_estimated_time": 30.0,
+        }
     )
     assert (running.current, running.total) == (1, 3)
     assert running.remaining_seconds == 20.0
@@ -265,7 +282,9 @@ def _make_supervised_spot_burn_task(monkeypatch, tmp_path, ask_user_responses):
     widget.get_settings.return_value = SpotBurnSettings(
         coordinates=[Point(0.5, 0.5)], exposure_time=1.0, milling_current=1e-9
     )
-    parent_ui = MagicMock()  # truthy experiment.task_protocol.get_supervision -> supervised
+    parent_ui = (
+        MagicMock()
+    )  # truthy experiment.task_protocol.get_supervision -> supervised
     parent_ui.spot_burn_widget = widget
 
     responses = iter(ask_user_responses)
