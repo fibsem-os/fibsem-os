@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import TYPE_CHECKING, List, Optional
 
 from fibsem.structures import BeamType, Point
@@ -42,6 +43,62 @@ class SpotBurnSettings:
             milling_current=ddict.get("milling_current", 60e-12),
             exposure_time=ddict.get("exposure_time", 10.0),
         )
+
+
+class SpotBurnStatus(str, Enum):
+    """What a spot burn is doing, or how it ended.
+
+    A `str` mixin so a report reads as itself in a log line, matching `TiledStatus`
+    and `FluorescenceAcquisitionStatus`.
+    """
+
+    BURNING = "burning"
+    FINISHED = "finished"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+
+    @property
+    def is_terminal(self) -> bool:
+        """Whether the run is over, however it ended.
+
+        Asked by both consumers. Answered once here rather than restated as a
+        membership tuple at each of them: the next status added is the one somebody
+        forgets to add to one of the two, and the symptom is a progress bar that
+        never clears.
+        """
+        return self is not SpotBurnStatus.BURNING
+
+
+@dataclass(frozen=True)
+class SpotBurnProgress:
+    """One report on ``spot_burn_progress_signal``.
+
+    Replaces the bare dict the signal carried, whose three shapes were told apart by
+    the presence of a `finished` key and then a nested `error` flag -- two booleans
+    encoding four outcomes, one of which could not be expressed at all. A cancelled
+    burn reported `{"finished": True}`, identical to a completed one, so cancelling
+    rendered "Done".
+
+    Every field but `status` is absent on some report, so every field but `status`
+    has a default -- which also keeps this constructible on Python 3.8, where
+    `kw_only` does not exist: exactly one required field, and it comes first.
+
+    Equality is left generated. Nothing here carries a numpy array, so unlike
+    `TiledProgress` there is no reason to turn it off.
+    """
+
+    status: SpotBurnStatus
+    # 1-based, because `run_spot_burn` counts with `enumerate(coordinates, 1)`. The
+    # initial report carries 0, meaning "not started". Deliberately unlike
+    # `milling_progress_signal`'s 0-based `current_stage`: there is nothing to correct
+    # here, so do not port a `display_*` property over -- it would double-count.
+    current_point: Optional[int] = None
+    total_points: Optional[int] = None
+    remaining_time: Optional[float] = None
+    total_remaining_time: Optional[float] = None
+    total_estimated_time: Optional[float] = None
+    # Only on FAILED. The text of the exception that ended the run.
+    error: Optional[str] = None
 
 
 def run_spot_burn(
