@@ -83,6 +83,8 @@ correctness work landed in correlation and in what the experiment record remembe
 - A marked position is boxed with the field of view it stands for.
 - Cancelled overviews no longer report "Done"; one overview can no longer drive the
   stage while the other acquires; stitching and saving now say so.
+- A tab-page key no longer shadows the imaging modality carried on the progress payload,
+  which had let one tab's updates be read as the other's.
 
 ### Image display
 
@@ -95,6 +97,8 @@ through that migration; napari is still a dependency.
 - On a migrated surface: contrast is built into the canvas, modified-scroll no longer
   zooms, and zoom/pan persist across image updates at the same resolution.
 - Images are reduced for display by averaging rather than sampling.
+- The standalone application's minimap moved onto the Overview canvas too, so the two
+  applications no longer show different overview implementations.
 - **The old napari overview is off by default, and is removed in the next release.**
   The Overview tab replaces it. If you still need the old one for something, turn it back
   on under **Edit → Preferences… → Features**; this is the last release in which that is
@@ -137,6 +141,15 @@ through that migration; napari is still a dependency.
   process — see `RELEASE.md`.
 - The running git revision is reported in the version string.
 - CI runs on Windows as well as Linux, across Python 3.8–3.13.
+- **`tests/ui/` now actually runs in CI.** Every file there opens with
+  `pytest.importorskip("PyQt5")`, and the matrix job installs `.[test]` without it, so all
+  103 files skipped silently — a green matrix said nothing about that directory. A separate
+  job installs `.[test,ui]` and fails loudly if the extra did not resolve.
+- Progress signals for tiled acquisition, fluorescence acquisition and spot burn carry a
+  typed payload rather than a bare dict, so a consumer reading a key that is not there
+  fails at the boundary instead of deep inside a handler.
+- The UI tests destroy the top-level widgets they build, instead of leaking them across
+  files.
 - ruff runs on every pull request, formatting the files a PR touches rather than the
   whole tree.
 - `matplotlib_scalebar` became a core dependency; the core stays importable without the
