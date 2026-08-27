@@ -20,7 +20,14 @@ from fibsem.milling import (
     MillingStrategyConfig,
     setup_milling,
 )
-from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, field_meta
+from fibsem.milling.progress import MillingProgress, MillingStatus
+from fibsem.structures import (
+    BeamType,
+    FibsemImage,
+    FibsemRectangle,
+    MillingState,
+    field_meta,
+)
 from fibsem.utils import save_json
 
 if TYPE_CHECKING:
@@ -372,15 +379,21 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
             # update milling progress via signal
             remaining_time = max(0.0, max_end_time - time.time())
             self.microscope.milling_progress_signal.emit(
-                {
-                    "progress": {
-                        "state": "update",
-                        "start_time": start_time,
-                        "milling_state": "UNKNOWN",
-                        "estimated_time": estimated_time,
-                        "remaining_time": remaining_time,
-                    }
-                }
+                MillingProgress(
+                    status=MillingStatus.STAGE_UPDATE,
+                    message=f"Coincidence milling: {self.stage.name}",
+                    stage_name=self.stage.name,
+                    start_time=start_time,
+                    # Deliberately not `self.microscope.get_milling_state()`. On
+                    # ThermoFisher that getter *sets the active view* as a side effect,
+                    # and this strategy is running a fluorescence acquisition that holds
+                    # the view for its whole duration -- asking would yank it away
+                    # mid-acquisition. UNKNOWN says "cannot be read without disturbing
+                    # something", which is the truth here.
+                    milling_state=MillingState.UNKNOWN,
+                    estimated_time=estimated_time,
+                    remaining_time=remaining_time,
+                )
             )
             # timeout
             if time.time() >= max_end_time:
