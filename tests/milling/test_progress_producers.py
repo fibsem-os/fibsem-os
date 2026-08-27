@@ -1,8 +1,7 @@
 """What the backends and strategies put on ``milling_progress_signal`` (FIB-797).
 
-The three backend poll loops and the two built-in strategies now emit a
-``MillingProgress`` rather than a nested dict. The task layer still emits dicts; the
-consumers decode either, which is what allows the producers to be flipped in two steps.
+Every producer emits a ``MillingProgress``: the three backend poll loops, both
+built-in strategies, and the task layer.
 
 The guard at the bottom is the part worth keeping after the migration. On FIB-402 the
 equivalent test was keyed on the signal name alone, and two emit sites hiding behind a
@@ -12,6 +11,7 @@ them.
 """
 
 import ast
+import threading
 import time
 from pathlib import Path
 
@@ -151,17 +151,16 @@ class TestTheCoincidenceStrategy:
 # The guard
 # --------------------------------------------------------------------------------------
 
-# Every module that emits on `milling_progress_signal`, and whether it has been flipped.
-# `tasks.py` is False on purpose: its two emit sites go in the next PR, along with the
-# relay they hide behind. Naming it rather than omitting it is what makes forgetting it
-# a failing test rather than a silently narrower scan.
+# Every module that emits on `milling_progress_signal`. All flipped as of FIB-797; the
+# mapping stays rather than collapsing to a list, so a new producer added mid-migration
+# has somewhere honest to sit.
 EMITTERS = {
     "microscope.py": True,
     "microscopes/simulator.py": True,
     "microscopes/tescan.py": True,
     "milling/strategy/standard.py": True,
     "milling/strategy/coincidence.py": True,
-    "milling/tasks.py": False,
+    "milling/tasks.py": True,
 }
 
 
@@ -251,3 +250,135 @@ def test_a_stage_run_end_to_end_emits_no_dict(microscope):
 
     dicts = [r for r in emitted if isinstance(r, dict)]
     assert dicts == [], f"{len(dicts)} dict payload(s) still reached the signal"
+
+
+# --------------------------------------------------------------------------------------
+# The task layer, and the defect it carried
+# --------------------------------------------------------------------------------------
+
+
+def _task(microscope, stages, name="Trench"):
+    from fibsem.milling.tasks import FibsemMillingTask, FibsemMillingTaskConfig
+
+    config = FibsemMillingTaskConfig(name=name, stages=stages)
+    return FibsemMillingTask(microscope=microscope, config=config)
+
+
+def _stage(name):
+    stage = FibsemMillingStage(name=name)
+    stage.strategy = StandardMillingStrategy()
+    return stage
+
+
+class TestHowATaskEnds:
+    """Before FIB-797 both `except` blocks logged and fell through to a `finally` that
+    emitted `finished` regardless, so a mill the user cancelled and a mill that crashed
+    both told the UI they had finished. The status bar rendered "Done" either way and the
+    exception text reached only the logfile."""
+
+    def test_a_completed_task_says_so(self, microscope):
+        task = _task(microscope, [_stage("Rough Mill")])
+        emitted = _collect(microscope)
+        task.run()
+
+        assert emitted[-1].status is MillingStatus.TASK_FINISHED
+        assert emitted[-1].error is None
+
+    def test_a_cancelled_task_does_not_claim_to_have_finished(self, microscope):
+        task = _task(microscope, [_stage("Rough Mill")])
+        task._stop_event = threading.Event()
+        task._stop_event.set()
+        emitted = _collect(microscope)
+        task.run()
+
+        assert emitted[-1].status is MillingStatus.TASK_CANCELLED
+
+    def test_a_cancelled_task_is_not_painted_as_a_failure(self, microscope):
+        """A cancel is someone getting what they asked for, so it is a distinct status
+        rather than an error -- nothing here should render red."""
+        task = _task(microscope, [_stage("Rough Mill")])
+        task._stop_event = threading.Event()
+        task._stop_event.set()
+        emitted = _collect(microscope)
+        task.run()
+
+        assert emitted[-1].status is not MillingStatus.TASK_FAILED
+        assert emitted[-1].error is None
+
+    def test_a_failed_task_carries_why(self, microscope):
+        task = _task(microscope, [_stage("Rough Mill")])
+
+        def boom(*a, **k):
+            raise RuntimeError("the column tripped")
+
+        task._configure_path = boom
+        emitted = _collect(microscope)
+        task.run()
+
+        assert emitted[-1].status is MillingStatus.TASK_FAILED
+        assert emitted[-1].error == "the column tripped"
+
+    def test_the_terminal_is_the_last_thing_the_task_says(self, microscope):
+        """Whatever the outcome, exactly one terminal report and nothing after it -- or a
+        consumer that hides its bar on `is_terminal` shows it again for the rest of the
+        session."""
+        task = _task(microscope, [_stage("Rough Mill"), _stage("Polish")])
+        emitted = _collect(microscope)
+        task.run()
+
+        terminals = [i for i, r in enumerate(emitted) if r.status.is_terminal]
+        assert len(terminals) == 1
+        assert terminals[0] == len(emitted) - 1
+
+
+class TestTheTwoScales:
+    def test_a_stage_starting_is_not_the_task_starting(self, microscope):
+        """The old vocabulary emitted `start` per stage, N times, and `finished` once per
+        task. They read like a matched pair and were not one."""
+        task = _task(microscope, [_stage("Rough Mill"), _stage("Polish")])
+        emitted = _collect(microscope)
+        task.run()
+
+        assert [r.status for r in emitted].count(MillingStatus.TASK_STARTED) == 1
+        assert [r.status for r in emitted].count(MillingStatus.STAGE_STARTED) == 2
+
+    def test_each_stage_reports_its_own_index_zero_based(self, microscope):
+        task = _task(microscope, [_stage("Rough Mill"), _stage("Polish")])
+        emitted = _collect(microscope)
+        task.run()
+
+        starts = [r for r in emitted if r.status is MillingStatus.STAGE_STARTED]
+        assert [r.current_stage for r in starts] == [0, 1]
+        assert [r.display_stage for r in starts] == [1, 2]
+        assert [r.stage_name for r in starts] == ["Rough Mill", "Polish"]
+        assert all(r.total_stages == 2 for r in starts)
+
+    def test_a_stage_finishing_is_not_terminal(self, microscope):
+        task = _task(microscope, [_stage("Rough Mill"), _stage("Polish")])
+        emitted = _collect(microscope)
+        task.run()
+
+        finishes = [r for r in emitted if r.status is MillingStatus.STAGE_FINISHED]
+        assert len(finishes) == 2
+        assert not any(r.status.is_terminal for r in finishes)
+
+    def test_every_report_carries_the_task_identity(self, microscope):
+        """What the `_emit` helper buys over the pass-through relay it replaces: the
+        stamp lives in one place instead of being repeated at each call site."""
+        task = _task(microscope, [_stage("Rough Mill")], name="Trench")
+        emitted = _collect(microscope)
+        task.run()
+
+        from_task = [r for r in emitted if r.task_id is not None]
+        assert from_task, "no report carried a task id"
+        assert all(r.task_name == "Trench" for r in from_task)
+        assert len({r.task_id for r in from_task}) == 1
+
+
+def test_the_relay_no_longer_exists():
+    """`_handle_progress` was a pass-through that emitted whatever it was handed,
+    handled nothing, and described the traffic backwards. Deleting it is only safe
+    because the guard above now follows `_emit` instead."""
+    from fibsem.milling.tasks import FibsemMillingTask
+
+    assert not hasattr(FibsemMillingTask, "_handle_progress")

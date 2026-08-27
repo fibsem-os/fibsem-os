@@ -1,12 +1,15 @@
 """The typed contract carried by ``milling_progress_signal`` (FIB-797).
 
-Nothing emits or reads a ``MillingProgress`` yet -- the producers still build nested
-dicts and the consumers still take them apart. What is worth pinning before either moves
-is the shape, and specifically the decisions that are cheap to quietly undo later: that
-a stage outcome and a task outcome are different things, that the offset lives in one
-place, and that a plugin's empty string is not a request for a blank label.
+What is pinned here is the shape, and specifically the decisions that are cheap to
+quietly undo later: that a stage outcome and a task outcome are different things, that
+the offset lives in one place, and that a plugin's empty string is not a request for a
+blank label.
 
-``milling_progress_signal`` has had **no** test coverage of any kind until now.
+``milling_progress_signal`` had **no** test coverage of any kind before FIB-797.
+
+`from_payload` is covered here too. Every in-tree producer now emits a typed report,
+so it decodes nothing of ours -- it is kept as the totality guard at a queued-Qt-slot
+boundary, because a plugin-loaded strategy is a producer this repo never sees.
 """
 
 import dataclasses
@@ -180,10 +183,16 @@ class TestMillingStateUnknown:
         assert MillingState.UNKNOWN not in ACTIVE_MILLING_STATES
 
 
-class TestDecodingTheLegacyPayload:
-    """`from_payload` is the migration shim: the producers still build nested dicts
-    while the consumers have already been taught the typed report. It is deleted with
-    `Signal(dict)` in the last PR of FIB-797."""
+class TestTheTotalityGuard:
+    """`from_payload` decodes whatever actually arrived, including the older nested dict.
+
+    Not a migration shim -- every in-tree producer emits a `MillingProgress`, so this is
+    a no-op for all of them. It stands because the producer set is **open**: milling
+    strategies are plugin-loadable and drive their own execution loops, so one built
+    against the older contract still emits a dict. `psygnal` does not validate
+    emissions, so that dict reaches the slot unchanged and the first attribute access on
+    it raises -- inside a queued Qt slot, which on PyQt5 is `qFatal` (FIB-329).
+    """
 
     def test_a_stage_start_decodes(self):
         report = MillingProgress.from_payload(
@@ -236,10 +245,15 @@ class TestDecodingTheLegacyPayload:
         assert report.status is MillingStatus.TASK_FINISHED
         assert report.status.is_terminal
 
-    def test_the_shape_that_rendered_nowhere_now_decodes_to_something(self):
-        """`strategy/standard.py` emits a payload carrying no `state` at all, so it
-        matched no branch in any of the three consumers and its message -- the strategy's
-        own words, the feature users asked for -- rendered nowhere."""
+    def test_a_delegating_strategys_shape_decodes_to_something(self):
+        """The shape with no `state` at all: a strategy that emits its label, then hands
+        the loop to a backend via `microscope.run_milling()`.
+
+        Under the old vocabulary this matched no branch in any of the three consumers,
+        so the strategy's own words -- the customisable text users asked for -- rendered
+        nowhere. Decoding it as an update is what finally puts them on the screen. Such
+        a strategy can be plugin-loaded, so this shape outlives the in-tree producers.
+        """
         report = MillingProgress.from_payload(
             {
                 "msg": "Running Rough Mill...",
@@ -253,21 +267,21 @@ class TestDecodingTheLegacyPayload:
         )
         assert report.status is MillingStatus.STAGE_UPDATE
         assert report.display_message == "Running Rough Mill..."
-        # `name` is the strategy's spelling of `stage_name`.
+        # `name` is the older spelling of `stage_name`.
         assert report.stage_name == "Rough Mill"
 
-    def test_the_coincidence_strategys_string_state_becomes_the_enum(self):
-        """It sends `"UNKNOWN"` where the other three producers send a `MillingState`,
-        and that is deliberate -- calling the getter would steal the active view from
-        the fluorescence acquisition the strategy is running."""
+    def test_a_string_milling_state_becomes_the_enum(self):
+        """Some producers send `"UNKNOWN"` where others send a `MillingState`, and that
+        is deliberate: calling the getter would steal the active view from a
+        fluorescence acquisition the strategy may be running."""
         report = MillingProgress.from_payload(
             {"progress": {"state": "update", "milling_state": "UNKNOWN"}}
         )
         assert report.milling_state is MillingState.UNKNOWN
 
     def test_a_typed_report_passes_straight_through(self):
-        """So a consumer can be flipped before its producers are, which is the whole
-        point of the shim."""
+        """The in-tree path, which is every producer in this repo. Identity, not a
+        rebuild -- the guard must cost nothing on the path that is always taken."""
         original = MillingProgress(MillingStatus.TASK_CANCELLED, error=None)
         assert MillingProgress.from_payload(original) is original
 
@@ -288,17 +302,17 @@ class TestDecodingTheLegacyPayload:
         ],
     )
     def test_nothing_makes_it_raise(self, payload):
-        """Total by construction. This runs inside a queued Qt slot, and on PyQt5 an
-        exception escaping one of those is `qFatal`: the process aborts with nothing
-        written to the logfile (FIB-329). A bar that does not move is recoverable; a
-        dead application is not."""
+        """Total by construction, which is the entire reason it is kept. This runs
+        inside a queued Qt slot, and on PyQt5 an exception escaping one of those is
+        `qFatal`: the process aborts with nothing written to the logfile (FIB-329). A
+        bar that does not move is recoverable; a dead application is not."""
         report = MillingProgress.from_payload(payload)
         assert isinstance(report, MillingProgress)
         assert report.display_message
 
     def test_a_boolean_is_not_a_count(self):
         """`bool` is an `int` subclass, so an unguarded `isinstance` check turns the
-        legacy `"started": True` into stage 1."""
+        older `"started": True` into stage 1."""
         report = MillingProgress.from_payload(
             {"progress": {"state": "start", "current_stage": True}}
         )

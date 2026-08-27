@@ -165,7 +165,7 @@ class FibsemMicroscope(ABC):
     # thread). Any handler that touches Qt or a canvas MUST marshal, e.g. with
     # @superqt.ensure_main_thread; a bare .connect() of a GUI handler is a
     # crash-on-hardware bug that won't reproduce on a dev machine.
-    milling_progress_signal = Signal(dict)
+    milling_progress_signal = Signal(MillingProgress)
     tiled_acquisition_signal = Signal(TiledProgress)
     spot_burn_progress_signal = Signal(SpotBurnProgress)
     _last_imaging_settings: ImageSettings

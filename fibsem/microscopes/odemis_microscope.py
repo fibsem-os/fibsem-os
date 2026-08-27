@@ -9,6 +9,7 @@ from psygnal import Signal
 
 from fibsem.microscope import FibsemMicroscope, ThermoMicroscope
 from fibsem.microscopes.tescan import TescanMicroscope
+from fibsem.milling.progress import MillingProgress
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
     BeamSettings,
@@ -238,7 +239,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     """TFS integration through Odemis.
     Requires Odemis installation, unlike ThermoMicroscope which provides direct TFS integration."""
 
-    milling_progress_signal = Signal(dict)
+    milling_progress_signal = Signal(MillingProgress)
     _last_imaging_settings: ImageSettings
 
     def __init__(self, system_settings: SystemSettings):

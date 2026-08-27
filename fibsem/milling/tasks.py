@@ -15,6 +15,7 @@ from fibsem import config as fcfg
 from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage
+from fibsem.milling.progress import MillingProgress, MillingStatus
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -243,9 +244,25 @@ class FibsemMillingTask:
         """Return the list of milling stages."""
         return self.config.enabled_stages
 
-    def _handle_progress(self, ddict: dict) -> None:
-        """Handle progress updates from the microscope."""
-        self.microscope.milling_progress_signal.emit(ddict)
+    def _emit(self, status: MillingStatus, **fields) -> None:
+        """Report where this task has got to.
+
+        Replaces `_handle_progress`, which was a pass-through: it emitted whatever it
+        was handed, handled nothing, and described the traffic backwards -- the updates
+        go *to* the microscope's signal rather than from it. Residue of an unfinished
+        migration.
+
+        Its one real effect was hiding two emit sites from any scan keyed on the signal
+        name, which is a blind spot rather than a feature. This version earns the
+        indirection instead: the task-identity stamp lives here rather than being
+        repeated at every call site, and the guard in
+        tests/milling/test_progress_producers.py knows to follow it.
+        """
+        self.microscope.milling_progress_signal.emit(
+            MillingProgress(
+                status=status, task_id=self.task_id, task_name=self.name, **fields
+            )
+        )
 
     def _imaging_conditions(self) -> Tuple[float, float]:
         """The (current, voltage) the user was imaging at before milling started.
@@ -289,6 +306,15 @@ class FibsemMillingTask:
 
         logging.info(f"Running milling task: {self.name} with ID: {self.task_id}")
 
+        # Read by the `finally` below, which runs whichever way the task ends. Seeded
+        # with the failure case because `except Exception` does not catch everything:
+        # a KeyboardInterrupt unwinds straight through to the `finally`, and reporting
+        # that as a completed mill is the defect this whole block exists to fix.
+        outcome = MillingStatus.TASK_FAILED
+        error: Optional[str] = None
+
+        self._emit(MillingStatus.TASK_STARTED, total_stages=len(self.stages))
+
         try:
             self.initial_beam_shift = self.microscope.get_beam_shift(
                 beam_type=self.config.channel
@@ -316,21 +342,21 @@ class FibsemMillingTask:
             for idx, stage in enumerate(self.stages):
                 self._mill_stage(stage, idx)
 
+            outcome = MillingStatus.TASK_FINISHED
         except OperationCancelledError as e:
             logging.info(f"Milling task '{self.name}' cancelled by user: {e}")
+            outcome = MillingStatus.TASK_CANCELLED
         except Exception as e:
             logging.error(e)
+            outcome = MillingStatus.TASK_FAILED
+            error = str(e)
         finally:
-            self._handle_progress(
-                {
-                    "msg": f"Finished Milling Task: {self.name}. Restoring Imaging Conditions...",
-                    "progress": {
-                        "state": "finished",
-                        "task_id": self.task_id,
-                        "task_name": self.name,
-                    },
-                }
-            )
+            # The outcome, not just "it stopped". Both `except` blocks used to log and
+            # fall through to a `finally` that emitted `finished` regardless, so a mill
+            # the user cancelled and a mill that crashed both told the UI they had
+            # finished -- the status bar rendered "Done" either way and the exception
+            # text reached only the logfile.
+            self._emit(outcome, error=error)
             # restore the captured pre-milling imaging current/voltage
             imaging_current, imaging_voltage = self._imaging_conditions()
             self.microscope.finish_milling(
@@ -373,19 +399,13 @@ class FibsemMillingTask:
         start_time = time.time()
         raise_if_cancelled(self._stop_event)
 
-        msgd = {
-            "msg": f"Preparing: {stage.name}",
-            "progress": {
-                "state": "start",
-                "start_time": start_time,
-                "current_stage": idx,
-                "total_stages": len(self.stages),
-                "task_id": self.task_id,
-                "task_name": self.name,
-                "stage_name": stage.name,
-            },
-        }
-        self._handle_progress(msgd)
+        self._emit(
+            MillingStatus.STAGE_STARTED,
+            start_time=start_time,
+            current_stage=idx,
+            total_stages=len(self.stages),
+            stage_name=stage.name,
+        )
 
         try:
             # if self.config.acquisition.enabled:
@@ -425,6 +445,14 @@ class FibsemMillingTask:
                 self._acquire_milling_task_images(
                     stage_name=f"{self.name}-{stage.name}", tag="finished"
                 )
+
+            self._emit(
+                MillingStatus.STAGE_FINISHED,
+                start_time=start_time,
+                current_stage=idx,
+                total_stages=len(self.stages),
+                stage_name=stage.name,
+            )
 
         except OperationCancelledError:
             raise  # unwind to run() so the whole task aborts + restores conditions
