@@ -247,6 +247,66 @@ def test_a_failed_burn_reports_a_failure_without_the_widget(mock_microscope):
     assert emitted[-1].error == "beam refused"
 
 
+def test_a_failed_burn_still_restores_the_beam(mock_microscope):
+    """The beam must not be left parked at the milling current.
+
+    The restore used to sit in the success path under a comment reading "always
+    restore full frame scanning mode and imaging current" -- so a burn that raised
+    left the beam in spot scanning mode at the milling current. A hazard, not untidy
+    state: the next thing to image would do so with the beam still parked and hot.
+    """
+    imaging_current = mock_microscope.get_beam_current.return_value
+    mock_microscope.set_spot_scanning_mode.side_effect = RuntimeError("beam refused")
+
+    with pytest.raises(RuntimeError):
+        FibsemMicroscope.run_spot_burn(
+            mock_microscope,
+            settings=SpotBurnSettings(
+                coordinates=[Point(0.5, 0.5)],
+                exposure_time=1.0,
+                milling_current=30e-12,
+            ),
+        )
+
+    mock_microscope.set_full_frame_scanning_mode.assert_called_once()
+    mock_microscope.set_beam_current.assert_called_with(
+        current=imaging_current, beam_type=BeamType.ION
+    )
+
+
+def test_a_failing_restore_does_not_replace_the_original_error(mock_microscope):
+    """An exception raised in a `finally` discards the one in flight.
+
+    The original is the one worth having -- it says why the burn failed, where a
+    restore failure says only that cleanup also went wrong. Each restore is guarded
+    separately for that reason, and so that neither is skipped because the other
+    failed.
+    """
+    imaging_current = mock_microscope.get_beam_current.return_value
+    mock_microscope.set_spot_scanning_mode.side_effect = RuntimeError("beam refused")
+    mock_microscope.set_full_frame_scanning_mode.side_effect = RuntimeError(
+        "restore also failed"
+    )
+
+    with pytest.raises(RuntimeError, match="beam refused"):
+        FibsemMicroscope.run_spot_burn(
+            mock_microscope,
+            settings=SpotBurnSettings(
+                coordinates=[Point(0.5, 0.5)],
+                exposure_time=1.0,
+                milling_current=30e-12,
+            ),
+        )
+
+    # The second restore still ran, despite the first one raising. Asserted on the
+    # *imaging* current specifically: `set_beam_current` is also called at the start of
+    # the burn to select the milling current, so a bare `assert_called()` would pass
+    # whether or not the restore ever happened.
+    mock_microscope.set_beam_current.assert_called_with(
+        current=imaging_current, beam_type=BeamType.ION
+    )
+
+
 def test_a_failed_burn_still_propagates_the_exception(mock_microscope):
     """Reporting is not swallowing: the caller still has to see it."""
     mock_microscope.set_spot_scanning_mode.side_effect = RuntimeError("beam refused")

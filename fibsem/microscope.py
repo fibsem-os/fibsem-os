@@ -1177,11 +1177,13 @@ class FibsemMicroscope(ABC):
             )
         )
 
-        try:
-            cancelled = False
+        cancelled = False
 
-            # set the beam current to the milling current
-            imaging_current = self.get_beam_current(beam_type=beam_type)
+        # Read before the `try`, so the `finally` below can always restore it. A
+        # failure here means there is nothing to restore anyway.
+        imaging_current = self.get_beam_current(beam_type=beam_type)
+
+        try:
             self.set_beam_current(current=milling_current, beam_type=beam_type)
 
             for i, pt in enumerate(coordinates, 1):
@@ -1231,9 +1233,6 @@ class FibsemMicroscope(ABC):
                     # than one log line later, now that the outcome is recorded.
                     break
 
-            # always restore full frame scanning mode and imaging current
-            self.set_full_frame_scanning_mode(beam_type=beam_type)
-
             # A cancelled burn is not a completed one. Both used to emit `{"finished": True}`,
             # so cancelling rendered "Done" -- the defect the status enum exists to remove.
             self.spot_burn_progress_signal.emit(
@@ -1245,8 +1244,6 @@ class FibsemMicroscope(ABC):
                     total_points=len(coordinates),
                 )
             )
-
-            self.set_beam_current(current=imaging_current, beam_type=beam_type)
         except Exception as e:
             logging.error(f"Error in run_spot_burn: {e}")
             # The failure terminal belongs to the producer. It used to be emitted by
@@ -1258,6 +1255,29 @@ class FibsemMicroscope(ABC):
                 SpotBurnProgress(status=SpotBurnStatus.FAILED, error=str(e))
             )
             raise
+        finally:
+            # Restores the beam on the failing path too. The comment above this block
+            # used to say "always restore" while sitting in the success path only, so a
+            # burn that raised left the beam parked in spot scanning mode at the
+            # milling current -- a hazard, not just untidy state.
+            #
+            # Each restore is guarded separately so that a failing restore cannot
+            # replace the exception that actually ended the run: an error raised in a
+            # `finally` discards the one in flight, and the original is the one worth
+            # having. They are also independent -- neither should be skipped because
+            # the other failed.
+            try:
+                self.set_full_frame_scanning_mode(beam_type=beam_type)
+            except Exception:
+                logging.exception(
+                    "Failed to restore full-frame scanning after the spot burn"
+                )
+            try:
+                self.set_beam_current(current=imaging_current, beam_type=beam_type)
+            except Exception:
+                logging.exception(
+                    "Failed to restore the imaging current after the spot burn"
+                )
 
     def get_beam_current(self, beam_type: BeamType) -> float:
         """Get the beam current for the specified beam type."""
