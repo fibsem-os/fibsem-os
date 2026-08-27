@@ -396,13 +396,19 @@ class FeatureFlags:
     # microscope and none of its guard rails, so the menu is not offered to anyone
     # who has not asked for it (FIB-338).
     scripts_enabled: bool = False
-    # The rebuilt FIB/SEM Overview tab, on the real-space canvas. Off while it sits
-    # *beside* the napari Overview tab rather than replacing it: the two drive the same
-    # instrument, and the existing tab is the one people are relying on until this has
-    # had bench time (FIB-413, FIB-405).
+    # The old napari Minimap tab, beside the Overview tab that replaced it. **On**, and
+    # that direction is the point: the canvas Overview now ships to everyone and holds
+    # both modalities (FIB-780), so this flag is not gating a new thing -- it is holding
+    # the door open on the old one while people finish moving off it.
     #
-    # Deleted when the tab replaces the napari one, not kept as a preference.
-    overview_canvas_tab: bool = False
+    # It replaces `overview_canvas_tab`, which pointed the other way and was retired
+    # rather than flipped: a flipped flag reads as "off means the new tab is gone", and
+    # anyone who had turned the old one on would silently have the napari tab hidden
+    # instead. A new name gets the new default on every install, including the ones with
+    # a saved preferences file -- a changed default alone reaches only fresh ones.
+    #
+    # Deleted with the tab itself before the full release (FIB-405, FIB-413).
+    napari_overview_tab: bool = True
     # The connection chip in the tab-corner header, and the experiment buttons
     # waiting for a microscope alongside it. Off while the Connection tab is still
     # how people connect: this is the header half of FIB-775, landing ahead of the
@@ -411,7 +417,7 @@ class FeatureFlags:
     # The dialog it opens is NOT gated -- File -> Connect to Microscope reaches it
     # either way, which is how it gets exercised while this is off.
     #
-    # A staging flag like `overview_canvas_tab`, and it goes the same way: deleted
+    # A staging flag like `napari_overview_tab`, and it goes the same way: deleted
     # when the chip replaces the tab, not kept as a preference.
     connection_chip: bool = False
 

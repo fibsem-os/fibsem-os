@@ -84,6 +84,7 @@ from fibsem.ui.tokens import (
     GRAY_WHITE_COLOR,
     GRID_BOUNDARY_COLOUR,
     NEUTRAL_300,
+    NEUTRAL_650,
     NEUTRAL_750,
     NEUTRAL_800,
     NEUTRAL_900,
@@ -161,41 +162,81 @@ _HEADER_BTN_SIZE = 26
 # the canvas, which owns its top row -- see `chrome_below_toolbar_y`.
 _CANVAS_CHROME_MARGIN = 8
 # Gap between view chips.
-_VIEW_CHIP_SPACING = 4
+VIEW_CHIP_SPACING = 4
+
 
 # Chips as they have always looked -- dark and rounded rather than the app's button
-# styling, because they read as a set of states rather than a toolbar. The active one is
-# the view the next run would land in, in the accent colour the app uses for a selected
-# state.
+# styling, because they read as a set of states rather than a toolbar.
 #
-# Opaque now, where these were `rgba(..., 170)`. The translucency was doing real work
-# while they sat on the image; on a solid strip it means nothing, and a transparency
-# that means nothing is the kind of thing a later redesign preserves for no reason. The
-# values are the palette's own steps rather than the blend arithmetic -- within a couple
-# of levels of it, and picked rather than mixed (`feedback_ui_widget_style`).
-_VIEW_CHIP_STYLE = (
-    f"QPushButton {{ color: {NEUTRAL_300}; font-size: 10px; padding: 3px 8px;"
-    f" border: none; border-radius: 9px; background: {NEUTRAL_900}; }}"
-    f"QPushButton:hover {{ background: {NEUTRAL_800}; }}"
-    f"QPushButton:checked {{ color: {GRAY_WHITE_COLOR};"
-    f" background: {NEUTRAL_750}; }}"
+# Built from one function rather than written out three times, and that is the point:
+# the three differ only in a border colour and what "checked" fills with, and every time
+# they were written out separately they drifted. `VIEW_CHIP_STYLE` used `border: none`
+# against the active style's real 1px border, so a chip grew by 2px in each direction the
+# moment it became the acquisition view -- invisible until the modality chips sat beside
+# it in one row and looked a size smaller. A shared builder makes that class of drift
+# impossible rather than merely commented against.
+#
+# Public, and imported by the region selector and the Overview tab's modality strip. They
+# were private and imported anyway; a name two other modules already depend on is part of
+# this module's surface whatever the underscore claims.
+#
+# Opaque, where these were `rgba(..., 170)`. The translucency was doing real work while
+# they sat on the image; on a solid strip it means nothing, and a transparency that means
+# nothing is the kind of thing a later redesign preserves for no reason. The values are
+# the palette's own steps rather than the blend arithmetic -- within a couple of levels
+# of it, and picked rather than mixed (`feedback_ui_widget_style`).
+def _chip_style(border: str, checked_background: str) -> str:
+    """One chip, in the state the caller means.
+
+    `border` is always 1px, even when it is transparent: a border that appears only in
+    one state changes the chip's size when it enters that state.
+
+    A disabled chip has to *look* disabled. Without the last rule Qt draws it exactly
+    like a live one -- measured: the greyed Fluorescence chip on a system with no camera
+    rendered pixel-identical to the enabled one, so the only thing saying "not this one"
+    was a tooltip nobody hovers. Dimmed text on the *same* ground, not a lighter one: a
+    lighter ground would make the dead chip brighter than its live neighbours.
+    """
+    return (
+        f"QPushButton {{ color: {NEUTRAL_300}; font-size: 10px; padding: 3px 8px;"
+        f" border: 1px solid {border}; border-radius: 9px;"
+        f" background: {NEUTRAL_900}; }}"
+        f"QPushButton:hover {{ background: {NEUTRAL_800}; }}"
+        f"QPushButton:checked {{ color: {GRAY_WHITE_COLOR};"
+        f" background: {checked_background}; }}"
+        f"QPushButton:disabled {{ color: {NEUTRAL_650}; background: {NEUTRAL_900}; }}"
+    )
+
+
+# A view that is not where the next run would land.
+VIEW_CHIP_STYLE = _chip_style(border="transparent", checked_background=NEUTRAL_750)
+# The view the next acquisition *would* land in -- marked by the border whether or not it
+# is the one being shown, which is the distinction the strip exists to make.
+VIEW_CHIP_STYLE_ACTIVE = _chip_style(
+    border=ACCENT_COLOR, checked_background=ACCENT_COLOR
 )
-_VIEW_CHIP_STYLE_ACTIVE = (
-    f"QPushButton {{ color: {NEUTRAL_300}; font-size: 10px; padding: 3px 8px;"
-    f" border: 1px solid {ACCENT_COLOR}; border-radius: 9px;"
-    f" background: {NEUTRAL_900}; }}"
-    f"QPushButton:hover {{ background: {NEUTRAL_800}; }}"
-    f"QPushButton:checked {{ color: {GRAY_WHITE_COLOR}; background: {ACCENT_COLOR}; }}"
-)
+# The imaging system this tab is showing. Accent when selected, the same as a selected
+# view, so "selected" means one thing across the row rather than grey at one level and
+# blue at the other. No border: the border is the acquisition-view marker and means
+# something the modality has no equivalent of.
+MODALITY_CHIP_STYLE = _chip_style(border="transparent", checked_background=ACCENT_COLOR)
 
 # The strip the chips live on. Distinct from the canvas rather than seamless: seamless is
 # only seamless while the canvas is empty and dark, and the moment an overview is on
 # screen the canvas is bright, so the boundary arrives anyway -- better as a decision
 # than as an accident. Scoped by object name, or the background would be inherited by
 # every chip on it.
-_VIEW_STRIP_STYLE = (
+#
+# The second rule is the viewport, and without it the first one never showed: these
+# strips are scroll areas, and a scroll area's viewport is a separate child widget that
+# `#viewStrip` does not match, so it filled itself from the palette instead. The strip
+# has therefore been painting SURFACE_COLOR (#262930) all along while declaring
+# PANEL_COLOR (#1e2027) -- invisible until a second strip sat beside it in one bar and
+# the two colours met. `> QWidget > QWidget` is the viewport and the row inside it.
+VIEW_STRIP_STYLE = (
     f"#viewStrip {{ background: {PANEL_COLOR};"
     f" border-bottom: 1px solid {BORDER_COLOR}; }}"
+    f"#viewStrip > QWidget > QWidget {{ background: {PANEL_COLOR}; }}"
 )
 
 # Cryo grid bar defaults, in microns -- the values the tab this replaces carried in
@@ -732,7 +773,7 @@ class FibsemOverviewWidget(QWidget):
         self._view_strip_layout.setContentsMargins(
             _CANVAS_CHROME_MARGIN, 4, _CANVAS_CHROME_MARGIN, 4
         )
-        self._view_strip_layout.setSpacing(_VIEW_CHIP_SPACING)
+        self._view_strip_layout.setSpacing(VIEW_CHIP_SPACING)
         # Packs the chips left. Added once and kept: the rebuild inserts before it.
         self._view_strip_layout.addStretch(1)
 
@@ -749,7 +790,7 @@ class FibsemOverviewWidget(QWidget):
         # far chips are reachable rather than lost.
         self.view_strip = QScrollArea()
         self.view_strip.setObjectName("viewStrip")
-        self.view_strip.setStyleSheet(_VIEW_STRIP_STYLE)
+        self.view_strip.setStyleSheet(VIEW_STRIP_STYLE)
         self.view_strip.setWidget(chips)
         self.view_strip.setWidgetResizable(True)
         self.view_strip.setFrameShape(QFrame.NoFrame)
@@ -1074,7 +1115,7 @@ class FibsemOverviewWidget(QWidget):
                 )
             )
             chip.setStyleSheet(
-                _VIEW_CHIP_STYLE_ACTIVE if view == acquisition else _VIEW_CHIP_STYLE
+                VIEW_CHIP_STYLE_ACTIVE if view == acquisition else VIEW_CHIP_STYLE
             )
             chip.clicked.connect(partial(self._on_view_chip_clicked, view))
             # Before the trailing stretch, so they pack left in the order above.

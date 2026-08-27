@@ -47,14 +47,8 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
-from fibsem.applications.autolamella.ui.autolamella_fluorescence_overview_tab import (
-    AutoLamellaFluorescenceOverviewTab,
-)
 from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
-)
-from fibsem.applications.autolamella.ui.autolamella_overview_tab import (
-    AutoLamellaOverviewTab,
 )
 from fibsem.applications.autolamella.ui.autolamella_task_config_editor import (
     AutoLamellaProtocolTaskConfigEditor,
@@ -66,6 +60,9 @@ from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
 )
 from fibsem.applications.autolamella.ui.lamella_workflow_widget import (
     LamellaWorkflowWidget,
+)
+from fibsem.applications.autolamella.ui.overview_container_tab import (
+    AutoLamellaOverviewContainerTab,
 )
 from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
     WorkflowPreflightDialog,
@@ -874,10 +871,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_report_issue.setVisible(
             self._preferences.features.bug_report_enabled
         )
-        # Show or hide the rebuilt Overview tab, building or dropping its widget to
-        # match. The FM Overview tab used to be here too; it ships to everyone with an
-        # FM now (FIB-611), so its visibility follows the instrument rather than a flag.
-        self._apply_overview_canvas_visibility()
+        # Show or hide the old napari Minimap tab. The Overview tab is not here: it
+        # ships to everyone, and which of its modalities can be reached follows the
+        # instrument rather than a flag.
+        self._apply_napari_overview_visibility()
         # Toggle Tools -> Scripts. Hiding the menu hides the whole feature: it is the
         # only route to the manager dialog, and the dialog is the only thing that runs
         # a script. If a script is mid-run, leave it visible -- taking away the only
@@ -1387,13 +1384,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         a loop over local variables hides the calls from it.
         """
         fm = getattr(self, "fm_overview_tab", None)
-        beam = getattr(self, "overview_canvas_tab", None)
+        beam = getattr(self, "beam_overview_tab", None)
         if fm is not None:
             allowed, reason = self._overview_may_work(beam)
             self.fm_overview_tab.set_interactive(allowed, reason)
         if beam is not None:
             allowed, reason = self._overview_may_work(fm)
-            self.overview_canvas_tab.set_interactive(allowed, reason)
+            self.beam_overview_tab.set_interactive(allowed, reason)
 
     def _overview_may_work(self, other) -> Tuple[bool, str]:
         """Whether an overview tab may work given what *other* is doing, and why not.
@@ -1507,14 +1504,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_microscope_connected(self):
         """Handle microscope connection and connect milling progress signal."""
-        # Before the signal wiring below, which returns early on a disconnect: the FM
-        # overview tab has to hear about that case too, to let go of the old microscope.
-        # It also re-answers whether the tab can be used, which is only knowable now --
+        # Before the signal wiring below, which returns early on a disconnect: both
+        # overview modalities have to hear about that case too, to let go of the old
+        # microscope. They hold it for life, so each has to be handed the new one. It
+        # also re-answers whether the tab can be used, which is only knowable now --
         # whether this system has a fluorescence detector at all.
-        self._refresh_fm_overview_microscope()
-        # Same for the rebuilt Overview tab, which holds its microscope for life and
-        # has to be handed the new one (or let go of the old) on every connection.
-        self._apply_overview_canvas_visibility()
+        self._refresh_overview_microscope()
         if (
             self.autolamella_ui is not None
             and self.autolamella_ui.microscope is not None
@@ -1761,8 +1756,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Create the tabs for the AutoLamella UI."""
         self._create_main_tab()
         self.add_minimap_tab()
-        self.add_fm_overview_tab()
-        self.add_overview_canvas_tab()
+        self.add_overview_tab()
         self.add_protocol_editor_tab()
         self.add_lamella_editor_tab()
         self.add_workflow_tab()
@@ -1780,7 +1774,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         self.minimap_widget.set_experiment()
         self.fm_overview_tab.refresh_experiment()
-        self.overview_canvas_tab.refresh_experiment()
+        self.beam_overview_tab.refresh_experiment()
         self.task_widget.set_experiment(self.autolamella_ui.experiment)
         self.lamella_widget.set_experiment()
         experiment = self.autolamella_ui.experiment
@@ -1809,17 +1803,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             if hasattr(self, "_lamella_tab_container")
             else -1
         )
-        # The FM overview tab is enabled by the presence of a fluorescence detector, not
-        # by an experiment, so loading one must not switch it on for a system that has
-        # no FM -- it would open onto an empty container.
-        fm_overview_tab_index = (
-            self.tab_widget.indexOf(self.fm_overview_tab)
-            if getattr(self, "fm_overview_tab", None) is not None
-            and not self.fm_overview_tab.is_available
+        # The Overview tab is enabled by what the instrument has, not by an experiment,
+        # so loading one must not switch it on for a system where neither modality can be
+        # reached -- it would open onto an empty container.
+        overview_tab_index = (
+            self.tab_widget.indexOf(self.overview_tab)
+            if getattr(self, "overview_tab", None) is not None
+            and not self.overview_tab.is_available
             else -1
         )
         for i in range(self.tab_widget.count()):
-            if i in (lamella_tab_index, fm_overview_tab_index):
+            if i in (lamella_tab_index, overview_tab_index):
                 continue
             self.tab_widget.setTabEnabled(i, True)
 
@@ -2242,7 +2236,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         self._selected_card_lamella = lamella
         self.fm_overview_tab.set_selected(lamella)
-        self.overview_canvas_tab.set_selected(lamella)
+        self.beam_overview_tab.set_selected(lamella)
         self.lamella_task_image_widget.set_lamella(lamella)
         if lamella is not None:
             self.lamella_widget.select_lamella(lamella.name)
@@ -2258,7 +2252,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_experiment_lamella_selected(self, lamella):
         """Sync card container and minimap when experiment-tab list selection changes."""
         self.fm_overview_tab.set_selected(lamella)
-        self.overview_canvas_tab.set_selected(lamella)
+        self.beam_overview_tab.set_selected(lamella)
         if getattr(self, "_syncing_selection", False) or lamella is None:
             return
         if not hasattr(self, "lamella_card_container"):
@@ -2274,7 +2268,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_minimap_lamella_selected(self, lamella):
         """Sync experiment list and card container when minimap list selection changes."""
         self.fm_overview_tab.set_selected(lamella)
-        self.overview_canvas_tab.set_selected(lamella)
+        self.beam_overview_tab.set_selected(lamella)
         if getattr(self, "_syncing_selection", False) or lamella is None:
             return
         self._syncing_selection = True
@@ -2864,116 +2858,136 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         splitter.setSizes([700, 500])
         layout.addWidget(splitter)
+        # "Minimap", not "Overview" any more: the canvas Overview tab replaced this one
+        # and took the name. Two tabs both called Overview would leave a user guessing
+        # which is which for exactly as long as this tab survives, and the internal name
+        # for it has always been the minimap (`add_minimap_tab`, `FibsemMinimapWidget`).
         self.tab_widget.insertTab(
-            1, container, fibsem_icon("mdi:map", color=GRAY_ICON_COLOR), "Overview"
+            1, container, fibsem_icon("mdi:map", color=GRAY_ICON_COLOR), "Minimap"
         )
+        # Kept on the window so `_apply_napari_overview_visibility` can find the tab. It
+        # goes with the tab (FIB-405).
+        self._minimap_tab_container = container
 
         # disable the tab by default
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(container), False)
+        self._apply_napari_overview_visibility()
 
-    def add_fm_overview_tab(self):
-        """Reserve the FM Overview tab, beside the beam one.
+    def add_overview_tab(self):
+        """Reserve the Overview tab: both modalities, one tab.
+
+        The FIB/SEM and fluorescence overviews were two tabs here, and are now two pages
+        of one -- `AutoLamellaOverviewContainerTab` holds both host tabs and a chip strip
+        that chooses between them (FIB-780). Both host tabs stay built and stay
+        subscribed while the other is showing, so everything the window tells them is
+        still told to both.
 
         The tab is created on every system and never hidden, so the tab bar keeps the
-        same shape whether or not there is a fluorescence detector. When it has nothing
-        to drive it is greyed out with a tooltip saying why -- see
-        :meth:`_on_fm_overview_availability`. The widget inside is built and destroyed
-        to match -- see :meth:`_refresh_fm_overview_microscope` -- so a dead tab costs
-        nothing but the container.
+        same shape whatever the instrument turned out to be. When neither modality has
+        anything to drive it is greyed out with a tooltip saying why -- see
+        :meth:`_on_overview_availability`. The widgets inside are built and destroyed to
+        match, so a dead tab costs nothing but the container.
 
-        Separate from "Overview" deliberately, not as a step toward merging them: the
-        two show different stage poses -- milling pose on the beam side, FM pose here --
-        and relating them is what the correlation workflow is for.
-
-        The tab is created empty. `FMOverviewWidget` requires a microscope with a
-        fluorescence detector at construction -- it has no meaningful empty state, since
-        every scale on its canvas comes from the camera -- and at this point there may be
-        no microscope at all. :class:`AutoLamellaFluorescenceOverviewTab` fills itself in on
-        connection, and says so through `availability_changed`.
+        The tab is created empty. Both overview widgets require a microscope at
+        construction -- every scale on their canvases comes from the instrument -- and at
+        this point there may be no microscope at all. The container fills itself in on
+        connection and says so through `availability_changed`.
         """
-        self.fm_overview_tab = AutoLamellaFluorescenceOverviewTab(self.autolamella_ui)
-        self.fm_overview_tab.availability_changed.connect(
-            self._on_fm_overview_availability
-        )
+        self.overview_tab = AutoLamellaOverviewContainerTab(self.autolamella_ui)
+        # The two host tabs, under the names the window has always used for them. Aliases
+        # rather than a rename: these are the same objects, every lifecycle call the
+        # window makes still goes to the tab that owns the answer, and
+        # `test_overview_tab_wiring.py` still reads the calls out of this source.
+        self.fm_overview_tab = self.overview_tab.fm_tab
+        self.beam_overview_tab = self.overview_tab.beam_tab
+
+        self.overview_tab.availability_changed.connect(self._on_overview_availability)
         self.fm_overview_tab.lamella_selected.connect(
             self._on_fm_overview_lamella_selected
         )
+        self.beam_overview_tab.lamella_selected.connect(
+            self._on_beam_overview_lamella_selected
+        )
+        # Per host tab rather than through the container's own `acquiring_changed`: the
+        # lock is derived from both tabs every time it is applied, and connecting to each
+        # keeps the two sources of that derivation the same two objects it reads.
         self.fm_overview_tab.acquiring_changed.connect(self._apply_overview_locks)
+        self.beam_overview_tab.acquiring_changed.connect(self._apply_overview_locks)
 
         self.tab_widget.insertTab(
             2,
-            self.fm_overview_tab,
-            fibsem_icon("mdi:microscope", color=GRAY_ICON_COLOR),
-            "FM Overview",
-        )
-        self.tab_widget.setTabEnabled(
-            self.tab_widget.indexOf(self.fm_overview_tab), False
-        )
-        # Emits availability either way, which is what puts the reason on the tab.
-        self._refresh_fm_overview_microscope()
-
-    def add_overview_canvas_tab(self):
-        """Reserve the rebuilt Overview tab, beside the napari one it will replace.
-
-        Behind `features.overview_canvas_tab`, off by default, and deliberately *beside*
-        rather than instead of the existing Overview tab: the two drive the same
-        instrument, and the napari one is what people are relying on until this has had
-        bench time. Swapping them is its own change, once it has (FIB-413, FIB-405).
-
-        Same shape as `add_fm_overview_tab` in every other respect -- created empty and
-        always, hidden when the flag is off, filled in on connection by
-        :class:`AutoLamellaOverviewTab`, which needs a microscope to build its widget
-        and says so through `availability_changed`.
-        """
-        self.overview_canvas_tab = AutoLamellaOverviewTab(self.autolamella_ui)
-        self.overview_canvas_tab.availability_changed.connect(
-            self._on_overview_canvas_availability
-        )
-        self.overview_canvas_tab.lamella_selected.connect(
-            self._on_overview_canvas_lamella_selected
-        )
-        self.overview_canvas_tab.acquiring_changed.connect(self._apply_overview_locks)
-
-        self.tab_widget.insertTab(
-            3,
-            self.overview_canvas_tab,
+            self.overview_tab,
             fibsem_icon("mdi:map-search-outline", color=GRAY_ICON_COLOR),
-            "Overview (Canvas)",
+            "Overview",
         )
-        self.tab_widget.setTabEnabled(
-            self.tab_widget.indexOf(self.overview_canvas_tab), False
-        )
-        self._apply_overview_canvas_visibility()
+        self.tab_widget.setTabEnabled(self.tab_widget.indexOf(self.overview_tab), False)
+        # Emits availability either way, which is what puts the reason on the tab.
+        self._refresh_overview_microscope()
 
-    def _apply_overview_canvas_visibility(self) -> None:
-        """Show or hide the rebuilt Overview tab, and build or tear down its widget.
+    def _apply_napari_overview_visibility(self) -> None:
+        """Show or hide the old napari Minimap tab.
 
-        Unlike the FM tab there is no capability to check: every system has beams, so
-        the flag is the only condition.
+        `features.napari_overview_tab`, on by default and on its way out: the canvas
+        Overview replaced this tab, and the flag is what holds the old one open for
+        anyone still moving off it. Both it and this method go with the tab before the
+        full release (FIB-405, FIB-413).
+
+        Visibility only, unlike the flag it replaced. The overview host tabs are built
+        and dropped because their widgets subscribe to the microscope for their lifetime;
+        this one owns a `napari.Viewer` that cannot be rebuilt safely mid-session, and it
+        is the tab that is going away rather than the one being staged in, so hidden is
+        the whole of what off has to mean.
 
         Read straight off `self._preferences` rather than through a module-level
         `FEATURE_*` global. FIB-609 removed five of those and kept the one whose caller
         is a widget constructor with no preferences to hand; this one is a method on the
         window that owns them, so a global would only be a second copy to keep in step.
         """
-        if getattr(self, "overview_canvas_tab", None) is None:
+        container = getattr(self, "_minimap_tab_container", None)
+        if container is None:
             return
-        enabled = self._preferences.features.overview_canvas_tab
         self.tab_widget.setTabVisible(
-            self.tab_widget.indexOf(self.overview_canvas_tab), enabled
-        )
-        # Both, and in this order: hiding the tab is what the flag looks like, dropping
-        # the widget is what it has to mean. The refresh is unconditional because it is
-        # also the reconnection path -- `refresh_microscope` answers the flag itself.
-        self.overview_canvas_tab.set_enabled(enabled)
-        self.overview_canvas_tab.refresh_microscope()
-
-    def _on_overview_canvas_availability(self, available: bool) -> None:
-        self.tab_widget.setTabEnabled(
-            self.tab_widget.indexOf(self.overview_canvas_tab), available
+            self.tab_widget.indexOf(container),
+            self._preferences.features.napari_overview_tab,
         )
 
-    def _on_overview_canvas_lamella_selected(self, lamella):
+    def _on_overview_availability(self, available: bool) -> None:
+        """Enable the tab when either modality has something to drive, and say why not.
+
+        The one thing about the tab that is not the tab's own business: it has no
+        business reaching out to the tab bar it happens to sit in.
+
+        The tab is never hidden. A greyed tab that explains itself is easier to live
+        with than one that appears and vanishes depending on what the microscope turned
+        out to be -- but that is only true *because* of the tooltip, so the two are set
+        together here rather than in separate passes.
+
+        Qt does show a tooltip on a disabled tab: the `QTabBar` stays enabled and only
+        the tab within it is disabled, so the hover still lands. Worth stating because
+        disabled *widgets* do swallow tooltips, which makes this look doubtful.
+        """
+        index = self.tab_widget.indexOf(self.overview_tab)
+        self.tab_widget.setTabEnabled(index, available)
+        _, reason = self.overview_tab.unavailable_summary()
+        self.tab_widget.setTabToolTip(index, "" if available else reason)
+
+    def _refresh_overview_microscope(self):
+        """Build or drop both overview widgets to match the instrument.
+
+        The widgets are built and destroyed rather than left behind hidden. Each
+        subscribes to the microscope's stage signal for its lifetime, so one kept around
+        would go on doing work on every poll for a page nobody can reach -- and would
+        still be holding a psygnal reference to tear down later.
+
+        Whether the tab can be *used* is a separate question, answered by
+        `availability_changed` coming back through :meth:`_on_overview_availability`.
+        This method does not touch the tab bar.
+        """
+        if getattr(self, "overview_tab", None) is None:
+            return
+        self.overview_tab.refresh_microscope()
+
+    def _on_beam_overview_lamella_selected(self, lamella):
         """Sync the other lists when the rebuilt Overview tab's list changes.
 
         The same shape as `_on_minimap_lamella_selected`, minus the call back into the
@@ -3025,62 +3039,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         replaced in place (FIB-709). Neither tab subscribes to the experiment itself, so
         this is the only place that can see all of it.
         """
-        for name in ("fm_overview_tab", "overview_canvas_tab"):
+        for name in ("fm_overview_tab", "beam_overview_tab"):
             tab = getattr(self, name, None)
             if tab is not None:
                 tab.refresh_positions()
-
-    def _on_fm_overview_availability(self, available: bool):
-        """Enable the tab when it has something to drive, and say why when it does not.
-
-        The one thing about the tab that is not the tab's own business: it has no
-        business reaching out to the tab bar it happens to sit in.
-
-        The tab is never hidden. A greyed tab that explains itself is easier to live
-        with than one that appears and vanishes depending on what the microscope turned
-        out to be — but that is only true *because* of the tooltip, so the two are set
-        together here rather than in separate passes.
-
-        Qt does show a tooltip on a disabled tab: the `QTabBar` stays enabled and only
-        the tab within it is disabled, so the hover still lands. Worth stating because
-        disabled *widgets* do swallow tooltips, which makes this look doubtful.
-        """
-        index = self.tab_widget.indexOf(self.fm_overview_tab)
-        self.tab_widget.setTabEnabled(index, available)
-        self.tab_widget.setTabToolTip(
-            index, "" if available else self._fm_overview_unavailable_reason()
-        )
-
-    def _fm_overview_unavailable_reason(self) -> str:
-        """Why the FM Overview tab is greyed out, in the user's terms.
-
-        Two absences that look identical on the tab bar but are not: one is waiting for
-        something that is about to happen, the other is a fact about this system that
-        will not change. `availability_changed` is a bool and cannot carry the
-        difference, so it is worked out here — the window already holds the microscope.
-        """
-        microscope = (
-            self.autolamella_ui.microscope if self.autolamella_ui is not None else None
-        )
-        if microscope is None:
-            return "Connect a microscope to use the FM Overview"
-        return "No Fluorescence Microscope Available"
-
-    def _refresh_fm_overview_microscope(self):
-        """Build or drop the FM Overview widget to match the instrument.
-
-        The widget is built and destroyed rather than left behind hidden. It subscribes
-        to the microscope's stage signal for its lifetime, so one kept around would go
-        on doing work on every poll for a tab nobody can reach — and would still be
-        holding a psygnal reference to tear down later.
-
-        Whether the tab can be *used* is a separate question, answered by
-        `availability_changed` coming back through
-        :meth:`_on_fm_overview_availability`. This method does not touch the tab bar.
-        """
-        if getattr(self, "fm_overview_tab", None) is None:
-            return
-        self.fm_overview_tab.refresh_microscope()
 
     def _on_notification_service(
         self, message: str, notification_type: str, temporary: bool

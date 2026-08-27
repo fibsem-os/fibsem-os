@@ -2029,6 +2029,12 @@ def test_an_empty_grid_still_forbids_acquiring_after_a_lock_is_lifted(qapp):
 # ── the host side: building and retiring the tab ─────────────────────────
 
 
+from fibsem.applications.autolamella.ui.overview_container_tab import (
+    MODALITY_FIBSEM,
+    MODALITY_FLUORESCENCE,
+)
+
+
 class _StubHost:
     """The tab wiring, without the AutoLamella main window.
 
@@ -2048,12 +2054,18 @@ class _StubHost:
         AutoLamellaSingleWindowUI as _Real,
     )
 
-    add_fm_overview_tab = _Real.add_fm_overview_tab
-    _refresh_fm_overview_microscope = _Real._refresh_fm_overview_microscope
-    _on_fm_overview_availability = _Real._on_fm_overview_availability
-    _fm_overview_unavailable_reason = _Real._fm_overview_unavailable_reason
+    # One builder now, and it makes the merged Overview tab: the fluorescence overview is
+    # a page of it rather than a tab of its own (FIB-780). Everything below still reaches
+    # the same `AutoLamellaFluorescenceOverviewTab`, through `self.fm_overview_tab`, which
+    # the builder binds.
+    add_overview_tab = _Real.add_overview_tab
+    _refresh_overview_microscope = _Real._refresh_overview_microscope
+    _on_overview_availability = _Real._on_overview_availability
     _refresh_overview_positions = _Real._refresh_overview_positions
     _on_fm_overview_lamella_selected = _Real._on_fm_overview_lamella_selected
+    # The builder wires both pages' lists, so the beam handler is reached here too even
+    # though nothing in this file clicks it.
+    _on_beam_overview_lamella_selected = _Real._on_beam_overview_lamella_selected
     _set_minimap_workflow_enabled = _Real._set_minimap_workflow_enabled
     _apply_overview_locks = _Real._apply_overview_locks
     _overview_may_work = _Real._overview_may_work
@@ -2068,13 +2080,23 @@ class _StubHost:
         self.autolamella_ui = type(
             "_UI", (), {"microscope": microscope, "experiment": experiment}
         )()
-        self.add_fm_overview_tab()
+        self.add_overview_tab()
 
     @property
     def tab_enabled(self):
-        return self.tab_widget.isTabEnabled(
-            self.tab_widget.indexOf(self.fm_overview_tab)
-        )
+        """Whether the Overview tab can be opened at all.
+
+        The tab holds both modalities now, so this is no longer "is there an FM". On a
+        system without one the tab is still enabled -- for the beam page -- which is why
+        the tests that used to read this as the fluorescence answer read
+        `fm_modality_available` instead.
+        """
+        return self.tab_widget.isTabEnabled(self.tab_widget.indexOf(self.overview_tab))
+
+    @property
+    def fm_modality_available(self):
+        """Whether the fluorescence page has anything behind it -- the old `tab_enabled`."""
+        return self.fm_overview_tab.is_available
 
     # ── reading through to the tab ───────────────────────────────────────
     # Test scaffolding, not production shims: these say "what the window can see of the
@@ -2110,12 +2132,16 @@ def _plain_microscope():
     return microscope
 
 
-def test_the_fm_overview_tab_is_reserved_but_dead_without_a_microscope(qapp):
+def test_the_overview_tab_is_reserved_but_dead_without_a_microscope(qapp):
     """The widget needs a camera at construction -- every scale on its canvas comes from
-    one -- so the tab exists from startup and fills in on connection."""
+    one -- so the tab exists from startup and fills in on connection.
+
+    "Overview", not "FM Overview": the fluorescence overview is a page of the merged tab
+    (FIB-780), and the tab bar has one entry for both.
+    """
     host = _StubHost()
 
-    assert "FM Overview" in [
+    assert "Overview" in [
         host.tab_widget.tabText(i) for i in range(host.tab_widget.count())
     ]
     assert not host.tab_enabled
@@ -2130,91 +2156,99 @@ def test_the_tab_comes_alive_when_fluorescence_connects(qapp):
 
     host._build_fm_overview_widget()
 
-    assert host.tab_enabled
+    assert host.fm_modality_available
     assert isinstance(host.fm_overview_widget, FMOverviewWidget)
 
     host._teardown_fm_overview_widget()
 
 
-def test_a_microscope_without_fluorescence_greys_the_tab_and_says_why(qapp):
-    """A system with no FM will never drive this tab. It stays in the tab bar rather
-    than being withdrawn -- a tab that vanishes once you connect is more startling than
-    one that is simply dim -- so the tooltip is what keeps that from being a greyed tab
-    with nothing to say for itself."""
+def test_a_microscope_without_fluorescence_greys_the_chip_and_says_why(qapp):
+    """A system with no FM will never drive this page. The chip stays in the strip rather
+    than being withdrawn -- a control that vanishes once you connect is more startling
+    than one that is simply dim -- so the tooltip is what keeps that from being a greyed
+    chip with nothing to say for itself.
+
+    The *tab* stays enabled here, which is the merge's doing and is right: the FIB/SEM
+    page is perfectly usable on a system with no camera.
+    """
     host = _StubHost(microscope=_plain_microscope())
 
-    host._refresh_fm_overview_microscope()
+    host._refresh_overview_microscope()
 
-    index = host.tab_widget.indexOf(host.fm_overview_tab)
-    assert host.tab_widget.isTabVisible(index)
-    assert not host.tab_widget.isTabEnabled(index)
-    assert host.tab_widget.tabToolTip(index) == "No Fluorescence Microscope Available"
+    chip = host.overview_tab.modality_chip(MODALITY_FLUORESCENCE)
+    assert not chip.isEnabled()
+    assert chip.toolTip() == "No Fluorescence Microscope Available"
     assert host.fm_overview_widget is None
+    assert host.tab_enabled, "the beam page is still reachable without a camera"
 
 
 def test_no_microscope_yet_says_something_different(qapp):
-    """The other absence. Both look identical on the tab bar, but one is waiting for
-    something about to happen and the other is a fact about this system -- so telling
-    the user to connect a microscope is only right for one of them."""
+    """The other absence. Both look identical on a greyed control, but one is waiting for
+    something about to happen and the other is a fact about this system -- so telling the
+    user to connect a microscope is only right for one of them.
+
+    With no microscope neither page can be built, so this one is answered on the tab.
+    """
     host = _StubHost(microscope=None)
 
-    host._refresh_fm_overview_microscope()
+    host._refresh_overview_microscope()
 
-    index = host.tab_widget.indexOf(host.fm_overview_tab)
+    index = host.tab_widget.indexOf(host.overview_tab)
     assert host.tab_widget.isTabVisible(index)
     assert not host.tab_widget.isTabEnabled(index)
     assert (
-        host.tab_widget.tabToolTip(index)
-        == "Connect a microscope to use the FM Overview"
+        host.tab_widget.tabToolTip(index) == "Connect a microscope to use the Overview"
     )
     assert host.fm_overview_widget is None
 
 
-def test_connecting_a_microscope_without_fluorescence_keeps_the_tab(qapp):
-    """Whether the system has an FM is only known once something is connected. The tab
-    does not move -- only the reason it gives changes, from 'connect one' to 'this
-    system has none'."""
+def test_connecting_a_microscope_without_fluorescence_keeps_the_chip(qapp):
+    """Whether the system has an FM is only known once something is connected. The chip
+    does not move -- only the reason it gives changes, from 'connect one' to 'this system
+    has none'."""
     host = _StubHost(microscope=None)
-    index = host.tab_widget.indexOf(host.fm_overview_tab)
-    assert host.tab_widget.isTabVisible(index)
+    chip = host.overview_tab.modality_chip(MODALITY_FLUORESCENCE)
+    assert not chip.isEnabled()
+    assert chip.toolTip() == "Connect a microscope to use the Overview"
 
     host.autolamella_ui.microscope = _plain_microscope()
-    host._refresh_fm_overview_microscope()
+    host._refresh_overview_microscope()
 
-    assert host.tab_widget.isTabVisible(index)
-    assert not host.tab_widget.isTabEnabled(index)
-    assert host.tab_widget.tabToolTip(index) == "No Fluorescence Microscope Available"
+    assert not chip.isEnabled()
+    assert chip.toolTip() == "No Fluorescence Microscope Available"
 
 
-def test_a_microscope_with_fluorescence_brings_the_tab_back(qapp):
+def test_a_microscope_with_fluorescence_brings_the_chip_back(qapp):
     """And the reverse, so swapping between systems in one session settles correctly.
 
-    The tooltip has to be cleared, not just the tab enabled: a stale "No Fluorescence
-    Microscope Available" sitting on a working tab is worse than no tooltip at all."""
+    The tooltip has to stop being a reason, not just the chip enabled: a stale "No
+    Fluorescence Microscope Available" sitting on a working chip is worse than none."""
     from fibsem.ui.fm.overview_app import build_microscope
 
     host = _StubHost(microscope=_plain_microscope())
-    host._refresh_fm_overview_microscope()
-    index = host.tab_widget.indexOf(host.fm_overview_tab)
-    assert not host.tab_widget.isTabEnabled(index)
+    host._refresh_overview_microscope()
+    chip = host.overview_tab.modality_chip(MODALITY_FLUORESCENCE)
+    assert not chip.isEnabled()
 
     host.autolamella_ui.microscope = build_microscope()
-    host._refresh_fm_overview_microscope()
+    host._refresh_overview_microscope()
 
-    assert host.tab_widget.isTabVisible(index)
-    assert host.tab_widget.isTabEnabled(index)
-    assert host.tab_widget.tabToolTip(index) == ""
+    assert chip.isEnabled()
+    assert chip.toolTip() == "Fluorescence"
     assert isinstance(host.fm_overview_widget, FMOverviewWidget)
 
     host._teardown_fm_overview_widget()
 
 
-def test_a_greyed_tab_always_says_why(qapp):
+def test_nothing_unreachable_is_ever_silent(qapp):
     """The invariant behind the tests above, stated once over every state the tab has.
 
     Written as a sweep rather than another case-by-case test because the thing worth
-    protecting is that no *future* unavailable state can add a greyed tab with nothing
-    on it -- which is exactly the failure a per-case test cannot catch.
+    protecting is that no *future* unavailable state can add a greyed control with
+    nothing on it -- which is exactly the failure a per-case test cannot catch.
+
+    Two levels to sweep now, and the invariant is the same on both: the tab, and each
+    chip on it.
     """
     from fibsem.ui.fm.overview_app import build_microscope
 
@@ -2224,8 +2258,8 @@ def test_a_greyed_tab_always_says_why(qapp):
         ("fluorescence available", build_microscope()),
     ):
         host = _StubHost(microscope=microscope)
-        host._refresh_fm_overview_microscope()
-        index = host.tab_widget.indexOf(host.fm_overview_tab)
+        host._refresh_overview_microscope()
+        index = host.tab_widget.indexOf(host.overview_tab)
 
         assert host.tab_widget.isTabVisible(index), f"{label}: the tab is never hidden"
         if host.tab_widget.isTabEnabled(index):
@@ -2237,43 +2271,15 @@ def test_a_greyed_tab_always_says_why(qapp):
                 f"{label}: greyed out with nothing to say why"
             )
 
+        for modality in (MODALITY_FIBSEM, MODALITY_FLUORESCENCE):
+            chip = host.overview_tab.modality_chip(modality)
+            assert chip.isVisible() or not host.overview_tab.isVisible(), (
+                f"{label}: the {modality} chip was withdrawn rather than greyed"
+            )
+            assert chip.toolTip(), f"{label}: the {modality} chip says nothing at all"
+
         if host.fm_overview_widget is not None:
             host._teardown_fm_overview_widget()
-
-    host._teardown_fm_overview_widget()
-
-
-def test_the_same_microscope_connecting_again_keeps_the_widget(qapp):
-    """Rebuilding would throw away whatever is on the canvas, and a connection signal
-    can arrive more than once for one instrument."""
-    from fibsem.ui.fm.overview_app import build_microscope
-
-    host = _StubHost(microscope=build_microscope())
-    host._build_fm_overview_widget()
-    first = host.fm_overview_widget
-
-    host._build_fm_overview_widget()
-
-    assert host.fm_overview_widget is first
-
-    host._teardown_fm_overview_widget()
-
-
-def test_a_different_microscope_replaces_the_widget(qapp):
-    """The widget holds its microscope for life. Left alone across a reconnect it would
-    read geometry from an instrument nobody is driving -- FIB-433 is about doing this
-    without discarding the view."""
-    from fibsem.ui.fm.overview_app import build_microscope
-
-    host = _StubHost(microscope=build_microscope())
-    host._build_fm_overview_widget()
-    first = host.fm_overview_widget
-
-    host.autolamella_ui.microscope = build_microscope()
-    host._build_fm_overview_widget()
-
-    assert host.fm_overview_widget is not first
-    assert host.fm_overview_tab._microscope is host.autolamella_ui.microscope
 
     host._teardown_fm_overview_widget()
 
@@ -2286,8 +2292,13 @@ def test_retiring_the_widget_releases_the_stage_signal(qapp):
     from fibsem.ui.fm.overview_app import build_microscope
 
     microscope = build_microscope()
-    before = len(microscope.stage_position_changed)
     host = _StubHost(microscope=microscope)
+    # Measured with the fluorescence widget retired rather than before the host exists:
+    # the merged tab builds the beam widget too, and it subscribes to the same signal.
+    # Counting from an empty microscope would be counting both and attributing them here.
+    host._teardown_fm_overview_widget()
+    before = len(microscope.stage_position_changed)
+
     host._build_fm_overview_widget()
     assert len(microscope.stage_position_changed) == before + 1
 
@@ -2297,16 +2308,23 @@ def test_retiring_the_widget_releases_the_stage_signal(qapp):
     assert host.fm_overview_widget is None
 
 
-def test_disconnecting_the_microscope_retires_the_tab(qapp):
+def test_disconnecting_the_microscope_retires_the_page(qapp):
+    """Both pages, and the tab with them: a disconnect leaves nothing to drive.
+
+    Driven through the tab's own refresh rather than the fluorescence one, because that
+    is what a disconnect actually calls -- the fluorescence-only path would leave the
+    beam widget holding the microscope that was just taken away.
+    """
     from fibsem.ui.fm.overview_app import build_microscope
 
     host = _StubHost(microscope=build_microscope())
-    host._build_fm_overview_widget()
+    host._refresh_overview_microscope()
 
     host.autolamella_ui.microscope = None
-    host._build_fm_overview_widget()
+    host._refresh_overview_microscope()
 
     assert host.fm_overview_widget is None
+    assert not host.overview_tab.available_modalities()
     assert not host.tab_enabled
 
 
@@ -2366,7 +2384,7 @@ def test_everything_tolerates_the_tab_being_dead(qapp):
     host._build_fm_overview_widget()  # must not raise
     host._update_fm_overview_experiment()  # must not raise
     host._set_minimap_workflow_enabled(False)  # must not raise
-    host._refresh_fm_overview_microscope()  # must not raise
+    host._refresh_overview_microscope()  # must not raise
 
     assert getattr(host, "fm_overview_widget", None) is None
 
@@ -3041,7 +3059,7 @@ def test_the_host_tolerates_no_fm_overview_tab(qapp):
     """Both updates are called from paths that run on every system, including those
     with the tab switched off or no fluorescence detector at all."""
     host = _StubHost(microscope=_plain_microscope())
-    host._refresh_fm_overview_microscope()
+    host._refresh_overview_microscope()
 
     host._update_fm_overview_positions()  # must not raise
     host._update_fm_overview_selection(None)  # must not raise

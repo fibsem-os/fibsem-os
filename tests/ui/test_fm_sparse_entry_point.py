@@ -181,6 +181,16 @@ def test_the_button_sits_with_the_grid_it_sets(widget):
     assert header.isAncestorOf(widget.button_select_ground)
 
 
+def _toasts(monkeypatch):
+    """Collect what the widget says, instead of showing it."""
+    said = []
+    monkeypatch.setattr(
+        "fibsem.ui.fm.widgets.fm_overview_widget.notification_service.show_toast",
+        lambda message, level="info", *a, **k: said.append(message),
+    )
+    return said
+
+
 def test_with_no_overviews_it_says_so_rather_than_opening_an_empty_dialog(
     microscope, tmp_path
 ):
@@ -192,6 +202,42 @@ def test_with_no_overviews_it_says_so_rather_than_opening_an_empty_dialog(
         built.select_ground_to_image()
 
     assert opened == []
+
+
+def test_an_empty_folder_and_no_folder_at_all_are_not_the_same_message(
+    microscope, tmp_path, monkeypatch
+):
+    """Telling the user to acquire one first is wrong advice when there is no output
+    folder: acquiring would land somewhere this still cannot see, so the reader is sent
+    off to do something that cannot help. It was reported as a bug in the selector on
+    exactly that confusion, from an app started with no experiment loaded.
+
+    Asserted on what each message *tells the user to do*, not on the strings: the point
+    is that one directs at Output and the other at acquiring, and a test pinning the
+    wording would pass with the two advices swapped.
+    """
+    no_folder = FMOverviewWidget(microscope)
+    no_folder.set_save_directory(None)
+    said = _toasts(monkeypatch)
+    with dialog_never_opens():
+        no_folder.select_ground_to_image()
+    assert len(said) == 1
+    assert "Output" in said[0] or "experiment" in said[0]
+    assert "Acquire one" not in said[0], "told to acquire when there is nowhere to look"
+
+    empty_folder = FMOverviewWidget(microscope)
+    empty_folder.set_save_directory(str(tmp_path))
+    said = _toasts(monkeypatch)
+    with dialog_never_opens():
+        empty_folder.select_ground_to_image()
+    assert len(said) == 1
+    assert "Acquire one" in said[0]
+    # Named, because the wrong folder is the likeliest reason someone who *has* acquired
+    # an overview is being told there are none.
+    assert tmp_path.name in said[0]
+
+    no_folder.close()
+    empty_folder.close()
 
 
 def test_it_does_open_when_there_is_something_to_select_on(widget):

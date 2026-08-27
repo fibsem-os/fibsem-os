@@ -1230,11 +1230,28 @@ class FMOverviewWidget(QWidget):
             beam_overviews_in,
         )
 
-        views = beam_overviews_in(self._save_directory, self.microscope)
-        if not views:
+        # Two different nothings, and telling them apart is the whole point of the
+        # split. With no output folder there is nowhere to *look*, so "acquire one
+        # first" is not merely unhelpful -- it is wrong advice, and it sends the reader
+        # off to acquire an overview that will land somewhere this still cannot see.
+        # Reported as a bug on exactly that confusion, from an app started without an
+        # experiment.
+        directory = self._save_directory
+        if not directory:
             notification_service.show_toast(
-                "No FIB/SEM overviews found to select on. Acquire one on the Overview "
-                "tab first.",
+                "No output folder set, so there is nowhere to look for FIB/SEM "
+                "overviews. Open an experiment, or choose a folder in Output.",
+                "info",
+            )
+            return
+
+        views = beam_overviews_in(directory, self.microscope)
+        if not views:
+            # Named, because the folder being the wrong one is the likeliest reason a
+            # user who *has* acquired an overview is being told there are none.
+            notification_service.show_toast(
+                f"No FIB/SEM overviews found in {os.path.basename(directory.rstrip(os.sep))}. "
+                "Acquire one on the FIB/SEM overview first.",
                 "info",
             )
             return
