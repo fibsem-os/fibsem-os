@@ -176,10 +176,14 @@ class FibsemOverviewSettingsWidget(QWidget):
         stack below, which is whether to acquire a stack at each tile -- either can be
         wanted without the other, and putting them in one panel said otherwise.
 
-        One row, because a mode is all the runner can currently act on: it calls the
-        instrument's own routine, which takes a beam and a reduced area and nothing
-        else. Method and sweep passes arrive with FIB-646, which connects the tiled
-        runner to `run_auto_focus` like every other autofocus caller in the codebase.
+        One row, and no longer because that is all the runner can act on. Until FIB-646
+        the runner called the instrument's own routine -- a beam, a reduced area, nothing
+        else -- so a mode was genuinely everything there was to offer. It now runs
+        `run_auto_focus` against a full sweep config: method, passes, probe frame.
+
+        None of that is exposed here, so the sweep runs at its default. Adding controls
+        for it is unbuilt rather than pending -- there is no issue tracking it, which is
+        worth knowing before assuming one exists.
         """
         self.combo_autofocus = self._field(
             ValueComboBox(
