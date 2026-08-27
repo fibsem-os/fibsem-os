@@ -15,6 +15,7 @@ import pytest
 
 from fibsem.milling.progress import (
     _DEFAULT_MESSAGES,
+    MillingMessageTracker,
     MillingProgress,
     MillingStatus,
 )
@@ -177,3 +178,170 @@ class TestMillingStateUnknown:
         early; included, a stopped mill spins forever. Exiting early is bounded and
         recoverable; spinning is not."""
         assert MillingState.UNKNOWN not in ACTIVE_MILLING_STATES
+
+
+class TestDecodingTheLegacyPayload:
+    """`from_payload` is the migration shim: the producers still build nested dicts
+    while the consumers have already been taught the typed report. It is deleted with
+    `Signal(dict)` in the last PR of FIB-797."""
+
+    def test_a_stage_start_decodes(self):
+        report = MillingProgress.from_payload(
+            {
+                "msg": "Preparing: Rough Mill",
+                "progress": {
+                    "state": "start",
+                    "current_stage": 0,
+                    "total_stages": 3,
+                    "task_id": "abc",
+                    "task_name": "Trench",
+                    "stage_name": "Rough Mill",
+                    "start_time": 100.0,
+                },
+            }
+        )
+        assert report.status is MillingStatus.STAGE_STARTED
+        assert report.display_stage == 1
+        assert report.total_stages == 3
+        assert report.stage_name == "Rough Mill"
+        assert report.message == "Preparing: Rough Mill"
+
+    def test_an_update_decodes(self):
+        report = MillingProgress.from_payload(
+            {
+                "progress": {
+                    "state": "update",
+                    "start_time": 100.0,
+                    "milling_state": MillingState.RUNNING,
+                    "estimated_time": 60.0,
+                    "remaining_time": 12.0,
+                }
+            }
+        )
+        assert report.status is MillingStatus.STAGE_UPDATE
+        assert report.remaining_time == 12.0
+        assert report.milling_state is MillingState.RUNNING
+
+    def test_the_task_terminal_decodes(self):
+        report = MillingProgress.from_payload(
+            {
+                "msg": "Finished Milling Task: Trench...",
+                "progress": {
+                    "state": "finished",
+                    "task_id": "abc",
+                    "task_name": "Trench",
+                },
+            }
+        )
+        assert report.status is MillingStatus.TASK_FINISHED
+        assert report.status.is_terminal
+
+    def test_the_shape_that_rendered_nowhere_now_decodes_to_something(self):
+        """`strategy/standard.py` emits a payload carrying no `state` at all, so it
+        matched no branch in any of the three consumers and its message -- the strategy's
+        own words, the feature users asked for -- rendered nowhere."""
+        report = MillingProgress.from_payload(
+            {
+                "msg": "Running Rough Mill...",
+                "progress": {
+                    "started": True,
+                    "start_time": 100.0,
+                    "estimated_time": 60.0,
+                    "name": "Rough Mill",
+                },
+            }
+        )
+        assert report.status is MillingStatus.STAGE_UPDATE
+        assert report.display_message == "Running Rough Mill..."
+        # `name` is the strategy's spelling of `stage_name`.
+        assert report.stage_name == "Rough Mill"
+
+    def test_the_coincidence_strategys_string_state_becomes_the_enum(self):
+        """It sends `"UNKNOWN"` where the other three producers send a `MillingState`,
+        and that is deliberate -- calling the getter would steal the active view from
+        the fluorescence acquisition the strategy is running."""
+        report = MillingProgress.from_payload(
+            {"progress": {"state": "update", "milling_state": "UNKNOWN"}}
+        )
+        assert report.milling_state is MillingState.UNKNOWN
+
+    def test_a_typed_report_passes_straight_through(self):
+        """So a consumer can be flipped before its producers are, which is the whole
+        point of the shim."""
+        original = MillingProgress(MillingStatus.TASK_CANCELLED, error=None)
+        assert MillingProgress.from_payload(original) is original
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            None,
+            "not a dict",
+            42,
+            {},
+            {"progress": None},
+            {"progress": "not a dict"},
+            {"msg": 42, "progress": {"state": "start"}},
+            {"progress": {"state": "start", "current_stage": "one"}},
+            {"progress": {"state": "update", "remaining_time": object()}},
+            {"progress": {"state": "update", "milling_state": "NOT_A_STATE"}},
+            {"progress": {"state": "update", "milling_state": 3}},
+        ],
+    )
+    def test_nothing_makes_it_raise(self, payload):
+        """Total by construction. This runs inside a queued Qt slot, and on PyQt5 an
+        exception escaping one of those is `qFatal`: the process aborts with nothing
+        written to the logfile (FIB-329). A bar that does not move is recoverable; a
+        dead application is not."""
+        report = MillingProgress.from_payload(payload)
+        assert isinstance(report, MillingProgress)
+        assert report.display_message
+
+    def test_a_boolean_is_not_a_count(self):
+        """`bool` is an `int` subclass, so an unguarded `isinstance` check turns the
+        legacy `"started": True` into stage 1."""
+        report = MillingProgress.from_payload(
+            {"progress": {"state": "start", "current_stage": True}}
+        )
+        assert report.current_stage is None
+
+
+class TestTheStickyMessage:
+    """The rule that lets a *delegating* strategy -- one that calls
+    `microscope.run_milling()` and hands the loop to a backend -- set its label once and
+    have it survive every messageless tick that follows."""
+
+    def test_a_message_survives_the_ticks_that_follow_it(self):
+        tracker = MillingMessageTracker()
+        tracker.label(MillingProgress(MillingStatus.STAGE_UPDATE, message="Polishing"))
+        plain = MillingProgress(MillingStatus.STAGE_UPDATE, remaining_time=4.0)
+        assert tracker.label(plain) == "Polishing"
+
+    def test_a_new_stage_drops_the_previous_stages_words(self):
+        """Only `STAGE_UPDATE` inherits. Every other status is its own moment: a stage
+        that has just started is not still "Polishing" the one before it."""
+        tracker = MillingMessageTracker()
+        tracker.label(MillingProgress(MillingStatus.STAGE_UPDATE, message="Polishing"))
+        started = MillingProgress(MillingStatus.STAGE_STARTED, stage_name="Rough Mill")
+        assert tracker.label(started) == "Preparing: Rough Mill"
+
+    def test_a_finished_task_is_not_captioned_with_what_it_was_doing(self):
+        tracker = MillingMessageTracker()
+        tracker.label(MillingProgress(MillingStatus.STAGE_UPDATE, message="Polishing"))
+        assert (
+            tracker.label(MillingProgress(MillingStatus.TASK_FINISHED))
+            == "Finished milling task"
+        )
+
+    def test_an_empty_message_does_not_blank_the_label(self):
+        """Falsy, not `is not None`: a plugin returning `""` is a bug, not a request for
+        a blank label."""
+        tracker = MillingMessageTracker()
+        tracker.label(MillingProgress(MillingStatus.STAGE_UPDATE, message="Polishing"))
+        blank = MillingProgress(MillingStatus.STAGE_UPDATE, message="")
+        assert tracker.label(blank) == "Polishing"
+
+    def test_a_tracker_that_has_seen_nothing_still_renders(self):
+        tracker = MillingMessageTracker()
+        assert (
+            tracker.label(MillingProgress(MillingStatus.STAGE_UPDATE)) == "Milling..."
+        )

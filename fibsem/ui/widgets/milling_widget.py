@@ -12,6 +12,11 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 from fibsem.microscope import FibsemMicroscope
+from fibsem.milling.progress import (
+    MillingMessageTracker,
+    MillingProgress,
+    MillingStatus,
+)
 from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
 from fibsem.structures import MillingState
 from fibsem.ui import stylesheets
@@ -41,6 +46,9 @@ class FibsemMillingWidget2(QWidget):
         self._milling_thread: Optional[FunctionWorker] = None
         self._milling_stop_event = threading.Event()
         self._has_stages = False
+        # The last words a producer supplied, so a backend's messageless tick still
+        # has a label to show. See `MillingMessageTracker`.
+        self._milling_label = MillingMessageTracker()
         layout = QGridLayout()
 
         # pushbutton for run milling
@@ -95,63 +103,57 @@ class FibsemMillingWidget2(QWidget):
         return self._milling_thread is not None and self._milling_thread.is_alive()
 
     @ensure_main_thread
-    def _on_milling_progress(self, progress: dict):
-        logging.info(f"Milling progress: {progress}")
+    def _on_milling_progress(self, payload: object) -> None:
+        # `payload` is still a nested dict from every producer; `from_payload` decodes
+        # it, and is a no-op once they emit `MillingProgress` directly (FIB-797).
+        report = MillingProgress.from_payload(payload)
+        logging.debug("Milling progress: %s", report)
 
         # update the UI based on the progress information
         self._update_button_states()
 
-        progress_info: dict = progress.get("progress", None)  # type: ignore
-        if progress_info is None:
-            logging.warning("No progress information provided.")
+        if report.status.is_terminal:
+            self.progressBar_milling.setVisible(False)
+            self.progressBar_milling_stages.setVisible(False)
             return
 
-        state = progress_info.get("state", None)
+        label = self._milling_label.label(report)
 
-        # start milling stage progress bar
-        if state == "start":
-            msg = progress.get("msg", "Preparing Milling Conditions...")
-            current_stage = progress_info.get("current_stage", 0)
-            total_stages = progress_info.get("total_stages", 1)
-            stage_name = progress_info.get("stage_name", f"Stage {current_stage + 1}")
+        if report.status is MillingStatus.STAGE_STARTED:
+            # `or 1` rather than a `.get` default: a producer that sends 0 total stages
+            # is as much a division by zero as one that sends nothing.
+            total_stages = report.total_stages or 1
+            stage = report.display_stage or 1
+            stage_name = report.stage_name or f"Stage {stage}"
             self.progressBar_milling.setVisible(True)
             self.progressBar_milling_stages.setVisible(True)
             self.progressBar_milling.setValue(0)
             self.progressBar_milling.setRange(0, 100)
-            self.progressBar_milling.setFormat(msg)
+            self.progressBar_milling.setFormat(label)
             self.progressBar_milling_stages.setRange(0, 100)
-            self.progressBar_milling_stages.setValue(
-                int((current_stage + 1) / total_stages * 100)
-            )
+            self.progressBar_milling_stages.setValue(int(stage / total_stages * 100))
             self.progressBar_milling_stages.setFormat(
-                f"Milling Stage: {current_stage + 1}/{total_stages} - {stage_name}"
+                f"Milling Stage: {stage}/{total_stages} - {stage_name}"
             )
 
-        # update
-        if state == "update":
-            logging.debug(progress_info)
-
-            estimated_time = progress_info.get("estimated_time", None)
-            remaining_time = progress_info.get("remaining_time", None)
-            start_time = progress_info.get("start_time", None)
-
-            if remaining_time is None or estimated_time is None:
-                logging.warning(
-                    "Remaining time or estimated time not provided in progress info."
-                )
+        elif report.status is MillingStatus.STAGE_UPDATE:
+            remaining_time = report.remaining_time
+            # Falsy rather than `is None`, so an estimate of zero takes this branch
+            # instead of dividing by it. That division runs inside a queued Qt slot, and
+            # on PyQt5 an exception escaping one is `qFatal` -- the process aborts with
+            # nothing in the logfile (FIB-329).
+            if remaining_time is None or not report.estimated_time:
+                # No countdown to draw, but the producer's words are still worth showing:
+                # this is the branch a strategy's own report lands in, and it used to
+                # match nothing at all and render nowhere.
+                self.progressBar_milling.setFormat(label)
                 return
 
-            # calculate the percent complete
-            percent_complete = int((1 - (remaining_time / estimated_time)) * 100)
+            percent_complete = int((1 - (remaining_time / report.estimated_time)) * 100)
             self.progressBar_milling.setValue(percent_complete)
             self.progressBar_milling.setFormat(
-                f"Current Stage: {format_duration(remaining_time)} remaining..."
+                f"{label} - {format_duration(remaining_time)} remaining"
             )
-
-        # finished
-        if state == "finished":
-            self.progressBar_milling.setVisible(False)
-            self.progressBar_milling_stages.setVisible(False)
 
     def run_milling(self, config: Optional[FibsemMillingTaskConfig] = None):
         """Start the milling task in a separate thread.
