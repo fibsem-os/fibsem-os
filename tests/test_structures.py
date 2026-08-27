@@ -6,7 +6,6 @@ import pytest
 from fibsem.microscopes.autoscript import THERMO_API_AVAILABLE
 from fibsem.structures import (
     AutoFocusMode,
-    AutoFocusSettings,
     BeamSettings,
     BeamType,
     FibsemDetectorSettings,
@@ -187,24 +186,22 @@ def test_fibsem_image_extract_region_no_metadata():
         image.extract_region(FibsemRectangle(left=0.0, top=0.0, width=0.5, height=0.5))
 
 
-def test_autofocus_settings_defaults():
-    s = AutoFocusSettings()
-    assert s.mode is AutoFocusMode.NONE
+def test_there_is_only_one_autofocus_settings_now():
+    """The mode-only class is gone, and the name means one thing again.
 
+    `fibsem.structures` used to define an `AutoFocusSettings` whose sole member was the
+    mode, sharing a name with the real sweep config in `autofunctions.autofocus`.
+    `AutoFocusMode` had already been through the identical mistake -- two enums of one
+    name, so `NONE is NONE` was False across the two import paths with no type error to
+    catch it -- so this asserts the duplicate stayed dead (FIB-646).
+    """
+    import fibsem.structures as structures
+    from fibsem.autofunctions.autofocus import AutoFocusSettings as Canonical
 
-def test_autofocus_settings_round_trip():
-    for mode in AutoFocusMode:
-        s = AutoFocusSettings(mode=mode)
-        d = s.to_dict()
-        assert d["mode"] == mode.value
-        restored = AutoFocusSettings.from_dict(d)
-        assert restored.mode is mode
-
-
-def test_autofocus_settings_from_dict_missing_key():
-    """Missing key in dict falls back to NONE."""
-    s = AutoFocusSettings.from_dict({})
-    assert s.mode is AutoFocusMode.NONE
+    assert not hasattr(structures, "AutoFocusSettings")
+    # And the one that survives is the sweep config, not a mode holder.
+    assert not hasattr(Canonical(), "mode")
+    assert Canonical().passes
 
 
 def test_overview_acquisition_settings_defaults():
@@ -218,7 +215,12 @@ def test_overview_acquisition_settings_defaults():
     assert s.focus_stack_settings.enabled is False
     assert s.focus_stack_settings.n_steps == 3
     assert s.focus_stack_settings.auto_focus is True
-    assert s.autofocus_settings.mode is AutoFocusMode.NONE
+    assert s.autofocus_mode is AutoFocusMode.NONE
+    # The sweep is the library default rather than a pinned copy, so an improvement to
+    # the default reaches overviews too.
+    from fibsem.autofunctions.autofocus import AutoFocusSettings
+
+    assert s.autofocus_settings.to_dict() == AutoFocusSettings().to_dict()
 
 
 def test_overview_acquisition_settings_round_trip():
@@ -228,7 +230,7 @@ def test_overview_acquisition_settings_round_trip():
             image_settings=ImageSettings(resolution=(1536, 1024), hfw=150e-6),
             nrows=2, ncols=3, overlap=0.1,
             focus_stack_settings=FocusStackSettings(enabled=True, n_steps=5, auto_focus=False),
-            autofocus_settings=AutoFocusSettings(mode=mode),
+            autofocus_mode=mode,
         )
         restored = OverviewAcquisitionSettings.from_dict(s.to_dict())
         assert restored.nrows == s.nrows
@@ -237,7 +239,7 @@ def test_overview_acquisition_settings_round_trip():
         assert restored.focus_stack_settings.enabled == s.focus_stack_settings.enabled
         assert restored.focus_stack_settings.n_steps == s.focus_stack_settings.n_steps
         assert restored.focus_stack_settings.auto_focus == s.focus_stack_settings.auto_focus
-        assert restored.autofocus_settings.mode is mode
+        assert restored.autofocus_mode is mode
 
 
 def test_overview_acquisition_settings_from_dict_legacy():
@@ -248,8 +250,81 @@ def test_overview_acquisition_settings_from_dict_legacy():
         # no autofocus_settings key, no focus_stack_settings key (old format)
     }
     s = OverviewAcquisitionSettings.from_dict(d)
-    assert s.autofocus_settings.mode is AutoFocusMode.NONE
+    assert s.autofocus_mode is AutoFocusMode.NONE
     assert s.focus_stack_settings.enabled is False
+
+
+def test_a_file_written_before_the_split_still_loads_its_mode():
+    """The shape this replaced put the mode *inside* `autofocus_settings`.
+
+    Every protocol and overview-parameters file written before FIB-646 looks like this,
+    and the mode is the only thing in them worth keeping -- so losing it silently would
+    turn a saved EACH_TILE run into a run that never focuses, which produces a plausible
+    mosaic rather than an error.
+    """
+    from fibsem.autofunctions.autofocus import AutoFocusSettings
+
+    for mode in AutoFocusMode:
+        d = {
+            "image_settings": ImageSettings().to_dict(),
+            "nrows": 3, "ncols": 3, "overlap": 0.1,
+            "autofocus_settings": {"mode": mode.value},
+        }
+        s = OverviewAcquisitionSettings.from_dict(d)
+        assert s.autofocus_mode is mode
+        # An old file carries no sweep, so it gets the default -- which is what it was
+        # running under anyway, the mode having been all it could configure.
+        assert s.autofocus_settings.to_dict() == AutoFocusSettings().to_dict()
+
+
+def test_an_explicit_null_autofocus_settings_loads():
+    """A third shape, and not a hypothetical one -- it is what real runs wrote.
+
+    `overview-parameters.json` under a log directory contains
+    `"autofocus_settings": null`, so the key is present and empty rather than absent.
+    A `d.get("autofocus_settings", {})` would hand `None` to the branch below and raise
+    on `"mode" in None`; `or {}` is what makes the present-but-null case behave like the
+    absent one.
+    """
+    d = {
+        "image_settings": ImageSettings().to_dict(),
+        "nrows": 3, "ncols": 3, "overlap": 0.1,
+        "autofocus_settings": None,
+    }
+    s = OverviewAcquisitionSettings.from_dict(d)
+    assert s.autofocus_mode is AutoFocusMode.NONE
+    assert s.autofocus_settings.passes
+
+
+def test_the_old_and_new_shapes_are_told_apart_by_a_key_the_new_one_cannot_write():
+    """`"mode"` is the discriminator, and this pins why that is safe rather than lucky.
+
+    The sweep config writes method / passes / probe_resolution / probe_dwell_time /
+    reduced_area / use_autocontrast / channel_name. If it ever grows a `mode` key, every
+    new file starts being read as an old one -- silently, and as `AutoFocusMode(...)` of
+    something that is not a mode.
+    """
+    from fibsem.autofunctions.autofocus import AutoFocusSettings
+
+    assert "mode" not in AutoFocusSettings().to_dict()
+
+
+def test_a_new_shape_file_keeps_its_sweep():
+    """The other direction: a real sweep must survive, not be replaced by the default."""
+    from fibsem.autofunctions.autofocus import AutoFocusSettings, FocusMethod
+
+    sweep = AutoFocusSettings.from_coarse_fine(
+        coarse_range=123e-6, coarse_step=7e-6, fine_enabled=False, method=FocusMethod.SOBEL
+    )
+    s = OverviewAcquisitionSettings(
+        autofocus_mode=AutoFocusMode.EACH_TILE, autofocus_settings=sweep
+    )
+    restored = OverviewAcquisitionSettings.from_dict(s.to_dict())
+
+    assert restored.autofocus_mode is AutoFocusMode.EACH_TILE
+    assert restored.autofocus_settings.method is FocusMethod.SOBEL
+    assert restored.autofocus_settings.passes[0].search_range == 123e-6
+    assert restored.autofocus_settings.passes[1].enabled is False
 
 
 def test_overview_acquisition_settings_from_dict_legacy_focus_stack_enabled():

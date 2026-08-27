@@ -38,7 +38,6 @@ from fibsem import constants
 from fibsem.config import AVAILABLE_RESOLUTIONS_ZIP
 from fibsem.structures import (
     AutoFocusMode,
-    AutoFocusSettings,
     BeamType,
     FocusStackSettings,
     ImageSettings,
@@ -285,7 +284,7 @@ class FibsemOverviewSettingsWidget(QWidget):
         the setting read one thing and the run did another.
         """
         promoted = (
-            settings.autofocus_settings.mode is AutoFocusMode.EACH_ROW
+            settings.autofocus_mode is AutoFocusMode.EACH_ROW
             and settings.tile_order is TileOrderStrategy.SPIRAL
         )
         self.label_focus_note.setVisible(promoted)
@@ -335,7 +334,7 @@ class FibsemOverviewSettingsWidget(QWidget):
                 n_steps=int(self.spin_focus_steps.value()),
                 auto_focus=self.check_focus_autofocus.isChecked(),
             ),
-            autofocus_settings=AutoFocusSettings(mode=self.combo_autofocus.value()),
+            autofocus_mode=self.combo_autofocus.value(),
             tile_order=self.grid.tile_order,
         )
 
@@ -361,7 +360,7 @@ class FibsemOverviewSettingsWidget(QWidget):
             self.check_focus_autofocus.setChecked(
                 settings.focus_stack_settings.auto_focus
             )
-            self.combo_autofocus.set_value(settings.autofocus_settings.mode)
+            self.combo_autofocus.set_value(settings.autofocus_mode)
             self.filename_edit.setText(image.filename or "")
             self.path_edit.setText(str(image.path) if image.path else "")
         finally:

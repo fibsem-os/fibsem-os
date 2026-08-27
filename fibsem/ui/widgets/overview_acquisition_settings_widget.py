@@ -18,7 +18,6 @@ from fibsem.config import (
 )
 from fibsem.structures import (
     AutoFocusMode,
-    AutoFocusSettings,
     BeamType,
     FocusStackSettings,
     ImageSettings,
@@ -384,7 +383,7 @@ class OverviewAcquisitionSettingsWidget(QWidget):
                 n_steps=int(self.focus_stack_steps.value()),
                 auto_focus=self.focus_stack_autofocus.isChecked(),
             ),
-            autofocus_settings=AutoFocusSettings(mode=self.autofocus_combo.value()),
+            autofocus_mode=self.autofocus_combo.value(),
             tile_order=self.tile_order_combo.value(),
         )
 
@@ -424,7 +423,7 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         self.focus_stack_enabled.setChecked(settings.focus_stack_settings.enabled)
         self.focus_stack_steps.setValue(settings.focus_stack_settings.n_steps)
         self.focus_stack_autofocus.setChecked(settings.focus_stack_settings.auto_focus)
-        self.autofocus_combo.set_value(settings.autofocus_settings.mode)
+        self.autofocus_combo.set_value(settings.autofocus_mode)
         self.tile_order_combo.set_value(settings.tile_order)
 
         for w in [self.beam_type_combo, self.nrows_spinbox, self.ncols_spinbox,

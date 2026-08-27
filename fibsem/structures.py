@@ -997,27 +997,21 @@ class FocusStackSettings:
         )
 
 
-@dataclass
-class AutoFocusSettings:
-    """Settings for autofocus in tiled overview acquisition.
+def _default_autofocus_settings() -> "AutoFocusSettings":
+    """The overview's focus sweep, which is simply the library default.
 
-    Attributes:
-        mode: When to apply autofocus (NONE, ONCE, EACH_ROW, EACH_TILE).
-              beam_type and reduced_area are taken from image_settings at acquisition time.
+    Deliberately not a pinned copy of the values. `AutoFocusSettings()` is two passes --
+    50 um at 5 um, then 10 um at 1 um -- and an overview wanting exactly that means it
+    should *inherit* it, so a later improvement to the default reaches overviews too
+    (FIB-646).
+
+    Imported here rather than at module scope because `autofunctions.autofocus` imports
+    this module for `BeamType`, so the arrow only points one way. `structures` already
+    reaches downstream this way for `autofunctions.gamma` and `fm.structures`.
     """
+    from fibsem.autofunctions.autofocus import AutoFocusSettings
 
-    mode: AutoFocusMode = AutoFocusMode.NONE
-
-    def to_dict(self) -> dict:
-        # By value, matching how the fluorescence side has always written this mode.
-        # Files that stored the old member name ("EVERY_ROW") still load.
-        return {"mode": self.mode.value}
-
-    @staticmethod
-    def from_dict(d: dict) -> "AutoFocusSettings":
-        return AutoFocusSettings(
-            mode=AutoFocusMode(d.get("mode", AutoFocusMode.NONE.value))
-        )
+    return AutoFocusSettings()
 
 
 @dataclass
@@ -1036,6 +1030,16 @@ class OverviewAcquisitionSettings:
             every tile. Disabled tiles are skipped but keep their place: the mosaic is
             still the full grid size and acquired tiles land at the same canvas
             coordinates they would have in a dense overview.
+        autofocus_mode: *When* to focus during the traversal (NONE, ONCE, EACH_ROW,
+            EACH_TILE).
+        autofocus_settings: *How* to focus -- sweep passes, method and probe frame.
+            Two separate questions, and they used to be conflated: this field held a
+            `fibsem.structures.AutoFocusSettings` whose only member was the mode, a
+            second class sharing a name with the real sweep config in
+            `autofunctions.autofocus`. `AutoFocusMode` had already been through exactly
+            that (two identical enums, so `NONE is NONE` was False across the two import
+            paths, with no type error to catch it), so the duplicate name is gone rather
+            than left to bite twice.
     """
 
     image_settings: ImageSettings = field(default_factory=ImageSettings)
@@ -1043,7 +1047,10 @@ class OverviewAcquisitionSettings:
     ncols: int = 3
     overlap: float = 0.1
     focus_stack_settings: FocusStackSettings = field(default_factory=FocusStackSettings)
-    autofocus_settings: AutoFocusSettings = field(default_factory=AutoFocusSettings)
+    autofocus_mode: AutoFocusMode = AutoFocusMode.NONE
+    autofocus_settings: "AutoFocusSettings" = field(
+        default_factory=_default_autofocus_settings
+    )
     tile_order: TileOrderStrategy = TileOrderStrategy.TYPEWRITER
     tile_mask: Optional[List[List[bool]]] = None
 
@@ -1108,15 +1115,43 @@ class OverviewAcquisitionSettings:
         else:
             fss = FocusStackSettings.from_dict(d.get("focus_stack_settings", {}))
         mask = d.get("tile_mask")
+
+        # Two shapes of the same two facts. Before FIB-646 the mode lived *inside*
+        # `autofocus_settings`, in a class that held nothing else:
+        #
+        #     {"autofocus_settings": {"mode": "EACH_ROW"}}          <- old
+        #     {"autofocus_mode": "EACH_ROW",                        <- new
+        #      "autofocus_settings": {"method": ..., "passes": [...]}}
+        #
+        # `"mode"` is a safe discriminator and not a heuristic: the real sweep config
+        # writes method / passes / probe_resolution / probe_dwell_time / reduced_area /
+        # use_autocontrast / channel_name, and never a "mode" key. So an old file is
+        # recognised by the one key the new shape cannot produce.
+        #
+        # An old file carries no sweep at all, so it gets the default -- which is the
+        # right answer rather than a fallback: it is exactly what it was running under,
+        # since the mode was the only thing it could configure.
+        raw_autofocus = d.get("autofocus_settings") or {}
+        if "mode" in raw_autofocus:
+            mode = AutoFocusMode(raw_autofocus["mode"])
+            sweep = _default_autofocus_settings()
+        else:
+            mode = AutoFocusMode(d.get("autofocus_mode", AutoFocusMode.NONE.value))
+            if raw_autofocus:
+                from fibsem.autofunctions.autofocus import AutoFocusSettings
+
+                sweep = AutoFocusSettings.from_dict(raw_autofocus)
+            else:
+                sweep = _default_autofocus_settings()
+
         return OverviewAcquisitionSettings(
             image_settings=ImageSettings.from_dict(d.get("image_settings", {})),
             nrows=d.get("nrows", 3),
             ncols=d.get("ncols", 3),
             overlap=d.get("overlap", 0.1),
             focus_stack_settings=fss,
-            autofocus_settings=AutoFocusSettings.from_dict(
-                d.get("autofocus_settings", {})
-            ),
+            autofocus_mode=mode,
+            autofocus_settings=sweep,
             tile_order=TileOrderStrategy(
                 d.get("tile_order", TileOrderStrategy.TYPEWRITER.value)
             ),
@@ -1132,6 +1167,7 @@ class OverviewAcquisitionSettings:
             "ncols": self.ncols,
             "overlap": self.overlap,
             "focus_stack_settings": self.focus_stack_settings.to_dict(),
+            "autofocus_mode": self.autofocus_mode.value,
             "autofocus_settings": self.autofocus_settings.to_dict(),
             "tile_order": self.tile_order.value,
             # plain bools: np.bool_ does not survive yaml.safe_dump, and a mask arriving

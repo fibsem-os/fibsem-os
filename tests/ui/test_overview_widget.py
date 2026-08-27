@@ -3486,7 +3486,7 @@ class TestFocusAndFocusStackAreTwoQuestions:
         settings.check_focus_stack.setChecked(False)
 
         read = settings.get_settings()
-        assert read.autofocus_settings.mode is AutoFocusMode.EACH_TILE
+        assert read.autofocus_mode is AutoFocusMode.EACH_TILE
         assert read.focus_stack_settings.enabled is False
 
     def test_the_stack_parameters_grey_out_when_it_is_off(self, widget):
