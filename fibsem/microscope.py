@@ -102,6 +102,7 @@ except Exception:
 import fibsem.constants as constants
 from fibsem import manufacturers
 from fibsem.fm.microscope import FluorescenceMicroscope
+from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
 from fibsem.imaging.tiling.progress import TiledProgress
 from fibsem.microscopes.autoscript import (
     fibsem_image_from_adorned_image,
@@ -165,7 +166,7 @@ class FibsemMicroscope(ABC):
     # crash-on-hardware bug that won't reproduce on a dev machine.
     milling_progress_signal = Signal(dict)
     tiled_acquisition_signal = Signal(TiledProgress)
-    spot_burn_progress_signal = Signal(dict)
+    spot_burn_progress_signal = Signal(SpotBurnProgress)
     _last_imaging_settings: ImageSettings
     system: SystemSettings
     _patterns: List
@@ -1166,14 +1167,17 @@ class FibsemMicroscope(ABC):
 
         # emit initial progress signal
         self.spot_burn_progress_signal.emit(
-            {
-                "current_point": 0,
-                "total_points": len(coordinates),
-                "remaining_time": exposure_time,
-                "total_remaining_time": total_remaining_time,
-                "total_estimated_time": total_estimated_time,
-            }
+            SpotBurnProgress(
+                status=SpotBurnStatus.BURNING,
+                current_point=0,
+                total_points=len(coordinates),
+                remaining_time=exposure_time,
+                total_remaining_time=total_remaining_time,
+                total_estimated_time=total_estimated_time,
+            )
         )
+
+        cancelled = False
 
         # set the beam current to the milling current
         imaging_current = self.get_beam_current(beam_type=beam_type)
@@ -1184,6 +1188,7 @@ class FibsemMicroscope(ABC):
                 logging.info(
                     f"Spot burn cancelled before point {i}/{len(coordinates)}."
                 )
+                cancelled = True
                 break
 
             logging.info(
@@ -1202,25 +1207,43 @@ class FibsemMicroscope(ABC):
                     logging.info(
                         f"Spot burn cancelled during point {i}/{len(coordinates)}."
                     )
+                    cancelled = True
                     break
                 time.sleep(SLEEP_TIME)
                 remaining_time -= SLEEP_TIME
                 total_remaining_time -= SLEEP_TIME
                 self.spot_burn_progress_signal.emit(
-                    {
-                        "current_point": i,
-                        "total_points": len(coordinates),
-                        "remaining_time": remaining_time,
-                        "total_remaining_time": total_remaining_time,
-                        "total_estimated_time": total_estimated_time,
-                    }
+                    SpotBurnProgress(
+                        status=SpotBurnStatus.BURNING,
+                        current_point=i,
+                        total_points=len(coordinates),
+                        remaining_time=remaining_time,
+                        total_remaining_time=total_remaining_time,
+                        total_estimated_time=total_estimated_time,
+                    )
                 )
+
+            if cancelled:
+                # The inner `break` only leaves this point's countdown. The outer
+                # loop's own stop_event check would catch it on the next iteration
+                # anyway, so this is not a fix -- it just stops the run here rather
+                # than one log line later, now that the outcome is recorded.
+                break
 
         # always restore full frame scanning mode and imaging current
         self.set_full_frame_scanning_mode(beam_type=beam_type)
 
-        # emit finished signal
-        self.spot_burn_progress_signal.emit({"finished": True})
+        # A cancelled burn is not a completed one. Both used to emit `{"finished": True}`,
+        # so cancelling rendered "Done" -- the defect the status enum exists to remove.
+        self.spot_burn_progress_signal.emit(
+            SpotBurnProgress(
+                status=SpotBurnStatus.CANCELLED
+                if cancelled
+                else SpotBurnStatus.FINISHED,
+                current_point=len(coordinates),
+                total_points=len(coordinates),
+            )
+        )
 
         self.set_beam_current(current=imaging_current, beam_type=beam_type)
 
