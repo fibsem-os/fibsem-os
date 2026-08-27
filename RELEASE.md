@@ -23,7 +23,12 @@ pip does not install a pre-release unless asked, so a published `rc` reaches onl
 
 ## Cutting a release candidate
 
-1. **Update the changelog** in `CHANGES.md` for the version being prepared. Do this *before* the candidate, not at final release: testers cannot know what to exercise otherwise.
+1. **Write down what shipped**, in both places. Do this *before* the candidate, not at final release: testers cannot know what to exercise otherwise.
+
+   - `CHANGES.md`, in the repository.
+   - The **release notes document in Linear**, which is the user-facing narrative and the page Early Access is pointed at. There is one document, renamed per release rather than replaced — find it with `list_documents`, and add to it rather than creating a second page.
+
+   **Re-read the Linear document against the code before you tag it.** It is written as features land, so by release day parts of it are months old and describe a state that has since changed — flags that were removed, work that has since merged, a known issue that has since been fixed. Every stale line in it is a line that ships to users. The changelog is written from `git log v<previous>..main` and does not have this problem; the document does.
 
 2. **Bump the version** in `pyproject.toml`:
    ```
@@ -61,7 +66,7 @@ For a second candidate, repeat with `rc2`.
 
 ## Cutting a release
 
-1. **Finalise the changelog** in `CHANGES.md`.
+1. **Finalise the changelog** in `CHANGES.md`, giving the version its release date, and bring the Linear release notes document in line with anything that changed since the candidate.
 
 2. **Bump the version** in `pyproject.toml`, dropping the suffix:
    ```
