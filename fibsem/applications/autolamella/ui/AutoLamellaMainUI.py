@@ -77,6 +77,7 @@ from fibsem.applications.autolamella.workflows.workflow_estimate import (
     estimate_addition,
     estimate_workflow,
 )
+from fibsem.imaging.tiling.progress import TiledProgress, TiledStatus
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service
 from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
@@ -1593,6 +1594,70 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             # widget alone if another operation has started rendering progress since
             QTimer.singleShot(2000, self.progress_widget.reset_if_finished)
 
+    # What the status bar calls each state of a run. One table for both modalities and
+    # deliberately generic: this is read at a glance from another tab, so it says what
+    # kind of thing is happening rather than repeating the producer's own wording. It is
+    # also the seam FIB-742 needs -- saying *which* run is going is a modality prefix on
+    # these, which is only possible now the words live here instead of arriving baked
+    # into the report.
+    _STATUS_LABELS = {
+        TiledStatus.STARTING: "Collecting tiles",
+        TiledStatus.MOVING: "Moving stage",
+        TiledStatus.TILE_STARTED: "Collecting tiles",
+        TiledStatus.TILE_COLLECTED: "Collecting tiles",
+        TiledStatus.TILES_ACQUIRED: "Collecting tiles",
+        TiledStatus.STITCHING: "Stitching tiles",
+        TiledStatus.SAVING: "Saving overview",
+        TiledStatus.FINISHED: "Complete",
+        TiledStatus.CANCELLED: "Cancelled",
+        TiledStatus.FAILED: "Failed",
+    }
+
+    @ensure_main_thread
+    def _on_tiled_progress(self, event: TiledProgress) -> None:
+        """The typed form of `_on_tile_acquisition_progress` (FIB-402).
+
+        Not reached until the producers flip. Deliberately **not** filtered by modality,
+        unlike the two overview widgets: they each drive one modality's canvas and must
+        ignore the other's run, while the status bar is the one consumer that wants both
+        (FIB-725).
+        """
+        message = self._STATUS_LABELS.get(event.status, "Collecting tiles")
+
+        if event.status.is_terminal:
+            self.progress_widget.update_progress(
+                self._tiled_outcome(event.status, message)
+            )
+            # Hide the Done state after a moment, the same way spot burn does above.
+            QTimer.singleShot(2000, self.progress_widget.reset_if_finished)
+            return
+
+        if event.completed is None or not event.total:
+            # A state that carries no counts: a stage move, a stitch, a save. Nothing is
+            # drawn for them, which leaves the last real count standing -- still true
+            # while the stage moves or the mosaic is written.
+            return
+
+        if event.completed >= event.total:
+            self.progress_widget.update_progress(ProgressUpdate.indeterminate(message))
+        else:
+            self.progress_widget.update_progress(
+                ProgressUpdate.numeric(event.completed, event.total, message)
+            )
+
+    @staticmethod
+    def _tiled_outcome(status: TiledStatus, message: str) -> ProgressUpdate:
+        """How a finished tiled acquisition reads once the bar is full.
+
+        A cancel is deliberately not `failed`, which paints the bar red: it is someone
+        getting what they asked for.
+        """
+        if status is TiledStatus.FAILED:
+            return ProgressUpdate.failed(message)
+        if status is TiledStatus.CANCELLED:
+            return ProgressUpdate(finished=True, message=message)
+        return ProgressUpdate.done()
+
     @ensure_main_thread
     def _on_tile_acquisition_progress(self, ddict: dict) -> None:
         """Handle tiled acquisition progress updates from the microscope.
@@ -1603,7 +1668,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         whole job is saying what is happening while you are looking at another tab
         (FIB-725). What it will need, once a fluorescence run emits here, is to say
         *which* -- not to drop one.
+
+        Dicts only -- a typed `TiledProgress` goes to `_on_tiled_progress` above. The
+        two sit side by side until the producers flip (FIB-402).
         """
+        if isinstance(ddict, TiledProgress):
+            self._on_tiled_progress(ddict)
+            return
+
         counter = ddict.get("counter")
         total = ddict.get("total")
         msg = ddict.get("msg", "Collecting tiles")

@@ -4150,3 +4150,99 @@ class TestItOnlyDrawsItsOwnRuns:
         widget._tiles_acquired = 0
         widget._apply_progress({"counter": 7, "total": 9, "msg": "Tile Collected"})
         assert widget._tiles_acquired == 7
+
+
+# ── the typed contract (FIB-402) ─────────────────────────────────────────────
+#
+# Nothing emits a `TiledProgress` yet: `imaging/tiled.py` still builds dicts, and the
+# tests above are what proves that path has not moved. These drive the typed path
+# directly, so the producer flip touches the producer alone.
+
+
+def _beam_report(status, **fields):
+    from fibsem.imaging.tiling.progress import MODALITY_BEAM, TiledProgress
+
+    fields.setdefault("modality", MODALITY_BEAM)
+    return TiledProgress(status=status, **fields)
+
+
+class TestTheTypedProgressContract:
+    def test_a_typed_tile_report_drives_the_bar(self, widget):
+        from fibsem.imaging.tiling.progress import TiledStatus
+
+        widget._tiles_acquired = 0
+
+        widget._apply_progress(
+            _beam_report(TiledStatus.TILE_COLLECTED, completed=7, total=9)
+        )
+
+        assert widget._tiles_acquired == 7
+
+    def test_the_wording_comes_from_this_tab_not_the_producer(self, widget):
+        """`message` is gone from the wire; the tab that shows the words owns them."""
+        from fibsem.imaging.tiling.progress import TiledStatus
+
+        widget._apply_progress(
+            _beam_report(TiledStatus.STITCHING, completed=9, total=9)
+        )
+
+        assert "Stitching Tiles" in widget.progress._bar.format()
+
+    def test_a_typed_fluorescence_run_is_not_drawn_as_one_of_this_tabs_overviews(
+        self, widget, microscope
+    ):
+        """This widget places the mosaic on its own canvas and counts the tiles into its
+        own record, so the other modality's run is not its to draw (FIB-725)."""
+        from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE, TiledStatus
+
+        widget._tiles_acquired = 0
+
+        widget._apply_progress(
+            _beam_report(
+                TiledStatus.TILE_COLLECTED,
+                modality=MODALITY_FLUORESCENCE,
+                completed=7,
+                total=9,
+                preview=_tile(microscope, microscope.get_stage_position()),
+            )
+        )
+
+        assert widget._tiles_acquired == 0
+
+    def test_a_typed_report_with_nothing_to_do_does_not_take_the_bar_out(self, widget):
+        """`total` is a divisor on the sibling consumer and a guard here; a run
+        reporting 0/0 must not raise inside a Qt slot either way."""
+        from fibsem.imaging.tiling.progress import TiledStatus
+
+        widget._tiles_acquired = 4
+
+        widget._apply_progress(_beam_report(TiledStatus.STARTING, completed=0, total=0))
+
+        assert widget._tiles_acquired == 4
+
+    def test_a_typed_preview_fills_the_row_while_the_run_is_going(
+        self, widget, microscope
+    ):
+        """A row reading "0 tiles" beside a filling mosaic is the list contradicting the
+        canvas."""
+        from fibsem.imaging.tiling.progress import TiledStatus
+        from fibsem.ui.widgets.overview_widget import OverviewRecord
+
+        base = microscope.get_stage_position()
+        widget._records["run"] = OverviewRecord("run", "run", [])
+        widget._active_record = "run"
+        widget._refresh_overview_list()
+
+        for index in (1, 2, 3):
+            widget._apply_progress(
+                _beam_report(
+                    TiledStatus.TILE_COLLECTED,
+                    completed=index,
+                    total=3,
+                    preview=_tile(microscope, _at(base)),
+                )
+            )
+            row = widget.overview_list._rows["run"]
+            assert row.detail_label.text().startswith(f"{index} tile"), (
+                f"after {index} tile(s) the row still reads {row.detail_label.text()!r}"
+            )
