@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from typing import Union
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -13,7 +14,12 @@ from PyQt5.QtWidgets import (
 )
 from superqt import ensure_main_thread
 
-from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn
+from fibsem.imaging.spot import (
+    SpotBurnProgress,
+    SpotBurnSettings,
+    SpotBurnStatus,
+    run_spot_burn,
+)
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service, stylesheets
@@ -27,11 +33,56 @@ DEFAULT_BEAM_CURRENT = 60e-12  # 60 pA
 HIDE_PROGRESS_DELAY_MS = 2000  # how long the "Done" bar stays up before hiding
 
 
-def build_spot_burn_progress_update(ddict: dict) -> ProgressUpdate:
-    """Map a spot-burn progress dict (see run_spot_burn) to a ProgressUpdate.
+def build_spot_burn_progress_update(
+    report: Union[SpotBurnProgress, dict],
+) -> ProgressUpdate:
+    """Map a spot-burn progress report to a ProgressUpdate.
 
     Shared by the spot burn widget and the main-window status bar so both render
-    progress with identical text and formatting.
+    progress with identical text and formatting. That sharing is why typing this
+    signal is cheap: there is one decode to migrate, not one per consumer.
+
+    Accepts both the typed report and the dict the signal still carries. The dict
+    branch goes when the producers flip; until then it is the live path, and the
+    typed one is exercised only by tests.
+    """
+    if isinstance(report, SpotBurnProgress):
+        return _typed_spot_burn_progress_update(report)
+    return _dict_spot_burn_progress_update(report)
+
+
+def _typed_spot_burn_progress_update(report: SpotBurnProgress) -> ProgressUpdate:
+    """The typed form. Not reached until the producers flip."""
+    if report.status.is_terminal:
+        return _spot_burn_outcome(report)
+    return ProgressUpdate.combined(
+        current=report.current_point or 0,
+        total=report.total_points or 0,
+        remaining_seconds=report.total_remaining_time or 0.0,
+        total_seconds=report.total_estimated_time or 0.0,
+        message="Burning spots",
+    )
+
+
+def _spot_burn_outcome(report: SpotBurnProgress) -> ProgressUpdate:
+    """How a finished burn reads once the bar is full.
+
+    A cancel is deliberately not `failed`, which paints the bar red: it is someone
+    getting what they asked for. Mirrors `AutoLamellaSingleWindowUI._overview_outcome`,
+    which makes the same distinction for a tiled acquisition.
+    """
+    if report.status is SpotBurnStatus.FAILED:
+        return ProgressUpdate.failed(report.error or "Spot burn failed")
+    if report.status is SpotBurnStatus.CANCELLED:
+        return ProgressUpdate(finished=True, message="Cancelled")
+    return ProgressUpdate.done()
+
+
+def _dict_spot_burn_progress_update(ddict: dict) -> ProgressUpdate:
+    """The dict form, unchanged. Deleted once the producers flip.
+
+    Note what it cannot express: a cancelled burn arrives here as `{"finished": True}`,
+    indistinguishable from a completed one, and renders "Done".
     """
     if ddict.get("finished"):
         if ddict.get("error"):

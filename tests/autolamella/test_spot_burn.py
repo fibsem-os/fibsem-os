@@ -14,7 +14,12 @@ import pytest
 from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )
-from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn
+from fibsem.imaging.spot import (
+    SpotBurnProgress,
+    SpotBurnSettings,
+    SpotBurnStatus,
+    run_spot_burn,
+)
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, Point
 
@@ -206,6 +211,143 @@ def test_build_spot_burn_progress_update_mapping():
 
     failed = build_spot_burn_progress_update({"finished": True, "error": True})
     assert failed.finished and failed.message == "Spot burn failed"
+
+
+def test_a_terminal_status_says_so_itself():
+    """The question both consumers ask, answered once on the type.
+
+    Restated as a membership tuple at each of them it drifts: the next status added is
+    the one somebody forgets, and the symptom is a progress bar that never clears.
+    """
+    terminal = {
+        SpotBurnStatus.FINISHED,
+        SpotBurnStatus.CANCELLED,
+        SpotBurnStatus.FAILED,
+    }
+    for status in SpotBurnStatus:
+        assert status.is_terminal is (status in terminal), status
+
+
+def test_a_member_compares_equal_to_its_own_value():
+    """The `str` mixin, which is what keeps these readable in a log line."""
+    assert SpotBurnStatus.BURNING == "burning"
+
+
+def test_status_is_the_only_field_a_report_must_carry():
+    """Everything else is absent on some report, so everything else has a default.
+
+    Also what keeps this constructible on Python 3.8, where `kw_only` does not exist:
+    exactly one required field, and it has to come first.
+    """
+    import dataclasses
+
+    report = SpotBurnProgress(status=SpotBurnStatus.CANCELLED)
+    assert report.current_point is None and report.error is None
+
+    required = [
+        f.name
+        for f in dataclasses.fields(SpotBurnProgress)
+        if f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING
+    ]
+    assert required == ["status"]
+
+
+def test_a_report_cannot_be_written_to():
+    import dataclasses
+
+    report = SpotBurnProgress(status=SpotBurnStatus.BURNING)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        report.status = SpotBurnStatus.FINISHED
+
+
+@requires_ui
+class TestTheTypedDecode:
+    """What each typed report renders. Not which branch ran -- the bugs this path has
+    are rendering bugs, and asserting on control flow would not have caught them."""
+
+    def test_a_burn_in_progress_counts_points_and_time(self):
+        from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
+
+        update = build_spot_burn_progress_update(
+            SpotBurnProgress(
+                status=SpotBurnStatus.BURNING,
+                current_point=1,
+                total_points=3,
+                total_remaining_time=20.0,
+                total_estimated_time=30.0,
+            )
+        )
+
+        assert (update.current, update.total) == (1, 3)
+        assert update.remaining_seconds == 20.0
+        assert not update.finished
+        assert update.message == "Burning spots"
+
+    def test_a_completed_burn_says_done(self):
+        from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
+
+        update = build_spot_burn_progress_update(
+            SpotBurnProgress(status=SpotBurnStatus.FINISHED)
+        )
+
+        assert update.finished and not update.message
+        assert not update.is_failed
+
+    def test_a_cancelled_burn_does_not_claim_to_have_finished(self):
+        """The defect the typed contract exists to fix. Under the dict form a cancelled
+        burn emitted `{"finished": True}` -- identical to a completed one -- so
+        cancelling rendered "Done"."""
+        from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
+
+        update = build_spot_burn_progress_update(
+            SpotBurnProgress(status=SpotBurnStatus.CANCELLED, current_point=2)
+        )
+
+        assert update.finished
+        assert update.message == "Cancelled"
+
+    def test_a_cancelled_burn_is_not_painted_as_a_failure(self):
+        """A cancel is someone getting what they asked for, so the bar does not go red.
+        Mirrors the tiled acquisition's `_overview_outcome`."""
+        from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
+
+        update = build_spot_burn_progress_update(
+            SpotBurnProgress(status=SpotBurnStatus.CANCELLED)
+        )
+
+        assert not update.is_failed
+
+    def test_a_failed_burn_carries_the_error_text(self):
+        """The dict form could only ever say "Spot burn failed"; the exception text
+        reached the logfile and nowhere else."""
+        from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
+
+        update = build_spot_burn_progress_update(
+            SpotBurnProgress(status=SpotBurnStatus.FAILED, error="beam current refused")
+        )
+
+        assert update.is_failed
+        assert update.message == "beam current refused"
+
+    def test_a_failure_with_no_text_still_reads_as_a_failure(self):
+        from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
+
+        update = build_spot_burn_progress_update(
+            SpotBurnProgress(status=SpotBurnStatus.FAILED)
+        )
+
+        assert update.is_failed
+        assert update.message == "Spot burn failed"
+
+    def test_the_dict_form_still_works(self):
+        """Both shapes flow until the producers flip, and the dict is the live one."""
+        from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
+
+        update = build_spot_burn_progress_update(
+            {"current_point": 2, "total_points": 4, "total_remaining_time": 5.0}
+        )
+
+        assert (update.current, update.total) == (2, 4)
 
 
 # --- SpotBurnFiducialTask.update_spot_burn_parameters_ui ------------------------
