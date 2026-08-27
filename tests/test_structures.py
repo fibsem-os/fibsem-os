@@ -6,7 +6,6 @@ import pytest
 from fibsem.microscopes.autoscript import THERMO_API_AVAILABLE
 from fibsem.structures import (
     AutoFocusMode,
-    AutoFocusSettings,
     BeamSettings,
     BeamType,
     FibsemDetectorSettings,
@@ -40,7 +39,8 @@ def test_microscope_state():
     state.ion_detector = None
 
     state.to_dict()
-    
+
+
 def test_gas_injection_settings():
 
     # gis
@@ -51,7 +51,7 @@ def test_gas_injection_settings():
     )
 
     # to dict
-    gdict = gis_settings.to_dict()  
+    gdict = gis_settings.to_dict()
     assert gdict["gas"] == gis_settings.gas
     assert gdict["port"] == gis_settings.port
     assert gdict["duration"] == gis_settings.duration
@@ -65,10 +65,7 @@ def test_gas_injection_settings():
     assert gis_settings2.insert_position == gis_settings.insert_position
 
     multichem_settings = FibsemGasInjectionSettings(
-        gas="Pt",
-        port=0,
-        duration=30,
-        insert_position="ELECTRON_DEFAULT"
+        gas="Pt", port=0, duration=30, insert_position="ELECTRON_DEFAULT"
     )
 
     # to dict
@@ -78,7 +75,7 @@ def test_gas_injection_settings():
     assert gdict["duration"] == multichem_settings.duration
     assert gdict["insert_position"] == multichem_settings.insert_position
 
-    # from dict 
+    # from dict
     multichem_settings2 = FibsemGasInjectionSettings.from_dict(gdict)
     assert multichem_settings2.gas == multichem_settings.gas
     assert multichem_settings2.port == multichem_settings.port
@@ -90,7 +87,10 @@ def test_fibsem_image_extract_region():
     """Test FibsemImage.extract_region returns cropped data with updated reduced_area metadata."""
     image = FibsemImage.generate_blank_image(resolution=(100, 100), hfw=100e-6)
     import numpy as np
-    image.data[:] = np.arange(image.data.size, dtype=image.data.dtype).reshape(image.data.shape)
+
+    image.data[:] = np.arange(image.data.size, dtype=image.data.dtype).reshape(
+        image.data.shape
+    )
 
     rect = FibsemRectangle(left=0.25, top=0.25, width=0.5, height=0.5)
     result = image.extract_region(rect)
@@ -99,7 +99,10 @@ def test_fibsem_image_extract_region():
     assert result.data.shape == (50, 50)
 
     # resolution and hfw are unchanged from the original
-    assert result.metadata.image_settings.resolution == image.metadata.image_settings.resolution
+    assert (
+        result.metadata.image_settings.resolution
+        == image.metadata.image_settings.resolution
+    )
     assert result.metadata.image_settings.hfw == image.metadata.image_settings.hfw
 
     # pixel size is unchanged
@@ -129,6 +132,7 @@ def test_fibsem_image_resize():
 def test_fibsem_image_resize_no_metadata():
     """resize() raises ValueError when image has no metadata."""
     import numpy as np
+
     image = FibsemImage(data=np.zeros((100, 100), dtype=np.uint8))
     with pytest.raises(ValueError):
         image.resize((50, 50))
@@ -137,6 +141,7 @@ def test_fibsem_image_resize_no_metadata():
 def test_fibsem_image_brightness():
     """brightness property returns mean pixel value."""
     import numpy as np
+
     data = np.full((10, 10), 128, dtype=np.uint8)
     image = FibsemImage(data=data)
     assert image.brightness == 128.0
@@ -147,6 +152,7 @@ def test_fibsem_image_apply_gamma():
     import numpy as np
 
     from fibsem.autofunctions.gamma import apply_gamma
+
     data = np.full((10, 10), 128, dtype=np.uint8)
     image = FibsemImage.generate_blank_image(resolution=(10, 10), hfw=10e-6)
     image.data[:] = data
@@ -181,30 +187,29 @@ def test_fibsem_image_extract_region_invalid_rect():
 def test_fibsem_image_extract_region_no_metadata():
     """extract_region raises ValueError when image has no metadata."""
     import numpy as np
+
     image = FibsemImage(data=np.zeros((100, 100), dtype=np.uint8))
 
     with pytest.raises(ValueError):
         image.extract_region(FibsemRectangle(left=0.0, top=0.0, width=0.5, height=0.5))
 
 
-def test_autofocus_settings_defaults():
-    s = AutoFocusSettings()
-    assert s.mode is AutoFocusMode.NONE
+def test_there_is_only_one_autofocus_settings_now():
+    """The mode-only class is gone, and the name means one thing again.
 
+    `fibsem.structures` used to define an `AutoFocusSettings` whose sole member was the
+    mode, sharing a name with the real sweep config in `autofunctions.autofocus`.
+    `AutoFocusMode` had already been through the identical mistake -- two enums of one
+    name, so `NONE is NONE` was False across the two import paths with no type error to
+    catch it -- so this asserts the duplicate stayed dead (FIB-646).
+    """
+    import fibsem.structures as structures
+    from fibsem.autofunctions.autofocus import AutoFocusSettings as Canonical
 
-def test_autofocus_settings_round_trip():
-    for mode in AutoFocusMode:
-        s = AutoFocusSettings(mode=mode)
-        d = s.to_dict()
-        assert d["mode"] == mode.value
-        restored = AutoFocusSettings.from_dict(d)
-        assert restored.mode is mode
-
-
-def test_autofocus_settings_from_dict_missing_key():
-    """Missing key in dict falls back to NONE."""
-    s = AutoFocusSettings.from_dict({})
-    assert s.mode is AutoFocusMode.NONE
+    assert not hasattr(structures, "AutoFocusSettings")
+    # And the one that survives is the sweep config, not a mode holder.
+    assert not hasattr(Canonical(), "mode")
+    assert Canonical().passes
 
 
 def test_overview_acquisition_settings_defaults():
@@ -218,17 +223,27 @@ def test_overview_acquisition_settings_defaults():
     assert s.focus_stack_settings.enabled is False
     assert s.focus_stack_settings.n_steps == 3
     assert s.focus_stack_settings.auto_focus is True
-    assert s.autofocus_settings.mode is AutoFocusMode.NONE
+    assert s.autofocus_mode is AutoFocusMode.NONE
+    # The sweep is the library default rather than a pinned copy, so an improvement to
+    # the default reaches overviews too.
+    from fibsem.autofunctions.autofocus import AutoFocusSettings
+
+    assert s.autofocus_settings.to_dict() == AutoFocusSettings().to_dict()
 
 
 def test_overview_acquisition_settings_round_trip():
     from fibsem.structures import FocusStackSettings
+
     for mode in AutoFocusMode:
         s = OverviewAcquisitionSettings(
             image_settings=ImageSettings(resolution=(1536, 1024), hfw=150e-6),
-            nrows=2, ncols=3, overlap=0.1,
-            focus_stack_settings=FocusStackSettings(enabled=True, n_steps=5, auto_focus=False),
-            autofocus_settings=AutoFocusSettings(mode=mode),
+            nrows=2,
+            ncols=3,
+            overlap=0.1,
+            focus_stack_settings=FocusStackSettings(
+                enabled=True, n_steps=5, auto_focus=False
+            ),
+            autofocus_mode=mode,
         )
         restored = OverviewAcquisitionSettings.from_dict(s.to_dict())
         assert restored.nrows == s.nrows
@@ -236,27 +251,116 @@ def test_overview_acquisition_settings_round_trip():
         assert restored.overlap == s.overlap
         assert restored.focus_stack_settings.enabled == s.focus_stack_settings.enabled
         assert restored.focus_stack_settings.n_steps == s.focus_stack_settings.n_steps
-        assert restored.focus_stack_settings.auto_focus == s.focus_stack_settings.auto_focus
-        assert restored.autofocus_settings.mode is mode
+        assert (
+            restored.focus_stack_settings.auto_focus
+            == s.focus_stack_settings.auto_focus
+        )
+        assert restored.autofocus_mode is mode
 
 
 def test_overview_acquisition_settings_from_dict_legacy():
     """Dicts without autofocus_settings key (old format) default to NONE."""
     d = {
         "image_settings": ImageSettings().to_dict(),
-        "nrows": 3, "ncols": 3, "overlap": 0.0, "use_focus_stack": False,
+        "nrows": 3,
+        "ncols": 3,
+        "overlap": 0.0,
+        "use_focus_stack": False,
         # no autofocus_settings key, no focus_stack_settings key (old format)
     }
     s = OverviewAcquisitionSettings.from_dict(d)
-    assert s.autofocus_settings.mode is AutoFocusMode.NONE
+    assert s.autofocus_mode is AutoFocusMode.NONE
     assert s.focus_stack_settings.enabled is False
+
+
+def test_a_file_written_before_the_split_still_loads_its_mode():
+    """The shape this replaced put the mode *inside* `autofocus_settings`.
+
+    Every protocol and overview-parameters file written before FIB-646 looks like this,
+    and the mode is the only thing in them worth keeping -- so losing it silently would
+    turn a saved EACH_TILE run into a run that never focuses, which produces a plausible
+    mosaic rather than an error.
+    """
+    from fibsem.autofunctions.autofocus import AutoFocusSettings
+
+    for mode in AutoFocusMode:
+        d = {
+            "image_settings": ImageSettings().to_dict(),
+            "nrows": 3,
+            "ncols": 3,
+            "overlap": 0.1,
+            "autofocus_settings": {"mode": mode.value},
+        }
+        s = OverviewAcquisitionSettings.from_dict(d)
+        assert s.autofocus_mode is mode
+        # An old file carries no sweep, so it gets the default -- which is what it was
+        # running under anyway, the mode having been all it could configure.
+        assert s.autofocus_settings.to_dict() == AutoFocusSettings().to_dict()
+
+
+def test_an_explicit_null_autofocus_settings_loads():
+    """A third shape, and not a hypothetical one -- it is what real runs wrote.
+
+    `overview-parameters.json` under a log directory contains
+    `"autofocus_settings": null`, so the key is present and empty rather than absent.
+    A `d.get("autofocus_settings", {})` would hand `None` to the branch below and raise
+    on `"mode" in None`; `or {}` is what makes the present-but-null case behave like the
+    absent one.
+    """
+    d = {
+        "image_settings": ImageSettings().to_dict(),
+        "nrows": 3,
+        "ncols": 3,
+        "overlap": 0.1,
+        "autofocus_settings": None,
+    }
+    s = OverviewAcquisitionSettings.from_dict(d)
+    assert s.autofocus_mode is AutoFocusMode.NONE
+    assert s.autofocus_settings.passes
+
+
+def test_the_old_and_new_shapes_are_told_apart_by_a_key_the_new_one_cannot_write():
+    """`"mode"` is the discriminator, and this pins why that is safe rather than lucky.
+
+    The sweep config writes method / passes / probe_resolution / probe_dwell_time /
+    reduced_area / use_autocontrast / channel_name. If it ever grows a `mode` key, every
+    new file starts being read as an old one -- silently, and as `AutoFocusMode(...)` of
+    something that is not a mode.
+    """
+    from fibsem.autofunctions.autofocus import AutoFocusSettings
+
+    assert "mode" not in AutoFocusSettings().to_dict()
+
+
+def test_a_new_shape_file_keeps_its_sweep():
+    """The other direction: a real sweep must survive, not be replaced by the default."""
+    from fibsem.autofunctions.autofocus import AutoFocusSettings, FocusMethod
+
+    sweep = AutoFocusSettings.from_coarse_fine(
+        coarse_range=123e-6,
+        coarse_step=7e-6,
+        fine_enabled=False,
+        method=FocusMethod.SOBEL,
+    )
+    s = OverviewAcquisitionSettings(
+        autofocus_mode=AutoFocusMode.EACH_TILE, autofocus_settings=sweep
+    )
+    restored = OverviewAcquisitionSettings.from_dict(s.to_dict())
+
+    assert restored.autofocus_mode is AutoFocusMode.EACH_TILE
+    assert restored.autofocus_settings.method is FocusMethod.SOBEL
+    assert restored.autofocus_settings.passes[0].search_range == 123e-6
+    assert restored.autofocus_settings.passes[1].enabled is False
 
 
 def test_overview_acquisition_settings_from_dict_legacy_focus_stack_enabled():
     """Old use_focus_stack=True maps to focus_stack_settings.enabled=True."""
     d = {
         "image_settings": ImageSettings().to_dict(),
-        "nrows": 3, "ncols": 3, "overlap": 0.0, "use_focus_stack": True,
+        "nrows": 3,
+        "ncols": 3,
+        "overlap": 0.0,
+        "use_focus_stack": True,
     }
     s = OverviewAcquisitionSettings.from_dict(d)
     assert s.focus_stack_settings.enabled is True
@@ -266,7 +370,9 @@ def test_overview_acquisition_total_fov_square_no_overlap():
     """Square tiles, no overlap: total FOV == n * hfw."""
     s = OverviewAcquisitionSettings(
         image_settings=ImageSettings(resolution=(1024, 1024), hfw=100e-6),
-        nrows=3, ncols=4, overlap=0.0,
+        nrows=3,
+        ncols=4,
+        overlap=0.0,
     )
     assert s.total_fov_x == pytest.approx(4 * 100e-6)
     assert s.total_fov_y == pytest.approx(3 * 100e-6)
@@ -276,7 +382,9 @@ def test_overview_acquisition_total_fov_with_overlap():
     """Overlap reduces effective step; total FOV = (n-1)*step + hfw."""
     s = OverviewAcquisitionSettings(
         image_settings=ImageSettings(resolution=(1024, 1024), hfw=100e-6),
-        nrows=3, ncols=3, overlap=0.1,
+        nrows=3,
+        ncols=3,
+        overlap=0.1,
     )
     step = 100e-6 * 0.9
     expected = 2 * step + 100e-6
@@ -288,7 +396,9 @@ def test_overview_acquisition_total_fov_non_square():
     """Non-square tiles: total_fov_y scaled by aspect ratio."""
     s = OverviewAcquisitionSettings(
         image_settings=ImageSettings(resolution=(1536, 1024), hfw=150e-6),
-        nrows=3, ncols=3, overlap=0.1,
+        nrows=3,
+        ncols=3,
+        overlap=0.1,
     )
     step_x = 150e-6 * 0.9
     tile_fov_y = 150e-6 * (1024 / 1536)
@@ -301,7 +411,9 @@ def test_overview_acquisition_total_fov_single_tile():
     """Single tile (1x1): total FOV equals tile FOV regardless of overlap."""
     s = OverviewAcquisitionSettings(
         image_settings=ImageSettings(resolution=(1024, 1024), hfw=200e-6),
-        nrows=1, ncols=1, overlap=0.2,
+        nrows=1,
+        ncols=1,
+        overlap=0.2,
     )
     assert s.total_fov_x == pytest.approx(200e-6)
     assert s.total_fov_y == pytest.approx(200e-6)
@@ -318,7 +430,10 @@ def test_overview_acquisition_tile_order_legacy_default():
     """Dicts without tile_order key default to TYPEWRITER."""
     d = {
         "image_settings": ImageSettings().to_dict(),
-        "nrows": 3, "ncols": 3, "overlap": 0.0, "use_focus_stack": False,
+        "nrows": 3,
+        "ncols": 3,
+        "overlap": 0.0,
+        "use_focus_stack": False,
     }
     s = OverviewAcquisitionSettings.from_dict(d)
     assert s.tile_order is TileOrderStrategy.TYPEWRITER
@@ -350,7 +465,9 @@ def test_scan_time_counts_the_passes_each_pixel_gets():
     )
     assert both.scan_time == pytest.approx(base.scan_time * 12)
 
-    interlaced = ImageSettings(resolution=(512, 512), dwell_time=2e-6, scan_interlacing=8)
+    interlaced = ImageSettings(
+        resolution=(512, 512), dwell_time=2e-6, scan_interlacing=8
+    )
     assert interlaced.scan_time == pytest.approx(base.scan_time)
 
 
@@ -375,12 +492,13 @@ def test_overview_scan_time_counts_the_tiles_it_will_acquire():
 
 
 if THERMO_API_AVAILABLE:
-
     from fibsem.structures import CompustagePosition, CoordinateSystem, StagePosition
 
     def test_to_autoscript_position():
-        
-        stage_position = FibsemStagePosition(x=1, y=2, z=3, r=4, t=5, coordinate_system="RAW")
+
+        stage_position = FibsemStagePosition(
+            x=1, y=2, z=3, r=4, t=5, coordinate_system="RAW"
+        )
 
         # test conversion to StagePosition
         autoscript_stage_position = stage_position.to_autoscript_position()
@@ -393,22 +511,32 @@ if THERMO_API_AVAILABLE:
         assert autoscript_stage_position.coordinate_system == CoordinateSystem.RAW
 
         # test convesion to CompuStagePosition
-        autoscript_compustage_position = stage_position.to_autoscript_position(compustage=True)
+        autoscript_compustage_position = stage_position.to_autoscript_position(
+            compustage=True
+        )
 
         assert autoscript_compustage_position.x == stage_position.x
         assert autoscript_compustage_position.y == stage_position.y
         assert autoscript_compustage_position.z == stage_position.z
         assert autoscript_compustage_position.a == stage_position.t
-        assert autoscript_compustage_position.coordinate_system == CoordinateSystem.SPECIMEN
-
+        assert (
+            autoscript_compustage_position.coordinate_system
+            == CoordinateSystem.SPECIMEN
+        )
 
     def test_from_autoscript_position():
-        
-        autoscript_stage_position = StagePosition(x=1, y=2, z=3, r=4, t=5, coordinate_system=CoordinateSystem.RAW)
-        autoscript_compustage_position = CompustagePosition(x=1, y=2, z=3, a=5, coordinate_system=CoordinateSystem.RAW)
+
+        autoscript_stage_position = StagePosition(
+            x=1, y=2, z=3, r=4, t=5, coordinate_system=CoordinateSystem.RAW
+        )
+        autoscript_compustage_position = CompustagePosition(
+            x=1, y=2, z=3, a=5, coordinate_system=CoordinateSystem.RAW
+        )
 
         # test conversion from StagePosition
-        stage_position = FibsemStagePosition.from_autoscript_position(autoscript_stage_position)
+        stage_position = FibsemStagePosition.from_autoscript_position(
+            autoscript_stage_position
+        )
 
         assert stage_position.x == autoscript_stage_position.x
         assert stage_position.y == autoscript_stage_position.y
@@ -418,7 +546,9 @@ if THERMO_API_AVAILABLE:
         assert stage_position.coordinate_system == "RAW"
 
         # test conversion from CompuStagePosition
-        stage_position = FibsemStagePosition.from_autoscript_position(autoscript_compustage_position)
+        stage_position = FibsemStagePosition.from_autoscript_position(
+            autoscript_compustage_position
+        )
 
         assert stage_position.x == autoscript_compustage_position.x
         assert stage_position.y == autoscript_compustage_position.y
@@ -429,6 +559,7 @@ if THERMO_API_AVAILABLE:
 
 
 # ── ImageSettings.estimated_time ─────────────────────────────────────────────
+
 
 def test_image_settings_estimated_time_basic():
     img = ImageSettings(resolution=(1536, 1024), dwell_time=1e-6)
@@ -449,17 +580,27 @@ def test_image_settings_estimated_time_line_integration():
 
 
 def test_image_settings_estimated_time_both_integrations():
-    img = ImageSettings(resolution=(1536, 1024), dwell_time=1e-6, frame_integration=4, line_integration=2)
+    img = ImageSettings(
+        resolution=(1536, 1024),
+        dwell_time=1e-6,
+        frame_integration=4,
+        line_integration=2,
+    )
     expected = 1536 * 1024 * 1e-6 * 4 * 2
     assert img.estimated_time == pytest.approx(expected)
 
 
 # ── ReferenceImageParameters.estimated_time ───────────────────────────────────
 
+
 def test_reference_image_parameters_estimated_time_both_beams_both_fovs():
     img = ImageSettings(resolution=(1536, 1024), dwell_time=1e-6)
     ref = ReferenceImageParameters(
-        imaging=img, acquire_sem=True, acquire_fib=True, acquire_image1=True, acquire_image2=True
+        imaging=img,
+        acquire_sem=True,
+        acquire_fib=True,
+        acquire_image1=True,
+        acquire_image2=True,
     )
     # 2 FOVs × 2 beams = 4 images
     assert ref.estimated_time == pytest.approx(img.estimated_time * 4)
@@ -468,7 +609,11 @@ def test_reference_image_parameters_estimated_time_both_beams_both_fovs():
 def test_reference_image_parameters_estimated_time_sem_only():
     img = ImageSettings(resolution=(1536, 1024), dwell_time=1e-6)
     ref = ReferenceImageParameters(
-        imaging=img, acquire_sem=True, acquire_fib=False, acquire_image1=True, acquire_image2=True
+        imaging=img,
+        acquire_sem=True,
+        acquire_fib=False,
+        acquire_image1=True,
+        acquire_image2=True,
     )
     # 2 FOVs × 1 beam = 2 images
     assert ref.estimated_time == pytest.approx(img.estimated_time * 2)
@@ -477,7 +622,11 @@ def test_reference_image_parameters_estimated_time_sem_only():
 def test_reference_image_parameters_estimated_time_one_fov():
     img = ImageSettings(resolution=(1536, 1024), dwell_time=1e-6)
     ref = ReferenceImageParameters(
-        imaging=img, acquire_sem=True, acquire_fib=True, acquire_image1=True, acquire_image2=False
+        imaging=img,
+        acquire_sem=True,
+        acquire_fib=True,
+        acquire_image1=True,
+        acquire_image2=False,
     )
     # 1 FOV × 2 beams = 2 images
     assert ref.estimated_time == pytest.approx(img.estimated_time * 2)
@@ -486,7 +635,11 @@ def test_reference_image_parameters_estimated_time_one_fov():
 def test_reference_image_parameters_estimated_time_no_images():
     img = ImageSettings(resolution=(1536, 1024), dwell_time=1e-6)
     ref = ReferenceImageParameters(
-        imaging=img, acquire_sem=False, acquire_fib=False, acquire_image1=True, acquire_image2=True
+        imaging=img,
+        acquire_sem=False,
+        acquire_fib=False,
+        acquire_image1=True,
+        acquire_image2=True,
     )
     assert ref.estimated_time == 0.0
 
@@ -497,6 +650,7 @@ def test_reference_image_parameters_estimated_time_no_images():
 def test_fibsem_image_filepath_is_none_until_written_or_read():
     """An image that has never been saved or loaded has no file."""
     import numpy as np
+
     image = FibsemImage(data=np.zeros((10, 10), dtype=np.uint8))
     assert image.filepath is None
 
@@ -504,6 +658,7 @@ def test_fibsem_image_filepath_is_none_until_written_or_read():
 def test_fibsem_image_save_sets_filepath_to_the_resolved_file(tmp_path):
     """save() records the path it actually wrote, extension included."""
     import numpy as np
+
     image = FibsemImage(data=np.zeros((10, 10), dtype=np.uint8))
 
     # deliberately passed without a suffix: save() resolves it to .tif, and the
@@ -518,6 +673,7 @@ def test_fibsem_image_save_sets_filepath_to_the_resolved_file(tmp_path):
 def test_fibsem_image_load_sets_filepath(tmp_path):
     """load() records where the image came from."""
     import numpy as np
+
     written = FibsemImage(data=np.zeros((10, 10), dtype=np.uint8)).save(
         str(tmp_path / "ref_image")
     )
@@ -599,9 +755,7 @@ def test_metadata_round_trips_fibsem_revision():
 
     info = SystemInfo.from_dict({"fibsem_revision": "v0.5.1-48-g4cd11d9c"})
     assert info.fibsem_revision == "v0.5.1-48-g4cd11d9c"
-    assert (
-        SystemInfo.from_dict(info.to_dict()).fibsem_revision == "v0.5.1-48-g4cd11d9c"
-    )
+    assert SystemInfo.from_dict(info.to_dict()).fibsem_revision == "v0.5.1-48-g4cd11d9c"
 
 
 def test_experiment_date_is_creation_time_not_import_time():

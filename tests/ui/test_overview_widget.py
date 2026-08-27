@@ -14,6 +14,7 @@ where it matters.
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python -m pytest tests/ui/test_overview_widget.py
 """
+
 from __future__ import annotations
 
 import os
@@ -92,7 +93,9 @@ def microscope():
     import fibsem.config as fibsem_config
 
     path = os.path.join(
-        os.path.dirname(fibsem_config.__file__), "config", "sim-arctis-configuration.yaml"
+        os.path.dirname(fibsem_config.__file__),
+        "config",
+        "sim-arctis-configuration.yaml",
     )
     scope, _ = utils.setup_session(manufacturer="Demo", config_path=path)
     assert scope.stage_is_compustage, "the config stopped being a compustage"
@@ -224,8 +227,9 @@ class TestTheInversion:
         # 256 px at this hfw, so the canvas's 512 px cap does not reduce it and only
         # the deliberate reduction below can shrink anything.
         hfw = 256 * 4e-7
-        widget.place_image(_tile(microscope, _at(base), shape=(256, 256), hfw=hfw),
-                           key="a")
+        widget.place_image(
+            _tile(microscope, _at(base), shape=(256, 256), hfw=hfw), key="a"
+        )
         widget.place_image(
             _tile(microscope, _at(base, dx=hfw), shape=(256, 256), hfw=hfw), key="b"
         )
@@ -245,8 +249,9 @@ class TestTheInversion:
         _hold_at(widget, cap)
         big = cap + cap // 2  # over the cap, so it reduces; not so far over it is slow
         hfw = big * 1e-7
-        widget.place_image(_tile(microscope, _at(base), shape=(big, big), hfw=hfw),
-                           key="big")
+        widget.place_image(
+            _tile(microscope, _at(base), shape=(big, big), hfw=hfw), key="big"
+        )
 
         extent = widget.canvas._placed["big"].extent
         drawn_width_m = (extent[1] - extent[0]) * widget.canvas.reference_pixel_size
@@ -314,9 +319,13 @@ class TestTheTwoCaps:
 
         assert wide * wide * 2 <= widget._store_budget_bytes
         assert deep * deep * 3 <= widget._store_budget_bytes
-        assert deep < wide, "a 16-bit detector was given the same pixel count as an 8-bit"
+        assert deep < wide, (
+            "a 16-bit detector was given the same pixel count as an 8-bit"
+        )
 
-    def test_the_budget_holds_the_complained_about_mosaic_whole(self, widget, microscope):
+    def test_the_budget_holds_the_complained_about_mosaic_whole(
+        self, widget, microscope
+    ):
         """The case behind FIB-658: a 5x5 of 1024 px tiles is 5120 px, and the point of
         the budget is that it is held at its acquired resolution rather than reduced."""
         assert widget._store_cap(np.uint8) >= 5 * 1024, (
@@ -428,7 +437,6 @@ class TestOneDerivationForBothDirections:
         x, y = frame.to_canvas(_at(base, 0.0, 0.0))
         assert widget._position_at(x + 4000, y + 4000) is None
 
-
     def test_a_hidden_marker_is_not_a_target(self, widget, microscope):
         """Turned off means gone, not merely invisible.
 
@@ -478,7 +486,8 @@ class TestAnOverviewIsReducedOnce:
         calls = []
         original = widget._stored_tile
         monkeypatch.setattr(
-            widget, "_stored_tile",
+            widget,
+            "_stored_tile",
             lambda image: calls.append(image) or original(image),
         )
 
@@ -503,9 +512,10 @@ class TestAnOverviewIsReducedOnce:
         placed = []
         original = widget._place_on_canvas
         monkeypatch.setattr(
-            widget, "_place_on_canvas",
-            lambda tile, view, **kwargs: placed.append(tile) or original(
-                tile, view, **kwargs
+            widget,
+            "_place_on_canvas",
+            lambda tile, view, **kwargs: (
+                placed.append(tile) or original(tile, view, **kwargs)
             ),
         )
 
@@ -560,7 +570,8 @@ class TestItDoesNotReadHardwareOnUiEvents:
         reads = []
         original = microscope.get_scan_rotation
         monkeypatch.setattr(
-            microscope, "get_scan_rotation",
+            microscope,
+            "get_scan_rotation",
             lambda beam_type: (reads.append(beam_type), original(beam_type))[1],
         )
 
@@ -592,9 +603,12 @@ class TestWhatIsDrawn:
         every point the same, so the selection has to be its own layer."""
         base = microscope.get_stage_position()
         widget.place_image(_tile(microscope, _at(base)))
-        widget.set_positions([
-            _at(base, 0.0, 0.0, "A"), _at(base, 30e-6, 0.0, "B"),
-        ])
+        widget.set_positions(
+            [
+                _at(base, 0.0, 0.0, "A"),
+                _at(base, 30e-6, 0.0, "B"),
+            ]
+        )
         widget.set_selected_position("B")
 
         assert len(widget.position_overlay._points) == 1
@@ -731,10 +745,14 @@ class TestThingsOnlyRunningItFound:
         assert widget.overview_list._list.count() == 1
 
         for i in (1, 2, 3):
-            widget._apply_progress({
-                "msg": "Tile Collected", "counter": i, "total": 3,
-                "preview": _tile(microscope, _at(base)),
-            })
+            widget._apply_progress(
+                {
+                    "msg": "Tile Collected",
+                    "counter": i,
+                    "total": 3,
+                    "preview": _tile(microscope, _at(base)),
+                }
+            )
             row = widget.overview_list._rows["run"]
             assert row.detail_label.text().startswith(f"{i} tile"), (
                 f"after {i} tile(s) the row still reads {row.detail_label.text()!r}"
@@ -768,8 +786,9 @@ class TestTheRunOwnsItsSettings:
     which set the run's output path back to None.
     """
 
-    def test_reading_the_settings_does_not_disturb_a_run(self, widget, microscope,
-                                                         monkeypatch, tmp_path):
+    def test_reading_the_settings_does_not_disturb_a_run(
+        self, widget, microscope, monkeypatch, tmp_path
+    ):
         """The reported sequence, end to end: start a run, then do everything a stage
         move between tiles does, and check the run's settings still name a path.
 
@@ -812,8 +831,9 @@ class TestTheRunOwnsItsSettings:
             "the second tile would die in os.path.join(None, filename)"
         )
 
-    def test_the_runner_gets_its_own_copy_of_the_settings(self, widget, microscope,
-                                                          monkeypatch, tmp_path):
+    def test_the_runner_gets_its_own_copy_of_the_settings(
+        self, widget, microscope, monkeypatch, tmp_path
+    ):
         """Even with nothing else reading, handing a background runner the widget's own
         instance means any later edit reaches into a run in progress."""
         captured = {}
@@ -857,9 +877,7 @@ class TestTheRunOwnsItsSettings:
         An empty box is also what made `get_settings()` read the path back as None.
         """
         widget.set_save_directory(str(tmp_path))
-        assert widget.settings_widget.path_edit.text() == str(
-            tmp_path
-        )
+        assert widget.settings_widget.path_edit.text() == str(tmp_path)
         assert widget._settings().image_settings.path == str(tmp_path)
 
     def test_a_run_always_has_somewhere_to_write(self, widget, monkeypatch):
@@ -919,10 +937,7 @@ class TestTheRunOwnsItsSettings:
         widget.acquire()
         assert captured["settings"].image_settings.filename.startswith("overview-image")
         # And visible, so it can be changed before a run rather than discovered after.
-        assert (
-            widget.settings_widget.filename_edit.text()
-            == "overview-image"
-        )
+        assert widget.settings_widget.filename_edit.text() == "overview-image"
 
     def test_a_run_starts_from_the_overview_defaults(self, widget, monkeypatch):
         """A 500 um tile with autocontrast, not `ImageSettings`'s generic 150 um.
@@ -1077,7 +1092,9 @@ class TestViews:
     def _image(self, scope, orientation, beam_type, dx=0.0):
         position = self._at_orientation(scope, orientation, dx)
         image = FibsemImage.generate_blank_image(resolution=(128, 128), hfw=128 * 2e-7)
-        image.data = (np.random.default_rng(0).random((128, 128)) * 255).astype(np.uint8)
+        image.data = (np.random.default_rng(0).random((128, 128)) * 255).astype(
+            np.uint8
+        )
         state = scope.get_microscope_state(beam_type=beam_type)
         state.stage_position = position
         image.metadata.image_settings = ImageSettings(
@@ -1124,7 +1141,9 @@ class TestViews:
         assert widget.show_view(sem_view) is True
         assert widget.current_view == sem_view
         assert len(widget.canvas.placed_keys) == 2, "the SEM images did not come back"
-        assert widget.show_view(sem_view) is False, "switching to the current view is a no-op"
+        assert widget.show_view(sem_view) is False, (
+            "switching to the current view is a no-op"
+        )
 
     def test_each_view_keeps_its_own_origin(self, widget):
         """Everything in a view is placed relative to that view's anchor. One shared
@@ -1212,7 +1231,9 @@ class TestViews:
         scope = widget.microscope
         widget._stage_position = self._at_orientation(scope, "SEM")
         widget.set_image(self._image(scope, "SEM", BeamType.ELECTRON))
-        assert widget._stage_position_at(0.0, 0.0) is not None, "blocked in its own view"
+        assert widget._stage_position_at(0.0, 0.0) is not None, (
+            "blocked in its own view"
+        )
 
         widget._stage_position = self._at_orientation(scope, "FIB")
         assert widget._stage_position_at(0.0, 0.0) is None, (
@@ -1410,7 +1431,9 @@ class TestOverlaysAreDrawnInTheView:
         position = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t)
         hfw = 128 * 2e-7
         image = FibsemImage.generate_blank_image(resolution=(128, 128), hfw=hfw)
-        image.data = (np.random.default_rng(0).random((128, 128)) * 255).astype(np.uint8)
+        image.data = (np.random.default_rng(0).random((128, 128)) * 255).astype(
+            np.uint8
+        )
         state = scope.get_microscope_state(beam_type=beam_type)
         state.stage_position = position
         image.metadata.image_settings = ImageSettings(hfw=hfw, beam_type=beam_type)
@@ -1467,7 +1490,9 @@ class TestOverlaysAreDrawnInTheView:
         assert abs(corner[0] - box.cx) == pytest.approx(box.width / 2, rel=1e-9)
         assert abs(corner[1] - box.cy) == pytest.approx(box.height / 2, rel=1e-9)
 
-    def test_the_limits_box_is_shorter_in_a_foreshortened_view(self, widget, microscope):
+    def test_the_limits_box_is_shorter_in_a_foreshortened_view(
+        self, widget, microscope
+    ):
         """The bug, pinned. The box was `frame.length(ymax - ymin)` in every view, so
         it was the same height at the milling pose as at the SEM one -- nearly four
         times too tall in the view you mill in."""
@@ -1580,7 +1605,8 @@ class TestTheHolderIsDrawnOnEveryStage:
         from fibsem.microscopes._stage import GridSlot
 
         return GridSlot(
-            name=name, index=0,
+            name=name,
+            index=0,
             position=FibsemStagePosition(name=name, x=x, y=y, z=0.0),
         )
 
@@ -1591,16 +1617,21 @@ class TestTheHolderIsDrawnOnEveryStage:
         a `property` object where a dict belongs.
         """
         holder = widget.microscope._stage.holder
-        slots = {"Slot-01": self._slot("Slot-01", -5.0e-3),
-                 "Slot-02": self._slot("Slot-02", 5.0e-3)}
+        slots = {
+            "Slot-01": self._slot("Slot-01", -5.0e-3),
+            "Slot-02": self._slot("Slot-02", 5.0e-3),
+        }
         monkeypatch.setattr(holder, "slots", slots)
         widget._refresh_context_overlays()
         return slots
 
     @staticmethod
     def _specs(widget, kind, label=None):
-        return [s for s in widget.context_overlay._specs
-                if s.kind == kind and (label is None or s.label == label)]
+        return [
+            s
+            for s in widget.context_overlay._specs
+            if s.kind == kind and (label is None or s.label == label)
+        ]
 
     def test_the_travel_box_draws_on_a_stage_that_is_not_a_compustage(
         self, widget, microscope, monkeypatch
@@ -1640,15 +1671,18 @@ class TestTheHolderIsDrawnOnEveryStage:
         with a shuttle that is 10 mm across, a full grid's width from either of them."""
         self._two_slots(widget, monkeypatch)
         boundaries = self._specs(widget, "ellipse", "Grid Boundary")
-        crosshairs = [s for s in self._specs(widget, "crosshair")
-                      if s.label.startswith("Slot-")]
+        crosshairs = [
+            s for s in self._specs(widget, "crosshair") if s.label.startswith("Slot-")
+        ]
 
         centres = sorted((round(s.cx, 6), round(s.cy, 6)) for s in boundaries)
         markers = sorted((round(s.cx, 6), round(s.cy, 6)) for s in crosshairs)
         assert centres == markers, "a boundary is not concentric with its slot marker"
         assert len({c[0] for c in centres}) == 2, "both circles landed in one place"
 
-    def test_a_slot_carries_the_orientation_it_was_defined_in(self, widget, monkeypatch):
+    def test_a_slot_carries_the_orientation_it_was_defined_in(
+        self, widget, monkeypatch
+    ):
         """The holder file is written in the SEM orientation, so that is the pose a
         slot has to carry. Without it the position is a bare x/y and `to_canvas` has
         nothing to compare against -- which is both why the shipped holder crashed and
@@ -1674,8 +1708,9 @@ class TestTheHolderIsDrawnOnEveryStage:
         """The compustage case, unchanged: one slot at the origin, one circle on it.
         The simulator's own holder, so this is the behaviour that shipped."""
         boundaries = self._specs(widget, "ellipse", "Grid Boundary")
-        crosshairs = [s for s in self._specs(widget, "crosshair")
-                      if s.label.startswith("Slot-")]
+        crosshairs = [
+            s for s in self._specs(widget, "crosshair") if s.label.startswith("Slot-")
+        ]
 
         assert len(boundaries) == 1
         assert (boundaries[0].cx, boundaries[0].cy) == pytest.approx(
@@ -1861,8 +1896,11 @@ class TestThePlannedTileset:
         """
         origin = widget._origins[widget.current_view]
         drifted = FibsemStagePosition(
-            x=origin.x, y=origin.y, z=origin.z,
-            r=origin.r, t=origin.t + np.deg2rad(0.4),
+            x=origin.x,
+            y=origin.y,
+            z=origin.z,
+            r=origin.r,
+            t=origin.t + np.deg2rad(0.4),
         )
         widget._stage_position = drifted
 
@@ -1985,10 +2023,14 @@ class TestThePlanHoldsStillWhileTheRunWalksTheGrid:
     def _run_a_tile(self, widget, microscope, position):
         """One tile of a run: the stage arrives, then a preview lands."""
         widget._on_stage_moved(position)
-        widget._apply_progress({
-            "msg": "Tile Collected", "counter": 1, "total": 3,
-            "preview": _tile(microscope, position),
-        })
+        widget._apply_progress(
+            {
+                "msg": "Tile Collected",
+                "counter": 1,
+                "total": 3,
+                "preview": _tile(microscope, position),
+            }
+        )
 
     def test_the_planned_grid_does_not_follow_the_stage(self, widget, microscope):
         from fibsem.ui.widgets.overview_widget import OverviewRecord
@@ -2047,7 +2089,9 @@ class TestThePlanHoldsStillWhileTheRunWalksTheGrid:
         widget.place_image(_tile(microscope, _at(base, dx=100e-6)), key="preview")
         widget.place_image(_tile(microscope, _at(base, dx=200e-6)), key="preview")
 
-        assert calls == [], f"{len(calls)} overlay refresh(es) for images already framed"
+        assert calls == [], (
+            f"{len(calls)} overlay refresh(es) for images already framed"
+        )
 
     def test_the_plan_is_pinned_to_what_the_run_is_acquiring(
         self, widget, microscope, monkeypatch, tmp_path
@@ -2061,6 +2105,7 @@ class TestThePlanHoldsStillWhileTheRunWalksTheGrid:
         against a real 3x3 run of 80 um tiles, one tile off, and it stayed there for the
         rest of the acquisition. So a run pins the centre it was started with.
         """
+
         def fake_worker(fn, *args):
             class _W:
                 def start(self_inner):
@@ -2082,10 +2127,14 @@ class TestThePlanHoldsStillWhileTheRunWalksTheGrid:
         # The stage sets off, and the first preview arrives from a tile away -- which is
         # the redraw, because it is what un-provisions the origin.
         widget._on_stage_moved(_at(base, dx=300e-6, dy=300e-6))
-        widget._apply_progress({
-            "msg": "Tile Collected", "counter": 1, "total": 9,
-            "preview": _tile(microscope, _at(base)),
-        })
+        widget._apply_progress(
+            {
+                "msg": "Tile Collected",
+                "counter": 1,
+                "total": 9,
+                "preview": _tile(microscope, _at(base)),
+            }
+        )
 
         assert widget.tile_grid_overlay._anchor() == pytest.approx(anchored_at), (
             "the plan was redrawn around the tile being acquired, not around the run"
@@ -2159,7 +2208,8 @@ class TestThePlanHoldsStillWhileTheRunWalksTheGrid:
         )
         monkeypatch.setattr(
             overview_confirmation_dialog.OverviewConfirmationDialog,
-            "exec_", moves_the_stage,
+            "exec_",
+            moves_the_stage,
         )
 
         widget.acquire()
@@ -2206,10 +2256,14 @@ class TestARunDoesNotReFrameTheCanvas:
         widget._active_record = "run"
         widget._set_running(True)
         for counter in range(1, tiles + 1):
-            widget._apply_progress({
-                "msg": "Tile Collected", "counter": counter, "total": tiles,
-                "preview": _tile(microscope, _at(base)),
-            })
+            widget._apply_progress(
+                {
+                    "msg": "Tile Collected",
+                    "counter": counter,
+                    "total": tiles,
+                    "preview": _tile(microscope, _at(base)),
+                }
+            )
         widget._mosaic = _tile(microscope, _at(base), shape=(128, 128))
         widget._on_finished({})
 
@@ -2303,7 +2357,9 @@ class TestTheCanvasFollowsTheBeamYouPlanWith:
         position = scope.get_stage_position()
         hfw = 128 * 2e-7
         image = FibsemImage.generate_blank_image(resolution=(128, 128), hfw=hfw)
-        image.data = (np.random.default_rng(0).random((128, 128)) * 255).astype(np.uint8)
+        image.data = (np.random.default_rng(0).random((128, 128)) * 255).astype(
+            np.uint8
+        )
         state = scope.get_microscope_state(beam_type=beam_type)
         state.stage_position = position
         image.metadata.image_settings = ImageSettings(hfw=hfw, beam_type=beam_type)
@@ -2327,10 +2383,14 @@ class TestTheCanvasFollowsTheBeamYouPlanWith:
         assert len(widget.canvas.placed_keys) == 1
 
         widget.settings_widget.combo_beam.set_value(BeamType.ION)
-        assert len(widget.canvas.placed_keys) == 0, "the ion view is empty, as it should be"
+        assert len(widget.canvas.placed_keys) == 0, (
+            "the ion view is empty, as it should be"
+        )
 
         widget.settings_widget.combo_beam.set_value(BeamType.ELECTRON)
-        assert len(widget.canvas.placed_keys) == 1, "the electron overview did not come back"
+        assert len(widget.canvas.placed_keys) == 1, (
+            "the electron overview did not come back"
+        )
 
     def test_re_posing_the_stage_moves_the_canvas_with_it(self, widget, microscope):
         """Reported from the tab: moving to the milling orientation left the display and
@@ -2351,7 +2411,9 @@ class TestTheCanvasFollowsTheBeamYouPlanWith:
         assert widget.current_view.orientation == "MILLING"
         assert widget.tile_grid_overlay._tiles, "the planned grid did not come with it"
 
-    def test_a_move_within_an_orientation_leaves_the_view_alone(self, widget, microscope):
+    def test_a_move_within_an_orientation_leaves_the_view_alone(
+        self, widget, microscope
+    ):
         """The other half, and why following an orientation change is safe: steering
         around inside a view -- which is what clicking the canvas does -- must not
         reshuffle what is on screen."""
@@ -2361,7 +2423,9 @@ class TestTheCanvasFollowsTheBeamYouPlanWith:
 
         here = microscope.get_stage_position()
         widget._on_stage_moved(
-            FibsemStagePosition(x=here.x + 250e-6, y=here.y, z=here.z, r=here.r, t=here.t)
+            FibsemStagePosition(
+                x=here.x + 250e-6, y=here.y, z=here.z, r=here.r, t=here.t
+            )
         )
         assert widget.current_view == showing
         assert len(widget.canvas.placed_keys) == placed
@@ -2384,7 +2448,9 @@ class TestTheCanvasFollowsTheBeamYouPlanWith:
         widget._refresh_context_overlays()
         assert widget.current_view == sem, "the redraw undid the choice"
 
-    def test_the_view_the_run_would_land_in_is_always_selectable(self, widget, microscope):
+    def test_the_view_the_run_would_land_in_is_always_selectable(
+        self, widget, microscope
+    ):
         """And when a stage move does take the plan elsewhere, there has to be a way to
         go and look at it -- the selector only listed views something had been placed
         in, so an empty one was unreachable."""
@@ -2421,7 +2487,9 @@ class TestTheViewChips:
         position = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t)
         hfw = 128 * 2e-7
         image = FibsemImage.generate_blank_image(resolution=(128, 128), hfw=hfw)
-        image.data = (np.random.default_rng(0).random((128, 128)) * 255).astype(np.uint8)
+        image.data = (np.random.default_rng(0).random((128, 128)) * 255).astype(
+            np.uint8
+        )
         state = scope.get_microscope_state(beam_type=beam_type)
         state.stage_position = position
         image.metadata.image_settings = ImageSettings(hfw=hfw, beam_type=beam_type)
@@ -2440,7 +2508,9 @@ class TestTheViewChips:
             ("SEM", BeamType.ION, "FIB @ SEM"),
         ],
     )
-    def test_a_view_names_both_facts_in_the_same_shape(self, orientation, beam, expected):
+    def test_a_view_names_both_facts_in_the_same_shape(
+        self, orientation, beam, expected
+    ):
         """Beam then orientation, always both. Dropping the orientation when it matched
         the beam read well until you met the ones it kept, and then "FIB · SEM pose" had
         to be decoded rather than read."""
@@ -2454,7 +2524,9 @@ class TestTheViewChips:
     def test_orientations_are_shown_as_the_microscope_names_them(self):
         """Title-casing rendered the two acronyms as "Sem" and "Fib"; casing by rule
         instead means a rule to remember, and a new orientation to add to it."""
-        assert OverviewView(beam_type=BeamType.ION, orientation="SEM").label == "FIB @ SEM"
+        assert (
+            OverviewView(beam_type=BeamType.ION, orientation="SEM").label == "FIB @ SEM"
+        )
         assert (
             OverviewView(beam_type=BeamType.ION, orientation="MILLING").label
             == "FIB @ MILLING"
@@ -2494,11 +2566,15 @@ class TestTheViewChips:
         assert widget.current_view == sem
         assert len(widget.canvas.placed_keys) == 1, "the overview did not come back"
 
-    def test_the_chip_for_the_displayed_view_is_the_checked_one(self, widget, microscope):
+    def test_the_chip_for_the_displayed_view_is_the_checked_one(
+        self, widget, microscope
+    ):
         widget.set_image(self._image(microscope, "SEM", BeamType.ELECTRON))
         widget.settings_widget.combo_beam.set_value(BeamType.ION)
 
-        checked = {b.text() for b in widget._view_chip_buttons.values() if b.isChecked()}
+        checked = {
+            b.text() for b in widget._view_chip_buttons.values() if b.isChecked()
+        }
         assert checked == {widget.current_view.label}
 
     def test_the_view_the_run_would_land_in_is_marked_apart(self, widget, microscope):
@@ -2549,7 +2625,9 @@ class TestTheViewChips:
         ]
         before = widget.minimumSizeHint().width()
         monkeypatch.setattr(
-            type(widget), "views", property(lambda self: views)  # read-only
+            type(widget),
+            "views",
+            property(lambda self: views),  # read-only
         )
         widget._refresh_view_selector()
         _app.processEvents()
@@ -2638,10 +2716,13 @@ class TestTheMillingAngleIsOnTheBeamTab:
         assert widget.canvas._info_text != before
         assert "milling" in widget.canvas._info_text
 
-    def test_a_pose_with_no_tilt_drops_the_angle_not_the_line(self, widget, monkeypatch):
+    def test_a_pose_with_no_tilt_drops_the_angle_not_the_line(
+        self, widget, monkeypatch
+    ):
         """It can refuse, and the position is the half of the line that always works."""
         monkeypatch.setattr(
-            widget.microscope, "get_current_milling_angle",
+            widget.microscope,
+            "get_current_milling_angle",
             lambda **kwargs: (_ for _ in ()).throw(ValueError("no tilt")),
         )
         widget._refresh_stage_info()
@@ -2652,7 +2733,8 @@ class TestTheMillingAngleIsOnTheBeamTab:
         """This runs on every overlay refresh. `get_current_milling_angle` is arithmetic
         over the pose it is handed -- but only if it is handed one."""
         monkeypatch.setattr(
-            microscope, "get_stage_position",
+            microscope,
+            "get_stage_position",
             lambda *a, **k: pytest.fail("the info bar polled the stage"),
         )
         widget._refresh_stage_info()
@@ -2697,9 +2779,7 @@ class TestARunIsConfirmedFirst:
         assert len(confirmations) == 1, "the run started without asking"
         assert "args" in captured, "the run was refused after the dialog was accepted"
 
-    def test_declining_leaves_everything_as_it_was(
-        self, widget, monkeypatch, tmp_path
-    ):
+    def test_declining_leaves_everything_as_it_was(self, widget, monkeypatch, tmp_path):
         """Not merely "no worker": a refused run must leave no record behind either, or
         the overview list grows a row for something that never happened."""
         captured = {}
@@ -2792,7 +2872,8 @@ class TestARunIsConfirmedFirst:
             self._fake_worker(captured),
         )
         monkeypatch.setattr(
-            widget.microscope, "get_stage_position",
+            widget.microscope,
+            "get_stage_position",
             lambda *a, **k: pytest.fail("the confirmation dialog polled the stage"),
         )
         widget.acquire()
@@ -3094,7 +3175,9 @@ class TestTheAcquisitionButtons:
         scrolled = scroll.widget()
         for name in ("button_acquire", "button_cancel", "progress", "label_status"):
             child = getattr(widget, name)
-            assert not scrolled.isAncestorOf(child), f"{name} scrolls away with the column"
+            assert not scrolled.isAncestorOf(child), (
+                f"{name} scrolls away with the column"
+            )
 
     def test_they_stay_on_screen_in_a_window_too_short_for_the_column(
         self, microscope, qapp
@@ -3153,10 +3236,14 @@ class TestAnOverviewDoesNotPaintOverTheOneBeneathIt:
         )
 
         data = self._partial()
-        rgba = _as_colour_and_coverage(data, data > 0, _contrast_limits(data.astype(float), data > 0))
+        rgba = _as_colour_and_coverage(
+            data, data > 0, _contrast_limits(data.astype(float), data > 0)
+        )
         alpha = rgba[..., 3]
-        assert (alpha[: data.shape[0] // 3] == 255).all(), "acquired tiles went see-through"
-        assert (alpha[data.shape[0] // 3:] == 0).all(), (
+        assert (alpha[: data.shape[0] // 3] == 255).all(), (
+            "acquired tiles went see-through"
+        )
+        assert (alpha[data.shape[0] // 3 :] == 0).all(), (
             "unacquired ground is still opaque, so it paints over what is beneath"
         )
 
@@ -3170,7 +3257,9 @@ class TestAnOverviewDoesNotPaintOverTheOneBeneathIt:
         )
 
         data = np.array([[1, 40, 128, 255]], dtype=np.uint8)
-        rgba = _as_colour_and_coverage(data, data > 0, _contrast_limits(data.astype(float), data > 0))
+        rgba = _as_colour_and_coverage(
+            data, data > 0, _contrast_limits(data.astype(float), data > 0)
+        )
         assert (rgba[..., 3] == 255).all(), (
             f"alpha followed intensity: {rgba[..., 3].tolist()}"
         )
@@ -3183,7 +3272,12 @@ class TestAnOverviewDoesNotPaintOverTheOneBeneathIt:
         )
 
         data = np.zeros((16, 16), dtype=np.uint8)
-        assert (_as_colour_and_coverage(data, data > 0, _contrast_limits(data.astype(float), data > 0))[..., 3] == 0).all()
+        assert (
+            _as_colour_and_coverage(
+                data, data > 0, _contrast_limits(data.astype(float), data > 0)
+            )[..., 3]
+            == 0
+        ).all()
 
     def test_the_unacquired_zeros_do_not_set_the_contrast(self):
         """They are most of a part-finished mosaic and they are not drawn, so letting
@@ -3196,7 +3290,9 @@ class TestAnOverviewDoesNotPaintOverTheOneBeneathIt:
 
         data = self._partial()
         acquired = data > 0
-        grey = _as_colour_and_coverage(data, acquired, _contrast_limits(data.astype(float), acquired))[..., 0][acquired]
+        grey = _as_colour_and_coverage(
+            data, acquired, _contrast_limits(data.astype(float), acquired)
+        )[..., 0][acquired]
         assert grey.mean() == pytest.approx(128, abs=25), (
             f"the acquired tiles render at a mean of {grey.mean():.0f}/255"
         )
@@ -3212,8 +3308,11 @@ class TestAnOverviewDoesNotPaintOverTheOneBeneathIt:
 
         rng = np.random.default_rng(11)
         data = (rng.random((64, 64)) * 110 + 90).astype(np.uint8)
-        rgba = _as_colour_and_coverage(data, np.ones_like(data, dtype=bool),
-                                       _contrast_limits(data.astype(float), np.ones_like(data, dtype=bool)))
+        rgba = _as_colour_and_coverage(
+            data,
+            np.ones_like(data, dtype=bool),
+            _contrast_limits(data.astype(float), np.ones_like(data, dtype=bool)),
+        )
         assert (rgba[..., 3] == 255).all()
         assert rgba[..., 0].min() == 0 and rgba[..., 0].max() == 255
 
@@ -3256,7 +3355,9 @@ class TestAnOverviewDoesNotPaintOverTheOneBeneathIt:
         assert shown.ndim == 3 and shown.shape[-1] == 4, (
             f"the canvas was handed {shown.shape}, so it composites opaquely"
         )
-        assert shown[..., 3].min() == 0, "no part of a half-finished mosaic is transparent"
+        assert shown[..., 3].min() == 0, (
+            "no part of a half-finished mosaic is transparent"
+        )
 
 
 class TestTwoRunsCannotLandOnEachOther:
@@ -3334,10 +3435,7 @@ class TestTwoRunsCannotLandOnEachOther:
         """Stamped at the run, not in the control: a box that rewrote itself on every
         acquisition would make the name unusable as a thing you set once."""
         self._capture(widget, monkeypatch, tmp_path)
-        assert (
-            widget.settings_widget.filename_edit.text()
-            == "overview-image"
-        )
+        assert widget.settings_widget.filename_edit.text() == "overview-image"
 
     def test_the_dialog_reports_where_it_will_actually_land(
         self, widget, monkeypatch, tmp_path, confirmations
@@ -3390,7 +3488,9 @@ class TestContrastActsOnEveryOverview:
         before = self._drawn(widget, key)[..., 0].astype(float).std()
         self._narrow(widget)
         after = self._drawn(widget, key)[..., 0].astype(float).std()
-        assert after > before * 1.2, f"contrast did nothing: {before:.1f} -> {after:.1f}"
+        assert after > before * 1.2, (
+            f"contrast did nothing: {before:.1f} -> {after:.1f}"
+        )
 
     def test_contrast_cannot_change_what_was_acquired(self, widget, microscope):
         """The invariant. Alpha is coverage, not brightness: run the same curve over it
@@ -3486,7 +3586,7 @@ class TestFocusAndFocusStackAreTwoQuestions:
         settings.check_focus_stack.setChecked(False)
 
         read = settings.get_settings()
-        assert read.autofocus_settings.mode is AutoFocusMode.EACH_TILE
+        assert read.autofocus_mode is AutoFocusMode.EACH_TILE
         assert read.focus_stack_settings.enabled is False
 
     def test_the_stack_parameters_grey_out_when_it_is_off(self, widget):
@@ -3578,7 +3678,9 @@ class TestAnOverviewIsDrawnFromWhatIsHeld:
         assert np.asarray(tile.acquired).dtype == np.bool_
         assert tile.clim[0] < tile.clim[1]
 
-    def test_zooming_in_recovers_detail_it_could_not_have_held(self, widget, microscope):
+    def test_zooming_in_recovers_detail_it_could_not_have_held(
+        self, widget, microscope
+    ):
         """The payoff, stated exactly: framed whole you see the *draw* cap's worth, and
         zoomed in you see everything *held*. Under a store-time reduction the two are
         necessarily the same number, so a zoom could only magnify.
@@ -3777,11 +3879,19 @@ class TestTheOverlaysCanBeTurnedOff:
         says which part of the sample you are looking at. Hiding it would make the
         canvas harder to read rather than cleaner."""
         base = microscope.get_stage_position()
-        widget.set_positions([
-            FibsemStagePosition(name=f"L{i}", x=base.x + i * 20e-6, y=base.y,
-                                z=base.z, r=base.r, t=base.t)
-            for i in range(3)
-        ])
+        widget.set_positions(
+            [
+                FibsemStagePosition(
+                    name=f"L{i}",
+                    x=base.x + i * 20e-6,
+                    y=base.y,
+                    z=base.z,
+                    r=base.r,
+                    t=base.t,
+                )
+                for i in range(3)
+            ]
+        )
         assert len(widget.position_overlay._points) == 3
 
         widget.overlay_controls.set_visible("positions", False)
@@ -3789,7 +3899,9 @@ class TestTheOverlaysCanBeTurnedOff:
         assert widget.position_overlay._points == []
         assert len(widget.current_position_overlay._points) == 1
 
-    def test_the_grid_bar_pitch_controls_match_the_checkbox_from_the_start(self, widget):
+    def test_the_grid_bar_pitch_controls_match_the_checkbox_from_the_start(
+        self, widget
+    ):
         """They were live from construction over a lattice that was not drawn, because
         the toggle handler had never run -- so adjusting them appeared to do nothing."""
         assert widget.overlay_controls.is_visible("gridbars") is False
@@ -4010,18 +4122,26 @@ class TestItOnlyDrawsItsOwnRuns:
         from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE
 
         widget._tiles_acquired = 0
-        widget._apply_progress({
-            "modality": MODALITY_FLUORESCENCE,
-            "counter": 7, "total": 9, "msg": "Tile Collected",
-        })
+        widget._apply_progress(
+            {
+                "modality": MODALITY_FLUORESCENCE,
+                "counter": 7,
+                "total": 9,
+                "msg": "Tile Collected",
+            }
+        )
         assert widget._tiles_acquired == 0, "a fluorescence run moved this tab's count"
 
     def test_a_beam_run_is_still_drawn(self, widget):
         widget._tiles_acquired = 0
-        widget._apply_progress({
-            "modality": "beam",
-            "counter": 7, "total": 9, "msg": "Tile Collected",
-        })
+        widget._apply_progress(
+            {
+                "modality": "beam",
+                "counter": 7,
+                "total": 9,
+                "msg": "Tile Collected",
+            }
+        )
         assert widget._tiles_acquired == 7
 
     def test_an_unlabelled_run_is_still_drawn(self, widget):

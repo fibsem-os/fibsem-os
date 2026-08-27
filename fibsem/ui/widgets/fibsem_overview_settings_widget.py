@@ -21,6 +21,7 @@ Two panels open, three folded, which is the fluorescence column's budget. It mat
 because these sit above a `Display` panel and the pinned action row: a third expanded
 panel puts the grid below the fold on a laptop-height window.
 """
+
 from typing import List, Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -38,7 +39,6 @@ from fibsem import constants
 from fibsem.config import AVAILABLE_RESOLUTIONS_ZIP
 from fibsem.structures import (
     AutoFocusMode,
-    AutoFocusSettings,
     BeamType,
     FocusStackSettings,
     ImageSettings,
@@ -126,18 +126,30 @@ class FibsemOverviewSettingsWidget(QWidget):
         self.combo_beam = self._field(
             ValueComboBox(items=list(BeamType), format_fn=lambda b: b.name)
         )
-        self.combo_resolution = self._field(ValueComboBox(
-            items=[value for _, value in AVAILABLE_RESOLUTIONS_ZIP],
-            format_fn=lambda r: f"{r[0]}x{r[1]}",
-        ))
-        self.spin_dwell = self._field(ValueSpinBox(
-            suffix=f" {constants.MICROSECOND_SYMBOL}",
-            minimum=0.01, maximum=1000.0, step=0.5, decimals=2,
-        ))
-        self.spin_hfw = self._field(ValueSpinBox(
-            suffix=f" {constants.MICRON_SYMBOL}",
-            minimum=1.0, maximum=10000.0, step=50.0, decimals=1,
-        ))
+        self.combo_resolution = self._field(
+            ValueComboBox(
+                items=[value for _, value in AVAILABLE_RESOLUTIONS_ZIP],
+                format_fn=lambda r: f"{r[0]}x{r[1]}",
+            )
+        )
+        self.spin_dwell = self._field(
+            ValueSpinBox(
+                suffix=f" {constants.MICROSECOND_SYMBOL}",
+                minimum=0.01,
+                maximum=1000.0,
+                step=0.5,
+                decimals=2,
+            )
+        )
+        self.spin_hfw = self._field(
+            ValueSpinBox(
+                suffix=f" {constants.MICRON_SYMBOL}",
+                minimum=1.0,
+                maximum=10000.0,
+                step=50.0,
+                decimals=1,
+            )
+        )
         self.check_autocontrast = QCheckBox()
 
         # The one number that says whether the dwell just typed means seconds or hours.
@@ -169,10 +181,12 @@ class FibsemOverviewSettingsWidget(QWidget):
         else. Method and sweep passes arrive with FIB-646, which connects the tiled
         runner to `run_auto_focus` like every other autofocus caller in the codebase.
         """
-        self.combo_autofocus = self._field(ValueComboBox(
-            items=list(AutoFocusMode),
-            format_fn=lambda m: m.name.replace("_", " ").title(),
-        ))
+        self.combo_autofocus = self._field(
+            ValueComboBox(
+                items=list(AutoFocusMode),
+                format_fn=lambda m: m.name.replace("_", " ").title(),
+            )
+        )
 
         # The runner silently promotes EACH_ROW to EACH_TILE for a spiral, because a
         # spiral has no rows -- correct, and until now invisible. The fluorescence tab
@@ -285,7 +299,7 @@ class FibsemOverviewSettingsWidget(QWidget):
         the setting read one thing and the run did another.
         """
         promoted = (
-            settings.autofocus_settings.mode is AutoFocusMode.EACH_ROW
+            settings.autofocus_mode is AutoFocusMode.EACH_ROW
             and settings.tile_order is TileOrderStrategy.SPIRAL
         )
         self.label_focus_note.setVisible(promoted)
@@ -335,7 +349,7 @@ class FibsemOverviewSettingsWidget(QWidget):
                 n_steps=int(self.spin_focus_steps.value()),
                 auto_focus=self.check_focus_autofocus.isChecked(),
             ),
-            autofocus_settings=AutoFocusSettings(mode=self.combo_autofocus.value()),
+            autofocus_mode=self.combo_autofocus.value(),
             tile_order=self.grid.tile_order,
         )
 
@@ -343,9 +357,16 @@ class FibsemOverviewSettingsWidget(QWidget):
         """Load every value without emitting on the way through."""
         image = settings.image_settings
         widgets = [
-            self.combo_beam, self.combo_resolution, self.spin_dwell, self.spin_hfw,
-            self.check_autocontrast, self.check_focus_stack, self.spin_focus_steps,
-            self.check_focus_autofocus, self.combo_autofocus, self.filename_edit,
+            self.combo_beam,
+            self.combo_resolution,
+            self.spin_dwell,
+            self.spin_hfw,
+            self.check_autocontrast,
+            self.check_focus_stack,
+            self.spin_focus_steps,
+            self.check_focus_autofocus,
+            self.combo_autofocus,
+            self.filename_edit,
             self.path_edit.lineEdit,
         ]
         for widget in widgets:
@@ -361,7 +382,7 @@ class FibsemOverviewSettingsWidget(QWidget):
             self.check_focus_autofocus.setChecked(
                 settings.focus_stack_settings.auto_focus
             )
-            self.combo_autofocus.set_value(settings.autofocus_settings.mode)
+            self.combo_autofocus.set_value(settings.autofocus_mode)
             self.filename_edit.setText(image.filename or "")
             self.path_edit.setText(str(image.path) if image.path else "")
         finally:

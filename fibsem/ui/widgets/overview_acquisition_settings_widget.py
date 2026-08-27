@@ -18,7 +18,6 @@ from fibsem.config import (
 )
 from fibsem.structures import (
     AutoFocusMode,
-    AutoFocusSettings,
     BeamType,
     FocusStackSettings,
     ImageSettings,
@@ -151,7 +150,9 @@ class OverviewAcquisitionSettingsWidget(QWidget):
 
         # Beam type
         grid_layout.addWidget(QLabel("Beam Type"), 0, 0)
-        self.beam_type_combo = ValueComboBox(items=list(BeamType), format_fn=lambda bt: bt.name)
+        self.beam_type_combo = ValueComboBox(
+            items=list(BeamType), format_fn=lambda bt: bt.name
+        )
         grid_layout.addWidget(self.beam_type_combo, 0, 1, 1, 2)
 
         # Rows / cols
@@ -179,7 +180,9 @@ class OverviewAcquisitionSettingsWidget(QWidget):
 
         # Overlap
         grid_layout.addWidget(QLabel("Overlap (%)"), 2, 0)
-        self.overlap_spinbox = ValueSpinBox(suffix="%", minimum=0.0, maximum=50.0, step=5.0, decimals=0)
+        self.overlap_spinbox = ValueSpinBox(
+            suffix="%", minimum=0.0, maximum=50.0, step=5.0, decimals=0
+        )
         grid_layout.addWidget(self.overlap_spinbox, 2, 1, 1, 2)
 
         # Total FOV label (read-only, auto-updated)
@@ -224,11 +227,11 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         grid_layout.addWidget(self.tile_order_combo, 8, 1, 1, 2)
 
         self._adv_widgets = [
-            (self._label_focus_stack,          self.focus_stack_enabled),
-            (self._label_focus_stack_steps,    self.focus_stack_steps),
+            (self._label_focus_stack, self.focus_stack_enabled),
+            (self._label_focus_stack_steps, self.focus_stack_steps),
             (self._label_focus_stack_autofocus, self.focus_stack_autofocus),
-            (self._label_autofocus,            self.autofocus_combo),
-            (self._label_tile_order,           self.tile_order_combo),
+            (self._label_autofocus, self.autofocus_combo),
+            (self._label_tile_order, self.tile_order_combo),
         ]
 
         self._btn_advanced = IconToolButton(
@@ -248,7 +251,9 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         self.image_settings_widget.set_show_advanced_button(False)
 
         # All standard + square resolutions are supported (non-square aspect handled in acquisition)
-        self.image_settings_widget.set_available_resolutions(AVAILABLE_RESOLUTIONS_ZIP, default=DEFAULT_STANDARD_RESOLUTION)
+        self.image_settings_widget.set_available_resolutions(
+            AVAILABLE_RESOLUTIONS_ZIP, default=DEFAULT_STANDARD_RESOLUTION
+        )
 
         self._btn_advanced_imaging = IconToolButton(
             icon="mdi:tune",
@@ -258,7 +263,9 @@ class OverviewAcquisitionSettingsWidget(QWidget):
             checked_tooltip="Hide advanced image settings",
         )
 
-        self._image_panel = TitledPanel("Tile Image Settings", content=self.image_settings_widget)
+        self._image_panel = TitledPanel(
+            "Tile Image Settings", content=self.image_settings_widget
+        )
         self._image_panel.add_header_widget(self._btn_advanced_imaging)
         self._image_panel._btn_collapse.setChecked(True)
 
@@ -283,7 +290,9 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         self._btn_advanced.toggled.connect(self.set_show_advanced)
         self.beam_type_combo.currentIndexChanged.connect(self._on_changed)
         self.nrows_spinbox.valueChanged.connect(self._on_changed)
-        self._btn_advanced_imaging.toggled.connect(self.image_settings_widget.set_show_advanced)
+        self._btn_advanced_imaging.toggled.connect(
+            self.image_settings_widget.set_show_advanced
+        )
         self.ncols_spinbox.valueChanged.connect(self._on_changed)
         self.overlap_spinbox.valueChanged.connect(self._on_changed)
         self.focus_stack_enabled.toggled.connect(self._on_changed)
@@ -323,9 +332,7 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         total_w = settings.total_fov_x * constants.SI_TO_MICRO
         total_h = settings.total_fov_y * constants.SI_TO_MICRO
         sym = constants.MICRON_SYMBOL
-        self._label_total_fov.setText(
-            f"Total FOV: {total_w:.0f} × {total_h:.0f} {sym}"
-        )
+        self._label_total_fov.setText(f"Total FOV: {total_w:.0f} × {total_h:.0f} {sym}")
 
     # ------------------------------------------------------------------
     # Public API
@@ -345,7 +352,9 @@ class OverviewAcquisitionSettingsWidget(QWidget):
 
     @tile_mask.setter
     def tile_mask(self, mask: Optional[List[List[bool]]]) -> None:
-        self._tile_mask = None if mask is None else [[bool(v) for v in row] for row in mask]
+        self._tile_mask = (
+            None if mask is None else [[bool(v) for v in row] for row in mask]
+        )
         self._on_changed()
 
     def set_grid_size(self, rows: int, cols: int) -> None:
@@ -357,7 +366,10 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         when an edge is dragged on the canvas, which emits on every motion event.
         """
         rows, cols = int(rows), int(cols)
-        if (rows, cols) == (int(self.nrows_spinbox.value()), int(self.ncols_spinbox.value())):
+        if (rows, cols) == (
+            int(self.nrows_spinbox.value()),
+            int(self.ncols_spinbox.value()),
+        ):
             return
         for spinbox in (self.nrows_spinbox, self.ncols_spinbox):
             spinbox.blockSignals(True)
@@ -384,7 +396,7 @@ class OverviewAcquisitionSettingsWidget(QWidget):
                 n_steps=int(self.focus_stack_steps.value()),
                 auto_focus=self.focus_stack_autofocus.isChecked(),
             ),
-            autofocus_settings=AutoFocusSettings(mode=self.autofocus_combo.value()),
+            autofocus_mode=self.autofocus_combo.value(),
             tile_order=self.tile_order_combo.value(),
         )
 
@@ -412,9 +424,17 @@ class OverviewAcquisitionSettingsWidget(QWidget):
     def update_from_settings(self, settings: OverviewAcquisitionSettings):
         """Populate all widgets from an OverviewAcquisitionSettings object."""
         # Block tile-grid signals to prevent cascading updates
-        for w in [self.beam_type_combo, self.nrows_spinbox, self.ncols_spinbox,
-                  self.overlap_spinbox, self.focus_stack_enabled, self.focus_stack_steps,
-                  self.focus_stack_autofocus, self.autofocus_combo, self.tile_order_combo]:
+        for w in [
+            self.beam_type_combo,
+            self.nrows_spinbox,
+            self.ncols_spinbox,
+            self.overlap_spinbox,
+            self.focus_stack_enabled,
+            self.focus_stack_steps,
+            self.focus_stack_autofocus,
+            self.autofocus_combo,
+            self.tile_order_combo,
+        ]:
             w.blockSignals(True)
 
         self.beam_type_combo.set_value(settings.image_settings.beam_type)
@@ -424,16 +444,25 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         self.focus_stack_enabled.setChecked(settings.focus_stack_settings.enabled)
         self.focus_stack_steps.setValue(settings.focus_stack_settings.n_steps)
         self.focus_stack_autofocus.setChecked(settings.focus_stack_settings.auto_focus)
-        self.autofocus_combo.set_value(settings.autofocus_settings.mode)
+        self.autofocus_combo.set_value(settings.autofocus_mode)
         self.tile_order_combo.set_value(settings.tile_order)
 
-        for w in [self.beam_type_combo, self.nrows_spinbox, self.ncols_spinbox,
-                  self.overlap_spinbox, self.focus_stack_enabled, self.focus_stack_steps,
-                  self.focus_stack_autofocus, self.autofocus_combo, self.tile_order_combo]:
+        for w in [
+            self.beam_type_combo,
+            self.nrows_spinbox,
+            self.ncols_spinbox,
+            self.overlap_spinbox,
+            self.focus_stack_enabled,
+            self.focus_stack_steps,
+            self.focus_stack_autofocus,
+            self.autofocus_combo,
+            self.tile_order_combo,
+        ]:
             w.blockSignals(False)
 
         self._tile_mask = (
-            None if settings.tile_mask is None
+            None
+            if settings.tile_mask is None
             else [[bool(v) for v in row] for row in settings.tile_mask]
         )
         self.image_settings_widget.update_from_settings(settings.image_settings)

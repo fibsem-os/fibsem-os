@@ -184,7 +184,7 @@ class TiledAcquisitionRunner:
         """Prepare image settings and paths; emit initial progress signal."""
         image_settings = self.settings.image_settings
         self._focus_stack_settings = self.settings.focus_stack_settings
-        self._af_mode = self.settings.autofocus_settings.mode
+        self._af_mode = self.settings.autofocus_mode
 
         image_settings.autocontrast = False
         image_settings.save = True
