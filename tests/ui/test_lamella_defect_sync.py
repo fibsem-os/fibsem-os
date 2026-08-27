@@ -130,7 +130,11 @@ def test_the_workflow_update_refreshes_the_name_list(row, lamella):
 @pytest.mark.parametrize(
     "module, widget, handler",
     [
-        ("fibsem.ui.FibsemMinimapWidget", "FibsemMinimapWidget", "_on_defect_changed"),
+        (
+            "fibsem.applications.autolamella.ui.autolamella_overview_tab",
+            "AutoLamellaOverviewTab",
+            "_on_defect_changed",
+        ),
         (
             "fibsem.applications.autolamella.ui.fluorescence_coincidence_viewer_widget",
             "FluorescenceCoincidenceViewerWidget",
@@ -141,10 +145,12 @@ def test_the_workflow_update_refreshes_the_name_list(row, lamella):
 def test_every_host_of_the_list_can_persist_a_defect(module, widget, handler):
     """Both hosts embedding the list need somewhere for `defect_changed` to go.
 
-    Read as source text rather than by construction: the minimap needs a napari viewer
-    and the coincidence viewer a microscope and an experiment, neither worth standing up
-    to assert a connection exists. What is pinned is that the signal is wired and the
-    handler saves -- which the text carries.
+    Read as source text rather than by construction: both need a microscope and an
+    experiment, neither worth standing up to assert a connection exists. What is pinned
+    is that the signal is wired and the handler saves -- which the text carries.
+
+    The first entry was `FibsemMinimapWidget` until that widget was deleted; the beam
+    Overview tab is the host that replaced it, and embeds the same list.
     """
     import importlib
     from pathlib import Path

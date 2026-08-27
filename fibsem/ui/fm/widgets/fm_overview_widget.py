@@ -603,7 +603,7 @@ class FMOverviewWidget(QWidget):
         # whole widget. Spanning cost 1030 px of minimum width -- all of it, the canvas
         # asked for 10 -- because a horizontal row cannot give anything up. Stacked in
         # the column the floor is the column's own, and the canvas can be as narrow as
-        # the window allows. Same shape as `FibsemMinimapWidget`, which stacks its run
+        # the window allows. Same shape as its beam-side twin, which stacks its run
         # controls under its settings for the same reason.
         self.status_row = QWidget()
         actions_layout = QVBoxLayout(self.status_row)

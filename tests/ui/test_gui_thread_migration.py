@@ -21,6 +21,7 @@ guard running on CI, where it is most useful. ``FunctionWorker``'s runtime behav
 the ``start`` / ``is_alive`` / ``join`` surface these call sites rely on — is covered by
 ``test_qt_threading.py``, which is import-guarded and runs locally.
 """
+
 import ast
 from pathlib import Path
 from typing import List, Tuple
@@ -42,7 +43,6 @@ ALLOWED = {REPO_ROOT / "fibsem" / "ui" / "qt" / "threading.py"}
 # Widgets whose background jobs were migrated off raw threads; each must still route
 # through FunctionWorker, so a half-revert is caught.
 MIGRATED_MODULES = [
-    "fibsem/ui/FibsemMinimapWidget.py",
     "fibsem/ui/widgets/milling_widget.py",
     "fibsem/ui/widgets/fluorescence_control_widget.py",
     "fibsem/applications/autolamella/ui/fluorescence_coincidence_viewer_widget.py",
@@ -88,7 +88,8 @@ def test_no_raw_threads_in_gui_code():
             offenders.append(f"{path.relative_to(REPO_ROOT)}:{lineno}: {what}(...)")
     assert not offenders, (
         "GUI background work must use fibsem.ui.qt.threading.FunctionWorker, which logs "
-        "failures and delivers its signals on the GUI thread:\n  " + "\n  ".join(offenders)
+        "failures and delivers its signals on the GUI thread:\n  "
+        + "\n  ".join(offenders)
     )
 
 
@@ -96,7 +97,9 @@ def test_no_raw_threads_in_gui_code():
 def test_migrated_modules_use_function_worker(relpath: str):
     """Each migrated widget still imports and uses FunctionWorker."""
     src = (REPO_ROOT / relpath).read_text(encoding="utf-8")
-    assert "from fibsem.ui.qt.threading import" in src, f"{relpath} lost its FunctionWorker import"
+    assert "from fibsem.ui.qt.threading import" in src, (
+        f"{relpath} lost its FunctionWorker import"
+    )
     assert "FunctionWorker(" in src, f"{relpath} no longer constructs a FunctionWorker"
 
 

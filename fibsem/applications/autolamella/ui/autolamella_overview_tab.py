@@ -17,13 +17,14 @@ marker on the far side of the grid.
 
 Why this exists at all
 ----------------------
-`FibsemMinimapWidget` is the last module under `fibsem/ui/` that imports AutoLamella
-(FIB-560): it reaches through `parent_widget.experiment` in nineteen places, types its
-parent as `AutoLamellaUI`, and knows about `DefectType`, `sync_fluorescence_pose` and
-milling protocol keys. It cannot simply be moved into the application package, because
-it has a live generic host in `FibsemUI`. Splitting it in two along the line the parent
-contract already suggests is the answer: the widget for anyone with a microscope, this
-for anyone with an experiment.
+It replaced `FibsemMinimapWidget`, which was the last module under `fibsem/ui/` that
+imported AutoLamella (FIB-560): it reached through `parent_widget.experiment` in nineteen
+places, typed its parent as `AutoLamellaUI`, and knew about `DefectType`,
+`sync_fluorescence_pose` and milling protocol keys -- while also being the widget the
+generic `FibsemUI` hosted. Splitting it along the line the parent contract already
+suggested is what the pair does: `FibsemOverviewWidget` for anyone with a microscope,
+this for anyone with an experiment. That widget is now deleted, and nothing under
+`fibsem/ui/` imports AutoLamella.
 """
 
 from __future__ import annotations
