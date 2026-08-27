@@ -53,8 +53,8 @@ def test_iteration_yields_exactly_the_four_modes():
 )
 def test_the_beam_side_spellings_are_aliases_not_new_members(alias, canonical):
     assert getattr(AutoFocusMode, alias) is canonical
-    assert AutoFocusMode[alias] is canonical   # settings persisted by name
-    assert AutoFocusMode(alias) is canonical   # ... and read back by value
+    assert AutoFocusMode[alias] is canonical  # settings persisted by name
+    assert AutoFocusMode(alias) is canonical  # ... and read back by value
 
 
 @pytest.mark.parametrize(
@@ -111,6 +111,7 @@ def test_the_previously_persisted_name_form_still_loads_from_the_old_shape():
     (`EVERY_ROW`, since renamed `EACH_ROW`). Both were already handled separately; this
     pins that the shape migration did not drop the name one on the way past.
     """
+
     def mode_of(raw):
         return OverviewAcquisitionSettings.from_dict(
             {"autofocus_settings": {"mode": raw}}
@@ -138,7 +139,9 @@ def test_the_shipped_fm_configuration_still_parses():
     """The default config has `autofocus_mode: once` in it -- pin it against the enum."""
     from fibsem.fm.structures import OverviewParameters
 
-    path = Path(fibsem.__file__).parent / "config" / "fm" / "fm-configuration-default.yaml"
+    path = (
+        Path(fibsem.__file__).parent / "config" / "fm" / "fm-configuration-default.yaml"
+    )
     config = yaml.safe_load(path.read_text(encoding="utf-8"))
 
     params = OverviewParameters.from_dict(config["overview_parameters"])
