@@ -8,7 +8,7 @@ decode that can raise inside a Qt slot.
 """
 
 import dataclasses
-import inspect
+import pathlib
 
 import pytest
 
@@ -101,13 +101,26 @@ class TestTheQueueSnapshot:
         assert report.queue_items is not None
 
     def test_the_timeline_leaves_rows_alone_without_a_snapshot(self):
-        """ "No snapshot" means "this payload says nothing about the queue"."""
-        from fibsem.applications.autolamella.ui import workflow_timeline_widget
+        """ "No snapshot" means "this payload says nothing about the queue".
 
-        source = inspect.getsource(
-            workflow_timeline_widget.WorkflowProgressWidget.update_from_status
-        )
-        assert "is None" in source, (
+        Read as source text rather than imported. This file lives in
+        `tests/autolamella/`, which runs in CI *without* the `[ui]` extra, and
+        `workflow_timeline_widget` imports PyQt5 at module level -- importing it here
+        passes locally and fails on every CI build.
+        """
+        import fibsem
+
+        source = (
+            pathlib.Path(fibsem.__file__).parent
+            / "applications"
+            / "autolamella"
+            / "ui"
+            / "workflow_timeline_widget.py"
+        ).read_text()
+        body = source[source.index("def update_from_status") :]
+        body = body[: body.index("\n    def ", 1)]
+
+        assert "queue_items is None" in body, (
             "update_from_status must distinguish an absent snapshot from an empty one; "
             "a falsy check collapses them and leaves stale rows when a queue empties"
         )
