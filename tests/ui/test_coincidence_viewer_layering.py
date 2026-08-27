@@ -14,6 +14,7 @@ Driven through the real widget rather than a stub: the raise has to happen after
 result is recorded and the finished signal is emitted, and only the real method has
 that order in it.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -56,7 +57,28 @@ def viewer_widget(qapp, tmp_path):
     )
 
 
-def test_the_viewer_restacks_itself_when_a_run_ends(viewer_widget, monkeypatch):
+@pytest.fixture()
+def no_other_window_is_active(monkeypatch):
+    """Pin ``QApplication.activeWindow`` to nothing for the duration of a test.
+
+    ``_restack_after_run`` declines to raise when another of the app's windows is
+    active, so a test that asserts anything about the raise is really asserting about
+    whichever window the process happens to have left active. Run alone that is
+    nothing and the tests pass; run as part of ``tests/ui/`` it is some earlier test's
+    widget, the guard fires, and the two tests below failed while passing in isolation
+    (FIB-793). The third passed either way -- and would have kept passing had the raise
+    grown an ``activateWindow`` call, because the guard returned before reaching it.
+
+    Pinning is the lever ``test_it_leaves_alone_a_window_the_operator_moved_to``
+    already uses to turn the guard *on*. These use it to turn the guard off, so what
+    they assert is the production code rather than the state of the window stack.
+    """
+    monkeypatch.setattr(QApplication, "activeWindow", staticmethod(lambda: None))
+
+
+def test_the_viewer_restacks_itself_when_a_run_ends(
+    viewer_widget, monkeypatch, no_other_window_is_active
+):
     calls = []
     monkeypatch.setattr(
         type(viewer_widget), "raise_", lambda self: calls.append(self), raising=False
@@ -71,7 +93,7 @@ def test_the_viewer_restacks_itself_when_a_run_ends(viewer_widget, monkeypatch):
 
 
 def test_the_raise_comes_after_the_run_is_recorded_and_announced(
-    viewer_widget, monkeypatch
+    viewer_widget, monkeypatch, no_other_window_is_active
 ):
     """Ordering, not just the call: the main window reacts to both the recording and
     the finished signal, so a raise that ran before them could be undone by what they
@@ -92,7 +114,9 @@ def test_the_raise_comes_after_the_run_is_recorded_and_announced(
     assert order == ["record", "finished", "raise"], f"unexpected order: {order}"
 
 
-def test_the_viewer_does_not_take_focus(viewer_widget, monkeypatch):
+def test_the_viewer_does_not_take_focus(
+    viewer_widget, monkeypatch, no_other_window_is_active
+):
     """raise_() restacks inside the application; activateWindow() would take keyboard
     focus and pull the app in front of the microscope software. Only the first is
     wanted -- the complaint being fixed is a window stealing the front."""
@@ -125,9 +149,7 @@ def test_it_leaves_alone_a_window_the_operator_moved_to(viewer_widget, monkeypat
     monkeypatch.setattr(
         type(viewer_widget), "raise_", lambda self: calls.append(self), raising=False
     )
-    monkeypatch.setattr(
-        QApplication, "activeWindow", staticmethod(lambda: elsewhere)
-    )
+    monkeypatch.setattr(QApplication, "activeWindow", staticmethod(lambda: elsewhere))
 
     viewer_widget._finalize_milling_ui()
 
