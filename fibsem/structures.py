@@ -293,8 +293,28 @@ class MillingState(Enum):
     STOPPING = 2
     PAUSED = 3
     ERROR = 4
+    # The state could not be read. Not an error and not a guess -- a producer saying so
+    # deliberately, because on ThermoFisher `get_milling_state()` is a getter that
+    # *sets the active view* as a side effect, and a caller that must not disturb the
+    # view has no way to ask. The coincidence milling strategy is exactly that caller:
+    # it runs a fluorescence acquisition that holds the active view for the whole
+    # strategy, so polling the milling state mid-strategy would yank the view out from
+    # under it.
+    #
+    # A real member rather than `None` or the string `"UNKNOWN"`, so a consumer can
+    # render or ignore it deliberately instead of pattern-matching a magic value.
+    UNKNOWN = 5
 
 
+# Milling is under way, in the sense that the caller should keep waiting. Read as a loop
+# condition -- `while get_milling_state() in ACTIVE_MILLING_STATES` guards the milling
+# waits and TESCAN's spot-burn poll.
+#
+# `UNKNOWN` is deliberately **not** in here, and both classifications have a failure
+# mode: excluded, a genuinely-running mill that reported `UNKNOWN` makes the loop exit
+# early and the caller proceeds as though milling finished; included, a mill that has
+# actually stopped spins forever. Exiting early is recoverable and bounded. Spinning is
+# not.
 ACTIVE_MILLING_STATES = [
     MillingState.RUNNING,
     MillingState.STOPPING,
