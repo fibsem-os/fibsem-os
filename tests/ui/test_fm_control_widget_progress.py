@@ -35,7 +35,7 @@ class _Host:
     host carrying real ones.
     """
 
-    _apply_typed_progress = FMControlWidget._apply_typed_progress
+    _on_acquisition_progress = FMControlWidget._on_acquisition_progress
 
     def __init__(self):
         from PyQt5.QtWidgets import QLabel, QProgressBar
@@ -58,7 +58,7 @@ def _report(status, **fields):
 
 class TestAChannelAcquisition:
     def test_it_names_the_channel_and_counts_them(self, host):
-        host._apply_typed_progress(
+        host._on_acquisition_progress(
             _report(
                 FluorescenceAcquisitionStatus.ACQUIRING_CHANNELS,
                 channel="GFP",
@@ -72,7 +72,7 @@ class TestAChannelAcquisition:
 
 class TestAZStack:
     def test_the_bar_counts_planes(self, host):
-        host._apply_typed_progress(
+        host._on_acquisition_progress(
             _report(
                 FluorescenceAcquisitionStatus.ACQUIRING_ZSTACK,
                 channel="DAPI",
@@ -91,7 +91,7 @@ class TestAFocusSweep:
     def test_it_is_not_labelled_as_a_z_stack(self, host):
         """A sweep steps the objective through a search range. Calling those positions
         "Z-level" names the z-stack, which is not running."""
-        host._apply_typed_progress(
+        host._on_acquisition_progress(
             _report(
                 FluorescenceAcquisitionStatus.ACQUIRING_AUTOFOCUS,
                 channel="DAPI",
@@ -107,7 +107,7 @@ class TestAFocusSweep:
     def test_a_multi_pass_sweep_says_which_pass(self, host):
         """Otherwise a coarse sweep followed by a fine one looks like the same bar
         inexplicably starting over."""
-        host._apply_typed_progress(
+        host._on_acquisition_progress(
             _report(
                 FluorescenceAcquisitionStatus.ACQUIRING_AUTOFOCUS,
                 channel="DAPI",
@@ -122,7 +122,7 @@ class TestAFocusSweep:
 
     def test_a_single_pass_sweep_does_not(self, host):
         """ "pass 1/1" is noise on the common case."""
-        host._apply_typed_progress(
+        host._on_acquisition_progress(
             _report(
                 FluorescenceAcquisitionStatus.ACQUIRING_AUTOFOCUS,
                 channel="DAPI",
@@ -141,7 +141,7 @@ class TestAFocusSweep:
         "Acquiring  (1/1)..." or leaving the previous message sitting there."""
         host.progressText.setText("Acquiring DAPI (1/2)...")
 
-        host._apply_typed_progress(
+        host._on_acquisition_progress(
             _report(
                 FluorescenceAcquisitionStatus.ACQUIRING_AUTOFOCUS,
                 channel="",
@@ -158,14 +158,14 @@ class TestTheEndOfAnAcquisition:
         host.progressBar_current_acquisition.show()
         host.progressText.show()
 
-        host._apply_typed_progress(_report(FluorescenceAcquisitionStatus.FINISHED))
+        host._on_acquisition_progress(_report(FluorescenceAcquisitionStatus.FINISHED))
 
         assert not host.progressBar_current_acquisition.isVisible()
         assert not host.progressText.isVisible()
 
     def test_finished_returns_before_drawing_a_count(self, host):
         """It carries none, so anything drawn from it would be drawn from defaults."""
-        host._apply_typed_progress(
+        host._on_acquisition_progress(
             _report(
                 FluorescenceAcquisitionStatus.ACQUIRING_ZSTACK,
                 zlevel=2,
@@ -174,6 +174,6 @@ class TestTheEndOfAnAcquisition:
         )
         before = host.progressBar_current_acquisition.format()
 
-        host._apply_typed_progress(_report(FluorescenceAcquisitionStatus.FINISHED))
+        host._on_acquisition_progress(_report(FluorescenceAcquisitionStatus.FINISHED))
 
         assert host.progressBar_current_acquisition.format() == before

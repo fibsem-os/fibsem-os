@@ -12,6 +12,7 @@ import numpy as np
 from psygnal import Signal
 
 from fibsem._timing import sim_sleep
+from fibsem.fm.progress import FluorescenceAcquisitionProgress
 from fibsem.fm.structures import (
     CameraImageTransform,
     ChannelSettings,
@@ -697,7 +698,7 @@ class FluorescenceMicroscope(ABC):
     # What a *task* is doing belongs on the task's own signals (`step_update_signal`,
     # `workflow_update_signal`), and tile progress belongs on `tiled_acquisition_signal`
     # (FIB-725). This signal is the acquisition functions', and nothing else's.
-    acquisition_progress_signal = Signal(dict)
+    acquisition_progress_signal = Signal(FluorescenceAcquisitionProgress)
     # Raised when something starts or stops driving the FM, so a widget that did not
     # start it can grey its controls out. Emitted from whichever thread set the flag --
     # connect with `@ensure_main_thread` if the slot touches widgets.

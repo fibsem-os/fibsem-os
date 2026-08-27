@@ -35,6 +35,10 @@ from fibsem.autofunctions.stacking import (
     create_pixel_based_focus_stack,
     pixel_based_focus_selection,
 )
+from fibsem.fm.progress import (
+    FluorescenceAcquisitionProgress,
+    FluorescenceAcquisitionStatus,
+)
 from fibsem.fm.structures import AutoFocusSettings, ZParameters
 from fibsem.structures import FibsemRectangle
 
@@ -140,7 +144,6 @@ def run_autofocus(
         if channel_settings is not None:
             microscope.set_channel(channel_settings=channel_settings)
 
-        microscope.acquisition_progress_signal.emit({"state": "autofocus"})
         logging.info(
             f"Starting autofocus: {len(z_positions)} positions, method='{method}'"
         )
@@ -154,21 +157,26 @@ def run_autofocus(
                 microscope.objective.move_absolute(initial_z)
                 return None
 
-            # Same payload shape the z-stack and channel loops emit, so a viewer that
+            # The same shape the z-stack and channel loops emit, so a viewer that
             # renders within-tile progress renders this too. Without it the bars froze for
             # the whole sweep -- which on per-tile autofocus is most of the run.
+            #
+            # Emitted at the top of the loop, before the objective move and the exposure,
+            # so it lands microseconds after the sweep begins. That is what made a
+            # separate sweep-start announcement redundant: it set "Running Autofocus…"
+            # and reset the bar, and this overwrote both almost immediately with
+            # something strictly better, having named the channel and the step.
             microscope.acquisition_progress_signal.emit(
-                {
-                    "state": "acquiring",
-                    "operation": "autofocus",
-                    "channel": channel_settings.name
+                FluorescenceAcquisitionProgress(
+                    status=FluorescenceAcquisitionStatus.ACQUIRING_AUTOFOCUS,
+                    channel=channel_settings.name
                     if channel_settings is not None
                     else "",
-                    "zlevel": i + 1,
-                    "total_zlevels": len(z_positions),
-                    "pass_index": pass_index,
-                    "total_passes": total_passes,
-                }
+                    zlevel=i + 1,
+                    total_zlevels=len(z_positions),
+                    pass_index=pass_index,
+                    total_passes=total_passes,
+                )
             )
 
             microscope.objective.move_absolute(z_pos)

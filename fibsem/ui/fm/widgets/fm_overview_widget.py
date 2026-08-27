@@ -2719,19 +2719,18 @@ class FMOverviewWidget(QWidget):
         FluorescenceAcquisitionStatus.ACQUIRING_AUTOFOCUS,
     )
 
-    def _apply_typed_fm_progress(self, report: FluorescenceAcquisitionProgress) -> None:
-        """The typed form of `_apply_fm_progress` (FIB-401).
+    def _apply_fm_progress(self, report: FluorescenceAcquisitionProgress) -> None:
+        """The tile currently being taken, on the detail bar.
 
-        Not reached until the fluorescence producers flip; written and tested now so the
-        flip is a change to the producers alone.
+        Runs on the GUI thread, queued via `_fm_progress_received`. The detector's
+        signal reports whatever it is doing, tileset or not, so the states this bar can
+        render are named rather than assumed.
         """
         if report.status in self._DETAIL_STATUSES:
-            self.progress_tile_detail.update_progress(
-                self._typed_tile_detail_update(report)
-            )
+            self.progress_tile_detail.update_progress(self._tile_detail_update(report))
 
     @staticmethod
-    def _typed_tile_detail_update(
+    def _tile_detail_update(
         report: FluorescenceAcquisitionProgress,
     ) -> ProgressUpdate:
         """Progress within the tile currently being acquired.
@@ -2770,26 +2769,9 @@ class FMOverviewWidget(QWidget):
             message=f"{channel} channels",
         )
 
-    def _apply_fm_progress(self, payload: dict) -> None:
-        """The tile currently being taken, on the detail bar.
-
-        Runs on the GUI thread, queued via `_fm_progress_received`. The detector's
-        progress signal reports whatever it is doing, tileset or not, so the tasks this
-        bar can render are named rather than assumed.
-
-        Dicts only -- a typed report goes to `_apply_typed_fm_progress` above. The two
-        sit side by side until the producers flip (FIB-401).
-        """
-        if isinstance(payload, FluorescenceAcquisitionProgress):
-            self._apply_typed_fm_progress(payload)
-            return
-
-        if payload.get("operation") in ("z-stack", "channels", "autofocus"):
-            self.progress_tile_detail.update_progress(self._tile_detail_update(payload))
-
-    # This widget's words for the states a fluorescence run passes through. The states
-    # with nothing worth saying are absent on purpose: `.get` returning None is what
-    # clears the label rather than leaving a stale one up.
+    # This widget's words for the states a fluorescence *tileset* run passes through.
+    # The states with nothing worth saying are absent on purpose: `.get` returning None
+    # is what clears the label rather than leaving a stale one up.
     _STATUS_LABELS = {
         TiledStatus.MOVING: "Moving stage…",
         TiledStatus.STITCHING: "Stitching tiles…",
@@ -2859,37 +2841,6 @@ class FMOverviewWidget(QWidget):
                     current=event.completed, total=event.total, message=message
                 )
             )
-
-    def _tile_detail_update(self, payload: dict) -> ProgressUpdate:
-        """Progress within the tile currently being acquired.
-
-        A z-stack counts planes and a plain multi-channel acquisition counts channels,
-        so the same bar reads sensibly either way rather than sitting empty whenever
-        z-stacking happens to be off.
-        """
-        channel = payload.get("channel", "")
-        zlevel, total_z = payload.get("zlevel"), payload.get("total_zlevels")
-        if zlevel and total_z:
-            if payload.get("operation") == "autofocus":
-                # Say which pass, so a coarse sweep followed by a fine one does not
-                # look like the same bar inexplicably starting over.
-                total_passes = payload.get("total_passes", 1)
-                which = (
-                    f" {payload.get('pass_index', 1)}/{total_passes}"
-                    if total_passes > 1
-                    else ""
-                )
-                return ProgressUpdate.numeric(
-                    current=zlevel, total=total_z, message=f"{channel} focus{which}"
-                )
-            return ProgressUpdate.numeric(
-                current=zlevel, total=total_z, message=f"{channel} z-stack"
-            )
-        index = payload.get("channel_index", 1)
-        total = payload.get("total_channels", 1)
-        return ProgressUpdate.numeric(
-            current=index, total=total, message=f"{channel} channels"
-        )
 
     def _show_preview(self, preview: FluorescenceImage) -> None:
         """Paint the mosaic-so-far onto the canvas.

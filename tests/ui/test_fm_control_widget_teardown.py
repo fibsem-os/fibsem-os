@@ -22,20 +22,23 @@ pytest.importorskip("PyQt5")
 from PyQt5 import sip
 from PyQt5.QtWidgets import QApplication
 
+from fibsem.fm.progress import (  # noqa: E402
+    FluorescenceAcquisitionProgress,
+    FluorescenceAcquisitionStatus,
+)
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget, _DemoHost
 
-# A payload an emitter actually produces: the within-tile z-stack progress from
+# A report an emitter actually produces: the within-tile z-stack progress from
 # `acquire_z_stack`. It reaches the bar and the label, which is what these tests need
 # a live slot to touch.
-PROGRESS = {
-    "state": "acquiring",
-    "operation": "z-stack",
-    "channel": "DAPI",
-    "channel_index": 1,
-    "total_channels": 1,
-    "zlevel": 1,
-    "total_zlevels": 3,
-}
+PROGRESS = FluorescenceAcquisitionProgress(
+    status=FluorescenceAcquisitionStatus.ACQUIRING_ZSTACK,
+    channel="DAPI",
+    channel_index=1,
+    total_channels=1,
+    zlevel=1,
+    total_zlevels=3,
+)
 
 
 @pytest.fixture(scope="module")

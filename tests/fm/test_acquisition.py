@@ -20,6 +20,7 @@ from fibsem.fm.acquisition import (
     calculate_grid_overlap,
     stitch_tileset,
 )
+from fibsem.fm.progress import FluorescenceAcquisitionStatus
 from fibsem.fm.structures import (
     AutoFocusMode,
     AutoFocusSettings,
@@ -1619,7 +1620,11 @@ def _autofocus_payloads(microscope, monkeypatch, mode):
     _record_tile_positions(microscope, monkeypatch)
     seen = []
     microscope.fm.acquisition_progress_signal.connect(
-        lambda d: seen.append(d) if d.get("operation") == "autofocus" else None
+        lambda d: (
+            seen.append(d)
+            if d.status is FluorescenceAcquisitionStatus.ACQUIRING_AUTOFOCUS
+            else None
+        )
     )
     acquisition.FMTiledAcquisitionRunner(
         microscope=microscope,
@@ -1640,9 +1645,7 @@ def test_focusing_once_runs_every_enabled_pass(fm_microscope, monkeypatch):
     """
     seen = _autofocus_payloads(fm_microscope, monkeypatch, AutoFocusMode.ONCE)
 
-    passes = sorted(
-        {(d["pass_index"], d["total_passes"], d["total_zlevels"]) for d in seen}
-    )
+    passes = sorted({(d.pass_index, d.total_passes, d.total_zlevels) for d in seen})
     assert passes == [(1, 2, 5), (2, 2, 7)]
 
 
@@ -1650,9 +1653,9 @@ def test_per_tile_focusing_runs_only_the_narrowest_pass(fm_microscope, monkeypat
     """It refines an already-good position; a wide sweep at every tile would dominate."""
     seen = _autofocus_payloads(fm_microscope, monkeypatch, AutoFocusMode.EACH_TILE)
 
-    assert sorted({(d["pass_index"], d["total_passes"]) for d in seen}) == [(1, 1)]
-    assert {d["total_zlevels"] for d in seen} == {7}  # the fine pass
-    assert len([d for d in seen if d["zlevel"] == 1]) == 4  # once per tile
+    assert sorted({(d.pass_index, d.total_passes) for d in seen}) == [(1, 1)]
+    assert {d.total_zlevels for d in seen} == {7}  # the fine pass
+    assert len([d for d in seen if d.zlevel == 1]) == 4  # once per tile
 
 
 def test_the_sweep_reports_progress_per_position(fm_microscope, monkeypatch):
@@ -1660,8 +1663,8 @@ def test_the_sweep_reports_progress_per_position(fm_microscope, monkeypatch):
     focusing is most of the run."""
     seen = _autofocus_payloads(fm_microscope, monkeypatch, AutoFocusMode.ONCE)
 
-    assert [d["zlevel"] for d in seen if d["pass_index"] == 1] == [1, 2, 3, 4, 5]
-    assert all(d["channel"] == "DAPI" for d in seen)
+    assert [d.zlevel for d in seen if d.pass_index == 1] == [1, 2, 3, 4, 5]
+    assert all(d.channel == "DAPI" for d in seen)
 
 
 def test_a_cancelled_sweep_does_not_start_the_next_pass(fm_microscope, monkeypatch):
@@ -1671,7 +1674,11 @@ def test_a_cancelled_sweep_does_not_start_the_next_pass(fm_microscope, monkeypat
     # Still the detector's signal: an autofocus sweep is work *inside* a tile, which is
     # the scale that stayed there when the tileset moved to `tiled_acquisition_signal`.
     fm_microscope.fm.acquisition_progress_signal.connect(
-        lambda d: seen.append(d) if d.get("operation") == "autofocus" else None
+        lambda d: (
+            seen.append(d)
+            if d.status is FluorescenceAcquisitionStatus.ACQUIRING_AUTOFOCUS
+            else None
+        )
     )
 
     def cancel_during_the_first_pass(*args, **kwargs):
@@ -1691,7 +1698,7 @@ def test_a_cancelled_sweep_does_not_start_the_next_pass(fm_microscope, monkeypat
             stop_event=stop_event,
         ).run()
 
-    assert {d["pass_index"] for d in seen} == {1}, "the second pass must not start"
+    assert {d.pass_index for d in seen} == {1}, "the second pass must not start"
 
 
 # ── acquiring somewhere other than under the stage ───────────────────────
