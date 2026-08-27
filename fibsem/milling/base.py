@@ -1,3 +1,7 @@
+# Deferred annotations, so `FibsemMicroscope` below can be a type-checking-only
+# import. See the note beside it.
+from __future__ import annotations
+
 import re
 import threading
 from abc import ABC, abstractmethod
@@ -5,6 +9,7 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass, field, fields
 from functools import cached_property
 from typing import (
+    TYPE_CHECKING,
     Any,
     Dict,
     Generic,
@@ -16,7 +21,6 @@ from typing import (
     Union,
 )
 
-from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.config import MILLING_SPUTTER_RATE
 from fibsem.milling.patterning import DEFAULT_MILLING_PATTERN, get_pattern
 from fibsem.milling.patterning.patterns2 import BasePattern
@@ -29,6 +33,19 @@ from fibsem.structures import (
     MillingAlignment,
     get_fields_with_metadata,
 )
+
+if TYPE_CHECKING:
+    # Type-checking only, so `fibsem.milling` stays microscope-free.
+    # `fibsem/milling/__init__.py` imports this module, so a runtime import here
+    # means importing *anything* under `fibsem.milling` pulls in
+    # `fibsem.microscope` -- and `fibsem.microscope` needs to import the milling
+    # progress contract, which makes that a cycle: the microscope module is only
+    # half-built when this line runs, and `FibsemMicroscope` is not bound yet.
+    #
+    # The same fix `fibsem.imaging` already carries; see tests/test_import_cycles.py.
+    # `from __future__ import annotations` is on at the top of this file, so the two
+    # annotations below need no runtime object.
+    from fibsem.microscope import FibsemMicroscope
 
 TMillingStrategyConfig = TypeVar(
     "TMillingStrategyConfig", bound="MillingStrategyConfig"

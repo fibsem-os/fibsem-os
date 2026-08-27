@@ -3,17 +3,20 @@ from __future__ import annotations
 import logging
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-from fibsem import acquire
 from fibsem import config as fcfg
-from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import FibsemMillingStage
 from fibsem.structures import (
     FibsemImage,
     ImageSettings,
 )
 from fibsem.utils import current_timestamp_v2
+
+if TYPE_CHECKING:
+    # Type-checking only, so `fibsem.milling` stays microscope-free -- see the note
+    # in `base.py`. Deferred annotations are already on at the top of this file.
+    from fibsem.microscope import FibsemMicroscope
 
 ########################### SETUP
 
@@ -81,5 +84,10 @@ def get_stage_reference_image(
             path=path,
             filename=f"ref_{milling_stage.name}_initial_alignment_{current_timestamp_v2()}",
         )
+        # Imported here rather than at module scope: `fibsem.acquire` imports
+        # `fibsem.microscope`, which is the other half of the cycle the
+        # TYPE_CHECKING block above avoids. One call site, so one local import.
+        from fibsem import acquire
+
         return acquire.acquire_image(microscope, image_settings)
     raise TypeError(f"Invalid ref_image type '{type(ref_image)}'")
