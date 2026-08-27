@@ -1,51 +1,32 @@
 """What a tiled acquisition says about itself while it runs.
 
-`FibsemMicroscope.tiled_acquisition_signal` carries a bare dict and has no declared
-contract, so a consumer works out what it received from which keys are present. That was
-survivable while `imaging.tiled` was its only emitter: three payload shapes, all from one
-class, all carrying the same keys.
+`FibsemMicroscope.tiled_acquisition_signal` is shared by the beam tiler and the
+fluorescence tileset runner. It used to carry a bare dict with no declared shape, so
+every consumer worked out what it had received from which keys happened to be present.
+That held while `imaging.tiled` was the only emitter; with a second producer the same
+key came to mean different things depending on who sent it, which is the root of
+FIB-736 and FIB-739.
 
-It stops being survivable with a second producer. The fluorescence tileset runner reports
-the same thing -- tile *n* of *N*, and a mosaic so far -- and reports it somewhere else
-entirely, on a signal hanging off the detector that also carries z-stacks, channel
-acquisitions and autofocus sweeps (FIB-725). Bringing it here needs consumers to be able
-to tell whose run they are looking at, because most of them want exactly one:
+`TiledProgress` is the whole contract, and `TiledStatus` is the whole vocabulary.
 
-* `FibsemMinimapWidget` and `FibsemOverviewWidget` each drive a *beam* overview, and hand
-  the payload's mosaic straight to their own canvas. Handed a fluorescence one they would
-  draw it into the beam mosaic -- and the fluorescence preview is keyed `image` already,
-  deliberately, to match this signal.
-* `AutoLamellaSingleWindowUI` shows whichever is running in the status bar, and needs to
-  say *which*, or a glance tells you a run is going and not what it is.
+One flat record rather than a class per payload shape. Every consumer asks the same
+three questions -- is this mine, does it carry counts, is there something to draw --
+and none dispatches over an exhaustive set of types, so types buy nothing that optional
+fields do not. A hierarchy also fails in a way a flat record cannot: an `isinstance`
+check that quietly misses a sibling class is a run that never finishes, with nothing
+raised anywhere.
 
-Hence `modality`: the one thing that differs, in the word this codebase already uses for
-it. Everything on this signal is a tiled run by definition -- that is what the signal is
-named for -- so the kind of *work* needs no discriminator; what varies is what is imaging.
+`modality` is a field and only a field. Encoding it in the type as well -- a
+`BeamTileCompleted` beside a `FluorescenceTileCompleted` -- gives two discriminators
+that can disagree, and the one that disagrees silently paints a fluorescence mosaic
+into the beam overview (FIB-725).
 
-# Reading a payload
-
-Use :func:`is_modality`, not `payload["modality"]`. The key is new, and a consumer that
-demands it would ignore every payload emitted by an older producer -- including anything
-outside this repository subscribing to a public signal. Absent means beam, which is what
-it was before this existed.
-
-# The typed contract (FIB-402)
-
-`TiledStatus` and `TiledProgress` below are what replaces the dict. They are unused for
-now: producers still emit dicts and consumers still read them, and the two live side by
-side until the consumers move (PR 2) and the producers flip (PR 3).
-
-One class, not a hierarchy of one per payload shape. Every consumer asks the same three
-questions -- is this mine, does it carry counts, is there something to draw -- and none
-of them dispatches on an exhaustive set of types, so a set of types buys nothing that
-optional fields do not. A hierarchy also has a failure mode a flat record does not: a
-`isinstance(event, Terminal)` that quietly misses a sibling class is a run that never
-finishes, with no error anywhere.
-
-`modality` is a field and only a field, for the same reason. Encoding it in the type as
-well -- a `BeamTileCompleted` alongside a `FluorescenceTileCompleted` -- gives two
-discriminators that can disagree, and the one that disagrees silently paints a
-fluorescence mosaic into the beam overview.
+Presentation is not on the wire. A producer reports *what happened*; each consumer
+words it. `imaging.tiled` is a headless module and was building English for three
+widgets that each wanted different wording, so the two producers had drifted to
+"Stitching Tiles" and "Stitching tiles..." for the same state. `error` is the one free
+string, and it carries a *reason* -- an exception, a stage-limits rejection naming
+every offending tile -- never a label.
 """
 
 from __future__ import annotations
@@ -73,8 +54,6 @@ __all__ = [
     "MODALITY_FLUORESCENCE",
     "TiledStatus",
     "TiledProgress",
-    "modality_of",
-    "is_modality",
 ]
 
 
@@ -203,23 +182,3 @@ class TiledProgress:
         if self.row_index is None or self.column_index is None:
             return None
         return self.row_index + 1, self.column_index + 1
-
-
-def modality_of(payload: dict) -> str:
-    """Which imaging modality produced *payload*.
-
-    Defaults to the beam rather than raising or returning None: this signal carried
-    nothing else for its whole life, so an unlabelled payload is a beam run from a
-    producer that predates the key.
-    """
-    return payload.get("modality") or MODALITY_BEAM
-
-
-def is_modality(payload: dict, modality: str) -> bool:
-    """Whether *payload* came from *modality*, treating unlabelled as beam.
-
-    The form consumers should use. `payload.get("modality") == MODALITY_BEAM` looks
-    equivalent and is not: it drops every payload from a producer that has not been
-    taught the key, which on a public signal is not only the ones in this repository.
-    """
-    return modality_of(payload) == modality

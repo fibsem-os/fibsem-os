@@ -31,7 +31,11 @@ from fibsem.imaging.tiling.plotting import (  # noqa: E402,F401
     plot_stage_positions_on_image,
     plot_tile_positions,
 )
-from fibsem.imaging.tiling.progress import MODALITY_BEAM
+from fibsem.imaging.tiling.progress import (
+    MODALITY_BEAM,
+    TiledProgress,
+    TiledStatus,
+)
 from fibsem.imaging.tiling.reprojection import (  # noqa: E402,F401
     _inverse_y_corrected_stage_movement,
     _inverse_y_corrected_stage_movement_tescan,
@@ -128,16 +132,19 @@ class TiledAcquisitionRunner:
             )
         self._setup()
         self._compute_grid()
-        outcome, message = "finished", "Acquisition Complete"
+        status, error = TiledStatus.FINISHED, None
         try:
             self._autofocus_if_mode(AutoFocusMode.ONCE)
             self._run_tile_loop()
         except OperationCancelledError:
-            outcome, message = "cancelled", "Acquisition Cancelled"
+            status, error = TiledStatus.CANCELLED, None
             logging.info("Tiled acquisition cancelled")
             raise
         except Exception as e:
-            outcome, message = "failed", "Acquisition Failed"
+            # The reason travels with the report now. It was caught, logged and
+            # thrown away, so a failed run told the UI "Acquisition Failed" and nothing
+            # about why -- and a stage-limits rejection names every offending tile.
+            status, error = TiledStatus.FAILED, str(e)
             logging.error(f"Tiled acquisition failed: {e}")
             raise
         finally:
@@ -146,32 +153,26 @@ class TiledAcquisitionRunner:
                 f"{self._start_state.stage_position.pretty}"
             )
             self.microscope.set_microscope_state(self._start_state)
-            self._emit_terminal(outcome, message)
+            self._emit_terminal(status, error)
         self._image_settings.path = self._prev_path
 
-    def _emit_terminal(self, outcome: str, message: str) -> None:
-        """Emit the final progress update for the acquisition.
+    def _emit_terminal(self, status: TiledStatus, error: Optional[str]) -> None:
+        """Report how the acquisition ended.
 
-        Carries `counter`/`total`/`msg` because consumers read those unconditionally --
-        `FibsemMinimapWidget.handle_tile_acquisition_progress` indexes them directly
-        and would raise on a payload without them. `finished` is what
-        `AutoLamellaMainUI._on_tile_acquisition_progress` already branches on; it was
-        previously only ever set by `_stitch`. `outcome` is the addition, so a consumer can distinguish a
-        cancel from a failure rather than seeing both as "stopped". Deliberately not
-        called `state`: the fluorescence progress signal already uses that key for the
-        current *phase* (moving / acquiring / finished), and reusing it here for a
-        terminal *outcome* would collide on "finished" while meaning something else.
+        Counts ride along so a cancel or a failure keeps the progress it did make: the
+        run stopped, it did not un-happen. `status` distinguishes the three, so a
+        consumer can paint a failure red and leave a cancel alone rather than calling
+        both "stopped".
         """
         total_tiles = self.settings.n_enabled_tiles
         self.microscope.tiled_acquisition_signal.emit(
-            {
-                "modality": MODALITY_BEAM,
-                "msg": message,
-                "counter": getattr(self, "_n_tiles_acquired", 0),
-                "total": total_tiles,
-                "finished": True,
-                "outcome": outcome,
-            }
+            TiledProgress(
+                status=status,
+                modality=MODALITY_BEAM,
+                completed=getattr(self, "_n_tiles_acquired", 0),
+                total=total_tiles,
+                error=error,
+            )
         )
 
     def run_and_stitch(self) -> FibsemImage:
@@ -216,12 +217,12 @@ class TiledAcquisitionRunner:
 
         # notify the UI immediately so the progress bar appears before the first move
         self.microscope.tiled_acquisition_signal.emit(
-            {
-                "modality": MODALITY_BEAM,
-                "msg": "Computing Tile Positions",
-                "counter": 0,
-                "total": self.settings.n_enabled_tiles,
-            }
+            TiledProgress(
+                status=TiledStatus.STARTING,
+                modality=MODALITY_BEAM,
+                completed=0,
+                total=self.settings.n_enabled_tiles,
+            )
         )
 
     def _compute_grid(self) -> None:
@@ -453,27 +454,27 @@ class TiledAcquisitionRunner:
             self._paint_preview(tile, image)
             self._n_tiles_acquired += 1
             self.microscope.tiled_acquisition_signal.emit(
-                {
-                    "modality": MODALITY_BEAM,
-                    "msg": "Tile Collected",
-                    "i": tile.row,
-                    "j": tile.col,
-                    "n_rows": self.settings.nrows,
-                    "n_cols": self.settings.ncols,
-                    "image": self._canvas,
+                TiledProgress(
+                    status=TiledStatus.TILE_COLLECTED,
+                    modality=MODALITY_BEAM,
+                    row_index=tile.row,
+                    column_index=tile.col,
+                    rows=self.settings.nrows,
+                    columns=self.settings.ncols,
                     # The mosaic so far, decimated, and carrying metadata -- so a
                     # real-space display can place it as one image rather than assembling
                     # tiles of its own. One artist per run instead of one per tile, which
                     # is what stops the canvas slowing down as tilesets accumulate
                     # (FIB-627).
                     #
-                    # Additive, and `image` above is deliberately untouched: the napari
-                    # minimap assigns it straight into a layer, so it has to stay a bare
-                    # array until that tab goes.
-                    "preview": self._preview_image(),
-                    "counter": self._n_tiles_acquired,
-                    "total": total_tiles,
-                }
+                    # The live `self._canvas` used to go out beside this, as a bare array,
+                    # because the napari minimap assigned it straight into a layer. That
+                    # array is the one this loop keeps painting into, so the tab was
+                    # rendering half-written tiles; it reads `preview.data` now.
+                    preview=self._preview_image(),
+                    completed=self._n_tiles_acquired,
+                    total=total_tiles,
+                )
             )
 
     def _acquire_tile(self, tile: TilePosition) -> FibsemImage:
@@ -495,7 +496,12 @@ class TiledAcquisitionRunner:
         signal = self.microscope.tiled_acquisition_signal
         total_tiles = self.settings.n_enabled_tiles
         signal.emit(
-            {"msg": "Stitching Tiles", "counter": total_tiles, "total": total_tiles}
+            TiledProgress(
+                status=TiledStatus.STITCHING,
+                modality=MODALITY_BEAM,
+                completed=total_tiles,
+                total=total_tiles,
+            )
         )
         # The metadata `_compute_grid` built, not a patched copy of the first tile's.
         # deepcopy so the stitched image gets its own snapshot rather than sharing the
@@ -516,12 +522,12 @@ class TiledAcquisitionRunner:
         image.save(filename)
 
         signal.emit(
-            {
-                "msg": "Done",
-                "counter": total_tiles,
-                "total": total_tiles,
-                "finished": True,
-            }
+            TiledProgress(
+                status=TiledStatus.FINISHED,
+                modality=MODALITY_BEAM,
+                completed=total_tiles,
+                total=total_tiles,
+            )
         )
         return image
 

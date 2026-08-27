@@ -17,6 +17,7 @@ from fibsem.fm.structures import (
     AutoFocusSettings,
     ChannelSettings,
     FluorescenceImage,
+    FluorescenceImageMetadata,
     FMStagePosition,
     ObjectiveStartPosition,
     OverviewParameters,
@@ -33,7 +34,11 @@ from fibsem.imaging.tiling.geometry import (
     order_tiles,
     raise_if_outside_stage_limits,
 )
-from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE
+from fibsem.imaging.tiling.progress import (
+    MODALITY_FLUORESCENCE,
+    TiledProgress,
+    TiledStatus,
+)
 from fibsem.structures import BeamType, FibsemStagePosition, TileOrderStrategy
 from fibsem.util.filename import remove_suffix
 
@@ -479,7 +484,7 @@ class FMTiledAcquisitionRunner:
         # in the same place; it is only that the fluorescence stitch and save happen in
         # two different objects, so they are announced separately -- the save from the
         # widget that performs it.
-        self._emit({"state": "stitching", "task": "tileset"})
+        self._emit(TiledStatus.STITCHING)
         return stitch_tileset(
             self.tileset,
             self.overview_parameters.overlap,
@@ -749,7 +754,7 @@ class FMTiledAcquisitionRunner:
 
         self._init_preview_canvas()
 
-        self._emit({"state": "moving", "task": "tileset"})
+        self._emit(TiledStatus.MOVING)
         # The run's opening report: nothing acquired, and how long it should take. A
         # progress report rather than an announcement -- it carries no tile coordinates,
         # because it is not about a tile. It used to name the first one *and* claim a
@@ -759,14 +764,11 @@ class FMTiledAcquisitionRunner:
         # `total` counts tiles that will actually be acquired, not grid cells -- a
         # progress bar that stops at 9/25 on a successful sparse run reads as a failure.
         self._emit(
-            {
-                "state": "acquiring",
-                "task": "tileset",
-                "counter": 0,
-                "total": len(self._ordered),
-                "estimated_total_time": self._total_estimated_time,
-                "estimated_remaining_time": self._total_estimated_time,
-            }
+            TiledStatus.STARTING,
+            completed=0,
+            total=len(self._ordered),
+            estimated_total_seconds=self._total_estimated_time,
+            estimated_remaining_seconds=self._total_estimated_time,
         )
 
     def _init_preview_canvas(self) -> None:
@@ -788,6 +790,10 @@ class FMTiledAcquisitionRunner:
         self._preview = PreviewMosaic(
             full_w, full_h, dtype=np.uint16, channels=len(self.channel_settings)
         )
+        # Built from the first tile that lands, not here: the channel metadata a
+        # consumer needs -- names and display colours -- comes off a real acquisition
+        # rather than being assembled from settings.
+        self._preview_metadata: Optional[FluorescenceImageMetadata] = None
         logging.debug(f"{self._preview.describe()} (full {full_h}x{full_w})")
 
     def _paint_preview(self, tile: TilePosition, image: FluorescenceImage) -> None:
@@ -804,6 +810,8 @@ class FMTiledAcquisitionRunner:
             if data.shape[0] != self._preview.canvas.shape[0]:
                 data = data[: self._preview.canvas.shape[0]]
             self._preview.paint(data, tile.canvas_x, tile.canvas_y)
+            if self._preview_metadata is None:
+                self._build_preview_metadata(image)
         except Exception as e:  # pragma: no cover - preview is never load-bearing
             logging.debug(
                 f"Could not paint tile ({tile.row}, {tile.col}) into preview: {e}"
@@ -868,7 +876,7 @@ class FMTiledAcquisitionRunner:
             self._emit_preview(tile)
 
             if tile is not self._ordered[-1]:
-                self._emit({"state": "moving", "task": "tileset"})
+                self._emit(TiledStatus.MOVING)
 
     def _acquire_tile(self, row: int, col: int) -> FluorescenceImage:
         """Move to one tile and acquire it.
@@ -945,12 +953,12 @@ class FMTiledAcquisitionRunner:
         logging.info("Returning to initial position")
         self.microscope.safe_absolute_stage_movement(self._initial_position)
         self.microscope.fm.objective.move_absolute(self._initial_objective_position)
-        self._emit({"state": "finished"})
+        self._emit(TiledStatus.TILES_ACQUIRED)
 
     # ── helpers ──────────────────────────────────────────────────────────
 
-    def _emit(self, payload: dict) -> None:
-        """Report a phase of this run.
+    def _emit(self, status: TiledStatus, **fields) -> None:
+        """Report a state of this run.
 
         On `tiled_acquisition_signal`, not the detector's own progress signal. This is
         tile *n* of *N* and a mosaic so far -- the same event the beam tiler reports,
@@ -962,56 +970,95 @@ class FMTiledAcquisitionRunner:
         What stays on the detector's signal is the work *inside* a tile: those are a
         different scale, and `FMOverviewWidget` draws them in a different bar.
 
-        Stamped with the modality on the way out, so no consumer has to remember to. Two
-        of them draw a beam overview from this signal and would otherwise paint a
-        fluorescence mosaic into it.
+        Takes the status and the fields rather than a finished event, so that the
+        modality is still stamped in exactly one place. Constructing the event at each
+        call site would read more directly and would mean seven chances to leave the
+        modality off -- and the default is beam, so the failure is silent and wrong:
+        two consumers draw a beam overview from this signal and would paint a
+        fluorescence mosaic into it, which is the FIB-725 bug the field exists to stop.
         """
         self.microscope.tiled_acquisition_signal.emit(
-            {"modality": MODALITY_FLUORESCENCE, **payload}
+            TiledProgress(status=status, modality=MODALITY_FLUORESCENCE, **fields)
         )
+
+    def _preview_image(self) -> Optional[FluorescenceImage]:
+        """The mosaic so far, as an image that says where and how big it is.
+
+        A *copy* of the canvas, unlike the beam tiler, which emits its live one. The
+        acquisition runs on a worker thread, so the signal is queued and the slot runs
+        later on the GUI thread -- by which time the shared array has been painted into
+        again. Sending the buffer itself is a read/write race for the sake of the one
+        thing that does not need to be fast: at ~10 MB against a tile exposure, the copy
+        does not show.
+
+        The metadata is built once and shared across every emit of a run. It describes
+        the canvas, which does not change shape, so rebuilding it per tile would deep-
+        copy a channel list N times to produce the same answer.
+        """
+        if self._preview_metadata is None:
+            # No tile has been painted yet, so there is nothing to describe. Painting is
+            # best-effort and never raises into the tile loop, so this is reachable --
+            # and a report with no preview is a report the consumer simply does not draw.
+            return None
+        return FluorescenceImage(
+            data=self._preview.canvas.copy(), metadata=self._preview_metadata
+        )
+
+    def _build_preview_metadata(self, reference: FluorescenceImage) -> None:
+        """Describe the preview canvas, once, from the first tile that lands in it.
+
+        Modelled on what `stitch_tileset` does for the finished mosaic: take a real
+        tile's metadata and correct the three things the canvas changes. Taking it from
+        a tile rather than assembling one is what gets the channels -- names and display
+        colours -- without this having to know how to build them, and
+        `FluorescenceImageMetadata` rejects an empty channel list anyway.
+
+        The pixel size carries the decimation. Coarser pixels over a smaller count cover
+        the same ground, so a display that places by pixel size needs nothing else told
+        to it -- which is what lets the consumer stop multiplying by a stride it had to
+        be sent separately, and stop reading the camera mid-run to find the other factor.
+        """
+        metadata = deepcopy(reference.metadata)
+        stride = self._preview.stride
+        metadata.pixel_size_x = reference.metadata.pixel_size_x * stride
+        metadata.pixel_size_y = reference.metadata.pixel_size_y * stride
+        canvas = self._preview.canvas
+        metadata.resolution = (canvas.shape[-1], canvas.shape[-2])
+        # The grid is laid out centred on this, so it is exact by construction --
+        # unlike averaging the acquired tiles, which is only right for a full grid and
+        # out by up to a whole tile for a masked or cancelled one.
+        metadata.stage_position = deepcopy(self.centre_position)
+        self._preview_metadata = metadata
 
     def _emit_preview(self, tile: TilePosition) -> None:
         """Publish the mosaic-so-far, so a viewer can watch it fill in.
 
-        Keyed `image`, matching what `TiledAcquisitionRunner` emits and what
-        `FibsemMinimapWidget.handle_tile_acquisition_progress` already reads, so a
-        consumer of one reads the other. The whole canvas goes out rather than the
-        single tile: the receiver then needs no state of its own and simply redisplays
-        what it is given, which is also what makes a late subscriber correct.
-
-        A *copy* goes out, unlike the beam tiler, which emits its live canvas directly.
-        The acquisition runs on a worker thread, so the signal is queued and the slot
-        runs later on the GUI thread -- by which time the shared array has been painted
-        into again. Sending the buffer itself is a read/write race for the sake of the
-        one thing that does not need to be fast: at ~10 MB against a tile exposure, the
-        copy does not show.
+        The whole canvas goes out rather than the single tile: the receiver then needs
+        no state of its own and simply redisplays what it is given, which is also what
+        makes a late subscriber correct.
         """
-        estimated_total, estimated_remaining, elapsed = self._time_estimate()
+        estimated_total, estimated_remaining, _ = self._time_estimate()
         self._emit(
-            {
-                "state": "tile",
-                "task": "tileset",
-                "row": tile.row,
-                "col": tile.col,
-                "total_rows": self._rows,
-                "total_cols": self._cols,
-                # **Tiles completed**, which is what `counter` means on this signal -- the
-                # beam tiler increments and then emits, so its count has always meant this.
-                # The fluorescence side used to say it twice per tile with two meanings: the
-                # tile *starting* before the acquisition and the tally after. One key cannot
-                # be both, and a consumer choosing between them got a bar that changed scale
-                # at every boundary (FIB-736, FIB-739).
-                "counter": self._n_acquired,
-                "total": len(self._ordered),
-                # The estimate rides with the count rather than with the announcement below,
-                # so one payload carries the whole picture and a consumer never has to
-                # assemble progress from two.
-                "estimated_total_time": estimated_total,
-                "estimated_remaining_time": estimated_remaining,
-                "elapsed_time": elapsed,
-                "image": self._preview.canvas.copy(),
-                "preview_stride": self._preview.stride,
-            }
+            TiledStatus.TILE_COLLECTED,
+            row_index=tile.row,
+            column_index=tile.col,
+            rows=self._rows,
+            columns=self._cols,
+            # **Tiles completed**, not the tile in flight -- the beam tiler increments
+            # and then emits, so the count has always meant this. The fluorescence side
+            # used to say it twice per tile with two meanings: the tile *starting*
+            # before the acquisition, and the tally after. One field cannot be both, and
+            # a consumer choosing between them got a bar that changed scale at every
+            # boundary (FIB-736, FIB-739). `TILE_STARTED` carries no counts at all now,
+            # so there is nothing to choose between.
+            completed=self._n_acquired,
+            total=len(self._ordered),
+            # The estimate rides with the count rather than with the announcement, so
+            # one report carries the whole picture and a consumer never has to assemble
+            # progress from two.
+            estimated_total_seconds=estimated_total,
+            estimated_remaining_seconds=estimated_remaining,
+            preview=self._preview_image(),
         )
 
     def _time_estimate(self):
@@ -1045,14 +1092,15 @@ class FMTiledAcquisitionRunner:
         the tile, with the preview.
         """
         self._emit(
-            {
-                "state": "acquiring",
-                "task": "tileset",
-                "row": row + 1,
-                "col": col + 1,
-                "total_rows": self._rows,
-                "total_cols": self._cols,
-            }
+            TiledStatus.TILE_STARTED,
+            # 0-based, matching `_ordered[...]` and the completed-tile report above.
+            # This used to send `row + 1`, one function away from a sibling sending
+            # `tile.row`, so the same signal described the same grid two ways.
+            # `TiledProgress.display_tile` is where the offset for a reader lives now.
+            row_index=row,
+            column_index=col,
+            rows=self._rows,
+            columns=self._cols,
         )
 
 

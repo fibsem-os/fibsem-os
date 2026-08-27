@@ -46,7 +46,6 @@ from fibsem.imaging.tiling.progress import (
     MODALITY_FLUORESCENCE,
     TiledProgress,
     TiledStatus,
-    is_modality,
 )
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemStagePosition
@@ -184,11 +183,6 @@ class PlacedOverviewImageRecord:
 # What each countless phase of a run is called on screen. All three are handled the same
 # way and for the same reason: the bar keeps its last count, which stays true
 # throughout, and the phase goes to the status label instead.
-PHASE_LABELS = {
-    "moving": "Moving stage…",
-    "stitching": "Stitching tiles…",
-    "saving": "Saving overview…",
-}
 
 
 class FMOverviewWidget(QWidget):
@@ -2598,51 +2592,30 @@ class FMOverviewWidget(QWidget):
             )
             return None
 
-    def _emit_state(self, state: str) -> None:
-        """Announce a phase of this run that carries no counts.
+    def _emit_state(self, status: TiledStatus) -> None:
+        """Announce a state of this run that carries no counts.
 
         The tile bar keeps whatever it last showed -- N/N is still true while the mosaic
         is being written -- and the state goes to the status label, which is how
-        `moving` has always been handled. Rendering these as indeterminate would paint a
+        `MOVING` has always been handled. Rendering these as indeterminate would paint a
         *full* bar, which is exactly the "it finished" impression they exist to correct.
         """
         self.microscope.tiled_acquisition_signal.emit(
-            {"modality": MODALITY_FLUORESCENCE, "state": state, "task": "tileset"}
+            TiledProgress(status=status, modality=MODALITY_FLUORESCENCE)
         )
 
-    # What a finished run is called on the shared signal, per outcome.
-    TERMINAL_MESSAGES = {
-        "finished": "Overview Complete",
-        "cancelled": "Overview Cancelled",
-        "failed": "Overview Failed",
-    }
+    def _emit_terminal(self, status: TiledStatus, error: Optional[str] = None) -> None:
+        """Say how the run ended.
 
-    def _emit_terminal(self, state: str, outcome: str, error: str = "") -> None:
-        """Say how the run ended, in both vocabularies.
-
-        `state` is this widget's own -- `_apply_tile_progress` and `_finish` branch on it,
-        and it distinguishes "the mosaic is saved" from the runner's "the tiles are in".
-
-        `finished` and `outcome` are the shared signal's, which the beam tiler has used
-        since it learned to report every outcome. Carried as well, not instead: a
-        consumer reads whichever it understands, and the window's status bar reads the
-        second (FIB-725). Redundant on purpose -- collapsing the two vocabularies into
-        one is the typed-payload work, not this.
-
-        Without `finished`, the status bar would never clear after a fluorescence run:
-        the terminal it recognises is a key this widget did not send.
+        One vocabulary now. This used to send two -- its own `state` strings for its own
+        handler, plus the shared signal's `finished`/`outcome` for the window's status
+        bar -- because the two had grown separately and collided on the word "finished".
+        A single `TiledStatus` says it once, and `error` carries the reason rather than
+        a second phrasing of the fact.
         """
-        payload = {
-            "modality": MODALITY_FLUORESCENCE,
-            "state": state,
-            "task": "tileset",
-            "finished": True,
-            "outcome": outcome,
-            "msg": self.TERMINAL_MESSAGES.get(outcome, "Overview"),
-        }
-        if error:
-            payload["error"] = error
-        self.microscope.tiled_acquisition_signal.emit(payload)
+        self.microscope.tiled_acquisition_signal.emit(
+            TiledProgress(status=status, modality=MODALITY_FLUORESCENCE, error=error)
+        )
 
     def _acquire_worker(self) -> None:
         """Runs off the GUI thread. Only signals may cross back."""
@@ -2659,16 +2632,16 @@ class FMOverviewWidget(QWidget):
                 # the stitch is a memcpy into a preallocated canvas (~0.3 s for 1.3 GB)
                 # and the write is most of the rest (~2.3 s for the same). Silent until
                 # now, so a big run appeared to hang just as it completed.
-                self._emit_state("saving")
+                self._emit_state(TiledStatus.SAVING)
                 self._saved_path = self._destination.save_mosaic(mosaic)
             self.overview_acquired.emit(mosaic)
-            self._emit_terminal("overview-finished", "finished")
+            self._emit_terminal(TiledStatus.FINISHED)
         except OperationCancelledError:
             logging.info("Overview acquisition cancelled")
-            self._emit_terminal("overview-cancelled", "cancelled")
+            self._emit_terminal(TiledStatus.CANCELLED)
         except Exception as e:
             logging.error(f"Overview acquisition failed: {e}", exc_info=True)
-            self._emit_terminal("overview-failed", "failed", str(e))
+            self._emit_terminal(TiledStatus.FAILED, str(e))
         finally:
             # A run that ends still marked as acquiring leaves the FM unusable for
             # the rest of the session, with nothing on screen to say why -- so this goes
@@ -2752,20 +2725,10 @@ class FMOverviewWidget(QWidget):
         TiledStatus.SAVING: "Saving overview…",
     }
 
-    # Temporary bridge, deleted when `_finish` learns to take a status directly (FIB-402).
-    # `_finish` keeps its string vocabulary for now so that neither it nor the tests
-    # driving it move in this PR.
-    _FINISH_STATES = {
-        TiledStatus.FINISHED: "overview-finished",
-        TiledStatus.CANCELLED: "overview-cancelled",
-        TiledStatus.FAILED: "overview-failed",
-    }
+    def _apply_tile_progress(self, event: TiledProgress) -> None:
+        """The run as a whole, on the tile bar.
 
-    def _apply_tiled_progress(self, event: TiledProgress) -> None:
-        """The typed form of `_apply_tile_progress` (FIB-402).
-
-        Not reached until the fluorescence producers flip. Written and tested now so the
-        flip is a change to the producers alone.
+        Runs on the GUI thread, queued via `_tile_progress_received`.
         """
         if event.modality != MODALITY_FLUORESCENCE:
             # A beam run, on the signal this shares with the beam tiler. Checked before
@@ -2774,7 +2737,7 @@ class FMOverviewWidget(QWidget):
             return
 
         if event.status.is_terminal:
-            self._finish(self._FINISH_STATES[event.status], event.error)
+            self._finish(event.status, event.error)
             return
 
         label = self._STATUS_LABELS.get(event.status)
@@ -2792,7 +2755,7 @@ class FMOverviewWidget(QWidget):
             # Deliberately does *not* clear the within-tile bar. It used to, which made
             # it vanish and reappear at every tile boundary -- a flicker for the whole
             # run. The next tile's first report overwrites it a moment later anyway.
-            self._show_typed_preview(event.preview)
+            self._show_preview(event.preview)
 
         if event.completed is None or not event.total:
             # An announcement rather than a progress report: the report that says which
@@ -2826,85 +2789,6 @@ class FMOverviewWidget(QWidget):
                 )
             )
 
-    def _apply_tile_progress(self, payload: dict) -> None:
-        """The run as a whole, on the tile bar.
-
-        Runs on the GUI thread, queued via `_tile_progress_received`.
-
-        Dicts only -- a typed `TiledProgress` goes to `_apply_tiled_progress` above.
-        The two sit side by side until the producers flip (FIB-402).
-        """
-        if isinstance(payload, TiledProgress):
-            self._apply_tiled_progress(payload)
-            return
-
-        if not is_modality(payload, MODALITY_FLUORESCENCE):
-            # A beam run, on the signal this shares with the beam tiler. Checked before
-            # anything else, terminal states included: the two tilers write into
-            # different canvases and different bars, and the only payload this widget
-            # has any business acting on is its own (FIB-725).
-            return
-
-        state = payload.get("state")
-
-        if state in ("overview-finished", "overview-cancelled", "overview-failed"):
-            self._finish(state, payload.get("error"))
-            return
-
-        label = PHASE_LABELS.get(state or "")
-        if label is not None:
-            # Deliberately not `indeterminate`: that paints a *full* bar with a
-            # spinner, so every stage move looked like the run had just completed.
-            # The bar keeps the last tile count -- which is still true between tiles,
-            # and while the mosaic is being stitched and written -- and the transient
-            # state goes to the status label instead.
-            self.status.setText(label)
-            return
-
-        self.status.setText("")
-
-        if state == "tile":
-            # Deliberately does *not* clear the within-tile bar. It used to, which made
-            # it vanish and reappear at every tile boundary -- a flicker for the whole
-            # run. The next tile's first payload overwrites it a moment later anyway.
-            self._show_preview(payload)
-
-        current, total = payload.get("counter"), payload.get("total")
-        if current is None or not total:
-            # An announcement rather than a progress report: the payload that says which
-            # tile is starting carries no counts, because emitted *before* the tile it
-            # could only ever be one short -- a bar driven from it stopped at 3/4 for the
-            # whole run (FIB-736). It has already done its job above, clearing the label
-            # the stage move put up.
-            #
-            # This is also what stops the bar flickering. Two payloads per tile used to
-            # carry counts with different meanings and different shapes, and the bar
-            # changed scale at every boundary (FIB-739); now exactly one of them does.
-            return
-
-        # The final payload of a run reports 0 remaining and so renders as a plain
-        # count -- `FibsemProgressWidget` picks the shape from `remaining_seconds > 0`,
-        # not from the caller. That is the run finishing rather than a flicker: one
-        # transition at the end, where the bar is full either way.
-        remaining = payload.get("estimated_remaining_time")
-        # The widget renders the count itself, so the message says what is being
-        # counted and nothing more -- otherwise it reads "Tile 4/9 — 4/9".
-        message = "Tiles"
-        if remaining:
-            self.progress_tiles.update_progress(
-                ProgressUpdate.combined(
-                    current=current,
-                    total=total,
-                    remaining_seconds=remaining,
-                    total_seconds=payload.get("estimated_total_time", 0.0),
-                    message=message,
-                )
-            )
-        else:
-            self.progress_tiles.update_progress(
-                ProgressUpdate.numeric(current=current, total=total, message=message)
-            )
-
     def _tile_detail_update(self, payload: dict) -> ProgressUpdate:
         """Progress within the tile currently being acquired.
 
@@ -2936,12 +2820,11 @@ class FMOverviewWidget(QWidget):
             current=index, total=total, message=f"{channel} channels"
         )
 
-    def _show_typed_preview(self, preview: FluorescenceImage) -> None:
-        """Paint the mosaic-so-far onto the canvas, from a self-describing preview.
+    def _show_preview(self, preview: FluorescenceImage) -> None:
+        """Paint the mosaic-so-far onto the canvas.
 
-        The typed form of `_show_preview` (FIB-402), and the reason the preview became a
-        `FluorescenceImage` rather than a bare array plus a stride. Everything this needs
-        to place the mosaic now arrives with it:
+        The preview is a `FluorescenceImage` rather than a bare array plus a stride, so
+        everything needed to place it arrives with it:
 
         * where -- `metadata.stage_position`, instead of reaching into `self._runner` for
           the centre it resolved when the run started;
@@ -2991,71 +2874,6 @@ class FMOverviewWidget(QWidget):
         except Exception as e:
             logging.debug(f"Could not display the overview preview: {e}")
 
-    def _show_preview(self, payload: dict) -> None:
-        """Paint the mosaic-so-far onto the canvas.
-
-        The runner publishes the whole preview canvas each tile, so this stays
-        stateless -- it redisplays what it is given rather than accumulating tiles of
-        its own, which is also what makes it correct if a frame is dropped.
-        """
-        image = payload.get("image")
-        if image is None:
-            return
-        try:
-            planes = np.asarray(image)
-            if planes.ndim == 2:
-                planes = planes[np.newaxis]
-
-            # Where, and at what scale, *before* any pixels: `set_channel` composites
-            # and places immediately, so anything established after it applies a tick
-            # late -- the first frame of a run would land under the previous run's key
-            # at the previous run's pixel size, which drew it at the wrong size on top
-            # of a finished overview.
-            #
-            # Its own key, so the in-progress preview neither replaces a finished
-            # overview nor survives as one: it is swapped for the real stitch at the end.
-            self.canvas.set_composite_key(PREVIEW_KEY)
-            # The preview mosaic spans the whole planned grid, so it goes wherever the
-            # grid's centre is. Read off the runner rather than recomputed: the runner
-            # resolved "wherever the stage is" to a concrete position when it started,
-            # and the stage has been moving from tile to tile ever since.
-            centre = getattr(self._runner, "centre_position", None)
-            self.canvas.set_placement(
-                self._offset_from_origin(centre) if centre is not None else (0.0, 0.0)
-            )
-            # The preview is decimated to keep it a sane size, so its pixels are
-            # `preview_stride` times coarser than a tile's. Placement is by pixel size,
-            # so saying so is all that is needed: coarser pixels over the same count
-            # cover the same ground, and the mosaic lands at the size it represents.
-            stride = payload.get("preview_stride", 1) or 1
-            # Off the kept projection: read from the camera this is an `active_channel()`
-            # scope, and this runs once a tile *during the run* -- so the display was
-            # taking the shared channel from the acquisition that was using it. `acquire`
-            # invalidates first, so the value is this run's.
-            projection = self._projection()
-            if projection is None:
-                return
-            self.canvas.set_pixel_size(projection.pixel_size * stride)
-
-            # This run's channels, and only these. `set_channel` upserts, so a channel
-            # switched off since the last run would otherwise keep its layer -- still
-            # holding the previous overview's pixels -- and be blended into this one.
-            channels = self.channels
-            self.canvas.retain_channels([channel.name for channel in channels])
-            # One composite for the whole update, not one per channel. `set_channel`
-            # recomposites on every call -- reducing every layer here and re-rendering
-            # every other overview on the canvas -- so a loop did that C times and threw
-            # C-1 of the results away. 148 ms an update against 37 ms with one 10x10
-            # overview also placed, and this runs once a tile for the length of a run.
-            self.canvas.set_channels(
-                [
-                    (channel.name, plane, channel.color)
-                    for channel, plane in zip(channels, planes)
-                ]
-            )
-        except Exception as e:
-            logging.debug(f"Could not display the overview preview: {e}")
-
     def _describe_save(self) -> Tuple[str, str]:
         """Status suffix and tooltip for whether the overview reached disk.
 
@@ -3071,7 +2889,7 @@ class FMOverviewWidget(QWidget):
             return "  ·  not saved", "Could not be written to disk — see the log."
         return "", ""
 
-    def _finish(self, state: str, error: Optional[str]) -> None:
+    def _finish(self, status: TiledStatus, error: Optional[str]) -> None:
         # Hides both bars. The per-tile one stays hidden -- there is no tile in progress
         # to describe -- but the overall bar is shown again below whenever it has a
         # terminal state worth reading: `FibsemProgressWidget` paints finished and
@@ -3080,7 +2898,7 @@ class FMOverviewWidget(QWidget):
         self._worker = None
         self.progress_tile_detail.reset()
 
-        if state == "overview-finished" and self._mosaic is not None:
+        if status is TiledStatus.FINISHED and self._mosaic is not None:
             # Swap the decimated preview for the real thing. Dropped rather than left
             # underneath: it covers the same ground at a coarser scale, so keeping it
             # would only be a blurred copy hidden behind the stitch.
@@ -3094,7 +2912,7 @@ class FMOverviewWidget(QWidget):
             self.status.setToolTip(tooltip)
             self.progress_tiles.update_progress(ProgressUpdate.done())
             self.progress_tiles.show()
-        elif state == "overview-cancelled":
+        elif status is TiledStatus.CANCELLED:
             self.status.setText("Cancelled. Tiles acquired so far are still shown.")
             # Nothing to show: a cancel has no terminal state of its own, and the status
             # line already says what happened.

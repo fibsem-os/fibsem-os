@@ -13,6 +13,7 @@ module and never checked the acquisition code at all.
 Run directly:
     python -m pytest tests/test_tiled_progress_payload.py
 """
+
 from __future__ import annotations
 
 import pytest
@@ -22,8 +23,8 @@ from fibsem.imaging.tiled import TiledAcquisitionRunner
 from fibsem.imaging.tiling.progress import (
     MODALITY_BEAM,
     MODALITY_FLUORESCENCE,
-    is_modality,
-    modality_of,
+    TiledProgress,
+    TiledStatus,
 )
 from fibsem.structures import (
     BeamType,
@@ -49,10 +50,15 @@ def payloads(microscope, tmp_path_factory):
             microscope,
             OverviewAcquisitionSettings(
                 image_settings=ImageSettings(
-                    hfw=100e-6, resolution=(64, 64), beam_type=BeamType.ELECTRON,
-                    save=False, path=str(tmp_path_factory.mktemp("tiles")), filename="t",
+                    hfw=100e-6,
+                    resolution=(64, 64),
+                    beam_type=BeamType.ELECTRON,
+                    save=False,
+                    path=str(tmp_path_factory.mktemp("tiles")),
+                    filename="t",
                 ),
-                nrows=1, ncols=2,
+                nrows=1,
+                ncols=2,
             ),
         ).run()
     finally:
@@ -61,7 +67,7 @@ def payloads(microscope, tmp_path_factory):
 
 
 def _per_tile(payloads):
-    return [p for p in payloads if p.get("msg") == "Tile Collected"]
+    return [p for p in payloads if p.status is TiledStatus.TILE_COLLECTED]
 
 
 def test_every_tile_update_carries_the_keys_its_consumers_index(payloads):
@@ -76,24 +82,26 @@ def test_every_tile_update_carries_the_keys_its_consumers_index(payloads):
     updates = _per_tile(payloads)
     assert len(updates) == 2, "expected one update per tile"
     for payload in updates:
-        assert {"counter", "total", "msg", "image"} <= set(payload)
-        assert payload["total"] == 2
+        assert isinstance(payload, TiledProgress)
+        assert payload.completed is not None
+        assert payload.total == 2
+        assert payload.preview is not None
 
     # Present is not enough: a counter stuck at its initial value satisfies every
     # structural check above while every consumer shows "0 / 2" for the whole run.
-    assert [p["counter"] for p in updates] == [1, 2]
+    assert [p.completed for p in updates] == [1, 2]
 
 
 def test_a_tile_update_carries_a_placeable_preview(payloads):
     """The key the real-space overview places from.
 
-    `image` alongside it is the full-size buffer as a bare array, which the napari
-    minimap assigns straight into a layer -- so it cannot answer *where* the mosaic
-    is. `preview` is the same mosaic, decimated, carrying the metadata a real-space
-    display needs to place it: position, pixel size, beam and geometry.
+    The mosaic, decimated, carrying the metadata a display needs to place it: position,
+    pixel size, beam and geometry. The full-size live buffer used to travel beside it as
+    a bare array for the napari minimap; that tab reads `preview.data` now, so there is
+    one representation of the mosaic rather than two under different names.
     """
     for payload in _per_tile(payloads):
-        preview = payload.get("preview")
+        preview = payload.preview
         assert preview is not None, "the per-tile update stopped carrying its preview"
         assert preview.metadata.stage_position is not None
         assert preview.metadata.pixel_size.x, "a mosaic with no scale cannot be placed"
@@ -104,25 +112,23 @@ def test_a_tile_update_carries_a_placeable_preview(payloads):
 def test_the_preview_fills_as_the_run_goes(payloads):
     """A preview that never changed would satisfy every structural check above while
     showing the same empty mosaic for the length of the run."""
-    filled = [
-        int((p["preview"].data > 0).sum()) for p in _per_tile(payloads)
-    ]
+    filled = [int((p.preview.data > 0).sum()) for p in _per_tile(payloads)]
     assert filled[-1] > filled[0], f"the preview did not fill: {filled}"
 
 
 def test_the_preview_describes_the_whole_grid_from_the_first_tile(payloads):
     """It is the mosaic, not the tile: its shape is the finished grid's from the
     start, so a display places it once rather than resizing it on every update."""
-    shapes = {p["preview"].data.shape for p in _per_tile(payloads)}
+    shapes = {p.preview.data.shape for p in _per_tile(payloads)}
     assert len(shapes) == 1, f"the preview changed shape mid-run: {shapes}"
 
 
 def test_the_run_ends_with_a_terminal_update(payloads):
-    """Consumers branch on `finished` to stop showing progress; without it the bar just
-    stops moving and nothing says whether the run succeeded."""
-    terminal = [p for p in payloads if p.get("finished")]
+    """Consumers branch on `status.is_terminal` to stop showing progress; without one
+    the bar just stops moving and nothing says whether the run succeeded."""
+    terminal = [p for p in payloads if p.status.is_terminal]
     assert terminal, "no terminal update was emitted"
-    assert terminal[-1].get("outcome") == "finished"
+    assert terminal[-1].status is TiledStatus.FINISHED
 
 
 def test_every_payload_says_which_modality_produced_it(payloads):
@@ -130,30 +136,70 @@ def test_every_payload_says_which_modality_produced_it(payloads):
 
     Consumers used to work out what they had received from which keys were present,
     which was survivable while `imaging/tiled.py` was the only emitter. It is not once a
-    second producer reports here: two consumers hand the payload's mosaic straight to a
-    *beam* canvas, and the fluorescence preview is keyed `image` already — deliberately,
-    to match this signal (FIB-725).
+    second producer reports here: two consumers hand the mosaic straight to a *beam*
+    canvas, and a fluorescence preview reaching one would be drawn into it (FIB-725).
 
-    Asserted on every payload, not just the per-tile ones: a terminal update that could
-    not say whose run had finished would leave a consumer unable to decide whether to
-    clear its own progress.
+    Asserted on every report, not just the per-tile ones: a terminal that could not say
+    whose run had finished would leave a consumer unable to decide whether to clear its
+    own progress.
     """
     assert payloads, "the run emitted nothing"
     for payload in payloads:
-        assert payload.get("modality") == MODALITY_BEAM, payload.get("msg")
+        assert payload.modality == MODALITY_BEAM, payload.status
 
 
-def test_an_unlabelled_payload_reads_as_a_beam_run():
-    """`modality` is new, so a producer that predates it — including anything outside
-    this repository subscribing to a public signal — emits without it. Absent means
-    beam, which is what this signal carried for its whole life. A consumer written as
-    `payload.get("modality") == MODALITY_BEAM` would silently drop all of it."""
-    assert modality_of({}) == MODALITY_BEAM
-    assert is_modality({"counter": 1, "total": 2}, MODALITY_BEAM)
-    assert not is_modality({}, MODALITY_FLUORESCENCE)
+def test_a_report_constructed_without_a_modality_reads_as_a_beam_run():
+    """What this signal carried for its whole life, kept as the field's default."""
+    assert TiledProgress(status=TiledStatus.MOVING).modality == MODALITY_BEAM
 
 
-def test_a_fluorescence_payload_is_not_mistaken_for_a_beam_one():
-    payload = {"modality": MODALITY_FLUORESCENCE, "counter": 1, "total": 2}
-    assert is_modality(payload, MODALITY_FLUORESCENCE)
-    assert not is_modality(payload, MODALITY_BEAM)
+def test_a_fluorescence_report_is_not_mistaken_for_a_beam_one():
+    report = TiledProgress(
+        status=TiledStatus.TILE_COLLECTED,
+        modality=MODALITY_FLUORESCENCE,
+        completed=1,
+        total=2,
+    )
+    assert report.modality == MODALITY_FLUORESCENCE
+    assert report.modality != MODALITY_BEAM
+
+
+def test_the_run_opens_by_saying_how_much_there_is_to_do(payloads):
+    """A bar that appears at 0/N before the first stage move, rather than at the first
+    tile -- otherwise the longest silence of a run is its beginning."""
+    assert payloads[0].status is TiledStatus.STARTING
+    assert (payloads[0].completed, payloads[0].total) == (0, 2)
+
+
+def test_a_failed_run_carries_the_reason_not_just_the_fact(microscope, tmp_path):
+    """The exception text used to be logged and thrown away, so a failed run told the
+    UI "Acquisition Failed" and nothing about why -- and a stage-limits rejection names
+    every offending tile."""
+    collected = []
+    microscope.tiled_acquisition_signal.connect(collected.append)
+    runner = TiledAcquisitionRunner(
+        microscope,
+        OverviewAcquisitionSettings(
+            image_settings=ImageSettings(
+                hfw=100e-6,
+                resolution=(64, 64),
+                beam_type=BeamType.ELECTRON,
+                save=False,
+                path=str(tmp_path),
+                filename="t",
+            ),
+            nrows=1,
+            ncols=2,
+        ),
+    )
+    runner._acquire_tile = lambda tile: (_ for _ in ()).throw(RuntimeError("no beam"))
+    try:
+        with pytest.raises(RuntimeError):
+            runner.run()
+    finally:
+        microscope.tiled_acquisition_signal.disconnect(collected.append)
+
+    terminal = [p for p in collected if p.status.is_terminal]
+    assert terminal, "a failed run emitted no terminal report"
+    assert terminal[-1].status is TiledStatus.FAILED
+    assert terminal[-1].error and "no beam" in terminal[-1].error

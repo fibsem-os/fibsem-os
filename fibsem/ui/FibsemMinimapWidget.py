@@ -52,7 +52,6 @@ from fibsem.imaging.tiling.progress import (
     MODALITY_BEAM,
     TiledProgress,
     TiledStatus,
-    is_modality,
 )
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling import FibsemMillingStage
@@ -706,12 +705,9 @@ class FibsemMinimapWidget(QWidget):
         TiledStatus.FAILED: "Acquisition Failed",
     }
 
-    def _apply_tile_progress(self, event: TiledProgress) -> None:
-        """The typed form of `handle_tile_acquisition_progress` (FIB-402).
-
-        Not reached yet: the producers still emit dicts, and this runs only once
-        `imaging.tiled` flips. It is written and tested now so that the flip is a
-        change to one producer rather than to a producer and three consumers at once.
+    @ensure_main_thread
+    def handle_tile_acquisition_progress(self, event: TiledProgress) -> None:
+        """Callback for handling the tile acquisition progress.
 
         `total` is guarded because it is a divisor: a run reporting nothing to do would
         take the bar out with a `ZeroDivisionError`. Nothing is drawn for a report that
@@ -743,58 +739,6 @@ class FibsemMinimapWidget(QWidget):
             # preview, this tab is being retired, and the array it was given before was
             # the one the acquisition thread was still writing into.
             self.update_viewer(event.preview.data, tmp=True)
-
-    @ensure_main_thread
-    def handle_tile_acquisition_progress(self, ddict: dict) -> None:
-        """Callback for handling the tile acquisition progress.
-
-        Read with `.get`, not indexed. This signal has no discriminator -- a consumer
-        works out what it received from which keys are present -- so a payload shape
-        that omits any of these is not a degraded label here, it is a `KeyError` inside
-        a Qt slot, mid-acquisition. All three shapes `tiled.py` emits happen to carry
-        them today, which is the only reason indexing has held (FIB-402).
-
-        `total` is guarded rather than defaulted, because it is a divisor: a payload
-        reporting nothing to do would take the bar out with a `ZeroDivisionError`
-        instead. Nothing is drawn for a payload that cannot say how far along it is,
-        which leaves the last real progress standing -- true, rather than reset to zero.
-
-        `FibsemOverviewWidget._apply_progress` reads the same signal the same way.
-
-        Beam runs only. This tab drives a beam overview and assigns the payload's mosaic
-        straight into its napari layer, so a fluorescence run reaching here would be
-        drawn into the beam minimap -- and the fluorescence preview is keyed `image`
-        already, deliberately, to match this signal (FIB-725).
-
-        Dicts only. A typed `TiledProgress` goes to `_apply_tile_progress` above, which
-        is where this method is heading -- the two paths sit side by side until the
-        producers flip, so that the dict path this branch guards is provably the one
-        still running (FIB-402).
-        """
-        if isinstance(ddict, TiledProgress):
-            self._apply_tile_progress(ddict)
-            return
-
-        if not is_modality(ddict, MODALITY_BEAM):
-            return
-
-        # track counts for result dict
-        counter = ddict.get("counter")
-        total = ddict.get("total")
-        if counter is not None and total:
-            self._tiles_acquired = counter
-            self._tile_total_count = total
-
-            # progress bar
-            self.progressBar_acquisition.setMaximum(100)
-            self.progressBar_acquisition.setValue(int(counter / total * 100))
-            self.progressBar_acquisition.setFormat(
-                f"{ddict.get('msg', 'Acquiring')} — {counter}/{total} tiles (%p%)"
-            )
-
-        image = ddict.get("image", None)
-        if image is not None:
-            self.update_viewer(image, tmp=True)
 
     def cancel_acquisition(self):
         """Cancel the tiled acquisition."""

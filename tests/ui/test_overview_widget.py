@@ -36,6 +36,7 @@ from PyQt5.QtWidgets import QApplication, QDialog  # noqa: E402
 
 from fibsem import utils  # noqa: E402
 from fibsem.imaging import tiled  # noqa: E402
+from fibsem.imaging.tiling.progress import TiledStatus
 from fibsem.structures import (  # noqa: E402
     BeamType,
     FibsemImage,
@@ -108,6 +109,14 @@ def widget(microscope):
     w.resize(900, 700)
     yield w
     w.close()
+
+
+def _beam_report(status, **fields):
+    """A beam report, the shape `imaging.tiled` emits."""
+    from fibsem.imaging.tiling.progress import MODALITY_BEAM, TiledProgress
+
+    fields.setdefault("modality", MODALITY_BEAM)
+    return TiledProgress(status=status, **fields)
 
 
 def _tile(microscope, position: FibsemStagePosition, shape=(64, 64), hfw=100e-6):
@@ -746,12 +755,12 @@ class TestThingsOnlyRunningItFound:
 
         for i in (1, 2, 3):
             widget._apply_progress(
-                {
-                    "msg": "Tile Collected",
-                    "counter": i,
-                    "total": 3,
-                    "preview": _tile(microscope, _at(base)),
-                }
+                _beam_report(
+                    TiledStatus.TILE_COLLECTED,
+                    completed=i,
+                    total=3,
+                    preview=_tile(microscope, _at(base)),
+                )
             )
             row = widget.overview_list._rows["run"]
             assert row.detail_label.text().startswith(f"{i} tile"), (
@@ -768,7 +777,9 @@ class TestThingsOnlyRunningItFound:
         widget._set_running(True)
         assert widget.label_status.text() == "", "a stale outcome survived into the run"
 
-        widget._apply_progress({"counter": 2, "total": 9, "msg": "Tile Collected"})
+        widget._apply_progress(
+            _beam_report(TiledStatus.TILE_COLLECTED, completed=2, total=9)
+        )
         assert widget.label_status.text() == "", "the label competed with the bar"
 
         widget._on_finished({})
@@ -2024,12 +2035,12 @@ class TestThePlanHoldsStillWhileTheRunWalksTheGrid:
         """One tile of a run: the stage arrives, then a preview lands."""
         widget._on_stage_moved(position)
         widget._apply_progress(
-            {
-                "msg": "Tile Collected",
-                "counter": 1,
-                "total": 3,
-                "preview": _tile(microscope, position),
-            }
+            _beam_report(
+                TiledStatus.TILE_COLLECTED,
+                completed=1,
+                total=3,
+                preview=_tile(microscope, position),
+            )
         )
 
     def test_the_planned_grid_does_not_follow_the_stage(self, widget, microscope):
@@ -2128,12 +2139,12 @@ class TestThePlanHoldsStillWhileTheRunWalksTheGrid:
         # the redraw, because it is what un-provisions the origin.
         widget._on_stage_moved(_at(base, dx=300e-6, dy=300e-6))
         widget._apply_progress(
-            {
-                "msg": "Tile Collected",
-                "counter": 1,
-                "total": 9,
-                "preview": _tile(microscope, _at(base)),
-            }
+            _beam_report(
+                TiledStatus.TILE_COLLECTED,
+                completed=1,
+                total=9,
+                preview=_tile(microscope, _at(base)),
+            )
         )
 
         assert widget.tile_grid_overlay._anchor() == pytest.approx(anchored_at), (
@@ -2257,12 +2268,12 @@ class TestARunDoesNotReFrameTheCanvas:
         widget._set_running(True)
         for counter in range(1, tiles + 1):
             widget._apply_progress(
-                {
-                    "msg": "Tile Collected",
-                    "counter": counter,
-                    "total": tiles,
-                    "preview": _tile(microscope, _at(base)),
-                }
+                _beam_report(
+                    TiledStatus.TILE_COLLECTED,
+                    completed=counter,
+                    total=tiles,
+                    preview=_tile(microscope, _at(base)),
+                )
             )
         widget._mosaic = _tile(microscope, _at(base), shape=(128, 128))
         widget._on_finished({})
@@ -4111,62 +4122,6 @@ class TestDrivingTheStageFromAHost:
 
 
 class TestItOnlyDrawsItsOwnRuns:
-    """`tiled_acquisition_signal` is about to carry a second producer.
-
-    This widget places the payload's mosaic on its own canvas and counts the tiles into
-    its own record, so a fluorescence run reaching here would be drawn as one of this
-    tab's overviews. Only `modality` separates them (FIB-725).
-    """
-
-    def test_a_fluorescence_run_is_ignored(self, widget):
-        from fibsem.imaging.tiling.progress import MODALITY_FLUORESCENCE
-
-        widget._tiles_acquired = 0
-        widget._apply_progress(
-            {
-                "modality": MODALITY_FLUORESCENCE,
-                "counter": 7,
-                "total": 9,
-                "msg": "Tile Collected",
-            }
-        )
-        assert widget._tiles_acquired == 0, "a fluorescence run moved this tab's count"
-
-    def test_a_beam_run_is_still_drawn(self, widget):
-        widget._tiles_acquired = 0
-        widget._apply_progress(
-            {
-                "modality": "beam",
-                "counter": 7,
-                "total": 9,
-                "msg": "Tile Collected",
-            }
-        )
-        assert widget._tiles_acquired == 7
-
-    def test_an_unlabelled_run_is_still_drawn(self, widget):
-        """Anything predating the key — including a producer outside this repository
-        subscribing to a public signal — must keep working."""
-        widget._tiles_acquired = 0
-        widget._apply_progress({"counter": 7, "total": 9, "msg": "Tile Collected"})
-        assert widget._tiles_acquired == 7
-
-
-# ── the typed contract (FIB-402) ─────────────────────────────────────────────
-#
-# Nothing emits a `TiledProgress` yet: `imaging/tiled.py` still builds dicts, and the
-# tests above are what proves that path has not moved. These drive the typed path
-# directly, so the producer flip touches the producer alone.
-
-
-def _beam_report(status, **fields):
-    from fibsem.imaging.tiling.progress import MODALITY_BEAM, TiledProgress
-
-    fields.setdefault("modality", MODALITY_BEAM)
-    return TiledProgress(status=status, **fields)
-
-
-class TestTheTypedProgressContract:
     def test_a_typed_tile_report_drives_the_bar(self, widget):
         from fibsem.imaging.tiling.progress import TiledStatus
 
