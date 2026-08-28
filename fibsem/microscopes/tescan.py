@@ -684,6 +684,10 @@ class TescanMicroscope(FibsemMicroscope):
         )
 
     def safe_absolute_stage_movement(self, stage_position: FibsemStagePosition) -> None:
+        # Inert until Tescan has a fluorescence microscope at all -- `self.fm` is set
+        # to None unconditionally here (FIB-836) -- but the guard belongs on every
+        # re-pose path, not only the ones that can reach it today.
+        self._refuse_rotation_at_the_fluorescence_microscope(stage_position)
 
         # TODO: implement if required.
         self.move_stage_absolute(stage_position)

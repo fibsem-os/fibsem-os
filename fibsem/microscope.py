@@ -442,6 +442,63 @@ class FibsemMicroscope(ABC):
         else:
             self.move_stage_absolute(stage_position)
 
+    def _refuse_rotation_at_the_fluorescence_microscope(
+        self, stage_position: FibsemStagePosition
+    ) -> None:
+        """Refuse a stage rotation while the stage is parked at the FM.
+
+        The objective is inserted over the sample there, and the rotation is
+        compucentric about a centre back at the beams -- some 48.8 mm away -- so a half
+        turn swings the sample most of the width of the chamber, under the objective.
+
+        The route to another pose at the FM is the one `get_target_position` computes:
+        traverse back to the beams, re-pose there, traverse out again. This refuses the
+        shortcut. It is a refusal rather than a silent correction because a caller
+        asking for the shortcut has a wrong idea of where the stage is going, and
+        quietly sending it somewhere else would leave that idea intact.
+
+        **Rotation only.** A tilt pivots about an axis through the sample instead of
+        swinging it, and where the objective does restrict tilt the microscope refuses
+        it itself -- FIB-640 measured z and t. This does not duplicate that.
+
+        Not a restriction on FM-MILLING. That pose is a half turn from the FM's own
+        orientation (measured: FM sits at r=180, MILLING at r=0), so it was never
+        reachable by rotating in place -- it is reached the way everything else at the
+        FM is, via the beams.
+
+        Dormant until the connection gate opens: `microscope.fm` is `None` on every
+        non-compustage system today, so nothing can park at the FM to begin with.
+        """
+        # A compustage reaches the FM by flipping, and its devices are the same place,
+        # so "parked at the FM" is not a state it can be in -- and it has no rotation
+        # axis to be compucentric about either.
+        if self.stage_is_compustage or self.fm is None:
+            return
+
+        if stage_position.r is None:
+            return
+
+        current_position = self.get_stage_position()
+        if self.get_current_device(current_position) != "FM":
+            return
+
+        from fibsem import movement
+
+        # The same 5 degrees `get_stage_orientation` classifies within, so a caller
+        # asking for the pose the stage is already in does not trip this on the slop a
+        # real stage always carries.
+        if movement.rotation_angle_is_smaller(
+            stage_position.r, current_position.r, atol=5
+        ):
+            return
+
+        raise ValueError(
+            "Cannot rotate the stage while it is at the fluorescence microscope: the "
+            "rotation is compucentric about a centre at the beams, so it would swing "
+            "the sample across the chamber under the objective. Move to the beams "
+            "first (move_to_microscope('FIBSEM')), re-pose there, and travel back."
+        )
+
     def move_to_orientation(self, orientation: str) -> FibsemStagePosition:
         """Move the stage to the given named orientation (e.g. 'SEM', 'FIB', 'MILLING').
         Args:
@@ -3493,6 +3550,11 @@ class ThermoMicroscope(FibsemMicroscope):
         """Move the stage to the desired position in a safe manner, using compucentric rotation.
         Supports movements in the stage_position coordinate system
         """
+        # Before anything moves. The staged move below rotates the stage where it
+        # stands, which is the correct order leaving the beams and the wrong one
+        # coming back from the FM -- see FIB-841.
+        self._refuse_rotation_at_the_fluorescence_microscope(stage_position)
+
         # safe movements are not required on the compustage, because it doesn't rotate
         if not self.stage_is_compustage:
             # tilt flat for large rotations to prevent collisions
