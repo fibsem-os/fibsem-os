@@ -480,10 +480,41 @@ def test_reprojection_round_trip_scan_rotation_180(beam_type):
 # ---------------------------------------------------------------------------
 
 
-def test_tescan_has_move_coincident_from_sem():
-    """The movement widget's SEM-vertical gate and the alignment STAGE_VERTICAL
-    path both dispatch on hasattr; adding the method is what lights them up."""
-    assert hasattr(TescanMicroscope, "move_coincident_from_sem")
+def test_tescan_declares_the_sem_view_as_supported():
+    """The movement widget's vertical gate and the alignment STAGE_VERTICAL path both
+    ask supports_vertical_move; declaring the view is what lights them up (FIB-785)."""
+    m = make_microscope()
+
+    assert m.supports_vertical_move(BeamType.ELECTRON)
+    assert m.supports_vertical_move(BeamType.ION)
+
+
+def test_the_deprecated_name_is_the_electron_branch():
+    """``move_coincident_from_sem`` is kept for one release for custom scripts. It must
+    stay exactly the ELECTRON branch, not a second implementation of it."""
+    dx, dy = 1e-6, 10e-6
+
+    m_new = make_microscope(stage_position=stage_at(-15.0))
+    m_new.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
+
+    m_old = make_microscope(stage_position=stage_at(-15.0))
+    m_old.move_coincident_from_sem(dx=dx, dy=dy)
+
+    assert len(m_new._recorded_moves) == 1
+    assert m_new._recorded_moves[0].is_close2(m_old._recorded_moves[0], tol=1e-12)
+
+
+def test_the_fib_view_is_the_default():
+    """Every existing caller passes no beam_type and must keep the FIB geometry."""
+    dy = 10e-6
+
+    m_default = make_microscope(stage_position=stage_at(-15.0))
+    m_default.vertical_move(dy=dy)
+
+    m_ion = make_microscope(stage_position=stage_at(-15.0))
+    m_ion.vertical_move(dy=dy, beam_type=BeamType.ION)
+
+    assert m_default._recorded_moves[0].is_close2(m_ion._recorded_moves[0], tol=1e-12)
 
 
 def test_coincident_from_sem_explicit_values_flat():

@@ -355,10 +355,11 @@ def _apply_shift(
             beam_type=beam_type,
         )
     elif subsystem is AlignmentSubsystem.STAGE_VERTICAL:
-        if beam_type is BeamType.ELECTRON and hasattr(microscope, "move_coincident_from_sem"):
-            microscope.move_coincident_from_sem(dx=dx, dy=-dy)  # type: ignore
-            return
-        microscope.vertical_move(dy=-dy, dx=dx)
+        # the shift was measured in beam_type's view, so the correction is too.
+        # A backend that cannot correct from that view raises rather than falling
+        # back to the other view's geometry, which used to apply the FIB's
+        # 1/sin(column_tilt) to an SEM-measured shift.
+        microscope.vertical_move(dy=-dy, dx=dx, beam_type=beam_type)
 
 
 def align_with_reference_image(

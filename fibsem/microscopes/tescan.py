@@ -293,6 +293,8 @@ class TescanMicroscope(FibsemMicroscope):
     to the TESCAN FIB-SEM microscope.
     """
 
+    vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
+
     def __init__(self, system_settings: SystemSettings):
         if not TESCAN_API_AVAILABLE:
             raise ImportError(
@@ -814,7 +816,26 @@ class TescanMicroscope(FibsemMicroscope):
         self,
         dy: float,
         dx: float = 0.0,
-    ) -> None:
+        beam_type: BeamType = BeamType.ION,
+    ) -> FibsemStagePosition:
+        """Restore the coincidence point from an offset measured in one beam view.
+
+        Args:
+            dy (float): distance in y-axis (image coordinates)
+            dx (float, optional): distance in x-axis (image coordinates)
+            beam_type (BeamType, optional): the view the offset was measured in.
+                Defaults to ION.
+        """
+        self._check_vertical_move_supported(beam_type)
+        if beam_type is BeamType.ELECTRON:
+            return self._vertical_move_from_sem(dx=dx, dy=dy)
+        return self._vertical_move_from_fib(dx=dx, dy=dy)
+
+    def _vertical_move_from_fib(
+        self,
+        dy: float,
+        dx: float = 0.0,
+    ) -> FibsemStagePosition:
         """
         Move the stage vertically to correct coincidence point
 
@@ -846,10 +867,20 @@ class TescanMicroscope(FibsemMicroscope):
         logging.info(f"vertical movement: {z_move}")
         self.move_stage_relative(z_move)
 
+        return self.get_stage_position()
+
     def move_coincident_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
         """Correct the coincidence point from the SEM view.
 
-        The SEM-view mirror of vertical_move: the stage slides along the FIB
+        Deprecated: call ``vertical_move(dy, dx, beam_type=BeamType.ELECTRON)``.
+        Kept for one release because custom scripts may call it.
+        """
+        return self.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
+
+    def _vertical_move_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
+        """Correct the coincidence point from the SEM view.
+
+        The mirror of the FIB branch above: the stage slides along the FIB
         line of sight, which is invisible in the FIB image, until the clicked
         feature is centred in the SEM. A feature already positioned in the FIB
         view (e.g. just milled, or just corrected with vertical_move) therefore

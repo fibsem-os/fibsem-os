@@ -367,6 +367,8 @@ class SimulatedFluorescenceMicroscope(FluorescenceMicroscope):
 class DemoMicroscope(FibsemMicroscope):
     """Simulator microscope client based on TFS microscopes"""
 
+    vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
+
     def __init__(self, system_settings: SystemSettings):
 
         # initialise system
@@ -1026,9 +1028,19 @@ class DemoMicroscope(FibsemMicroscope):
     ) -> FibsemStagePosition:
         return ThermoMicroscope.stable_move(self, dx, dy, beam_type, static_wd)
 
-    def vertical_move(self, dy: float, dx: float = 0.0) -> FibsemStagePosition:
-        """Move the stage vertically by the specified amount."""
-        return ThermoMicroscope.vertical_move(self, dy, dx)
+    def vertical_move(
+        self, dy: float, dx: float = 0.0, beam_type: BeamType = BeamType.ION
+    ) -> FibsemStagePosition:
+        """Restore the coincidence point from an offset measured in one beam view."""
+        return ThermoMicroscope.vertical_move(self, dy, dx, beam_type)
+
+    def _vertical_move_from_fib(
+        self, dy: float, dx: float = 0.0
+    ) -> FibsemStagePosition:
+        return ThermoMicroscope._vertical_move_from_fib(self, dy=dy, dx=dx)
+
+    def _vertical_move_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
+        return ThermoMicroscope._vertical_move_from_sem(self, dx=dx, dy=dy)
 
     def _y_corrected_stage_movement(
         self, expected_y: float, beam_type: BeamType
