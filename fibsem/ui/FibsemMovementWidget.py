@@ -2,7 +2,6 @@ import logging
 from functools import partial
 from typing import Optional
 
-import numpy as np
 from PyQt5 import QtWidgets
 from superqt import ensure_main_thread
 
@@ -23,7 +22,8 @@ from fibsem.ui.stylesheets import (
     SECONDARY_BUTTON_STYLESHEET,
 )
 from fibsem.ui.utils import install_wheel_blocker
-from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
+from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.ui.widgets.stage_position_widget import StagePositionWidget
 
 INSTRUCTIONS_TEXT = (
     """Instructions: Double Click to Move. Alt + Double Click to Move Vertically"""
@@ -43,6 +43,10 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         parent: QtWidgets.QWidget,
     ):
         super().__init__(parent=parent)
+        # Set before _setup_ui: the position form takes its axis ranges from the stage
+        # while it is being built, so it needs the microscope one step earlier than the
+        # rest of this widget did.
+        self.microscope = microscope
         self._setup_ui()
         self.parent = parent
 
@@ -53,7 +57,6 @@ class FibsemMovementWidget(QtWidgets.QWidget):
                 "Parent must have an 'image_widget' attribute of type FibsemImageSettingsWidget"
             )
 
-        self.microscope = microscope
         self.image_widget: FibsemImageSettingsWidget = parent.image_widget
         self.setup_connections()
 
@@ -86,54 +89,14 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.gridLayout_3 = QtWidgets.QGridLayout(stage_content)
         self.gridLayout_3.setContentsMargins(0, 0, 0, 0)
 
-        self.label_movement_stage_x = QtWidgets.QLabel("X Coordinate")
-        self.doubleSpinBox_movement_stage_x = QtWidgets.QDoubleSpinBox()
-        self.doubleSpinBox_movement_stage_x.setDecimals(5)
-        self.doubleSpinBox_movement_stage_x.setMinimum(-1e10)
-        self.doubleSpinBox_movement_stage_x.setMaximum(1e17)
-        self.doubleSpinBox_movement_stage_x.setSingleStep(0.001)
-        self.doubleSpinBox_movement_stage_x.setSuffix(" mm")
-        self.gridLayout_3.addWidget(self.label_movement_stage_x, 0, 0)
-        self.gridLayout_3.addWidget(self.doubleSpinBox_movement_stage_x, 0, 1)
-
-        self.label_movement_stage_y = QtWidgets.QLabel("Y Coordinate")
-        self.doubleSpinBox_movement_stage_y = QtWidgets.QDoubleSpinBox()
-        self.doubleSpinBox_movement_stage_y.setDecimals(5)
-        self.doubleSpinBox_movement_stage_y.setMinimum(-1e20)
-        self.doubleSpinBox_movement_stage_y.setMaximum(1e25)
-        self.doubleSpinBox_movement_stage_y.setSingleStep(0.001)
-        self.doubleSpinBox_movement_stage_y.setSuffix(" mm")
-        self.gridLayout_3.addWidget(self.label_movement_stage_y, 1, 0)
-        self.gridLayout_3.addWidget(self.doubleSpinBox_movement_stage_y, 1, 1)
-
-        self.label_movement_stage_z = QtWidgets.QLabel("Z Coordinate")
-        self.doubleSpinBox_movement_stage_z = QtWidgets.QDoubleSpinBox()
-        self.doubleSpinBox_movement_stage_z.setDecimals(5)
-        self.doubleSpinBox_movement_stage_z.setMinimum(-1e17)
-        self.doubleSpinBox_movement_stage_z.setMaximum(1e23)
-        self.doubleSpinBox_movement_stage_z.setSingleStep(0.001)
-        self.doubleSpinBox_movement_stage_z.setSuffix(" mm")
-        self.gridLayout_3.addWidget(self.label_movement_stage_z, 2, 0)
-        self.gridLayout_3.addWidget(self.doubleSpinBox_movement_stage_z, 2, 1)
-
-        self.label_movement_stage_rotation = QtWidgets.QLabel("Rotation")
-        self.doubleSpinBox_movement_stage_rotation = QtWidgets.QDoubleSpinBox()
-        self.doubleSpinBox_movement_stage_rotation.setMinimum(-360.0)
-        self.doubleSpinBox_movement_stage_rotation.setMaximum(360.0)
-        self.doubleSpinBox_movement_stage_rotation.setSuffix(
-            f" {constants.DEGREE_SYMBOL}"
-        )
-        self.gridLayout_3.addWidget(self.label_movement_stage_rotation, 3, 0)
-        self.gridLayout_3.addWidget(self.doubleSpinBox_movement_stage_rotation, 3, 1)
-
-        self.label_movement_stage_tilt = QtWidgets.QLabel("Tilt")
-        self.doubleSpinBox_movement_stage_tilt = QtWidgets.QDoubleSpinBox()
-        self.doubleSpinBox_movement_stage_tilt.setSuffix(f" {constants.DEGREE_SYMBOL}")
-        self.gridLayout_3.addWidget(self.label_movement_stage_tilt, 4, 0)
-        self.gridLayout_3.addWidget(self.doubleSpinBox_movement_stage_tilt, 4, 1)
+        # The readout and entry form: rows 0-4 of this grid used to be five spin boxes
+        # built here. It owns the units, the ranges and the compustage adjustments, and
+        # moves nothing (FIB-783).
+        self.position_widget = StagePositionWidget(microscope=self.microscope)
+        self.gridLayout_3.addWidget(self.position_widget, 0, 0, 1, 2)
 
         self.pushButton_move = QtWidgets.QPushButton("Move to Position")
-        self.gridLayout_3.addWidget(self.pushButton_move, 5, 0, 1, 2)
+        self.gridLayout_3.addWidget(self.pushButton_move, 1, 0, 1, 2)
 
         self.pushButton_move_to_sem_orientation = QtWidgets.QPushButton(
             "Move Flat to ELECTRON Beam"
@@ -141,28 +104,45 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.pushButton_move_to_fib_orientation = QtWidgets.QPushButton(
             "Move Flat to ION Beam"
         )
-        self.gridLayout_3.addWidget(self.pushButton_move_to_sem_orientation, 6, 0)
-        self.gridLayout_3.addWidget(self.pushButton_move_to_fib_orientation, 6, 1)
+        self.gridLayout_3.addWidget(self.pushButton_move_to_sem_orientation, 2, 0)
+        self.gridLayout_3.addWidget(self.pushButton_move_to_fib_orientation, 2, 1)
 
         self.doubleSpinBox_milling_angle = QtWidgets.QDoubleSpinBox()
         self.pushButton_move_to_milling_angle = QtWidgets.QPushButton(
             "Move to Milling Angle"
         )
-        self.gridLayout_3.addWidget(self.doubleSpinBox_milling_angle, 7, 0)
-        self.gridLayout_3.addWidget(self.pushButton_move_to_milling_angle, 7, 1)
+        self.gridLayout_3.addWidget(self.doubleSpinBox_milling_angle, 3, 0)
+        self.gridLayout_3.addWidget(self.pushButton_move_to_milling_angle, 3, 1)
 
         self.label_movement_instructions = QtWidgets.QLabel()
         self.label_movement_instructions.setWordWrap(True)
-        self.gridLayout_3.addWidget(self.label_movement_instructions, 8, 0, 1, 2)
+        self.gridLayout_3.addWidget(self.label_movement_instructions, 4, 0, 1, 2)
 
-        self.btn_refresh_stage = IconToolButton(
-            icon="mdi:refresh", tooltip="Refresh stage position"
-        )
+        # The form's button, in this panel's header rather than in the form's own grid
+        # -- the panel chrome is the host's.
         self.stage_panel = TitledPanel(
             "Stage Movement", content=stage_content, collapsible=False
         )
-        self.stage_panel.add_header_widget(self.btn_refresh_stage)
+        self.stage_panel.add_header_widget(self.position_widget.btn_refresh)
         self.gridLayout_2.addWidget(self.stage_panel, 0, 0)
+
+        # The names the form's controls had while they were built here. Same objects,
+        # so hosts and tests that reach for them still resolve and the extraction is
+        # invisible from outside. A follow-up moves those callers onto
+        # `position_widget` and drops these.
+        self.doubleSpinBox_movement_stage_x = self.position_widget.spinbox_x
+        self.doubleSpinBox_movement_stage_y = self.position_widget.spinbox_y
+        self.doubleSpinBox_movement_stage_z = self.position_widget.spinbox_z
+        self.doubleSpinBox_movement_stage_rotation = (
+            self.position_widget.spinbox_rotation
+        )
+        self.doubleSpinBox_movement_stage_tilt = self.position_widget.spinbox_tilt
+        self.label_movement_stage_x = self.position_widget.label_x
+        self.label_movement_stage_y = self.position_widget.label_y
+        self.label_movement_stage_z = self.position_widget.label_z
+        self.label_movement_stage_rotation = self.position_widget.label_rotation
+        self.label_movement_stage_tilt = self.position_widget.label_tilt
+        self.btn_refresh_stage = self.position_widget.btn_refresh
 
         # Options panel removed — movement acquisition prefs are now in Edit > Preferences
 
@@ -201,7 +181,8 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.pushButton_move_to_sem_orientation.clicked.connect(
             lambda: self.move_to_orientation("SEM")
         )
-        self.btn_refresh_stage.clicked.connect(lambda: self.update_ui(None))
+        # The form asks; this widget is the one allowed to read the device.
+        self.position_widget.refresh_requested.connect(lambda: self.update_ui(None))
 
         # register mouse callbacks — one canvas per beam. The canvases are app-lifetime
         # (owned by the controller), so store each (canvas, slot) pair and disconnect it in
@@ -235,50 +216,8 @@ class FibsemMovementWidget(QtWidgets.QWidget):
             self.handle_acquisition_update
         )
 
-        stage_limits = self.microscope._stage.limits
-        xlimits = stage_limits["x"]
-        ylimits = stage_limits["y"]
-        zlimits = stage_limits["z"]
-        tlimits = stage_limits["t"]
-
-        self.doubleSpinBox_movement_stage_tilt.setMinimum(tlimits.min)
-        self.doubleSpinBox_movement_stage_tilt.setMaximum(tlimits.max)
-        self.doubleSpinBox_movement_stage_x.setMinimum(
-            xlimits.min * constants.SI_TO_MILLI
-        )
-        self.doubleSpinBox_movement_stage_x.setMaximum(
-            xlimits.max * constants.SI_TO_MILLI
-        )
-        self.doubleSpinBox_movement_stage_y.setMinimum(
-            ylimits.min * constants.SI_TO_MILLI
-        )
-        self.doubleSpinBox_movement_stage_y.setMaximum(
-            ylimits.max * constants.SI_TO_MILLI
-        )
-        self.doubleSpinBox_movement_stage_z.setMinimum(
-            zlimits.min * constants.SI_TO_MILLI
-        )
-        self.doubleSpinBox_movement_stage_z.setMaximum(
-            zlimits.max * constants.SI_TO_MILLI
-        )
-
-        # set custom tilt limits for the compustage
-        if self.microscope.stage_is_compustage:
-            # NOTE: these values are expressed in mm in the UI, hence the conversion
-            # set x, y, z step sizes to be 1 um
-            self.doubleSpinBox_movement_stage_x.setSingleStep(
-                1e-6 * constants.SI_TO_MILLI
-            )
-            self.doubleSpinBox_movement_stage_y.setSingleStep(
-                1e-6 * constants.SI_TO_MILLI
-            )
-            self.doubleSpinBox_movement_stage_z.setSingleStep(
-                1e-6 * constants.SI_TO_MILLI
-            )
-
-            # hide rotation control for compustage
-            self.label_movement_stage_rotation.setVisible(False)
-            self.doubleSpinBox_movement_stage_rotation.setVisible(False)
+        # The axis ranges and the compustage adjustments were applied here. They belong
+        # to the form and are applied by it, at construction, from the same stage.
 
         # stylesheets
         self.pushButton_move.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
@@ -319,16 +258,8 @@ class FibsemMovementWidget(QtWidgets.QWidget):
             lambda: self.move_to_orientation("MILLING")
         )
 
-        # set degree symbols for rotation and tilt
-        self.doubleSpinBox_movement_stage_rotation.setSuffix(constants.DEGREE_SYMBOL)
-        self.doubleSpinBox_movement_stage_tilt.setSuffix(constants.DEGREE_SYMBOL)
-
-        # Install wheel blocker on all double spin boxes
-        install_wheel_blocker(self.doubleSpinBox_movement_stage_x)
-        install_wheel_blocker(self.doubleSpinBox_movement_stage_y)
-        install_wheel_blocker(self.doubleSpinBox_movement_stage_z)
-        install_wheel_blocker(self.doubleSpinBox_movement_stage_rotation)
-        install_wheel_blocker(self.doubleSpinBox_movement_stage_tilt)
+        # The form's degree suffixes and wheel guards moved with it. This one is the
+        # milling angle, which stays on this half.
         install_wheel_blocker(self.doubleSpinBox_milling_angle)
 
         if cfg.FEATURE_SAMPLE_HOLDER_WIDGET_ENABLED:
@@ -426,19 +357,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         if stage_position is None:
             stage_position = self.microscope.get_stage_position()
 
-        self.doubleSpinBox_movement_stage_x.setValue(
-            stage_position.x * constants.SI_TO_MILLI
-        )
-        self.doubleSpinBox_movement_stage_y.setValue(
-            stage_position.y * constants.SI_TO_MILLI
-        )
-        self.doubleSpinBox_movement_stage_z.setValue(
-            stage_position.z * constants.SI_TO_MILLI
-        )
-        self.doubleSpinBox_movement_stage_rotation.setValue(
-            np.degrees(stage_position.r)
-        )
-        self.doubleSpinBox_movement_stage_tilt.setValue(np.degrees(stage_position.t))
+        self.position_widget.set_position(stage_position)
 
         # update the current position label
         self._update_position_readout(stage_position=stage_position)
@@ -540,16 +459,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
     def get_position_from_ui(self):
         """Get the stage position from the UI"""
 
-        stage_position = FibsemStagePosition(
-            x=self.doubleSpinBox_movement_stage_x.value() * constants.MILLI_TO_SI,
-            y=self.doubleSpinBox_movement_stage_y.value() * constants.MILLI_TO_SI,
-            z=self.doubleSpinBox_movement_stage_z.value() * constants.MILLI_TO_SI,
-            r=np.radians(self.doubleSpinBox_movement_stage_rotation.value()),
-            t=np.radians(self.doubleSpinBox_movement_stage_tilt.value()),
-            coordinate_system="RAW",
-        )
-
-        return stage_position
+        return self.position_widget.get_position()
 
     def _click_to_move_available(self) -> bool:
         """Whether a click may start a stage move right now.
