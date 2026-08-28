@@ -81,6 +81,10 @@ correctness work landed in correlation and in what the experiment record remembe
 - Tiles the stage cannot reach are flagged while the grid is dragged, and an unreachable
   grid is refused in the pre-flight dialog.
 - A marked position is boxed with the field of view it stands for.
+- **Grid boundaries and holder slot markers are no longer drawn by default.** Both
+  describe a cryo sample holder, so on a system without one they drew a holder that was
+  not there. Turn them back on under the overlays button on the canvas. Stage travel
+  limits are unchanged and still shown — those are a property of the stage itself.
 - Cancelled overviews no longer report "Done"; one overview can no longer drive the
   stage while the other acquires; stitching and saving now say so.
 - A tab-page key no longer shadows the imaging modality carried on the progress payload,
