@@ -126,24 +126,6 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.stage_panel.add_header_widget(self.position_widget.btn_refresh)
         self.gridLayout_2.addWidget(self.stage_panel, 0, 0)
 
-        # The names the form's controls had while they were built here. Same objects,
-        # so hosts and tests that reach for them still resolve and the extraction is
-        # invisible from outside. A follow-up moves those callers onto
-        # `position_widget` and drops these.
-        self.doubleSpinBox_movement_stage_x = self.position_widget.spinbox_x
-        self.doubleSpinBox_movement_stage_y = self.position_widget.spinbox_y
-        self.doubleSpinBox_movement_stage_z = self.position_widget.spinbox_z
-        self.doubleSpinBox_movement_stage_rotation = (
-            self.position_widget.spinbox_rotation
-        )
-        self.doubleSpinBox_movement_stage_tilt = self.position_widget.spinbox_tilt
-        self.label_movement_stage_x = self.position_widget.label_x
-        self.label_movement_stage_y = self.position_widget.label_y
-        self.label_movement_stage_z = self.position_widget.label_z
-        self.label_movement_stage_rotation = self.position_widget.label_rotation
-        self.label_movement_stage_tilt = self.position_widget.label_tilt
-        self.btn_refresh_stage = self.position_widget.btn_refresh
-
         # Options panel removed — movement acquisition prefs are now in Edit > Preferences
 
         # --- Panel: Saved Positions ---
@@ -215,9 +197,6 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         self.image_widget.acquisition_progress_signal.connect(
             self.handle_acquisition_update
         )
-
-        # The axis ranges and the compustage adjustments were applied here. They belong
-        # to the form and are applied by it, at construction, from the same stage.
 
         # stylesheets
         self.pushButton_move.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)

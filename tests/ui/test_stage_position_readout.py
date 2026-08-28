@@ -1,16 +1,20 @@
 """What the stage position form on the Movement tab does, before it is extracted.
 
-The form is the five spin boxes in rows 0-4 of ``FibsemMovementWidget``'s stage panel
-plus the refresh button in the panel header. It converts in both directions -- metres to
-millimetres, radians to degrees on the way in, and back again on the way out -- and takes
-its ranges from the stage rather than from the widget. None of that is asserted anywhere
-today: the existing movement tests all drive the half that *moves*.
+The form is the five spin boxes and the refresh button that make up
+``StagePositionWidget``, reached through the Movement tab that hosts it. It converts in
+both directions -- metres to millimetres, radians to degrees on the way in, and back
+again on the way out -- and takes its ranges from the stage rather than from the widget.
 
-These pin the conversions, the ranges and the two compustage adjustments so that
-splitting the form out of the widget is a refactor with a net under it rather than a
-rewrite that happens to still construct. They are deliberately written against the
-public surface a host uses -- ``update_ui`` and ``get_position_from_ui`` -- so they keep
-their meaning when the form moves behind a delegating facade.
+**These are the equivalence tests for the extraction.** They were written against the
+monolithic widget, before the form was a separate class, and they still drive the tab's
+own surface -- ``update_ui`` and ``get_position_from_ui``, which is what a host calls --
+rather than the form directly. That is what makes them evidence that composing the form
+changed nothing, and it is why they stay here rather than being folded into
+``tests/ui/test_stage_position_widget.py``, which tests the form on its own terms.
+
+Where a test needs a control rather than a value it reaches through
+``movement.position_widget``. It used to reach for aliases the tab kept during the swap;
+those are gone.
 
 **The default microscope configuration is user state and is not the same on every
 machine**, and it reaches these tests twice over.
@@ -87,11 +91,11 @@ def movement(qapp):
 
 def _boxes(movement) -> dict:
     return {
-        "x": movement.doubleSpinBox_movement_stage_x,
-        "y": movement.doubleSpinBox_movement_stage_y,
-        "z": movement.doubleSpinBox_movement_stage_z,
-        "r": movement.doubleSpinBox_movement_stage_rotation,
-        "t": movement.doubleSpinBox_movement_stage_tilt,
+        "x": movement.position_widget.spinbox_x,
+        "y": movement.position_widget.spinbox_y,
+        "z": movement.position_widget.spinbox_z,
+        "r": movement.position_widget.spinbox_rotation,
+        "t": movement.position_widget.spinbox_tilt,
     }
 
 
@@ -237,8 +241,9 @@ def test_rotation_is_offered_only_where_it_exists(movement):
     box, which would leave a stranded caption."""
     shown = not movement.microscope.stage_is_compustage
 
-    assert movement.doubleSpinBox_movement_stage_rotation.isVisibleTo(movement) is shown
-    assert movement.label_movement_stage_rotation.isVisibleTo(movement) is shown
+    form = movement.position_widget
+    assert form.spinbox_rotation.isVisibleTo(form) is shown
+    assert form.label_rotation.isVisibleTo(form) is shown
 
 
 # --- the guards --------------------------------------------------------------
@@ -270,7 +275,7 @@ def test_the_refresh_button_asks_the_stage_where_it_is(movement, monkeypatch):
     monkeypatch.setattr(
         movement.microscope, "get_stage_position", _get_stage_position, raising=False
     )
-    movement.btn_refresh_stage.click()
+    movement.position_widget.btn_refresh.click()
 
     assert asked, "refresh did not read the stage"
     assert _boxes(movement)["x"].value() == pytest.approx(0.12, abs=1e-9)
