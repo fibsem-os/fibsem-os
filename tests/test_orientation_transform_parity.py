@@ -299,3 +299,67 @@ def test_converting_to_the_orientation_it_is_already_at_returns_the_same_object(
     result = microscope.get_target_position(position, target_orientation="SEM")
 
     assert result is position
+
+
+# ── how much rotation, not whether any ───────────────────────────────
+
+# (source rotation, target rotation, does the compucentric correction apply)
+#
+# The correction is `p -> -p - 2 * offset` -- a half turn or nothing -- so it applies
+# when the rotation *is* a half turn, however that half turn happens to be written.
+ROTATION_CASES = [
+    (0, 180, True, "half_turn"),
+    (0, -180, True, "half_turn_written_negative"),
+    (-90, 90, True, "half_turn_across_zero"),
+    (270, 90, True, "half_turn_from_a_wound_on_rotation"),
+    (-90, 270, False, "same_rotation_written_two_ways"),
+    (0, 360, False, "same_rotation_a_full_turn_apart"),
+    (0, 0, False, "no_rotation"),
+    (0, -0.0001, False, "a_hair_either_side_of_zero"),
+    (359.9999, 0, False, "a_hair_either_side_of_zero_the_other_way"),
+    (0, 90, False, "a_quarter_turn_is_not_a_half_turn"),
+]
+
+
+@pytest.mark.parametrize(
+    ("reference_deg", "fib_deg", "expect_compucentric", "label"),
+    ROTATION_CASES,
+    ids=[case[3] for case in ROTATION_CASES],
+)
+def test_the_correction_applies_to_half_turns_however_they_are_written(
+    reference_deg: float, fib_deg: float, expect_compucentric: bool, label: str
+):
+    """A stage rotates continuously, so one rotation has many spellings.
+
+    Three groups here, and the middle and last are the ones worth having.
+
+    **Equivalent rotations** -- 270 and -90, 0 and 360 -- are one rotation and must not
+    be read as two. Plain modulo gets those right but breaks either side of zero:
+    -0.0001 degrees becomes 359.9999, which compares nowhere near 0.
+
+    **A quarter turn gets nothing.** The correction cannot represent it, so applying it
+    would be wrong by the whole grid rather than by the offset. No shipped configuration
+    has an orientation at 90 degrees; this pins what happens if one is ever added.
+
+    None of these are reachable from a shipped configuration, where every value is a
+    whole number of degrees and every pair is 0 or 180 apart. Pinned because
+    "unreachable given the data we happen to ship" is not the same as correct, and this
+    is a stage-motion path.
+    """
+    microscope = _microscope(compustage=False)
+    stage = microscope.system.stage
+    stage.rotation_reference = reference_deg
+    stage.rotation_180 = fib_deg
+    microscope._update_orientations()
+
+    position = _position_at(microscope, "SEM")
+    result = microscope.get_target_position(
+        deepcopy(position), target_orientation="FIB"
+    )
+
+    if expect_compucentric:
+        assert np.isclose(result.x, -SOURCE_X, atol=1e-12)
+        assert np.isclose(result.y, -SOURCE_Y, atol=1e-12)
+    else:
+        assert np.isclose(result.x, SOURCE_X, atol=1e-12)
+        assert np.isclose(result.y, SOURCE_Y, atol=1e-12)

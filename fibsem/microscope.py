@@ -1504,16 +1504,30 @@ class FibsemMicroscope(ABC):
         # 180deg rotation"). It is a half turn or nothing. Firing it for a few degrees
         # of slop would throw the sample to the far side of the grid.
         #
-        # So the assumption this rests on, stated so it is noticed if it ever stops
-        # holding: **every rotation between named orientations is a half turn.** True of
-        # every system today -- SEM and MILLING share `rotation_reference`, FIB sits at
-        # `rotation_180` -- and nothing here would detect an orientation added at, say,
-        # 90 degrees. It would quietly get the 180 degree correction.
-        rotation_changes = not np.isclose(
-            self.get_orientation(currrent_orientation).r % (2 * np.pi),
-            orientation.r % (2 * np.pi),
+        # So the test below asks whether the rotation **is a half turn**, not whether it
+        # changed at all. That is what the correction can express, and it makes the
+        # assumption safe rather than merely documented: every rotation between named
+        # orientations is a half turn today -- SEM and MILLING share
+        # `rotation_reference`, FIB sits at `rotation_180` -- and an orientation ever
+        # added at, say, 90 degrees gets **no** correction instead of the wrong one.
+        # Wrong by the offset beats wrong by the whole grid.
+        #
+        # Measured with `angle_difference`, which is wrap-aware -- a stage rotates
+        # continuously, so the same rotation is written many ways (270 and -90, 180 and
+        # -180, 360 and 0), and plain modulo breaks either side of zero. It is also what
+        # `get_stage_orientation` uses to decide which orientation a position is *at*,
+        # and this rule is keyed on that classifier's answer, so the two share one
+        # definition rather than agreeing by coincidence. Same 5 degree tolerance, for
+        # the same reason.
+        from fibsem import movement
+
+        rotation = movement.angle_difference(
+            self.get_orientation(currrent_orientation).r, orientation.r
         )
-        if rotation_changes:
+        rotation_is_half_turn = movement.rotation_angle_is_smaller(
+            rotation, np.pi, atol=5
+        )
+        if rotation_is_half_turn:
             stage_position = self._get_compucentric_rotation_position(stage_position)
 
         stage_position.r = orientation.r
