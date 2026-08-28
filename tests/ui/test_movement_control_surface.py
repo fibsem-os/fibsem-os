@@ -76,7 +76,7 @@ def movement(qapp):
     host = _CanvasHost()
     _image_widget(host)
     widget = _movement_widget(host)
-    yield widget
+    yield widget.control_widget
     widget._teardown_connections()
     host.deleteLater()
 

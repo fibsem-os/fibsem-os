@@ -31,6 +31,7 @@ from PyQt5.QtCore import QEventLoop, QTimer
 sys.path.insert(0, os.path.dirname(__file__))  # not str.rsplit: Windows paths
 from test_viewer_less_widgets import (  # noqa: E402
     _CanvasHost,
+    _control_widget,
     _image,
     _image_widget,
     _movement_widget,
@@ -39,9 +40,9 @@ from test_viewer_less_widgets import (  # noqa: E402
 
 from fibsem.structures import BeamType, Point  # noqa: E402
 from fibsem.ui import notification_service  # noqa: E402
-from fibsem.ui.FibsemMovementWidget import (  # noqa: E402
-    ACQUIRING_IMAGES,
-    FibsemMovementWidget,
+from fibsem.ui.FibsemMovementWidget import ACQUIRING_IMAGES  # noqa: E402
+from fibsem.ui.widgets.stage_control_widget import (  # noqa: E402
+    StageControlWidget,
 )
 
 
@@ -66,7 +67,7 @@ def movement(qapp):
     image_widget._on_acquire(_image(BeamType.ELECTRON))
     image_widget._on_acquire(_image(BeamType.ION))
     widget = _movement_widget(host)
-    yield widget
+    yield widget.control_widget
     host.deleteLater()
 
 
@@ -196,7 +197,7 @@ def test_a_click_during_milling_is_refused_out_loud(movement, dispatched, toasts
     from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 
     viewer = MillingTaskViewerWidget(microscope=_session()[0])
-    movement.parent.milling_widget = viewer
+    movement.host.milling_widget = viewer
 
     release = threading.Event()
     thread = threading.Thread(target=release.wait, daemon=True)
@@ -232,7 +233,7 @@ def test_the_no_image_guard_never_fires(qapp, toasts):
     """
     host = _CanvasHost()
     image_widget = _image_widget(host)  # deliberately not acquired into
-    movement = _movement_widget(host)
+    movement = _control_widget(host)
     calls = []
     movement._execute_stage_move = lambda *a, **k: calls.append(a)
 
@@ -346,7 +347,7 @@ def test_the_worker_body_only_moves(movement, monkeypatch):
     a widget touched from a worker thread.
     """
     seen = _move_trace(movement, monkeypatch)
-    FibsemMovementWidget._stage_move_worker.__wrapped__(
+    StageControlWidget._stage_move_worker.__wrapped__(
         movement, BeamType.ELECTRON, Point(x=1e-6, y=1e-6), False
     )
     assert [kind for kind, _ in seen] == ["move"], seen
