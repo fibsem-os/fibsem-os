@@ -11,6 +11,7 @@ Usage:
 """
 
 import io
+import math
 from typing import List, Optional, Tuple
 
 import requests
@@ -39,9 +40,13 @@ class FibsemClient:
     so they are available as direct attributes, matching the FibsemMicroscope interface.
     """
 
-    def __init__(self, host: str = "localhost", port: int = 8001):
+    def __init__(
+        self, host: str = "localhost", port: int = 8001, token: Optional[str] = None
+    ):
         self.base_url = f"http://{host}:{port}"
         self._session = requests.Session()
+        if token is not None:
+            self._session.headers["Authorization"] = f"Bearer {token}"
         self._fetch_system()
 
     def _fetch_system(self) -> None:
@@ -56,12 +61,18 @@ class FibsemClient:
         return resp.json()
 
     def _post(self, endpoint: str, body: dict = None, timeout: int = 30) -> dict:
-        resp = self._session.post(f"{self.base_url}/{endpoint}", json=body or {}, timeout=timeout)
+        resp = self._session.post(
+            f"{self.base_url}/{endpoint}", json=body or {}, timeout=timeout
+        )
         resp.raise_for_status()
         return resp.json()
 
-    def _post_image(self, endpoint: str, body: dict = None, timeout: int = 60) -> FibsemImage:
-        resp = self._session.post(f"{self.base_url}/{endpoint}", json=body or {}, timeout=timeout)
+    def _post_image(
+        self, endpoint: str, body: dict = None, timeout: int = 60
+    ) -> FibsemImage:
+        resp = self._session.post(
+            f"{self.base_url}/{endpoint}", json=body or {}, timeout=timeout
+        )
         resp.raise_for_status()
         return FibsemImage.load(io.BytesIO(resp.content))
 
@@ -72,7 +83,11 @@ class FibsemClient:
 
     # --- Image acquisition ---
 
-    def acquire_image(self, beam_type: BeamType = BeamType.ELECTRON, image_settings: Optional[ImageSettings] = None) -> FibsemImage:
+    def acquire_image(
+        self,
+        beam_type: BeamType = BeamType.ELECTRON,
+        image_settings: Optional[ImageSettings] = None,
+    ) -> FibsemImage:
         """Acquire a fresh image. Pass image_settings to override current microscope settings."""
         body = {"beam_type": beam_type.name}
         if image_settings is not None:
@@ -107,16 +122,30 @@ class FibsemClient:
         result = self._post("move_stage_relative", {"position": position.to_dict()})
         return FibsemStagePosition.from_dict(result["position"])
 
-    def stable_move(self, dx: float, dy: float, beam_type: BeamType) -> FibsemStagePosition:
-        result = self._post("stable_move", {"dx": dx, "dy": dy, "beam_type": beam_type.name})
+    def stable_move(
+        self, dx: float, dy: float, beam_type: BeamType
+    ) -> FibsemStagePosition:
+        result = self._post(
+            "stable_move", {"dx": dx, "dy": dy, "beam_type": beam_type.name}
+        )
         return FibsemStagePosition.from_dict(result["position"])
 
-    def project_stable_move(self, dx: float, dy: float, beam_type: BeamType, base_position: FibsemStagePosition) -> FibsemStagePosition:
-        result = self._post("project_stable_move", {
-            "dx": dx, "dy": dy,
-            "beam_type": beam_type.name,
-            "base_position": base_position.to_dict(),
-        })
+    def project_stable_move(
+        self,
+        dx: float,
+        dy: float,
+        beam_type: BeamType,
+        base_position: FibsemStagePosition,
+    ) -> FibsemStagePosition:
+        result = self._post(
+            "project_stable_move",
+            {
+                "dx": dx,
+                "dy": dy,
+                "beam_type": beam_type.name,
+                "base_position": base_position.to_dict(),
+            },
+        )
         return FibsemStagePosition.from_dict(result["position"])
 
     def vertical_move(self, dy: float, dx: float = 0.0) -> FibsemStagePosition:
@@ -132,7 +161,9 @@ class FibsemClient:
     # --- Microscope state ---
 
     def get_microscope_state(self) -> MicroscopeState:
-        return MicroscopeState.from_dict(self._get("microscope_state")["microscope_state"])
+        return MicroscopeState.from_dict(
+            self._get("microscope_state")["microscope_state"]
+        )
 
     def set_microscope_state(self, microscope_state: MicroscopeState) -> None:
         self._post("microscope_state", {"microscope_state": microscope_state.to_dict()})
@@ -160,7 +191,9 @@ class FibsemClient:
         return BeamSystemSettings.from_dict(result["beam_system_settings"])
 
     def set_beam_system_settings(self, settings: BeamSystemSettings) -> None:
-        self._post("beam_system_settings/set", {"beam_system_settings": settings.to_dict()})
+        self._post(
+            "beam_system_settings/set", {"beam_system_settings": settings.to_dict()}
+        )
 
     # --- Detector settings ---
 
@@ -168,11 +201,16 @@ class FibsemClient:
         result = self._post("detector_settings/get", {"beam_type": beam_type.name})
         return FibsemDetectorSettings.from_dict(result["detector_settings"])
 
-    def set_detector_settings(self, detector_settings: FibsemDetectorSettings, beam_type: BeamType) -> None:
-        self._post("detector_settings/set", {
-            "detector_settings": detector_settings.to_dict(),
-            "beam_type": beam_type.name,
-        })
+    def set_detector_settings(
+        self, detector_settings: FibsemDetectorSettings, beam_type: BeamType
+    ) -> None:
+        self._post(
+            "detector_settings/set",
+            {
+                "detector_settings": detector_settings.to_dict(),
+                "beam_type": beam_type.name,
+            },
+        )
 
     # --- Individual beam getters / setters ---
 
@@ -180,55 +218,92 @@ class FibsemClient:
         return self._post("beam_current/get", {"beam_type": beam_type.name})["value"]
 
     def set_beam_current(self, current: float, beam_type: BeamType) -> float:
-        return self._post("beam_current/set", {"value": current, "beam_type": beam_type.name})["value"]
+        return self._post(
+            "beam_current/set", {"value": current, "beam_type": beam_type.name}
+        )["value"]
 
     def get_beam_voltage(self, beam_type: BeamType) -> float:
         return self._post("beam_voltage/get", {"beam_type": beam_type.name})["value"]
 
     def set_beam_voltage(self, voltage: float, beam_type: BeamType) -> float:
-        return self._post("beam_voltage/set", {"value": voltage, "beam_type": beam_type.name})["value"]
+        return self._post(
+            "beam_voltage/set", {"value": voltage, "beam_type": beam_type.name}
+        )["value"]
 
     def get_field_of_view(self, beam_type: BeamType) -> float:
         return self._post("field_of_view/get", {"beam_type": beam_type.name})["value"]
 
     def set_field_of_view(self, hfw: float, beam_type: BeamType) -> float:
-        return self._post("field_of_view/set", {"value": hfw, "beam_type": beam_type.name})["value"]
+        return self._post(
+            "field_of_view/set", {"value": hfw, "beam_type": beam_type.name}
+        )["value"]
 
     def get_working_distance(self, beam_type: BeamType) -> float:
-        return self._post("working_distance/get", {"beam_type": beam_type.name})["value"]
+        return self._post("working_distance/get", {"beam_type": beam_type.name})[
+            "value"
+        ]
 
     def set_working_distance(self, wd: float, beam_type: BeamType) -> float:
-        return self._post("working_distance/set", {"value": wd, "beam_type": beam_type.name})["value"]
+        return self._post(
+            "working_distance/set", {"value": wd, "beam_type": beam_type.name}
+        )["value"]
 
     def get_dwell_time(self, beam_type: BeamType) -> float:
         return self._post("dwell_time/get", {"beam_type": beam_type.name})["value"]
 
     def set_dwell_time(self, dwell_time: float, beam_type: BeamType) -> float:
-        return self._post("dwell_time/set", {"value": dwell_time, "beam_type": beam_type.name})["value"]
+        return self._post(
+            "dwell_time/set", {"value": dwell_time, "beam_type": beam_type.name}
+        )["value"]
 
     def get_resolution(self, beam_type: BeamType) -> Tuple[int, int]:
-        return tuple(self._post("resolution/get", {"beam_type": beam_type.name})["value"])
+        return tuple(
+            self._post("resolution/get", {"beam_type": beam_type.name})["value"]
+        )
 
-    def set_resolution(self, resolution: Tuple[int, int], beam_type: BeamType) -> Tuple[int, int]:
-        return tuple(self._post("resolution/set", {"value": list(resolution), "beam_type": beam_type.name})["value"])
+    def set_resolution(
+        self, resolution: Tuple[int, int], beam_type: BeamType
+    ) -> Tuple[int, int]:
+        return tuple(
+            self._post(
+                "resolution/set",
+                {"value": list(resolution), "beam_type": beam_type.name},
+            )["value"]
+        )
 
     def get_scan_rotation(self, beam_type: BeamType) -> float:
         return self._post("scan_rotation/get", {"beam_type": beam_type.name})["value"]
 
     def set_scan_rotation(self, rotation: float, beam_type: BeamType) -> float:
-        return self._post("scan_rotation/set", {"value": rotation, "beam_type": beam_type.name})["value"]
+        return self._post(
+            "scan_rotation/set", {"value": rotation, "beam_type": beam_type.name}
+        )["value"]
 
     def get_stigmation(self, beam_type: BeamType) -> Point:
-        return Point.from_dict(self._post("stigmation/get", {"beam_type": beam_type.name})["value"])
+        return Point.from_dict(
+            self._post("stigmation/get", {"beam_type": beam_type.name})["value"]
+        )
 
     def set_stigmation(self, stigmation: Point, beam_type: BeamType) -> Point:
-        return Point.from_dict(self._post("stigmation/set", {"value": stigmation.to_dict(), "beam_type": beam_type.name})["value"])
+        return Point.from_dict(
+            self._post(
+                "stigmation/set",
+                {"value": stigmation.to_dict(), "beam_type": beam_type.name},
+            )["value"]
+        )
 
     def get_beam_shift(self, beam_type: BeamType) -> Point:
-        return Point.from_dict(self._post("beam_shift/get", {"beam_type": beam_type.name})["value"])
+        return Point.from_dict(
+            self._post("beam_shift/get", {"beam_type": beam_type.name})["value"]
+        )
 
     def set_beam_shift(self, shift: Point, beam_type: BeamType) -> Point:
-        return Point.from_dict(self._post("beam_shift/set", {"value": shift.to_dict(), "beam_type": beam_type.name})["value"])
+        return Point.from_dict(
+            self._post(
+                "beam_shift/set",
+                {"value": shift.to_dict(), "beam_type": beam_type.name},
+            )["value"]
+        )
 
     # --- Detector individual getters / setters ---
 
@@ -236,56 +311,81 @@ class FibsemClient:
         return self._post("detector_type/get", {"beam_type": beam_type.name})["value"]
 
     def set_detector_type(self, detector_type: str, beam_type: BeamType) -> str:
-        return self._post("detector_type/set", {"value": detector_type, "beam_type": beam_type.name})["value"]
+        return self._post(
+            "detector_type/set", {"value": detector_type, "beam_type": beam_type.name}
+        )["value"]
 
     def get_detector_mode(self, beam_type: BeamType) -> str:
         return self._post("detector_mode/get", {"beam_type": beam_type.name})["value"]
 
     def set_detector_mode(self, mode: str, beam_type: BeamType) -> str:
-        return self._post("detector_mode/set", {"value": mode, "beam_type": beam_type.name})["value"]
+        return self._post(
+            "detector_mode/set", {"value": mode, "beam_type": beam_type.name}
+        )["value"]
 
     def get_detector_contrast(self, beam_type: BeamType) -> float:
-        return self._post("detector_contrast/get", {"beam_type": beam_type.name})["value"]
+        return self._post("detector_contrast/get", {"beam_type": beam_type.name})[
+            "value"
+        ]
 
     def set_detector_contrast(self, contrast: float, beam_type: BeamType) -> float:
-        return self._post("detector_contrast/set", {"value": contrast, "beam_type": beam_type.name})["value"]
+        return self._post(
+            "detector_contrast/set", {"value": contrast, "beam_type": beam_type.name}
+        )["value"]
 
     def get_detector_brightness(self, beam_type: BeamType) -> float:
-        return self._post("detector_brightness/get", {"beam_type": beam_type.name})["value"]
+        return self._post("detector_brightness/get", {"beam_type": beam_type.name})[
+            "value"
+        ]
 
     def set_detector_brightness(self, brightness: float, beam_type: BeamType) -> float:
-        return self._post("detector_brightness/set", {"value": brightness, "beam_type": beam_type.name})["value"]
+        return self._post(
+            "detector_brightness/set",
+            {"value": brightness, "beam_type": beam_type.name},
+        )["value"]
 
     # --- Available values ---
 
-    def get_available_values(self, key: str, beam_type: Optional[BeamType] = None) -> list:
+    def get_available_values(
+        self, key: str, beam_type: Optional[BeamType] = None
+    ) -> list:
         """Get the list of available values for a given key (e.g. 'detector_type', 'application_file')."""
         body = {"key": key, "beam_type": beam_type.name if beam_type else None}
         return self._post("available_values", body)["values"]
 
     # --- Milling angle ---
 
-    def get_current_milling_angle(self, stage_position: Optional[FibsemStagePosition] = None) -> float:
+    def get_current_milling_angle(
+        self, stage_position: Optional[FibsemStagePosition] = None
+    ) -> float:
         """Get the current milling angle in degrees. Pass a stage_position to calculate from a specific position."""
         if stage_position is None:
-            return self._get("milling_angle")["milling_angle"]
+            return self._get("milling_angle")["milling_angle_deg"]
         body = {"stage_position": stage_position.to_dict()}
-        return self._post("milling_angle/from_position", body)["milling_angle"]
+        return self._post("milling_angle/from_position", body)["milling_angle_deg"]
 
     def set_milling_angle(self, milling_angle: float) -> None:
         """Set the stored milling angle in degrees."""
-        self._post("milling_angle/set", {"milling_angle": milling_angle})
+        self._post("milling_angle/set", {"milling_angle_deg": milling_angle})
 
-    def move_to_milling_angle(self, milling_angle: float, rotation: Optional[float] = None) -> bool:
-        """Move the stage to the specified milling angle (radians). Returns True if the move was successful."""
-        body = {"milling_angle": milling_angle}
+    def move_to_milling_angle(
+        self, milling_angle: float, rotation: Optional[float] = None
+    ) -> bool:
+        """Move the stage to the specified milling angle (RADIANS, matching the
+        FibsemMicroscope ABC — FIB-853). The wire speaks degrees; converted here."""
+        body = {"milling_angle_deg": math.degrees(milling_angle)}
         if rotation is not None:
-            body["rotation"] = rotation
+            body["rotation_deg"] = math.degrees(rotation)
         return self._post("milling_angle/move", body)["success"]
 
-    def is_close_to_milling_angle(self, milling_angle: float, atol: float = 2.0) -> bool:
+    def is_close_to_milling_angle(
+        self, milling_angle: float, atol: float = 2.0
+    ) -> bool:
         """Check if the current milling angle (degrees) is within atol degrees of the target."""
-        return self._post("milling_angle/is_close", {"milling_angle": milling_angle, "atol": atol})["is_close"]
+        return self._post(
+            "milling_angle/is_close",
+            {"milling_angle_deg": milling_angle, "atol_deg": atol},
+        )["is_close"]
 
     # --- Milling ---
 
@@ -300,12 +400,18 @@ class FibsemClient:
             payload.append(d)
         self._post("draw_patterns", {"patterns": payload})
 
-    def run_milling(self, milling_current: float, milling_voltage: float, asynch: bool = False) -> None:
-        self._post("run_milling", {
-            "milling_current": milling_current,
-            "milling_voltage": milling_voltage,
-            "asynch": asynch,
-        }, timeout=3600)
+    def run_milling(
+        self, milling_current: float, milling_voltage: float, asynch: bool = False
+    ) -> None:
+        self._post(
+            "run_milling",
+            {
+                "milling_current": milling_current,
+                "milling_voltage": milling_voltage,
+                "asynch": asynch,
+            },
+            timeout=3600,
+        )
 
     def start_milling(self) -> None:
         self._post("start_milling")
@@ -320,10 +426,13 @@ class FibsemClient:
         self._post("resume_milling")
 
     def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
-        self._post("finish_milling", {
-            "imaging_current": imaging_current,
-            "imaging_voltage": imaging_voltage,
-        })
+        self._post(
+            "finish_milling",
+            {
+                "imaging_current": imaging_current,
+                "imaging_voltage": imaging_voltage,
+            },
+        )
 
     def clear_patterns(self) -> None:
         self._post("clear_patterns")
