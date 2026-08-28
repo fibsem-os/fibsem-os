@@ -488,8 +488,7 @@ class AutoLamellaTask(ABC):
         # validate reference image exists
         if not os.path.exists(full_filename):
             logging.warning(
-                f"Reference image {full_filename} for alignment does not exist"
-                ""
+                f"Reference image {full_filename} for alignment does not exist, "
                 f"but was requested by {self.task_name}. Skipping alignment."
             )
             return
