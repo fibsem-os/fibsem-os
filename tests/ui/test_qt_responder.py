@@ -234,3 +234,55 @@ def test_clearing_the_milling_config_resets_the_editor(ui, qapp):
         ui.milling_task_config_widget.get_config().name
         == FibsemMillingTaskConfig().name
     )
+
+
+# ── fluorescence + spot-burn instructions ───────────────────────────────────────
+
+
+def test_spot_burn_settings_land_in_the_widget(ui, qapp):
+    from fibsem.applications.autolamella.workflows.ui import (
+        update_spot_burn_parameters,
+    )
+    from fibsem.imaging.spot import SpotBurnSettings
+
+    settings = SpotBurnSettings(exposure_time=17.0)
+
+    outcome = _call_on_worker_thread(
+        qapp, lambda: update_spot_burn_parameters(ui, settings=settings)
+    )
+
+    assert "error" not in outcome
+    assert ui.spot_burn_widget.get_settings().exposure_time == 17.0
+    assert ui.WAITING_FOR_UI_UPDATE is False
+
+
+def test_clearing_spot_burn_leaves_workflow_mode(ui, qapp):
+    from fibsem.applications.autolamella.workflows.ui import clear_spot_burn_ui
+
+    ui.spot_burn_widget.set_workflow_mode(True)
+
+    outcome = _call_on_worker_thread(qapp, lambda: clear_spot_burn_ui(ui))
+
+    assert "error" not in outcome
+    assert ui.spot_burn_widget._workflow_mode is False
+
+
+def test_fluorescence_channels_reach_the_fm_widget(ui, qapp):
+    from fibsem.fm.structures import ChannelSettings
+
+    channels = [ChannelSettings(name="channel-from-the-workflow")]
+
+    class _Task:
+        parent_ui = ui
+        _check_for_abort = staticmethod(lambda *a, **k: False)
+
+    from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
+
+    outcome = _call_on_worker_thread(
+        qapp,
+        lambda: AutoLamellaTask.set_fluorescence_channels_ui(_Task(), channels),
+    )
+
+    assert "error" not in outcome
+    got = ui.fm_control_widget.channelSettingsWidget.channel_settings
+    assert [c.name for c in got] == ["channel-from-the-workflow"]
