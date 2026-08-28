@@ -42,8 +42,8 @@ from test_viewer_less_widgets import (  # noqa: E402
 from fibsem.structures import FibsemStagePosition  # noqa: E402
 from fibsem.ui.FibsemMovementWidget import (  # noqa: E402
     ACQUIRING_IMAGES,
-    FibsemMovementWidget,
 )
+from fibsem.ui.widgets.stage_control_widget import StageControlWidget  # noqa: E402
 
 TARGET = FibsemStagePosition(x=1e-6, y=1e-6, z=1e-6, r=0.0, t=0.0)
 
@@ -67,7 +67,7 @@ def movement(qapp):
     host = _CanvasHost()
     _image_widget(host)
     widget = _movement_widget(host)
-    yield widget
+    yield widget.control_widget
     host.deleteLater()
 
 
@@ -119,7 +119,7 @@ def _kinds(seen) -> list:
 def _body(name):
     """The undecorated worker function -- ``@thread_worker`` would put it on a thread,
     where the raise is swallowed into ``errored`` and nothing is observable in place."""
-    return getattr(FibsemMovementWidget, name).__wrapped__
+    return getattr(StageControlWidget, name).__wrapped__
 
 
 def _explode(*args, **kwargs):

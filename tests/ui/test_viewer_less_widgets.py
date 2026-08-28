@@ -32,6 +32,7 @@ from fibsem.structures import BeamType, FibsemImage, FibsemRectangle
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
+from fibsem.ui.widgets.stage_control_widget import StageControlWidget
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -95,6 +96,13 @@ def _movement_widget(host) -> FibsemMovementWidget:
     widget = FibsemMovementWidget(microscope=_session()[0], parent=host)
     host.movement_widget = widget
     return widget
+
+
+def _control_widget(host) -> StageControlWidget:
+    """The half that moves the stage (FIB-783). Built through the tab rather than
+    directly, because the tab is what wires it to the form and the saved positions --
+    a hand-built control widget would pass tests the application would fail."""
+    return _movement_widget(host).control_widget
 
 
 # --- the controller is found -------------------------------------------------
@@ -266,7 +274,7 @@ def test_movement_binds_double_click_to_both_canvases():
     host = _CanvasHost()
     _image_widget(host)
     movement = _movement_widget(host)
-    assert len(movement._canvas_dbl_click_conns) == 2
+    assert len(movement.control_widget._canvas_dbl_click_conns) == 2
 
 
 def test_a_second_double_click_during_a_move_is_ignored():
@@ -282,15 +290,17 @@ def test_a_second_double_click_during_a_move_is_ignored():
     movement = _movement_widget(host)
 
     started = []
-    movement._stage_move_worker = lambda *a, **k: started.append(a) or _NoopWorker()
+    movement.control_widget._stage_move_worker = lambda *a, **k: (
+        started.append(a) or _NoopWorker()
+    )
 
-    assert movement._click_to_move_available()
-    movement._on_canvas_double_click(BeamType.ION, 10.0, 10.0, set())
+    assert movement.control_widget._click_to_move_available()
+    movement.control_widget._on_canvas_double_click(BeamType.ION, 10.0, 10.0, set())
     assert len(started) == 1, "first double-click did not start a move"
 
     # the first move is in flight: interactions are off, so a second click must not fire
-    assert not movement._click_to_move_available()
-    movement._on_canvas_double_click(BeamType.ION, 20.0, 20.0, set())
+    assert not movement.control_widget._click_to_move_available()
+    movement.control_widget._on_canvas_double_click(BeamType.ION, 20.0, 20.0, set())
     assert len(started) == 1, "a second move started while the first was still running"
 
 
@@ -303,9 +313,9 @@ def test_click_to_move_is_blocked_while_acquiring_after_a_move():
 
     movement._toggle_interactions(enable=False)
     image_widget.is_acquiring = True
-    movement.move_stage_finished()  # move done, acquisition still running
+    movement.control_widget.move_stage_finished()  # move done, acquisition still running
 
-    assert not movement._click_to_move_available(), (
+    assert not movement.control_widget._click_to_move_available(), (
         "click-to-move re-armed while the post-move acquisition was still running"
     )
 
@@ -371,7 +381,7 @@ def test_teardown_is_idempotent():
         movement._teardown_connections()
     assert widget._wd_scroll_connections == []
     assert widget._view_sync_connections == []
-    assert movement._canvas_dbl_click_conns == []
+    assert movement.control_widget._canvas_dbl_click_conns == []
 
 
 # --- position readout ---------------------------------------------------------
@@ -383,7 +393,7 @@ def test_position_readout_goes_to_the_controller_info_bar():
     movement = _movement_widget(host)
     seen = []
     host.view_controller.update_info = lambda *a, **k: seen.append((a, k))
-    movement._update_position_readout()
+    movement.control_widget._update_position_readout()
     assert seen, "stage readout never reached the quad-view info bar"
 
 
@@ -403,8 +413,13 @@ def test_the_stage_position_shows_without_touching_anything():
 
 def test_setup_connections_wires_the_whole_widget():
     """Guards the shape of the bug above rather than one symptom of it: every one of
-    these is set at a different point in ``setup_connections``, so a method truncated
-    anywhere shows up here."""
+    these is set at a different point in a ``setup_connections``, so a method truncated
+    anywhere shows up here.
+
+    Spans both halves since FIB-783 split them -- the instructions label and the
+    orientation text come from ``StageControlWidget.setup_connections``, the saved
+    positions from the container's. That is deliberate: this is the tab's wiring guard,
+    and a tab is only wired when both are."""
     host = _CanvasHost()
     image_widget = _image_widget(host)
     movement = _movement_widget(host)
@@ -412,18 +427,22 @@ def test_setup_connections_wires_the_whole_widget():
     from fibsem.ui.FibsemMovementWidget import INSTRUCTIONS_TEXT
 
     # early: the instructions label
-    assert movement.label_movement_instructions.text() == INSTRUCTIONS_TEXT
+    assert (
+        movement.control_widget.label_movement_instructions.text() == INSTRUCTIONS_TEXT
+    )
     # middle: the saved positions hand-off, and the orientation button text, which is
     # rewritten from its constructed label a little further down
     assert movement.saved_positions_widget.microscope is not None, (
         "saved positions unwired"
     )
-    assert movement.pushButton_move_to_sem_orientation.text() == (
+    assert movement.control_widget.pushButton_move_to_sem_orientation.text() == (
         "Move to SEM Orientation"
     ), "orientation button text unset"
     # late: milling-angle controls
-    assert movement.doubleSpinBox_milling_angle.maximum() == 45
-    assert movement.doubleSpinBox_milling_angle.suffix(), "milling angle suffix unset"
+    assert movement.control_widget.doubleSpinBox_milling_angle.maximum() == 45
+    assert movement.control_widget.doubleSpinBox_milling_angle.suffix(), (
+        "milling angle suffix unset"
+    )
     # the acquisition signal must reach the widget (drives update_ui after each acquire)
     image_widget.acquisition_progress_signal.emit({"finished": True})
 
@@ -454,9 +473,11 @@ def test_double_click_to_move_survives_a_host_that_owns_a_milling_widget():
 
     image_widget._on_acquire(_image(BeamType.ELECTRON))
     moves = []
-    movement._execute_stage_move = lambda *a, **k: moves.append((a, k))
+    movement.control_widget._execute_stage_move = lambda *a, **k: moves.append((a, k))
     # the handler resolves every guard synchronously, so no thread is involved
-    movement._on_canvas_double_click(BeamType.ELECTRON, 100.0, 100.0, set())
+    movement.control_widget._on_canvas_double_click(
+        BeamType.ELECTRON, 100.0, 100.0, set()
+    )
     assert moves, "double-click did not dispatch a stage move"
 
 
