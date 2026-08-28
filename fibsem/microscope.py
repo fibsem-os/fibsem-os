@@ -1462,51 +1462,64 @@ class FibsemMicroscope(ABC):
         if currrent_orientation == "NONE":
             raise ValueError("Unknown orientation. Cannot convert stage position.")
 
+        # The FM is an orientation only where the objective is under the grid. On an
+        # offset mount it is a *place*, reached by translating rather than re-posing,
+        # and `orientations["FM"]` there is a copy of the FIB entry carrying no
+        # positional term -- so converting into it would return a position under the
+        # beam wearing the FM's rotation and tilt. Refused until the device axis
+        # exists (FIB-830).
+        if "FM" in (currrent_orientation, target_orientation) and (
+            not self.stage_is_compustage
+        ):
+            raise ValueError("Cannot move to FM position on non-compustage systems.")
+
         stage_position = deepcopy(stage_position)
         orientation = self.get_orientation(target_orientation)
 
-        if currrent_orientation in ["SEM", "MILLING"] and target_orientation == "FIB":
-            # Convert from SEM/MILLING to FIB
-            target_position = self._get_compucentric_rotation_position(stage_position)
-            target_position.r = orientation.r
-            target_position.t = orientation.t
+        # One rule, in place of a branch per ordered pair.
+        #
+        # Re-posing between orientations is always a rewrite of r and t. What decides
+        # whether x and y move with it is whether the *rotation* changes: turning the
+        # sample half way round swings it about the compucentric centre, which is
+        # somewhere else entirely, so the coordinates have to be carried around with
+        # it. A change of tilt alone pivots about an axis through the sample and
+        # leaves x/y where they were.
+        #
+        # That is why SEM <-> MILLING needs no positional term -- both sit at
+        # `rotation_reference` -- while anything crossing to or from FIB, which sits at
+        # `rotation_180`, does.
+        #
+        # A compustage takes the same path and gets the same answer for free:
+        # `_get_compucentric_rotation_position` returns its argument untouched there
+        # (it has no rotation axis to be compucentric about), so no stage-type branch
+        # is needed here to say so.
+        #
+        # Read from the *orientations*, not from `stage_position.r`, and the difference
+        # matters. `get_stage_orientation` classifies within a 5 degree tolerance, so a
+        # position that reads as SEM is usually a fraction off the canonical rotation --
+        # a real stage never sits at exactly 0.000. Comparing the position's own r would
+        # then call a 4 degree discrepancy a "rotation change" and apply the correction
+        # below, which is not a small correction: `_get_compucentric_rotation_position`
+        # computes `p -> -p - 2 * offset` and says so in its own docstring ("Assumes
+        # 180deg rotation"). It is a half turn or nothing. Firing it for a few degrees
+        # of slop would throw the sample to the far side of the grid.
+        #
+        # So the assumption this rests on, stated so it is noticed if it ever stops
+        # holding: **every rotation between named orientations is a half turn.** True of
+        # every system today -- SEM and MILLING share `rotation_reference`, FIB sits at
+        # `rotation_180` -- and nothing here would detect an orientation added at, say,
+        # 90 degrees. It would quietly get the 180 degree correction.
+        rotation_changes = not np.isclose(
+            self.get_orientation(currrent_orientation).r % (2 * np.pi),
+            orientation.r % (2 * np.pi),
+        )
+        if rotation_changes:
+            stage_position = self._get_compucentric_rotation_position(stage_position)
 
-        elif currrent_orientation == "FIB" and target_orientation in ["SEM", "MILLING"]:
-            # Convert from FIB to SEM/MILLING
-            target_position = self._get_compucentric_rotation_position(stage_position)
-            target_position.r = orientation.r
-            target_position.t = orientation.t
-        elif currrent_orientation == "SEM" and target_orientation == "MILLING":
-            # Convert from SEM to MILLING
-            target_position = stage_position
-            target_position.r = orientation.r
-            target_position.t = orientation.t
-        elif currrent_orientation == "MILLING" and target_orientation == "SEM":
-            # Convert from MILLING to SEM
-            target_position = stage_position
-            target_position.r = orientation.r
-            target_position.t = orientation.t
-        elif (
-            currrent_orientation in ["SEM", "FIB", "MILLING"]
-            and target_orientation == "FM"
-        ) or (
-            currrent_orientation == "FM"
-            and target_orientation in ["SEM", "FIB", "MILLING"]
-        ):
-            if not self.stage_is_compustage:
-                raise ValueError(
-                    "Cannot move to FM position on non-compustage systems."
-                )
-            # Convert from FIB to FM
-            target_position = stage_position
-            target_position.r = orientation.r
-            target_position.t = orientation.t
-        else:
-            raise ValueError(
-                f"Cannot convert from {currrent_orientation} to {target_orientation}"
-            )
+        stage_position.r = orientation.r
+        stage_position.t = orientation.t
 
-        return target_position
+        return stage_position
 
     def get_stage_orientation(
         self, stage_position: Optional[FibsemStagePosition] = None
