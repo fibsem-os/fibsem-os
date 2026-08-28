@@ -16,15 +16,22 @@ error handling already exists.
 Handlers are added one request type at a time, as each ``workflow_update_signal``
 site converts; an unhandled type completes the future with a ``TypeError`` rather
 than leaving the caller to its timeout.
+
+Questions are the deferred half: their handlers show the prompt and return
+*without* completing the future — the answer arrives from a click, later, through
+:meth:`answer_confirm`. Only one question can be pending at a time, because the
+workflow thread blocks on each; a pending future found when the next question
+arrives belonged to a waiter that aborted and unwound, and is cancelled.
 """
 
-from typing import TYPE_CHECKING, Callable, Dict, Type
+from typing import TYPE_CHECKING, Callable, Dict, Optional, Type
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
 from fibsem.applications.autolamella.workflows.interaction import (
     ClearMillingConfig,
     ClearSpotBurn,
+    Confirm,
     Request,
     SetFluorescenceChannels,
     SetImages,
@@ -57,6 +64,13 @@ class QtResponder(QObject):
             SetSpotBurnSettings: self._set_spot_burn_settings,
             ClearSpotBurn: self._clear_spot_burn,
         }
+        # Deferred: the handler shows the prompt and someone else completes the
+        # future later. Kept out of _handlers so _dispatch cannot complete these
+        # with the handler's return value.
+        self._deferred_handlers: Dict[Type[Request], Callable] = {
+            Confirm: self._confirm,
+        }
+        self._pending_confirm: Optional["Future"] = None
         self._submitted.connect(self._dispatch)
 
     def submit(self, request: "Request", future: "Future") -> None:
@@ -65,6 +79,13 @@ class QtResponder(QObject):
 
     def _dispatch(self, request: "Request", future: "Future") -> None:
         """GUI thread. Complete the future, whatever happens in the handler."""
+        deferred = self._deferred_handlers.get(type(request))
+        if deferred is not None:
+            try:
+                deferred(request, future)
+            except Exception as exc:  # noqa: BLE001 - the caller owns the failure
+                future.set_exception(exc)
+            return
         handler = self._handlers.get(type(request))
         try:
             if handler is None:
@@ -145,3 +166,46 @@ class QtResponder(QObject):
             return
         widget.clear_points_layer()
         widget.set_workflow_mode(False)
+
+    # --- questions: the answer arrives from a click, later -------------------------
+
+    def _confirm(self, request: Confirm, future: "Future") -> None:
+        """Show a yes/no prompt; :meth:`answer_confirm` completes the future."""
+        if self._pending_confirm is not None:
+            # The workflow thread blocks on each question, so a live second
+            # question is impossible: a pending future here belonged to a waiter
+            # that aborted and unwound without an answer. Cancel it so nobody
+            # trips over the corpse.
+            self._pending_confirm.cancel()
+        self._pending_confirm = future
+        # Display state, not a handshake: the workflow no longer polls this flag
+        # for converted questions, but the attention button, border and timeline
+        # pause still read it.
+        self._ui.WAITING_FOR_USER_INTERACTION = True
+        # Reuse the whole existing display path — prompt label, yes/no buttons,
+        # and the main window's waiting indicators — by emitting the payload the
+        # old mechanism showed. We are on the GUI thread, so both windows' slots
+        # run directly, before this returns.
+        self._ui.workflow_update_signal.emit(
+            {
+                "msg": request.message,
+                "pos": request.positive,
+                "neg": request.negative,
+            }
+        )
+
+    def answer_confirm(self, clicked_yes: bool) -> bool:
+        """Complete a pending :class:`Confirm` from the yes/no click.
+
+        Returns False when no question is pending, so the caller can fall through
+        to the legacy flag path. Clears the prompt and the waiting state first,
+        then delivers the answer — the waiter wakes to a consistent UI.
+        """
+        future = self._pending_confirm
+        if future is None:
+            return False
+        self._pending_confirm = None
+        self._ui.WAITING_FOR_USER_INTERACTION = False
+        self._ui.workflow_update_signal.emit({"msg": ""})
+        future.set_result(clicked_yes)
+        return True
