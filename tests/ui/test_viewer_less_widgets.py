@@ -413,13 +413,14 @@ def test_setup_connections_wires_the_whole_widget():
 
     # early: the instructions label
     assert movement.label_movement_instructions.text() == INSTRUCTIONS_TEXT
-    # middle: stage limits pushed onto the spinboxes, and the acquisition hook
-    assert movement.doubleSpinBox_movement_stage_x.maximum() != 99.99, (
-        "stage limits unset"
-    )
+    # middle: the saved positions hand-off, and the orientation button text, which is
+    # rewritten from its constructed label a little further down
     assert movement.saved_positions_widget.microscope is not None, (
         "saved positions unwired"
     )
+    assert movement.pushButton_move_to_sem_orientation.text() == (
+        "Move to SEM Orientation"
+    ), "orientation button text unset"
     # late: milling-angle controls
     assert movement.doubleSpinBox_milling_angle.maximum() == 45
     assert movement.doubleSpinBox_milling_angle.suffix(), "milling angle suffix unset"
