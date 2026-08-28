@@ -31,8 +31,16 @@ from fibsem.server.catalog import CATALOG
 _TIMEOUT_S = 120.0  # acquisitions and moves on real hardware are slow
 
 
-def _resolve_connection(url, token):
-    # type: (Optional[str], Optional[str]) -> Tuple[str, str]
+_NO_SERVER_MSG = (
+    "fibsem-mcp: no server found. Pass --url and --token, set "
+    "FIBSEM_SERVER_URL/FIBSEM_SERVER_TOKEN, or start a fibsem server on "
+    "this machine (it writes ~/.fibsem/agent-server.json)."
+)
+
+
+def _try_resolve(url, token):
+    # type: (Optional[str], Optional[str]) -> Optional[Tuple[str, str]]
+    """One resolution attempt; None when no server is known (yet)."""
     url = url or os.environ.get("FIBSEM_SERVER_URL")
     token = token or os.environ.get("FIBSEM_SERVER_TOKEN")
     if url and token:
@@ -42,11 +50,50 @@ def _resolve_connection(url, token):
     found = read_discovery_file()
     if found is not None:
         return url or found["url"], token or found["token"]
-    sys.exit(
-        "fibsem-mcp: no server found. Pass --url and --token, set "
-        "FIBSEM_SERVER_URL/FIBSEM_SERVER_TOKEN, or start a fibsem server on "
-        "this machine (it writes ~/.fibsem/agent-server.json)."
-    )
+    return None
+
+
+def _connect_with_retry(client_factory, url, token, wait_s, sleep_fn=None):
+    """Resolve + reach a server, retrying until the deadline.
+
+    MCP clients launch the sidecar at session start, often before the human has
+    started the server — dying instantly turns a harmless ordering mistake into
+    a CONNECTION_CLOSED (learned in the very first live session). So: keep
+    re-resolving (the discovery file appears when the server starts) and
+    re-trying /capabilities until ``wait_s`` runs out.
+
+    Returns (client, capabilities). Exits with guidance on timeout.
+    """
+    import time
+
+    sleep_fn = sleep_fn or time.sleep
+    deadline = time.monotonic() + wait_s
+    waiting_reported = False
+    while True:
+        resolved = _try_resolve(url, token)
+        if resolved is not None:
+            client = client_factory(resolved[0], resolved[1])
+            try:
+                capabilities, err = _call(client, "GET", "/capabilities")
+            except Exception as e:  # connection refused, DNS, ...
+                capabilities, err = None, str(e)
+            if err is None:
+                return client, capabilities
+            client.close()
+        if time.monotonic() >= deadline:
+            if resolved is None:
+                sys.exit(_NO_SERVER_MSG)
+            sys.exit(
+                f"fibsem-mcp: cannot reach the server at {resolved[0]} — "
+                "is it running, and is the token current?"
+            )
+        if not waiting_reported:
+            print(
+                f"fibsem-mcp: waiting up to {wait_s:.0f}s for a fibsem server...",
+                file=sys.stderr,
+            )
+            waiting_reported = True
+        sleep_fn(1.0)
 
 
 def _call(client, method, path, payload=None):
@@ -223,22 +270,37 @@ def main(argv=None):
     parser.add_argument(
         "--token", default=None, help="Bearer token (from the server log or dialog)"
     )
+    parser.add_argument(
+        "--wait",
+        type=float,
+        default=30.0,
+        help="seconds to keep retrying for a server before giving up (default 30)",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="print connection status and exit (does not start the MCP server)",
+    )
     args = parser.parse_args(argv)
 
-    url, token = _resolve_connection(args.url, args.token)
-    client = httpx.Client(
-        base_url=url,
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=_TIMEOUT_S,
+    def client_factory(url, token):
+        return httpx.Client(
+            base_url=url,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=_TIMEOUT_S,
+        )
+
+    wait_s = 0.0 if args.check else max(0.0, args.wait)
+    client, capabilities = _connect_with_retry(
+        client_factory, args.url, args.token, wait_s
     )
-    capabilities, err = _call(client, "GET", "/capabilities")
-    if err:
-        sys.exit(f"fibsem-mcp: cannot reach the server at {url} — {err}")
     print(
-        f"fibsem-mcp: connected to {url} "
+        f"fibsem-mcp: connected to {client.base_url} "
         f"({capabilities.get('manufacturer')}, scopes {capabilities.get('scopes')})",
         file=sys.stderr,
     )
+    if args.check:
+        return
     build_sidecar(client, capabilities.get("scopes", {})).run()
 
 

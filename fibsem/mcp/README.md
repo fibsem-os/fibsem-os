@@ -71,10 +71,12 @@ tools) and ask:
 
 ## Order and troubleshooting
 
-- **Server first, then the sidecar.** The sidecar exits immediately when it
-  finds no server, which an MCP client reports as `CONNECTION_CLOSED`. Start
-  the server, then reconnect (`/mcp` in the session, or restart `claude`).
-  Run `fibsem-mcp` directly in a terminal to see the actual error.
+- **Order barely matters**: the sidecar waits up to 30 s for a server to
+  appear (`--wait` tunes it), so starting the server a moment later is fine.
+  If none appears in time it exits with guidance, which an MCP client shows
+  as `CONNECTION_CLOSED` — start the server and reconnect (`/mcp` in the
+  session). `fibsem-mcp --check` prints the connection status and exits;
+  run it in a terminal to see what the sidecar sees.
 - **Wrong server version / unknown arguments**: if you launched with
   `python -m` from inside another fibsem checkout, that directory shadows
   your installed copy. Run from the repo you installed, or any directory
