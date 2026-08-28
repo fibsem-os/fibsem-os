@@ -387,3 +387,269 @@ def test_the_scalebar_is_drawn_at_the_smaller_font():
     assert c._scalebar_artist.font_properties.get_size() == 8.0
 
     c.draw()  # a bad font spec raises here rather than at construction
+
+
+class TestTheStatusZoneShowsOneThingAtATime:
+    """Three occupants, one label, an order of precedence.
+
+    They arrived one at a time, each taking "the one free corner" -- and the corner ran
+    out. The FM overview drew a cursor readout over the top-left at the same moment the
+    zone was drawing a hint there, so the coordinates and the instructions were painted
+    on top of each other. Sharing one label makes that impossible rather than fixed:
+    there is only ever one thing to place.
+    """
+
+    @staticmethod
+    def _canvas():
+        c = FibsemImageCanvas()
+        c.resize(900, 500)
+        c.set_array(_img(512, 512), pixel_size=1e-8)
+        c._reposition_overlay_buttons()
+        return c
+
+    def test_the_readout_outranks_the_hint(self):
+        """The hint is still true a motion event later; the readout is not."""
+        c = self._canvas()
+        c.set_hint("Shift+drag to sweep")
+
+        c.set_status_readout("x 150.0  y 90.0  z 0.0 um")
+
+        assert c._status_label.text() == "x 150.0  y 90.0  z 0.0 um"
+
+    def test_clearing_the_readout_hands_the_zone_back(self):
+        """Not blanked -- the hint underneath it never stopped being true."""
+        c = self._canvas()
+        c.set_hint("Shift+drag to sweep")
+        c.set_status_readout("x 150.0  y 90.0  z 0.0 um")
+
+        c.set_status_readout(None)
+
+        assert c._status_label.text() == "Shift+drag to sweep"
+
+    def test_a_flash_outranks_the_readout(self):
+        c = self._canvas()
+        c.set_status_readout("x 150.0  y 90.0  z 0.0 um")
+
+        c.flash_message("OBJ 6000.0 um  (+1.0 um)")
+
+        assert "OBJ" in c._status_label.text()
+
+    def test_the_flash_gives_the_zone_back_to_the_readout(self):
+        c = self._canvas()
+        c.set_status_readout("x 150.0  y 90.0  z 0.0 um")
+        c.flash_message("OBJ 6000.0 um  (+1.0 um)")
+
+        c._clear_flash()
+
+        assert c._status_label.text() == "x 150.0  y 90.0  z 0.0 um"
+
+    def test_a_readout_with_no_hint_under_it_leaves_nothing_behind(self):
+        c = self._canvas()
+        c.set_status_readout("x 150.0  y 90.0  z 0.0 um")
+
+        c.set_status_readout(None)
+
+        assert c._status_label.isHidden()
+
+    def test_the_three_are_told_apart_by_weight_not_by_a_louder_plaque(self):
+        """The hint used to be near-white, which read as an alert over dark data. All
+        three sit on the same dark plaque now; what separates them is the text."""
+        c = self._canvas()
+
+        c.set_hint("Shift+drag to sweep")
+        hint = c._status_label.styleSheet()
+        c.set_status_readout("x 150.0  y 90.0  z 0.0 um")
+        readout = c._status_label.styleSheet()
+
+        assert "rgba(26, 26, 26" in hint and "rgba(26, 26, 26" in readout
+        assert "#e6e6e6" not in hint, "the near-white plaque is what shouted"
+        assert "monospace" in readout, "digits have to sit still while the cursor moves"
+
+    def test_the_readout_stays_clear_of_the_controls(self):
+        """The zone elides to the room it has, whatever is in it."""
+        c = FibsemImageCanvas()
+        c.resize(320, 400)
+        c.set_array(_img(512, 512), pixel_size=1e-8)
+        c.set_live_badge(True)
+        c.set_status_readout("x -12345.6  y -12345.6  z -1234.5 um")
+        c._reposition_overlay_buttons()
+
+        status, chip = c._status_label, c._live_badge
+        assert status.isHidden() or status.geometry().right() < chip.geometry().left()
+
+    def test_the_readout_decays_back_to_the_hint_once_the_pointer_stops(self):
+        """The pointer is over the canvas most of the time it is being used, so a
+        readout that held the zone for as long as it was there would make a standing
+        instruction unreadable in practice. Fired by hand rather than waited on."""
+        c = self._canvas()
+        c.set_hint("Shift+drag to sweep")
+        c.set_status_readout("x 150.0  y 90.0  z 0.0 um")
+        assert c._readout_timer.isActive()
+
+        c._clear_readout()
+
+        assert c._status_label.text() == "Shift+drag to sweep"
+
+    def test_moving_again_brings_the_readout_straight_back(self):
+        c = self._canvas()
+        c.set_hint("Shift+drag to sweep")
+        c.set_status_readout("x 150.0  y 90.0  z 0.0 um")
+        c._clear_readout()
+
+        c.set_status_readout("x 151.0  y 90.0  z 0.0 um")
+
+        assert c._status_label.text() == "x 151.0  y 90.0  z 0.0 um"
+
+    def test_each_update_restarts_the_decay(self):
+        """It decays after the pointer *stops*, not a fixed time after it arrived.
+
+        The countdown is wound down by hand rather than compared across two reads of
+        `remainingTime`: those are wall-clock, so a single elapsed millisecond between
+        them fails a test that is trying to ask about restarting, not about timing.
+        """
+        c = self._canvas()
+        c.set_hint("Shift+drag to sweep")
+        c.set_status_readout("x 150.0  y 90.0  z 0.0 um")
+        c._readout_timer.start(50)  # as if it had nearly run out
+
+        c.set_status_readout("x 151.0  y 90.0  z 0.0 um")  # a later motion event
+
+        assert c._readout_timer.remainingTime() > 50
+
+    def test_a_readout_with_no_hint_under_it_does_not_decay(self):
+        """There would be nothing to reveal, so decaying would blank the corner rather
+        than free it -- and the numbers are the only thing that corner was saying."""
+        c = self._canvas()
+
+        c.set_status_readout("x 150.0  y 90.0  z 0.0 um")
+
+        assert not c._readout_timer.isActive()
+        assert c._status_label.text() == "x 150.0  y 90.0  z 0.0 um"
+
+    def test_leaving_the_canvas_stops_the_decay_timer(self):
+        """It would otherwise fire into a zone that has already moved on."""
+        c = self._canvas()
+        c.set_hint("Shift+drag to sweep")
+        c.set_status_readout("x 150.0  y 90.0  z 0.0 um")
+
+        c.set_status_readout(None)
+
+        assert not c._readout_timer.isActive()
+
+
+class TestTheInfoBarIsAWidgetNotAnArtist:
+    """Microscope state, bottom left — moved off the artist path (FIB-650).
+
+    It updates on every stage read and every objective move, and an artist update ends
+    in `draw_idle`, which repaints every image the canvas holds: ~1.7 ms per placed
+    image, unbounded. As a child widget it costs the same whatever is on the canvas,
+    and `ax.cla()` cannot take it down.
+    """
+
+    @staticmethod
+    def _canvas(w=700, h=500):
+        c = FibsemImageCanvas()
+        c.resize(w, h)
+        c.set_array(_img(512, 512), pixel_size=1e-8)
+        c._reposition_overlay_buttons()
+        return c
+
+    def test_it_sits_in_the_bottom_left(self):
+        c = self._canvas()
+
+        c.set_info_text("STAGE: X:0.00mm, Y:0.00mm")
+
+        geom = c._info_label.geometry()
+        assert geom.left() < c.width() / 2, "left half"
+        assert geom.bottom() > c.height() * 0.9, "bottom edge"
+
+    def test_it_survives_a_new_image(self):
+        """`cla()` took the artist down and something had to remember to put it back."""
+        c = self._canvas()
+        c.set_info_text("STAGE: X:0.00mm")
+
+        c.set_array(_img(256, 256), pixel_size=1e-8)
+
+        assert c._info_text == "STAGE: X:0.00mm"
+        assert not c._info_label.isHidden()
+
+    def test_it_follows_the_bottom_edge_on_resize(self):
+        c = self._canvas(h=500)
+        c.set_info_text("STAGE: X:0.00mm")
+        before = c._info_label.geometry().bottom()
+
+        c.resize(700, 300)
+        c._reposition_overlay_buttons()
+
+        after = c._info_label.geometry().bottom()
+        assert after < before, "a shorter canvas must bring it up with the edge"
+        assert after > 300 * 0.9
+
+    def test_several_lines_all_show(self):
+        """The text is two lines as often as one -- stage pose, then objective."""
+        c = self._canvas()
+
+        c.set_info_text("STAGE: X:0.00mm\nOBJECTIVE: 6000.0 um")
+
+        assert c._info_label.text().count("\n") == 1
+        assert c._info_label.height() > 20, "two lines are taller than one"
+
+    def test_a_long_line_is_elided_rather_than_run_off_the_canvas(self):
+        c = self._canvas(w=320)
+
+        c.set_info_text("STAGE: " + "X:0.00mm, " * 20)
+
+        assert c._info_label.geometry().right() <= 320
+        assert "…" in c._info_label.text()
+
+    def test_each_line_is_elided_on_its_own(self):
+        """`elidedText` works a line at a time, so a multi-line string cannot be passed
+        to it whole -- doing that truncates at the first newline and loses the rest."""
+        c = self._canvas(w=320)
+
+        c.set_info_text("STAGE: " + "X:0.00mm, " * 20 + "\nOBJECTIVE: 6000.0 um")
+
+        assert c._info_label.text().count("\n") == 1, "the second line must survive"
+        assert "OBJECTIVE" in c._info_label.text()
+
+    def test_it_does_not_swallow_clicks(self):
+        """Qt routes a click to the topmost child under the cursor, and a QLabel accepts
+        the press. Without this the info bar puts a dead patch over the image."""
+        c = self._canvas()
+        c.set_info_text("STAGE: X:0.00mm, Y:0.00mm")
+
+        point = c._info_label.geometry().center()
+
+        assert c.childAt(point) is None
+
+    def test_neither_does_the_status_chip_or_the_live_badge(self):
+        """Same trap, and the status chip had it: the top-left corner stopped
+        responding to clicks when the zone moved in (FIB-639)."""
+        c = self._canvas()
+        c.set_hint("Shift+drag to sweep")
+        c.set_live_badge(True)
+        c._reposition_overlay_buttons()
+
+        assert c.childAt(c._status_label.geometry().center()) is None
+        assert c.childAt(c._live_badge.geometry().center()) is None
+
+    def test_the_toolbar_buttons_still_take_their_clicks(self):
+        """They are operated, not read -- passing their clicks through would break them."""
+        c = self._canvas()
+
+        button = c._overlay_buttons[0]
+
+        assert c.childAt(button.geometry().center()) is button
+
+    def test_setting_it_does_not_repaint_the_figure(self):
+        """The whole point: an artist update ended in `draw_idle`, and on a canvas
+        holding many images that repaint is the cost."""
+        c = self._canvas()
+        c.draw()
+        drawn = []
+        c.draw_idle = lambda *a, **k: drawn.append(1)
+
+        c.set_info_text("STAGE: X:1.00mm")
+        c.set_info_text("STAGE: X:2.00mm")
+
+        assert drawn == []

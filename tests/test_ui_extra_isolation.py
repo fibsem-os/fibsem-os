@@ -24,6 +24,7 @@ The pattern being protected is deferral, not avoidance -- an optional dependency
 imported inside the one function that needs it is correct and is what these tests
 allow. Only module scope is checked.
 """
+
 from __future__ import annotations
 
 import ast
@@ -59,13 +60,7 @@ UI_PACKAGE_PREFIX = "fibsem.ui"
 
 # Modules that violate the rule and are not being fixed here. Each entry needs a
 # reason; an allow-list without one is just a disabled test.
-KNOWN_VIOLATIONS = {
-    # The legacy workflow package is unreachable and does not import at all --
-    # `_draw_milling_stages_on_image` has not existed in fibsem.ui.utils for some
-    # time. Listed rather than fixed because the package is slated for a decision of
-    # its own, and repairing an import in code that cannot run would be misleading.
-    "applications/autolamella/workflows/legacy/experimental.py",
-}
+KNOWN_VIOLATIONS: set = set()
 
 
 def _is_ui_path(rel: str) -> bool:
@@ -111,7 +106,8 @@ def _offenders(rel: str) -> Tuple[List[str], List[str]]:
     imports = _module_level_imports(rel)
     ui_dists = sorted(m for m in imports if m.split(".")[0] in UI_ONLY_PACKAGES)
     ui_pkg = sorted(
-        m for m in imports
+        m
+        for m in imports
         if m == UI_PACKAGE_PREFIX or m.startswith(UI_PACKAGE_PREFIX + ".")
     )
     return ui_dists, ui_pkg

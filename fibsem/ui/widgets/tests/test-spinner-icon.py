@@ -2,12 +2,19 @@
 from __future__ import annotations
 
 import sys
-from PyQt5.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QGridLayout,
-)
+
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QTransform
+from PyQt5.QtWidgets import (
+    QApplication,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
 from fibsem.ui.icon import fibsem_icon
 
 

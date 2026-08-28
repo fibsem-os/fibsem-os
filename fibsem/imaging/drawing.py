@@ -12,6 +12,7 @@ from typing import Tuple
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+
 from fibsem.constants import MICRON_SYMBOL
 
 # Round "nice" numbers for scalebar: 1, 2, 5, 10, 20, 50, ...

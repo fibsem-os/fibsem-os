@@ -9,17 +9,18 @@ Usage
 from __future__ import annotations
 
 import os
+
 import pandas as pd
 
+from fibsem.correlation.correlation_v2 import run_correlation_from_data
 from fibsem.correlation.structures import (
     Coordinate,
     CorrelationInputData,
     PointType,
     PointXYZ,
 )
-from fibsem.correlation.correlation_v2 import run_correlation_from_data
-from fibsem.structures import FibsemImage
 from fibsem.fm.structures import FluorescenceImage
+from fibsem.structures import FibsemImage
 
 DEV_PATH = "/home/patrick/github/fibsem/fibsem/applications/test-data"
 DEV_FIB_IMAGE = "ref_ReferenceImage-Spot-Burn-Fiducial-10-36-30_res_02_ib.tif"
@@ -81,7 +82,7 @@ def main():
     print("\nRunning correlation...")
     result = run_correlation_from_data(data)
 
-    print(f"\n--- CorrelationResult ---")
+    print("\n--- CorrelationResult ---")
     print(f"scale:               {result.scale:.6f}")
     print(f"rms_error:           {result.rms_error:.4f}")
     print(f"mean_absolute_error: {[f'{v:.4f}' for v in result.mean_absolute_error]}")

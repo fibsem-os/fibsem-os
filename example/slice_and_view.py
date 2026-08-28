@@ -1,14 +1,16 @@
 # slice and view
 
-import os
 import logging
+import os
 from pprint import pprint
 
-import fibsem
-from fibsem import acquire, milling, utils, alignment
-from fibsem.alignment import AlignmentSubsystem
-from fibsem.structures import BeamType, ImageSettings, FibsemRectangleSettings
 import numpy as np
+
+import fibsem
+from fibsem import acquire, alignment, milling, utils
+from fibsem.alignment import AlignmentSubsystem
+from fibsem.structures import BeamType, FibsemRectangleSettings, ImageSettings
+
 
 def main():
 

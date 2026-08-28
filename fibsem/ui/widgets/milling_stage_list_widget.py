@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from copy import deepcopy
 from typing import List, Optional
 
@@ -20,19 +19,20 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
 from fibsem.milling.base import FibsemMillingStage, get_strategy
 from fibsem.milling.patterning import get_pattern, get_pattern_names
 from fibsem.milling.strategy import get_strategy_names
 from fibsem.ui import stylesheets
+from fibsem.ui.icon import DRAG_HANDLE_HEIGHT, DRAG_HANDLE_WIDTH, drag_handle_pixmap
 from fibsem.ui.napari.patterns import COLOURS
-from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, ValueSpinBox
 from fibsem.ui.tokens import (
     CANVAS_BG,
     NEUTRAL_700,
     ORANGE_COLOR,
 )
+from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, ValueSpinBox
 
-_DRAG_HANDLE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "icons", "drag_handle.svg")
 # Columns are flexible: each is (minimum_width, stretch). The header and every row
 # consume the SAME spec so their column boundaries stay aligned as the panel resizes,
 # while the whole row can shrink well below the old ~660px fixed-width floor.
@@ -42,7 +42,7 @@ _COL_DEPTH = (70, 2)
 _COL_CURRENT = (60, 2)
 _COL_STRATEGY = (70, 2)
 _CHECKBOX_WIDTH = 24
-_DRAG_WIDTH = 10
+_DRAG_WIDTH = DRAG_HANDLE_WIDTH
 _BTN_SIZE = QSize(32, 32)
 _ROW_HEIGHT = 40
 
@@ -195,8 +195,8 @@ class MillingStageRowWidget(QWidget):
         layout.addWidget(self.btn_remove)
 
         drag_icon = QLabel()
-        drag_icon.setFixedSize(_DRAG_WIDTH, 16)
-        drag_icon.setPixmap(QPixmap(_DRAG_HANDLE_PATH).scaled(_DRAG_WIDTH, 16, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        drag_icon.setFixedSize(_DRAG_WIDTH, DRAG_HANDLE_HEIGHT)
+        drag_icon.setPixmap(drag_handle_pixmap(_DRAG_WIDTH, DRAG_HANDLE_HEIGHT))
         drag_icon.setStyleSheet("background: transparent;")
         drag_icon.setCursor(Qt.CursorShape.OpenHandCursor)
         layout.addWidget(drag_icon)
@@ -487,7 +487,7 @@ class MillingStageListWidget(QWidget):
         self._status_timer.setSingleShot(True)
         self._status_timer.timeout.connect(lambda: self._status_label.setVisible(False))
 
-        self._header.select_all_changed.connect(self._on_select_all)
+        self._header.select_all_changed.connect(self.set_all_selected)
         self._header.add_clicked.connect(self._on_add_stage)
         self._header.eye_toggled.connect(self.eye_toggled)
         self._list.reordered.connect(self._on_reordered)
@@ -573,6 +573,30 @@ class MillingStageListWidget(QWidget):
         self._list.clear()
         self._selected_stage = None
         self._update_empty_state()
+
+    def set_all_selected(self, checked: bool) -> None:
+        """Enable or disable every stage, and bring the header checkbox with them.
+
+        The `_sync_select_all()` is not redundant even though the header is the only
+        caller today. Unticking one row leaves the header tristate for good --
+        `_sync_select_all` never turns it back off -- and a user click on a tristate
+        box cycles through PartiallyChecked, which the header reports as
+        `bool(Qt.PartiallyChecked)`, i.e. True. So the third click ticks every row
+        while the header itself stays showing a dash. Syncing after the loop settles
+        it back onto the rows it just changed (FIB-577).
+
+        Public for the same reason as the AutoLamella lists: any caller that clears
+        the selection programmatically needs the header to follow, and reaching for
+        a private slot is how those lists acquired the bug in the first place.
+        """
+        for i in range(self._list.count()):
+            row = self._row(i)
+            row.checkbox.blockSignals(True)
+            row.checkbox.setChecked(checked)
+            row.checkbox.blockSignals(False)
+            row.stage.enabled = checked
+        self._sync_select_all()
+        self.enabled_changed.emit(self.get_enabled_stages())
 
     def set_pattern_column_visible(self, visible: bool) -> None:
         """Show or hide the Pattern column in the header and all rows."""
@@ -691,15 +715,6 @@ class MillingStageListWidget(QWidget):
     def _on_enabled_changed(self, stage: FibsemMillingStage, enabled: bool) -> None:
         stage.enabled = enabled
         self._sync_select_all()
-        self.enabled_changed.emit(self.get_enabled_stages())
-
-    def _on_select_all(self, checked: bool) -> None:
-        for i in range(self._list.count()):
-            row = self._row(i)
-            row.checkbox.blockSignals(True)
-            row.checkbox.setChecked(checked)
-            row.checkbox.blockSignals(False)
-            row.stage.enabled = checked
         self.enabled_changed.emit(self.get_enabled_stages())
 
     def _sync_select_all(self) -> None:

@@ -46,7 +46,6 @@ from PyQt5.QtWidgets import QHBoxLayout, QProgressBar, QWidget
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import _SpinnerLabel
 
-
 # ---------------------------------------------------------------------------
 # Data structure
 # ---------------------------------------------------------------------------

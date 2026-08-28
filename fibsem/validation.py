@@ -1,13 +1,15 @@
 import logging
 
 import numpy as np
+
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamSystemSettings,
     BeamType,
-    MicroscopeSettings,
     FibsemImage,
+    MicroscopeSettings,
 )
+
 
 # TODO: change return type to list of warnings rather than reading the log...
 def validate_initial_microscope_state(

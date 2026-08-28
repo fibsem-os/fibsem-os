@@ -23,21 +23,34 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from psygnal.containers import EventedDict
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QApplication, QWidget
 
-from psygnal.containers import EventedDict
-
 from fibsem import utils
-from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol, Experiment
-from fibsem.applications.autolamella.workflows.tasks.tasks import SpotBurnFiducialTaskConfig
-from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, MicroscopeState, Point
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskProtocol,
+    Experiment,
+)
 from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
     ALIGNMENT_OVERLAY_ID,
     POI_OVERLAY_ID,
     AutoLamellaProtocolEditorWidget,
 )
-from fibsem.ui.widgets.canvas.quad_view import LamellaEditorView, MicroscopeViewController
+from fibsem.applications.autolamella.workflows.tasks.tasks import (
+    SpotBurnFiducialTaskConfig,
+)
+from fibsem.structures import (
+    BeamType,
+    FibsemImage,
+    FibsemRectangle,
+    MicroscopeState,
+    Point,
+)
+from fibsem.ui.widgets.canvas.quad_view import (
+    LamellaEditorView,
+    MicroscopeViewController,
+)
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 
 _app = QApplication.instance() or QApplication(sys.argv)

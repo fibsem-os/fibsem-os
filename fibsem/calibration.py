@@ -12,8 +12,6 @@ from fibsem.structures import (
     MicroscopeState,
 )
 
-
-
 # def auto_needle_calibration(
 #     microscope: FibsemMicroscope, settings: MicroscopeSettings, validate: bool = True
 # ):
@@ -122,8 +120,10 @@ def auto_home_and_link_v2(
 
 
 def _calibrate_manipulator_thermo(microscope:FibsemMicroscope, settings:MicroscopeSettings, parent_ui = None):
-    from fibsem.applications.autolamella.workflows.ui import ask_user, update_detection_ui
-
+    from fibsem.applications.autolamella.workflows.ui import (
+        ask_user,
+        update_detection_ui,
+    )
     from fibsem.detection import detection
     from fibsem.segmentation.model import load_model
 

@@ -11,6 +11,7 @@ widget constructs, acquires, and simply draws nothing.
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python tests/ui/test_viewer_less_widgets.py
 """
+
 from __future__ import annotations
 
 import os
@@ -50,7 +51,9 @@ def _session():
 
 
 def _image(beam: BeamType = BeamType.ELECTRON) -> FibsemImage:
-    image = FibsemImage.generate_blank_image(resolution=_RESOLUTION, hfw=_HFW, random=True)
+    image = FibsemImage.generate_blank_image(
+        resolution=_RESOLUTION, hfw=_HFW, random=True
+    )
     image.metadata.image_settings.beam_type = beam
     return image
 
@@ -123,11 +126,15 @@ def test_acquired_image_lands_on_its_own_beam_canvas():
     assert sem_canvas._content_extent() is None, "canvas should start empty"
 
     widget._on_acquire(_image(BeamType.ELECTRON))
-    assert sem_canvas._content_extent() is not None, "SEM image did not reach the canvas"
+    assert sem_canvas._content_extent() is not None, (
+        "SEM image did not reach the canvas"
+    )
     assert fib_canvas._content_extent() is None, "SEM image leaked onto the FIB canvas"
 
     widget._on_acquire(_image(BeamType.ION))
-    assert fib_canvas._content_extent() is not None, "FIB image did not reach the canvas"
+    assert fib_canvas._content_extent() is not None, (
+        "FIB image did not reach the canvas"
+    )
 
 
 def test_no_blank_placeholder_is_seeded():
@@ -193,7 +200,9 @@ def _sem_beam_settings(widget):
 def test_shift_scroll_nudges_working_distance_and_plain_scroll_does_not():
     host = _CanvasHost()
     widget = _image_widget(host)
-    assert len(widget._wd_scroll_connections) == 2, "WD scroll not wired to both canvases"
+    assert len(widget._wd_scroll_connections) == 2, (
+        "WD scroll not wired to both canvases"
+    )
 
     settings_widget = _sem_beam_settings(widget)
     spinbox = settings_widget.working_distance_spinbox
@@ -212,8 +221,8 @@ def test_working_distance_spinbox_resolves_the_scroll_step():
 
     widget = _image_widget(_CanvasHost())
     decimals = _sem_beam_settings(widget).working_distance_spinbox.decimals()
-    assert 10 ** -decimals <= WD_WHEEL_STEP_MM, (
-        f"spinbox resolves {10 ** -decimals} mm but the scroll step is {WD_WHEEL_STEP_MM} mm"
+    assert 10**-decimals <= WD_WHEEL_STEP_MM, (
+        f"spinbox resolves {10**-decimals} mm but the scroll step is {WD_WHEEL_STEP_MM} mm"
     )
 
 
@@ -245,7 +254,9 @@ def test_selecting_the_fm_view_leaves_the_beam_radios_alone():
     widget = _image_widget(host)
     widget.dual_beam_widget.fib_radio.setChecked(True)
     widget._on_view_selected("fm")
-    assert widget.dual_beam_widget.fib_radio.isChecked(), "FM selection moved the beam radio"
+    assert widget.dual_beam_widget.fib_radio.isChecked(), (
+        "FM selection moved the beam radio"
+    )
 
 
 # --- movement: double-click input --------------------------------------------
@@ -271,7 +282,7 @@ def test_a_second_double_click_during_a_move_is_ignored():
     movement = _movement_widget(host)
 
     started = []
-    movement._canvas_double_click_worker = lambda *a, **k: started.append(a) or _NoopWorker()
+    movement._stage_move_worker = lambda *a, **k: started.append(a) or _NoopWorker()
 
     assert movement._click_to_move_available()
     movement._on_canvas_double_click(BeamType.ION, 10.0, 10.0, set())
@@ -303,6 +314,8 @@ class _NoopWorker:
     """Stands in for a FunctionWorker without starting a thread."""
 
     finished = property(lambda self: self)
+    returned = property(lambda self: self)
+    errored = property(lambda self: self)
 
     def connect(self, *a, **k):
         pass
@@ -343,7 +356,9 @@ def test_image_widget_teardown_stops_scroll_reaching_a_dead_widget():
     widget._teardown_connections()
     before = spinbox.value()
     host.view_controller.sem_canvas.canvas_scrolled.emit(0.0, 0.0, 1, {"Shift"})
-    assert spinbox.value() == before, "WD scroll still reached the widget after teardown"
+    assert spinbox.value() == before, (
+        "WD scroll still reached the widget after teardown"
+    )
 
 
 def test_teardown_is_idempotent():
@@ -398,9 +413,14 @@ def test_setup_connections_wires_the_whole_widget():
 
     # early: the instructions label
     assert movement.label_movement_instructions.text() == INSTRUCTIONS_TEXT
-    # middle: stage limits pushed onto the spinboxes, and the acquisition hook
-    assert movement.doubleSpinBox_movement_stage_x.maximum() != 99.99, "stage limits unset"
-    assert movement.saved_positions_widget.microscope is not None, "saved positions unwired"
+    # middle: the saved positions hand-off, and the orientation button text, which is
+    # rewritten from its constructed label a little further down
+    assert movement.saved_positions_widget.microscope is not None, (
+        "saved positions unwired"
+    )
+    assert movement.pushButton_move_to_sem_orientation.text() == (
+        "Move to SEM Orientation"
+    ), "orientation button text unset"
     # late: milling-angle controls
     assert movement.doubleSpinBox_milling_angle.maximum() == 45
     assert movement.doubleSpinBox_milling_angle.suffix(), "milling angle suffix unset"
@@ -435,10 +455,8 @@ def test_double_click_to_move_survives_a_host_that_owns_a_milling_widget():
     image_widget._on_acquire(_image(BeamType.ELECTRON))
     moves = []
     movement._execute_stage_move = lambda *a, **k: moves.append((a, k))
-    # call the worker body directly — @thread_worker would swallow the raise onto a thread
-    movement._canvas_double_click_worker.__wrapped__(
-        movement, BeamType.ELECTRON, 100.0, 100.0, set()
-    )
+    # the handler resolves every guard synchronously, so no thread is involved
+    movement._on_canvas_double_click(BeamType.ELECTRON, 100.0, 100.0, set())
     assert moves, "double-click did not dispatch a stage move"
 
 

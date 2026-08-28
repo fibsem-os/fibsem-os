@@ -8,7 +8,6 @@ in without changes to callers.
 """
 from __future__ import annotations
 
-import os
 from copy import deepcopy
 from typing import List, Optional, Union
 
@@ -35,18 +34,14 @@ from fibsem.fm.config import load_recent_channels, remove_recent_channel
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings
 from fibsem.ui import stylesheets
-from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, ValueSpinBox
+from fibsem.ui.icon import DRAG_HANDLE_HEIGHT, DRAG_HANDLE_WIDTH, drag_handle_pixmap
 from fibsem.ui.tokens import (
     BORDER_COLOR,
     CANVAS_BG,
     NEUTRAL_700,
     ORANGE_COLOR,
 )
-
-_DRAG_HANDLE_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-    "icons", "drag_handle.svg",
-)
+from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, ValueSpinBox
 
 _NAME_MIN_WIDTH = 130
 _EXCITATION_FIXED_WIDTH = 90
@@ -254,15 +249,8 @@ class ChannelRowWidget(QWidget):
         layout.addWidget(self.btn_remove)
 
         drag_icon = QLabel()
-        drag_icon.setFixedSize(10, 16)
-        if os.path.exists(_DRAG_HANDLE_PATH):
-            drag_icon.setPixmap(
-                QPixmap(_DRAG_HANDLE_PATH).scaled(
-                    10, 16,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-            )
+        drag_icon.setFixedSize(DRAG_HANDLE_WIDTH, DRAG_HANDLE_HEIGHT)
+        drag_icon.setPixmap(drag_handle_pixmap())
         drag_icon.setStyleSheet("background: transparent;")
         drag_icon.setCursor(Qt.CursorShape.OpenHandCursor)
         layout.addWidget(drag_icon)
@@ -682,7 +670,7 @@ class ChannelListWidget(QWidget):
         self._status_timer.setSingleShot(True)
         self._status_timer.timeout.connect(lambda: self._status_label.setVisible(False))
 
-        self._header.select_all_changed.connect(self._on_select_all)
+        self._header.select_all_changed.connect(self.set_all_selected)
         self._header.add_clicked.connect(self._on_add_channel)
         self._list.reordered.connect(self._on_reordered)
 
@@ -786,6 +774,29 @@ class ChannelListWidget(QWidget):
             if self._row(i).channel is self._selected_channel:
                 self.remove_channel_by_index(i)
                 return
+
+    def set_all_selected(self, checked: bool) -> None:
+        """Enable or disable every channel, and bring the header and cache with them.
+
+        Nothing can reach this today: the only connection is the header checkbox,
+        which is constructed hidden and never shown. It is written to survive that
+        changing, because the cache write and the header sync are exactly what the
+        AutoLamella lists were missing (FIB-577), and the cache one is not cosmetic.
+        `_checkbox_states` is what `_on_reordered` rebuilds rows from, so leaving it
+        stale means a drag-and-drop after a clear silently re-ticks every channel --
+        and the rebuild emits no `enabled_changed`, so the consumer that just heard
+        "nothing enabled" would go on believing it while the list shows otherwise.
+        """
+        for i in range(self._list.count()):
+            row = self._row(i)
+            row.checkbox.blockSignals(True)
+            row.checkbox.setChecked(checked)
+            row.checkbox.blockSignals(False)
+            self._checkbox_states[id(row.channel)] = checked
+        self._sync_select_all()
+        self.enabled_changed.emit(
+            [self._row(i).channel for i in range(self._list.count())] if checked else []
+        )
 
     def set_live_acquisition_controls(self, enabled: bool) -> None:
         """Stub for ChannelSettingsWidget compatibility — no separate live list."""
@@ -1031,16 +1042,6 @@ class ChannelListWidget(QWidget):
             self._row(i).channel for i in range(self._list.count())
             if self._row(i).checkbox.isChecked()
         ])
-
-    def _on_select_all(self, checked: bool) -> None:
-        for i in range(self._list.count()):
-            row = self._row(i)
-            row.checkbox.blockSignals(True)
-            row.checkbox.setChecked(checked)
-            row.checkbox.blockSignals(False)
-        self.enabled_changed.emit(
-            [self._row(i).channel for i in range(self._list.count())] if checked else []
-        )
 
     def _sync_select_all(self) -> None:
         count = self._list.count()

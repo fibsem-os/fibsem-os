@@ -4,20 +4,16 @@ House style: a meta line, count chips, a detail block, a duration broken down by
 it goes, and a primary action in the footer. Each fact appears once — the window title
 is the heading, the Channels row is the channel count, and the skipped chip is what
 "sparse" would have said.
+
+The style itself moved to `fibsem.ui.widgets.preflight` when the third dialog in this
+shape appeared — as the second one's docstring said to do — and the *dialog* followed it
+there once the beam overview turned out to present its run in exactly this way. What is
+left here is only the facts a fluorescence run is described by.
 """
 
-from typing import List, Optional
+from typing import List, Optional, Sequence, Tuple
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (
-    QDialog,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PyQt5.QtWidgets import QWidget
 
 from fibsem import constants
 from fibsem.fm.structures import (
@@ -30,44 +26,20 @@ from fibsem.fm.structures import (
 )
 from fibsem.fm.timing import estimate_tileset_acquisition_time
 from fibsem.structures import TileOrderStrategy
-from fibsem.ui import stylesheets
+from fibsem.ui.widgets.preflight import (
+    OverviewPreflightDialog,
+    PathValue,
+    format_bytes,
+    format_duration,
+    mosaic_pixels,
+)
 
-BACKGROUND = stylesheets.SURFACE_COLOR
-PANEL = stylesheets.PANEL_COLOR
-BORDER = stylesheets.BORDER_COLOR
-TEXT = stylesheets.TEXT_COLOR
-TEXT_STRONG = stylesheets.TEXT_STRONG_COLOR
-TEXT_MUTED = stylesheets.TEXT_MUTED_COLOR
-
-def format_duration(seconds: float) -> str:
-    """`2m 14s`, `1h 03m`, `45s` — whichever reads best at that magnitude."""
-    seconds = int(round(seconds))
-    if seconds < 60:
-        return f"{seconds}s"
-    if seconds < 3600:
-        return f"{seconds // 60}m {seconds % 60:02d}s"
-    return f"{seconds // 3600}h {(seconds % 3600) // 60:02d}m"
+# Fluorescence images are 16-bit. Stated rather than read off a tile, because the dialog
+# is shown before anything has been acquired.
+FM_BYTES_PER_PIXEL = 2
 
 
-def _chip(text: str) -> QWidget:
-    """Plain pill label. No status dot: these are counts, not states, and a colour
-    that does not encode anything reads as though it does."""
-    chip = QFrame()
-    chip.setStyleSheet(
-        f"QFrame {{ background: {PANEL}; border: 1px solid {BORDER};"
-        f" border-radius: 10px; }}"
-    )
-    layout = QHBoxLayout(chip)
-    layout.setContentsMargins(10, 3, 10, 3)
-    layout.setSpacing(0)
-
-    label = QLabel(text)
-    label.setStyleSheet(f"color: {TEXT}; font-size: 11px; border: none;")
-    layout.addWidget(label)
-    return chip
-
-
-class FMOverviewConfirmationDialog(QDialog):
+class FMOverviewConfirmationDialog(OverviewPreflightDialog):
     """Confirm an overview before it runs, with what it will cost."""
 
     def __init__(
@@ -79,9 +51,12 @@ class FMOverviewConfirmationDialog(QDialog):
         autofocus_settings: Optional[AutoFocusSettings] = None,
         objective_current: Optional[float] = None,
         objective_focus: Optional[float] = None,
+        tile_resolution: Optional[tuple] = None,
+        save_directory: Optional[str] = None,
+        unreachable: Optional[Sequence[Tuple[int, int]]] = None,
         parent: Optional[QWidget] = None,
     ):
-        super().__init__(parent)
+        super().__init__(parent, unreachable=unreachable)
         self.parameters = parameters
         self.channel_settings = channel_settings
         self.zparams = zparams if parameters.use_zstack else None
@@ -91,13 +66,18 @@ class FMOverviewConfirmationDialog(QDialog):
         # so the number it reports is the one the settings panel was showing.
         self.objective_current = objective_current
         self.objective_focus = objective_focus
-
-        self.setWindowTitle("Start Overview Acquisition")
-        self.setMinimumWidth(430)
-        self.setStyleSheet(f"QDialog {{ background: {BACKGROUND}; }}")
+        # Both passed in rather than read: this dialog takes no microscope, which is what
+        # lets it be built and tested on its own, and the camera resolution is a hardware
+        # read on a shared connection (FIB-517).
+        self.tile_resolution = tile_resolution
+        self.save_directory = save_directory
         self._init_ui()
 
     # ── content ──────────────────────────────────────────────────────────
+
+    def _tile_counts(self) -> Tuple[int, int]:
+        p = self.parameters
+        return p.n_enabled_tiles, p.rows * p.cols
 
     def _estimate(self) -> dict:
         return estimate_tileset_acquisition_time(
@@ -196,6 +176,28 @@ class FMOverviewConfirmationDialog(QDialog):
             detail.extend(self._sweep_rows())
 
         detail.append(("Images", f"{estimate['total_images']:,}"))
+
+        # What it will cost on disk. One file per tile plus the stitch beside them, all
+        # uncompressed, so the array sizes are the estimate rather than a floor for it.
+        # Each tile is already max-projected when it is written, so the z-planes multiply
+        # the *time* and not the bytes -- which is why this reads from the channel count
+        # and not from `zparams`.
+        if self.tile_resolution is not None:
+            width, height = self.tile_resolution
+            channels = max(1, len(self.channel_settings))
+            mosaic_w, mosaic_h = mosaic_pixels(p.rows, p.cols, p.overlap, width, height)
+            tile_bytes = channels * width * height * FM_BYTES_PER_PIXEL
+            total = (p.n_enabled_tiles * tile_bytes
+                     + channels * mosaic_w * mosaic_h * FM_BYTES_PER_PIXEL)
+            detail.append((
+                "Disk",
+                f"~{format_bytes(total)}"
+                f"   ({format_bytes(tile_bytes)} per tile"
+                f" · {mosaic_w} × {mosaic_h} px stitched)",
+            ))
+
+        if self.save_directory:
+            detail.append(("Saving to", PathValue(self.save_directory)))
         detail.append((
             "Estimated time",
             f"{format_duration(estimate['total_time'])}"
@@ -206,76 +208,3 @@ class FMOverviewConfirmationDialog(QDialog):
             + ")",
         ))
         return detail
-
-    # ── layout ───────────────────────────────────────────────────────────
-
-    def _init_ui(self) -> None:
-        p = self.parameters
-        total = p.rows * p.cols
-        acquired = p.n_enabled_tiles
-
-        # No in-dialog heading: the window title already says "Start Overview
-        # Acquisition", and repeating it 8px below costs a line and says nothing. The
-        # meta line leads instead, so it carries normal text weight rather than muted.
-        meta = QLabel(self._meta_line())
-        meta.setStyleSheet(f"color: {TEXT_STRONG}; font-size: 12px;")
-        meta.setWordWrap(True)
-
-        # Tile counts only. The channel count was a third chip, but the Channels row
-        # below lists them by name -- the chip added a number, not information.
-        chips = QHBoxLayout()
-        chips.setSpacing(6)
-        chips.addWidget(_chip(f"{acquired} to acquire"))
-        if acquired != total:
-            chips.addWidget(_chip(f"{total - acquired} skipped"))
-        chips.addStretch()
-
-        detail = QFrame()
-        detail.setStyleSheet(
-            f"QFrame {{ background: {PANEL}; border: 1px solid {BORDER};"
-            f" border-radius: 4px; }}"
-        )
-        detail_layout = QVBoxLayout(detail)
-        detail_layout.setContentsMargins(12, 10, 12, 10)
-        detail_layout.setSpacing(6)
-        for label_text, value_text in self._rows():
-            row = QHBoxLayout()
-            row.setSpacing(12)
-            label = QLabel(label_text)
-            label.setStyleSheet(
-                f"color: {TEXT_MUTED}; font-size: 11px; border: none;")
-            label.setFixedWidth(96)
-            value = QLabel(value_text)
-            value.setStyleSheet(f"color: {TEXT}; font-size: 11px; border: none;")
-            value.setWordWrap(True)
-            row.addWidget(label, alignment=Qt.AlignTop)
-            row.addWidget(value, stretch=1)
-            detail_layout.addLayout(row)
-
-        self.button_start = QPushButton("Start Acquisition")
-        self.button_start.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
-        self.button_start.setMinimumHeight(30)
-        self.button_start.clicked.connect(self.accept)
-        button_cancel = QPushButton("Cancel")
-        button_cancel.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        button_cancel.setMinimumHeight(30)
-        button_cancel.clicked.connect(self.reject)
-
-        footer = QHBoxLayout()
-        footer.addStretch()
-        footer.addWidget(button_cancel)
-        footer.addWidget(self.button_start)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(10)
-        layout.addWidget(meta)
-        layout.addLayout(chips)
-        layout.addWidget(detail)
-        layout.addLayout(footer)
-
-        if acquired == 0:
-            # Nothing to do: the runner would reject this anyway, so say why here
-            # rather than letting it fail after the dialog is dismissed.
-            self.button_start.setEnabled(False)
-            self.button_start.setToolTip("No tiles are selected.")

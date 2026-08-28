@@ -5,12 +5,12 @@
 #
 
 import argparse
-import cv2  # type: ignore
-import numpy as np  # type: ignore
 import os
 
-from skimage.util.shape import view_as_windows  # type: ignore
+import cv2  # type: ignore
+import numpy as np  # type: ignore
 from onnxruntime import InferenceSession  # type: ignore
+from skimage.util.shape import view_as_windows  # type: ignore
 
 
 def load_onnx_model(model_path: str):

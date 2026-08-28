@@ -2,20 +2,21 @@
 
 import numpy as np
 import pytest
-from fibsem.structures import (
-    FibsemImage, 
-    FibsemRectangleSettings, 
-    FibsemCircleSettings,
-    Point
-)
+
 from fibsem.milling.base import FibsemMillingStage
-from fibsem.milling.patterning.patterns2 import RectanglePattern, CirclePattern
+from fibsem.milling.patterning.patterns2 import CirclePattern, RectanglePattern
 from fibsem.milling.patterning.utils import (
+    bbox_to_normalized_coords,
     create_pattern_mask,
     get_pattern_bounding_box,
     get_patterns_bounding_box,
-    bbox_to_normalized_coords,
     normalized_coords_to_bbox,
+)
+from fibsem.structures import (
+    FibsemCircleSettings,
+    FibsemImage,
+    FibsemRectangleSettings,
+    Point,
 )
 
 

@@ -1,9 +1,9 @@
 
 ######## SELECT MILLING POSITION TASK DEFINITIONS ########
 
+import logging
 from dataclasses import dataclass, field
 from typing import ClassVar, Type
-import logging
 
 import numpy as np
 
@@ -36,6 +36,7 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
             label="Use Autofocus",
             tooltip="Whether to autofocus before moving to the milling position"),
     )
+
     select_poi: bool = field(
         default=True,
         metadata=field_meta(
@@ -44,6 +45,7 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
     )
     task_type: ClassVar[str] = "SELECT_MILLING_POSITION"
     display_name: ClassVar[str] = "Select Milling Position"
+
 
 
 class SelectMillingPositionTask(AutoLamellaTask):
@@ -75,8 +77,8 @@ class SelectMillingPositionTask(AutoLamellaTask):
 
         if not is_close:
             if self.config.auto_milling_alignment:
-                from fibsem.transformations import get_stage_tilt_from_milling_angle
                 from fibsem import alignment
+                from fibsem.transformations import get_stage_tilt_from_milling_angle
                 target_stage_tilt_degrees = np.degrees(get_stage_tilt_from_milling_angle(self.microscope,
                                                                                  np.radians(milling_angle)))
                 alignment._eucentric_tilt_alignment(microscope=self.microscope,

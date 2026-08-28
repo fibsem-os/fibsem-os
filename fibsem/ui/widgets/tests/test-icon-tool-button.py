@@ -1,12 +1,18 @@
 """Test/demo script for IconToolButton — shows all usage patterns."""
 import sys
-from PyQt5.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox,
-)
-from PyQt5.QtCore import Qt
 
-from fibsem.ui.widgets.custom_widgets import IconToolButton
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import (
+    QApplication,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QVBoxLayout,
+    QWidget,
+)
+
 from fibsem.ui import stylesheets
+from fibsem.ui.widgets.custom_widgets import IconToolButton
 
 
 def _section(title: str) -> QGroupBox:

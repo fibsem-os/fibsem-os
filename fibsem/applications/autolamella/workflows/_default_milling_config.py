@@ -16,7 +16,6 @@ from fibsem.milling.patterning.patterns2 import (
     TrenchPattern,
     WaffleNotchPattern,
 )
-
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import (
     BeamType,

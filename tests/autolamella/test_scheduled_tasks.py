@@ -22,13 +22,11 @@ import pytest
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-)
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
-from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowConfig,
     Experiment,
     Lamella,
 )
+from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 
 TASKS = ["Trench", "Undercut"]
@@ -233,3 +231,100 @@ def test_the_workflow_config_finds_a_task_schedule():
     assert config.get_scheduled_at("Trench") == when
     assert config.get_scheduled_at("Undercut") is None
     assert config.get_scheduled_at("Polish") is None
+
+
+# ── the border can tell a parked run from a running one (FIB-676) ─────────────
+
+class _Signal:
+    """The one method `update_status_ui` calls on `workflow_update_signal`."""
+
+    def __init__(self, on_emit):
+        self._on_emit = on_emit
+
+    def emit(self, info: dict) -> None:
+        self._on_emit(info)
+
+
+class RecordingUI:
+    """Stands in for AutoLamellaUI at the only boundary the wait touches.
+
+    Samples WORKFLOW_PENDING at each status emit — i.e. exactly where the real UI
+    reads it, since the border block runs at the end of `_on_workflow_update`. That
+    makes these tests about what the border can *see*, not merely about an attribute
+    being written and rewritten around the call.
+    """
+
+    def __init__(self, manager: TaskManager):
+        self._task_manager = manager
+        self.WORKFLOW_PENDING = False
+        self.pending_at_each_emit: List[bool] = []
+        self.workflow_update_signal = _Signal(
+            lambda info: self.pending_at_each_emit.append(self.WORKFLOW_PENDING)
+        )
+
+
+@pytest.fixture
+def ui(manager: TaskManager) -> RecordingUI:
+    recording = RecordingUI(manager)
+    manager.parent_ui = recording
+    return recording
+
+
+def test_the_border_sees_pending_while_the_wait_is_happening(manager, ui):
+    """The whole point: a run parked until 2am must not keep showing the running
+    colour. The countdown emits every 15s and immediately on entry, so the flag has
+    to be true by the first of them — not merely set somewhere around the wait."""
+    elapsed_running(manager, scheduled_at=datetime.now() + timedelta(seconds=0.3))
+
+    assert ui.pending_at_each_emit == [True]
+    assert ui.WORKFLOW_PENDING is False
+
+
+def test_pending_clears_once_the_scheduled_time_arrives(manager, ui):
+    """Cleared before the task's own InProgress status goes out, so the border never
+    shows grey over a task that has started."""
+    manager._wait_until_scheduled(
+        scheduled_at=datetime.now() + timedelta(seconds=0.2),
+        task_name="Trench",
+        lamella=manager.experiment.positions[0],
+    )
+
+    assert ui.WORKFLOW_PENDING is False
+
+
+def test_pending_clears_when_a_stop_ends_the_wait(manager, ui):
+    """A stop leaves the queue; the flag must not outlive the wait it belongs to."""
+    Thread(target=manager.stop, daemon=True).start()
+
+    elapsed_running(manager, scheduled_at=datetime.now() + timedelta(hours=6))
+
+    assert ui.WORKFLOW_PENDING is False
+
+
+def test_pending_clears_if_the_wait_raises(manager, ui, monkeypatch):
+    """Why the clear is in a `finally`. A stranded flag would leave the border
+    claiming nothing is running for the remainder of the run."""
+    import fibsem.applications.autolamella.workflows.tasks.manager as manager_module
+
+    def boom(_seconds):
+        raise RuntimeError("something blew up mid-wait")
+
+    monkeypatch.setattr(manager_module.time, "sleep", boom)
+
+    with pytest.raises(RuntimeError):
+        elapsed_running(manager, scheduled_at=datetime.now() + timedelta(hours=6))
+
+    assert ui.WORKFLOW_PENDING is False
+
+
+def test_an_unscheduled_task_never_sets_pending(manager, ui):
+    """The common path stays untouched: no schedule, no flag, no grey flash.
+
+    The queue emits per-task status through the same signal, so the recorder is
+    demonstrably live here — every one of those emits just sees the flag false.
+    """
+    run_with(manager)
+
+    assert ui.pending_at_each_emit, "expected the queue to emit at all"
+    assert not any(ui.pending_at_each_emit)
+    assert ui.WORKFLOW_PENDING is False

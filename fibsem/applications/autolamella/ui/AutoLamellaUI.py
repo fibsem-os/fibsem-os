@@ -1,6 +1,6 @@
 import sys
-import warnings
 import time
+import warnings
 
 from fibsem import conversions
 
@@ -13,10 +13,29 @@ import os
 import threading
 from copy import deepcopy
 from pathlib import Path
-from typing import List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
+
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtWidgets import (
+    QGridLayout,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QSizePolicy,
+    QSpacerItem,
+    QTabWidget,
+    QWidget,
+)
+
 from fibsem import conversions
+from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
+    LamellaNameListWidget,
+)
+from fibsem.applications.autolamella.ui.selected_lamella_widget import (
+    SelectedLamellaWidget,
+)
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
-from fibsem.ui import notification_service
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,
@@ -31,31 +50,16 @@ from fibsem.ui import (
     FibsemCryoDepositionWidget,
     FibsemImageSettingsWidget,
     FibsemMovementWidget,
-    FibsemSystemSetupWidget,
     FibsemSpotBurnWidget,
+    FibsemSystemSetupWidget,
     MillingTaskViewerWidget,
+    notification_service,
     stylesheets,
 )
-from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
-from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui import utils as fui
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (
-    QGridLayout,
-    QLabel,
-    QLineEdit,
-    QMainWindow,
-    QMessageBox,
-    QPushButton,
-    QSizePolicy,
-    QSpacerItem,
-    QTabWidget,
-    QWidget,
-)
+from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
+from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.applications.autolamella.ui.lamella_name_list_widget import LamellaNameListWidget
-from fibsem.applications.autolamella.ui.selected_lamella_widget import SelectedLamellaWidget
 
 if (
     DETECTION_AVAILABLE
@@ -64,16 +68,15 @@ if (
         FibsemEmbeddedDetectionUI as FibsemEmbeddedDetectionWidget,
     )
 
-from fibsem.applications.autolamella.ui.autolamella_create_experiment_widget import (
-    create_experiment_dialog,
-)
-from fibsem.applications.autolamella.ui.autolamella_load_experiment_widget import load_experiment_dialog
-from fibsem.applications.autolamella.ui.autolamella_load_task_protocol_widget import (
-    load_task_protocol_dialog,
-)
-from fibsem.ui.fm.widgets import MinimapPlotWidget
-from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
+from psygnal import EmissionInfo
+from superqt import ensure_main_thread
+
+# Paired with the disabled completion_summary hook in setup_hooks; FunctionHook and
+# HookEvent come back from fibsem.hooks below at the same time.
+# from fibsem.applications.autolamella.tools.artifacts import write_completion_summary
+import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella import config as cfg
+from fibsem.applications.autolamella.hook_defaults import build_hook_manager
 from fibsem.applications.autolamella.poses import (
     build_lamella_poses,
     sync_fluorescence_pose,
@@ -85,16 +88,20 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
-# Paired with the disabled completion_summary hook in setup_hooks; FunctionHook and
-# HookEvent come back from fibsem.hooks below at the same time.
-# from fibsem.applications.autolamella.tools.artifacts import write_completion_summary
-import fibsem.config as fibsem_cfg
-from fibsem.applications.autolamella.hook_defaults import build_hook_manager
-from fibsem.hooks import HookManager
+from fibsem.applications.autolamella.ui.autolamella_create_experiment_widget import (
+    create_experiment_dialog,
+)
+from fibsem.applications.autolamella.ui.autolamella_load_experiment_widget import (
+    load_experiment_dialog,
+)
+from fibsem.applications.autolamella.ui.autolamella_load_task_protocol_widget import (
+    load_task_protocol_dialog,
+)
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+from fibsem.hooks import HookManager
+from fibsem.ui.fm.widgets import MinimapPlotWidget
+from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
-from psygnal import EmissionInfo
-from superqt import ensure_main_thread
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -142,15 +149,19 @@ except Exception as e:
 
 
 # instructions
+# What to do next, shown in the window's status bar. Each names something visible
+# on screen at the moment it is shown -- three of these used to name menus that do
+# not exist ("Connection ->", "Experiment ->" are not menus; the File entries are
+# "New Experiment" and "Load Experiment"), which is worse than saying nothing.
 INSTRUCTIONS = {
-    "NOT_CONNECTED": "Please connect to the microscope (Connection -> Connect to Microscope).",
-    "NO_EXPERIMENT": "Please create or load an experiment (File -> Create / Load Experiment)",
-    "NO_PROTOCOL": "Please load a protocol (File -> Load Protocol).",
-    "NO_LAMELLA": "Please Add Lamella Positions (Experiment -> Add Lamella).",
-    "TRENCH_READY": "Trench Positions Selected. Ready to Run Waffle Trench.",
-    "UNDERCUT_READY": "Undercut Positions Selected. Ready to Run Waffle Undercut.",
-    "LAMELLA_READY": "Lamella Positions Selected. Ready to Run Setup AutoLamella.",
-    "AUTOLAMELLA_READY": "Lamella Positions Selected. Ready to Run AutoLamella.",
+    "NOT_CONNECTED": "Connect to the microscope to begin.",
+    "NO_EXPERIMENT": "Create or load an experiment to begin.",
+    "NO_PROTOCOL": "Load a protocol for this experiment (File \u2192 Load Protocol).",
+    "NO_LAMELLA": (
+        "Add a lamella position with + in the lamella list, "
+        "or mark one on the Overview tab."
+    ),
+    "AUTOLAMELLA_READY": "Ready to run. Choose lamella and tasks in the Workflow tab.",
 }
 
 
@@ -184,6 +195,11 @@ class AutoLamellaUI(QMainWindow):
         self.microscope: Optional[FibsemMicroscope] = None
         self.settings: Optional[MicroscopeSettings] = None
 
+        # Read here rather than taken from parent_ui: this widget is constructed
+        # with parent_ui=None in tests, and the tab it gates is built in __init__.
+        self._connection_chip_enabled = (
+            fibsem_cfg.load_user_preferences().features.connection_chip
+        )
         self.system_widget = FibsemSystemSetupWidget(parent=self)
         self.image_widget: Optional[FibsemImageSettingsWidget] = None
         self.movement_widget: Optional[FibsemMovementWidget] = None
@@ -199,10 +215,23 @@ class AutoLamellaUI(QMainWindow):
         self.minimap_plot_widget.setWindowTitle("Minimap Plot")
         self.minimap_plot_widget.hide()
 
-        # add widgets to tabs
-        self.tabWidget.insertTab(0, self.system_widget, "Connection")
+        # add widgets to tabs.
+        #
+        # The Connection tab is a gate in a bar that otherwise means "the instrument
+        # needs you here now" -- it is the only tab that can never be a workflow
+        # step, and it sits at position 0, the default landing spot, for something
+        # done once a session. With the connection dialog on it has somewhere else
+        # to be reached from, so it goes (FIB-775).
+        #
+        # The widget itself stays either way: it owns the connection, and everything
+        # in the application follows its signals. Only the tab is conditional.
+        if not self._connection_chip_enabled:
+            self.tabWidget.insertTab(0, self.system_widget, "Connection")
 
         self.WAITING_FOR_USER_INTERACTION: bool = False
+        # A run is active but nothing is executing -- today only during a
+        # scheduled-start wait. Set from the worker thread, read by the border.
+        self.WORKFLOW_PENDING: bool = False
         self.USER_RESPONSE: bool = False
         self.WAITING_FOR_UI_UPDATE: bool = False
         self.SELECTED_POI: Optional[Point] = None
@@ -230,14 +259,6 @@ class AutoLamellaUI(QMainWindow):
         self.tab = QWidget()
         self.grid_layout_experiment = QGridLayout(self.tab)
 
-        # Experiment name (row 0)
-        self.label_experiment_name = QLabel("Experiment")
-        self.lineEdit_experiment_name = QLineEdit()
-
-        # Protocol name (row 3)
-        self.label_protocol_name = QLabel("Protocol")
-        self.lineEdit_protocol_name = QLineEdit()
-
         self.lamella_list = LamellaNameListWidget()
         self.lamella_list.enable_add_button(True)
         self.lamella_list.enable_defect_button(True)
@@ -246,31 +267,24 @@ class AutoLamellaUI(QMainWindow):
         self.lamella_list.enable_update_action(True)
         self.lamella_list.enable_remove_button(True)
 
-        # --- Selected Lamella panel (row 6, colspan 2) ---
         self.selected_lamella_widget = SelectedLamellaWidget()
 
-        self.grid_layout_experiment.addWidget(self.label_experiment_name, 0, 0)
-        self.grid_layout_experiment.addWidget(self.lineEdit_experiment_name, 0, 1)
-        self.grid_layout_experiment.addWidget(self.label_protocol_name, 1, 0)
-        self.grid_layout_experiment.addWidget(self.lineEdit_protocol_name, 1, 1)
-        self.grid_layout_experiment.addWidget(self.lamella_list, 2, 0, 1, 2)
-        self.grid_layout_experiment.addWidget(self.selected_lamella_widget, 3, 0, 1, 2)
+        self.grid_layout_experiment.addWidget(self.lamella_list, 0, 0, 1, 2)
+        self.grid_layout_experiment.addWidget(self.selected_lamella_widget, 1, 0, 1, 2)
 
-        # Vertical spacer (row 7)
         self.grid_layout_experiment.addItem(
-            QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding), 4, 0, 1, 2
+            QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding), 2, 0, 1, 2
         )
 
         # Add Experiment tab to tabWidget
         self.tabWidget.addTab(self.tab, "Experiment")
 
-        # --- Workflow info (row 2) ---
         self.label_workflow_information = QLabel("Workflow Information")
 
-        # --- Instructions (row 3) ---
+        # The question a running workflow is asking; hidden when it is not asking
+        # one. Idle guidance lives in the window's status bar.
         self.label_instructions = QLabel("Instructions")
 
-        # --- Yes / No buttons (row 4) ---
         self.pushButton_yes = QPushButton("Yes")
         self.pushButton_no = QPushButton("No")
 
@@ -315,7 +329,12 @@ class AutoLamellaUI(QMainWindow):
         self.lamella_list.remove_requested.connect(self._on_lamella_remove_requested)
         self.lamella_list.move_to_requested.connect(self._on_lamella_move_to_requested)
         self.lamella_list.update_requested.connect(self._on_lamella_update_requested)
-        self.lamella_list.defect_changed.connect(self._on_lamella_defect_changed)
+        # `defect_changed` is deliberately not wired here. The window this widget sits
+        # in connects the same signal to its own handler, which saves *and* redraws the
+        # rows, the cards and the name list -- so a second handler here only bought a
+        # second full `experiment.save()` for one toggled icon, which is 0.8 s of frozen
+        # GUI at 100 lamella (FIB-682). Every other host of this list keeps its own
+        # handler, because nothing else is listening for them (FIB-564).
         self.lamella_list.lamella_selected.connect(self.update_lamella_ui)
 
         # system widget
@@ -330,12 +349,6 @@ class AutoLamellaUI(QMainWindow):
         self.detection_confirmed_signal.connect(self.handle_confirmed_detection_signal)
         self.workflow_update_signal.connect(self.handle_workflow_update)
         self._workflow_finished_signal.connect(self._workflow_finished)  # type: ignore
-
-        # labels and placeholders
-        self.lineEdit_experiment_name.setPlaceholderText("No Experiment Loaded")
-        self.lineEdit_protocol_name.setPlaceholderText("No Protocol Loaded")
-        self.lineEdit_protocol_name.setReadOnly(True)
-        self.lineEdit_experiment_name.setReadOnly(True)
 
         # workflow info
         self.set_current_workflow_message(msg=None, show=False)
@@ -541,7 +554,9 @@ class AutoLamellaUI(QMainWindow):
             experiment = Experiment.load(Path(experiment_path))
         except Exception as e:
             logging.warning(f"Quickload: unable to load {experiment_path}: {e}")
-            notification_service.show_toast(f"Quickload: could not load experiment: {e}", "error")
+            notification_service.show_toast(
+                f"Quickload: could not load experiment: {e}", "error"
+            )
             return
 
         # The same bar the load dialog sets. An experiment with no protocol has
@@ -553,7 +568,9 @@ class AutoLamellaUI(QMainWindow):
             return
 
         self._adopt_experiment(experiment)
-        logging.info(f"Quickload: loaded experiment {experiment.name} from {experiment_path}")
+        logging.info(
+            f"Quickload: loaded experiment {experiment.name} from {experiment_path}"
+        )
 
     def _adopt_experiment(self, experiment: Experiment) -> None:
         """Make ``experiment`` the current one, and point logging at its logfile.
@@ -999,7 +1016,9 @@ class AutoLamellaUI(QMainWindow):
             # capture the per-run summary before the manager is torn down
             if self._task_manager is not None:
                 try:
-                    self._last_run_summary = self._task_manager.build_run_summary_dataframe()
+                    self._last_run_summary = (
+                        self._task_manager.build_run_summary_dataframe()
+                    )
                 except Exception as e:
                     logging.warning(f"Failed to build workflow run summary: {e}")
                     self._last_run_summary = None
@@ -1091,17 +1110,8 @@ class AutoLamellaUI(QMainWindow):
             idx = self.tabWidget.indexOf(self.det_widget)
             self.tabWidget.setTabVisible(idx, False)  # hide detection tab for now
 
-        # labels
-        self.lineEdit_experiment_name.setToolTip("No Experiment Loaded")
         if is_experiment_loaded and self.experiment is not None:
-            self.lineEdit_experiment_name.setText(f"{self.experiment.name}")
-            self.lineEdit_experiment_name.setToolTip(
-                f"Experiment Directory: {self.experiment.path}"
-            )
             self.lamella_list.setEnabled(has_lamella)
-
-        if self.protocol is not None:
-            self.lineEdit_protocol_name.setText(f"{self.protocol.name}")
 
         # buttons
         self.lamella_list.setEnabled(is_experiment_ready)
@@ -1121,16 +1131,11 @@ class AutoLamellaUI(QMainWindow):
         if self.is_workflow_running:
             return
 
-        if not is_microscope_connected:
-            self.set_instructions_msg(INSTRUCTIONS["NOT_CONNECTED"])
-        elif not is_experiment_loaded:
-            self.set_instructions_msg(INSTRUCTIONS["NO_EXPERIMENT"])
-        elif not is_protocol_loaded:
-            self.set_instructions_msg(INSTRUCTIONS["NO_PROTOCOL"])
-        elif not has_lamella:
-            self.set_instructions_msg(INSTRUCTIONS["NO_LAMELLA"])
-        elif has_lamella:
-            self.set_instructions_msg(INSTRUCTIONS["AUTOLAMELLA_READY"])
+        # Nothing to say while idle. The same guidance is in the window's status
+        # bar, which is where it belongs -- shown in both places it read as two
+        # different messages that happened to agree. This label is for the question
+        # a running workflow is asking, which the Yes/No buttons below it answer.
+        self.set_instructions_msg("")
 
     def _on_workflow_config_changed(self, wcfg: AutoLamellaWorkflowConfig):
         if self.experiment is None or self.experiment.task_protocol is None:
@@ -1318,13 +1323,6 @@ class AutoLamellaUI(QMainWindow):
         self.lamella_list.select(lamella.name)
         self.update_lamella_position_ui()
 
-    def _on_lamella_defect_changed(self, lamella):
-        """Persist defect state change to disk."""
-        if self.experiment is None:
-            return
-        self.experiment.save()
-        self.update_ui()
-
     def _on_lamella_remove_requested(self, lamella):
         """Handle removal of a lamella via the list row's remove button.
 
@@ -1474,7 +1472,9 @@ class AutoLamellaUI(QMainWindow):
                 )
 
         self.experiment.save()
-        self.selected_lamella_widget.refresh_pose(pose_name, state.stage_position.pretty)
+        self.selected_lamella_widget.refresh_pose(
+            pose_name, state.stage_position.pretty
+        )
         # The FM overview canvas draws these positions itself rather than reading them
         # back, so a pose that moved here is one it only hears about by being told.
         self.experiment.positions.events.changed.emit()
@@ -1545,14 +1545,17 @@ class AutoLamellaUI(QMainWindow):
         else:
             value_m = obj.focus_position
         if value_m is None:
-            notification_service.show_toast("Objective position unavailable.", "warning")
+            notification_service.show_toast(
+                "Objective position unavailable.", "warning"
+            )
             return
         lamella.fluorescence_pose.objective_position = value_m
         self.experiment.save()
         # full refresh so the objective value shows and "Apply to All" re-enables
         self.selected_lamella_widget.set_lamella(lamella)
         notification_service.show_toast(
-            f"Set objective position to {value_m * METRE_TO_MICRON:.1f} µm for {lamella.name}.", "info"
+            f"Set objective position to {value_m * METRE_TO_MICRON:.1f} µm for {lamella.name}.",
+            "info",
         )
 
     def _move_objective_to_lamella_position(self):
@@ -1636,7 +1639,8 @@ class AutoLamellaUI(QMainWindow):
         if count:
             self.experiment.save()
             notification_service.show_toast(
-                f"Applied objective position ({value_um:.1f} µm) to {count} lamella.", "info"
+                f"Applied objective position ({value_um:.1f} µm) to {count} lamella.",
+                "info",
             )
 
     def get_selected_lamella(self) -> Optional[Lamella]:
@@ -1735,6 +1739,9 @@ class AutoLamellaUI(QMainWindow):
             neg: The negative button text.
         """
         self.label_instructions.setText(msg)
+        # An empty prompt is not a blank line: with no message there is no question,
+        # so the label goes away rather than reserving space for one.
+        self.label_instructions.setVisible(bool(msg))
         self.pushButton_yes.setText(pos)
         self.pushButton_no.setText(neg)
 
@@ -1815,6 +1822,7 @@ class AutoLamellaUI(QMainWindow):
         self.tabWidget.setCurrentIndex(self.tabWidget.indexOf(self.tab))
 
         self.WAITING_FOR_USER_INTERACTION = False
+        self.WORKFLOW_PENDING = False
 
         # clear milling task config
         if self.milling_task_config_widget is not None:
@@ -1956,9 +1964,22 @@ class AutoLamellaUI(QMainWindow):
                 fluorescence_channel_settings
             )
 
-        # instruction message
+        # Instruction message. Read with `.get`, not indexed: this signal has no
+        # declared contract, and 12 of its 13 emit sites pass an opaque variable, so
+        # what a payload carries is not knowable without running it. Every emitter in
+        # this repository sends `msg` today -- but a raise here does not degrade a
+        # label, it aborts the process. PyQt5 calls `qFatal()` on any exception that
+        # escapes a slot invoked from C++, which a queued signal from the workflow
+        # thread is, and the abort takes the run with it and reaches no logfile
+        # (FIB-329, FIB-402). It has happened: a queue edit put a payload without
+        # `msg` on this signal and killed the app on every queue action.
+        #
+        # The default is `""` rather than a placeholder because an empty message
+        # already means something here: `set_instructions_msg` hides the label, which
+        # is what one emit site sends `{"msg": ""}` deliberately to do. A payload
+        # carrying no message is an update about something other than the prompt.
         self.set_instructions_msg(
-            info["msg"], info.get("pos", None), info.get("neg", None)
+            info.get("msg", ""), info.get("pos", None), info.get("neg", None)
         )
         self.set_current_workflow_message(info.get("workflow_info", None))
 
@@ -1988,15 +2009,21 @@ class AutoLamellaUI(QMainWindow):
         controller.set_overlay(
             BeamType.ION,
             PointsSpec(
-                id="poi", points=[(col, row)],
+                id="poi",
+                points=[(col, row)],
                 # Matches the protocol editor's POI, down to the legend entry: same
                 # concept, same marker. Left to the defaults this drew at size 18 with
                 # PointOverlay's 2.0 edge, a cross visibly fatter than the thin one the
                 # editor and the config preview draw, and absent from the legend
                 # (FIB-582). 1.2 keeps it reading like the centre crosshair.
-                color="magenta", selected_color="magenta", marker="+",
-                size=14, edge_width=1.2, legend_label="Point of Interest",
-                add_on_right_click=False, removable=False,
+                color="magenta",
+                selected_color="magenta",
+                marker="+",
+                size=14,
+                edge_width=1.2,
+                legend_label="Point of Interest",
+                add_on_right_click=False,
+                removable=False,
             ),
         )
         # POI owns FIB-canvas input: stage-move + milling menu stand down. The toolbar

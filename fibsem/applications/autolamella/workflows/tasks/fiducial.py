@@ -49,6 +49,11 @@ class MillFiducialTaskConfig(AutoLamellaTaskConfig):
         if self.milling == {}:
             self.milling = deepcopy({FIDUCIAL_KEY: DEFAULT_MILLING_CONFIG[FIDUCIAL_KEY]})
 
+    @property
+    def opens_with_reference_alignment(self) -> bool:
+        """Only when configured to: `align_to_reference` gates the call in `_run`."""
+        return self.align_to_reference
+
 
 class MillFiducialTask(AutoLamellaTask):
     """Task to setup the lamella for milling."""

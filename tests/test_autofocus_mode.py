@@ -17,7 +17,7 @@ import pytest
 import yaml
 
 import fibsem
-from fibsem.structures import AutoFocusMode, AutoFocusSettings
+from fibsem.structures import AutoFocusMode, OverviewAcquisitionSettings
 
 
 def test_every_import_path_yields_the_same_enum():
@@ -53,8 +53,8 @@ def test_iteration_yields_exactly_the_four_modes():
 )
 def test_the_beam_side_spellings_are_aliases_not_new_members(alias, canonical):
     assert getattr(AutoFocusMode, alias) is canonical
-    assert AutoFocusMode[alias] is canonical   # settings persisted by name
-    assert AutoFocusMode(alias) is canonical   # ... and read back by value
+    assert AutoFocusMode[alias] is canonical  # settings persisted by name
+    assert AutoFocusMode(alias) is canonical  # ... and read back by value
 
 
 @pytest.mark.parametrize(
@@ -92,14 +92,39 @@ def test_junk_still_raises(bogus):
 
 
 @pytest.mark.parametrize("mode", list(AutoFocusMode))
-def test_autofocus_settings_round_trip(mode):
-    assert AutoFocusSettings.from_dict(AutoFocusSettings(mode=mode).to_dict()).mode is mode
+def test_overview_settings_round_trip(mode):
+    """The mode now rides on `OverviewAcquisitionSettings` itself.
+
+    It used to live inside an `autofocus_settings` object that held nothing else; that
+    class is gone (FIB-646), so this follows the mode to where it went rather than
+    being deleted with it.
+    """
+    s = OverviewAcquisitionSettings(autofocus_mode=mode)
+    assert OverviewAcquisitionSettings.from_dict(s.to_dict()).autofocus_mode is mode
 
 
-def test_autofocus_settings_reads_the_previously_persisted_name_form():
-    """Beam settings on disk say {"mode": "EVERY_ROW"}; they must keep loading."""
-    assert AutoFocusSettings.from_dict({"mode": "EVERY_ROW"}).mode is AutoFocusMode.EACH_ROW
-    assert AutoFocusSettings.from_dict({"mode": "NONE"}).mode is AutoFocusMode.NONE
+def test_the_previously_persisted_name_form_still_loads_from_the_old_shape():
+    """Two layers of compatibility have to hold at once here, and they are independent.
+
+    Beam settings on disk say `{"autofocus_settings": {"mode": "EVERY_ROW"}}` -- the old
+    *shape* (mode nested inside the settings object) carrying the old *member name*
+    (`EVERY_ROW`, since renamed `EACH_ROW`). Both were already handled separately; this
+    pins that the shape migration did not drop the name one on the way past.
+    """
+
+    def mode_of(raw):
+        return OverviewAcquisitionSettings.from_dict(
+            {"autofocus_settings": {"mode": raw}}
+        ).autofocus_mode
+
+    assert mode_of("EVERY_ROW") is AutoFocusMode.EACH_ROW
+    assert mode_of("NONE") is AutoFocusMode.NONE
+
+
+def test_the_new_shape_also_reads_the_previously_persisted_name_form():
+    """And on the new key, for a file written after the split but before a rename."""
+    s = OverviewAcquisitionSettings.from_dict({"autofocus_mode": "EVERY_ROW"})
+    assert s.autofocus_mode is AutoFocusMode.EACH_ROW
 
 
 def test_overview_parameters_round_trip():
@@ -114,8 +139,10 @@ def test_the_shipped_fm_configuration_still_parses():
     """The default config has `autofocus_mode: once` in it -- pin it against the enum."""
     from fibsem.fm.structures import OverviewParameters
 
-    path = Path(fibsem.__file__).parent / "config" / "fm" / "fm-configuration-default.yaml"
-    config = yaml.safe_load(path.read_text())
+    path = (
+        Path(fibsem.__file__).parent / "config" / "fm" / "fm-configuration-default.yaml"
+    )
+    config = yaml.safe_load(path.read_text(encoding="utf-8"))
 
     params = OverviewParameters.from_dict(config["overview_parameters"])
     assert params.autofocus_mode is AutoFocusMode.ONCE

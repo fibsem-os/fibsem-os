@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Optional
+
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
@@ -13,17 +15,16 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from typing import Optional
 
 from fibsem.config import STANDARD_RESOLUTIONS_ZIP
 from fibsem.constants import MICRO_TO_SI, SI_TO_MICRO
 from fibsem.structures import ImageSettings
-from fibsem.ui.utils import install_wheel_blocker
-from fibsem.ui.widgets.custom_widgets import IconToolButton, QDirectoryLineEdit
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import (
     NEUTRAL_400,
 )
+from fibsem.ui.utils import install_wheel_blocker
+from fibsem.ui.widgets.custom_widgets import IconToolButton, QDirectoryLineEdit
 
 # GUI Configuration Constants
 WIDGET_CONFIG = {

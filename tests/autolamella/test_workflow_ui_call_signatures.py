@@ -38,7 +38,7 @@ def _call_sites() -> List[Tuple[Path, int, str, ast.Call]]:
     sites = []
     for path in sorted(_TASKS_DIR.rglob("*.py")):
         try:
-            tree = ast.parse(path.read_text())
+            tree = ast.parse(path.read_text(encoding="utf-8"))
         except SyntaxError:  # pragma: no cover - a broken file is another test's problem
             continue
         for node in ast.walk(tree):

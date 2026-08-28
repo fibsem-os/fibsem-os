@@ -19,18 +19,18 @@ pytest.importorskip("PyQt5")
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-)
-from fibsem.applications.autolamella.workflows.tasks.reference_image import (
-    AcquireReferenceImageConfig,
-)
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
-from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowConfig,
     Experiment,
     Lamella,
 )
+from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
+from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
+    WorkflowProgressWidget,
+)
 from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
-from fibsem.applications.autolamella.ui.workflow_timeline_widget import WorkflowProgressWidget
+from fibsem.applications.autolamella.workflows.tasks.reference_image import (
+    AcquireReferenceImageConfig,
+)
 
 TASKS = ["Trench", "Undercut", "Polishing"]
 

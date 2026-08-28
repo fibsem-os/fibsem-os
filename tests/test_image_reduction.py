@@ -24,7 +24,13 @@ import cv2
 import numpy as np
 import pytest
 
-from fibsem.imaging.reduce import _CV2_DTYPES, _box_mean_numpy, downsample
+from fibsem.imaging.reduce import (
+    _CV2_DTYPES,
+    PreviewMosaic,
+    _box_mean_numpy,
+    downsample,
+    downsample_mask,
+)
 
 
 def stride(arr: np.ndarray, max_px: int) -> np.ndarray:
@@ -193,5 +199,181 @@ class TestTheTwoImplementationsAgree:
         assert np.abs(by_numpy.astype(int) - by_cv2.astype(int)).max() <= 1
 
 
+def float_mask(mask: np.ndarray, max_px: int) -> np.ndarray:
+    """The spelling `downsample_mask` replaced, kept as the reference to measure against.
+
+    Correct, and four bytes of temporary per *source* pixel — which is the cost that
+    grows with the mosaic rather than with what comes out.
+    """
+    return downsample(mask.astype(np.float32), max_px) > 0.5
+
+
+class TestReducingACoverageMask:
+    """A block survives when *more* than half of it is set.
+
+    Reduced alongside the pixels so an overview's colour and its "was anything acquired
+    here" answer keep the same shape. The rule has to resolve a part-covered block one
+    way or the other, and it resolves inward: coverage that spreads outward claims
+    ground as acquired that half of it was not, and on a real-space canvas that ground
+    is drawn opaque over whatever else is beneath it.
+    """
+
+    @pytest.mark.parametrize("covered,expected", [
+        (0, False), (10, False), (49, False),
+        (50, False),  # exactly half — the tie, resolved inward
+        (51, True), (90, True), (100, True),
+    ])
+    def test_a_block_survives_when_most_of_it_is_set(self, covered, expected):
+        block = np.zeros((10, 10), dtype=bool)
+        block.flat[:covered] = True
+        # 10x10 identical blocks, so every output pixel answers the same question.
+        out = downsample_mask(np.tile(block, (10, 10)), 10)
+
+        assert out.shape == (10, 10)
+        assert bool(out.all()) is expected and bool(out.any()) is expected
+
+    def test_it_is_not_the_pixels_thresholded(self):
+        """Box-averaging intensities and testing for "greater than zero" marks a block
+        acquired when *any* of it is — which over a mosaic's unacquired ground is most
+        of it, and is how a part-finished overview comes to paint black over the one
+        beneath it (FIB-630)."""
+        data = np.zeros((100, 100), np.uint8)
+        data[:, ::10] = 255  # one column of every 10x10 block, so each is a tenth set
+
+        generous = downsample(data, 10) > 0
+        honest = downsample_mask(data > 0, 10)
+
+        assert generous.all(), "the reference rule did not do the generous thing"
+        assert not honest.any(), "a tenth-covered block was called acquired"
+
+    @pytest.mark.parametrize("shape,max_px,cut", [
+        ((5120, 5120), 2048, (3000, 3777)),  # the 5x5 mosaic, factor 3
+        ((777, 301), 64, (500, 200)),        # ragged on both axes, factor 13
+        ((1000, 1000), 97, (613, 411)),      # factor 11, ragged
+    ])
+    def test_it_matches_the_float_spelling_on_a_real_mask(self, shape, max_px, cut):
+        """Down to the last block, which is the claim that makes the cheaper spelling a
+        substitution rather than a change.
+
+        A *coverage* mask is what it is asked to answer for, and the edge of one is the
+        straight edge of a tile: a block on it is covered in whole rows, so its fraction
+        moves in steps of 1/factor and never lands near the half where eight bits of
+        quantisation could decide it either way.
+        """
+        mask = np.zeros(shape, dtype=bool)
+        mask[:cut[0], :cut[1]] = True
+
+        assert np.array_equal(downsample_mask(mask, max_px), float_mask(mask, max_px))
+
+    def test_a_sparse_tileset_reduces_the_same_way(self):
+        """The other real shape: a masked run leaves whole tiles unacquired (FIB-618),
+        so coverage is a chequerboard rather than one region."""
+        mask = np.zeros((5120, 5120), dtype=bool)
+        for row in range(5):
+            for col in range(5):
+                if (row + col) % 2 == 0:
+                    mask[row * 1024:(row + 1) * 1024, col * 1024:(col + 1) * 1024] = True
+
+        assert np.array_equal(downsample_mask(mask, 2048), float_mask(mask, 2048))
+
+    def test_uniform_noise_is_where_the_two_part_company(self):
+        """Named so the agreement above is not read as a promise about anything else.
+
+        Half-set noise puts a block's coverage right in the quantisation band, and the
+        two spellings then disagree readily. Harmless for coverage, which is never this
+        — but this is the input that would make a future caller's assumption wrong.
+        """
+        noise = np.random.default_rng(0).random((777, 301)) > 0.5
+
+        differ = (downsample_mask(noise, 64) != float_mask(noise, 64)).sum()
+
+        assert differ > 0, "the quantisation band closed; the docstring overstates it"
+
+    def test_it_refuses_anything_that_is_not_a_mask(self):
+        """`(data > 0)` is the caller's job, and doing it here would hide the one call
+        that forgot: passing raw pixels reduces intensities and thresholds them at 128,
+        which is a picture-dependent answer that looks plausible everywhere."""
+        with pytest.raises(TypeError):
+            downsample_mask(np.zeros((100, 100), np.uint8), 10)
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+# ── the live preview mosaic ──────────────────────────────────────────────
+
+
+class TestPreviewMosaic:
+    """The decimated mosaic both tiled runners fill in as a run goes.
+
+    Written twice until FIB-699, with the same stride rule, the same `downsample` call
+    and the same paste — the only real difference being the channel axis. Tested here
+    rather than through either runner: this is where the arithmetic lives, and neither
+    runner's tests can be run by CI.
+    """
+
+    def test_a_mosaic_that_fits_is_not_reduced(self):
+        mosaic = PreviewMosaic(2048, 1024, dtype=np.uint8)
+        assert mosaic.stride == 1
+        assert mosaic.canvas.shape == (1024, 2048)
+
+    def test_the_stride_comes_from_the_long_edge(self):
+        """Not from the area, and not per axis: the cap is on the longest side, so a
+        wide mosaic and a tall one of the same span reduce by the same factor."""
+        wide = PreviewMosaic(8192, 1024, dtype=np.uint8)
+        tall = PreviewMosaic(1024, 8192, dtype=np.uint8)
+        assert wide.stride == tall.stride == 4
+        assert wide.canvas.shape == (256, 2048)
+        assert tall.canvas.shape == (2048, 256)
+
+    def test_channels_none_is_not_channels_one(self):
+        """A beam mosaic is a plane; a one-channel fluorescence mosaic is a stack of
+        one. The consumers index them differently, so the distinction is load-bearing."""
+        assert PreviewMosaic(64, 64, dtype=np.uint8).canvas.ndim == 2
+        assert PreviewMosaic(64, 64, dtype=np.uint16, channels=1).canvas.ndim == 3
+
+    def test_a_tile_lands_where_the_stride_puts_it(self):
+        mosaic = PreviewMosaic(8192, 8192, dtype=np.uint8)  # stride 4
+        tile = np.full((1024, 1024), 200, dtype=np.uint8)
+        mosaic.paint(tile, canvas_x=4096, canvas_y=2048)
+
+        assert mosaic.canvas[512, 1024] == 200          # 2048//4, 4096//4
+        assert mosaic.canvas[511, 1024] == 0            # just above it
+        assert mosaic.canvas[512, 1023] == 0            # just left of it
+
+    def test_each_channel_is_reduced_on_its_own_axes(self):
+        """`downsample` reads shape as (y, x[, c]), so reducing a (c, y, x) stack whole
+        would average across *channels* and y -- the right answer on the wrong axes."""
+        mosaic = PreviewMosaic(4096, 4096, dtype=np.uint16, channels=3)  # stride 2
+        tile = np.stack([np.full((512, 512), v, dtype=np.uint16)
+                         for v in (100, 200, 300)])
+        mosaic.paint(tile, canvas_x=0, canvas_y=0)
+
+        assert [int(mosaic.canvas[c, 0, 0]) for c in range(3)] == [100, 200, 300]
+
+    def test_a_tile_over_the_edge_is_clipped_rather_than_raising(self):
+        """Every axis is rounded up independently, so the last tile can extend past the
+        canvas by a pixel or two. A run must not fail for that."""
+        mosaic = PreviewMosaic(600, 600, dtype=np.uint8)
+        tile = np.full((512, 512), 7, dtype=np.uint8)
+        mosaic.paint(tile, canvas_x=500, canvas_y=500)
+
+        assert mosaic.canvas[599, 599] == 7
+
+    def test_a_tile_entirely_off_the_canvas_paints_nothing(self):
+        mosaic = PreviewMosaic(600, 600, dtype=np.uint8)
+        mosaic.paint(np.full((64, 64), 9, dtype=np.uint8), canvas_x=900, canvas_y=900)
+        assert not mosaic.canvas.any()
+
+    def test_a_small_bright_feature_survives_the_reduction(self):
+        """The whole reason this uses `downsample` rather than `data[::n, ::n]`
+        (FIB-589, FIB-629): sampling deletes what it leaves out, so a punctum a couple
+        of pixels across is present or absent depending on where it lands."""
+        mosaic = PreviewMosaic(4096, 4096, dtype=np.uint16, channels=1)  # stride 2
+        tile = np.zeros((1, 512, 512), dtype=np.uint16)
+        tile[0, 101, 101] = 4000  # an odd row and column, which striding drops
+
+        mosaic.paint(tile, canvas_x=0, canvas_y=0)
+
+        assert mosaic.canvas[0, 50, 50] > 0, "the feature was sampled away"

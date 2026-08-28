@@ -1,28 +1,34 @@
 from __future__ import annotations
+
 import logging
 import math
 from dataclasses import dataclass
-from typing import List, Tuple, Union, Optional, overload
+from typing import List, Optional, Tuple, Union, overload
 
-import numpy as np
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
-from matplotlib.colors import to_rgba, ListedColormap
+import numpy as np
 from matplotlib.collections import PatchCollection
+from matplotlib.colors import ListedColormap, to_rgba
 from skimage.transform import resize
 
-from fibsem.utils import format_value
+from fibsem.conversions import (
+    get_image_pixel_centre,
+    microscope_image_to_image_coordinates,
+)
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.structures import (
+    FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemImage,
     FibsemLineSettings,
-    FibsemRectangleSettings,
-    FibsemBitmapSettings,
     FibsemPatternSettings,
     FibsemPolygonSettings,
+    FibsemRectangleSettings,
     Point,
 )
+from fibsem.utils import format_value
+
 from .utils import (
     create_pattern_mask,
     get_pattern_bounding_box,
@@ -76,19 +82,16 @@ def _rect_pattern_to_image_pixels(
     height = pattern.height
     mx, my = pattern.centre_x, pattern.centre_y
 
-    # position in metres from image centre
-    pmx, pmy = mx / pixel_size, my / pixel_size
-
     # convert to image coordinates
-    cy, cx = image_shape[0] // 2, image_shape[1] // 2
-    px = cx + pmx
-    py = cy - pmy
+    centre = microscope_image_to_image_coordinates(
+        Point(x=mx, y=my), image_shape, pixel_size, subpixel_precision=False
+    )
 
     # convert parameters to pixels
     width = width / pixel_size
     height = height / pixel_size
 
-    return px, py, width, height
+    return centre.x, centre.y, width, height
 
 def _circle_pattern_to_image_pixels(
     pattern: FibsemCircleSettings, pixel_size: float, image_shape: Tuple[int, int]
@@ -108,19 +111,16 @@ def _circle_pattern_to_image_pixels(
     start_angle = pattern.start_angle
     end_angle = pattern.end_angle
 
-    # position in metres from image centre
-    pmx, pmy = mx / pixel_size, my / pixel_size
-
     # convert to image coordinates
-    cy, cx = image_shape[0] // 2, image_shape[1] // 2
-    px = cx + pmx
-    py = cy - pmy
+    centre = microscope_image_to_image_coordinates(
+        Point(x=mx, y=my), image_shape, pixel_size, subpixel_precision=False
+    )
 
     # convert parameters to pixels
     radius_px = radius / pixel_size
     inner_radius_px = max(0, (radius - thickness) / pixel_size) if thickness > 0 else 0
 
-    return px, py, radius_px, inner_radius_px, start_angle, end_angle
+    return centre.x, centre.y, radius_px, inner_radius_px, start_angle, end_angle
 
 def _line_pattern_to_image_pixels(
     pattern: FibsemLineSettings, pixel_size: float, image_shape: Tuple[int, int]
@@ -137,18 +137,21 @@ def _line_pattern_to_image_pixels(
     start_x, start_y = pattern.start_x, pattern.start_y
     end_x, end_y = pattern.end_x, pattern.end_y
 
-    # position in metres from image centre
-    start_px, start_py = start_x / pixel_size, start_y / pixel_size
-    end_px, end_py = end_x / pixel_size, end_y / pixel_size
-
     # convert to image coordinates
-    cy, cx = image_shape[0] / 2, image_shape[1] / 2
-    start_pixel_x = cx + start_px
-    start_pixel_y = cy - start_py
-    end_pixel_x = cx + end_px
-    end_pixel_y = cy - end_py
+    #
+    # NOTE subpixel_precision=True here and False in the three siblings above.
+    # That asymmetry is inherited, not chosen: this function used `/ 2` for the
+    # centre where the others used `// 2`, which differs by half a pixel on an
+    # odd image dimension. Preserved exactly rather than quietly unified,
+    # because picking one changes where a milling pattern is drawn (FIB-644).
+    start = microscope_image_to_image_coordinates(
+        Point(x=start_x, y=start_y), image_shape, pixel_size, subpixel_precision=True
+    )
+    end = microscope_image_to_image_coordinates(
+        Point(x=end_x, y=end_y), image_shape, pixel_size, subpixel_precision=True
+    )
 
-    return start_pixel_x, start_pixel_y, end_pixel_x, end_pixel_y
+    return start.x, start.y, end.x, end.y
 
 def _polygon_pattern_to_image_pixels(
     pattern: FibsemPolygonSettings, pixel_size: float, image_shape: Tuple[int, int]
@@ -164,21 +167,17 @@ def _polygon_pattern_to_image_pixels(
     # get pattern parameters
     vertices = pattern.vertices
 
-    # convert to image coordinates
-    cy, cx = image_shape[0] // 2, image_shape[1] // 2
-    
-    # convert vertices to pixel coordinates
+    # convert vertices to image coordinates
     pixel_vertices = []
     for vertex in vertices:
-        # position in metres from image centre
-        pmx, pmy = vertex[0] / pixel_size, vertex[1] / pixel_size
-        
-        # convert to image coordinates
-        px = cx + pmx
-        py = cy - pmy
-        
-        pixel_vertices.append((px, py))
-    
+        pt = microscope_image_to_image_coordinates(
+            Point(x=vertex[0], y=vertex[1]),
+            image_shape,
+            pixel_size,
+            subpixel_precision=False,
+        )
+        pixel_vertices.append((pt.x, pt.y))
+
     return np.array(pixel_vertices)
 
 
@@ -722,7 +721,7 @@ def draw_milling_patterns(
 
     # draw crosshair at centre of image
     if crosshair:
-        cy, cx = image.data.shape[0] // 2, image.data.shape[1] // 2
+        cy, cx = get_image_pixel_centre(image.data.shape)
         ax.plot(cx, cy, "y+", markersize=PROPERTIES["crosshair_size"])
 
     # draw scalebar
@@ -778,7 +777,7 @@ def draw_annulus_shape(pattern_settings: FibsemCircleSettings, image_shape: Tupl
     """
     
     # image parameters (centre, pixel size)
-    icy, icx = image_shape[0] // 2, image_shape[1] // 2
+    icy, icx = get_image_pixel_centre(image_shape)
     pixelsize_x, pixelsize_y = pixelsize, pixelsize
 
     # pattern parameters
@@ -817,7 +816,7 @@ def draw_rectangle_shape(pattern_settings: FibsemRectangleSettings, image_shape:
     from scipy.ndimage import rotate
 
     # image parameters (centre, pixel size)
-    icy, icx = image_shape[0] // 2, image_shape[1] // 2
+    icy, icx = get_image_pixel_centre(image_shape)
     pixelsize_x, pixelsize_y = pixelsize, pixelsize
 
     # pattern parameters
@@ -861,7 +860,7 @@ def draw_bitmap_shape(
     from PIL import Image
 
     # image parameters (centre, pixel size)
-    icy, icx = image_shape[0] // 2, image_shape[1] // 2
+    icy, icx = get_image_pixel_centre(image_shape)
     pixelsize_x, pixelsize_y = pixelsize, pixelsize
 
     # pattern parameters
@@ -946,7 +945,7 @@ def draw_polygon_shape(pattern_settings: FibsemPolygonSettings, image_shape: Tup
     from skimage.draw import polygon
 
     # image parameters (centre, pixel size)
-    icy, icx = image_shape[0] // 2, image_shape[1] // 2
+    icy, icx = get_image_pixel_centre(image_shape)
     pixelsize_x, pixelsize_y = pixelsize, pixelsize
 
     # Convert vertices to pixel coordinates

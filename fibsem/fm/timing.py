@@ -9,11 +9,26 @@ z-stacks, and tilesets.
 import logging
 from typing import List, Optional, Tuple, Union
 
-from fibsem.fm.structures import ChannelSettings, ZParameters, ZStackOrder
-from fibsem.fm.structures import AutoFocusMode
+from fibsem.fm.structures import (
+    AutoFocusMode,
+    AutoFocusSettings,
+    ChannelSettings,
+    ZParameters,
+    ZStackOrder,
+)
 
 # Timing constants for acquisition operations
-DEFAULT_OVERHEAD_PER_IMAGE = 0.5  # seconds - camera readout, processing overhead
+# Camera readout, processing and save, per image, on top of the exposure. Measured
+# against AutoLamella-2026-07-29-18-00-DEV-TEST (Thermo): a 42-image z-stack ran at
+# 2.31 s/image net of exposure and z movement, and a 32-image autofocus sweep at
+# 1.57 s/image. The earlier 0.5 s was an assumption, ~4x low, and it is what left the
+# fluorescence duration estimate at a third of the real figure.
+#
+# The two figures differ because the z-stack writes each frame to OME-TIFF and the
+# autofocus sweep does not, so this is really two costs wearing one name. It takes the
+# higher of the two: over-estimating a sweep is the safe direction, and splitting the
+# constant would change every caller's shape for a term neither of them separates yet.
+DEFAULT_OVERHEAD_PER_IMAGE = 2.3  # seconds - camera readout, processing, save
 DEFAULT_Z_MOVE_TIME = 0.1  # seconds - time to move between z-positions
 DEFAULT_STAGE_MOVE_TIME = 5.0  # seconds - time to move stage between tiles
 DEFAULT_AUTOFOCUS_TIME = 5.0  # seconds - time for each autofocus operation
@@ -68,6 +83,60 @@ def calculate_total_images_count(
         num_z_planes = zparams.num_planes
 
     return num_channels * num_z_planes
+
+
+def estimate_autofocus_time(
+    autofocus_settings: "AutoFocusSettings",
+    channel_settings: Union[ChannelSettings, List[ChannelSettings]],
+) -> float:
+    """Estimate an image-based autofocus sweep from the passes it will actually run.
+
+    Each enabled pass sweeps ``search_range`` in ``step_size`` increments, taking one
+    image per step -- ``FocusSweepPass.n_steps`` is exactly that count -- so the sweep
+    is arithmetic rather than a constant. With the default coarse/fine pair (50 um at
+    5 um, then 10 um at 1 um) that is around twenty images, several times the 5 s
+    ``DEFAULT_AUTOFOCUS_TIME`` assumes.
+
+    The channel is resolved the way the acquisition path resolves it: by name when
+    ``channel_name`` is set, otherwise the first channel.
+
+    ``DEFAULT_AUTOFOCUS_TIME`` is still used by the tileset estimators below, which
+    are handed an autofocus *mode* rather than the settings and so cannot count steps.
+
+    Args:
+        autofocus_settings: the sweep to estimate
+        channel_settings: the channels available to focus on
+
+    Returns:
+        float: estimated autofocus time in seconds, 0.0 if no pass is enabled
+    """
+    if autofocus_settings is None or not autofocus_settings.enabled:
+        return 0.0
+    if not isinstance(channel_settings, list):
+        channel_settings = [channel_settings]
+    if not channel_settings:
+        return 0.0
+
+    channel = None
+    if autofocus_settings.channel_name:
+        channel = next(
+            (c for c in channel_settings if c.name == autofocus_settings.channel_name),
+            None,
+        )
+    if channel is None:
+        channel = channel_settings[0]
+
+    # n_steps + 1, matching the sweep itself: run_autofocus builds its working
+    # distances with np.linspace(..., n_steps + 1), so a pass covering n steps takes
+    # n + 1 images. The measured run logged "21 positions" for a 20-step pass and
+    # "11 positions" for a 10-step one.
+    n_images = sum(p.n_steps + 1 for p in autofocus_settings.passes if p.enabled)
+    # one objective move between consecutive steps, as in the z-stack above
+    n_moves = max(n_images - 1, 0)
+    return (
+        n_images * (channel.exposure_time + DEFAULT_OVERHEAD_PER_IMAGE)
+        + n_moves * DEFAULT_Z_MOVE_TIME
+    )
 
 
 def estimate_acquisition_time(
@@ -294,123 +363,5 @@ def estimate_tileset_acquisition_time(
         "autofocus_time": total_autofocus_time,
         "total_images": total_images,
         "tiles": total_tiles,
-        "breakdown": breakdown,
-    }
-
-
-def estimate_positions_acquisition_time(
-    channel_settings: Union[ChannelSettings, List[ChannelSettings]],
-    num_positions: int,
-    zparams: Optional[ZParameters] = None,
-    use_autofocus: bool = False,
-) -> dict:
-    """Estimate the total time required for multi-position acquisition.
-
-    This function estimates timing for acquiring images at multiple positions,
-    including stage movements, optional autofocus operations, and all image acquisitions.
-
-    Args:
-        channel_settings: Single channel or list of channels to acquire
-        num_positions: Number of positions to acquire at
-        zparams: Optional ZParameters for Z-stack acquisition
-        use_autofocus: Whether autofocus will be performed at each position
-
-    Returns:
-        dict: Dictionary containing detailed timing breakdown:
-            - total_time: Total estimated acquisition time in seconds
-            - image_acquisition_time: Time spent on image acquisition
-            - stage_movement_time: Time spent moving the stage
-            - autofocus_time: Time spent on autofocus operations
-            - total_images: Total number of images to be acquired
-            - positions: Number of positions
-            - breakdown: Detailed breakdown by category
-
-    Example:
-        >>> channel1 = ChannelSettings(name="DAPI", excitation_wavelength=365,
-        ...                           emission_wavelength=450, power=0.5, exposure_time=0.1)
-        >>> channel2 = ChannelSettings(name="FITC", excitation_wavelength=488,
-        ...                           emission_wavelength=525, power=0.3, exposure_time=0.05)
-        >>> zparams = ZParameters(zmin=-2e-6, zmax=2e-6, zstep=1e-6)  # 5 z-planes
-        >>>
-        >>> # 5 positions, multiple channels, z-stack, autofocus at each position
-        >>> timing = estimate_positions_acquisition_time(
-        ...     [channel1, channel2],
-        ...     num_positions=5,
-        ...     zparams=zparams,
-        ...     use_autofocus=True
-        ... )
-        >>> print(f"Total time: {timing['total_time']/60:.1f} minutes")
-        >>> print(f"Total images: {timing['total_images']}")
-    """
-    if not isinstance(channel_settings, list):
-        channel_settings = [channel_settings]
-
-    # Validate inputs
-    if num_positions <= 0:
-        raise ValueError(f"Number of positions must be positive, got {num_positions}")
-
-    # Calculate image acquisition time per position
-    position_acquisition_time = estimate_acquisition_time(channel_settings, zparams)
-    total_image_acquisition_time = position_acquisition_time * num_positions
-
-    # Calculate total images
-    total_images = calculate_total_images_count(channel_settings, zparams) * num_positions
-
-    # Calculate stage movement time (assuming we move between each position)
-    # For n positions, we need (n-1) moves
-    total_stage_moves = max(0, num_positions - 1)
-    total_stage_movement_time = total_stage_moves * DEFAULT_STAGE_MOVE_TIME # TODO: actually calculate the distance covered.
-
-    # Calculate autofocus time
-    autofocus_operations = num_positions if use_autofocus else 0
-    total_autofocus_time = autofocus_operations * DEFAULT_AUTOFOCUS_TIME
-
-    # Calculate total time
-    total_time = (
-        total_image_acquisition_time + total_stage_movement_time + total_autofocus_time
-    )
-
-    # Create detailed breakdown
-    breakdown = {
-        "image_acquisition": {
-            "time_per_position": position_acquisition_time,
-            "total_time": total_image_acquisition_time,
-            "images_per_position": calculate_total_images_count(channel_settings, zparams),
-            "percentage": (total_image_acquisition_time / total_time * 100)
-            if total_time > 0
-            else 0,
-        },
-        "stage_movement": {
-            "moves_per_position": total_stage_moves / num_positions if num_positions > 0 else 0,
-            "total_moves": total_stage_moves,
-            "time_per_move": DEFAULT_STAGE_MOVE_TIME,
-            "total_time": total_stage_movement_time,
-            "percentage": (total_stage_movement_time / total_time * 100)
-            if total_time > 0
-            else 0,
-        },
-        "autofocus": {
-            "use_autofocus": use_autofocus,
-            "operations": autofocus_operations,
-            "time_per_operation": DEFAULT_AUTOFOCUS_TIME,
-            "total_time": total_autofocus_time,
-            "percentage": (total_autofocus_time / total_time * 100)
-            if total_time > 0
-            else 0,
-        },
-        "position_info": {
-            "num_positions": num_positions,
-            "channels": len(channel_settings),
-            "z_planes": 1 if zparams is None else zparams.num_planes,
-        },
-    }
-
-    return {
-        "total_time": total_time,
-        "image_acquisition_time": total_image_acquisition_time,
-        "stage_movement_time": total_stage_movement_time,
-        "autofocus_time": total_autofocus_time,
-        "total_images": total_images,
-        "positions": num_positions,
         "breakdown": breakdown,
     }

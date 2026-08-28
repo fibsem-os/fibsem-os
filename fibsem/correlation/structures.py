@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass, field
-from enum import auto, Enum
-from typing import Optional
 import json
 import logging
 import os
 import time
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from typing import Optional
 
 import numpy as np
-from fibsem.structures import FibsemImage, Point
+
+from fibsem.conversions import image_to_microscope_image_coordinates_px
 from fibsem.fm.structures import FluorescenceImage
+from fibsem.structures import FibsemImage, Point
 
 
 class PointType(Enum):
@@ -484,8 +486,14 @@ class CorrelationResult:
         ]
         corrected_y = scale_about_surface(poi0.image_px.y, surface_y, correction_factor)
         poi0.image_px.y = corrected_y
-        cy = fib_shape[0] / 2.0
-        poi0.px.y = -(corrected_y - cy)
+        # x is discarded, not recomputed-and-ignored: a y-only correction leaves
+        # px.x alone, and rewriting it here would quietly repair an inconsistent
+        # one rather than leave the inconsistency visible.
+        poi0.px.y = image_to_microscope_image_coordinates_px(
+            Point(x=poi0.image_px.x, y=corrected_y),
+            fib_shape,
+            subpixel_precision=True,
+        ).y
         poi0.px_m.y = poi0.px.y * pixel_size
         self.refractive_index_correction_factor = correction_factor
         self.refractive_index_correction_mode = "post"

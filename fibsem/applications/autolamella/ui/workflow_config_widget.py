@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import os
 from typing import Dict, List, Optional
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtGui import QFont, QFontMetrics
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -18,26 +17,39 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from fibsem.ui.icon import fibsem_icon
 
-from fibsem.constants import DATETIME_DISPLAY_AMPM
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaWorkflowConfig,
 )
+from fibsem.constants import DATETIME_DISPLAY_AMPM
 from fibsem.ui import stylesheets
-from fibsem.ui.widgets.custom_widgets import IconToolButton
+from fibsem.ui.icon import (
+    DRAG_HANDLE_HEIGHT,
+    DRAG_HANDLE_WIDTH,
+    drag_handle_pixmap,
+    fibsem_icon,
+)
 from fibsem.ui.tokens import (
     CANVAS_BG,
     NEUTRAL_700,
 )
+from fibsem.ui.widgets.custom_widgets import IconToolButton
 
-_DRAG_HANDLE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "icons", "drag_handle.svg")
 _NAME_MIN_WIDTH = 180
+# The dependency column: present, but never competing with the name it belongs to.
+# Fixed width, so the entries line up down the list and the text elides inside it
+# rather than the row clipping it mid-word.
+REQUIRES_COLOUR = NEUTRAL_700
+REQUIRES_FONT_PX = 10
+REQUIRES_MAX_WIDTH = 170
 _BTN_SIZE = QSize(32, 32)
 _ROW_HEIGHT = 40
-_BTN_SPACER_WIDTH = _BTN_SIZE.width() * 4 + 8 * 3  # schedule + supervise + edit + remove + 3 gaps
+_BTN_SPACER_WIDTH = (
+    _BTN_SIZE.width() * 4 + 8 * 3
+)  # schedule + supervise + edit + remove + 3 gaps
 _BTN_STYLE = stylesheets.TOOLBUTTON_ICON_STYLESHEET
+
 
 class _DraggableTaskList(QListWidget):
     """QListWidget with InternalMove drag-and-drop that emits the new task order after each drop.
@@ -65,10 +77,27 @@ def _supervise_icon(task: AutoLamellaTaskDescription) -> tuple[str, str, str]:
     return "mdi:lightning-bolt-circle", stylesheets.AUTOMATED_COLOR, "Automated"
 
 
+def _requires_text(task: AutoLamellaTaskDescription, font: QFont) -> str:
+    """What the task waits for, sized to the column that holds it.
+
+    Empty where a task has no dependency: "No requirements" on every row was what
+    buried the two or three that have one.
+
+    Elided rather than left to run. A task waiting on four others produced a label
+    wider than the row, and Qt cut it off mid-word; the row's tooltip carries the
+    full list.
+    """
+    if not task.requires:
+        return ""
+    return QFontMetrics(font).elidedText(
+        "after " + ", ".join(task.requires), Qt.ElideRight, REQUIRES_MAX_WIDTH
+    )
+
+
 class WorkflowTaskRowWidget(QWidget):
-    supervised_changed = pyqtSignal(object)       # AutoLamellaTaskDescription
-    edit_clicked = pyqtSignal(object)             # AutoLamellaTaskDescription
-    remove_clicked = pyqtSignal(object)           # AutoLamellaTaskDescription
+    supervised_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
+    edit_clicked = pyqtSignal(object)  # AutoLamellaTaskDescription
+    remove_clicked = pyqtSignal(object)  # AutoLamellaTaskDescription
     selection_changed = pyqtSignal(object, bool)  # AutoLamellaTaskDescription, checked
 
     def __init__(
@@ -90,22 +119,31 @@ class WorkflowTaskRowWidget(QWidget):
         self.checkbox.setStyleSheet("background: transparent;")
         layout.addWidget(self.checkbox)
 
-        name_col = QVBoxLayout()
-        name_col.setSpacing(1)
-        # name_col.setContentsMargins(0, 0, 0, 0)
-
+        # One line, not a name over a requirements line. The second line was blank
+        # on most rows -- every task without a dependency -- and a name sitting at
+        # the top of a two-line block reads as floating above a gap.
         self.name_label = QLabel()
         self.name_label.setMinimumWidth(_NAME_MIN_WIDTH)
+        # Task names come from the protocol, and a QLabel left on AutoText renders
+        # anything that looks like markup as markup.
+        self.name_label.setTextFormat(Qt.PlainText)
         self.name_label.setStyleSheet("background: transparent;")
-        name_col.addWidget(self.name_label)
-
-        self.requires_label = QLabel()
-        self.requires_label.setStyleSheet("background: transparent; color: #707070; font-size: 10px;")
-        name_col.addWidget(self.requires_label)
-
-        layout.addLayout(name_col)
+        layout.addWidget(self.name_label)
 
         layout.addStretch(1)
+
+        # Its own column, right-aligned at a fixed width, so the dependencies line
+        # up down the list and can be read as a column rather than hunted for at
+        # whatever point each name happens to end.
+        self.requires_label = QLabel()
+        self.requires_label.setFixedWidth(REQUIRES_MAX_WIDTH)
+        self.requires_label.setTextFormat(Qt.PlainText)
+        self.requires_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.requires_label.setStyleSheet(
+            f"background: transparent; color: {REQUIRES_COLOUR}; "
+            f"font-size: {REQUIRES_FONT_PX}px;"
+        )
+        layout.addWidget(self.requires_label)
 
         self.btn_schedule = QToolButton()
         self.btn_schedule.setFixedSize(_BTN_SIZE)
@@ -117,15 +155,19 @@ class WorkflowTaskRowWidget(QWidget):
         self.btn_supervise.setStyleSheet(_BTN_STYLE)
         layout.addWidget(self.btn_supervise)
 
-        self.btn_edit = IconToolButton(icon="mdi:pencil", tooltip="Edit", size=_BTN_SIZE.width())
+        self.btn_edit = IconToolButton(
+            icon="mdi:pencil", tooltip="Edit", size=_BTN_SIZE.width()
+        )
         layout.addWidget(self.btn_edit)
 
-        self.btn_remove = IconToolButton(icon="mdi:trash-can-outline", tooltip="Remove", size=_BTN_SIZE.width())
+        self.btn_remove = IconToolButton(
+            icon="mdi:trash-can-outline", tooltip="Remove", size=_BTN_SIZE.width()
+        )
         layout.addWidget(self.btn_remove)
 
         drag_icon = QLabel()
-        drag_icon.setFixedSize(10, 16)
-        drag_icon.setPixmap(QPixmap(_DRAG_HANDLE_PATH).scaled(10, 16, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        drag_icon.setFixedSize(DRAG_HANDLE_WIDTH, DRAG_HANDLE_HEIGHT)
+        drag_icon.setPixmap(drag_handle_pixmap())
         drag_icon.setStyleSheet("background: transparent;")
         drag_icon.setCursor(Qt.CursorShape.OpenHandCursor)
         layout.addWidget(drag_icon)
@@ -159,18 +201,26 @@ class WorkflowTaskRowWidget(QWidget):
     def refresh(self) -> None:
         """Re-read all display fields from the stored task."""
         self.name_label.setText(self.task.name)
-        requires_text = ", ".join(self.task.requires) if self.task.requires else "No requirements"
-        self.requires_label.setText(requires_text)
+        self.requires_label.setText(
+            _requires_text(self.task, self.requires_label.font())
+        )
+        self.setToolTip(
+            "Requires: " + ", ".join(self.task.requires) if self.task.requires else ""
+        )
         icon_name, icon_color, tooltip = _supervise_icon(self.task)
         self.btn_supervise.setIcon(fibsem_icon(icon_name, color=icon_color))
         self.btn_supervise.setToolTip(tooltip)
         if self.task.scheduled_at is not None:
-            self.btn_schedule.setIcon(fibsem_icon("mdi:clock", color=stylesheets.WHITE_ICON_COLOR))
+            self.btn_schedule.setIcon(
+                fibsem_icon("mdi:clock", color=stylesheets.WHITE_ICON_COLOR)
+            )
             self.btn_schedule.setToolTip(
                 f"Scheduled: {self.task.scheduled_at.strftime(DATETIME_DISPLAY_AMPM)}"
             )
         else:
-            self.btn_schedule.setIcon(fibsem_icon("mdi:clock-outline", color=NEUTRAL_700))
+            self.btn_schedule.setIcon(
+                fibsem_icon("mdi:clock-outline", color=NEUTRAL_700)
+            )
             self.btn_schedule.setToolTip("Not scheduled — click to set")
 
 
@@ -200,7 +250,9 @@ class _WorkflowTaskListHeader(QWidget):
         spacer.setStyleSheet("background: transparent;")
         layout.addWidget(spacer)
 
-        self.btn_add = IconToolButton(icon="mdi:plus", tooltip="Add Task", size=_BTN_SIZE.width())
+        self.btn_add = IconToolButton(
+            icon="mdi:plus", tooltip="Add Task", size=_BTN_SIZE.width()
+        )
         layout.addWidget(self.btn_add)
 
         self.checkbox_all.stateChanged.connect(
@@ -213,10 +265,10 @@ class WorkflowConfigWidget(QWidget):
     """List widget displaying AutoLamellaWorkflowConfig tasks with name, supervised, edit and remove actions."""
 
     supervised_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
-    edit_requested = pyqtSignal(object)      # AutoLamellaTaskDescription
-    remove_requested = pyqtSignal(object)    # AutoLamellaTaskDescription
-    selection_changed = pyqtSignal(list)     # List[AutoLamellaTaskDescription]
-    order_changed = pyqtSignal(list)         # List[AutoLamellaTaskDescription]
+    edit_requested = pyqtSignal(object)  # AutoLamellaTaskDescription
+    remove_requested = pyqtSignal(object)  # AutoLamellaTaskDescription
+    selection_changed = pyqtSignal(list)  # List[AutoLamellaTaskDescription]
+    order_changed = pyqtSignal(list)  # List[AutoLamellaTaskDescription]
     add_task_clicked = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -266,7 +318,9 @@ class WorkflowConfigWidget(QWidget):
         for task in config.tasks:
             self.add_task(task)
 
-    def add_task(self, task: AutoLamellaTaskDescription, checked: bool = False) -> WorkflowTaskRowWidget:
+    def add_task(
+        self, task: AutoLamellaTaskDescription, checked: bool = False
+    ) -> WorkflowTaskRowWidget:
         self._checked[id(task)] = checked
         row = WorkflowTaskRowWidget(task, checked)
         item = QListWidgetItem()
@@ -377,7 +431,9 @@ class WorkflowConfigWidget(QWidget):
         self.remove_task(task)
         self.remove_requested.emit(task)
 
-    def _on_row_selection_changed(self, task: AutoLamellaTaskDescription, checked: bool) -> None:
+    def _on_row_selection_changed(
+        self, task: AutoLamellaTaskDescription, checked: bool
+    ) -> None:
         self._checked[id(task)] = checked
         self._sync_select_all()
         self.selection_changed.emit(self.get_selected())
@@ -405,10 +461,7 @@ class WorkflowConfigWidget(QWidget):
         count = self._list.count()
         if count == 0:
             return
-        n_checked = sum(
-            self._row(i).checkbox.isChecked()
-            for i in range(count)
-        )
+        n_checked = sum(self._row(i).checkbox.isChecked() for i in range(count))
         cb = self._header.checkbox_all
         cb.blockSignals(True)
         if n_checked == 0:

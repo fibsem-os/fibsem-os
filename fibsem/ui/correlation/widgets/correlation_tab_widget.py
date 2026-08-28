@@ -44,13 +44,13 @@ logging.basicConfig(level=logging.INFO)
 
 import numpy as np
 from PyQt5.QtCore import QObject, Qt, QThread, pyqtSignal
+from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QAbstractSpinBox,
+    QAction,
     QApplication,
     QCheckBox,
     QComboBox,
-    QToolButton,
-    QAction,
     QDialog,
     QFileDialog,
     QFormLayout,
@@ -66,58 +66,59 @@ from PyQt5.QtWidgets import (
     QScrollArea,
     QShortcut,
     QSplitter,
-    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
-from PyQt5.QtGui import QKeySequence
+
 from fibsem.constants import DATETIME_FILE
-from fibsem.correlation.correlation_v2 import run_correlation_from_data
 from fibsem.correlation.config import CorrelationConfig, FitSettings, RISettings
+from fibsem.correlation.correlation_v2 import run_correlation_from_data
 from fibsem.correlation.refractive_index import ZetaParams
 from fibsem.correlation.structures import (
     Coordinate,
     CorrelationInputData,
     CorrelationPointOfInterest,
-    CorrelationState,
     CorrelationResult,
+    CorrelationState,
     PointType,
     PointXYZ,
     load_correlation_file,
     scale_about_surface,
 )
-from fibsem.ui.correlation.widgets.coordinate_list_widget import CoordinateListWidget
-from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
-    FitConfirmationDialog,
-    FitStatus,
-    PointFitResult,
-    humanize_fit_error,
-)
+from fibsem.fm.structures import FluorescenceImage
+from fibsem.structures import FibsemImage, Point
 from fibsem.ui import notification_service, stylesheets
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.utils import install_wheel_blocker
+from fibsem.ui.correlation.widgets.coordinate_list_widget import CoordinateListWidget
 from fibsem.ui.correlation.widgets.correlation_canvas_widget import (
     CorrelationCanvasWidget,
 )
 from fibsem.ui.correlation.widgets.correlation_fm_canvas_widget import (
     CorrelationFMCanvasWidget,
 )
-from fibsem.ui.stylesheets import IMAGE_HEADER_STYLE
-from fibsem.fm.structures import FluorescenceImage
-from fibsem.structures import FibsemImage, Point
-from fibsem.ui.widgets.custom_widgets import (
-    QDirectoryLineEdit,
-    TitledPanel,
-    ValueComboBox,
+from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
+    FitConfirmationDialog,
+    FitStatus,
+    PointFitResult,
+    humanize_fit_error,
 )
 from fibsem.ui.correlation.widgets.refractive_index_widget import RefractiveIndexWidget
+from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.stylesheets import IMAGE_HEADER_STYLE
 from fibsem.ui.tokens import (
     CANVAS_BG,
     NEUTRAL_200,
     SURFACE_COLOR,
     TEXT_MUTED_COLOR,
+)
+from fibsem.ui.utils import install_wheel_blocker
+from fibsem.ui.widgets.custom_widgets import (
+    QDirectoryLineEdit,
+    TitledPanel,
+    ValueComboBox,
 )
 
 _FIT_METHODS = ["None", "Hole", "Gaussian"]

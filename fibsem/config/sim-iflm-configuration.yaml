@@ -1,0 +1,117 @@
+# A simulated Aquilos with an iFLM: the first OFFSET fluorescence configuration.
+#
+# The Arctis sim (sim-arctis-configuration.yaml) is the only other simulator config
+# with a fluorescence microscope, and it is a compustage -- the objective sits under
+# the grid and the stage turns over to face it. This one is the other mounting: the
+# objective is off to the side, and the stage travels to reach it.
+#
+# That difference is the whole point of the file. Every offset-mount code path
+# (`fibsem/microscope.py:move_to_microscope`, the device transform, the fluorescence
+# pose derivation) is currently unreachable without hardware, because
+# `microscope.fm` is refused on any non-compustage system. This config is where those
+# paths can be exercised, and where they can be seen to fail while they are still
+# incomplete.
+#
+# Geometry copied from tfs-aquilos2-configuration.yaml so the poses are realistic: a
+# 35 degree pre-tilted shuttle and a half turn to reach the ion beam, which is what
+# puts the FM orientation at (r=180, t=17) -- identical to the FIB one, and the reason
+# an offset system cannot tell the two apart. See FIB-830.
+info:
+    name: sim-iflm-configuration                            # a descriptive name for your configuration                     [SPECIFIED]
+    ip_address: 192.168.0.1                                 # the ip address of the microscope PC                           [SPECIFIED]
+    manufacturer: Demo                                      # the microscope manufactuer                                    [SPECIFIED]
+stage:
+    enabled:                    true                        # the stage is enabled                                          [USER]
+    rotation:                   true                        # the stage is able to rotate                                   [USER]
+    tilt:                       true                        # the stage is able to tilt                                     [USER]
+    rotation_reference:         0                           # the reference rotation value                                  [SPECIFIED]
+    rotation_180:               180                         # the reference rotation + 180 degrees                          [DERIVED - rotation-reference]
+    shuttle_pre_tilt:           35.0                        # the pre-tilt of the shuttle                                   [SPECIFIED]
+    manipulator_height_limit:   0.0037                      # the linked height limit for manipulator (Thermo Only)         [DERIVED - manufactuer]
+    device_range:               {x: 20.0e-3}                # the region belonging to each device, from its origin    [metres][SPECIFIED]
+    devices:                                                # where the stage travels for each instrument to see the sample
+        FIBSEM:
+            origin:     {x: 0.0}                            # the beams: the chamber origin                         [metres][SPECIFIED]
+        FM:
+            origin:     {x: 48.8e-3}                        # the FM: offset along x                                [metres][SPECIFIED]
+electron:
+    enabled:                    true                        # the electron beam is enabled                                  [USER]
+    column_tilt:                0                           # the column tilt of the electron beam                          [DERIVED - manufactuer]
+    eucentric_height:           7.0e-3                      # the eucentric height of the electron beam                     [SPECIFIED]
+    voltage:                    2000                        # the voltage of the electron beam                              [USER]
+    current:                    50.0e-12                    # the current of the electron beam                              [USER]
+    resolution:                 [1536, 1024]                # the default electron resolution                       [pixel] [USER]
+    hfw:                        150.0e-6                    # the default electron hfw                              [metres][USER]
+    dwell_time:                 1.0e-06                     # the default electron dwell time
+    detector_mode:              SecondaryElectrons          # the detector mode of the electron beam                        [USER]
+    detector_type:              ETD                         # the detector type of the electron beam                        [USER]
+ion:
+    enabled:                    true                        # the ion beam is enabled                                       [USER]
+    column_tilt:                52                          # the column tilt of the ion beam                               [SPECIFIED]
+    eucentric_height:           19.0e-3                     # the eucentric height of the ion beam                          [SPECIFIED]
+    plasma:                     false                       # ion beam is a plasma column                                   [USER]
+    plasma_gas:                 None                        # the plasma gas for the ion beam (plasma fib only)             [USER]
+    voltage:                    30000                       # the voltage of the ion beam                                   [USER]
+    current:                    2.0e-11                     # the current of the ion beam                                   [USER]
+    resolution:                 [1536, 1024]                # the default ion resolution                            [pixel] [USER]
+    hfw:                        150.0e-6                    # the default ion hfw                                   [metres][USER]
+    dwell_time:                 1.0e-06                     # the default ion dwell time
+    detector_mode:              SecondaryElectrons          # the detector mode of the ion beam                             [USER]
+    detector_type:              ETD                         # the detector type of the ion beam                             [USER]
+manipulator:
+    enabled:                    true                        # manipulator is enabled                                        [USER]
+    rotation:                   false                       # manipulator is able to rotate                                 [USER]
+    tilt:                       false                       # manipulator is able to tilt                                   [USER]
+gis:
+    enabled:                    true                        # gis is enabled                                                [USER]
+    multichem:                  false                       # multichem is enabled                                          [USER]
+    sputter_coater:             false                       # sputter coater is enabled                                     [USER]
+imaging:
+    beam_type:                  ELECTRON                    # the default imaging beam type (ELECTRON, or ION)              [USER]
+    resolution:                 [1536, 1024]                # the default imaging resolution                        [pixel] [USER]
+    hfw:                        150.0e-6                    # the default imaging hfw                               [metres][USER]
+    dwell_time:                 1.0e-06                     # the default imaging dwell time                        [second][USER]
+    imaging_current:            2.0e-11                     # the default imaging current                           [amp]   [USER]
+    autocontrast:               false                       # use autocontrast                                              [USER]
+    save:                       false                       # auto save images                                              [USER]
+milling:
+    milling_voltage:            30000                       # the default milling voltage       (Thermo)            [volt]  [USER]
+    milling_current:            2.0e-09                     # the default milling current       (Thermo)            [amp]   [USER]
+    dwell_time:                 1.0e-06                     # the default milling dwell time    (TESCAN)            [second][USER]
+    rate:                       3.4e-09                     # the default milling spuuter rate  (TESCAN)            [um3/s] [USER]
+    spot_size:                  5.4e-08                     # the default milling spot size     (TESCAN)            [metres][USER]
+    preset:                     "30 keV; 20 nA"             # the default milling preset        (TESCAN)                    [USER]
+sim:
+    sem: null # "/path/to/sem/image/data"                   # the path to the SEM image data for simulation                 [USER]
+    fib: null # "/path/to/fib/image/data"                   # the path to the FIB image data for simulation                 [USER]
+    use_cycle: true                                         # infinitely cycle sem/fib dataset                              [USER]
+    is_compustage: false                                    # this stage rotates; the objective is off to the side          [USER]
+    has_fm: true                                            # stand in for the hardware probe -- see below                  [USER]
+
+# `has_fm` stands in for a capability read, not for configuration.
+#
+# On a real Thermo system there is no `is_installed` for the fluorescence microscope
+# (every other subsystem has one), so the only way to know is to try selecting it and
+# see whether the microscope refuses -- which `ThermoMicroscope.__init__` already
+# does. The simulator has no hardware to ask, so it needs to be told what the pretend
+# hardware would have answered, and that belongs in `sim:` rather than in a real
+# configuration block.
+#
+# Keeping it separate from the fluorescence geometry is deliberate: it makes the
+# three real states distinguishable, including the one that matters most.
+#
+#   has_fm  |  geometry  |  simulates
+#   --------|------------|---------------------------------------------------------
+#    true   |  present   |  offset support working
+#    true   |  absent    |  a site upgrading -- an FM is detected, nothing is
+#           |            |  configured for it, so the features stay off
+#    false  |  either    |  a beam-only system
+#
+# The middle row is the leak-protection path (FIB-830): an existing Aquilos with an
+# iFLM fitted must not silently acquire half-built offset support on upgrade. Infer
+# presence from the geometry block instead and that row becomes unrepresentable --
+# configured-but-not-detected and detected-but-not-configured collapse into one
+# thing, and the case most worth testing is the one that cannot be.
+#
+# Defaults to `is_compustage`, so every existing simulator configuration keeps the
+# behaviour it has today without adding the key.

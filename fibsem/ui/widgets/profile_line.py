@@ -22,11 +22,11 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import QPoint, QRect, Qt
 from PyQt5.QtGui import QColor, QFont, QPainter, QPen
 
-from fibsem.ui.widgets.drag_distance import _MeasureOverlayBase, _fmt_distance
 from fibsem.ui.tokens import (
     NEUTRAL_900,
     PANEL_COLOR,
 )
+from fibsem.ui.widgets.drag_distance import _fmt_distance, _MeasureOverlayBase
 
 try:
     from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg

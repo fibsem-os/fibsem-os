@@ -1,11 +1,19 @@
 """
 Widget for displaying a pandas DataFrame in a sortable table.
 """
-from typing import Any, Optional, Callable
+from typing import Any, Callable, Optional
+
 import pandas as pd
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QPalette
+from PyQt5.QtWidgets import (
+    QHeaderView,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
 from fibsem.ui.tokens import (
     NEUTRAL_200,
     NEUTRAL_850,
@@ -153,6 +161,7 @@ class DataFrameTableWidget(QWidget):
 def main():
     """Example usage of DataFrameTableWidget."""
     import sys
+
     from PyQt5.QtWidgets import QApplication
 
     # Create sample dataframe

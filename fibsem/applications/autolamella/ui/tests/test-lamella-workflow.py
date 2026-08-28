@@ -21,8 +21,10 @@ from fibsem.applications.autolamella.structures import (
     DefectType,
     Lamella,
 )
+from fibsem.applications.autolamella.ui.lamella_workflow_widget import (
+    LamellaWorkflowWidget,
+)
 from fibsem.ui.stylesheets import NAPARI_STYLE
-from fibsem.applications.autolamella.ui.lamella_workflow_widget import LamellaWorkflowWidget
 
 # ── sample data ──────────────────────────────────────────────────────────────
 

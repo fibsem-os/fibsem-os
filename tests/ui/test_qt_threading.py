@@ -31,7 +31,9 @@ from PyQt5.QtCore import QEventLoop, QObject, QTimer
 
 _QAPP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 
-from fibsem.ui.qt import threading as qtthreading  # aliased: stdlib ``threading`` above stays intact
+from fibsem.ui.qt import (
+    threading as qtthreading,  # aliased: stdlib ``threading`` above stays intact
+)
 from fibsem.ui.qt.threading import FunctionWorker, thread_worker
 
 _MAIN_THREAD = threading.current_thread()

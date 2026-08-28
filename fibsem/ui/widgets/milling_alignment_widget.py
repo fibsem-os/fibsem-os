@@ -2,10 +2,10 @@ from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QCheckBox, QGridLayout, QLabel, QSpinBox, QWidget
 
 from fibsem.structures import MillingAlignment
-from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 from fibsem.ui.widgets.custom_widgets import (
     IntegerValueSpinBox,
 )
+from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
 # GUI Configuration Constants
 WIDGET_CONFIG = {

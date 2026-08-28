@@ -15,8 +15,8 @@ import logging
 import pytest
 
 from fibsem.hooks import (
-    HOOK_TYPES,
     DEFAULT_MESSAGE_TEMPLATE,
+    HOOK_TYPES,
     HookContext,
     HookEvent,
     SlackHook,

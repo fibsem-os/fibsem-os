@@ -19,7 +19,7 @@ from fibsem.applications.autolamella.workflows.core import (
     update_detection_ui,
 )
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
-from fibsem.detection.detection import LamellaCentre, LamellaBottomEdge, LamellaTopEdge
+from fibsem.detection.detection import LamellaBottomEdge, LamellaCentre, LamellaTopEdge
 from fibsem.structures import BeamType, field_meta
 
 

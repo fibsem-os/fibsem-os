@@ -19,12 +19,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import matplotlib.patches as mpatches
 
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
-
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.canvas.canvas_base import ContentRect
@@ -35,14 +34,30 @@ _logger = logging.getLogger(__name__)
 _DEFAULT_CROSSHAIR_HALF_PX = 40  # crosshair arm half-length, image pixels
 _LABEL_FONTSIZE = 7
 
+# The specimen grid's radius in metres, for the boundary circle both overview tabs draw.
+# Here rather than in either of them because it was in both, under two names -- the
+# fluorescence tab's `GRID_RADIUS_M` and the beam tab's `GRID_BOUNDARY_RADIUS`, the same
+# 1000 um written twice in two files.
+#
+# A constant only because nothing currently reports it. FIB-572 wants the radius from
+# `SampleGrid.radius`, which would retire this: a holder knows how big its grids are,
+# and a fixed 1 mm is right for the common case and wrong for anything else.
+GRID_BOUNDARY_RADIUS_M = 1000e-6
+
 
 @dataclass
 class ShapeSpec:
     """One overlay primitive in image-pixel coordinates.
 
-    ``kind`` is ``"rect"`` (uses ``width``/``height``), ``"circle"`` (uses ``radius``),
-    or ``"crosshair"`` (a ``+`` of ``crosshair_half`` arms). ``label`` is optional text
-    drawn near the shape in the shape's colour.
+    ``kind`` is ``"rect"`` or ``"ellipse"`` (both use ``width``/``height``),
+    ``"circle"`` (uses ``radius``), or ``"crosshair"`` (a ``+`` of ``crosshair_half``
+    arms). ``label`` is optional text drawn near the shape in the shape's colour.
+
+    ``"ellipse"`` exists because a circle on the *sample* is not a circle on screen.
+    A view foreshortens one axis and not the other, so anything round in stage space
+    -- a grid's boundary -- is an ellipse in every view but the two where the beam
+    looks straight down the pose it is named after. ``"circle"`` remains for the
+    things that are round because they are drawn round, like a marker.
     """
 
     kind: str
@@ -153,6 +168,18 @@ class MinimapShapesOverlay(CanvasOverlay):
             self._artists.append(patch)
             self._draw_label(spec, spec.cx - spec.width / 2.0,
                               spec.cy - spec.height / 2.0, va="bottom")
+        elif spec.kind == "ellipse":
+            # matplotlib's Ellipse takes full width and height, matching `rect` -- so a
+            # caller that has projected a diameter per axis passes the same two numbers
+            # to either kind, and cannot halve one and not the other.
+            patch = mpatches.Ellipse(
+                (spec.cx, spec.cy), spec.width, spec.height,
+                fill=False, edgecolor=spec.color, linewidth=self._linewidth,
+                zorder=self._zorder,
+            )
+            self._ax.add_patch(patch)
+            self._artists.append(patch)
+            self._draw_label(spec, spec.cx, spec.cy - spec.height / 2.0, va="bottom")
         elif spec.kind == "circle":
             patch = mpatches.Circle(
                 (spec.cx, spec.cy), spec.radius,

@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import ClassVar, Literal, Optional, Type
 
 from fibsem import alignment, calibration
-from fibsem.autofunctions.charge_neutralisation import auto_charge_neutralisation
+from fibsem.alignment import AlignmentSubsystem
 from fibsem.applications.autolamella.protocol.constants import TRENCH_KEY
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows._default_milling_config import (
@@ -15,10 +15,10 @@ from fibsem.applications.autolamella.workflows._default_milling_config import (
 )
 from fibsem.applications.autolamella.workflows.tasks.base import (
     ALIGNMENT_REFERENCE_IMAGE_FILENAME,
-    AutoLamellaTask,
     MAX_ALIGNMENT_ATTEMPTS,
+    AutoLamellaTask,
 )
-from fibsem.alignment import AlignmentSubsystem
+from fibsem.autofunctions.charge_neutralisation import auto_charge_neutralisation
 from fibsem.structures import BeamType, FibsemImage, field_meta
 
 

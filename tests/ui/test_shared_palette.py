@@ -46,7 +46,7 @@ def _shared_colours():
     """{value: [names]} for every colour constant in the palette modules."""
     shared = {}
     for source in PALETTE_SOURCES:
-        for name, value in _DECLARATION.findall(source.read_text()):
+        for name, value in _DECLARATION.findall(source.read_text(encoding="utf-8")):
             shared.setdefault(value.lower(), []).append(name)
     return shared
 
@@ -80,7 +80,7 @@ def _modules():
         if path in PALETTE_SOURCES:
             continue
         rel = path.relative_to(PACKAGE)
-        if "ui" in rel.parts or "stylesheets" in path.read_text():
+        if "ui" in rel.parts or "stylesheets" in path.read_text(encoding="utf-8"):
             modules.append(path)
     return sorted(modules)
 
@@ -100,7 +100,7 @@ def test_no_module_redeclares_a_shared_colour(module):
 
     offenders = [
         f"{name} = {value!r} is already {' / '.join(shared[value.lower()])}"
-        for name, value in _DECLARATION.findall(module.read_text())
+        for name, value in _DECLARATION.findall(module.read_text(encoding="utf-8"))
         if value.lower() in shared
     ]
 

@@ -13,6 +13,7 @@ or with the previous snapshot; the id is the only stable handle.
 
 Uses the shared offscreen ``qapp`` fixture from tests/conftest.py.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -25,12 +26,12 @@ from PyQt5.QtCore import QObject, pyqtSignal
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
 from fibsem.applications.autolamella.structures import Experiment, Lamella
-from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
-from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
 from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     StepStatus,
     WorkflowProgressWidget,
 )
+from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue
 
 
 @pytest.fixture
@@ -60,8 +61,10 @@ def status_for(queue: TaskQueue, item, status, **extra) -> dict:
 
 def labels(widget: WorkflowProgressWidget):
     """(lamella, task) per visible row, read back off the rendered widgets."""
-    return [(r._label.text(), r._subtitle.text().split(" (")[0])
-            for r in widget._outer._rows]
+    return [
+        (r._label.text(), r._subtitle.text().split(" (")[0])
+        for r in widget._outer._rows
+    ]
 
 
 def layout_order(widget: WorkflowProgressWidget):
@@ -82,13 +85,19 @@ def start_next(widget: WorkflowProgressWidget, queue: TaskQueue):
     return item
 
 
-def finish(widget: WorkflowProgressWidget, queue: TaskQueue, item,
-           status=Status.Completed, **extra):
+def finish(
+    widget: WorkflowProgressWidget,
+    queue: TaskQueue,
+    item,
+    status=Status.Completed,
+    **extra,
+):
     queue.mark_done(item, status)
     widget.update_from_status(status_for(queue, item, status, **extra))
 
 
 # ── First paint ───────────────────────────────────────────────────────────────
+
 
 def test_first_status_builds_the_timeline(widget, queue):
     """Regression: this used to need a separate set_workflow() call first."""
@@ -114,6 +123,7 @@ def test_a_second_run_rebuilds_from_scratch(widget, queue):
 
 # ── Add ───────────────────────────────────────────────────────────────────────
 
+
 def test_item_added_mid_run_appears(widget, queue):
     start_next(widget, queue)
     queue.add("L9", "Polish")
@@ -135,6 +145,7 @@ def test_item_added_at_the_front_appears_directly_after_the_active_row(widget, q
 
 
 # ── Remove ────────────────────────────────────────────────────────────────────
+
 
 def test_removed_item_disappears_from_the_timeline(widget, queue):
     start_next(widget, queue)
@@ -182,9 +193,11 @@ def test_failures_and_cancellations_are_both_named(widget, queue):
 def test_a_cancelled_row_does_not_look_like_a_running_one(widget, queue):
     """They were #e0a030 and #ff9800 — the same colour to the eye."""
     from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
-        _DOT_ACTIVE, _DOT_CANCELLED, _status_color,
+        _DOT_ACTIVE,
+        _DOT_CANCELLED,
+        StepStatus,
+        _status_color,
     )
-    from fibsem.applications.autolamella.ui.workflow_timeline_widget import StepStatus
 
     assert _DOT_CANCELLED != _DOT_ACTIVE
     assert _status_color(StepStatus.CANCELLED) == _DOT_CANCELLED
@@ -203,6 +216,7 @@ def test_removed_item_leaves_both_sides_of_the_header_fraction(widget, queue):
 
 
 # ── Reorder ───────────────────────────────────────────────────────────────────
+
 
 def test_reorder_moves_the_rows(widget, queue):
     start_next(widget, queue)
@@ -251,12 +265,16 @@ def test_reorder_carries_the_selection_with_its_row(widget, queue):
 
 # ── The active row survives all of it ─────────────────────────────────────────
 
-@pytest.mark.parametrize("mutate", [
-    pytest.param(lambda q: q.add("L9", "Polish"), id="add"),
-    pytest.param(lambda q: q.add("L9", "Polish", front=True), id="add-front"),
-    pytest.param(lambda q: q.remove(q.pending[-1].id), id="remove"),
-    pytest.param(lambda q: q.move_to_front(q.pending[-1].id), id="reorder"),
-])
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        pytest.param(lambda q: q.add("L9", "Polish"), id="add"),
+        pytest.param(lambda q: q.add("L9", "Polish", front=True), id="add-front"),
+        pytest.param(lambda q: q.remove(q.pending[-1].id), id="remove"),
+        pytest.param(lambda q: q.move_to_front(q.pending[-1].id), id="reorder"),
+    ],
+)
 def test_active_row_keeps_its_inner_steps_and_timer(widget, queue, mutate):
     """_show_inner_at() clears the inner list, so a rebuild on every edit would
     wipe the running task's step history in front of the user."""
@@ -294,6 +312,7 @@ def test_a_reorder_does_not_restart_the_running_task(widget, queue):
 
 # ── Statuses still render ─────────────────────────────────────────────────────
 
+
 def test_statuses_track_the_queue_through_a_full_run(widget, queue):
     for _ in range(4):
         finish(widget, queue, start_next(widget, queue))
@@ -327,19 +346,25 @@ def test_skip_reason_lands_on_the_right_row(widget, queue):
     assert widget._outer._steps[1].subtitle == "Trench"  # untouched
 
 
-def test_completion_subtitle_is_not_wiped_by_a_later_sync(widget, queue):
+def test_what_a_finished_row_says_is_not_wiped_by_a_later_sync(widget, queue):
+    """Both halves of it: the completion time in the subtitle, the duration in the
+    column beside it. Neither is rebuilt from the queue snapshot, so a sync that does
+    not know either of them must leave both alone."""
     item = start_next(widget, queue)
     finish(widget, queue, item, task_duration=12.0)
     subtitle = widget._outer._steps[0].subtitle
-    assert "12" in subtitle
+    trailing = widget._outer._steps[0].trailing
+    assert trailing == "12s"
 
     queue.add("L9", "Polish")
     widget.refresh_queue(queue.items)
 
     assert widget._outer._steps[0].subtitle == subtitle
+    assert widget._outer._steps[0].trailing == trailing
 
 
 # ── Through the real TaskManager ──────────────────────────────────────────────
+
 
 class _ParentUI(QObject):
     """The signals TaskManager emits on, declared as real pyqtSignals.
@@ -368,6 +393,7 @@ class _NoMicroscope:
     it has to be something attributes can be set on. Same stand-in as
     tests/autolamella/test_task_manager_hooks.py.
     """
+
     fm = None
 
 
@@ -397,8 +423,9 @@ def manager(widget, tmp_path) -> TaskManager:
         lambda info: widget.refresh_queue(info["queue_items"])
     )
 
-    m = TaskManager(microscope=_NoMicroscope(), experiment=experiment,
-                    parent_ui=parent_ui)
+    m = TaskManager(
+        microscope=_NoMicroscope(), experiment=experiment, parent_ui=parent_ui
+    )
     m.queue.build_from_matrix(
         ["Trench", "Undercut"], [p.name for p in experiment.positions]
     )
@@ -414,8 +441,12 @@ def test_the_managers_own_payload_builds_the_timeline(widget, manager):
     item = manager.queue.next()
     emit(manager, item, Status.InProgress)
 
-    assert labels(widget) == [("L1", "Trench"), ("L2", "Trench"),
-                              ("L1", "Undercut"), ("L2", "Undercut")]
+    assert labels(widget) == [
+        ("L1", "Trench"),
+        ("L2", "Trench"),
+        ("L1", "Undercut"),
+        ("L2", "Undercut"),
+    ]
     assert widget._outer_index == 0
     assert widget._outer._steps[0].status is StepStatus.ACTIVE
 
@@ -434,8 +465,11 @@ def test_notify_queue_changed_reaches_the_timeline(widget, manager):
 
 
 def test_notify_queue_changed_is_a_noop_headless(tmp_path):
-    m = TaskManager(microscope=_NoMicroscope(),
-                    experiment=_experiment(tmp_path, names=["L1"]), parent_ui=None)
+    m = TaskManager(
+        microscope=_NoMicroscope(),
+        experiment=_experiment(tmp_path, names=["L1"]),
+        parent_ui=None,
+    )
     m.queue.build_from_matrix(["Trench"], ["L1"])
     m.notify_queue_changed()  # must not raise
 
@@ -465,10 +499,18 @@ def test_task_status_still_goes_out_on_the_workflow_signal(manager):
     assert manager.parent_ui.queue_changes == []
 
 
-def test_every_workflow_update_carries_the_key_its_other_slot_requires(manager):
-    """AutoLamellaUI.handle_workflow_update reads info["msg"] with no default, and
-    PyQt5 aborts the process on an exception escaping a slot. Every payload put on
-    this signal has to satisfy that, whoever emits it."""
+def test_every_workflow_update_carries_a_message(manager):
+    """The prompt is this signal's main job, so a payload should say what to show.
+
+    This used to be load-bearing against a crash: `handle_workflow_update` indexed
+    `info["msg"]`, and PyQt5 aborts the process on an exception escaping a slot, so
+    an emitter that forgot the key killed the app. That handler now reads it with a
+    default and a payload without one clears the prompt, which is a real outcome
+    rather than a fallback -- see `tests/ui/test_workflow_update_payload.py`.
+
+    Kept because the invariant is still worth holding at this end: every payload
+    *these* emitters put on the signal is about the prompt, and one that silently
+    blanked it would be a bug here rather than a crash there."""
     item = manager.queue.next()
     emit(manager, item, Status.InProgress)
     manager.queue.mark_done(item, Status.Completed)

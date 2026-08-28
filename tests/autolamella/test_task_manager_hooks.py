@@ -18,7 +18,6 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import FunctionHook, HookContext, HookEvent, HookManager
 
-
 ALL_EVENTS = list(HookEvent)
 
 

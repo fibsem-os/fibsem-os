@@ -29,57 +29,77 @@ from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, QFileLineEdit
 # ---------------------------------------------------------------------------
 
 # Display
-_LBL_SOUND         = "Enable Sound Notifications"
-_TIP_SOUND         = "Play an audio alert when the workflow requires the user's attention."
-_LBL_TOASTS        = "Enable Toast Notifications"
-_TIP_TOASTS        = "Show brief pop-up messages in the corner of the screen for workflow events."
-_LBL_BORDER        = "Enable Workflow Border"
-_TIP_BORDER        = "Highlight the viewport border while an automated workflow is running."
-_LBL_CARD_MODE     = "Lamella Card Layout"
-_TIP_CARD_MODE     = (
+_LBL_SOUND = "Enable Sound Notifications"
+_TIP_SOUND = "Play an audio alert when the workflow requires the user's attention."
+_LBL_BORDER = "Enable Workflow Border"
+_TIP_BORDER = "Highlight the viewport border while an automated workflow is running."
+_LBL_CARD_MODE = "Lamella Card Layout"
+_TIP_CARD_MODE = (
     "How each lamella is drawn in the Lamella tab's strip: a large thumbnail, a "
     "compact row, or a single line with no thumbnail."
 )
-_LBL_DEV_MODE      = "Enable Development Mode"
-_TIP_DEV_MODE      = "Show advanced developer tools and diagnostic menus. Intended for developers only."
+_LBL_DEV_MODE = "Enable Development Mode"
+_TIP_DEV_MODE = (
+    "Show advanced developer tools and diagnostic menus. Intended for developers only."
+)
 
 # Features
-_LBL_COINCIDENCE   = "Enable Coincidence Milling Viewer"
-_TIP_COINCIDENCE   = (
+_LBL_COINCIDENCE = "Enable Coincidence Milling Viewer"
+_TIP_COINCIDENCE = (
     "Enable the coincidence milling viewer for simultaneous FIB milling and FM acquisition. "
     "Restricted to ThermoFisher Arctis with the modified sample holder."
 )
 _LBL_SAMPLE_HOLDER = "Enable Sample Holder Widget"
 _TIP_SAMPLE_HOLDER = "Show the sample holder navigation widget in the main interface."
-_LBL_BUG_REPORT    = "Enable Bug Reporter"
-_TIP_BUG_REPORT    = (
+_LBL_BUG_REPORT = "Enable Bug Reporter"
+_TIP_BUG_REPORT = (
     "Show the 'Report an Issue...' option in the Help menu, for reporting bugs and "
     "optionally submitting experiment data privately to the maintainers."
 )
-_LBL_SCRIPTS       = "Enable User Scripts"
-_TIP_SCRIPTS       = (
+_LBL_NAPARI_OVERVIEW = "Show the old Minimap Tab"
+_TIP_NAPARI_OVERVIEW = (
+    "Bring back the previous napari-based overview, beside the Overview tab that "
+    "replaced it. The Overview tab places tiles where they were acquired rather than "
+    "stitching them first, and holds both the FIB/SEM and fluorescence overviews. This "
+    "is here for anyone still relying on the old tab, and is removed in the next release."
+)
+_LBL_CONNECTION_CHIP = "Enable Connection Chip"
+_TIP_CONNECTION_CHIP = (
+    "Show the connected instrument in the tab bar, beside the experiment, and add "
+    "File > Connect to Microscope, which opens a dialog for connecting, "
+    "reconnecting and disconnecting. The Connection tab still works and is still "
+    "where connecting happens; this is the header half of replacing it."
+)
+_LBL_SCRIPTS = "Enable User Scripts"
+_TIP_SCRIPTS = (
     "Show Tools > Scripts, for running your own .py files against the open "
     "experiment. A script has the same access to the microscope as the application "
     "itself and none of its safety checks — nothing validates what it does."
 )
 
 # Experiment defaults
-_LBL_EXP_DIR       = "Default Experiment Directory"
-_TIP_EXP_DIR       = "Directory where new experiments will be saved. Pre-fills the directory field when creating a new experiment."
-_LBL_EXP_PROTOCOL  = "Default Protocol File"
-_TIP_EXP_PROTOCOL  = "Protocol file (.yaml) to load automatically when creating a new experiment."
-_LBL_EXP_USER      = "Default User"
-_TIP_EXP_USER      = "User name pre-filled in the metadata fields when creating a new experiment."
-_LBL_EXP_PROJECT   = "Default Project"
-_TIP_EXP_PROJECT   = "Project name pre-filled in the metadata fields when creating a new experiment."
-_LBL_EXP_ORG       = "Default Organisation"
-_TIP_EXP_ORG       = "Organisation name pre-filled in the metadata fields when creating a new experiment."
+_LBL_EXP_DIR = "Default Experiment Directory"
+_TIP_EXP_DIR = "Directory where new experiments will be saved. Pre-fills the directory field when creating a new experiment."
+_LBL_EXP_PROTOCOL = "Default Protocol File"
+_TIP_EXP_PROTOCOL = (
+    "Protocol file (.yaml) to load automatically when creating a new experiment."
+)
+_LBL_EXP_USER = "Default User"
+_TIP_EXP_USER = (
+    "User name pre-filled in the metadata fields when creating a new experiment."
+)
+_LBL_EXP_PROJECT = "Default Project"
+_TIP_EXP_PROJECT = (
+    "Project name pre-filled in the metadata fields when creating a new experiment."
+)
+_LBL_EXP_ORG = "Default Organisation"
+_TIP_EXP_ORG = "Organisation name pre-filled in the metadata fields when creating a new experiment."
 
 # Movement
-_LBL_ACQ_SEM       = "Acquire SEM After Stage Movement"
-_TIP_ACQ_SEM       = "Automatically acquire a new SEM image after each stage movement."
-_LBL_ACQ_FIB       = "Acquire FIB After Stage Movement"
-_TIP_ACQ_FIB       = "Automatically acquire a new FIB image after each stage movement."
+_LBL_ACQ_SEM = "Acquire SEM After Stage Movement"
+_TIP_ACQ_SEM = "Automatically acquire a new SEM image after each stage movement."
+_LBL_ACQ_FIB = "Acquire FIB After Stage Movement"
+_TIP_ACQ_FIB = "Automatically acquire a new FIB image after each stage movement."
 
 
 class PreferencesDialog(QDialog):
@@ -94,7 +114,9 @@ class PreferencesDialog(QDialog):
         self._load_from_preferences(preferences)
         # Connected after loading, so opening this dialog with a flag already on does
         # not fire its warning.
-        self._chk_coincidence_milling.toggled.connect(self._on_coincidence_milling_toggled)
+        self._chk_coincidence_milling.toggled.connect(
+            self._on_coincidence_milling_toggled
+        )
         self._chk_scripts.toggled.connect(self._on_scripts_toggled)
 
     def _setup_ui(self):
@@ -120,8 +142,6 @@ class PreferencesDialog(QDialog):
         display_form = QFormLayout(display_page)
         self._chk_sound = QCheckBox()
         self._chk_sound.setToolTip(_TIP_SOUND)
-        self._chk_toasts = QCheckBox()
-        self._chk_toasts.setToolTip(_TIP_TOASTS)
         self._chk_border = QCheckBox()
         self._chk_border.setToolTip(_TIP_BORDER)
         self._chk_dev_mode = QCheckBox()
@@ -134,7 +154,6 @@ class PreferencesDialog(QDialog):
         for mode in CARD_MODES:
             self._combo_card_mode.addItem(card_mode_label(mode), mode)
         display_form.addRow(_LBL_SOUND, self._chk_sound)
-        display_form.addRow(_LBL_TOASTS, self._chk_toasts)
         display_form.addRow(_LBL_BORDER, self._chk_border)
         display_form.addRow(_LBL_CARD_MODE, self._combo_card_mode)
         display_form.addRow(_LBL_DEV_MODE, self._chk_dev_mode)
@@ -151,10 +170,16 @@ class PreferencesDialog(QDialog):
         self._chk_bug_report.setToolTip(_TIP_BUG_REPORT)
         self._chk_scripts = QCheckBox()
         self._chk_scripts.setToolTip(_TIP_SCRIPTS)
+        self._chk_napari_overview = QCheckBox()
+        self._chk_napari_overview.setToolTip(_TIP_NAPARI_OVERVIEW)
+        self._chk_connection_chip = QCheckBox()
+        self._chk_connection_chip.setToolTip(_TIP_CONNECTION_CHIP)
         features_form.addRow(_LBL_COINCIDENCE, self._chk_coincidence_milling)
         features_form.addRow(_LBL_SAMPLE_HOLDER, self._chk_sample_holder)
         features_form.addRow(_LBL_BUG_REPORT, self._chk_bug_report)
         features_form.addRow(_LBL_SCRIPTS, self._chk_scripts)
+        features_form.addRow(_LBL_NAPARI_OVERVIEW, self._chk_napari_overview)
+        features_form.addRow(_LBL_CONNECTION_CHIP, self._chk_connection_chip)
         self._stack.addWidget(features_page)
 
         # --- Experiment Defaults ---
@@ -206,7 +231,6 @@ class PreferencesDialog(QDialog):
         """Populate widgets from a UserPreferences instance."""
         d = prefs.display
         self._chk_sound.setChecked(d.sound_enabled)
-        self._chk_toasts.setChecked(d.toasts_enabled)
         self._chk_border.setChecked(d.border_enabled)
         self._chk_dev_mode.setChecked(d.dev_mode)
         card_index = self._combo_card_mode.findData(d.lamella_card_mode)
@@ -226,6 +250,8 @@ class PreferencesDialog(QDialog):
         self._chk_sample_holder.setChecked(f.sample_holder_widget)
         self._chk_bug_report.setChecked(f.bug_report_enabled)
         self._chk_scripts.setChecked(f.scripts_enabled)
+        self._chk_napari_overview.setChecked(f.napari_overview_tab)
+        self._chk_connection_chip.setChecked(f.connection_chip)
 
         e = prefs.experiment
         self._dir_experiment.setText(e.default_experiment_directory)
@@ -286,7 +312,6 @@ class PreferencesDialog(QDialog):
         return UserPreferences(
             display=DisplayPreferences(
                 sound_enabled=self._chk_sound.isChecked(),
-                toasts_enabled=self._chk_toasts.isChecked(),
                 border_enabled=self._chk_border.isChecked(),
                 dev_mode=self._chk_dev_mode.isChecked(),
                 lamella_card_mode=self._combo_card_mode.currentData(),
@@ -296,6 +321,8 @@ class PreferencesDialog(QDialog):
                 sample_holder_widget=self._chk_sample_holder.isChecked(),
                 bug_report_enabled=self._chk_bug_report.isChecked(),
                 scripts_enabled=self._chk_scripts.isChecked(),
+                napari_overview_tab=self._chk_napari_overview.isChecked(),
+                connection_chip=self._chk_connection_chip.isChecked(),
             ),
             movement=MovementPreferences(
                 acquire_sem_after_stage_movement=self._chk_acquire_sem.isChecked(),

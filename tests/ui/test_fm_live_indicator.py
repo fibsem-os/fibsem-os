@@ -28,6 +28,7 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication
 
+import fibsem.config as _fibsem_config
 from fibsem import utils
 from fibsem.structures import BeamType
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController, QuadViewWidget
@@ -88,6 +89,14 @@ class TestTheFMCanvasCanBeMarkedLive:
         controller.set_fm_live(True)  # must not raise
 
 
+# The simulated compustage, which is the only Demo configuration that has an FM. Shared
+# with tests/ui/test_overview_tab_host.py and test_beam_stage_projection.py so they all
+# agree on what an Arctis is.
+_ARCTIS_CONFIG = os.path.join(
+    os.path.dirname(_fibsem_config.__file__), "config", "sim-arctis-configuration.yaml"
+)
+
+
 class TestTheStreamDrivesIt:
     """The half that was missing. `_update_acquisition_button_states` is the one place
     that already asks `fm.is_streaming` and re-derives the whole panel from it, so the
@@ -99,7 +108,14 @@ class TestTheStreamDrivesIt:
 
         from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 
-        microscope, _ = utils.setup_session(manufacturer="Demo")
+        # A simulated Arctis: `DemoMicroscope` only builds a
+        # `SimulatedFluorescenceMicroscope` when `sim.is_compustage` is set, and
+        # `FMControlWidget` refuses a microscope without one -- so on a plain Demo
+        # session every test in this class errored in setup rather than running
+        # (FIB-734).
+        microscope, _ = utils.setup_session(
+            manufacturer="Demo", config_path=_ARCTIS_CONFIG
+        )
 
         class _Host(QWidget):
             """The chain `_view_controller` walks: parent -> parent_widget -> the UI

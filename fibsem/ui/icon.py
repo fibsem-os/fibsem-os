@@ -3,7 +3,9 @@
 Icons are referenced throughout the UI by Iconify-style keys such as
 ``"mdi:check-circle"``. This module resolves them against qtawesome's *bundled*
 Material Design Icons font, so the application renders every icon **fully
-offline** - no network access, no icon assets committed to the repo.
+offline** - no network access. The handful of shapes that font does not cover
+ship as SVGs in ``fibsem/ui/icons/``, and are resolved from here too (see
+``drag_handle_pixmap``) so no call site re-derives that directory.
 
 Keeping this one indirection point means:
   * the ``"mdi:<name>"`` key convention (including dynamically-built names like
@@ -22,6 +24,7 @@ Extra keyword arguments pass straight through to ``qtawesome.icon`` (e.g.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional
 
 try:
@@ -32,7 +35,8 @@ except ModuleNotFoundError as e:  # pragma: no cover - dependency guard
         "(added in this version). Install it with:\n"
         "    pip install 'fibsem[ui]'   (or: pip install qtawesome)"
     ) from e
-from qtpy.QtGui import QIcon
+from qtpy.QtCore import Qt
+from qtpy.QtGui import QIcon, QPixmap
 
 # qtawesome's font prefix for Material Design Icons v6.
 _MDI = "mdi6"
@@ -70,3 +74,41 @@ def fibsem_icon(key: str, color: Optional[str] = None, **kwargs) -> QIcon:
 # everywhere (moving to / updating a saved stage/objective position).
 ICON_MOVE_TO_POSITION = "mdi:crosshairs-gps"   # go to a saved/target position
 ICON_UPDATE_POSITION = "mdi:map-marker-check"  # overwrite a saved position with the current one
+
+
+# ── Bundled SVG assets ───────────────────────────────────────────────────────
+# Shapes qtawesome's font does not carry live next to this module. Resolve them
+# from here rather than counting os.path.dirname() steps back to fibsem/ui at
+# each call site: one widget package moved and its private copy of the sum kept
+# pointing at a directory that does not exist, so its drag handle silently
+# vanished and every row logged a null-pixmap warning instead.
+ICONS_DIR = os.path.join(os.path.dirname(__file__), "icons")
+DRAG_HANDLE_PATH = os.path.join(ICONS_DIR, "drag_handle.svg")
+
+# Every draggable list row draws the handle at this size.
+DRAG_HANDLE_WIDTH = 10
+DRAG_HANDLE_HEIGHT = 16
+
+
+def drag_handle_pixmap(
+    width: int = DRAG_HANDLE_WIDTH, height: int = DRAG_HANDLE_HEIGHT
+) -> QPixmap:
+    """Return the shared drag-handle asset, scaled to ``width`` x ``height``.
+
+    Scaling a null pixmap is what prints "QPixmap::scaled: Pixmap is a null
+    pixmap" - once per row, on every rebuild - so the check belongs here rather
+    than at each call site. ``isNull()`` rather than ``os.path.exists()``: it
+    also covers a file that is present but unreadable or not valid SVG. Callers
+    always get a pixmap they can hand straight to ``QLabel.setPixmap``, empty if
+    the asset is missing.
+    """
+    pixmap = QPixmap(DRAG_HANDLE_PATH)
+    if pixmap.isNull():
+        logging.warning("drag handle icon missing or unreadable: %s", DRAG_HANDLE_PATH)
+        return pixmap
+    return pixmap.scaled(
+        width,
+        height,
+        Qt.AspectRatioMode.KeepAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )

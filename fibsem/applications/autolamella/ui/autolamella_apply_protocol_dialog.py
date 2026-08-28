@@ -14,8 +14,10 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import TitledPanel
+
 
 class ApplyLamellaConfigDialog(QDialog):
     """Dialog for applying a lamella's task configuration to other lamella."""

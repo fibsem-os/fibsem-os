@@ -63,7 +63,7 @@ def _emit(manager: TaskManager, name: str = "lam-1") -> dict:
 def test_the_status_dict_names_the_item_the_way_the_hook_does(manager: TaskManager):
     status = _emit(manager)
 
-    assert status["item_name"] == "lam-1"
+    assert status.item_name == "lam-1"
     # the hook payload names it identically
     assert "item_name" in HookContext(event="task_started").__dict__
 
@@ -72,7 +72,7 @@ def test_the_old_key_is_still_emitted_for_outside_consumers(manager: TaskManager
     """Same deprecation shape as the HookContext shims: emit both until v0.6."""
     status = _emit(manager, name="lam-7")
 
-    assert status["lamella_name"] == status["item_name"]
+    assert status.lamella_name == status.item_name
 
 
 def test_the_positioning_fields_keep_their_names(manager: TaskManager):
@@ -84,8 +84,16 @@ def test_the_positioning_fields_keep_their_names(manager: TaskManager):
     added to and reordered mid-run and a matrix coordinate then has no answer. That
     is FIB-472, not a vocabulary change — the point this test makes is unaffected.
     """
-    status = _emit(manager)
+    import dataclasses
 
-    assert "lamella_names" in status
-    assert "queue_position" in status
-    assert "queue_total" in status
+    from fibsem.applications.autolamella.workflows.tasks.status import (
+        WorkflowStatusUpdate,
+    )
+
+    _emit(manager)
+
+    # Field names on the type rather than keys in a dict, now that the payload is a
+    # record (FIB-827). A stronger check than membership: a field cannot be present
+    # on one emission and absent on another.
+    fields = {f.name for f in dataclasses.fields(WorkflowStatusUpdate)}
+    assert {"lamella_names", "queue_position", "queue_total"} <= fields

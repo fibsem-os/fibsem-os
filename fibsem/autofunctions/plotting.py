@@ -117,8 +117,8 @@ def plot_autofocus_result(
 
     If ``save_path`` is None, a timestamped file under ``autofocus/`` is used.
     """
-    import numpy as np
     import matplotlib.gridspec as gridspec
+    import numpy as np
     from matplotlib.figure import Figure
 
     iters = result.iterations

@@ -6,14 +6,17 @@ import time
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional, Set
 
-from fibsem.constants import DATETIME_DISPLAY_AMPM
 import pandas as pd
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
-from fibsem.cancellation import AnyStopEvent, OperationCancelledError
-from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue, WorkItem
+from fibsem.applications.autolamella.workflows.tasks.status import (
+    WorkflowStatusUpdate,
+)
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
+from fibsem.cancellation import AnyStopEvent, OperationCancelledError
+from fibsem.constants import DATETIME_DISPLAY_AMPM
+from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.microscope import FibsemMicroscope
 from fibsem.utils import format_time_remaining
 
@@ -22,38 +25,47 @@ if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 
 
-def run_task(microscope: FibsemMicroscope,
-          task_name: str,
-          lamella: 'Lamella',
-          parent_ui: Optional['AutoLamellaUI'] = None,
-          task_manager: Optional['TaskManager'] = None) -> None:
+def run_task(
+    microscope: FibsemMicroscope,
+    task_name: str,
+    lamella: "Lamella",
+    parent_ui: Optional["AutoLamellaUI"] = None,
+    task_manager: Optional["TaskManager"] = None,
+) -> None:
     """Run a specific AutoLamella task."""
 
     task_config = lamella.task_config.get(task_name)
     if task_config is None:
-        raise ValueError(f"Task configuration for {task_name} not found in lamella tasks.")
+        raise ValueError(
+            f"Task configuration for {task_name} not found in lamella tasks."
+        )
 
     from fibsem.applications.autolamella.workflows.tasks import get_tasks
+
     task_cls = get_tasks().get(task_config.task_type)
     if task_cls is None:
         raise ValueError(f"Task {task_config.task_type} is not registered.")
 
-    task = task_cls(microscope=microscope,
-                    config=task_config,
-                    lamella=lamella,
-                    parent_ui=parent_ui,
-                    task_manager=task_manager)
+    task = task_cls(
+        microscope=microscope,
+        config=task_config,
+        lamella=lamella,
+        parent_ui=parent_ui,
+        task_manager=task_manager,
+    )
     task.run()
 
 
 class TaskManager:
     """Manages execution of autolamella tasks across lamellas."""
 
-    def __init__(self,
-                 microscope: FibsemMicroscope,
-                 experiment: 'Experiment',
-                 parent_ui: Optional['AutoLamellaUI'] = None,
-                 hook_manager: Optional[HookManager] = None):
+    def __init__(
+        self,
+        microscope: FibsemMicroscope,
+        experiment: "Experiment",
+        parent_ui: Optional["AutoLamellaUI"] = None,
+        hook_manager: Optional[HookManager] = None,
+    ):
         self.microscope = microscope
         self.experiment = experiment
         self.parent_ui = parent_ui
@@ -80,8 +92,9 @@ class TaskManager:
 
     # --- Public API ---
 
-    def run(self, task_names: List[str],
-            required_lamella: Optional[List[str]] = None) -> None:
+    def run(
+        self, task_names: List[str], required_lamella: Optional[List[str]] = None
+    ) -> None:
         """Run the specified tasks for all lamellas in the experiment.
         Args:
             task_names: List of task names to run.
@@ -114,7 +127,9 @@ class TaskManager:
                     f"Skipping {item.task_name}: no lamella named {item.lamella_name} in the experiment."
                 )
                 self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
-                self._fire_skipped_hook(item.task_name, item.lamella_name, "lamella_not_found")
+                self._fire_skipped_hook(
+                    item.task_name, item.lamella_name, "lamella_not_found"
+                )
                 continue
 
             skip_reason = self._should_skip(lamella, item.task_name)
@@ -130,14 +145,20 @@ class TaskManager:
                 )
                 task_config = lamella.task_config.get(item.task_name)
                 self._fire_skipped_hook(
-                    item.task_name, lamella.name, skip_reason,
+                    item.task_name,
+                    lamella.name,
+                    skip_reason,
                     task_type=task_config.task_type if task_config else "",
                     item_id=lamella.id,
                 )
                 continue
 
             # Wait until the task's scheduled start time, if set and in the future.
-            scheduled_at = self.experiment.task_protocol.workflow_config.get_scheduled_at(item.task_name)
+            scheduled_at = (
+                self.experiment.task_protocol.workflow_config.get_scheduled_at(
+                    item.task_name
+                )
+            )
             if scheduled_at is not None:
                 self._wait_until_scheduled(scheduled_at, item.task_name, lamella)
                 if self.is_stopped:
@@ -173,7 +194,10 @@ class TaskManager:
             self._maybe_fire_lamella_completed(lamella, item.task_name)
 
         # if the objective is inserted, retract for safety
-        if self.microscope.fm is not None and self.microscope.fm.objective.state == "Inserted":
+        if (
+            self.microscope.fm is not None
+            and self.microscope.fm.objective.state == "Inserted"
+        ):
             self.microscope.fm.objective.retract()
 
         # The loop exits when the queue drains *or* when the user presses Stop. Reporting
@@ -183,7 +207,9 @@ class TaskManager:
             update_status_ui(self.parent_ui, "", workflow_info="Workflow cancelled.")
         else:
             self._fire_workflow_hook(HookEvent.WORKFLOW_COMPLETED)
-            update_status_ui(self.parent_ui, "", workflow_info=self._completion_message())
+            update_status_ui(
+                self.parent_ui, "", workflow_info=self._completion_message()
+            )
             # After the run event, since finishing the run is what makes the experiment
             # finishable. Not fired on the cancelled path: an aborted run has not
             # established anything about the experiment.
@@ -210,13 +236,15 @@ class TaskManager:
                         completed_at = task.completed_at
                         duration = task.duration
                         break
-            rows.append({
-                "lamella_name": item.lamella_name,
-                "task_name": item.task_name,
-                "task_status": item.status.name,
-                "completed_at": completed_at,
-                "duration": duration,
-            })
+            rows.append(
+                {
+                    "lamella_name": item.lamella_name,
+                    "task_name": item.task_name,
+                    "task_status": item.status.name,
+                    "completed_at": completed_at,
+                    "duration": duration,
+                }
+            )
         return pd.DataFrame(rows)
 
     def stop(self) -> None:
@@ -282,10 +310,12 @@ class TaskManager:
         """
         if self.parent_ui is None:
             return
-        self.parent_ui.queue_changed_signal.emit({
-            "queue_items": self.queue.items,  # thread-safe snapshot
-            "version": self.queue.version,
-        })
+        self.parent_ui.queue_changed_signal.emit(
+            {
+                "queue_items": self.queue.items,  # thread-safe snapshot
+                "version": self.queue.version,
+            }
+        )
 
     def hook_run_context(self) -> dict:
         """The fields every hook event from this run carries: which experiment, and
@@ -311,7 +341,7 @@ class TaskManager:
         # webhook with no way to tell which experiment had finished.
         fire_event(self.hook_manager, event, **self.hook_run_context())
 
-    def _is_complete(self, lamella: 'Lamella') -> bool:
+    def _is_complete(self, lamella: "Lamella") -> bool:
         """Whether a lamella has completed every task the workflow requires of it."""
         # task_protocol is None until one is loaded ("must be set externally").
         if self.experiment.task_protocol is None:
@@ -348,7 +378,7 @@ class TaskManager:
         # produced nothing, and must not announce success. all([]) would say otherwise.
         return bool(active) and all(self._is_complete(p) for p in active)
 
-    def _maybe_fire_lamella_completed(self, lamella: 'Lamella', task_name: str) -> None:
+    def _maybe_fire_lamella_completed(self, lamella: "Lamella", task_name: str) -> None:
         """Fire ITEM_COMPLETED the first time a lamella satisfies the workflow's
         completion predicate during this run. The lamella is AutoLamella's item.
 
@@ -407,9 +437,14 @@ class TaskManager:
             return f"All tasks completed ({skipped} skipped)."
         return "All tasks completed."
 
-    def _fire_skipped_hook(self, task_name: str, item_name: str,
-                           skip_reason: str, task_type: str = "",
-                           item_id: str = "") -> None:
+    def _fire_skipped_hook(
+        self,
+        task_name: str,
+        item_name: str,
+        skip_reason: str,
+        task_type: str = "",
+        item_id: str = "",
+    ) -> None:
         """Fire TASK_SKIPPED. Unlike the other task events this cannot come from
         AutoLamellaTask, because the skip is decided before any task object exists —
         so there is no task_state to attach, and no task_id: nothing ran to have one.
@@ -427,8 +462,9 @@ class TaskManager:
 
     # --- Internal helpers ---
 
-    def _wait_until_scheduled(self, scheduled_at: datetime, task_name: str,
-                              lamella: 'Lamella') -> None:
+    def _wait_until_scheduled(
+        self, scheduled_at: datetime, task_name: str, lamella: "Lamella"
+    ) -> None:
         """Block until ``scheduled_at`` is reached, emitting a periodic countdown.
 
         The wait is interruptible by either kind of stop. The item is already
@@ -445,21 +481,41 @@ class TaskManager:
             scheduled_at = scheduled_at.astimezone().replace(tzinfo=None)
         target_str = scheduled_at.strftime(DATETIME_DISPLAY_AMPM)
         next_update = 0.0  # force an immediate first message
-        while not self.should_abort:
-            remaining = (scheduled_at - datetime.now()).total_seconds()
-            if remaining <= 0:
-                break
+        self._set_workflow_pending(True)
+        try:
+            while not self.should_abort:
+                remaining = (scheduled_at - datetime.now()).total_seconds()
+                if remaining <= 0:
+                    break
 
-            now = time.monotonic()
-            if now >= next_update:
-                msg = (f"Waiting until {target_str} to start {task_name} on "
-                       f"{lamella.name} ({format_time_remaining(remaining)} remaining).")
-                update_status_ui(self.parent_ui, "", status_bar=msg)
-                next_update = now + 15.0
+                now = time.monotonic()
+                if now >= next_update:
+                    msg = (
+                        f"Waiting until {target_str} to start {task_name} on "
+                        f"{lamella.name} ({format_time_remaining(remaining)} remaining)."
+                    )
+                    update_status_ui(self.parent_ui, "", status_bar=msg)
+                    next_update = now + 15.0
 
-            time.sleep(min(1.0, remaining))
+                time.sleep(min(1.0, remaining))
+        finally:
+            # The time arriving, a stop, and an exception all have to clear this.
+            # A stranded flag would leave the border reading "nothing is running"
+            # for the rest of the run.
+            self._set_workflow_pending(False)
 
-    def _should_skip(self, lamella: 'Lamella', task_name: str) -> Optional[str]:
+    def _set_workflow_pending(self, pending: bool) -> None:
+        """Tell the UI a run is active but nothing is executing.
+
+        Read by the workflow border, which would otherwise show the running
+        colour throughout a scheduled wait that can last hours. Set on the worker
+        thread and read on the GUI thread, the same way WAITING_FOR_USER_INTERACTION
+        already is.
+        """
+        if self.parent_ui is not None:
+            self.parent_ui.WORKFLOW_PENDING = pending
+
+    def _should_skip(self, lamella: "Lamella", task_name: str) -> Optional[str]:
         """Return skip reason string, or None if task should run.
 
         Deliberately does not re-check the run's lamella selection: that filter
@@ -468,22 +524,34 @@ class TaskManager:
         original selection and were previously skipped as "not_required".
         """
         if lamella.is_failure:
-            logging.info(f"Skipping lamella {lamella.name} for task {task_name}. Marked as failure or has defect.")
+            logging.info(
+                f"Skipping lamella {lamella.name} for task {task_name}. Marked as failure or has defect."
+            )
             return "failure"
 
-        task_requirements = self.experiment.task_protocol.workflow_config.requirements(task_name)
-        if task_requirements and not all(lamella.has_completed_task(req) for req in task_requirements):
-            logging.info(f"Skipping lamella {lamella.name} for task {task_name}. Required tasks {task_requirements} not completed.")
+        task_requirements = self.experiment.task_protocol.workflow_config.requirements(
+            task_name
+        )
+        if task_requirements and not all(
+            lamella.has_completed_task(req) for req in task_requirements
+        ):
+            logging.info(
+                f"Skipping lamella {lamella.name} for task {task_name}. Required tasks {task_requirements} not completed."
+            )
             return "missing_prereqs"
 
         return None
 
-    def _emit_status(self, item: WorkItem, lamella: 'Lamella',
-                     status: 'AutoLamellaTaskStatus',
-                     msg: str = "",
-                     error_message: Optional[str] = None,
-                     task_duration: Optional[float] = None,
-                     skip_reason: Optional[str] = None) -> None:
+    def _emit_status(
+        self,
+        item: WorkItem,
+        lamella: "Lamella",
+        status: "AutoLamellaTaskStatus",
+        msg: str = "",
+        error_message: Optional[str] = None,
+        task_duration: Optional[float] = None,
+        skip_reason: Optional[str] = None,
+    ) -> None:
         """Emit workflow_update_signal with the standard status dict.
 
         This stream and the hook stream describe the same lifecycle from two different
@@ -506,36 +574,41 @@ class TaskManager:
         items = self.queue.items
         position = next((i for i, it in enumerate(items) if it.id == item.id), None)
 
-        status_dict = {
-            "task_name": item.task_name,
-            "item_name": lamella.name,
-            # Deprecated alias for item_name, kept for consumers outside this repo.
-            # Drop alongside the HookContext shims after v0.6.
-            "lamella_name": lamella.name,
-            "status": status,
-            "timestamp": time.time(),
-            "error_message": error_message,
-            "task_duration": task_duration,
-            "skip_reason": skip_reason,
-            "queue_position": position + 1 if position is not None else None,
-            "queue_total": len(items),
-            "queue_items": items,  # thread-safe snapshot
+        # `lamella_name` is no longer a field: `WorkflowStatusUpdate` derives it from
+        # `item_name` as a property, so the deprecated alias cannot drift from the name
+        # it aliases, and drops cleanly with the HookContext shims after v0.6.
+        update = WorkflowStatusUpdate(
+            task_name=item.task_name,
+            item_name=lamella.name,
+            status=status,
+            timestamp=time.time(),
+            error_message=error_message,
+            task_duration=task_duration,
+            skip_reason=skip_reason,
+            # Already 1-based on the wire. Consumers render it as-is.
+            queue_position=position + 1 if position is not None else None,
+            queue_total=len(items),
+            queue_items=items,  # thread-safe snapshot: Queue.items returns copies
             # The plan this run was launched with. Informational only — the live
             # queue may since have diverged from it.
-            "task_names": self.queue.task_names,
-            "lamella_names": self.queue.lamella_names,
-        }
+            task_names=self.queue.task_names,
+            lamella_names=self.queue.lamella_names,
+        )
 
-        self.parent_ui.workflow_update_signal.emit({"msg": msg, "status": status_dict})
+        self.parent_ui.workflow_update_signal.emit({"msg": msg, "status": update})
 
-    def _run_single_task(self, task_name: str, lamella: 'Lamella') -> Optional[Exception]:
+    def _run_single_task(
+        self, task_name: str, lamella: "Lamella"
+    ) -> Optional[Exception]:
         """Execute one task for one lamella. Returns exception or None."""
         try:
-            run_task(microscope=self.microscope,
-                     task_name=task_name,
-                     lamella=lamella,
-                     parent_ui=self.parent_ui,
-                     task_manager=self)
+            run_task(
+                microscope=self.microscope,
+                task_name=task_name,
+                lamella=lamella,
+                parent_ui=self.parent_ui,
+                task_manager=self,
+            )
             self.experiment.save()
             return None
         except Exception as e:
@@ -549,24 +622,32 @@ class TaskManager:
             # an unknown task name, or a construction failure -- where nothing else has.
             # The predicate matches AutoLamellaTaskBase._is_cancellation so the frozen
             # history entry and the live task_state cannot disagree.
-            if self.should_abort or isinstance(e, (OperationCancelledError, InterruptedError)):
-                logging.info(f"Task {task_name} for lamella {lamella.name} cancelled by user.")
+            if self.should_abort or isinstance(
+                e, (OperationCancelledError, InterruptedError)
+            ):
+                logging.info(
+                    f"Task {task_name} for lamella {lamella.name} cancelled by user."
+                )
                 lamella.task_state.status = AutoLamellaTaskStatus.Cancelled
                 lamella.task_state.status_message = "Cancelled by user."
             else:
-                logging.warning(f"Error running task {task_name} for lamella {lamella.name}: {e}")
+                logging.warning(
+                    f"Error running task {task_name} for lamella {lamella.name}: {e}"
+                )
                 lamella.task_state.status = AutoLamellaTaskStatus.Failed
                 lamella.task_state.status_message = str(e)
             self.experiment.save()
             return e
 
 
-def run_tasks(microscope: FibsemMicroscope,
-            experiment: 'Experiment',
-            task_names: List[str],
-            required_lamella: Optional[List[str]] = None,
-            parent_ui: Optional['AutoLamellaUI'] = None,
-            hook_manager: Optional[HookManager] = None) -> None:
+def run_tasks(
+    microscope: FibsemMicroscope,
+    experiment: "Experiment",
+    task_names: List[str],
+    required_lamella: Optional[List[str]] = None,
+    parent_ui: Optional["AutoLamellaUI"] = None,
+    hook_manager: Optional[HookManager] = None,
+) -> None:
     """Run the specified tasks for all lamellas in the experiment.
     Thin wrapper around TaskManager for backward compatibility and headless usage.
     """

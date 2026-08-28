@@ -14,7 +14,6 @@ from PyQt5.QtWidgets import (
     QAction,
     QComboBox,
     QDoubleSpinBox,
-    QSpinBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -22,18 +21,19 @@ from PyQt5.QtWidgets import (
     QListWidget,
     QMenu,
     QSizePolicy,
+    QSpinBox,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
-from fibsem.ui.icon import fibsem_icon, qta
 
 from fibsem.ui import stylesheets as stylesheets
-from fibsem.ui.utils import install_wheel_blocker
-from fibsem.utils import format_value
+from fibsem.ui.icon import fibsem_icon, qta
 from fibsem.ui.tokens import (
     CANVAS_BG,
 )
+from fibsem.ui.utils import install_wheel_blocker
+from fibsem.utils import format_value
 
 
 class QFilePathLineEdit(QWidget):
@@ -857,8 +857,21 @@ class ElidedLabel(QLabel):
     fit; a caller wanting a different tooltip sets it after `setText`.
     """
 
-    def __init__(self, text: str = "", parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        text: str = "",
+        parent: Optional[QWidget] = None,
+        mode: Qt.TextElideMode = Qt.ElideRight,
+    ) -> None:
+        """
+        Args:
+            mode: which end goes. `ElideRight` for prose, where the start carries the
+                sense. **`ElideLeft` for a path**, where it is the tail -- the
+                experiment and the run -- that answers "am I writing where I meant
+                to", and the leading directories are the same on every line.
+        """
         super().__init__(parent)
+        self._mode = mode
         self._full_text = ""
         # Ignored horizontally: the label neither asks for room nor refuses to shrink,
         # which is the whole point -- its content must not set anyone's minimum.
@@ -866,6 +879,13 @@ class ElidedLabel(QLabel):
         self.setText(text)
 
     def setText(self, text: Optional[str]) -> None:  # noqa: N802 - Qt naming
+        if (text or "") == self._full_text:
+            # Re-measuring costs a QFontMetrics and an elidedText per call, and callers
+            # that refresh a whole row on a timer re-set the same string every time --
+            # the workflow timeline does it for every row of every status update, where
+            # this was a third of the cost. Nothing else here depends on width, which
+            # resizeEvent and paintEvent handle.
+            return
         self._full_text = text or ""
         self.setToolTip(self._full_text)
         self._elide()
@@ -887,7 +907,7 @@ class ElidedLabel(QLabel):
     def _elide(self) -> None:
         metrics = QFontMetrics(self.font())
         elided = metrics.elidedText(
-            self._full_text, Qt.ElideRight, max(0, self.width() - 2)
+            self._full_text, self._mode, max(0, self.width() - 2)
         )
         # `super().text()`, not ours: ours returns the full string, so this would differ
         # on every paint of an elided label and schedule another one forever. QLabel

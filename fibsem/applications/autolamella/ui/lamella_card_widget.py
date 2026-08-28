@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+from collections import OrderedDict
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -18,13 +20,14 @@ from PyQt5.QtWidgets import (
 )
 from superqt import ensure_main_thread
 
-from fibsem.ui.icon import fibsem_icon
-
 from fibsem.applications.autolamella.structures import DefectState, DefectType, Lamella
+from fibsem.applications.autolamella.ui.lamella_list_widget import (
+    _defect_icon,
+    _status_text,
+)
 from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY, MODE_STANDARD
-from fibsem.applications.autolamella.ui.lamella_list_widget import _defect_icon, _status_text
 from fibsem.ui import stylesheets
-from fibsem.ui.widgets.custom_widgets import ElidedLabel
+from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
 from fibsem.ui.tokens import (
     NEUTRAL_200,
     NEUTRAL_550,
@@ -32,11 +35,12 @@ from fibsem.ui.tokens import (
     PRIMARY_COLOR,
     SURFACE_COLOR,
 )
+from fibsem.ui.widgets.custom_widgets import ElidedLabel
 
 _CARD_WIDTH = 300
-_THUMB_PADDING = 6        # inset from card edges so rounded corners stay visible
+_THUMB_PADDING = 6  # inset from card edges so rounded corners stay visible
 # 3:2, matching the 1536x1024 frames the microscope acquires, so the thumbnail
-# scales rather than crops -- _arr_to_pixmap expands to fill. Kept small: at this
+# scales rather than crops -- _thumbnail_image expands to fill. Kept small: at this
 # size it is a scanning cue ("which of these looks milled"), and every pixel of
 # width it takes comes off the status line, which is the part carrying detail.
 _THUMB_W = 66
@@ -75,27 +79,92 @@ QToolButton:pressed { background: rgba(255, 255, 255, 15); }
 """
 
 
-def _arr_to_pixmap(arr: np.ndarray, w: int, h: int) -> QPixmap:
+def _arr_to_qimage(arr: np.ndarray) -> QImage:
+    """An RGB888 QImage of `arr`, independent of it.
+
+    Qt's `QImage(buffer, ...)` documents the buffer as having to outlive the image,
+    which would make the cached result of this a dangling read once the ndarray is
+    collected. PyQt5 does not work that way: sip copies the Python buffer, so the
+    image owns its pixels and the source can go. Verified rather than assumed -- the
+    bits pointer differs from the ndarray's, and mutating the ndarray in place leaves
+    the image unchanged, including via `sip.voidptr`. An explicit `.copy()` here would
+    be a second full-size memcpy for nothing.
+
+    Worth knowing if this ever moves to PySide, where the same constructor can alias.
+    """
     if arr.ndim == 2:
         arr = np.stack([arr, arr, arr], axis=2)
     arr = np.ascontiguousarray(arr, dtype=np.uint8)
     ih, iw, c = arr.shape
-    qimg = QImage(arr.data, iw, ih, iw * c, QImage.Format_RGB888)
-    return QPixmap.fromImage(qimg).scaled(
-        w, h,
+    return QImage(arr.data, iw, ih, iw * c, QImage.Format_RGB888)
+
+
+_THUMBNAIL_CACHE: "OrderedDict[tuple, QImage]" = OrderedDict()
+# Enough for one arrangement of a large experiment, with room for the other to linger
+# after a mode switch. The bound is what stops a long run growing this without limit:
+# every thumbnail a workflow rewrites lands under a new key. Cozy entries are the big
+# ones at ~200 KB, so the ceiling is ~40 MB.
+_THUMBNAIL_CACHE_MAX = 200
+
+
+def _thumbnail_stamp(path: str) -> Optional[tuple]:
+    """What identifies this file's *contents*, for the cache key.
+
+    Size as well as mtime: a filesystem with one-second mtime granularity would
+    otherwise go on serving the pre-run thumbnail for the rest of the second in which
+    a workflow rewrote it. None means there is no file, which is its own cache key --
+    `get_thumbnail` answers that with the shared placeholder.
+    """
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+    return (stat.st_mtime_ns, stat.st_size)
+
+
+def _thumbnail_image(lamella: Lamella, w: int, h: int) -> QImage:
+    """The lamella's thumbnail scaled for a `w` x `h` label, decoded at most once.
+
+    `_rebuild_lamella_list` clears and re-adds every card whenever a lamella is added
+    or removed, so without this a 100-lamella experiment re-opened and re-scaled 100
+    PNGs on the GUI thread every time -- 2.8 s of frozen UI per added lamella
+    (FIB-681).
+
+    Cached as a QImage rather than a QPixmap on purpose. It is just as quick to hand
+    to a label, because `QPixmap.fromImage` on an already-scaled image costs nothing,
+    and a QImage holds no platform resources -- so this dict outliving the
+    QApplication at shutdown is inert rather than a teardown crash.
+
+    A torn or unreadable file caches the placeholder against that file's stamp, so a
+    failing decode is attempted once rather than on every refresh.
+    """
+    path = os.path.join(lamella.path, "thumbnail.png")
+    key = (path, _thumbnail_stamp(path), w, h)
+    image = _THUMBNAIL_CACHE.get(key)
+    if image is not None:
+        _THUMBNAIL_CACHE.move_to_end(key)
+        return image
+
+    image = _arr_to_qimage(lamella.get_thumbnail()).scaled(
+        w,
+        h,
         Qt.AspectRatioMode.KeepAspectRatioByExpanding,
         Qt.TransformationMode.SmoothTransformation,
     )
+    _THUMBNAIL_CACHE[key] = image
+    if len(_THUMBNAIL_CACHE) > _THUMBNAIL_CACHE_MAX:
+        _THUMBNAIL_CACHE.popitem(last=False)
+    return image
 
 
 class LamellaCardWidget(QWidget):
     """Modern card-style widget for a single Lamella."""
 
-    clicked = pyqtSignal(object)                    # Lamella
-    defect_changed = pyqtSignal(object)             # Lamella
-    move_to_requested = pyqtSignal(object)          # Lamella
+    clicked = pyqtSignal(object)  # Lamella
+    defect_changed = pyqtSignal(object)  # Lamella
+    move_to_requested = pyqtSignal(object)  # Lamella
     update_position_requested = pyqtSignal(object)  # Lamella
-    remove_requested = pyqtSignal(object)           # Lamella
+    remove_requested = pyqtSignal(object)  # Lamella
 
     def __init__(
         self,
@@ -130,7 +199,9 @@ class LamellaCardWidget(QWidget):
         # ── thumbnail ───────────────────────────────────────────────────
         self._thumb_label = QLabel()
         self._thumb_label.setAlignment(Qt.AlignCenter)
-        self._thumb_label.setStyleSheet(f"background: {NEUTRAL_900}; border-radius: 4px;")
+        self._thumb_label.setStyleSheet(
+            f"background: {NEUTRAL_900}; border-radius: 4px;"
+        )
 
         self._name_label = QLabel()
         self._name_label.setStyleSheet(
@@ -139,23 +210,34 @@ class LamellaCardWidget(QWidget):
 
         self._btn_actions = QToolButton()
         self._btn_actions.setFixedSize(_BTN_SIZE, _BTN_SIZE)
-        self._btn_actions.setStyleSheet(_BTN_STYLE + " QToolButton::menu-indicator { image: none; }")
-        self._btn_actions.setIcon(fibsem_icon("mdi:dots-horizontal", color=stylesheets.GRAY_ICON_COLOR))
+        self._btn_actions.setStyleSheet(
+            _BTN_STYLE + " QToolButton::menu-indicator { image: none; }"
+        )
+        self._btn_actions.setIcon(
+            fibsem_icon("mdi:dots-horizontal", color=stylesheets.GRAY_ICON_COLOR)
+        )
         self._btn_actions.setToolTip("Actions")
         self._btn_actions.setPopupMode(QToolButton.InstantPopup)
         _actions_menu = QMenu(self)
         self._action_move = _actions_menu.addAction(
-            fibsem_icon("mdi:crosshairs-gps", color=stylesheets.GRAY_ICON_COLOR), "Move to Position"
+            fibsem_icon(ICON_MOVE_TO_POSITION, color=stylesheets.GRAY_ICON_COLOR),
+            "Move to Position",
         )
         self._action_update = _actions_menu.addAction(
-            fibsem_icon("mdi:map-marker-check", color=stylesheets.GRAY_ICON_COLOR), "Update Position"
+            fibsem_icon(ICON_UPDATE_POSITION, color=stylesheets.GRAY_ICON_COLOR),
+            "Update Position",
         )
         self._action_remove = _actions_menu.addAction(
-            fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR), "Remove"
+            fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR),
+            "Remove",
         )
         self._btn_actions.setMenu(_actions_menu)
-        self._action_move.triggered.connect(lambda: self.move_to_requested.emit(self.lamella))
-        self._action_update.triggered.connect(lambda: self.update_position_requested.emit(self.lamella))
+        self._action_move.triggered.connect(
+            lambda: self.move_to_requested.emit(self.lamella)
+        )
+        self._action_update.triggered.connect(
+            lambda: self.update_position_requested.emit(self.lamella)
+        )
         self._action_remove.triggered.connect(self._on_remove_clicked)
 
         self._btn_defect = QToolButton()
@@ -192,8 +274,8 @@ class LamellaCardWidget(QWidget):
         # fatal. Delete these once FIB-604 lands a trigger that fires after the write.
         # lamella.task_state.events.name.connect(self.refresh)    # DISABLED: FIB-604
         # lamella.task_state.events.status.connect(self.refresh)  # DISABLED: FIB-604
-        lamella.events.defect.connect(self.refresh)             # type: ignore[union-attr]
-        lamella.events.description.connect(self.refresh)        # type: ignore[union-attr]
+        lamella.events.defect.connect(self.refresh)  # type: ignore[union-attr]
+        lamella.events.description.connect(self.refresh)  # type: ignore[union-attr]
 
         self.refresh()
 
@@ -220,8 +302,13 @@ class LamellaCardWidget(QWidget):
         if self._content is not None:
             # Re-parent the shared children out first, or deleting their container
             # takes them with it.
-            for widget in (self._thumb_label, self._name_label,
-                           self._status_label, self._btn_defect, self._btn_actions):
+            for widget in (
+                self._thumb_label,
+                self._name_label,
+                self._status_label,
+                self._btn_defect,
+                self._btn_actions,
+            ):
                 widget.setParent(None)
             self._frame_layout.removeWidget(self._content)
             self._content.deleteLater()
@@ -240,8 +327,12 @@ class LamellaCardWidget(QWidget):
         # says "visible once the parent is".
         self._content.show()
 
-        for widget in (self._name_label, self._status_label,
-                       self._btn_defect, self._btn_actions):
+        for widget in (
+            self._name_label,
+            self._status_label,
+            self._btn_defect,
+            self._btn_actions,
+        ):
             widget.show()
         # The compact arrangement leaves the thumbnail out of the layout entirely;
         # showing an unparented widget would pop it up as its own top-level window.
@@ -264,7 +355,9 @@ class LamellaCardWidget(QWidget):
 
         content = QWidget()
         row = QHBoxLayout(content)
-        row.setContentsMargins(_THUMB_PADDING, _THUMB_PADDING, _THUMB_PADDING, _THUMB_PADDING)
+        row.setContentsMargins(
+            _THUMB_PADDING, _THUMB_PADDING, _THUMB_PADDING, _THUMB_PADDING
+        )
         row.setSpacing(6)
         row.addWidget(self._thumb_label)
 
@@ -354,9 +447,14 @@ class LamellaCardWidget(QWidget):
         # none, and reading a lamella's thumbnail off disk to scale it for a hidden
         # label is the one thing worth skipping.
         if self._mode != MODE_COMPACT:
-            arr = self.lamella.get_thumbnail()
             self._thumb_label.setPixmap(
-                _arr_to_pixmap(arr, self._thumb_label.width(), self._thumb_label.height())
+                QPixmap.fromImage(
+                    _thumbnail_image(
+                        self.lamella,
+                        self._thumb_label.width(),
+                        self._thumb_label.height(),
+                    )
+                )
             )
 
     def mousePressEvent(self, event) -> None:
@@ -364,9 +462,7 @@ class LamellaCardWidget(QWidget):
         super().mousePressEvent(event)
 
     def set_selected(self, selected: bool) -> None:
-        self._card.setStyleSheet(
-            _CARD_SELECTED_STYLE if selected else _CARD_STYLE
-        )
+        self._card.setStyleSheet(_CARD_SELECTED_STYLE if selected else _CARD_STYLE)
 
     def _on_remove_clicked(self) -> None:
         reply = QMessageBox.question(
@@ -385,15 +481,17 @@ class LamellaCardWidget(QWidget):
             fibsem_icon("mdi:check-circle", color=stylesheets.GREEN_COLOR), "No defect"
         )
         action_rework = menu.addAction(
-            fibsem_icon("mdi:refresh-circle", color=stylesheets.DEFECT_ORANGE_COLOR), "Rework required"
+            fibsem_icon("mdi:refresh-circle", color=stylesheets.DEFECT_ORANGE_COLOR),
+            "Rework required",
         )
         action_failure = menu.addAction(
-            fibsem_icon("mdi:close-circle", color=stylesheets.DEFECT_RED_COLOR), "Failure"
+            fibsem_icon("mdi:close-circle", color=stylesheets.DEFECT_RED_COLOR),
+            "Failure",
         )
 
-        chosen = menu.exec_(self._btn_defect.mapToGlobal(
-            self._btn_defect.rect().bottomLeft()
-        ))
+        chosen = menu.exec_(
+            self._btn_defect.mapToGlobal(self._btn_defect.rect().bottomLeft())
+        )
 
         if chosen == action_none:
             self.lamella.defect = DefectState(state=DefectType.NONE)
@@ -414,11 +512,11 @@ _N_COLS = 4
 class LamellaCardContainer(QWidget):
     """Grid container that displays LamellaCardWidget in 4 columns."""
 
-    lamella_selected = pyqtSignal(object)           # Lamella | None
-    defect_changed = pyqtSignal(object)             # Lamella
-    move_to_requested = pyqtSignal(object)          # Lamella
+    lamella_selected = pyqtSignal(object)  # Lamella | None
+    defect_changed = pyqtSignal(object)  # Lamella
+    move_to_requested = pyqtSignal(object)  # Lamella
     update_position_requested = pyqtSignal(object)  # Lamella
-    remove_requested = pyqtSignal(object)           # Lamella
+    remove_requested = pyqtSignal(object)  # Lamella
 
     def __init__(
         self,
@@ -427,7 +525,7 @@ class LamellaCardContainer(QWidget):
         mode: str = MODE_COZY,
     ) -> None:
         super().__init__(parent)
-        self._cards: Dict[str, LamellaCardWidget] = {}   # lamella.id → card
+        self._cards: Dict[str, LamellaCardWidget] = {}  # lamella.id → card
         self._selected_id: Optional[str] = None
         self._n_cols: int = max(1, columns)
         self._mode: str = mode if mode in CARD_MODES else MODE_COZY

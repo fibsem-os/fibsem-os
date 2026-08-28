@@ -1,37 +1,51 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from copy import deepcopy
-from dataclasses import dataclass, field, fields, asdict
+from dataclasses import asdict, dataclass, field, fields
 from functools import cached_property
-from typing import Dict, List, Tuple, Union, Any, Optional, Type, ClassVar, TypeVar, Generic, Literal
+from typing import (
+    Any,
+    ClassVar,
+    Dict,
+    Generic,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 
 import numpy as np
 from numpy.typing import NDArray
 
 from fibsem import constants
+from fibsem.milling.properties import (
+    DEFAULT_ANGLE_METADATA,
+    DEFAULT_CROSS_SECTION_METADATA,
+    DEFAULT_DISTANCE_METADATA,
+    DEFAULT_DURATION_METADATA,
+    DEFAULT_PASSES_METADATA,
+    DEFAULT_SCAN_DIRECTION_METADATA,
+)
 from fibsem.structures import (
     CrossSectionPattern,
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemLineSettings,
-    FibsemRectangleSettings,
     FibsemPolygonSettings,
+    FibsemRectangleSettings,
     Point,
     TFibsemPatternSettings,
     field_meta,
     get_fields_with_metadata,
 )
-from fibsem.milling.properties import (DEFAULT_DISTANCE_METADATA,
-                                       DEFAULT_ANGLE_METADATA,
-                                       DEFAULT_DURATION_METADATA,
-                                       DEFAULT_SCAN_DIRECTION_METADATA,
-                                       DEFAULT_CROSS_SECTION_METADATA,
-                                       DEFAULT_PASSES_METADATA)
 
 TPattern = TypeVar("TPattern", bound="BasePattern")
 
 ####### Combo Patterns
+
 
 @dataclass
 class BasePattern(ABC, Generic[TFibsemPatternSettings]):
@@ -41,16 +55,18 @@ class BasePattern(ABC, Generic[TFibsemPatternSettings]):
     # `"type": Point` *before* spreading DEFAULT_DISTANCE_METADATA, so the
     # spread's `float` silently won and the declaration was a lie -- which is
     # why the row had to be special-cased on the field being named "point".
-    point: Point = field(default_factory=Point,
-                         metadata=field_meta(
-                            DEFAULT_DISTANCE_METADATA,
-                            label="Point",
-                            type=Point,
-                            minimum=-1000.0,
-                            maximum=1000.0,
-                            tooltip="Point coordinates for the milling pattern.",
-                            advanced=True,
-                         ))
+    point: Point = field(
+        default_factory=Point,
+        metadata=field_meta(
+            DEFAULT_DISTANCE_METADATA,
+            label="Point",
+            type=Point,
+            minimum=-1000.0,
+            maximum=1000.0,
+            tooltip="Point coordinates for the milling pattern.",
+            advanced=True,
+        ),
+    )
     # Computed by define(), never edited: the form skips it on `hidden` rather
     # than on a hardcoded field name, so a plugin can hide its own fields too.
     shapes: Optional[List[TFibsemPatternSettings]] = field(
@@ -125,6 +141,7 @@ class BasePattern(ABC, Generic[TFibsemPatternSettings]):
     def summary(self) -> str:
         """Return a multi-line human-readable summary of key pattern parameters."""
         from fibsem.utils import format_value
+
         lines = [f"    Pattern: {self.name}"]
         for attr in self.required_attributes:
             if attr in self.advanced_attributes:
@@ -426,13 +443,16 @@ class RectanglePattern(BasePattern[FibsemRectangleSettings]):
 
     def summary(self) -> str:
         from fibsem.utils import format_value
-        return "\n".join([
-            f"    Pattern: {self.name}",
-            f"        Depth: {format_value(self.depth, unit='m', precision=1)}",
-            f"        Width: {format_value(self.width, unit='m', precision=1)}",
-            f"        Height: {format_value(self.height, unit='m', precision=1)}",
-            f"        Cross Section: {self.cross_section.name}",
-        ])
+
+        return "\n".join(
+            [
+                f"    Pattern: {self.name}",
+                f"        Depth: {format_value(self.depth, unit='m', precision=1)}",
+                f"        Width: {format_value(self.width, unit='m', precision=1)}",
+                f"        Height: {format_value(self.height, unit='m', precision=1)}",
+                f"        Cross Section: {self.cross_section.name}",
+            ]
+        )
 
     def define(self) -> List[FibsemRectangleSettings]:
 
@@ -503,10 +523,13 @@ class LinePattern(BasePattern[FibsemLineSettings]):
 
     def summary(self) -> str:
         from fibsem.utils import format_value
-        return "\n".join([
-            f"    Pattern: {self.name}",
-            f"        Depth: {format_value(self.depth, unit='m', precision=1)}",
-        ])
+
+        return "\n".join(
+            [
+                f"    Pattern: {self.name}",
+                f"        Depth: {format_value(self.depth, unit='m', precision=1)}",
+            ]
+        )
 
     def define(self) -> List[FibsemLineSettings]:
         shape = FibsemLineSettings(
@@ -552,14 +575,17 @@ class CirclePattern(BasePattern[FibsemCircleSettings]):
 
     def summary(self) -> str:
         from fibsem.utils import format_value
-        return "\n".join([
-            f"    Pattern: {self.name}",
-            f"        Radius: {format_value(self.radius, unit='m', precision=1)}",
-            f"        Depth: {format_value(self.depth, unit='m', precision=1)}",
-        ])
+
+        return "\n".join(
+            [
+                f"    Pattern: {self.name}",
+                f"        Radius: {format_value(self.radius, unit='m', precision=1)}",
+                f"        Depth: {format_value(self.depth, unit='m', precision=1)}",
+            ]
+        )
 
     def define(self) -> List[FibsemCircleSettings]:
-        
+
         shape = FibsemCircleSettings(
             radius=self.radius,
             depth=self.depth,
@@ -636,16 +662,19 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
 
     def summary(self) -> str:
         from fibsem.utils import format_value
-        return "\n".join([
-            f"    Pattern: {self.name}",
-            f"        Depth: {format_value(self.depth, unit='m', precision=1)}",
-            f"        Width: {format_value(self.width, unit='m', precision=1)}",
-            f"        Spacing: {format_value(self.spacing, unit='m', precision=1)}",
-            f"        Upper Trench Height: {format_value(self.upper_trench_height, unit='m', precision=1)}",
-            f"        Lower Trench Height: {format_value(self.lower_trench_height, unit='m', precision=1)}",
-            f"        Passes: {format_value(self.passes, precision=0)}",
-            f"        Cross Section: {self.cross_section.name}",
-        ])
+
+        return "\n".join(
+            [
+                f"    Pattern: {self.name}",
+                f"        Depth: {format_value(self.depth, unit='m', precision=1)}",
+                f"        Width: {format_value(self.width, unit='m', precision=1)}",
+                f"        Spacing: {format_value(self.spacing, unit='m', precision=1)}",
+                f"        Upper Trench Height: {format_value(self.upper_trench_height, unit='m', precision=1)}",
+                f"        Lower Trench Height: {format_value(self.lower_trench_height, unit='m', precision=1)}",
+                f"        Passes: {format_value(self.passes, precision=0)}",
+                f"        Cross Section: {self.cross_section.name}",
+            ]
+        )
 
     def define(self) -> List[Union[FibsemRectangleSettings, FibsemCircleSettings]]:
 
@@ -666,7 +695,7 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
         # fillet radius on the corners
         fillet = np.clip(fillet, 0, upper_trench_height / 2)
         if fillet > 0:
-            width = max(0, width - 2 * fillet) # ensure width is not negative
+            width = max(0, width - 2 * fillet)  # ensure width is not negative
 
         # mill settings
         lower_trench_settings = FibsemRectangleSettings(
@@ -696,23 +725,27 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
         self.shapes = [upper_trench_settings, lower_trench_settings]
 
         # add fillet to the corners
-        if fillet > 0:            
+        if fillet > 0:
             left_x_pos = point.x - width / 2
             right_x_pos = point.x + width / 2
 
             fillet_offset = 1.5
-            lower_y_pos = centre_lower_y + lower_trench_height / 2 - fillet * fillet_offset
-            top_y_pos = centre_upper_y - upper_trench_height / 2 + fillet * fillet_offset
+            lower_y_pos = (
+                centre_lower_y + lower_trench_height / 2 - fillet * fillet_offset
+            )
+            top_y_pos = (
+                centre_upper_y - upper_trench_height / 2 + fillet * fillet_offset
+            )
 
             lower_left_fillet = FibsemCircleSettings(
                 radius=fillet,
-                depth=depth/2,
+                depth=depth / 2,
                 centre_x=point.x - width / 2,
                 centre_y=lower_y_pos,
             )
             lower_right_fillet = FibsemCircleSettings(
                 radius=fillet,
-                depth=depth/2,
+                depth=depth / 2,
                 centre_x=point.x + width / 2,
                 centre_y=lower_y_pos,
             )
@@ -724,7 +757,7 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
                 depth=depth,
                 centre_x=left_x_pos - fillet / 2,
                 centre_y=centre_lower_y - fillet / 2,
-                cross_section = cross_section,
+                cross_section=cross_section,
                 scan_direction="BottomToTop",
                 passes=self.passes,
             )
@@ -734,7 +767,7 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
                 depth=depth,
                 centre_x=right_x_pos + fillet / 2,
                 centre_y=centre_lower_y - fillet / 2,
-                cross_section = cross_section,
+                cross_section=cross_section,
                 scan_direction="BottomToTop",
                 passes=self.passes,
             )
@@ -758,7 +791,7 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
                 depth=depth,
                 centre_x=left_x_pos - fillet / 2,
                 centre_y=centre_upper_y + fillet / 2,
-                cross_section = cross_section,
+                cross_section=cross_section,
                 scan_direction="TopToBottom",
                 passes=self.passes,
             )
@@ -768,15 +801,23 @@ class TrenchPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSetti
                 depth=depth,
                 centre_x=right_x_pos + fillet / 2,
                 centre_y=centre_upper_y + fillet / 2,
-                cross_section = cross_section,
+                cross_section=cross_section,
                 scan_direction="TopToBottom",
                 passes=self.passes,
             )
 
-            self.shapes.extend([lower_left_fill, lower_right_fill, 
-                                top_left_fill, top_right_fill, 
-                                lower_left_fillet, lower_right_fillet, 
-                                top_left_fillet, top_right_fillet])
+            self.shapes.extend(
+                [
+                    lower_left_fill,
+                    lower_right_fill,
+                    top_left_fill,
+                    top_right_fill,
+                    lower_left_fillet,
+                    lower_right_fillet,
+                    top_left_fillet,
+                    top_right_fillet,
+                ]
+            )
 
         return self.shapes
 
@@ -881,7 +922,7 @@ class HorseshoePattern(BasePattern[FibsemRectangleSettings]):
             centre_x=point.x,
             centre_y=centre_lower_y,
             scan_direction="BottomToTop",
-            cross_section = cross_section
+            cross_section=cross_section,
         )
 
         upper_pattern = FibsemRectangleSettings(
@@ -891,7 +932,7 @@ class HorseshoePattern(BasePattern[FibsemRectangleSettings]):
             centre_x=point.x,
             centre_y=centre_upper_y,
             scan_direction="TopToBottom",
-            cross_section = cross_section
+            cross_section=cross_section,
         )
 
         side_pattern = FibsemRectangleSettings(
@@ -901,7 +942,7 @@ class HorseshoePattern(BasePattern[FibsemRectangleSettings]):
             centre_x=side_x,
             centre_y=side_y,
             scan_direction=self.scan_direction,
-            cross_section=cross_section
+            cross_section=cross_section,
         )
 
         self.shapes = [upper_pattern, lower_pattern, side_pattern]
@@ -988,7 +1029,7 @@ class HorseshoePatternVertical(BasePattern):
             centre_x=point.x - (width / 2) - (trench_width / 2),
             centre_y=point.y,
             scan_direction="LeftToRight",
-            cross_section=cross_section
+            cross_section=cross_section,
         )
 
         right_pattern = FibsemRectangleSettings(
@@ -998,7 +1039,7 @@ class HorseshoePatternVertical(BasePattern):
             centre_x=point.x + (width / 2) + (trench_width / 2),
             centre_y=point.y,
             scan_direction="RightToLeft",
-            cross_section=cross_section
+            cross_section=cross_section,
         )
         y_offset = (height / 2) + (upper_trench_height / 2)
         if inverted:
@@ -1010,10 +1051,10 @@ class HorseshoePatternVertical(BasePattern):
             centre_x=point.x,
             centre_y=point.y + y_offset,
             scan_direction=scan_direction,
-            cross_section=cross_section
+            cross_section=cross_section,
         )
 
-        self.shapes = [upper_pattern, left_pattern,right_pattern]
+        self.shapes = [upper_pattern, left_pattern, right_pattern]
         return self.shapes
 
 
@@ -1107,11 +1148,13 @@ class SerialSectionPattern(BasePattern[FibsemLineSettings]):
             side_height *= -1.0
 
         # main section pattern
-        section_pattern = FibsemLineSettings(start_x=point.x - section_width / 2, 
-                                             end_x=point.x + section_width / 2, 
-                                             start_y=point.y + section_y, 
-                                             end_y=point.y + section_y, 
-                                             depth=section_depth)
+        section_pattern = FibsemLineSettings(
+            start_x=point.x - section_width / 2,
+            end_x=point.x + section_width / 2,
+            start_y=point.y + section_y,
+            end_y=point.y + section_y,
+            depth=section_depth,
+        )
 
         self.shapes = [section_pattern]
 
@@ -1149,10 +1192,15 @@ class SerialSectionPattern(BasePattern[FibsemLineSettings]):
                 depth=side_depth,
             )
 
-            self.shapes.extend([left_side_pattern, right_side_pattern, 
-                            left_side_pattern_vertical, 
-                            right_side_pattern_vertical])
-            
+            self.shapes.extend(
+                [
+                    left_side_pattern,
+                    right_side_pattern,
+                    left_side_pattern_vertical,
+                    right_side_pattern_vertical,
+                ]
+            )
+
         return self.shapes
 
 
@@ -1213,7 +1261,6 @@ class FiducialPattern(BasePattern[FibsemRectangleSettings]):
         rotation = self.rotation * constants.DEGREES_TO_RADIANS
         cross_section = self.cross_section
 
-
         # def calculate_angles(num_steps, start_angle=0):
         #     angles = []
         #     step_size = 180 / num_steps
@@ -1266,8 +1313,8 @@ class FiducialPattern(BasePattern[FibsemRectangleSettings]):
         )
         if self.asymmetric:
             left_pattern.height *= 0.5
-            left_pattern.centre_x -= left_pattern.height*0.5*np.cos(rotation)
-            left_pattern.centre_y += left_pattern.height*0.5*np.sin(rotation)
+            left_pattern.centre_x -= left_pattern.height * 0.5 * np.cos(rotation)
+            left_pattern.centre_y += left_pattern.height * 0.5 * np.sin(rotation)
 
         self.shapes = [left_pattern, right_pattern]
         return self.shapes
@@ -1330,7 +1377,7 @@ class UndercutPattern(BasePattern[FibsemRectangleSettings]):
     name: ClassVar[str] = "Undercut"
 
     def define(self) -> List[FibsemRectangleSettings]:
-        
+
         point = self.point
         jcut_rhs_height = self.rhs_height
         jcut_lamella_height = self.height
@@ -1354,7 +1401,7 @@ class UndercutPattern(BasePattern[FibsemRectangleSettings]):
             centre_x=point.x,
             centre_y=point.y,
             scan_direction="TopToBottom",
-            cross_section=cross_section
+            cross_section=cross_section,
         )
         # rhs jcut
         jcut_rhs_centre_x = point.x + (jcut_width / 2) - jcut_trench_thickness / 2
@@ -1370,7 +1417,7 @@ class UndercutPattern(BasePattern[FibsemRectangleSettings]):
             centre_x=jcut_rhs_centre_x,
             centre_y=jcut_rhs_centre_y,
             scan_direction="TopToBottom",
-            cross_section = cross_section
+            cross_section=cross_section,
         )
 
         self.shapes = [top_pattern, rhs_pattern]
@@ -1428,7 +1475,7 @@ class MicroExpansionPattern(BasePattern[FibsemRectangleSettings]):
             width=width,
             height=height,
             depth=depth,
-            centre_x=point.x -  distance,
+            centre_x=point.x - distance,
             centre_y=point.y,
             scan_direction="TopToBottom",
         )
@@ -1544,7 +1591,7 @@ class ArrayPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSettin
     # ref: weld cross-section/ passes: https://www.nature.com/articles/s41592-023-02113-5
 
     def define(self) -> List[Union[FibsemRectangleSettings, FibsemCircleSettings]]:
-        
+
         point = self.point
         width = self.width
         height = self.height
@@ -1585,7 +1632,7 @@ class ArrayPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSettin
                     height=height,
                     depth=depth,
                     centre_x=pt.x,
-                    centre_y=pt.y,  
+                    centre_y=pt.y,
                     scan_direction=scan_direction,
                     rotation=rotation,
                     passes=passes,
@@ -1593,7 +1640,7 @@ class ArrayPattern(BasePattern[Union[FibsemRectangleSettings, FibsemCircleSettin
                 )
             self.shapes.append(pattern_settings)
 
-        return self.shapes # type: ignore
+        return self.shapes  # type: ignore
 
 
 @dataclass
@@ -1680,7 +1727,7 @@ class WaffleNotchPattern(BasePattern[FibsemRectangleSettings]):
             centre_x=point.x,
             centre_y=point.y - distance / 2 - vheight / 2 + hheight / 2,
             scan_direction="TopToBottom",
-            cross_section=cross_section
+            cross_section=cross_section,
         )
 
         bottom_vertical_pattern = FibsemRectangleSettings(
@@ -1690,7 +1737,7 @@ class WaffleNotchPattern(BasePattern[FibsemRectangleSettings]):
             centre_x=point.x,
             centre_y=point.y + distance / 2 + vheight / 2 - hheight / 2,
             scan_direction="BottomToTop",
-            cross_section=cross_section
+            cross_section=cross_section,
         )
 
         top_horizontal_pattern = FibsemRectangleSettings(
@@ -1700,7 +1747,7 @@ class WaffleNotchPattern(BasePattern[FibsemRectangleSettings]):
             centre_x=point.x + (hwidth / 2 + vwidth / 2) * inverted,
             centre_y=point.y - distance / 2,
             scan_direction="TopToBottom",
-            cross_section=cross_section
+            cross_section=cross_section,
         )
 
         bottom_horizontal_pattern = FibsemRectangleSettings(
@@ -1710,7 +1757,7 @@ class WaffleNotchPattern(BasePattern[FibsemRectangleSettings]):
             centre_x=point.x + (hwidth / 2 + vwidth / 2) * inverted,
             centre_y=point.y + distance / 2,
             scan_direction="BottomToTop",
-            cross_section=cross_section
+            cross_section=cross_section,
         )
 
         centre_vertical_pattern = FibsemRectangleSettings(
@@ -1720,7 +1767,7 @@ class WaffleNotchPattern(BasePattern[FibsemRectangleSettings]):
             centre_x=point.x + (hwidth + vwidth) * inverted,
             centre_y=point.y,
             scan_direction="TopToBottom",
-            cross_section=cross_section
+            cross_section=cross_section,
         )
 
         self.shapes = [
@@ -1756,7 +1803,7 @@ class CloverPattern(BasePattern[Union[FibsemCircleSettings, FibsemRectangleSetti
     name: ClassVar[str] = "Clover"
 
     def define(self) -> List[Union[FibsemCircleSettings, FibsemRectangleSettings]]:
-        
+
         point = self.point
         radius = self.radius
         depth = self.depth
@@ -1843,14 +1890,11 @@ class TriForcePattern(BasePattern[FibsemRectangleSettings]):
         ]
 
         for point in points:
-
-            triangle_shapes =  create_triangle_patterns(width=width, 
-                                                        height=height, 
-                                                        depth=depth, 
-                                                        point=point, 
-                                                        angle=angle)
+            triangle_shapes = create_triangle_patterns(
+                width=width, height=height, depth=depth, point=point, angle=angle
+            )
             self.shapes.extend(triangle_shapes)
-            
+
         return self.shapes
 
 
@@ -1899,7 +1943,7 @@ class TrenchTrapezoidPattern(BasePattern):
     name: ClassVar[str] = "TrapezoidTrench"
 
     # ref: https://www.researchsquare.com/article/rs-6497420/v1
-    
+
     def define(self):
 
         width = self.trench_width
@@ -1921,7 +1965,7 @@ class TrenchTrapezoidPattern(BasePattern):
 
         # create mirrored polygon (mirror over y-axis)
         mirrored_points = points.copy()
-        mirrored_points[:, 1] = -mirrored_points[:, 1] #- spacing /2
+        mirrored_points[:, 1] = -mirrored_points[:, 1]  # - spacing /2
 
         top_trench = FibsemPolygonSettings(vertices=points, depth=depth)
         bottom_trench = FibsemPolygonSettings(vertices=mirrored_points, depth=depth)
@@ -1939,7 +1983,9 @@ class TrenchTrapezoidPattern(BasePattern):
 
 @dataclass
 class PolygonPattern(BasePattern):
-    vertices: np.ndarray[float] = field(default_factory=lambda: np.array([]), metadata={"hidden": True})    # type: ignore[type-arg]
+    vertices: np.ndarray[float] = field(
+        default_factory=lambda: np.array([]), metadata={"hidden": True}
+    )  # type: ignore[type-arg]
     depth: float = field(
         default=1.0e-6,
         metadata={
@@ -1960,14 +2006,16 @@ class PolygonPattern(BasePattern):
 
     def define(self) -> List[FibsemPolygonSettings]:
         """Define a polygon milling pattern based on the provided vertices."""
-        
+
         if self.vertices.ndim != 2 or self.vertices.shape[1] != 2:
             raise ValueError("Vertices must be a 2D array with shape (n, 2)")
 
         # Create a polygon milling pattern
-        polygon = FibsemPolygonSettings(vertices=np.array(self.vertices, copy=True), 
-                                        depth=self.depth,
-                                        is_exclusion=self.is_exclusion)
+        polygon = FibsemPolygonSettings(
+            vertices=np.array(self.vertices, copy=True),
+            depth=self.depth,
+            is_exclusion=self.is_exclusion,
+        )
 
         # Offset the vertices by the point
         polygon.vertices[:, 0] += self.point.x

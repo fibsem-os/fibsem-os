@@ -9,12 +9,13 @@ import logging
 import threading
 import time
 import warnings
-import yaml
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Type
+
+import yaml
 
 
 class HookEvent(str, Enum):

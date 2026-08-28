@@ -3,17 +3,18 @@ from __future__ import annotations
 import logging
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple, Dict, Any, Set, Union, Type
+from typing import Any, Dict, List, Optional, Set, Tuple, Type, Union
 
-from matplotlib.colors import to_rgba
 import napari
 import numpy as np
+from matplotlib.colors import to_rgba
 from napari.layers import Image as NapariImageLayer
 from napari.layers import Layer as NapariLayer
 from napari.layers import Shapes as NapariShapesLayers
 from napari.utils import Colormap as NapariColormap
 from skimage.transform import resize
 
+from fibsem.conversions import microscope_image_to_image_coordinates
 from fibsem.milling import FibsemMillingStage
 from fibsem.milling.patterning.patterns2 import (
     BasePattern,
@@ -25,8 +26,8 @@ from fibsem.structures import (
     FibsemImage,
     FibsemLineSettings,
     FibsemPatternSettings,
-    FibsemRectangle,
     FibsemPolygonSettings,
+    FibsemRectangle,
     FibsemRectangleSettings,
     Point,
     calculate_fiducial_area_v2,
@@ -57,12 +58,6 @@ IGNORE_SHAPES_LAYERS = ["ruler_line", "crosshair", "scalebar", "label", "overlay
 STAGE_POSTIION_SHAPE_LAYERS = ["saved-stage-positions", "current-stage-position", "stage-position"] # for minimap
 IGNORE_SHAPES_LAYERS.extend(STAGE_POSTIION_SHAPE_LAYERS)
 CURRENT_PATTERN_LAYERS: Set[str] = set()
-
-def get_image_pixel_centre(shape: Tuple[int, int]) -> Tuple[int, int]:
-    """Get the centre of the image in pixel coordinates."""
-    icy, icx = shape[0] // 2, shape[1] // 2
-    return icy, icx
-
 
 def create_affine_matrix(
     scale: Tuple[float, float] = (1, 1),
@@ -103,13 +98,14 @@ def convert_pattern_to_napari_circle(
     if not isinstance(pattern_settings, FibsemCircleSettings):
         raise ValueError(f"Pattern is not a Circle: {pattern_settings}")
 
-    # image centre
-    icy, icx = get_image_pixel_centre(shape)
 
     # pattern to pixel coords
     r = int(pattern_settings.radius / pixelsize)
-    cx = int(icx + (pattern_settings.centre_x / pixelsize))
-    cy = int(icy - (pattern_settings.centre_y / pixelsize))
+    centre = microscope_image_to_image_coordinates(
+        Point(x=pattern_settings.centre_x, y=pattern_settings.centre_y),
+        shape, pixelsize,
+    )
+    cx, cy = int(centre.x), int(centre.y)
 
     # create corner coords
     xmin, ymin = cx - r, cy - r
@@ -129,8 +125,6 @@ def convert_pattern_to_napari_line(
     if not isinstance(pattern_settings, FibsemLineSettings):
         raise ValueError(f"Pattern is not a Line: {pattern_settings}")
 
-    # image centre
-    icy, icx = get_image_pixel_centre(shape)
 
     # extract pattern information from settings
     start_x = pattern_settings.start_x
@@ -139,10 +133,14 @@ def convert_pattern_to_napari_line(
     end_y = pattern_settings.end_y
 
     # pattern to pixel coords
-    px0 = int(icx + (start_x / pixelsize))
-    py0 = int(icy - (start_y / pixelsize))
-    px1 = int(icx + (end_x / pixelsize))
-    py1 = int(icy - (end_y / pixelsize))
+    start = microscope_image_to_image_coordinates(
+        Point(x=start_x, y=start_y), shape, pixelsize
+    )
+    end = microscope_image_to_image_coordinates(
+        Point(x=end_x, y=end_y), shape, pixelsize
+    )
+    px0, py0 = int(start.x), int(start.y)
+    px1, py1 = int(end.x), int(end.y)
 
     # napari shape format [[y_start, x_start], [y_end, x_end]])
     line = [[py0, px0], [py1, px1]]
@@ -158,8 +156,6 @@ def convert_pattern_to_napari_rect(
     if not isinstance(pattern_settings, FibsemRectangleSettings):
         raise ValueError(f"Pattern is not a Rectangle: {pattern_settings}")
 
-    # image centre
-    icy, icx = get_image_pixel_centre(shape)
 
     # extract pattern information from settings
     pattern_width = pattern_settings.width
@@ -171,8 +167,10 @@ def convert_pattern_to_napari_rect(
     # pattern to pixel coords
     w = int(pattern_width / pixelsize)
     h = int(pattern_height / pixelsize)
-    cx = int(icx + (pattern_centre_x / pixelsize))
-    cy = int(icy - (pattern_centre_y / pixelsize))
+    centre = microscope_image_to_image_coordinates(
+        Point(x=pattern_centre_x, y=pattern_centre_y), shape, pixelsize
+    )
+    cx, cy = int(centre.x), int(centre.y)
     r = -pattern_rotation  #
     xmin, xmax = -w / 2, w / 2
     ymin, ymax = -h / 2, h / 2
@@ -195,13 +193,13 @@ def create_crosshair_shape(
     pixelsize: float,
     translation: Union[np.ndarray, Tuple[float, float]] = (0, 0),
 ) -> Tuple[np.ndarray, Dict[str, Any]]:
-    icy, icx = shape[0] // 2, shape[1] // 2
-
     pattern_centre_x = centre_point.x
     pattern_centre_y = centre_point.y
 
-    cx = int(icx + (pattern_centre_x / pixelsize))
-    cy = int(icy - (pattern_centre_y / pixelsize))
+    centre = microscope_image_to_image_coordinates(
+        Point(x=pattern_centre_x, y=pattern_centre_y), shape, pixelsize
+    )
+    cx, cy = int(centre.x), int(centre.y)
 
     r_angles = [0, np.deg2rad(90)]  #
     w = 40
@@ -232,7 +230,10 @@ def convert_bitmap_pattern_to_napari_image(
     pixelsize: float,
     translation: Union[np.ndarray, Tuple[float, float]] = (0, 0),
 ) -> Tuple[np.ndarray, Dict[str, Any]]:
-    icy, icx = get_image_pixel_centre(shape)
+    centre = microscope_image_to_image_coordinates(
+        Point(x=pattern_settings.centre_x, y=pattern_settings.centre_y),
+        shape, pixelsize,
+    )
 
     resize_x = int(pattern_settings.width / pixelsize)
     resize_y = int(pattern_settings.height / pixelsize)
@@ -260,10 +261,8 @@ def convert_bitmap_pattern_to_napari_image(
                 img_array.shape[0] / 2,
                 img_array.shape[1] / 2,
             ),
-            translation=(
-                icy - pattern_settings.centre_y / pixelsize,
-                icx + pattern_settings.centre_x / pixelsize,
-            ),
+            # (row, column) for the affine, so y first
+            translation=(centre.y, centre.x),
         ),
         "translate": translation,
     }
@@ -276,16 +275,20 @@ def convert_pattern_to_napari_polygon(pattern_settings: FibsemPolygonSettings,
     if not isinstance(pattern_settings, FibsemPolygonSettings):
         raise ValueError(f"Pattern is not a Polygon: {pattern_settings}")
 
-    # image centre
-    icy, icx = get_image_pixel_centre(shape)
+    # Vertices are (x, y) in microscope metres, the same frame as every other
+    # pattern's centre_x / centre_y. This previously added the image centre to
+    # both axes, which drew the polygon mirrored about it: microscope +y is up
+    # and image rows go down, so y has to be subtracted, not added (FIB-692).
+    points = [
+        microscope_image_to_image_coordinates(
+            Point(x=float(vx), y=float(vy)), shape, pixelsize
+        )
+        for vx, vy in pattern_settings.vertices
+    ]
 
-    vertices = np.array(pattern_settings.vertices)
-    # convert vertices to pixels
-    vertices = vertices / pixelsize
-    # reverse the order of coordinates for napari
-    vertices = vertices[:, ::-1]
-    # add the image centre
-    vertices += np.array([icy, icx])
+    # napari wants (row, column) — i.e. (y, x) — so the swap happens after the
+    # conversion, not before it
+    vertices = np.array([[p.y, p.x] for p in points], dtype=float).reshape(-1, 2)
 
     return vertices, {"translate": translation}
 
@@ -562,12 +565,15 @@ def draw_milling_patterns_in_napari(
     return layer_name_list  # list of milling pattern layers
 
 def convert_point_to_napari(resolution: list, pixel_size: float, centre: Point):
-    icy, icx = resolution[1] // 2, resolution[0] // 2
+    # `resolution` is [x, y] (structures.py: "resolution of the acquired image
+    # in pixels, [x, y]"), the opposite order to a numpy `shape`. Swap it here
+    # rather than at the reader: the old code indexed [1] then [0] to compensate,
+    # which reads like a bug and is not one.
+    pt = microscope_image_to_image_coordinates(
+        centre, (resolution[1], resolution[0]), pixel_size
+    )
 
-    cx = int(icx + (centre.x / pixel_size))
-    cy = int(icy - (centre.y / pixel_size))
-
-    return Point(cx, cy)
+    return Point(int(pt.x), int(pt.y))
 
 
 def validate_pattern_image_placement(

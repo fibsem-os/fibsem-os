@@ -1,5 +1,6 @@
 import logging
 import threading
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -11,8 +12,7 @@ from fibsem.milling.base import (
     MillingStrategy,
     MillingStrategyConfig,
 )
-
-import time
+from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 
 
 @dataclass
@@ -45,16 +45,20 @@ class StandardMillingStrategy(MillingStrategy[StandardMillingConfig]):
         estimated_time = microscope.estimate_milling_time()
         logging.info(f"Estimated time for {stage.name}: {estimated_time:.2f} seconds")
 
+        # The strategy's own words. This used to carry no `state` at all, so it matched
+        # no branch in any of the three consumers and rendered nowhere -- the one
+        # message a strategy sends was precisely the one that was dropped. A consumer
+        # keeps it standing across the messageless ticks that follow, which is what a
+        # *delegating* strategy needs: `run_milling` below hands the loop to a backend
+        # that has no idea what this strategy calls itself.
         microscope.milling_progress_signal.emit(
-            {
-                "msg": f"Running {stage.name}...",
-                "progress": {
-                    "started": True,
-                    "start_time": time.time(),
-                    "estimated_time": estimated_time,
-                    "name": stage.name,
-                },
-            }
+            MillingProgress(
+                status=MillingProgressStatus.STAGE_UPDATE,
+                message=f"Running {stage.name}...",
+                stage_name=stage.name,
+                start_time=time.time(),
+                estimated_time=estimated_time,
+            )
         )
 
         raise_if_cancelled(stop_event)  # last chance before the beam starts

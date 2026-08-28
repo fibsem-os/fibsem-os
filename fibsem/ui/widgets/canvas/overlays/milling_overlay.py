@@ -20,32 +20,31 @@ selected-stage highlight, background stages, annulus / bitmap shapes.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import TYPE_CHECKING, Optional, Sequence
 
 import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 from matplotlib.colors import to_rgba
 
+from fibsem.conversions import microscope_image_to_image_coordinates
 from fibsem.structures import (
     FibsemCircleSettings,
     FibsemImage,
     FibsemLineSettings,
     FibsemPolygonSettings,
     FibsemRectangleSettings,
+    Point,
 )
 from fibsem.ui.napari.patterns import (
     COLOURS,
     convert_pattern_to_napari_line,
     convert_pattern_to_napari_polygon,
     convert_pattern_to_napari_rect,
-    get_image_pixel_centre,
 )
-from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
-
-from typing import TYPE_CHECKING
 from fibsem.ui.tokens import (
     CANVAS_BG,
 )
+from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.canvas.canvas_base import ContentRect
@@ -228,10 +227,12 @@ class MillingPatternOverlay(CanvasOverlay):
             verts, _ = convert_pattern_to_napari_rect(ps, shape, pixelsize)
             return mpatches.Polygon(verts[:, ::-1], closed=True, **patch_kw)  # (y,x)→(x,y)
         if isinstance(ps, FibsemCircleSettings):
-            icy, icx = get_image_pixel_centre(shape)
-            cx = icx + ps.centre_x / pixelsize
-            cy = icy - ps.centre_y / pixelsize
-            return mpatches.Circle((cx, cy), ps.radius / pixelsize, **patch_kw)
+            centre = microscope_image_to_image_coordinates(
+                Point(x=ps.centre_x, y=ps.centre_y), shape, pixelsize
+            )
+            return mpatches.Circle(
+                (centre.x, centre.y), ps.radius / pixelsize, **patch_kw
+            )
         if isinstance(ps, FibsemLineSettings):
             verts, _ = convert_pattern_to_napari_line(ps, shape, pixelsize)
             (y0, x0), (y1, x1) = verts
@@ -245,9 +246,8 @@ class MillingPatternOverlay(CanvasOverlay):
 
     def _draw_crosshair(self, point, shape, pixelsize: float, colour: str,
                         zorder: float) -> None:
-        icy, icx = get_image_pixel_centre(shape)
-        cx = icx + point.x / pixelsize
-        cy = icy - point.y / pixelsize
+        centre = microscope_image_to_image_coordinates(point, shape, pixelsize)
+        cx, cy = centre.x, centre.y
         h = _CROSSHAIR_HALF_PX
         kw = dict(color=colour, linewidth=1, alpha=0.9, zorder=zorder)
         (l1,) = self._ax.plot([cx - h, cx + h], [cy, cy], **kw)

@@ -1,6 +1,7 @@
 import numpy as np
-from fibsem.structures import Point, FibsemImage
 from PIL import Image
+
+from fibsem.structures import FibsemImage, Point
 
 
 def create_distance_map_px(w: int, h: int) -> np.ndarray:

@@ -8,6 +8,7 @@ from typing import List, Optional
 import yaml
 
 import fibsem
+from fibsem import manufacturers
 
 # Documentation for a human reading a file, not a parsing switch -- from_dict does not
 # branch on it, and additive changes are detected from field presence instead (FIB-445
@@ -79,11 +80,17 @@ SQUARE_RESOLUTIONS_LIST = [
 AVAILABLE_RESOLUTIONS = SQUARE_RESOLUTIONS + STANDARD_RESOLUTIONS
 DEFAULT_STANDARD_RESOLUTION = "1536x1024"
 DEFAULT_SQUARE_RESOLUTION = "1024x1024"
+DEFAULT_STANDARD_RESOLUTION_LIST = [
+    int(px) for px in DEFAULT_STANDARD_RESOLUTION.split("x")
+]
 SQUARE_RESOLUTIONS_ZIP = list(zip(SQUARE_RESOLUTIONS, SQUARE_RESOLUTIONS_LIST))
 STANDARD_RESOLUTIONS_ZIP = list(zip(STANDARD_RESOLUTIONS, STANDARD_RESOLUTIONS_LIST))
-AVAILABLE_RESOLUTIONS_ZIP = list(zip(AVAILABLE_RESOLUTIONS, [
-    [int(x) for x in r.split("x")] for r in AVAILABLE_RESOLUTIONS
-]))
+AVAILABLE_RESOLUTIONS_ZIP = list(
+    zip(
+        AVAILABLE_RESOLUTIONS,
+        [[int(x) for x in r.split("x")] for r in AVAILABLE_RESOLUTIONS],
+    )
+)
 
 
 BASE_PATH = os.path.dirname(fibsem.__path__[0])
@@ -99,12 +106,16 @@ MICROSCOPE_CONFIGURATION_PATH = os.path.join(
     CONFIG_PATH, "microscope-configuration.yaml"
 )
 # fluorescence settings persistence
-FM_CONFIGURATION_PATH = os.path.join(CONFIG_PATH, "fm-configuration.yaml")  # working state
-FM_RECENT_CHANNELS_PATH = os.path.join(CONFIG_PATH, "fm-recent-channels.yaml")  # recently-used channels
-COINCIDENCE_MILLING_CONFIG_PATH = os.path.join(CONFIG_PATH, "coincidence-milling-config.yaml")  # milling default
-SAMPLE_HOLDER_CONFIGURATION_PATH = os.path.join(
-    CONFIG_PATH, "sample-holder.yaml"
-)
+FM_CONFIGURATION_PATH = os.path.join(
+    CONFIG_PATH, "fm-configuration.yaml"
+)  # working state
+FM_RECENT_CHANNELS_PATH = os.path.join(
+    CONFIG_PATH, "fm-recent-channels.yaml"
+)  # recently-used channels
+COINCIDENCE_MILLING_CONFIG_PATH = os.path.join(
+    CONFIG_PATH, "coincidence-milling-config.yaml"
+)  # milling default
+SAMPLE_HOLDER_CONFIGURATION_PATH = os.path.join(CONFIG_PATH, "sample-holder.yaml")
 DEFAULT_SAMPLE_HOLDER_CONFIGURATION_PATH = os.path.join(
     CONFIG_PATH, "default-sample-holder.yaml"
 )
@@ -138,21 +149,27 @@ def load_yaml(fname):
 
     return config
 
-AVAILABLE_MANUFACTURERS = ["Thermo", "Tescan", "Demo"]
-DEFAULT_MANUFACTURER = "Thermo"
+
+AVAILABLE_MANUFACTURERS = [
+    manufacturers.THERMOFISHER,
+    manufacturers.TESCAN,
+    manufacturers.DEMO,
+]
+DEFAULT_MANUFACTURER = manufacturers.THERMOFISHER
 DEFAULT_IP_ADDRESS = "192.168.0.1"
 SUPPORTED_PLASMA_GASES = ["Argon", "Oxygen", "Nitrogen", "Xenon"]
+
 
 def get_default_user_config() -> dict:
     """Return the default configuration."""
     return {
-        "name":                           "default-configuration",       # a descriptive name for your configuration 
-        "ip_address":                     DEFAULT_IP_ADDRESS,            # the ip address of the microscope PC
-        "manufacturer":                   DEFAULT_MANUFACTURER,          # the microscope manufactuer, Thermo, Tescan or Demo                       
-        "rotation-reference":             0,                             # the reference rotation value (rotation when loading)  [degrees]
-        "shuttle-pre-tilt":               35,                            # the pre-tilt of the shuttle                           [degrees]
-        "electron-beam-eucentric-height": 7.0e-3,                        # the eucentric height of the electron beam             [metres]
-        "ion-beam-eucentric-height":      16.5e-3,                       # the eucentric height of the ion beam                  [metres]
+        "name": "default-configuration",  # a descriptive name for your configuration
+        "ip_address": DEFAULT_IP_ADDRESS,  # the ip address of the microscope PC
+        "manufacturer": DEFAULT_MANUFACTURER,  # the microscope manufacturer: ThermoFisher, Tescan or Demo
+        "rotation-reference": 0,  # the reference rotation value (rotation when loading)  [degrees]
+        "shuttle-pre-tilt": 35,  # the pre-tilt of the shuttle                           [degrees]
+        "electron-beam-eucentric-height": 7.0e-3,  # the eucentric height of the electron beam             [metres]
+        "ion-beam-eucentric-height": 16.5e-3,  # the eucentric height of the ion beam                  [metres]
     }
 
 
@@ -172,19 +189,22 @@ DEFAULT_CONFIGURATION_PATH = USER_CONFIGURATIONS[DEFAULT_CONFIGURATION_NAME]["pa
 
 
 if DEFAULT_CONFIGURATION_PATH is None:
-    USER_CONFIGURATIONS[DEFAULT_CONFIGURATION_NAME][
-        "path"
-    ] = MICROSCOPE_CONFIGURATION_PATH
+    USER_CONFIGURATIONS[DEFAULT_CONFIGURATION_NAME]["path"] = (
+        MICROSCOPE_CONFIGURATION_PATH
+    )
     DEFAULT_CONFIGURATION_PATH = MICROSCOPE_CONFIGURATION_PATH
 
 if not os.path.exists(DEFAULT_CONFIGURATION_PATH):
     DEFAULT_CONFIGURATION_NAME = "default-configuration"
-    USER_CONFIGURATIONS[DEFAULT_CONFIGURATION_NAME][
-        "path"
-    ] = MICROSCOPE_CONFIGURATION_PATH
+    USER_CONFIGURATIONS[DEFAULT_CONFIGURATION_NAME]["path"] = (
+        MICROSCOPE_CONFIGURATION_PATH
+    )
     DEFAULT_CONFIGURATION_PATH = MICROSCOPE_CONFIGURATION_PATH
-        
-print(f"Default configuration {DEFAULT_CONFIGURATION_NAME}. Configuration Path: {DEFAULT_CONFIGURATION_PATH}")
+
+print(
+    f"Default configuration {DEFAULT_CONFIGURATION_NAME}. Configuration Path: {DEFAULT_CONFIGURATION_PATH}"
+)
+
 
 def _is_same_path(path: Optional[str], other: Optional[str]) -> bool:
     """Compare two configuration paths, either of which may be unset."""
@@ -248,7 +268,7 @@ def set_default_configuration(configuration_name: str):
 
 # default configuration values
 DEFAULT_CONFIGURATION_VALUES = {
-    "Thermo": {
+    manufacturers.THERMOFISHER: {
         "ion-column-tilt": 52,
         "electron-column-tilt": 0,
     },
@@ -272,19 +292,26 @@ APPLY_CONFIGURATION_ENABLED = True
 
 # tescan manipulator
 
-TESCAN_MANIPULATOR_CALIBRATION_PATH = os.path.join(CONFIG_PATH, "tescan_manipulator.yaml")
+TESCAN_MANIPULATOR_CALIBRATION_PATH = os.path.join(
+    CONFIG_PATH, "tescan_manipulator.yaml"
+)
+
 
 def load_tescan_manipulator_calibration() -> dict:
     """Load the tescan manipulator calibration"""
     from fibsem.utils import load_yaml
+
     config = load_yaml(TESCAN_MANIPULATOR_CALIBRATION_PATH)
     return config
+
 
 def save_tescan_manipulator_calibration(config: dict) -> None:
     """Save the tescan manipulator calibration"""
     from fibsem.utils import save_yaml
+
     save_yaml(TESCAN_MANIPULATOR_CALIBRATION_PATH, config)
     return None
+
 
 # ---------------------------------------------------------------------------
 # User Preferences
@@ -307,9 +334,9 @@ def save_tescan_manipulator_calibration(config: dict) -> None:
 # The stored value is the label lowercased, deliberately: a preferences file that says
 # `compact` and a dialog that says "Standard" are a support conversation waiting to
 # happen.
-MODE_COZY = "cozy"          # large thumbnail tile
+MODE_COZY = "cozy"  # large thumbnail tile
 MODE_STANDARD = "standard"  # small thumbnail beside the name
-MODE_COMPACT = "compact"    # one line, no thumbnail
+MODE_COMPACT = "compact"  # one line, no thumbnail
 CARD_MODES = (MODE_COZY, MODE_STANDARD, MODE_COMPACT)
 _CARD_MODE_LABELS = {
     MODE_COZY: "Cozy",
@@ -326,7 +353,17 @@ def card_mode_label(mode: str) -> str:
 @dataclass
 class DisplayPreferences:
     sound_enabled: bool = False
-    toasts_enabled: bool = False
+    # No `toasts_enabled` here: toasts are how the application talks, not a nicety
+    # sitting beside sound. It was a preference defaulting to False, which meant 165
+    # call sites emitted feedback that reached nowhere at all -- `show_toast`
+    # deliberately bypasses notification history, so off was not "quieter", it was
+    # silent.
+    #
+    # Removed rather than flipped. `to_dict` is `dataclasses.asdict`, so every save
+    # writes the key and opening an experiment is enough to trigger a save: a new
+    # default would have reached only a machine that had never run the app, while
+    # everyone else kept the pinned `false` (FIB-781). Older files still carry the
+    # key and `_sub_from_dict` drops it.
     border_enabled: bool = True
     dev_mode: bool = False
     # How the lamella strip draws each card: "cozy" (large thumbnail), "standard"
@@ -339,6 +376,16 @@ class DisplayPreferences:
     # Cozy, because it is what the strip drew before the other two existed: a new
     # layout is offered, never imposed on an upgrade.
     lamella_card_mode: str = MODE_COZY
+    # Whether the first-run guided setup offer has been waved away. State rather than
+    # a preference -- nobody sets this in the dialog, they set it by pressing the x on
+    # the callout -- and it lives here for the same reason `last_experiment_path` does.
+    #
+    # Its own field, and deliberately not inferred from this file existing. The offer
+    # is shown when no microscope configuration has ever been registered, and
+    # dismissing must not fake one: a person who intends to configure by hand has
+    # still configured nothing.
+    guided_setup_dismissed: bool = False
+
 
 @dataclass
 class FeatureFlags:
@@ -349,11 +396,42 @@ class FeatureFlags:
     # microscope and none of its guard rails, so the menu is not offered to anyone
     # who has not asked for it (FIB-338).
     scripts_enabled: bool = False
+    # The old napari Minimap tab, beside the Overview tab that replaced it. **Off**: the
+    # canvas Overview ships to everyone and holds both modalities (FIB-780), so the old
+    # tab is not what anyone should land on -- it is here to be turned back on by anyone
+    # who finds something the new tab cannot do yet, for the one release before it goes.
+    #
+    # This hides the tab; it does not stop it being built. The widget owns a
+    # `napari.Viewer` that cannot be rebuilt safely mid-session, so it is constructed
+    # either way -- see `_apply_napari_overview_visibility`. Off means "not in the tab
+    # bar", not "not paid for".
+    #
+    # It replaces `overview_canvas_tab`, retired rather than flipped: that flag gated the
+    # *new* tab, and a flag that changes which tab it points at while keeping its name is
+    # a flag nobody can reason about from a preferences file. A new name also gets the
+    # new default on every install, including the ones with a saved preferences file --
+    # a changed default alone reaches only fresh ones.
+    #
+    # Deleted with the tab itself before the full release (FIB-405, FIB-413).
+    napari_overview_tab: bool = False
+    # The connection chip in the tab-corner header, and the experiment buttons
+    # waiting for a microscope alongside it. Off while the Connection tab is still
+    # how people connect: this is the header half of FIB-775, landing ahead of the
+    # tab removal so it can have bench time first.
+    #
+    # The dialog it opens is NOT gated -- File -> Connect to Microscope reaches it
+    # either way, which is how it gets exercised while this is off.
+    #
+    # A staging flag like `napari_overview_tab`, and it goes the same way: deleted
+    # when the chip replaces the tab, not kept as a preference.
+    connection_chip: bool = False
+
 
 @dataclass
 class MovementPreferences:
     acquire_sem_after_stage_movement: bool = True
     acquire_fib_after_stage_movement: bool = True
+
 
 # Maximum number of recent experiments to remember for quick-select
 MAX_RECENT_EXPERIMENTS = 10
@@ -369,6 +447,7 @@ class ExperimentPreferences:
     project: str = ""
     organisation: str = ""
 
+
 @dataclass
 class ReportingPreferences:
     contact_email: str = ""
@@ -381,6 +460,7 @@ class ReportingPreferences:
     # operator would have no idea it was happening. Skipped entirely for source
     # installs regardless of this setting (see fibsem.update_check.is_enabled).
     update_check_enabled: bool = False
+
 
 @dataclass
 class UserPreferences:
@@ -407,13 +487,24 @@ class UserPreferences:
     @classmethod
     def from_dict(cls, d: dict) -> "UserPreferences":
         """Reconstruct from a dict, handling both nested and legacy flat formats."""
-        if any(k in d for k in ("display", "features", "movement", "experiment",
-                                "reporting", "hooks")):
+        if any(
+            k in d
+            for k in (
+                "display",
+                "features",
+                "movement",
+                "experiment",
+                "reporting",
+                "hooks",
+            )
+        ):
             return cls(
                 display=_sub_from_dict(DisplayPreferences, d.get("display", {})),
                 features=_sub_from_dict(FeatureFlags, d.get("features", {})),
                 movement=_sub_from_dict(MovementPreferences, d.get("movement", {})),
-                experiment=_sub_from_dict(ExperimentPreferences, d.get("experiment", {})),
+                experiment=_sub_from_dict(
+                    ExperimentPreferences, d.get("experiment", {})
+                ),
                 reporting=_sub_from_dict(ReportingPreferences, d.get("reporting", {})),
                 # .get() rather than a default, so an absent key stays None
                 hooks=d.get("hooks"),
@@ -421,9 +512,13 @@ class UserPreferences:
         # Legacy flat format
         prefs = cls()
         if "acquire_sem_after_stage_movement" in d:
-            prefs.movement.acquire_sem_after_stage_movement = d["acquire_sem_after_stage_movement"]
+            prefs.movement.acquire_sem_after_stage_movement = d[
+                "acquire_sem_after_stage_movement"
+            ]
         if "acquire_fib_after_stage_movement" in d:
-            prefs.movement.acquire_fib_after_stage_movement = d["acquire_fib_after_stage_movement"]
+            prefs.movement.acquire_fib_after_stage_movement = d[
+                "acquire_fib_after_stage_movement"
+            ]
         if "experiment_directory" in d:
             prefs.experiment.default_experiment_directory = d["experiment_directory"]
         if "last_experiment_path" in d:
@@ -449,7 +544,9 @@ def load_user_preferences() -> UserPreferences:
             loaded = yaml.safe_load(f) or {}
         return UserPreferences.from_dict(loaded)
     except Exception as e:
-        logging.warning(f"Failed to load user preferences from {USER_PREFERENCES_PATH}: {e}")
+        logging.warning(
+            f"Failed to load user preferences from {USER_PREFERENCES_PATH}: {e}"
+        )
         return UserPreferences()
 
 
@@ -464,7 +561,9 @@ def save_user_preferences(preferences) -> None:
         with open(USER_PREFERENCES_PATH, "w") as f:
             yaml.safe_dump(data, f)
     except Exception as e:
-        logging.warning(f"Failed to save user preferences to {USER_PREFERENCES_PATH}: {e}")
+        logging.warning(
+            f"Failed to save user preferences to {USER_PREFERENCES_PATH}: {e}"
+        )
 
 
 @dataclass
@@ -480,6 +579,7 @@ class ExperimentSummary:
     has adopted. That is a real answer -- nothing is known -- so they stay None
     rather than defaulting to a string that would group with other unknowns.
     """
+
     path: str  # path to the experiment.yaml file
     name: str
     created_at: float = 0.0
@@ -504,7 +604,9 @@ def peek_experiment(experiment_yaml_path: str) -> ExperimentSummary:
     other versions, and one unparseable experiment must not take out the
     enumeration around it.
     """
-    fallback_name = os.path.basename(os.path.dirname(experiment_yaml_path)) or experiment_yaml_path
+    fallback_name = (
+        os.path.basename(os.path.dirname(experiment_yaml_path)) or experiment_yaml_path
+    )
     if not os.path.exists(experiment_yaml_path):
         return ExperimentSummary(
             path=experiment_yaml_path, name=fallback_name, exists=False, available=False
@@ -532,7 +634,9 @@ def peek_experiment(experiment_yaml_path: str) -> ExperimentSummary:
             software_version=system.get("fibsem_version"),
         )
     except Exception as e:
-        logging.warning(f"Failed to read experiment info from {experiment_yaml_path}: {e}")
+        logging.warning(
+            f"Failed to read experiment info from {experiment_yaml_path}: {e}"
+        )
         return ExperimentSummary(
             path=experiment_yaml_path, name=fallback_name, exists=True, available=False
         )
@@ -553,7 +657,11 @@ def add_recent_experiment(prefs: UserPreferences, experiment_yaml_path: str) -> 
         return
 
     path = os.path.normpath(str(experiment_yaml_path))
-    recent = [p for p in prefs.experiment.recent_experiments if os.path.normpath(str(p)) != path]
+    recent = [
+        p
+        for p in prefs.experiment.recent_experiments
+        if os.path.normpath(str(p)) != path
+    ]
     recent.insert(0, path)
     prefs.experiment.recent_experiments = recent[:MAX_RECENT_EXPERIMENTS]
 
@@ -638,11 +746,17 @@ def apply_feature_flags(prefs: UserPreferences) -> None:
 
 
 ### AUTOLAMELLA APPLICATION PATHS
-AUTOLAMELLA_BASE_PATH: Path = os.path.join(os.path.dirname(__file__), "applications", "autolamella")
-AUTOLAMELLA_LOG_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH, 'log')
+AUTOLAMELLA_BASE_PATH: Path = os.path.join(
+    os.path.dirname(__file__), "applications", "autolamella"
+)
+AUTOLAMELLA_LOG_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH, "log")
 AUTOLAMELLA_CONFIG_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH)
-AUTOLAMELLA_PROTOCOL_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH, "protocol", "legacy", "protocol-on-grid.yaml")
-AUTOLAMELLA_TASK_PROTOCOL_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH, "protocol", "task-protocol.yaml")
+AUTOLAMELLA_PROTOCOL_PATH: Path = os.path.join(
+    AUTOLAMELLA_BASE_PATH, "protocol", "legacy", "protocol-on-grid.yaml"
+)
+AUTOLAMELLA_TASK_PROTOCOL_PATH: Path = os.path.join(
+    AUTOLAMELLA_BASE_PATH, "protocol", "task-protocol.yaml"
+)
 AUTOLAMELLA_EXPERIMENT_NAME = "AutoLamella"
 
 os.makedirs(AUTOLAMELLA_LOG_PATH, exist_ok=True)

@@ -1,11 +1,9 @@
 import logging
 from typing import List, Optional
 
-from fibsem.ui.qt.threading import thread_worker
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import QEvent, pyqtSignal
 from superqt import ensure_main_thread
-from fibsem.ui.icon import fibsem_icon
 
 from fibsem import acquire, utils
 from fibsem.microscope import FibsemMicroscope
@@ -17,8 +15,10 @@ from fibsem.structures import (
     FibsemRectangle,
     ImageSettings,
 )
-from fibsem.ui import stylesheets as stylesheets
 from fibsem.ui import notification_service
+from fibsem.ui import stylesheets as stylesheets
+from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.qt.threading import thread_worker
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, _SpinnerLabel
 from fibsem.ui.widgets.dual_beam_widget import FibsemDualBeamWidget
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
@@ -376,7 +376,11 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
     @thread_worker
     def _autofocus_worker(self, beam_type: BeamType):
-        from fibsem.autofunctions.autofocus import run_auto_focus, AutoFocusSettings, FocusSweepPass
+        from fibsem.autofunctions.autofocus import (
+            AutoFocusSettings,
+            FocusSweepPass,
+            run_auto_focus,
+        )
         settings = AutoFocusSettings(
             method="tenengrad",
             passes=[

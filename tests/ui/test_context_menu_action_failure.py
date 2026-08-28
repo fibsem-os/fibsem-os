@@ -22,8 +22,8 @@ from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 from fibsem.ui import notification_service  # noqa: E402
 from fibsem.ui.widgets.custom_widgets import (  # noqa: E402
-    ContextMenuAction,
     ContextMenu,
+    ContextMenuAction,
 )
 
 

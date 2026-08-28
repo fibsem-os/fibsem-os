@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import csv
 import logging
 from typing import Tuple
@@ -18,7 +19,8 @@ from ome_types.model import (
     Image as OMEImage,
 )
 from PIL import Image
-from fibsem.fm.structures import safe_ome_from_tiff, _UNIT_TO_METERS, FluorescenceImage
+
+from fibsem.fm.structures import _UNIT_TO_METERS, FluorescenceImage, safe_ome_from_tiff
 
 # TODO: migrate to FluorescenceImage, FibsemImage
 ############# PARSER FUNCTIONS #############

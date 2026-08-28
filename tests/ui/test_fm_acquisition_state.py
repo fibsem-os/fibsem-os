@@ -327,7 +327,7 @@ class TestTheControlWidgetWiring:
 
         import fibsem.ui.widgets.fluorescence_control_widget as module
 
-        return Path(module.__file__).read_text()
+        return Path(module.__file__).read_text(encoding="utf-8")
 
     @classmethod
     def _functions(cls):

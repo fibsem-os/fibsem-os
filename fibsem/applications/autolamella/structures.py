@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import logging
 import os
 import uuid
@@ -16,9 +17,8 @@ import yaml
 from psygnal import evented
 from psygnal.containers import EventedDict, EventedList
 
+from fibsem import timing
 from fibsem.applications.autolamella import config as cfg
-from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
-from fibsem.correlation.config import CorrelationConfig
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
     MICROEXPANSION_KEY,
@@ -29,7 +29,8 @@ from fibsem.applications.autolamella.protocol.constants import (
     TRENCH_KEY,
     UNDERCUT_KEY,
 )
-
+from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
+from fibsem.correlation.config import CorrelationConfig
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import (
     DEFAULT_ALIGNMENT_AREA,
@@ -210,6 +211,55 @@ class AutoLamellaTaskConfig(ABC):
         milling_time = sum(t.estimated_time for t in self.milling.values())
         imaging_time = self.reference_imaging.estimated_time
         return milling_time + imaging_time
+
+    @property
+    def opens_with_stage_move(self) -> bool:
+        """Whether ``_run`` begins by moving the stage onto the task's pose.
+
+        True for nearly every task, and the exceptions say so. Charged even when the
+        stage is already in place -- a task following another on the same lamella pays
+        0.02 s for the move rather than 7.6 s -- because which case applies is runtime
+        state the config cannot see, and over-charging errs long.
+        """
+        return True
+
+    @property
+    def opens_with_reference_alignment(self) -> bool:
+        """Whether ``_run`` aligns against the stored reference before its own work.
+
+        Off by default: only some tasks do it, and a task that claims it when it does
+        not adds 5 s of fiction to every estimate that includes it.
+        """
+        return False
+
+    @property
+    def estimated_duration(self) -> float:
+        """Conservative forward estimate of this task's wall-clock, in seconds.
+
+        Unlike :attr:`estimated_time`, which counts only the scan arithmetic and the
+        milling, this adds the measured per-operation costs the task actually pays --
+        see :mod:`fibsem.timing`. On the run it was calibrated against, that moved
+        Setup Lamella Position from 0.22x of its real duration to 0.99x.
+
+        A task whose cost is dominated by something this base cannot see -- spot burn
+        exposures, fluorescence channels -- overrides this and adds its own term. The
+        estimate lives on the config rather than on the task because the callers that
+        need it (the pre-run dialog, the queue) hold configs and have no microscope to
+        construct a task with.
+        """
+        # Reference images at both ends, but not the same number: a task opens with
+        # _acquire_reference_image at one field of view and closes with
+        # _acquire_set_of_reference_images over all of them.
+        total = timing.reference_image_cost(self.reference_imaging, fovs=1)
+        total += timing.reference_image_cost(self.reference_imaging)
+        # what _run does before its own work
+        if self.opens_with_stage_move:
+            total += timing.stage_move_cost(1)
+        if self.opens_with_reference_alignment:
+            total += timing.REFERENCE_ALIGNMENT_S
+        for milling_task in self.milling.values():
+            total += timing.milling_task_cost(milling_task)
+        return total
     
     @property
     def imaging(self) -> ImageSettings:
@@ -482,11 +532,11 @@ class AutoLamellaTaskProtocol:
             AutoLamellaStage,
         )
         from fibsem.applications.autolamella.workflows.tasks.tasks import (
+            MillFiducialTaskConfig,
             MillPolishingTaskConfig,
             MillRoughTaskConfig,
             MillTrenchTaskConfig,
             MillUndercutTaskConfig,
-            MillFiducialTaskConfig,
             SelectMillingPositionTaskConfig,
         )
         protocol = AutoLamellaProtocol.load(path)
@@ -659,6 +709,18 @@ class DefectState:
         self.state = state
         self.description = description
         self.updated_at = datetime.timestamp(datetime.now())
+
+
+# The thumbnail is only ever displayed, and its largest reader is the cozy lamella
+# card at 280 px wide (the hover tooltip is 256). Storing the acquired frame at full
+# resolution meant decoding a 1536x1024, 823 KB PNG per card per refresh for a picture
+# thrown away at a fifth of the size -- 26 ms each, and the card strip re-reads every
+# lamella whenever one is added (FIB-681).
+#
+# 512 rather than 280: it leaves the largest card headroom on a HiDPI display, still
+# decodes in ~3 ms, and is a tenth of the bytes. Only ever shrinks -- a frame already
+# smaller than this is written through untouched.
+_THUMBNAIL_MAX_EDGE = 512
 
 
 def _make_thumbnail_placeholder():
@@ -973,11 +1035,15 @@ class Lamella:
         on the same filesystem -- hence writing it in the same directory rather than
         somewhere under /tmp. A reader sees either the previous thumbnail or the new
         one, never a partial.
+
+        Written at display size rather than at the acquired resolution -- see
+        `_THUMBNAIL_MAX_EDGE`. This is a thumbnail, not a copy of the frame; the frame
+        itself is saved separately by the task that acquired it.
         """
         import tempfile
 
-        from PIL import Image
         import numpy as np
+        from PIL import Image
         data = image.filtered_data
         if data.ndim == 2:
             data = np.stack([data, data, data], axis=2)
@@ -990,7 +1056,13 @@ class Lamella:
         )
         os.close(handle)
         try:
-            Image.fromarray(data.astype(np.uint8)).save(staged)
+            thumbnail = Image.fromarray(data.astype(np.uint8))
+            # In place, and never upscales: a frame smaller than the bound keeps its
+            # own size, which is what a caller passing an already-small image expects.
+            thumbnail.thumbnail(
+                (_THUMBNAIL_MAX_EDGE, _THUMBNAIL_MAX_EDGE), Image.LANCZOS
+            )
+            thumbnail.save(staged)
             os.replace(staged, destination)
         except BaseException:
             # Including cancellation: a staged file left behind would accumulate in the
@@ -1336,28 +1408,6 @@ class Experiment:
             pos.name = p.name
             positions.append(pos)
         return positions
-
-    def estimate_remaining_time(self) -> float:
-        """Estimate the remaining time for all lamellas in the experiment"""
-        ESTIMATED_SETUP_TIME = 5*60         # 5min
-        OVERHEAD_TIME = 2*60                # 2min
-        total_remaining_time: float = 0.0
-        for p in self.positions:
-
-            # skip failed lamellas
-            if p.is_failure:
-                continue
-
-            # remaining time for individual lamella
-            remaining_tasks = self.task_protocol.workflow_config.get_remaining_tasks(p)
-            remaining_time: float = 0
-            for rt in remaining_tasks:
-                estimated_milling_time = p.task_config[rt].estimated_time
-                remaining_time += estimated_milling_time + OVERHEAD_TIME
-            logging.debug(f"Total estimated time: {format_duration(remaining_time)}")
-
-            total_remaining_time += remaining_time
-        return total_remaining_time
 
     def add_lamella(self, lamella: Lamella) -> None:
         """Add a lamella to the experiment."""

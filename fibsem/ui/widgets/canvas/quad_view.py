@@ -27,6 +27,18 @@ from PyQt5.QtWidgets import (
 
 from fibsem import constants
 from fibsem.structures import BeamType, FibsemImage
+from fibsem.ui.stylesheets import (
+    CANVAS_BG as _BG,
+)
+from fibsem.ui.stylesheets import (
+    GREEN_COLOR,
+)
+from fibsem.ui.stylesheets import (
+    PRIMARY_ACCENT as _SELECT_ACCENT,
+)
+from fibsem.ui.tokens import (
+    CANVAS_BG,
+)
 from fibsem.ui.widgets.canvas.canvas_state import (
     AlignmentSpec,
     CanvasState,
@@ -36,16 +48,8 @@ from fibsem.ui.widgets.canvas.canvas_state import (
     PointsSpec,
     SceneModel,
 )
-from fibsem.ui.stylesheets import (
-    CANVAS_BG as _BG,
-    GREEN_COLOR,
-    PRIMARY_ACCENT as _SELECT_ACCENT,
-)
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
-from fibsem.ui.tokens import (
-    CANVAS_BG,
-)
 
 if TYPE_CHECKING:
     from fibsem.fm.structures import FluorescenceImage
@@ -773,7 +777,9 @@ class MicroscopeViewController(QObject):
         """Construct the overlay object for *spec* and wire its edit signal (if any)
         back to :attr:`overlay_edited` (one branch per migrated slice)."""
         if isinstance(spec, MillingSpec):
-            from fibsem.ui.widgets.canvas.overlays.milling_overlay import MillingPatternOverlay
+            from fibsem.ui.widgets.canvas.overlays.milling_overlay import (
+                MillingPatternOverlay,
+            )
 
             return MillingPatternOverlay()
         if isinstance(spec, MaskSpec):
@@ -781,7 +787,9 @@ class MicroscopeViewController(QObject):
 
             return MaskOverlay()
         if isinstance(spec, AlignmentSpec):
-            from fibsem.ui.widgets.canvas.overlays.alignment_overlay import AlignmentAreaOverlay
+            from fibsem.ui.widgets.canvas.overlays.alignment_overlay import (
+                AlignmentAreaOverlay,
+            )
 
             obj = AlignmentAreaOverlay(editable=spec.editing)
             beam = self._beams.get(canvas)

@@ -5,15 +5,15 @@ Run from the repo root:
 """
 import numpy as np
 
-from fibsem.structures import FibsemImage
 from fibsem.autofunctions.autofocus import (
     AutoFocusIteration,
     AutoFocusResult,
     AutoFocusSettings,
     FocusSweepPass,
 )
-from fibsem.autofunctions.plotting import plot_autofocus_result
 from fibsem.autofunctions.metrics import get_focus_measure_function
+from fibsem.autofunctions.plotting import plot_autofocus_result
+from fibsem.structures import FibsemImage
 
 
 def make_probe_image(wd: float, best_wd: float, noise: float = 0.05) -> FibsemImage:

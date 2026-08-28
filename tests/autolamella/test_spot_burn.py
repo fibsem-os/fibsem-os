@@ -7,15 +7,22 @@ These cover the failure modes that crashed the unsupervised (automatic) path:
 - the widget factory rendering float/int fields as a text box instead of a spinbox.
 """
 
+import threading
 from unittest.mock import MagicMock
 
 import pytest
 
-from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn
-from fibsem.structures import BeamType, Point
 from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )
+from fibsem.imaging.spot import (
+    SpotBurnProgress,
+    SpotBurnSettings,
+    SpotBurnStatus,
+    run_spot_burn,
+)
+from fibsem.microscope import FibsemMicroscope
+from fibsem.structures import BeamType, Point
 
 # The widget-dispatch tests need the UI stack (napari/PyQt5), which isn't installed
 # in the core CI env (`pip install .`). Probe the third-party packages themselves,
@@ -55,8 +62,7 @@ def mock_microscope():
 @pytest.fixture(autouse=True)
 def _no_sleep(monkeypatch):
     """Skip the real exposure countdown so tests run instantly."""
-    import fibsem.imaging.spot as spot
-    monkeypatch.setattr(spot.time, "sleep", lambda *_: None)
+    monkeypatch.setattr("time.sleep", lambda *_: None)
 
 
 def _burned_points(mic: MagicMock) -> list:
@@ -70,16 +76,17 @@ def _burned_points(mic: MagicMock) -> list:
 def test_run_spot_burn_filters_out_of_bounds_coordinates(mock_microscope):
     """Coordinates outside the 0-1 image bounds are skipped, not sent to set_spot."""
     coords = [
-        Point(0.5, 0.5),   # valid
-        Point(0.9, 0.2),   # valid
+        Point(0.5, 0.5),  # valid
+        Point(0.9, 0.2),  # valid
         Point(1.02, 0.5),  # x > 1
         Point(-0.1, 0.3),  # x < 0
-        Point(0.5, 1.5),   # y > 1
+        Point(0.5, 1.5),  # y > 1
     ]
-    run_spot_burn(
-        microscope=mock_microscope,
-        settings=SpotBurnSettings(coordinates=coords, exposure_time=1.0,
-                                  milling_current=30e-12),
+    FibsemMicroscope.run_spot_burn(
+        mock_microscope,
+        settings=SpotBurnSettings(
+            coordinates=coords, exposure_time=1.0, milling_current=30e-12
+        ),
         beam_type=BeamType.ION,
     )
     assert _burned_points(mock_microscope) == [Point(0.5, 0.5), Point(0.9, 0.2)]
@@ -88,20 +95,22 @@ def test_run_spot_burn_filters_out_of_bounds_coordinates(mock_microscope):
 def test_run_spot_burn_keeps_boundary_coordinates(mock_microscope):
     """Exact 0 and 1 boundaries are inclusive."""
     coords = [Point(0.0, 0.0), Point(1.0, 1.0)]
-    run_spot_burn(
-        microscope=mock_microscope,
-        settings=SpotBurnSettings(coordinates=coords, exposure_time=1.0,
-                                  milling_current=30e-12),
+    FibsemMicroscope.run_spot_burn(
+        mock_microscope,
+        settings=SpotBurnSettings(
+            coordinates=coords, exposure_time=1.0, milling_current=30e-12
+        ),
     )
     assert _burned_points(mock_microscope) == coords
 
 
 def test_run_spot_burn_empty_coordinates_does_not_burn(mock_microscope):
     """No coordinates -> no spot exposures, but the beam state is still restored."""
-    run_spot_burn(
-        microscope=mock_microscope,
-        settings=SpotBurnSettings(coordinates=[], exposure_time=1.0,
-                                  milling_current=30e-12),
+    FibsemMicroscope.run_spot_burn(
+        mock_microscope,
+        settings=SpotBurnSettings(
+            coordinates=[], exposure_time=1.0, milling_current=30e-12
+        ),
     )
     mock_microscope.set_spot_scanning_mode.assert_not_called()
     mock_microscope.set_full_frame_scanning_mode.assert_called_once()
@@ -112,10 +121,11 @@ def test_run_spot_burn_empty_coordinates_does_not_burn(mock_microscope):
 
 def test_run_spot_burn_coerces_string_parameters(mock_microscope):
     """String milling_current/exposure_time (from the editor QLineEdit bug) don't crash."""
-    run_spot_burn(
-        microscope=mock_microscope,
-        settings=SpotBurnSettings(coordinates=[Point(0.5, 0.5)], exposure_time="2",
-                                  milling_current="3e-11"),
+    FibsemMicroscope.run_spot_burn(
+        mock_microscope,
+        settings=SpotBurnSettings(
+            coordinates=[Point(0.5, 0.5)], exposure_time="2", milling_current="3e-11"
+        ),
         beam_type=BeamType.ION,
     )
     # the milling current is applied as a real float, not the string "3e-11"
@@ -129,10 +139,11 @@ def test_run_spot_burn_coerces_string_parameters(mock_microscope):
 
 def test_run_spot_burn_restores_full_frame_and_imaging_current(mock_microscope):
     """After burning, scanning returns to full frame and the imaging current is restored."""
-    run_spot_burn(
-        microscope=mock_microscope,
-        settings=SpotBurnSettings(coordinates=[Point(0.5, 0.5)], exposure_time=1.0,
-                                  milling_current=30e-12),
+    FibsemMicroscope.run_spot_burn(
+        mock_microscope,
+        settings=SpotBurnSettings(
+            coordinates=[Point(0.5, 0.5)], exposure_time=1.0, milling_current=30e-12
+        ),
     )
     mock_microscope.set_full_frame_scanning_mode.assert_called_once()
     last_current = mock_microscope.set_beam_current.call_args_list[-1].kwargs["current"]
@@ -144,39 +155,315 @@ def test_run_spot_burn_restores_full_frame_and_imaging_current(mock_microscope):
 
 def test_run_spot_burn_emits_progress_via_microscope(mock_microscope):
     """Progress is reported through microscope.spot_burn_progress_signal (both run paths)."""
-    run_spot_burn(
-        microscope=mock_microscope,
-        settings=SpotBurnSettings(coordinates=[Point(0.5, 0.5), Point(0.6, 0.6)],
-                                  exposure_time=1.0, milling_current=30e-12),
+    FibsemMicroscope.run_spot_burn(
+        mock_microscope,
+        settings=SpotBurnSettings(
+            coordinates=[Point(0.5, 0.5), Point(0.6, 0.6)],
+            exposure_time=1.0,
+            milling_current=30e-12,
+        ),
     )
     emitted = [
         c.args[0] for c in mock_microscope.spot_burn_progress_signal.emit.call_args_list
     ]
     # initial progress reports the total number of points
-    assert emitted[0]["current_point"] == 0
-    assert emitted[0]["total_points"] == 2
-    # final emission signals completion
-    assert emitted[-1] == {"finished": True}
+    assert emitted[0].status is SpotBurnStatus.BURNING
+    assert emitted[0].current_point == 0
+    assert emitted[0].total_points == 2
+    # final emission signals completion, and says which kind
+    assert emitted[-1].status is SpotBurnStatus.FINISHED
+    assert emitted[-1].status.is_terminal
+
+
+def test_a_cancelled_burn_reports_cancelled_not_finished(mock_microscope):
+    """The defect this contract exists to remove.
+
+    Both outcomes used to emit `{"finished": True}`, so cancelling a burn rendered
+    "Done" in the status bar and in the widget. Cancel is a normal action here -- it is
+    on a button, and the workflow task passes a stop_event too.
+    """
+    stop_event = threading.Event()
+    stop_event.set()  # already cancelled before the first point
+
+    FibsemMicroscope.run_spot_burn(
+        mock_microscope,
+        settings=SpotBurnSettings(
+            coordinates=[Point(0.5, 0.5), Point(0.6, 0.6)],
+            exposure_time=1.0,
+            milling_current=30e-12,
+        ),
+        stop_event=stop_event,
+    )
+
+    emitted = [
+        c.args[0] for c in mock_microscope.spot_burn_progress_signal.emit.call_args_list
+    ]
+    assert emitted[-1].status is SpotBurnStatus.CANCELLED
+    assert emitted[-1].status is not SpotBurnStatus.FINISHED
+
+
+def test_a_cancelled_burn_stops_burning(mock_microscope):
+    """Not just a label: the run must actually stop placing spots."""
+    stop_event = threading.Event()
+    stop_event.set()
+
+    FibsemMicroscope.run_spot_burn(
+        mock_microscope,
+        settings=SpotBurnSettings(
+            coordinates=[Point(0.5, 0.5), Point(0.6, 0.6)],
+            exposure_time=1.0,
+            milling_current=30e-12,
+        ),
+        stop_event=stop_event,
+    )
+
+    assert mock_microscope.set_spot_scanning_mode.call_count == 0
+
+
+def test_a_failed_burn_reports_a_failure_without_the_widget(mock_microscope):
+    """The reason the failure emit moved out of FibsemSpotBurnWidget (FIB-824).
+
+    `spot_burn_errored` is wired to that widget's own FunctionWorker, so it only ever
+    sees a burn the widget started. The unsupervised workflow path calls
+    `run_spot_burn` directly (`tasks/spot_burn.py`), so a burn that raised there
+    emitted no terminal at all and left the status bar mid-run for the session.
+    """
+    mock_microscope.set_spot_scanning_mode.side_effect = RuntimeError("beam refused")
+
+    with pytest.raises(RuntimeError):
+        FibsemMicroscope.run_spot_burn(
+            mock_microscope,
+            settings=SpotBurnSettings(
+                coordinates=[Point(0.5, 0.5)],
+                exposure_time=1.0,
+                milling_current=30e-12,
+            ),
+        )
+
+    emitted = [
+        c.args[0] for c in mock_microscope.spot_burn_progress_signal.emit.call_args_list
+    ]
+    assert emitted[-1].status is SpotBurnStatus.FAILED
+    assert emitted[-1].error == "beam refused"
+
+
+def test_a_failed_burn_still_restores_the_beam(mock_microscope):
+    """The beam must not be left parked at the milling current.
+
+    The restore used to sit in the success path under a comment reading "always
+    restore full frame scanning mode and imaging current" -- so a burn that raised
+    left the beam in spot scanning mode at the milling current. A hazard, not untidy
+    state: the next thing to image would do so with the beam still parked and hot.
+    """
+    imaging_current = mock_microscope.get_beam_current.return_value
+    mock_microscope.set_spot_scanning_mode.side_effect = RuntimeError("beam refused")
+
+    with pytest.raises(RuntimeError):
+        FibsemMicroscope.run_spot_burn(
+            mock_microscope,
+            settings=SpotBurnSettings(
+                coordinates=[Point(0.5, 0.5)],
+                exposure_time=1.0,
+                milling_current=30e-12,
+            ),
+        )
+
+    mock_microscope.set_full_frame_scanning_mode.assert_called_once()
+    mock_microscope.set_beam_current.assert_called_with(
+        current=imaging_current, beam_type=BeamType.ION
+    )
+
+
+def test_a_failing_restore_does_not_replace_the_original_error(mock_microscope):
+    """An exception raised in a `finally` discards the one in flight.
+
+    The original is the one worth having -- it says why the burn failed, where a
+    restore failure says only that cleanup also went wrong. Each restore is guarded
+    separately for that reason, and so that neither is skipped because the other
+    failed.
+    """
+    imaging_current = mock_microscope.get_beam_current.return_value
+    mock_microscope.set_spot_scanning_mode.side_effect = RuntimeError("beam refused")
+    mock_microscope.set_full_frame_scanning_mode.side_effect = RuntimeError(
+        "restore also failed"
+    )
+
+    with pytest.raises(RuntimeError, match="beam refused"):
+        FibsemMicroscope.run_spot_burn(
+            mock_microscope,
+            settings=SpotBurnSettings(
+                coordinates=[Point(0.5, 0.5)],
+                exposure_time=1.0,
+                milling_current=30e-12,
+            ),
+        )
+
+    # The second restore still ran, despite the first one raising. Asserted on the
+    # *imaging* current specifically: `set_beam_current` is also called at the start of
+    # the burn to select the milling current, so a bare `assert_called()` would pass
+    # whether or not the restore ever happened.
+    mock_microscope.set_beam_current.assert_called_with(
+        current=imaging_current, beam_type=BeamType.ION
+    )
+
+
+def test_a_failed_burn_still_propagates_the_exception(mock_microscope):
+    """Reporting is not swallowing: the caller still has to see it."""
+    mock_microscope.set_spot_scanning_mode.side_effect = RuntimeError("beam refused")
+
+    with pytest.raises(RuntimeError, match="beam refused"):
+        FibsemMicroscope.run_spot_burn(
+            mock_microscope,
+            settings=SpotBurnSettings(
+                coordinates=[Point(0.5, 0.5)],
+                exposure_time=1.0,
+                milling_current=30e-12,
+            ),
+        )
+
+
+def test_run_spot_burn_module_function_delegates_to_the_microscope(mock_microscope):
+    """The module entry point dispatches polymorphically (FIB-297): the default
+    implementation parks the beam per point, TESCAN overrides with DrawBeam dots."""
+    settings = SpotBurnSettings(
+        coordinates=[Point(0.5, 0.5)], exposure_time=1.0, milling_current=30e-12
+    )
+    run_spot_burn(
+        microscope=mock_microscope,
+        settings=settings,
+        beam_type=BeamType.ION,
+        stop_event=None,
+    )
+    mock_microscope.run_spot_burn.assert_called_once_with(
+        settings=settings, beam_type=BeamType.ION, stop_event=None
+    )
+
+
+def test_a_terminal_status_says_so_itself():
+    """The question both consumers ask, answered once on the type.
+
+    Restated as a membership tuple at each of them it drifts: the next status added is
+    the one somebody forgets, and the symptom is a progress bar that never clears.
+    """
+    terminal = {
+        SpotBurnStatus.FINISHED,
+        SpotBurnStatus.CANCELLED,
+        SpotBurnStatus.FAILED,
+    }
+    for status in SpotBurnStatus:
+        assert status.is_terminal is (status in terminal), status
+
+
+def test_a_member_compares_equal_to_its_own_value():
+    """The `str` mixin, which is what keeps these readable in a log line."""
+    assert SpotBurnStatus.BURNING == "burning"
+
+
+def test_status_is_the_only_field_a_report_must_carry():
+    """Everything else is absent on some report, so everything else has a default.
+
+    Also what keeps this constructible on Python 3.8, where `kw_only` does not exist:
+    exactly one required field, and it has to come first.
+    """
+    import dataclasses
+
+    report = SpotBurnProgress(status=SpotBurnStatus.CANCELLED)
+    assert report.current_point is None and report.error is None
+
+    required = [
+        f.name
+        for f in dataclasses.fields(SpotBurnProgress)
+        if f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING
+    ]
+    assert required == ["status"]
+
+
+def test_a_report_cannot_be_written_to():
+    import dataclasses
+
+    report = SpotBurnProgress(status=SpotBurnStatus.BURNING)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        report.status = SpotBurnStatus.FINISHED
 
 
 @requires_ui
-def test_build_spot_burn_progress_update_mapping():
-    """Progress dicts map to ProgressUpdate: running, done, and failed states."""
-    from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
+class TestTheTypedDecode:
+    """What each typed report renders. Not which branch ran -- the bugs this path has
+    are rendering bugs, and asserting on control flow would not have caught them."""
 
-    running = build_spot_burn_progress_update(
-        {"current_point": 1, "total_points": 3,
-         "total_remaining_time": 20.0, "total_estimated_time": 30.0}
-    )
-    assert (running.current, running.total) == (1, 3)
-    assert running.remaining_seconds == 20.0
-    assert not running.finished
+    def test_a_burn_in_progress_counts_points_and_time(self):
+        from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
 
-    done = build_spot_burn_progress_update({"finished": True})
-    assert done.finished and not done.message
+        update = build_spot_burn_progress_update(
+            SpotBurnProgress(
+                status=SpotBurnStatus.BURNING,
+                current_point=1,
+                total_points=3,
+                total_remaining_time=20.0,
+                total_estimated_time=30.0,
+            )
+        )
 
-    failed = build_spot_burn_progress_update({"finished": True, "error": True})
-    assert failed.finished and failed.message == "Spot burn failed"
+        assert (update.current, update.total) == (1, 3)
+        assert update.remaining_seconds == 20.0
+        assert not update.finished
+        assert update.message == "Burning spots"
+
+    def test_a_completed_burn_says_done(self):
+        from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
+
+        update = build_spot_burn_progress_update(
+            SpotBurnProgress(status=SpotBurnStatus.FINISHED)
+        )
+
+        assert update.finished and not update.message
+        assert not update.is_failed
+
+    def test_a_cancelled_burn_does_not_claim_to_have_finished(self):
+        """The defect the typed contract exists to fix. Under the dict form a cancelled
+        burn emitted `{"finished": True}` -- identical to a completed one -- so
+        cancelling rendered "Done"."""
+        from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
+
+        update = build_spot_burn_progress_update(
+            SpotBurnProgress(status=SpotBurnStatus.CANCELLED, current_point=2)
+        )
+
+        assert update.finished
+        assert update.message == "Cancelled"
+
+    def test_a_cancelled_burn_is_not_painted_as_a_failure(self):
+        """A cancel is someone getting what they asked for, so the bar does not go red.
+        Mirrors the tiled acquisition's `_overview_outcome`."""
+        from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
+
+        update = build_spot_burn_progress_update(
+            SpotBurnProgress(status=SpotBurnStatus.CANCELLED)
+        )
+
+        assert not update.is_failed
+
+    def test_a_failed_burn_carries_the_error_text(self):
+        """The dict form could only ever say "Spot burn failed"; the exception text
+        reached the logfile and nowhere else."""
+        from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
+
+        update = build_spot_burn_progress_update(
+            SpotBurnProgress(status=SpotBurnStatus.FAILED, error="beam current refused")
+        )
+
+        assert update.is_failed
+        assert update.message == "beam current refused"
+
+    def test_a_failure_with_no_text_still_reads_as_a_failure(self):
+        from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
+
+        update = build_spot_burn_progress_update(
+            SpotBurnProgress(status=SpotBurnStatus.FAILED)
+        )
+
+        assert update.is_failed
+        assert update.message == "Spot burn failed"
 
 
 # --- SpotBurnFiducialTask.update_spot_burn_parameters_ui ------------------------
@@ -253,7 +540,9 @@ def _make_supervised_spot_burn_task(monkeypatch, tmp_path, ask_user_responses):
     widget.get_settings.return_value = SpotBurnSettings(
         coordinates=[Point(0.5, 0.5)], exposure_time=1.0, milling_current=1e-9
     )
-    parent_ui = MagicMock()  # truthy experiment.task_protocol.get_supervision -> supervised
+    parent_ui = (
+        MagicMock()
+    )  # truthy experiment.task_protocol.get_supervision -> supervised
     parent_ui.spot_burn_widget = widget
 
     responses = iter(ask_user_responses)

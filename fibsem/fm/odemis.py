@@ -1,9 +1,10 @@
-import numpy as np
 import logging
 import time
-
 from datetime import datetime
 from typing import Dict, List, Literal, Optional, Tuple, Union
+
+import numpy as np
+
 from fibsem.fm.microscope import (
     Camera,
     FilterSet,

@@ -7,6 +7,7 @@ WorkflowSummaryDialog (per-run summary) so the two stay visually consistent.
 from typing import Callable, List, Optional
 
 import pandas as pd
+
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
     ERROR_COLOR,

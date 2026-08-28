@@ -79,6 +79,9 @@ def _render(tmp_path, resolution):
     """
     import numpy as np
 
+    from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
+        _load_and_resize,
+    )
     from fibsem.structures import (
         FibsemImage,
         FibsemImageMetadata,
@@ -86,7 +89,6 @@ def _render(tmp_path, resolution):
         MicroscopeState,
         Point,
     )
-    from fibsem.applications.autolamella.ui.lamella_task_image_widget import _load_and_resize
 
     width, height = resolution
     metadata = FibsemImageMetadata(
@@ -125,7 +127,9 @@ def test_every_tile_fits_the_placeholder_box(app, tmp_path, resolution):
 def test_a_three_by_two_image_still_fills_the_width(app, tmp_path):
     """The common beam-image case must be untouched — it was already width-limited,
     and shrinking it would be a visible regression on every existing experiment."""
-    from fibsem.applications.autolamella.ui.lamella_task_image_widget import _TARGET_WIDTH
+    from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
+        _TARGET_WIDTH,
+    )
 
     assert _render(tmp_path, (1536, 1024))[0] == _TARGET_WIDTH
 

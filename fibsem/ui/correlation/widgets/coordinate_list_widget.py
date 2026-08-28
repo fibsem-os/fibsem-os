@@ -9,7 +9,6 @@ flattening/reconstructing CorrelationInputData.
 """
 from __future__ import annotations
 
-import os
 from typing import Dict, List, Optional
 
 from PyQt5.QtCore import QEvent, QSize, Qt, pyqtSignal
@@ -28,24 +27,24 @@ from PyQt5.QtWidgets import (
 
 from fibsem.correlation.structures import Coordinate, PointType
 from fibsem.ui import stylesheets
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueSpinBox
+from fibsem.ui.icon import (
+    DRAG_HANDLE_HEIGHT,
+    DRAG_HANDLE_WIDTH,
+    drag_handle_pixmap,
+    fibsem_icon,
+)
 from fibsem.ui.tokens import (
     CANVAS_BG,
     GRAY_TEXT_COLOR,
 )
-
-_DRAG_HANDLE_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-    "ui", "icons", "drag_handle.svg",
-)
+from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueSpinBox
 
 _NAME_FIXED_WIDTH = 100
 _SPIN_FIXED_WIDTH = 75
 _BTN_SIZE = QSize(24, 24)
 _ROW_HEIGHT = 28
 # Spacer in header aligning with drag handle in rows (layout spacing handles the 4px gap)
-_ROW_RIGHT_WIDTH = 10
+_ROW_RIGHT_WIDTH = DRAG_HANDLE_WIDTH
 
 # Fit-state indicator colours. A fitted point (unmodified auto-fit result) is
 # white so it reads as "lit up"; otherwise a muted grey — dimmer than the light
@@ -287,15 +286,8 @@ class CoordinateRowWidget(QWidget):
 
         # Drag handle
         drag_icon = QLabel()
-        drag_icon.setFixedSize(10, 16)
-        if os.path.exists(_DRAG_HANDLE_PATH):
-            drag_icon.setPixmap(
-                QPixmap(_DRAG_HANDLE_PATH).scaled(
-                    10, 16,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-            )
+        drag_icon.setFixedSize(DRAG_HANDLE_WIDTH, DRAG_HANDLE_HEIGHT)
+        drag_icon.setPixmap(drag_handle_pixmap())
         drag_icon.setStyleSheet("background: transparent;")
         drag_icon.setCursor(Qt.CursorShape.OpenHandCursor)
         layout.addWidget(drag_icon)

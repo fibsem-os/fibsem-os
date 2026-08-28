@@ -5,6 +5,7 @@ Run directly:
 """
 import sys
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -15,11 +16,10 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PyQt5.QtCore import Qt
 
 from fibsem import utils
-from fibsem.config import AUTOLAMELLA_TASK_PROTOCOL_PATH
 from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
+from fibsem.config import AUTOLAMELLA_TASK_PROTOCOL_PATH
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.ui.widgets.milling_task_config_widget2 import MillingTaskConfigWidget2
 

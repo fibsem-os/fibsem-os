@@ -21,12 +21,14 @@ from typing import List, Optional
 from PyQt5.QtWidgets import QApplication, QVBoxLayout, QWidget
 
 from fibsem.applications.autolamella.structures import Experiment, Lamella
-from fibsem.ui.stylesheets import NAPARI_STYLE
 from fibsem.applications.autolamella.task_outputs import (
     final_reference_images,
     fluorescence_images,
 )
-from fibsem.applications.autolamella.ui.lamella_task_image_widget import LamellaTaskImageWidget
+from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
+    LamellaTaskImageWidget,
+)
+from fibsem.ui.stylesheets import NAPARI_STYLE
 
 LOG_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),

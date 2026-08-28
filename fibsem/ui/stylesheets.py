@@ -1,6 +1,11 @@
 # style sheets
 import os as _os
 
+# The application-level sheet moved to its own module; re-exported so that both
+# `from fibsem.ui.stylesheets import NAPARI_STYLE` and `stylesheets.NAPARI_STYLE`
+# keep resolving.
+from fibsem.ui.napari_style import NAPARI_STYLE  # noqa: F401
+
 # The colour palette lives in fibsem.ui.tokens and is imported here, at the top,
 # so the QSS constants below can interpolate it. Every name is re-exported for
 # the callers that import colours from this module rather than from tokens.
@@ -10,9 +15,9 @@ from fibsem.ui.tokens import (  # noqa: F401  (re-exported for existing callers)
     BORDER_COLOR,
     CANVAS_BG,
     DEFECT_ORANGE_COLOR,
+    DEFECT_RED_COLOR,
     DISABLED_BG_COLOR,
     DISABLED_TEXT_COLOR,
-    DEFECT_RED_COLOR,
     ERROR_COLOR,
     GRAY_BACKGROUND_COLOR,
     GRAY_CANVAS_COLOR,
@@ -25,9 +30,12 @@ from fibsem.ui.tokens import (  # noqa: F401  (re-exported for existing callers)
     GRAY_TEXT_COLOR,
     GRAY_WHITE_COLOR,
     GREEN_COLOR,
+    NEUTRAL_300,
+    NEUTRAL_650,
     OK_COLOR,
     ORANGE_COLOR,
     PANEL_COLOR,
+    PENDING_COLOR,
     PRIMARY_ACCENT,
     PRIMARY_COLOR,
     PRIMARY_COLOR_HOVER,
@@ -47,16 +55,6 @@ from fibsem.ui.tokens import (  # noqa: F401  (re-exported for existing callers)
     WHITE_ICON_COLOR,
 )
 
-# The application-level sheet moved to its own module; re-exported so that both
-# `from fibsem.ui.stylesheets import NAPARI_STYLE` and `stylesheets.NAPARI_STYLE`
-# keep resolving.
-from fibsem.ui.napari_style import NAPARI_STYLE  # noqa: F401
-from fibsem.ui.tokens import (
-    NEUTRAL_300,
-    NEUTRAL_650,
-    SURFACE_COLOR,
-)
-
 _ICONS_DIR = _os.path.join(_os.path.dirname(__file__), "icons").replace("\\", "/")
 
 LABEL_INSTRUCTIONS_STYLE = """font-style: italic; color: gray; font-size: 12px;"""
@@ -72,7 +70,6 @@ IMAGE_HEADER_STYLE = (
     f"color: {NEUTRAL_300}; font-size: 11px; padding: 3px 8px; "
     f"background: {CANVAS_BG}; border-bottom: 1px solid #3a3d42;"
 )
-
 
 PROGRESS_BAR_STYLESHEET = f"""
             QProgressBar {{
@@ -244,6 +241,37 @@ SECONDARY_BUTTON_STYLESHEET = f"""
     }}
 """
 
+# A QPushButton that opens a menu. Qt stops drawing the native menu arrow as soon
+# as the button carries a stylesheet, so the chevron has to be put back by hand --
+# without it the control looks like a plain button and nothing says it opens.
+#
+# The contents are left-aligned because the chevron is pinned to the right edge:
+# centred, a button wider than its label splits the slack evenly and pushes the
+# label away from the left padding, which reads as a gap rather than as balance.
+#
+# padding-right is 16 rather than the chevron's own 18 because Qt has *already*
+# reserved room for a menu indicator inside the contents rect -- about 10px, whether
+# or not a stylesheet draws its own. Padding chosen to clear the chevron therefore
+# pays for that gutter twice, which put 30px between the label and the arrow against
+# 12px on the other side. 16 leaves 8 before the chevron and 8 after it.
+MENU_BUTTON_STYLESHEET = (
+    SECONDARY_BUTTON_STYLESHEET
+    + """
+    QPushButton {
+        text-align: left;
+        padding-right: 16px;
+    }
+    QPushButton::menu-indicator {
+        image: url("__ICONS_DIR__/chevron_down.svg");
+        subcontrol-origin: padding;
+        subcontrol-position: center right;
+        width: 10px;
+        height: 10px;
+        right: 8px;
+    }
+""".replace("__ICONS_DIR__", _ICONS_DIR)
+)
+
 MESSAGE_BOX_STYLESHEET = f"""
     QMessageBox {{
         background-color: {SURFACE_COLOR};
@@ -301,16 +329,43 @@ QToolTip {{
 }}
 """
 
+# The workflow border is drawn by two widgets -- the AutoLamella main window
+# (``workflow_border_frame``) and the coincidence viewer (``coincidence_border_frame``)
+# -- and the rules used to be spelled out once per widget. That is how ``agent``
+# came to exist in one copy and not the other. One mapping and one builder, so
+# adding a state or changing a colour is a single edit rather than two.
+#
 # TODO: no token -- #BF00FF
-WORKFLOW_BORDER_STYLESHEET = f"""
-    QFrame#workflow_border_frame[borderState="idle"]       {{ border: 4px solid {SURFACE_COLOR}; }}
-    QFrame#workflow_border_frame[borderState="automated"]  {{ border: 4px solid {OK_COLOR}; }}
-    QFrame#workflow_border_frame[borderState="supervised"] {{ border: 4px solid {PRIMARY_COLOR}; }}
-    QFrame#workflow_border_frame[borderState="waiting"]    {{ border: 4px solid {ORANGE_COLOR}; }}
-    QFrame#workflow_border_frame[borderState="finished"]  {{ border: 4px solid {OK_COLOR}; }}
-    QFrame#workflow_border_frame[borderState="stopped"]   {{ border: 4px solid {SEMANTIC_ERROR_COLOR}; }}
-    QFrame#workflow_border_frame[borderState="agent"]     {{ border: 4px solid #BF00FF; }}
-"""
+BORDER_STATE_COLOURS = {
+    "idle": SURFACE_COLOR,
+    "pending": PENDING_COLOR,
+    "automated": OK_COLOR,
+    "supervised": PRIMARY_COLOR,
+    "waiting": ORANGE_COLOR,
+    "stopping": SEMANTIC_ERROR_COLOR,
+    "agent": "#BF00FF",
+}
+
+BORDER_WIDTH_PX = 4
+
+
+def border_stylesheet(object_name: str) -> str:
+    """QSS border rules for the frame whose ``objectName`` is *object_name*.
+
+    Applied to the frame's parent rather than the frame itself, so that
+    ``setProperty("borderState", ...)`` plus unpolish/polish re-evaluates them.
+    """
+    selectors = {
+        state: f'QFrame#{object_name}[borderState="{state}"]'
+        for state in BORDER_STATE_COLOURS
+    }
+    width = max(len(sel) for sel in selectors.values())
+    rules = "\n".join(
+        f"    {selectors[state]:<{width}} {{ border: {BORDER_WIDTH_PX}px solid {colour}; }}"
+        for state, colour in BORDER_STATE_COLOURS.items()
+    )
+    return f"\n{rules}\n"
+
 
 # TODO: no token -- #6a6a6a, #8a8a8a
 TOOLBUTTON_ICON_STYLESHEET = f"""
@@ -434,3 +489,19 @@ QDateTimeEdit::down-arrow {{
 MILLING_PROGRESS_BAR_STYLESHEET = PROGRESS_BAR_STYLESHEET
 RUN_WORKFLOW_BUTTON_STYLESHEET = CONFIRM_BUTTON_STYLESHEET
 STOP_WORKFLOW_BUTTON_STYLESHEET = DANGER_BUTTON_STYLESHEET
+
+
+# A small panel floating over a canvas, opened from a toolbar button. Shared so the
+# canvas's popovers cannot drift apart -- contrast and the overlay switches are the same
+# kind of thing in the same corner, and looked it only by coincidence while each carried
+# its own copy of these greys.
+CANVAS_POPOVER_STYLE = (
+    "QFrame { background: rgba(30,33,36,230); border: 1px solid #555;"
+    " border-radius: 4px; }"
+    "QLabel { color: #d1d2d4; font-size: 10px; background: transparent; border: none; }"
+    "QCheckBox { color: #d1d2d4; font-size: 10px; background: transparent;"
+    " border: none; }"
+    "QPushButton { background: rgba(60,63,70,200); border: 1px solid #666;"
+    " border-radius: 3px; color: #d1d2d4; font-size: 10px; padding: 2px 8px; }"
+    "QPushButton:hover { background: rgba(80,83,90,220); }"
+)

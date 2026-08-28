@@ -2,18 +2,15 @@ from __future__ import annotations
 
 import logging
 import os
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import (
     ClassVar,
     Literal,
-    Type,
     Optional,
+    Type,
 )
-from copy import deepcopy
-from fibsem.milling.patterning.patterns2 import RectanglePattern
-from fibsem.milling.tasks import FibsemMillingTaskConfig, FibsemMillingStage
-from fibsem.milling.base import FibsemMillingSettings
-from fibsem.structures import CrossSectionPattern, field_meta
+
 import fibsem.utils as utils
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows._default_milling_config import (
@@ -31,10 +28,14 @@ from fibsem.applications.autolamella.workflows.ui import (
 )
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.structures import ChannelSettings
+from fibsem.milling.base import FibsemMillingSettings
+from fibsem.milling.patterning.patterns2 import RectanglePattern
 from fibsem.milling.strategy.coincidence import (
     CoincidenceMillingStrategy,
     CoincidenceMillingStrategyConfig,
 )
+from fibsem.milling.tasks import FibsemMillingStage, FibsemMillingTaskConfig
+from fibsem.structures import CrossSectionPattern, field_meta
 
 MILL_COINCIDENT_KEY = "mill_coincident"
 
@@ -44,10 +45,16 @@ DEFAULT_MILLING_CONFIG[MILL_COINCIDENT_KEY] = FibsemMillingTaskConfig(
     stages=[
         FibsemMillingStage(
             name="Coincident Milling 01",
-            milling=FibsemMillingSettings(milling_current=60e-12, application_file="Si-ccs"),
-            pattern=RectanglePattern(width=9.0e-6, depth=4.0e-7, height=20e-6, 
-                                  cross_section=CrossSectionPattern.CleaningCrossSection),
-            strategy=CoincidenceMillingStrategy()
+            milling=FibsemMillingSettings(
+                milling_current=60e-12, application_file="Si-ccs"
+            ),
+            pattern=RectanglePattern(
+                width=9.0e-6,
+                depth=4.0e-7,
+                height=20e-6,
+                cross_section=CrossSectionPattern.CleaningCrossSection,
+            ),
+            strategy=CoincidenceMillingStrategy(),
         )
     ],
 )
@@ -84,9 +91,21 @@ class MillCoincidentTaskConfig(AutoLamellaTaskConfig):
     )
     channel_name: str = field(
         default="Red Channel",
-        metadata=field_meta(tooltip="The fluorescence channel to use for coincident milling"),
+        metadata=field_meta(
+            tooltip="The fluorescence channel to use for coincident milling"
+        ),
     )
     task_type: ClassVar[str] = "MILL_COINCIDENT"
+
+    @property
+    def opens_with_stage_move(self) -> bool:
+        """_run does not move: it mills where the coincidence step left the stage."""
+        return False
+
+    @property
+    def opens_with_reference_alignment(self) -> bool:
+        return True
+
     display_name: ClassVar[str] = "Coincident Milling"
 
     def __post_init__(self):
@@ -167,7 +186,9 @@ class MillCoincidentTask(AutoLamellaTask):
             return
 
         # Move stage to the saved stage position and objective position
-        self.microscope.fm.objective.move_absolute(self.lamella.fluorescence_pose.objective_position)
+        self.microscope.fm.objective.move_absolute(
+            self.lamella.fluorescence_pose.objective_position
+        )
 
         # mill coincident
         self.log_status_message("MILL_COINCIDENT", "Milling Coincident Lamella...")
@@ -253,9 +274,6 @@ class MillCoincidentTask(AutoLamellaTask):
             basename = f"{self.lamella.name}-coincidence-final-{timestamp}.ome.tiff"
             filename = os.path.join(self.lamella.path, basename)
 
-            self.microscope.fm.acquisition_progress_signal.emit(
-                {"state": "acquiring", "task": f"{self.task_name}"}
-            )
             image = acquire_image(
                 microscope=self.microscope.fm,
                 channel_settings=fm_config.channel_settings,

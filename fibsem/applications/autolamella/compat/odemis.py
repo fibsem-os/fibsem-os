@@ -1,25 +1,30 @@
 import os
 from copy import deepcopy
 from datetime import datetime
-from typing import List, Dict, Optional
-
-from fibsem.microscopes.odemis_microscope import add_odemis_path
-from fibsem.structures import FibsemImage, FibsemStagePosition
-from fibsem.utils import save_yaml
+from typing import Dict, List, Optional
 
 from fibsem.applications.autolamella.protocol.validation import (
     MICROEXPANSION_KEY,
     MILL_POLISHING_KEY,
     MILL_ROUGH_KEY,
 )
-from fibsem.applications.autolamella.structures import AutoLamellaStage, Experiment, Lamella, LamellaState
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaStage,
+    Experiment,
+    Lamella,
+    LamellaState,
+)
 from fibsem.applications.autolamella.workflows.core import log_status_message
+from fibsem.microscopes.odemis_microscope import add_odemis_path
+from fibsem.structures import FibsemImage, FibsemStagePosition
+from fibsem.utils import save_yaml
 
 add_odemis_path()
 
 from odemis.acq.feature import CryoFeature, read_features
-from odemis.acq.move import FM_IMAGING, MILLING, SEM_IMAGING
 from odemis.acq.milling.tasks import MillingTaskSettings  # noqa: E402
+from odemis.acq.move import FM_IMAGING, MILLING, SEM_IMAGING
+
 
 def create_lamella_from_feature(feature: CryoFeature, 
                                 path: str,

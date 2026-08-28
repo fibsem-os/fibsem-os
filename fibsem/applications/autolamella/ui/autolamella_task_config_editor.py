@@ -20,31 +20,44 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.workflows.tasks import get_tasks
-from fibsem.structures import BeamType, FibsemImage
-from fibsem.ui import stylesheets
 from fibsem.applications.autolamella.ui.autolamella_fluorescence_acquisition_task_config_widget import (
     AutoLamellaFluorescenceAcquisitionTaskConfigWidget,
 )
+from fibsem.applications.autolamella.ui.autolamella_global_task_editor_dialog import (
+    AutoLamellaGlobalTaskEditDialog,
+)
+from fibsem.applications.autolamella.ui.autolamella_protocol_information_widget import (
+    ProtocolInformationWidget,
+)
+from fibsem.applications.autolamella.ui.autolamella_task_config_widget import (
+    AutoLamellaTaskParametersConfigWidget,
+)
+from fibsem.applications.autolamella.ui.lamella_default_config_widget import (
+    LamellaDefaultConfigWidget,
+)
+from fibsem.applications.autolamella.workflows.tasks import get_tasks
 from fibsem.applications.autolamella.workflows.tasks.tasks import (
     AcquireFluorescenceImageConfig,
     SpotBurnFiducialTaskConfig,
 )
-from fibsem.applications.autolamella.ui.autolamella_global_task_editor_dialog import AutoLamellaGlobalTaskEditDialog
-from fibsem.ui.widgets.canvas.quad_view import LamellaEditorView, MicroscopeViewController
-from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWidget
-from fibsem.applications.autolamella.ui.lamella_default_config_widget import LamellaDefaultConfigWidget
+from fibsem.structures import BeamType, FibsemImage
+from fibsem.ui import stylesheets
+from fibsem.ui.tokens import (
+    TEXT_MUTED_COLOR,
+)
+from fibsem.ui.widgets.canvas.quad_view import (
+    LamellaEditorView,
+    MicroscopeViewController,
+)
 from fibsem.ui.widgets.custom_widgets import (
     TaskNameListWidget,
     ValueComboBox,
 )
-from fibsem.applications.autolamella.ui.autolamella_protocol_information_widget import ProtocolInformationWidget
-from fibsem.applications.autolamella.ui.autolamella_task_config_widget import AutoLamellaTaskParametersConfigWidget
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
-from fibsem.ui.widgets.reference_image_parameters_widget import ReferenceImageParametersWidget
-from fibsem.ui.tokens import (
-    TEXT_MUTED_COLOR,
+from fibsem.ui.widgets.reference_image_parameters_widget import (
+    ReferenceImageParametersWidget,
 )
+from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWidget
 
 # Frame used by the spot-burn coordinate dialog when the task's stored reference
 # imaging is unusable (missing/zero). Matches ImageSettings' own defaults.
@@ -62,10 +75,10 @@ def _valid_resolution(resolution) -> Tuple[int, int]:
 
 
 if TYPE_CHECKING:
-    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
     from fibsem.applications.autolamella.structures import Experiment
-    from fibsem.structures import ReferenceImageParameters
+    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
     from fibsem.milling.tasks import FibsemMillingTaskConfig
+    from fibsem.structures import ReferenceImageParameters
 
 class AddTaskDialog(QDialog):
     """Dialog for adding a new task to the protocol."""

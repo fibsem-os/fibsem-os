@@ -1,5 +1,6 @@
 from fibsem.applications.autolamella.ui.AutoLamellaMainUI import run_ui
 
+
 def main():
     run_ui()
 

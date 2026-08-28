@@ -5,11 +5,11 @@ from pathlib import Path
 
 from PyQt5.QtWidgets import (
     QApplication,
+    QCheckBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
-    QCheckBox,
     QVBoxLayout,
     QWidget,
 )

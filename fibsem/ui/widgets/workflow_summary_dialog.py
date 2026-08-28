@@ -32,13 +32,13 @@ from fibsem.ui.stylesheets import (
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
+from fibsem.ui.tokens import (
+    TEXT_MUTED_COLOR,
+)
 from fibsem.ui.widgets.task_summary_formatting import (
     STATUS_BADGE_COLORS,
     STATUS_CHIP_ORDER,
     format_duration_short,
-)
-from fibsem.ui.tokens import (
-    TEXT_MUTED_COLOR,
 )
 
 # Short local names for the shared palette. These appear inside dozens of

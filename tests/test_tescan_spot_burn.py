@@ -16,6 +16,7 @@ from typing import List, Optional, Tuple
 
 import pytest
 
+from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.microscopes import tescan as tescan_module
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import BeamType, MillingState, Point
@@ -27,6 +28,7 @@ RESOLUTION = (1536, 1024)  # (width, height)
 # --------------------------------------------------------------------------
 # fakes
 # --------------------------------------------------------------------------
+
 
 @dataclass
 class FakeDot:
@@ -88,9 +90,12 @@ class FakeConnection:
         self.DrawBeam = FakeDrawBeam(busy_polls=busy_polls)
 
 
-def make_microscope(monkeypatch, busy_polls: int = 1, resolution: Tuple[int, int] = RESOLUTION):
+def make_microscope(
+    monkeypatch, busy_polls: int = 1, resolution: Tuple[int, int] = RESOLUTION
+):
     """Create a TescanMicroscope with the SDK and connection stubbed out."""
     microscope = object.__new__(TescanMicroscope)
+    microscope._connection_lock = threading.RLock()
     microscope.connection = FakeConnection(busy_polls=busy_polls)
     microscope.milling_channel = BeamType.ION
 
@@ -115,8 +120,15 @@ def make_microscope(monkeypatch, busy_polls: int = 1, resolution: Tuple[int, int
     microscope.stop_milling = lambda: microscope.connection.DrawBeam.Stop()
 
     # the SDK names the driver imports are absent without the SDK installed
-    monkeypatch.setattr(tescan_module, "IEtching", lambda **kwargs: kwargs, raising=False)
-    monkeypatch.setattr(tescan_module, "DepthUnit", type("DepthUnit", (), {"Second": "Second"}), raising=False)
+    monkeypatch.setattr(
+        tescan_module, "IEtching", lambda **kwargs: kwargs, raising=False
+    )
+    monkeypatch.setattr(
+        tescan_module,
+        "DepthUnit",
+        type("DepthUnit", (), {"Second": "Second"}),
+        raising=False,
+    )
     monkeypatch.setattr(tescan_module.time, "sleep", lambda s: None)
 
     return microscope
@@ -124,33 +136,47 @@ def make_microscope(monkeypatch, busy_polls: int = 1, resolution: Tuple[int, int
 
 def collect_progress(microscope) -> List[dict]:
     events: List[dict] = []
-    microscope.milling_progress_signal.connect(lambda d: events.append(d))
+    microscope.spot_burn_progress_signal.connect(lambda d: events.append(d))
     return events
+
+
+def run_burn(m, coordinates, exposure_time, **kwargs):
+    """Drive run_spot_burn with the settings payload the real callers pass."""
+    return m.run_spot_burn(
+        SpotBurnSettings(coordinates=coordinates, exposure_time=exposure_time), **kwargs
+    )
 
 
 # --------------------------------------------------------------------------
 # coordinate conversion
 # --------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     "normalised, expected",
     [
-        (Point(0.5, 0.5), Point(0.0, 0.0)),          # centre
-        (Point(0.0, 0.5), Point(-HFW / 2, 0.0)),     # left edge
-        (Point(1.0, 0.5), Point(HFW / 2, 0.0)),      # right edge
+        (Point(0.5, 0.5), Point(0.0, 0.0)),  # centre
+        (Point(0.0, 0.5), Point(-HFW / 2, 0.0)),  # left edge
+        (Point(1.0, 0.5), Point(HFW / 2, 0.0)),  # right edge
     ],
 )
 def test_point_to_metres_maps_normalised_to_centre_origin(normalised, expected):
     """(0-1, top-left origin) -> metres from the image centre."""
-    got = TescanMicroscope._spot_burn_point_to_metres(normalised, hfw=HFW, resolution=RESOLUTION)
+    got = TescanMicroscope._spot_burn_point_to_metres(
+        normalised, hfw=HFW, resolution=RESOLUTION
+    )
     assert got.x == pytest.approx(expected.x)
     assert got.y == pytest.approx(expected.y)
 
 
 def test_point_to_metres_y_axis_points_up():
     """Image y grows downwards, DrawBeam y grows upwards, so the sign must flip."""
-    top = TescanMicroscope._spot_burn_point_to_metres(Point(0.5, 0.0), hfw=HFW, resolution=RESOLUTION)
-    bottom = TescanMicroscope._spot_burn_point_to_metres(Point(0.5, 1.0), hfw=HFW, resolution=RESOLUTION)
+    top = TescanMicroscope._spot_burn_point_to_metres(
+        Point(0.5, 0.0), hfw=HFW, resolution=RESOLUTION
+    )
+    bottom = TescanMicroscope._spot_burn_point_to_metres(
+        Point(0.5, 1.0), hfw=HFW, resolution=RESOLUTION
+    )
     assert top.y > 0
     assert bottom.y < 0
     assert top.y == pytest.approx(-bottom.y)
@@ -159,7 +185,9 @@ def test_point_to_metres_y_axis_points_up():
 def test_point_to_metres_uses_pixel_aspect_not_hfw_for_y():
     """y extent is hfw scaled by the pixel aspect ratio, not hfw itself."""
     width, height = RESOLUTION
-    bottom = TescanMicroscope._spot_burn_point_to_metres(Point(0.5, 1.0), hfw=HFW, resolution=RESOLUTION)
+    bottom = TescanMicroscope._spot_burn_point_to_metres(
+        Point(0.5, 1.0), hfw=HFW, resolution=RESOLUTION
+    )
     assert bottom.y == pytest.approx(-(HFW / width) * (height / 2))
 
 
@@ -167,12 +195,13 @@ def test_point_to_metres_uses_pixel_aspect_not_hfw_for_y():
 # exposure
 # --------------------------------------------------------------------------
 
+
 def test_all_points_go_into_one_layer_as_timed_dots(monkeypatch):
     """A single layer holds one time-based dot per point."""
     m = make_microscope(monkeypatch)
     coords = [Point(0.25, 0.25), Point(0.5, 0.5), Point(0.75, 0.75)]
 
-    m.run_spot_burn(coordinates=coords, exposure_time=3.0)
+    run_burn(m, coordinates=coords, exposure_time=3.0)
 
     db = m.connection.DrawBeam
     assert len(db.layers) == 1
@@ -191,15 +220,20 @@ def test_all_points_go_into_one_layer_as_timed_dots(monkeypatch):
 def test_layer_is_loaded_started_and_unloaded_once(monkeypatch):
     m = make_microscope(monkeypatch)
 
-    m.run_spot_burn(coordinates=[Point(0.5, 0.5), Point(0.4, 0.4)], exposure_time=1.0)
+    run_burn(m, coordinates=[Point(0.5, 0.5), Point(0.4, 0.4)], exposure_time=1.0)
 
     # leading UnloadLayer clears any layer left loaded by a previous job
-    assert m.connection.DrawBeam.calls == ["UnloadLayer", "LoadLayer", "Start", "UnloadLayer"]
+    assert m.connection.DrawBeam.calls == [
+        "UnloadLayer",
+        "LoadLayer",
+        "Start",
+        "UnloadLayer",
+    ]
 
 
 def test_beam_is_prepared_once(monkeypatch):
     m = make_microscope(monkeypatch)
-    m.run_spot_burn(coordinates=[Point(0.5, 0.5)], exposure_time=1.0)
+    run_burn(m, coordinates=[Point(0.5, 0.5)], exposure_time=1.0)
     assert m._test_state["prepared"] == [BeamType.ION]
 
 
@@ -207,7 +241,7 @@ def test_out_of_bounds_coordinates_are_dropped(monkeypatch):
     m = make_microscope(monkeypatch)
     coords = [Point(0.5, 0.5), Point(1.5, 0.5), Point(-0.1, 0.2), Point(0.2, 0.2)]
 
-    m.run_spot_burn(coordinates=coords, exposure_time=1.0)
+    run_burn(m, coordinates=coords, exposure_time=1.0)
 
     assert len(m.connection.DrawBeam.layers[0].dots) == 2
 
@@ -215,7 +249,7 @@ def test_out_of_bounds_coordinates_are_dropped(monkeypatch):
 def test_nothing_runs_when_every_coordinate_is_out_of_bounds(monkeypatch):
     m = make_microscope(monkeypatch)
 
-    m.run_spot_burn(coordinates=[Point(1.5, 0.5), Point(-0.1, 0.2)], exposure_time=1.0)
+    run_burn(m, coordinates=[Point(1.5, 0.5), Point(-0.1, 0.2)], exposure_time=1.0)
 
     assert m.connection.DrawBeam.calls == []
 
@@ -226,7 +260,7 @@ def test_layer_settings_use_the_spot_burn_preset_and_configured_defaults(monkeyp
     m = make_microscope(monkeypatch)
     defaults = FibsemMillingSettings()
 
-    m.run_spot_burn(coordinates=[Point(0.5, 0.5)], exposure_time=1.0)
+    run_burn(m, coordinates=[Point(0.5, 0.5)], exposure_time=1.0)
 
     layer_settings = m.connection.DrawBeam.layers[0].settings
     assert layer_settings["preset"] == "30 keV; 100 pA"
@@ -241,6 +275,7 @@ def test_layer_settings_use_the_spot_burn_preset_and_configured_defaults(monkeyp
 # --------------------------------------------------------------------------
 # cancellation
 # --------------------------------------------------------------------------
+
 
 def test_stop_event_during_exposure_stops_the_exposition(monkeypatch):
     """Cancelling mid-exposure must stop DrawBeam and still unload the layer."""
@@ -258,7 +293,8 @@ def test_stop_event_during_exposure_stops_the_exposition(monkeypatch):
 
     m.get_milling_state = counting_state
 
-    m.run_spot_burn(
+    run_burn(
+        m,
         coordinates=[Point(0.5, 0.5), Point(0.25, 0.25)],
         exposure_time=30.0,
         stop_event=stop_event,
@@ -272,21 +308,58 @@ def test_stop_event_during_exposure_stops_the_exposition(monkeypatch):
 # progress + validation
 # --------------------------------------------------------------------------
 
-def test_progress_uses_the_milling_progress_shape(monkeypatch):
-    """Progress is reported exactly as run_milling reports it."""
+
+def test_progress_uses_the_spot_burn_widget_shape(monkeypatch):
+    """Progress goes out on spot_burn_progress_signal as the typed report (FIB-824)."""
+    from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
+
     m = make_microscope(monkeypatch, busy_polls=2)
     events = collect_progress(m)
 
-    m.run_spot_burn(coordinates=[Point(0.5, 0.5), Point(0.2, 0.2)], exposure_time=2.0)
+    run_burn(m, coordinates=[Point(0.5, 0.5), Point(0.2, 0.2)], exposure_time=2.0)
 
-    assert events, "expected at least one progress update"
-    progress = events[0]["progress"]
-    assert set(progress) == {
-        "state", "milling_state", "start_time", "estimated_time", "remaining_time"
-    }
-    assert progress["state"] == "update"
-    assert progress["estimated_time"] == 4.0  # 2 points x 2s
-    assert 0.0 <= progress["remaining_time"] <= 4.0
+    assert len(events) >= 3, "expected initial + at least one update + finished"
+    initial, updates, finished = events[0], events[1:-1], events[-1]
+
+    assert all(isinstance(e, SpotBurnProgress) for e in events)
+
+    assert initial.status is SpotBurnStatus.BURNING
+    assert initial.current_point == 0
+    assert initial.total_points == 2
+    assert initial.total_estimated_time == 4.0  # 2 points x 2s
+
+    for update in updates:
+        assert update.status is SpotBurnStatus.BURNING
+        # Inferred from elapsed time -- DrawBeam exposes no per-dot progress -- so the
+        # assertion is a range, not a value.
+        assert 1 <= update.current_point <= 2
+        assert 0.0 <= update.remaining_time <= 2.0
+        assert 0.0 <= update.total_remaining_time <= 4.0
+
+    assert finished.status is SpotBurnStatus.FINISHED
+    assert finished.status.is_terminal
+
+
+def test_a_cancelled_tescan_burn_reports_cancelled(monkeypatch):
+    """The Tescan path had the same defect as the default one: a burn stopped by the
+    stop_event emitted the same terminal as a completed one, and rendered "Done"."""
+    import threading
+
+    from fibsem.imaging.spot import SpotBurnStatus
+
+    m = make_microscope(monkeypatch, busy_polls=4)
+    events = collect_progress(m)
+    stop_event = threading.Event()
+    stop_event.set()
+
+    run_burn(
+        m,
+        coordinates=[Point(0.5, 0.5), Point(0.2, 0.2)],
+        exposure_time=2.0,
+        stop_event=stop_event,
+    )
+
+    assert events[-1].status is SpotBurnStatus.CANCELLED
 
 
 def test_layer_is_unloaded_even_when_drawbeam_raises(monkeypatch):
@@ -298,7 +371,7 @@ def test_layer_is_unloaded_even_when_drawbeam_raises(monkeypatch):
     m.get_milling_state = boom
 
     with pytest.raises(RuntimeError):
-        m.run_spot_burn(coordinates=[Point(0.5, 0.5)], exposure_time=1.0)
+        run_burn(m, coordinates=[Point(0.5, 0.5)], exposure_time=1.0)
 
     assert m.connection.DrawBeam.calls[-1] == "UnloadLayer"
 
@@ -306,8 +379,11 @@ def test_layer_is_unloaded_even_when_drawbeam_raises(monkeypatch):
 def test_electron_beam_is_rejected(monkeypatch):
     m = make_microscope(monkeypatch)
     with pytest.raises(ValueError, match="ion beam"):
-        m.run_spot_burn(
-            coordinates=[Point(0.5, 0.5)], exposure_time=1.0, beam_type=BeamType.ELECTRON
+        run_burn(
+            m,
+            coordinates=[Point(0.5, 0.5)],
+            exposure_time=1.0,
+            beam_type=BeamType.ELECTRON,
         )
 
 
@@ -315,4 +391,4 @@ def test_electron_beam_is_rejected(monkeypatch):
 def test_non_positive_exposure_is_rejected(monkeypatch, exposure_time):
     m = make_microscope(monkeypatch)
     with pytest.raises(ValueError, match="exposure_time"):
-        m.run_spot_burn(coordinates=[Point(0.5, 0.5)], exposure_time=exposure_time)
+        run_burn(m, coordinates=[Point(0.5, 0.5)], exposure_time=exposure_time)

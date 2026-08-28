@@ -18,13 +18,16 @@ is absorbed into the stage moves, not into where the tiles appear.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Optional, Sequence, Tuple
+import logging
+from typing import TYPE_CHECKING, Callable, Iterable, List, Optional, Sequence, Tuple
 
 from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.imaging.tiling.geometry import TilePosition
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.ui.widgets.canvas.canvas_base import ContentRect
@@ -44,7 +47,32 @@ ENABLED_ALPHA = 0.0
 # easy to miss in a large grid.
 DISABLED_EDGE = "#9aa0a6"
 DISABLED_ALPHA = 0.75
+# A tile the stage cannot travel to: the tile recedes, and a small cross marks it.
+#
+# Emphasis inverted on purpose. Earlier attempts added ink to the tiles you cannot have
+# -- a recoloured edge, a red wash, a white hatch -- and the common case is that a whole
+# row or column goes out of range at once, so half the grid ended up shouting. What you
+# steer by while dragging is the region you *can* still acquire, so that is what should
+# stand out. Dimming the rest costs no ink at all and leaves the data legible.
+#
+# The cross sits at the tile's centre because that is exactly what is tested: the stage
+# only has to reach a tile's centre, which is also why tiles may legitimately overhang
+# the travel box. A mark at the centre makes that overhang read as intended rather than
+# as a bug.
+#
+# Grey rather than a warning colour, and muted: it is information, not an alarm. Close
+# to `DISABLED_EDGE` by design -- both mean "not being acquired" -- and told apart by
+# what carries it, a dimmed solid outline here against a grey dashed one there.
+UNREACHABLE_EDGE_ALPHA = 0.30
+UNREACHABLE_MARK_COLOUR = "#9e9e9e"
+# As a fraction of the smaller tile side, so the cross shrinks with the tiles instead of
+# swamping a large grid.
+UNREACHABLE_MARK_SIZE = 0.12
 LINE_WIDTH = 0.8
+
+# `set_grid(anchor=None)` means "follow the content"; omitting it means "leave it as it
+# is". A sentinel rather than None, because both of those are meaningful answers.
+_UNSET = object()
 
 # Grab zone for an edge drag, as a fraction of a tile. Proportional rather than a
 # fixed pixel count so it stays usable however far the view is zoomed out.
@@ -58,26 +86,41 @@ MAX_TILES_PER_AXIS = 100  # matches the row/column spin boxes
 # the other.
 MOVE_DRAG_THRESHOLD_PX = 3
 
+# Held to make an interior drag paint tiles rather than move the grid. Shift because
+# it is the only modifier not already spent inside the axes: Ctrl and Alt reach the
+# toolbar, and the one Shift binding -- Shift+scroll to focus -- is a wheel gesture,
+# which cannot collide with a button-1 drag.
+PAINT_MODIFIER = "Shift"
+
 
 class TileGridOverlay(QObject, CanvasOverlay):
-    """The planned tile grid, with click-to-toggle, edge-to-resize and drag-to-move.
+    """The planned tile grid: click-to-toggle, Shift+drag-to-paint, edge-to-resize,
+    drag-to-move.
 
     Emits rather than mutating: rows, columns, the mask and the position the grid is
     planned around all belong to the settings widget, and two widgets writing the same
     state is how they drift apart.
     """
 
-    tile_toggled = pyqtSignal(int, int, bool)      # row, col, enabled
-    grid_resize_requested = pyqtSignal(int, int)   # rows, cols
+    tile_toggled = pyqtSignal(int, int, bool)  # row, col, enabled
+    grid_resize_requested = pyqtSignal(int, int)  # rows, cols
     grid_move_requested = pyqtSignal(float, float)  # new centre, canvas coordinates
+    # A move or resize gesture has ended. For work a host wants to do once, at the end,
+    # rather than on every motion event -- anything that repaints the whole canvas
+    # belongs here, because during the drag the grid is blitted over a held background
+    # and a repaint throws that away (FIB-752).
+    drag_finished = pyqtSignal()
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         QObject.__init__(self, parent)
         self._tiles: List[TilePosition] = []
-        self._tile_shape: Tuple[int, int] = (0, 0)     # (height, width) px
+        self._tile_shape: Tuple[int, int] = (0, 0)  # (height, width) px
         self._tile_pixel_size: float = 0.0
         self._display_pixel_size: Optional[float] = None
         self._overlap: float = 0.0
+        # (row, col) for tiles the stage cannot travel to. A set, and empty by default:
+        # a host that never works it out draws exactly what it drew before.
+        self._unreachable: set = set()
         self._color: str = ENABLED_EDGE
         self._fill_alpha: float = ENABLED_ALPHA
         self._visible: bool = True
@@ -89,13 +132,32 @@ class TileGridOverlay(QObject, CanvasOverlay):
         self._anchor_point: Optional[Tuple[float, float]] = None  # see set_anchor
         self._previous_margin: Optional[float] = None
         self._cids: List[int] = []
+        # The canvas without the grid on it, captured once when a drag starts. See
+        # `_redraw`: while it is held, a drag frame restores it and draws the tiles on
+        # top rather than re-rendering every placed image (FIB-752).
+        self._blit_bg = None
         self._resize_axes: Optional[Tuple[bool, bool]] = None  # (horizontal, vertical)
+        # Whether dragging may change the grid's *geometry*. Tile toggling is separate
+        # and always allowed -- see `set_grid_editable`.
+        self._geometry_editable: bool = True
+        # Points the host has claimed for itself -- see `set_reserved`.
+        self._reserved: Optional[Callable[[float, float], bool]] = None
         self._cursor_set: bool = False
         # A press inside the grid, held until it resolves into a move or a tile click:
         # (press_px_x, press_px_y, press_x, press_y, anchor_x, anchor_y). The screen
         # coordinates drive the threshold, the data coordinates the displacement.
-        self._move_start: Optional[Tuple[float, float, float, float, float, float]] = None
+        self._move_start: Optional[Tuple[float, float, float, float, float, float]] = (
+            None
+        )
         self._move_active: bool = False
+        # A paint drag: the value being swept in, the tile the press landed on, and the
+        # tiles already given it. `_paint_value` doubles as "this press is a paint" --
+        # it is set only at press, so letting go of Shift part way through does not
+        # abandon the sweep half-done.
+        self._paint_value: Optional[bool] = None
+        self._paint_origin: Optional[Tuple[int, int]] = None
+        self._paint_active: bool = False
+        self._painted: set = set()
         # A toggle waiting to find out whether it was half of a double-click. See
         # `_schedule_toggle` for why it waits rather than firing and being undone.
         self._pending_toggle: Optional[Tuple[int, int, bool]] = None
@@ -116,12 +178,22 @@ class TileGridOverlay(QObject, CanvasOverlay):
             canvas.mpl_connect("button_press_event", self._on_press),
             canvas.mpl_connect("motion_notify_event", self._on_drag),
             canvas.mpl_connect("button_release_event", self._on_release),
+            # See `_on_canvas_drawn`: anything that repaints the canvas mid-drag takes
+            # the grid off it, because a full draw skips animated artists.
+            canvas.mpl_connect("draw_event", self._on_canvas_drawn),
         ]
 
     def detach(self) -> None:
         # A toggle still waiting out the double-click interval would otherwise fire into
         # a host that has stopped listening -- or, on a rebuilt tab, into the wrong one.
         self._cancel_pending_toggle()
+        # Same for a gesture caught mid-flight: detaching skips the release that would
+        # have cleared these, so a re-attached overlay would resume painting on the
+        # next motion event, with a value captured against a mask that is long gone.
+        self._paint_value = None
+        self._paint_origin = None
+        self._paint_active = False
+        self._painted.clear()
         if self._canvas is not None:
             for cid in self._cids:
                 self._canvas.mpl_disconnect(cid)
@@ -138,6 +210,11 @@ class TileGridOverlay(QObject, CanvasOverlay):
 
     def on_content_changed(self, rect: "ContentRect") -> None:
         self._rect = rect
+        # Whatever the canvas is holding was captured against the old bounds, so it no
+        # longer describes what is behind the grid. Dropped rather than reused: the next
+        # frame recaptures, which costs one full draw, and blitting a stale background
+        # would paint the previous contents back over the canvas.
+        self._blit_bg = None
         self._redraw()
 
     def _content(self) -> Optional["ContentRect"]:
@@ -156,8 +233,14 @@ class TileGridOverlay(QObject, CanvasOverlay):
         Anchoring explicitly also lets the grid be drawn before anything is acquired,
         which is when a planned grid is most useful.
         """
-        self._anchor_point = None if centre is None else (float(centre[0]), float(centre[1]))
+        self._set_anchor_point(centre)
         self._redraw()
+
+    def _set_anchor_point(self, centre: Optional[Tuple[float, float]]) -> None:
+        """Store the anchor without repainting, so `set_grid` can do both in one."""
+        self._anchor_point = (
+            None if centre is None else (float(centre[0]), float(centre[1]))
+        )
 
     def _anchor(self) -> Optional[Tuple[float, float]]:
         """Where the grid is centred, or None if there is nothing to centre it on."""
@@ -175,6 +258,8 @@ class TileGridOverlay(QObject, CanvasOverlay):
         tile_pixel_size: float,
         display_pixel_size: Optional[float] = None,
         overlap: float = 0.0,
+        unreachable: Optional[Iterable[Tuple[int, int]]] = None,
+        anchor: Optional[Tuple[float, float]] = _UNSET,
     ) -> None:
         """Set the grid to draw.
 
@@ -189,16 +274,31 @@ class TileGridOverlay(QObject, CanvasOverlay):
                 the tile spacing, because a single-row or single-column grid has no
                 spacing to derive it from -- and that is exactly the case a resize
                 drag has to grow out of.
+            unreachable: (row, col) for tiles the stage cannot travel to, which are
+                dimmed and crossed as described above. None leaves the previous set
+                alone; an empty one clears it.
+            anchor: where to centre the grid, as :meth:`set_anchor` takes it. Here as
+                well because a host that sets both used to pay two full repaints per
+                call -- and this call is on the drag path, where it ran on every motion
+                event (FIB-751). Omitted leaves the anchor as it is; None restores
+                following the content.
         """
         self._tiles = list(tiles)
         self._tile_shape = tile_shape
         self._tile_pixel_size = tile_pixel_size
         self._display_pixel_size = display_pixel_size
         self._overlap = overlap
+        if unreachable is not None:
+            self._unreachable = {(int(r), int(c)) for r, c in unreachable}
+        if anchor is not _UNSET:
+            self._set_anchor_point(anchor)
         self._redraw()
 
     def clear(self) -> None:
         self._tiles = []
+        # The flags go with them. Left behind they would be re-applied to whatever grid
+        # was drawn next, by row and column, which is a different grid.
+        self._unreachable = set()
         self._redraw()
 
     def set_color(self, color: str) -> None:
@@ -220,6 +320,60 @@ class TileGridOverlay(QObject, CanvasOverlay):
         """Hide the grid without discarding it, for an unobstructed look at the data."""
         self._visible = bool(visible)
         self._redraw()
+
+    def set_grid_editable(self, editable: bool) -> None:
+        """Whether dragging may move or resize the grid. Toggling tiles is unaffected.
+
+        For a host that derives the grid from something else and would only have to undo
+        the drag -- the sparse selection dialog computes rows, columns and centre from
+        the regions drawn on a beam overview, so a grid dragged here would spring back
+        the moment the plan was recomputed, which reads as a broken control rather than
+        an absent one.
+
+        The resize cursor goes with it. An affordance that advertises a gesture the host
+        discards is worse than no affordance, since the only way to learn it does nothing
+        is to try it.
+        """
+        self._geometry_editable = bool(editable)
+
+    def set_reserved(self, predicate: Optional[Callable[[float, float], bool]]) -> None:
+        """Let the host claim points where the grid should not act.
+
+        *predicate* is asked, in canvas coordinates, whether a press belongs to
+        something else. When it answers yes this overlay takes no part in the gesture:
+        it does not claim the press, so the canvas emits `canvas_clicked` as usual and
+        whatever owns that point gets it.
+
+        This exists because the grid was winning clicks it had no claim to. A press
+        anywhere inside the grid's bounding box was claimed and turned into a tile
+        toggle, and the canvas's click signal was suppressed to stop the view panning
+        out from under a drag -- so a marked position inside the grid could not be
+        selected at all, and the footprint is exactly where the marked positions are
+        (FIB-767).
+
+        Both overview tabs wire this to their own marker hit test, so what the grid
+        stands aside for is precisely what a click would otherwise have selected --
+        including its field-of-view box, and including the rule that hidden markers are
+        not targets. One hit test, not two that must agree.
+
+        Pass None to take the reservation away.
+        """
+        self._reserved = predicate
+
+    def _is_reserved(self, x: float, y: float) -> bool:
+        """Whether the host has claimed the canvas point *x*, *y*.
+
+        Defensive because the predicate is the host's code running inside a mouse
+        handler: a raised exception here would abort the press and leave the grid in a
+        half-started gesture, which is worse than losing the reservation for one click.
+        """
+        if self._reserved is None:
+            return False
+        try:
+            return bool(self._reserved(x, y))
+        except Exception as e:
+            logging.debug(f"Could not ask whether a point is reserved: {e}")
+            return False
 
     @property
     def is_grid_visible(self) -> bool:
@@ -326,7 +480,12 @@ class TileGridOverlay(QObject, CanvasOverlay):
 
     def _redraw(self) -> None:
         self._remove_artists()
-        if self._ax is None or not self._tiles or self._anchor() is None or not self._visible:
+        if (
+            self._ax is None
+            or not self._tiles
+            or self._anchor() is None
+            or not self._visible
+        ):
             # Still repaint: removing the artists takes them out of the axes, but the
             # canvas keeps showing the last render until it is asked to redraw -- so
             # returning early here left a hidden grid on screen.
@@ -337,31 +496,187 @@ class TileGridOverlay(QObject, CanvasOverlay):
         from matplotlib.colors import to_rgba
         from matplotlib.patches import Rectangle
 
+        # A drag repaints on every motion event, and a repaint re-renders the whole
+        # canvas -- every placed overview, to move some rectangles. Measured at 167 ms
+        # per event with six overviews on a 3x3 grid, 427 ms with sixteen, and growing
+        # with every image ever placed. Blitted instead: the background is captured
+        # once, and each frame restores it and draws only the tiles.
+        #
+        # `animated` is what keeps the tiles *out* of that background -- a full draw
+        # skips animated artists -- so it has to be set before the capture, and cleared
+        # when the drag ends or the grid stays invisible until something else redraws it.
+        blitting = self._can_blit()
+
         for tile in self._tiles:
             x, y, width, height = self._rect_for(tile)
+            # Only tiles that will actually be visited. A masked-off tile is not going
+            # anywhere, so flagging it would be asking you to turn off something already
+            # off -- and the check that produces the set drops them for the same reason.
+            out_of_reach = tile.enabled and (tile.row, tile.col) in self._unreachable
             # Alpha is baked into the face colour rather than set on the patch:
             # `alpha=` applies to the edge as well, which drew the outlines at the
             # fill's opacity and left them all but invisible -- so the grid could only
             # be seen by turning the fill up until it obscured the data.
             patch = Rectangle(
-                (x, y), width, height,
+                (x, y),
+                width,
+                height,
                 fill=tile.enabled,
                 facecolor=(
                     to_rgba(self._color, self._fill_alpha) if tile.enabled else "none"
                 ),
                 edgecolor=(
-                    to_rgba(self._color, 1.0) if tile.enabled
+                    to_rgba(self._color, UNREACHABLE_EDGE_ALPHA)
+                    if out_of_reach
+                    else to_rgba(self._color, 1.0)
+                    if tile.enabled
                     else to_rgba(DISABLED_EDGE, DISABLED_ALPHA)
                 ),
                 linestyle="-" if tile.enabled else "--",
                 linewidth=LINE_WIDTH,
                 zorder=20,
+                animated=blitting,
             )
             self._ax.add_patch(patch)
             self._artists.append(patch)
 
-        if self._canvas is not None:
-            self._canvas.draw_idle()
+            if out_of_reach:
+                self._artists.extend(
+                    self._mark_out_of_reach(x, y, width, height, animated=blitting)
+                )
+
+        if self._canvas is None:
+            return
+        if blitting and self._blit_frame():
+            return
+        self._canvas.draw_idle()
+
+    def _mark_out_of_reach(
+        self, x: float, y: float, width: float, height: float, animated: bool = False
+    ) -> list:
+        """A small cross at the tile's centre, added to the axes and handed back.
+
+        One artist, not two: a `nan` lifts the pen between the strokes, so both arms are
+        drawn by a single `Line2D`. Two artists per tile measured 184 ms against 136 ms
+        for a full 15x15 drag frame -- the per-artist overhead, not the drawing.
+
+        *animated* for the same reason the tiles take it: a blitted drag frame draws
+        this itself, and an artist left in the captured background would smear.
+        """
+        from matplotlib.lines import Line2D
+
+        centre_x, centre_y = x + width / 2, y + height / 2
+        arm = min(width, height) * UNREACHABLE_MARK_SIZE / 2
+        line = Line2D(
+            (
+                centre_x - arm,
+                centre_x + arm,
+                float("nan"),
+                centre_x - arm,
+                centre_x + arm,
+            ),
+            (
+                centre_y - arm,
+                centre_y + arm,
+                float("nan"),
+                centre_y + arm,
+                centre_y - arm,
+            ),
+            color=UNREACHABLE_MARK_COLOUR,
+            linewidth=1.3,
+            solid_capstyle="round",
+            zorder=22,
+            animated=animated,
+        )
+        self._ax.add_line(line)
+        return [line]
+
+    # ── blitting a drag (FIB-752) ────────────────────────────────────────
+
+    def _can_blit(self) -> bool:
+        """Whether this frame should be blitted rather than fully redrawn.
+
+        Only while a gesture is in flight. Outside one there is nothing to be gained --
+        a settings change redraws once -- and the captured background would go stale the
+        moment anything else on the canvas changed.
+
+        Guarded on the canvas actually offering the calls, so a host that is not a
+        matplotlib canvas (the drawing tests use a stand-in) falls back to a normal
+        repaint rather than failing.
+        """
+        if self._canvas is None or self._ax is None or not self.is_dragging:
+            return False
+        return all(
+            hasattr(self._canvas, name)
+            for name in ("draw", "copy_from_bbox", "restore_region", "blit")
+        )
+
+    def _blit_frame(self) -> bool:
+        """Draw the tiles over the captured background. False if it could not be done.
+
+        Captures on the first frame of a drag: by then the artists exist and are
+        animated, so the full draw taken here renders everything *except* them -- which
+        is exactly the background the rest of the drag needs.
+
+        Returning False rather than raising, because a failed blit should cost a frame's
+        efficiency and not the frame: the caller falls back to `draw_idle`.
+        """
+        try:
+            if self._blit_bg is None:
+                self._canvas.draw()
+                self._blit_bg = self._canvas.copy_from_bbox(self._ax.bbox)
+            self._canvas.restore_region(self._blit_bg)
+            for artist in self._artists:
+                self._ax.draw_artist(artist)
+            self._canvas.blit(self._ax.bbox)
+            return True
+        except Exception as e:  # pragma: no cover - a backend that cannot blit
+            logger.debug(f"Could not blit the tile grid: {e}")
+            self._blit_bg = None
+            return False
+
+    def _on_canvas_drawn(self, event) -> None:
+        """Put the grid back after something else repainted the canvas mid-drag.
+
+        A full draw skips animated artists, so the moment a host redraws for its own
+        reasons -- the fluorescence tab refreshes the stage context from the same
+        handler that moves the grid -- the tiles vanish from the canvas and stay gone
+        until the next motion event. That alternation is what a drag looked like:
+        flicker, and the grid missing for stretches of it.
+
+        The background it draws over is recaptured here rather than reused, because the
+        draw that just happened is what the canvas now shows.
+
+        **No `blit()` here.** This runs inside the canvas's own paint, which is about to
+        present what the renderer holds -- drawing the artists into it is enough. Asking
+        the canvas to present again from in here re-enters the paint, which Qt reports as
+        `QWidget::repaint: Recursive repaint detected`, followed by a stream of
+        `QPainter::begin: Paint device returned engine == 0`.
+
+        Not re-entrant the other way either: `_blit_frame`'s own initial `draw()` runs
+        while `_blit_bg` is still None, so this returns before touching anything.
+        """
+        if self._blit_bg is None or not self.is_dragging:
+            return
+        try:
+            self._blit_bg = self._canvas.copy_from_bbox(self._ax.bbox)
+            for artist in self._artists:
+                self._ax.draw_artist(artist)
+        except Exception as e:  # pragma: no cover - a backend that cannot blit
+            logger.debug(f"Could not restore the tile grid after a repaint: {e}")
+            self._blit_bg = None
+
+    def _end_blit(self) -> None:
+        """Drop the background and put the grid back into the canvas proper.
+
+        The redraw is not optional. The artists are `animated` while a drag is in
+        flight, which means a full draw skips them -- so without this the grid would
+        vanish the next time anything else repainted the canvas.
+        """
+        if self._blit_bg is None:
+            return
+        self._blit_bg = None
+        self._redraw()
 
     def _remove_artists(self) -> None:
         for artist in self._artists:
@@ -471,9 +786,21 @@ class TileGridOverlay(QObject, CanvasOverlay):
             return
 
         edges = self._edge_at(event.xdata, event.ydata)
-        if edges is not None:
+        if edges is not None and self._geometry_editable:
             self._resize_axes = edges
             self._claim(event)
+            return
+
+        if self._is_reserved(event.xdata, event.ydata):
+            # The host owns this point. Return without claiming, exactly as the
+            # double-click branch above does: `_move_start` stays unset, so the release
+            # that follows schedules no toggle, and the canvas emits the click.
+            #
+            # After the edge test rather than before it. A marked position is a larger
+            # target than an edge and would swallow the resize gesture wherever the two
+            # meet, and a grid whose corner cannot be dragged because a lamella sits
+            # near it is a worse trade than a marker that has to be clicked a few pixels
+            # further in.
             return
 
         anchor = self._anchor()
@@ -483,9 +810,36 @@ class TileGridOverlay(QObject, CanvasOverlay):
         # Inside: held rather than acted on, because the same press starts both a move
         # and a tile toggle and only the pointer's next few pixels say which.
         self._move_start = (
-            event.x, event.y, event.xdata, event.ydata, anchor[0], anchor[1]
+            event.x,
+            event.y,
+            event.xdata,
+            event.ydata,
+            anchor[0],
+            anchor[1],
         )
+        if self._painting(event):
+            tile = self._tile_at(event.xdata, event.ydata)
+            if tile is not None:
+                # Captured here and never read from the tiles again: the host rewrites
+                # the grid after every emission, so by the second tile `not tile.enabled`
+                # would be answering a question about an already-edited mask, and the
+                # sweep would alternate instead of painting. `TileMaskGrid` keeps a
+                # `_drag_value` for the same reason.
+                self._paint_value = not tile.enabled
+                self._paint_origin = (tile.row, tile.col)
         self._claim(event)
+
+    def _painting(self, event) -> bool:
+        """Whether the paint modifier is held for this event.
+
+        Imported lazily rather than at module scope: every overlay keeps `canvas_base`
+        to a TYPE_CHECKING import, and going through its helper -- rather than reading
+        Qt directly here -- keeps one answer to "which modifiers are down", which
+        matters because the reliable source is the Qt event and not `MouseEvent.key`.
+        """
+        from fibsem.ui.widgets.canvas.canvas_base import _modifiers_from_event
+
+        return PAINT_MODIFIER in _modifiers_from_event(event)
 
     def _claim(self, event) -> None:
         """Tell the canvas this overlay owns the gesture.
@@ -515,22 +869,32 @@ class TileGridOverlay(QObject, CanvasOverlay):
             return Qt.SizeVerCursor
         return None
 
-    def _cursor_at(self, x: float, y: float):
+    def _cursor_at(self, x: float, y: float, painting: bool = False):
         """The cursor for a point over the grid, or None if it is over nothing.
 
-        Edges win over the interior, matching which gesture a press there starts.
+        Edges win over the interior, matching which gesture a press there starts --
+        with the paint modifier held too, since an edge press still resizes.
         """
         cursor = self._cursor_for(*self._edge_sides(x, y))
         if cursor is not None:
             return cursor
-        return Qt.SizeAllCursor if self._within(x, y) else None
+        if not self._within(x, y):
+            return None
+        if self._is_reserved(x, y):
+            # Nothing, so the canvas's own cursor shows through. The pointer is the only
+            # warning that a press here will not move the grid, and a move cursor over a
+            # point the grid has stood aside for is a lie.
+            return None
+        return Qt.CrossCursor if painting else Qt.SizeAllCursor
 
     def _update_cursor(self, event) -> None:
-        """Show a resize cursor over the grid's edges.
+        """Show a resize cursor over the grid's edges, and a cross while painting.
 
         Without it the drag is undiscoverable -- nothing on screen suggests the
         boundary is draggable, and no one hunts for an affordance they have no reason
-        to believe exists.
+        to believe exists. The cross does the same job for the paint modifier: holding
+        Shift over the grid changes the pointer, which is the only sign the gesture
+        exists for anyone who has not been told.
         """
         if self._canvas is None:
             return
@@ -539,10 +903,13 @@ class TileGridOverlay(QObject, CanvasOverlay):
         if (
             self._visible
             and self._tiles
+            and self._geometry_editable
             and event.inaxes is self._ax
             and event.xdata is not None
         ):
-            cursor = self._cursor_at(event.xdata, event.ydata)
+            cursor = self._cursor_at(
+                event.xdata, event.ydata, painting=self._painting(event)
+            )
 
         if cursor is not None:
             self._canvas.setCursor(cursor)
@@ -554,8 +921,14 @@ class TileGridOverlay(QObject, CanvasOverlay):
             self._cursor_set = False
 
     def _on_drag(self, event) -> None:
+        if self._paint_value is not None:
+            self._drag_paint(event)
+            return
         if self._move_start is not None:
-            self._drag_move(event)
+            # Still held when the geometry is fixed: it is what the release reads to
+            # decide the press was a click, and so a tile toggle.
+            if self._geometry_editable:
+                self._drag_move(event)
             return
         if self._resize_axes is None:
             self._update_cursor(event)
@@ -578,13 +951,9 @@ class TileGridOverlay(QObject, CanvasOverlay):
         cols = max(t.col for t in self._tiles) + 1
 
         if horizontal:
-            cols = self._count_for(
-                abs(event.xdata - anchor[0]), tile_w * scale
-            )
+            cols = self._count_for(abs(event.xdata - anchor[0]), tile_w * scale)
         if vertical:
-            rows = self._count_for(
-                abs(event.ydata - anchor[1]), tile_h * scale
-            )
+            rows = self._count_for(abs(event.ydata - anchor[1]), tile_h * scale)
 
         self.grid_resize_requested.emit(rows, cols)
 
@@ -601,7 +970,7 @@ class TileGridOverlay(QObject, CanvasOverlay):
             return
         if not self._move_active:
             travelled = (event.x - press_x) ** 2 + (event.y - press_y) ** 2
-            if travelled < MOVE_DRAG_THRESHOLD_PX ** 2:
+            if travelled < MOVE_DRAG_THRESHOLD_PX**2:
                 return
             self._move_active = True
 
@@ -609,19 +978,71 @@ class TileGridOverlay(QObject, CanvasOverlay):
             anchor_x + (event.xdata - x0), anchor_y + (event.ydata - y0)
         )
 
+    def _drag_paint(self, event) -> None:
+        """Give every tile the drag crosses the value the first one was heading for.
+
+        A sweep sets a run of tiles to one value instead of toggling each in turn, so
+        emptying a row is one gesture rather than one click per tile -- and the result
+        does not depend on what each tile happened to be on the way past, which
+        toggling does. On a 5x5 that is the difference between one drag and twenty-five
+        waits on the double-click timer.
+        """
+        press_x, press_y = self._move_start[0], self._move_start[1]
+        if event.inaxes is not self._ax or event.xdata is None or event.ydata is None:
+            return
+        if not self._paint_active:
+            travelled = (event.x - press_x) ** 2 + (event.y - press_y) ** 2
+            if travelled < MOVE_DRAG_THRESHOLD_PX**2:
+                return
+            # The move gesture's threshold, deliberately: a modified press that never
+            # travels has to reach `_on_release` still looking like a click, so that
+            # Shift+click stays an ordinary toggle and keeps the double-click deferral
+            # that stops a stage move editing the tile under it (FIB-520).
+            self._paint_active = True
+            if self._paint_origin is not None:
+                self._paint(*self._paint_origin)
+        tile = self._tile_at(event.xdata, event.ydata)
+        if tile is not None:
+            self._paint(tile.row, tile.col)
+
+    def _paint(self, row: int, col: int) -> None:
+        """Emit one tile's new value, at most once per drag.
+
+        Motion events arrive far faster than tiles are crossed and the host rebuilds
+        the whole grid on each emission, so without this a slow sweep over three tiles
+        would ask for hundreds of rebuilds of the same three values.
+        """
+        if (row, col) in self._painted:
+            return
+        self._painted.add((row, col))
+        self.tile_toggled.emit(row, col, self._paint_value)
+
     def _on_release(self, event) -> None:
         # A press inside the grid that never became a drag is a click on a tile. It has
         # to be emitted here because claiming the gesture suppressed the canvas's own
         # click signal -- claiming is what stops the view panning out from under a move.
         pressed_inside = self._move_start is not None
-        was_moving = self._move_active
+        # A paint counts as a drag here as well: the tiles it crossed are already
+        # emitted, so letting the release toggle one more would undo the last of them.
+        was_dragged = self._move_active or self._paint_active
         self._move_start = None
         self._move_active = False
         self._resize_axes = None
+        # Before anything below can redraw: `_end_blit` reads `is_dragging`, which these
+        # three have just made False, and it is that transition it exists to catch.
+        self._end_blit()
+        if was_dragged:
+            # After `_end_blit`, so a host that repaints in response is repainting a
+            # canvas the grid is already part of again.
+            self.drag_finished.emit()
+        self._paint_value = None
+        self._paint_origin = None
+        self._paint_active = False
+        self._painted.clear()
 
         if (
             pressed_inside
-            and not was_moving
+            and not was_dragged
             and event.button == 1
             and event.inaxes is self._ax
             and event.xdata is not None

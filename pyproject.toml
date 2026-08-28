@@ -32,7 +32,12 @@ dependencies = [
     "pyyaml>=6.0",
     "psygnal",
     "ome_types",
-    "lxml[html_clean]",
+    # lxml 6.1.2 (2026-08-19) shipped no cp38 wheel for Windows, so pip falls back to
+    # building from source and the runner has no libxml2 headers -- every Windows 3.8
+    # job fails at install, on any commit. Capped for 3.8 alone; everything newer stays
+    # on the current release.
+    "lxml[html_clean]; python_version >= '3.9'",
+    "lxml[html_clean]<6.1.2; python_version < '3.9'",
     "importlib_metadata>=4.6; python_version < '3.10'",
 ]
 
@@ -74,6 +79,12 @@ test = [
     "pytest-xdist>=3.0",   # parallel execution (-n auto --dist worksteal)
     "pytest-timeout>=2.1", # fail a hung test instead of blocking the whole run
 ]
+
+# Lint tooling. Install with `pip install .[dev]`.
+# Pinned rather than floored: a new ruff release can add a rule or change a fix
+# and turn CI red on a commit that changed nothing. Keep the pin in sync with
+# the lint job in .github/workflows/python-package.yml.
+dev = ["ruff==0.16.3"]
 
 [project.scripts]
 fibsem_ui = "fibsem.ui.FibsemUI:main"
@@ -125,3 +136,90 @@ filterwarnings = [
     # at startup.
     "ignore:'[^']*' deprecated - use:DeprecationWarning",
 ]
+
+[tool.ruff]
+# target-version is deliberately unset: ruff reads requires-python above and
+# infers py38, so the two can never drift apart.
+extend-exclude = [
+    "external",
+    # Ruff rewrites notebooks in place, re-sorting imports inside the cell JSON.
+    # Whether the notebooks are in scope is a separate question to this config.
+    "**/*.ipynb",
+]
+
+[tool.ruff.format]
+# Ruff formats Python inside fenced code blocks in Markdown. Documentation
+# snippets are written to be read, not to satisfy a line-length rule: it wanted
+# to wrap a three-argument call in README.md across three lines, and to rewrite
+# 84 lines of docs/design/autofocus.md. Whether the docs get formatted is its
+# own decision, and not one a formatter should make on the way past.
+exclude = ["**/*.md"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+# E501 (line-length) is deliberately absent. A formatter is what wraps code, and
+# most of the ~5.6k current hits are long strings and comments nothing can wrap.
+#
+# RUF100 (unused-noqa) is absent for a sharper reason: it is relative to `select`,
+# so with a narrow rule set it deletes the suppressions for every rule that is
+# not enabled *yet*. Enabling it here would have stripped 133 `# noqa` comments,
+# 95 of them `E402` -- a rule ignored two lines below, so each one would have to
+# be typed back in when E402 is burned down -- plus 8 `N802` Qt-override
+# suppressions for a rule this repo has never run, and the rationale comments
+# attached to them ("kept alive for app lifetime"). It belongs at the end of the
+# ratchet, once `select` has stopped moving.
+
+# Rules that are switched off because the codebase does not satisfy them yet --
+# not because they are wrong. Each is a real violation with a real fix. Burn one
+# down per pull request and delete its line.
+#
+# Deliberately no counts here. They change with every merge, so a number written
+# in this file is wrong within days, and it is the copy people trust because it
+# sits next to the config. Current numbers are one command:
+#
+#     ruff check --select F401 --statistics .     # or ALL, or any rule below
+#
+# and the burn-down is tracked in Linear under FIB-754, which is also where the
+# per-rule analysis lives.
+#
+# What is worth writing down here is what does NOT drift:
+ignore = [
+    # Do not autofix blind. Ruff answers "is this name used in this file", which
+    # is not "is it safe to delete" -- names re-exported through a module, or
+    # reached as `mod.X` after `from pkg import mod`, look unused to it and are
+    # not. One such removal is rated *safe* and breaks scripts/test_installation.
+    # Check candidates against the whole repo first, and run the suite.
+    # In __init__.py an unused import IS the re-export idiom; ruff already
+    # refuses to autofix those, and they want a per-file-ignore at the moment
+    # this rule leaves the list -- adding one earlier suppresses nothing, since
+    # the rule is ignored globally here.
+    "F401",
+    "E402",
+    "F841",
+    "E702",
+    "E701",
+    # All remaining instances are in dead or annotation-only code; none is a
+    # live NameError. Worth fixing for `typing.get_type_hints`, not as a bug hunt.
+    "F821",
+    "E741",
+    "E712",
+    "E721",
+    "F811",
+    "F403",
+    "F405",
+    # Swallows KeyboardInterrupt and SystemExit along with everything else. On a
+    # long acquisition that is the difference between Ctrl+C working and not.
+    "E722",
+    "E731",
+    "F402",
+    "F601",
+]
+
+# F401 is not a mechanical fix in this codebase, and `--fix` alone is enough to
+# break it -- ruff classes most of these removals as SAFE. A dozen modules exist
+# only to re-export under a shorter name, and ruff honours a redundant `X as X`
+# alias as an explicit re-export but not a renaming one, so every
+# `AUTOLAMELLA_EXPERIMENT_NAME as EXPERIMENT_NAME` reads as unused. Running the
+# fix empties fibsem/applications/autolamella/config.py to nothing and takes
+# `import fibsem.applications.autolamella.structures` down with it. Giving those
+# modules an explicit __all__ is the prerequisite, and it is its own piece of work.

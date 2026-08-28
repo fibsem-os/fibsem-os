@@ -25,7 +25,8 @@ import math
 import cv2
 import numpy as np
 
-__all__ = ["downsample"]
+__all__ = ["downsample", "downsample_mask", "PreviewMosaic",
+           "PREVIEW_MAX_DIMENSION"]
 
 
 # Element types `cv2.resize` accepts. Anything else takes the numpy path, which answers
@@ -96,3 +97,143 @@ def downsample(arr: np.ndarray, max_px: int) -> np.ndarray:
     if pad_h or pad_w:
         arr = cv2.copyMakeBorder(arr, 0, pad_h, 0, pad_w, cv2.BORDER_REPLICATE)
     return cv2.resize(arr, (out_w, out_h), interpolation=cv2.INTER_AREA)
+
+
+# 0 and 255 rather than 0 and 1, so the box mean carries eight bits of "how much of this
+# block is set". At 0/1 there is nothing left to carry it: `downsample` rounds an integer
+# box mean back to an integer, so every block collapses to 0 or 1 before it can be
+# thresholded, and which way a tie falls is then cv2's business rather than this
+# function's.
+_MASK_SET = 255
+# Half rounded *up*, so the comparison is "more than half" for a block whose coverage
+# lands exactly on the half. Coverage that spreads outward is the costly direction --
+# it claims ground as acquired that half of it was not -- so the tie resolves inward.
+_MASK_HALF = (_MASK_SET + 1) // 2
+
+
+def downsample_mask(mask: np.ndarray, max_px: int) -> np.ndarray:
+    """*mask* reduced like :func:`downsample`, a block surviving when most of it is set.
+
+    The companion to reducing the pixels: an overview is rarely complete, and what is
+    drawn has to be accompanied by where it holds anything, at the same shape. Averaging
+    a 0/1 field gives the fraction of each block that is set, and the block counts as
+    set when most of it is -- so a half-covered edge block resolves one way or the other
+    rather than spreading coverage into ground nothing was acquired over.
+
+    Kept here rather than written out at each caller for the memory, which is the whole
+    reason it exists as a function: the obvious spelling promotes to ``float32`` first,
+    which is **four bytes per source pixel of temporary** before anything is reduced.
+    Measured on a 10240x10240 mosaic -- a 10x10 of 1024 px tiles -- that is a peak of
+    524 MB against 210 MB here, and 124 ms against 55 ms. It is the source array that
+    sets that cost, not the output, so it grows with the mosaic while the thing it
+    produces does not.
+
+    Bit-identical to the float spelling on every mask this actually sees -- measured
+    across mosaic sizes, reduction factors and ragged final blocks, on hard-edged
+    acquired regions and on sparse tilesets alike, down to the last block. Eight bits
+    quantise the coverage fraction, so the two can only disagree where a block's
+    coverage lands within about 1/255 of exactly half, and a coverage mask does not do
+    that: its boundary is the straight edge of a tile, so a block on it is covered in
+    whole rows and its fraction moves in steps of 1/factor. Uniform noise at 50% is the
+    thing that lands in that band, and it disagrees there readily (6% of blocks at
+    factor 13) -- which is worth knowing before reaching for this to reduce something
+    that is not a coverage mask.
+
+    Reduce the mask, never the pixels-then-threshold: box-averaging intensities and
+    testing the result for "greater than zero" marks a block as acquired when *any* of
+    it is, which is a different and far more generous rule.
+    """
+    mask = np.asarray(mask)
+    if mask.dtype != np.bool_:
+        raise TypeError(f"expected a boolean mask, got {mask.dtype}")
+    # `view` rather than `astype`: a bool array is already one byte per element, so this
+    # reinterprets 0/1 in place and the multiply is the only array allocated.
+    return downsample(mask.view(np.uint8) * np.uint8(_MASK_SET), max_px) > _MASK_HALF
+
+
+# Longest side a live preview mosaic is decimated to. The full one is not something to
+# hand a display on every tile: a 10x10 of 1536x1024 beam tiles is 157 MB, and a
+# multi-channel 16-bit fluorescence 5x5 is ~88 MB pushed through a Qt signal per tile.
+# Big enough to watch the mosaic fill in; the real stitch still happens at full
+# resolution when the run finishes.
+PREVIEW_MAX_DIMENSION = 2048
+
+
+class PreviewMosaic:
+    """A decimated mosaic, painted tile by tile as a run fills it in.
+
+    Both tiled runners want this and had a copy each -- the same stride rule, the same
+    `downsample` call, the same paste-and-clip, down to a character-identical debug line
+    (FIB-699). The only real difference was the channel axis, which is a parameter.
+
+    That the copies were the same is not an argument on its own; what makes it worth one
+    class is that they must *stay* the same. FIB-629 had to change one of them from
+    sampling pixels to averaging them, because small bright features could vanish from
+    the preview -- the other needed it for the same reason and did not get it.
+
+    Two dimensions or three. A beam mosaic is one plane; a fluorescence mosaic is one
+    per channel. `paint` takes ``(y, x)`` or ``(channels, y, x)`` and matches whichever
+    the canvas is.
+    """
+
+    def __init__(
+        self,
+        full_w: int,
+        full_h: int,
+        dtype,
+        channels: "int | None" = None,
+        max_px: int = PREVIEW_MAX_DIMENSION,
+    ):
+        """
+        Args:
+            full_w, full_h: the mosaic's full size in pixels. Take these from the tile
+                grid rather than recomputing them, so the preview cannot drift from
+                where the stitch will actually paint.
+            dtype: the canvas's element type, matching what the tiles carry.
+            channels: how many planes, or None for a single-plane canvas. `None` and `1`
+                differ: `None` gives a 2-D canvas, `1` a 3-D one with a length-1 axis.
+            max_px: longest side to decimate to.
+        """
+        self.stride = max(1, int(math.ceil(max(full_w, full_h) / max_px)))
+        shape = (int(math.ceil(full_h / self.stride)),
+                 int(math.ceil(full_w / self.stride)))
+        if channels is not None:
+            shape = (int(channels),) + shape
+        self.canvas = np.zeros(shape, dtype=dtype)
+
+    def paint(self, data: np.ndarray, canvas_x: int, canvas_y: int) -> None:
+        """Reduce one tile and paste it at its place in the mosaic.
+
+        Averaged, not sampled. ``arr[::n, ::n]`` does not blur what it leaves out, it
+        deletes it, so a feature a pixel or two across is present at one zoom and gone
+        at the next (FIB-589, and FIB-629 for this path). `downsample` returns
+        ``ceil(n / factor)`` per axis -- the same shape striding gave -- so the paste
+        offsets are unaffected. `max_px` is how the factor is chosen, so it is expressed
+        as the size the thumbnail has to come out at.
+
+        Reduced **per plane**, never on the stack: `downsample` reads shape as
+        ``(y, x[, c])``, so a ``(channels, y, x)`` array would be reduced across
+        *channels* and y. That is the right answer on the wrong axes, and it falls to
+        the slow numpy branch as well.
+
+        Clipped rather than checked. A tile at the far edge can extend past the canvas
+        by a pixel or two, because every axis was rounded up independently.
+        """
+        planes = data if data.ndim == 3 else data[np.newaxis]
+        # Views, so writing through `target` writes to the canvas, and a single-plane
+        # tile costs no copy. Stacking the thumbnails first read more neatly and
+        # allocated one per tile that nothing needed -- measured at +0.1 ms on the beam
+        # path, which is small but is pure waste inside the acquisition loop.
+        target = self.canvas if self.canvas.ndim == 3 else self.canvas[np.newaxis]
+        y0, x0 = canvas_y // self.stride, canvas_x // self.stride
+        for index, plane in enumerate(planes):
+            thumb = downsample(plane, math.ceil(max(plane.shape[:2]) / self.stride))
+            height = min(thumb.shape[0], target.shape[1] - y0)
+            width = min(thumb.shape[1], target.shape[2] - x0)
+            if height <= 0 or width <= 0:
+                return
+            target[index, y0:y0 + height, x0:x0 + width] = thumb[:height, :width]
+
+    def describe(self) -> str:
+        """One line for the log, the same on both sides."""
+        return f"Live preview canvas: {self.canvas.shape} (stride {self.stride})"

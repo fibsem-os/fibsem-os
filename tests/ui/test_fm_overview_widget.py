@@ -6,6 +6,7 @@ combo box shows the label it was given.
 
 Uses PyQt5 directly with the offscreen platform (no pytest-qt dependency).
 """
+
 import os
 from copy import deepcopy
 
@@ -16,13 +17,24 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
+from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QLabel
 
+from fibsem.fm.progress import (
+    FluorescenceAcquisitionProgress,
+    FluorescenceAcquisitionStatus,
+)
 from fibsem.fm.structures import (
     AutoFocusMode,
     ChannelSettings,
     OverviewParameters,
     ZParameters,
+)
+from fibsem.imaging.tiling.progress import (
+    MODALITY_BEAM,
+    MODALITY_FLUORESCENCE,
+    TiledProgress,
+    TiledStatus,
 )
 from fibsem.structures import CameraImageTransform, TileOrderStrategy
 from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
@@ -35,9 +47,9 @@ from fibsem.ui.fm.widgets.fm_overview_widget import (
     FMOverviewWidget,
     shrink_progress_text,
 )
-from fibsem.ui.fm.widgets.tile_mask_widget import TileMaskWidget
 from fibsem.ui.widgets.custom_widgets import ValueComboBox
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
+from fibsem.ui.widgets.tile_mask_widget import TileMaskWidget
 
 
 @pytest.fixture(scope="module")
@@ -83,8 +95,8 @@ def test_resizing_the_grid_keeps_the_tiles_that_still_exist(qapp):
     widget.set_grid_size(4, 4)
 
     mask = widget.mask
-    assert mask[0][1] is True and mask[0][0] is False    # carried over
-    assert all(mask[3])                                   # new row starts enabled
+    assert mask[0][1] is True and mask[0][0] is False  # carried over
+    assert all(mask[3])  # new row starts enabled
 
 
 def test_all_none_and_invert(qapp):
@@ -114,9 +126,14 @@ def test_the_mask_property_hands_back_a_copy(qapp):
 
 def test_settings_round_trip_every_field(qapp):
     """The widget's output is what the acquisition consumes, verbatim."""
-    widget = FMOverviewSettingsWidget(channel_settings=[ChannelSettings(name="GFP"), ChannelSettings(name="RFP")])
+    widget = FMOverviewSettingsWidget(
+        channel_settings=[ChannelSettings(name="GFP"), ChannelSettings(name="RFP")]
+    )
     parameters = OverviewParameters(
-        rows=5, cols=5, overlap=0.15, use_zstack=True,
+        rows=5,
+        cols=5,
+        overlap=0.15,
+        use_zstack=True,
         autofocus_mode=AutoFocusMode.EACH_TILE,
         tile_order=TileOrderStrategy.SERPENTINE,
         tile_mask=plus_mask(5),
@@ -129,13 +146,13 @@ def test_settings_round_trip_every_field(qapp):
 
 def test_changing_the_grid_size_resizes_the_mask(qapp):
     widget = FMOverviewSettingsWidget()
-    widget.spin_rows.setValue(4)
-    widget.spin_cols.setValue(6)
+    widget.grid.spin_rows.setValue(4)
+    widget.grid.spin_cols.setValue(6)
 
     assert widget.parameters.rows == 4
     assert widget.parameters.cols == 6
-    assert widget.tile_mask.grid._rows == 4
-    assert widget.tile_mask.grid._cols == 6
+    assert widget.grid.tile_mask.grid._rows == 4
+    assert widget.grid.tile_mask.grid._cols == 6
 
 
 def test_the_sweep_controls_are_only_live_when_focusing(qapp):
@@ -155,11 +172,11 @@ def test_a_spiral_with_per_row_focus_says_what_will_actually_happen(qapp):
     """The runner promotes EACH_ROW to EACH_TILE for a spiral; don't make that a surprise."""
     widget = FMOverviewSettingsWidget()
     widget.combo_autofocus_mode.set_value(AutoFocusMode.EACH_ROW)
-    widget.combo_tile_order.set_value(TileOrderStrategy.SPIRAL)
+    widget.grid.combo_tile_order.set_value(TileOrderStrategy.SPIRAL)
 
     assert "per-tile" in widget.label_summary.text()
 
-    widget.combo_tile_order.set_value(TileOrderStrategy.TYPEWRITER)
+    widget.grid.combo_tile_order.set_value(TileOrderStrategy.TYPEWRITER)
     assert "per-tile" not in widget.label_summary.text()
 
 
@@ -169,7 +186,7 @@ def test_the_selection_is_counted_once(qapp):
     widget = FMOverviewSettingsWidget()
     widget.parameters = OverviewParameters(rows=3, cols=3, tile_mask=plus_mask(3))
 
-    assert "5/9 tiles" in widget.tile_mask.label_count.text()
+    assert "5/9 tiles" in widget.grid.tile_mask.label_count.text()
     assert "tiles" not in widget.label_summary.text()
 
 
@@ -177,9 +194,9 @@ def test_the_selection_is_counted_once(qapp):
     ("rows", "cols", "overlap", "expected"),
     [
         (3, 3, 0.0, "300 × 300 µm"),
-        (3, 3, 0.1, "280 × 280 µm"),   # (n-1) steps of 90 µm, plus one whole tile
-        (2, 5, 0.0, "500 × 200 µm"),   # width from columns, height from rows
-        (1, 1, 0.5, "100 × 100 µm"),   # a single tile is its own field of view
+        (3, 3, 0.1, "280 × 280 µm"),  # (n-1) steps of 90 µm, plus one whole tile
+        (2, 5, 0.0, "500 × 200 µm"),  # width from columns, height from rows
+        (1, 1, 0.5, "100 × 100 µm"),  # a single tile is its own field of view
     ],
 )
 def test_the_grid_reports_the_total_field_of_view(qapp, rows, cols, overlap, expected):
@@ -189,14 +206,14 @@ def test_the_grid_reports_the_total_field_of_view(qapp, rows, cols, overlap, exp
     widget.set_tile_fov(100e-6, 100e-6)
 
     widget.parameters = OverviewParameters(rows=rows, cols=cols, overlap=overlap)
-    assert widget.label_total_fov.text() == expected
+    assert widget.grid.label_total_fov.text() == expected
 
-    widget.tile_mask.grid.set_all(False)
-    assert widget.label_total_fov.text() == expected
+    widget.grid.tile_mask.grid.set_all(False)
+    assert widget.grid.label_total_fov.text() == expected
 
 
 def test_the_total_field_of_view_is_unknown_until_the_camera_is_known(qapp):
-    assert FMOverviewSettingsWidget().label_total_fov.text() == "—"
+    assert FMOverviewSettingsWidget().grid.label_total_fov.text() == "—"
 
 
 def test_focusing_with_every_pass_disabled_is_called_out(qapp):
@@ -240,6 +257,24 @@ def test_the_dialog_refuses_an_empty_selection(qapp):
     assert not dialog.button_start.isEnabled()
 
 
+def test_the_dialog_refuses_a_grid_the_stage_cannot_reach(qapp):
+    """The second refusal, for the same reason as the empty one: the runner rejects
+    these grids too, but from `_compute_grid` -- after the dialog has been accepted, a
+    directory made and the stage started moving (FIB-741)."""
+    dialog = _dialog(OverviewParameters(rows=3, cols=3))
+    assert dialog.button_start.isEnabled()
+
+    refused = FMOverviewConfirmationDialog(
+        parameters=OverviewParameters(rows=3, cols=3),
+        channel_settings=[ChannelSettings(name="GFP", exposure_time=0.05)],
+        tile_fov=(100e-6, 100e-6),
+        unreachable=[(0, 0), (0, 1)],
+    )
+    assert not refused.button_start.isEnabled()
+    shown = " ".join(label.text() for label in refused.findChildren(QLabel))
+    assert "2 tiles are outside the stage's travel" in shown, shown
+
+
 def test_the_dialog_estimate_reflects_the_mask(qapp):
     """A sparse run must not be quoted the duration of the full grid."""
     full = _dialog(OverviewParameters(rows=5, cols=5))
@@ -279,9 +314,62 @@ def test_without_a_format_fn_the_built_in_rendering_still_applies(qapp):
 
 # ── progress bars ────────────────────────────────────────────────────────
 #
-# One signal carries both scales: the tileset runner's tile counter, and -- from
-# inside each tile -- `acquire_z_stack` / `acquire_channels`. `task` decides which
-# bar a payload drives, so a payload must never move both.
+# Two signals, two scales, one bar each: the tileset runner's tile counter on
+# `tiled_acquisition_signal`, and -- from inside each tile -- `acquire_z_stack` /
+# `acquire_channels` on the detector's own. A payload must never move both bars,
+# which is now a property of *which handler it reaches* rather than of a `task`
+# key both producers happen to agree on.
+
+
+def _fm(status, **fields):
+    fields.setdefault("modality", MODALITY_FLUORESCENCE)
+    return TiledProgress(status=status, **fields)
+
+
+def _fm_preview(
+    channels=("DAPI", "GFP"), size=4, pixel_size=2e-7, position=None, data=None
+):
+    """A fluorescence preview carrying everything needed to place it.
+
+    Which is the point of the type: pixel size with the decimation already folded in,
+    the stage position the run was centred on, and the channels with their colours.
+    """
+    import numpy as np
+
+    from fibsem.fm.structures import (
+        FluorescenceChannelMetadata,
+        FluorescenceImage,
+        FluorescenceImageMetadata,
+    )
+
+    return FluorescenceImage(
+        data=np.zeros((len(channels), size, size), dtype=np.uint16)
+        if data is None
+        else data,
+        metadata=FluorescenceImageMetadata(
+            acquisition_date="2026-08-25T09:00:00",
+            pixel_size_x=pixel_size,
+            pixel_size_y=pixel_size,
+            stage_position=position,
+            channels=[
+                FluorescenceChannelMetadata(
+                    name=name,
+                    excitation_wavelength=488.0,
+                    power=0.5,
+                    exposure_time=0.1,
+                    gain=1.0,
+                    offset=0.0,
+                    color="cyan" if index == 0 else "magenta",
+                )
+                for index, name in enumerate(channels)
+            ],
+        ),
+    )
+
+
+def _fm_report(status, **fields):
+    """A report on the detector's own signal -- the *within-tile* scale."""
+    return FluorescenceAcquisitionProgress(status=status, **fields)
 
 
 class _Router:
@@ -292,15 +380,18 @@ class _Router:
         self.progress_tile_detail = FibsemProgressWidget()
         self.status = QLabel()
 
-    _apply_progress = FMOverviewWidget._apply_progress
     _apply_tile_progress = FMOverviewWidget._apply_tile_progress
-    _tile_detail_update = FMOverviewWidget._tile_detail_update
+    _apply_fm_progress = FMOverviewWidget._apply_fm_progress
+    _tile_detail_update = staticmethod(FMOverviewWidget._tile_detail_update)
+    _DETAIL_STATUSES = FMOverviewWidget._DETAIL_STATUSES
+    _STATUS_LABELS = FMOverviewWidget._STATUS_LABELS
 
-    def _show_preview(self, payload):
-        pass
+    def _show_preview(self, preview):
+        self.previews = getattr(self, "previews", [])
+        self.previews.append(preview)
 
-    def _finish(self, state, error):
-        self.finished = (state, error)
+    def _finish(self, status, error):
+        self.finished = (status, error)
 
 
 def _bar(widget):
@@ -310,27 +401,33 @@ def _bar(widget):
 def test_a_tileset_payload_moves_only_the_tile_bar(qapp):
     router = _Router()
 
-    router._apply_progress({
-        "state": "acquiring", "task": "tileset", "current": 4, "total": 9,
-    })
+    router._apply_tile_progress(_fm(TiledStatus.TILE_COLLECTED, completed=4, total=9))
 
     # value/maximum directly, not a percentage -- the widget counts items.
-    assert (_bar(router.progress_tiles).value(),
-            _bar(router.progress_tiles).maximum()) == (4, 9)
+    assert (
+        _bar(router.progress_tiles).value(),
+        _bar(router.progress_tiles).maximum(),
+    ) == (4, 9)
     assert not router.progress_tile_detail.isVisible()
 
 
 def test_a_zstack_payload_moves_only_the_detail_bar(qapp):
     router = _Router()
 
-    router._apply_progress({
-        "state": "acquiring", "task": "z-stack", "channel": "GFP",
-        "zlevel": 7, "total_zlevels": 21,
-    })
+    router._apply_fm_progress(
+        _fm_report(
+            FluorescenceAcquisitionStatus.ACQUIRING_ZSTACK,
+            channel="GFP",
+            zlevel=7,
+            total_zlevels=21,
+        )
+    )
 
     assert "z-stack" in _bar(router.progress_tile_detail).format()
-    assert (_bar(router.progress_tile_detail).value(),
-            _bar(router.progress_tile_detail).maximum()) == (7, 21)
+    assert (
+        _bar(router.progress_tile_detail).value(),
+        _bar(router.progress_tile_detail).maximum(),
+    ) == (7, 21)
     assert not router.progress_tiles.isVisible()
 
 
@@ -338,14 +435,20 @@ def test_a_channels_payload_drives_the_detail_bar_too(qapp):
     """Without this the second bar is dead on every run that is not z-stacked."""
     router = _Router()
 
-    router._apply_progress({
-        "state": "acquiring", "task": "channels", "channel": "RFP",
-        "channel_index": 2, "total_channels": 3,
-    })
+    router._apply_fm_progress(
+        _fm_report(
+            FluorescenceAcquisitionStatus.ACQUIRING_CHANNELS,
+            channel="RFP",
+            channel_index=2,
+            total_channels=3,
+        )
+    )
 
     assert "RFP" in _bar(router.progress_tile_detail).format()
-    assert (_bar(router.progress_tile_detail).value(),
-            _bar(router.progress_tile_detail).maximum()) == (2, 3)
+    assert (
+        _bar(router.progress_tile_detail).value(),
+        _bar(router.progress_tile_detail).maximum(),
+    ) == (2, 3)
 
 
 def test_a_completed_tile_leaves_the_detail_bar_alone(qapp):
@@ -353,22 +456,54 @@ def test_a_completed_tile_leaves_the_detail_bar_alone(qapp):
     -- a flicker for the length of the run. The next tile overwrites it a moment later
     anyway, so the stale count is never seen."""
     router = _Router()
-    router._apply_progress({
-        "state": "acquiring", "task": "z-stack", "channel": "GFP",
-        "zlevel": 21, "total_zlevels": 21,
-    })
+    router._apply_fm_progress(
+        _fm_report(
+            FluorescenceAcquisitionStatus.ACQUIRING_ZSTACK,
+            channel="GFP",
+            zlevel=21,
+            total_zlevels=21,
+        )
+    )
 
-    router._apply_progress({
-        "state": "tile", "task": "tileset", "current": 1, "total": 9,
-    })
+    router._apply_tile_progress(_fm(TiledStatus.TILE_COLLECTED, completed=1, total=9))
 
     assert router.progress_tile_detail.isVisible()
 
 
-def test_an_unknown_task_moves_nothing(qapp):
+def test_a_state_this_bar_cannot_render_moves_nothing(qapp):
+    """The detector reports whatever it is doing, tileset or not.
+
+    `FINISHED` describes the acquisition ending rather than progress within it, so it is
+    dropped rather than drawn as a bar with nothing in it. The free-form task names that
+    used to arrive here are gone -- step 1 of FIB-401 deleted the workflow emits -- so a
+    closed enum is now the whole vocabulary and there is no "unknown task" left to test.
+    """
     router = _Router()
 
-    router._apply_progress({"state": "acquiring", "task": "something-else"})
+    router._apply_fm_progress(_fm_report(FluorescenceAcquisitionStatus.FINISHED))
+
+    assert not router.progress_tiles.isVisible()
+    assert not router.progress_tile_detail.isVisible()
+    assert not router.progress_tile_detail.isVisible()
+
+
+def test_a_beam_payload_moves_neither_bar(qapp):
+    """The other half of the same invariant, on the other handler.
+
+    `tiled_acquisition_signal` has two producers. Ignored today even without the
+    modality check -- beam payloads carry no `task` -- but that is an accident of
+    vocabulary, not a decision.
+    """
+    router = _Router()
+
+    router._apply_tile_progress(
+        _fm(
+            TiledStatus.TILE_COLLECTED,
+            modality=MODALITY_BEAM,
+            completed=8,
+            total=9,
+        )
+    )
 
     assert not router.progress_tiles.isVisible()
     assert not router.progress_tile_detail.isVisible()
@@ -377,10 +512,15 @@ def test_an_unknown_task_moves_nothing(qapp):
 def test_the_estimate_is_shown_when_the_payload_carries_one(qapp):
     router = _Router()
 
-    router._apply_progress({
-        "state": "acquiring", "task": "tileset", "current": 2, "total": 9,
-        "estimated_remaining_time": 134.0, "estimated_total_time": 180.0,
-    })
+    router._apply_tile_progress(
+        _fm(
+            TiledStatus.TILE_COLLECTED,
+            completed=2,
+            total=9,
+            estimated_remaining_seconds=134.0,
+            estimated_total_seconds=180.0,
+        )
+    )
 
     assert "remaining" in _bar(router.progress_tiles).format()
 
@@ -392,15 +532,54 @@ def test_a_stage_move_does_not_fill_the_bar(qapp):
     goes to the status label.
     """
     router = _Router()
-    router._apply_progress({
-        "state": "acquiring", "task": "tileset", "current": 3, "total": 9,
-    })
+    router._apply_tile_progress(_fm(TiledStatus.TILE_COLLECTED, completed=3, total=9))
 
-    router._apply_progress({"state": "moving", "task": "tileset"})
+    router._apply_tile_progress(_fm(TiledStatus.MOVING))
 
-    assert (_bar(router.progress_tiles).value(),
-            _bar(router.progress_tiles).maximum()) == (3, 9)
+    assert (
+        _bar(router.progress_tiles).value(),
+        _bar(router.progress_tiles).maximum(),
+    ) == (3, 9)
     assert router.status.text() == "Moving stage…"
+
+
+@pytest.mark.parametrize(
+    "state, label",
+    [
+        (TiledStatus.STITCHING, "Stitching tiles…"),
+        (TiledStatus.SAVING, "Saving overview…"),
+    ],
+)
+def test_the_end_of_a_run_is_not_silent(qapp, state, label):
+    """Between the last tile and a finished run the app builds and writes a mosaic —
+    ~2.1 s per GB, about 7 s for a 5x5 at ARCTIS resolution in four channels. That was
+    reported as nothing at all, so a long run appeared to hang just as it completed.
+
+    Handled exactly as `moving` is, and for the same reason: the count stays put, since
+    N/N is still true while the mosaic is written, and the phase goes to the label. The
+    bar must not be filled — `indeterminate` paints a *full* bar, which is the very
+    impression these phases exist to correct.
+    """
+    router = _Router()
+    router._apply_tile_progress(_fm(TiledStatus.TILE_COLLECTED, completed=9, total=9))
+
+    router._apply_tile_progress(_fm(state))
+
+    assert router.status.text() == label
+    assert (
+        _bar(router.progress_tiles).value(),
+        _bar(router.progress_tiles).maximum(),
+    ) == (9, 9)
+
+
+def test_a_phase_label_is_cleared_by_the_next_tile(qapp):
+    """Otherwise "Stitching tiles…" would still be on screen through the next run."""
+    router = _Router()
+    router._apply_tile_progress(_fm(TiledStatus.SAVING))
+    assert router.status.text() == "Saving overview…"
+
+    router._apply_tile_progress(_fm(TiledStatus.TILE_COLLECTED, completed=1, total=9))
+    assert router.status.text() == ""
 
 
 # ── layout stability ─────────────────────────────────────────────────────
@@ -415,8 +594,9 @@ def test_the_bar_text_is_smaller_than_the_default(qapp):
     shrink_progress_text(shrunk)
 
     sample = "Tiles — 4/9 · 74s remaining"
-    assert (QFontMetrics(shrunk._bar.font()).width(sample)
-            < QFontMetrics(plain._bar.font()).width(sample))
+    assert QFontMetrics(shrunk._bar.font()).width(sample) < QFontMetrics(
+        plain._bar.font()
+    ).width(sample)
 
 
 def test_shrinking_the_text_keeps_the_failed_colouring(qapp):
@@ -450,8 +630,13 @@ def test_channel_detail_fields_fill_the_panel(qapp):
     widget.show()
     qapp.processEvents()
 
-    fields = (widget.excitation_combo, widget.emission_combo,
-              widget.exposure_spin, widget.power_spin, widget.gain_spin)
+    fields = (
+        widget.excitation_combo,
+        widget.emission_combo,
+        widget.exposure_spin,
+        widget.power_spin,
+        widget.gain_spin,
+    )
     widths = {f.width() for f in fields}
 
     assert len(widths) == 1, f"ragged field widths: {[f.width() for f in fields]}"
@@ -501,8 +686,9 @@ def test_collapsed_panels_do_not_stretch(qapp):
     widget.show()
     widget.resize(500, 1200)  # far taller than the folded panels need
 
-    panels = (widget.focus_panel, widget.zstack_panel,
-              widget.grid_panel, widget.mask_panel)
+    # Three, not four: the tile mask now lives inside the Grid panel rather than in
+    # one of its own.
+    panels = (widget.focus_panel, widget.zstack_panel, widget.grid.panel)
     for panel in panels:
         panel.collapse()
     qapp.processEvents()
@@ -581,11 +767,13 @@ def overview_widget(qapp):
     return widget
 
 
-def test_clicking_a_tile_updates_the_mask_the_settings_widget_owns(qapp, overview_widget):
+def test_clicking_a_tile_updates_the_mask_the_settings_widget_owns(
+    qapp, overview_widget
+):
     """One mask, two views. The overlay must not keep its own copy -- a click routes
     through the settings widget, and the redraw follows from that."""
     widget = overview_widget
-    widget.settings_widget.tile_mask.mask = None
+    widget.settings_widget.set_mask(None)
     qapp.processEvents()
 
     overlay = widget.tile_grid_overlay
@@ -594,17 +782,15 @@ def test_clicking_a_tile_updates_the_mask_the_settings_widget_owns(qapp, overvie
     _click(overlay, x + tw / 2, y + th / 2)
     qapp.processEvents()
 
-    assert widget.settings_widget.tile_mask.mask[0][0] is False
-    assert widget.settings_widget.tile_mask.n_enabled == 8
+    assert widget.settings_widget.tile_mask[0][0] is False
+    assert widget.settings_widget.grid.tile_mask.n_enabled == 8
     # and the overlay redrew from the widget's mask, rather than mutating its own
-    assert next(
-        t for t in overlay._tiles if (t.row, t.col) == (0, 0)
-    ).enabled is False
+    assert next(t for t in overlay._tiles if (t.row, t.col) == (0, 0)).enabled is False
 
 
 def test_clicking_the_same_tile_twice_returns_it(qapp, overview_widget):
     widget = overview_widget
-    widget.settings_widget.tile_mask.mask = None
+    widget.settings_widget.set_mask(None)
     qapp.processEvents()
 
     overlay = widget.tile_grid_overlay
@@ -615,21 +801,21 @@ def test_clicking_the_same_tile_twice_returns_it(qapp, overview_widget):
         _click(overlay, x + tw / 2, y + th / 2)
         qapp.processEvents()
 
-    assert widget.settings_widget.tile_mask.n_enabled == 9
+    assert widget.settings_widget.grid.tile_mask.n_enabled == 9
 
 
 def test_resizing_the_grid_redraws_the_overlay(qapp, overview_widget):
     widget = overview_widget
-    widget.settings_widget.tile_mask.mask = None
-    widget.settings_widget.spin_rows.setValue(5)
-    widget.settings_widget.spin_cols.setValue(4)
+    widget.settings_widget.set_mask(None)
+    widget.settings_widget.grid.spin_rows.setValue(5)
+    widget.settings_widget.grid.spin_cols.setValue(4)
     qapp.processEvents()
 
     assert len(widget.tile_grid_overlay._tiles) == 20
     assert len(widget.tile_grid_overlay._artists) == 20
 
-    widget.settings_widget.spin_rows.setValue(3)
-    widget.settings_widget.spin_cols.setValue(3)
+    widget.settings_widget.grid.spin_rows.setValue(3)
+    widget.settings_widget.grid.spin_cols.setValue(3)
     qapp.processEvents()
 
     assert len(widget.tile_grid_overlay._tiles) == 9
@@ -658,8 +844,9 @@ def test_positions_are_marked_where_they_are(qapp, overview_widget):
     base = image.metadata.stage_position
     pixel_size = image.metadata.pixel_size_x
 
-    widget.set_positions([_offset(base, name="here"),
-                          _offset(base, dx=20e-6, name="right")])
+    widget.set_positions(
+        [_offset(base, name="here"), _offset(base, dx=20e-6, name="right")]
+    )
     qapp.processEvents()
 
     points = widget.position_overlay._points
@@ -696,16 +883,22 @@ def test_an_image_without_geometry_can_still_be_marked(qapp, overview_widget):
     widget.set_positions([_offset(base, dx=20e-6, name="markable")])
     qapp.processEvents()
 
-    assert widget.position_overlay._points, "the image's missing geometry blocked marking"
+    assert widget.position_overlay._points, (
+        "the image's missing geometry blocked marking"
+    )
 
 
-def test_positions_are_dropped_when_no_geometry_is_available_at_all(qapp, overview_widget):
+def test_positions_are_dropped_when_no_geometry_is_available_at_all(
+    qapp, overview_widget
+):
     """Better an empty overlay than markers in plausible-looking wrong places."""
     widget = overview_widget
     original = widget._frame
     widget._frame = lambda: None
     try:
-        widget.set_positions([_offset(widget._current_stage_position(), name="nowhere")])
+        widget.set_positions(
+            [_offset(widget._current_stage_position(), name="nowhere")]
+        )
         qapp.processEvents()
         assert widget.position_overlay._points == []
     finally:
@@ -733,19 +926,20 @@ def test_setting_both_grid_dimensions_notifies_once(qapp):
     event, refreshing the overlay repeatedly against a size that was never requested."""
     widget = FMOverviewSettingsWidget()
     seen = []
-    widget.changed.connect(
-        lambda: seen.append((widget.spin_rows.value(), widget.spin_cols.value()))
-    )
+    widget.changed.connect(lambda: seen.append((widget.grid.rows, widget.grid.cols)))
 
     widget.set_grid_size(2, 7)
 
     assert seen == [(2, 7)]
-    assert (widget.tile_mask.grid._rows, widget.tile_mask.grid._cols) == (2, 7)
+    assert (widget.grid.tile_mask.grid._rows, widget.grid.tile_mask.grid._cols) == (
+        2,
+        7,
+    )
 
 
 def test_setting_the_same_grid_size_is_a_no_op(qapp):
     widget = FMOverviewSettingsWidget()
-    rows, cols = widget.spin_rows.value(), widget.spin_cols.value()
+    rows, cols = widget.grid.rows, widget.grid.cols
     seen = []
     widget.changed.connect(lambda: seen.append(1))
 
@@ -822,7 +1016,15 @@ def test_the_first_preview_frame_lands_at_the_right_scale(qapp, overview_widget)
     tile_ps = widget.fm.camera.pixel_size[0]
     preview = np.zeros((1, 64, 128), dtype=np.uint8)  # (C, H, W), already decimated
 
-    widget._show_preview({"image": preview, "preview_stride": stride})
+    widget._show_preview(
+        _fm_preview(
+            channels=("CH0",),
+            # Already decimated, and the pixel size says so: `stride` times coarser
+            # than a tile's, which is the whole of what a display needs to place it.
+            pixel_size=tile_ps * stride,
+            data=preview,
+        )
+    )
     qapp.processEvents()
 
     placed = widget.canvas.canvas._placed
@@ -895,7 +1097,9 @@ def test_dragging_the_grid_leaves_the_view_alone(qapp, overview_widget):
     # Far enough to leave the declared working area, which is what zooming out makes
     # easy: a drag that stays inside it never tripped the old refit either, so a short
     # one would pass against the bug it is meant to catch.
-    declared_width = widget.canvas.canvas.world_extent[0] / widget.canvas.canvas.reference_pixel_size
+    declared_width = (
+        widget.canvas.canvas.world_extent[0] / widget.canvas.canvas.reference_pixel_size
+    )
     reach = declared_width  # twice the half-width that bounds the area
 
     overlay._on_press(_mouse(overlay, anchor[0], anchor[1], px=0.0, py=0.0))
@@ -908,7 +1112,9 @@ def test_dragging_the_grid_leaves_the_view_alone(qapp, overview_widget):
         qapp.processEvents()
         assert overlay.is_dragging
         assert (tuple(ax.get_xlim()), tuple(ax.get_ylim())) == zoomed
-    _end_gesture(overlay, _mouse(overlay, anchor[0] + 3 * reach, anchor[1], px=60.0, py=0.0))
+    _end_gesture(
+        overlay, _mouse(overlay, anchor[0] + 3 * reach, anchor[1], px=60.0, py=0.0)
+    )
     qapp.processEvents()
 
     assert (tuple(ax.get_xlim()), tuple(ax.get_ylim())) == zoomed
@@ -938,7 +1144,9 @@ def test_the_working_area_still_follows_a_dragged_grid(qapp, overview_widget):
     assert (after[0], after[1]) == (before[0], before[1])  # same size, it only moved
 
 
-def test_declaring_a_working_area_without_a_refit_does_not_move_the_view(qapp, overview_widget):
+def test_declaring_a_working_area_without_a_refit_does_not_move_the_view(
+    qapp, overview_widget
+):
     """The canvas-level half of the fix, stated on its own: `refit=False` has to hold
     even on an empty canvas, where `_fit_extent` falls back to the working area and so
     *does* change when it is re-declared."""
@@ -960,6 +1168,43 @@ def test_declaring_a_working_area_without_a_refit_does_not_move_the_view(qapp, o
     assert (tuple(ax.get_xlim()), tuple(ax.get_ylim())) != zoomed
 
 
+def test_a_run_hands_the_camera_over(qapp):
+    """The framing you pressed Acquire with is the framing you keep (FIB-648).
+
+    This tab meets the problem less often than the beam one -- one composite under one
+    key while the run goes, rather than a preview whose extent grows -- but it ends the
+    same way: `_finish` places the stitch and removes the preview, two extent changes at
+    the moment there is finally something worth looking at. The rule is the canvas's,
+    so it is the same rule on both tabs.
+
+    Its own widget: it leaves an image on the canvas and the camera handed over, which
+    is exactly the state the module fixture shares.
+    """
+    widget = _fresh_widget(qapp)
+    canvas = widget.canvas.canvas
+    ax = canvas._ax
+    ax.set_xlim(-100, 100)
+    ax.set_ylim(100, -100)
+    framing = (tuple(ax.get_xlim()), tuple(ax.get_ylim()))
+
+    widget._set_running(True)
+    qapp.processEvents()
+    assert canvas.auto_fit is False
+
+    # Somewhere well outside the framing, which is what an end-of-run swap can be.
+    canvas.add_image(
+        np.zeros((64, 64), dtype=np.uint8),
+        centre=(2e-3, 2e-3),
+        pixel_size=1e-6,
+        key="stitch",
+    )
+    qapp.processEvents()
+
+    assert (tuple(ax.get_xlim()), tuple(ax.get_ylim())) == framing
+    widget._set_running(False)
+    widget.close()
+
+
 def test_the_grid_keeps_its_scale_under_a_decimated_preview(qapp, overview_widget):
     """The live preview is coarser than a tile. The grid is drawn in canvas coordinates,
     whose scale is fixed by the canvas reference — so the preview's stride must not
@@ -972,12 +1217,30 @@ def test_the_grid_keeps_its_scale_under_a_decimated_preview(qapp, overview_widge
     qapp.processEvents()
     before = widget.tile_grid_overlay._rect_for(widget.tile_grid_overlay._tiles[0])
 
-    widget._show_preview({"image": np.zeros((1, 256, 256), np.uint8), "preview_stride": 4})
+    widget._show_preview(
+        _fm_preview(
+            channels=("CH0",),
+            pixel_size=widget.fm.camera.pixel_size[0] * 4,
+            data=np.zeros((1, 256, 256), np.uint8),
+        )
+    )
     qapp.processEvents()
 
     after = widget.tile_grid_overlay._rect_for(widget.tile_grid_overlay._tiles[0])
     assert after[2] == pytest.approx(before[2])
     assert after[3] == pytest.approx(before[3])
+
+
+def _show_holder_overlays(widget):
+    """Turn the holder overlays on, and redraw.
+
+    Grid boundaries and holder slots default *off*: both describe a cryo sample holder,
+    so on a system without one they draw a holder that is not there. Tests about what
+    those shapes look like have to ask for them.
+    """
+    widget.overlay_controls.set_visible("boundaries", True)
+    widget.overlay_controls.set_visible("slots", True)
+    widget._refresh_stage_metadata()
 
 
 def test_the_stage_and_grid_limits_are_drawn_in_the_canvas_frame(qapp, overview_widget):
@@ -988,17 +1251,32 @@ def test_the_stage_and_grid_limits_are_drawn_in_the_canvas_frame(qapp, overview_
     image = widget.microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
     widget.set_image(image)
     qapp.processEvents()
+    _show_holder_overlays(widget)
 
     by_label = {s.label: s for s in widget.stage_overlay._specs}
     reference = widget.canvas.canvas.reference_pixel_size
     limits = widget.microscope._stage.limits
 
-    stage = by_label["Stage limits"]
+    stage = by_label["Stage Limits"]
     assert stage.width == pytest.approx((limits["x"].max - limits["x"].min) / reference)
-    assert stage.height == pytest.approx((limits["y"].max - limits["y"].min) / reference)
+    assert stage.height == pytest.approx(
+        (limits["y"].max - limits["y"].min) / reference
+    )
 
-    from fibsem.ui.fm.widgets.fm_overview_widget import GRID_RADIUS_M
-    assert by_label["Grid boundary"].radius == pytest.approx(GRID_RADIUS_M / reference)
+    from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
+        GRID_BOUNDARY_RADIUS_M,
+    )
+
+    # An ellipse of the full diameter per axis, not a circle of one radius (FIB-698).
+    # A circle on the sample is a circle on screen only where the view looks down the
+    # surface normal, which the fluorescence pose does and the milling pose does not --
+    # so the shape is chosen by the geometry rather than by which tab drew it. Equal
+    # here because this pose is normal to the surface; the beam tab's milling view is
+    # where they part.
+    boundary = by_label["Grid Boundary"]
+    assert boundary.kind == "ellipse"
+    assert boundary.width == pytest.approx(2 * GRID_BOUNDARY_RADIUS_M / reference)
+    assert boundary.height == pytest.approx(boundary.width)
 
     assert widget.stage_overlay._artists, "specs were built but nothing was drawn"
 
@@ -1011,11 +1289,11 @@ def test_stage_metadata_does_not_wait_for_an_image(qapp, overview_widget):
     widget._records.clear()
     widget._origin = None
 
-    widget._refresh_stage_metadata()
+    _show_holder_overlays(widget)
 
     labels = [spec.label for spec in widget.stage_overlay._specs]
-    assert "Stage limits" in labels
-    assert "Grid boundary" in labels
+    assert "Stage Limits" in labels
+    assert "Grid Boundary" in labels
 
 
 def test_stage_metadata_is_dropped_when_the_geometry_is_unknown(qapp, overview_widget):
@@ -1034,9 +1312,13 @@ def test_stage_metadata_is_dropped_when_the_geometry_is_unknown(qapp, overview_w
 
 
 def test_the_current_position_marker_follows_the_stage(qapp, overview_widget):
-    """Drawn separately from the canvas's red origin marker: the origin explains why
-    everything sits where it does, this yellow one is what you steer by. They coincide
-    until the stage moves, then diverge."""
+    """The marker you steer by, which has to move when the stage does.
+
+    It used to be contrasted here with the canvas's own red origin marker. That marker
+    is gone: it stood at the stage position of whichever image was placed first, which
+    means nothing to anyone looking at it, and what is worth marking lives in stage
+    space -- which this widget draws itself.
+    """
     from fibsem.structures import FibsemStagePosition
 
     widget = overview_widget
@@ -1055,12 +1337,10 @@ def test_the_current_position_marker_follows_the_stage(qapp, overview_widget):
     moved = widget.current_position_overlay._points
     assert moved != at_origin, "the marker did not follow the stage"
 
-    # the canvas's own origin marker stays put, which is the point of having both
-    origin_marker = widget.canvas.canvas._crosshair_artists[0].get_data()
-    assert (origin_marker[0][0], origin_marker[1][0]) == (0.0, 0.0)
 
-
-def test_the_marker_lands_where_an_image_acquired_there_is_placed(qapp, overview_widget):
+def test_the_marker_lands_where_an_image_acquired_there_is_placed(
+    qapp, overview_widget
+):
     """The marker and the image reach the canvas by different routes — one through
     set_points, the other through add_image — so agreeing is worth checking. If they
     ever diverge, the canvas is telling two stories about the same stage position."""
@@ -1068,7 +1348,9 @@ def test_the_marker_lands_where_an_image_acquired_there_is_placed(qapp, overview
 
     widget = overview_widget
     widget.canvas.clear_overviews()
-    widget.set_image(widget.microscope.fm.acquire_image(ChannelSettings(name="Channel-01")))
+    widget.set_image(
+        widget.microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
+    )
     qapp.processEvents()
 
     tilt = widget.microscope.get_stage_position().t
@@ -1078,7 +1360,9 @@ def test_the_marker_lands_where_an_image_acquired_there_is_placed(qapp, overview
     qapp.processEvents()
     marker = widget.current_position_overlay._points[0]
 
-    widget.set_image(widget.microscope.fm.acquire_image(ChannelSettings(name="Channel-01")))
+    widget.set_image(
+        widget.microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
+    )
     qapp.processEvents()
 
     placed = widget.canvas.canvas._placed[max(widget.canvas.canvas.placed_keys)]
@@ -1090,14 +1374,36 @@ def test_the_marker_lands_where_an_image_acquired_there_is_placed(qapp, overview
 # ── canvas interaction ───────────────────────────────────────────────────
 
 
-class _SynchronousWorker:
-    """Stands in for FunctionWorker so a test can see the outcome, not a thread."""
+class _SynchronousWorker(QObject):
+    """Stands in for FunctionWorker so a test can see the outcome, not a thread.
+
+    Mirrors the whole signal contract, not the subset the code under test happened to
+    use when this was written: `started`, then `returned` or `errored`, then always
+    `finished`. The exception is caught and re-emitted rather than propagated, which is
+    what the real worker does -- a stub that let it escape would make the caller's error
+    handling untestable, and a stub missing the signals altogether is what made
+    `move_to`'s failure path unreachable from a test at all (FIB-765).
+    """
+
+    started = pyqtSignal()
+    returned = pyqtSignal(object)
+    errored = pyqtSignal(object)
+    finished = pyqtSignal()
 
     def __init__(self, fn, *args, **kwargs):
+        super().__init__()
         self.fn, self.args, self.kwargs = fn, args, kwargs
 
     def start(self):
-        self.fn(*self.args, **self.kwargs)
+        self.started.emit()
+        try:
+            result = self.fn(*self.args, **self.kwargs)
+        except Exception as error:
+            self.errored.emit(error)
+        else:
+            self.returned.emit(result)
+        finally:
+            self.finished.emit()
 
     def is_alive(self):
         return False
@@ -1136,7 +1442,11 @@ def test_a_canvas_point_resolves_to_the_position_it_was_drawn_from(interactive_w
 
     for dx, dy in [(0.0, 0.0), (120e-6, 0.0), (0.0, -85e-6), (-250e-6, 375e-6)]:
         marked = FibsemStagePosition(
-            x=base.x + dx, y=base.y + dy, z=base.z, r=base.r, t=base.t,
+            x=base.x + dx,
+            y=base.y + dy,
+            z=base.z,
+            r=base.r,
+            t=base.t,
             coordinate_system=base.coordinate_system,
         )
         resolved = frame.to_stage(*frame.to_canvas(marked))
@@ -1145,7 +1455,9 @@ def test_a_canvas_point_resolves_to_the_position_it_was_drawn_from(interactive_w
         assert resolved.y == pytest.approx(marked.y, abs=1e-12)
 
 
-def test_double_clicking_moves_the_stage_to_that_point(qapp, interactive_widget, monkeypatch):
+def test_double_clicking_moves_the_stage_to_that_point(
+    qapp, interactive_widget, monkeypatch
+):
     from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     widget = interactive_widget
@@ -1165,7 +1477,9 @@ def test_double_clicking_moves_the_stage_to_that_point(qapp, interactive_widget,
     )
 
 
-def test_the_marker_follows_the_stage_after_a_double_click(qapp, interactive_widget, monkeypatch):
+def test_the_marker_follows_the_stage_after_a_double_click(
+    qapp, interactive_widget, monkeypatch
+):
     """The move is confirmed by re-reading the stage rather than assumed, so the marker
     shows where the instrument went rather than where it was asked to go."""
     from fibsem.ui.fm.widgets import fm_overview_widget as module
@@ -1180,7 +1494,9 @@ def test_the_marker_follows_the_stage_after_a_double_click(qapp, interactive_wid
     assert widget.current_position_overlay._points != before
 
 
-def test_the_stage_cannot_be_driven_during_an_acquisition(qapp, interactive_widget, monkeypatch):
+def test_the_stage_cannot_be_driven_during_an_acquisition(
+    qapp, interactive_widget, monkeypatch
+):
     from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     widget = interactive_widget
@@ -1202,7 +1518,9 @@ def test_the_stage_cannot_be_driven_during_an_acquisition(qapp, interactive_widg
     assert (after.x, after.y) == (before.x, before.y)
 
 
-def test_a_point_outside_the_stage_limits_is_refused(qapp, interactive_widget, monkeypatch):
+def test_a_point_outside_the_stage_limits_is_refused(
+    qapp, interactive_widget, monkeypatch
+):
     """A click can land anywhere on a real-space canvas, including well past where the
     stage can physically go. Asking for it is how a stage ends up against its stop."""
     from fibsem.ui.fm.widgets import fm_overview_widget as module
@@ -1222,7 +1540,9 @@ def test_a_point_outside_the_stage_limits_is_refused(qapp, interactive_widget, m
     assert (after.x, after.y) == (before.x, before.y)
 
 
-def test_dragging_the_grid_sets_a_target_without_moving_the_stage(qapp, interactive_widget):
+def test_dragging_the_grid_sets_a_target_without_moving_the_stage(
+    qapp, interactive_widget
+):
     """Planning a run and driving the instrument are separate acts. A drag is
     exploratory -- you push the grid around to see what it would cover."""
     widget = interactive_widget
@@ -1270,10 +1590,14 @@ def test_an_untargeted_grid_follows_the_stage(qapp, interactive_widget, monkeypa
     widget._on_canvas_double_clicked(before[0] + 1500.0, before[1], None)
     qapp.processEvents()
 
-    assert widget.tile_grid_overlay._anchor()[0] == pytest.approx(before[0] + 1500.0, abs=1.0)
+    assert widget.tile_grid_overlay._anchor()[0] == pytest.approx(
+        before[0] + 1500.0, abs=1.0
+    )
 
 
-def test_a_targeted_grid_stays_put_when_the_stage_moves(qapp, interactive_widget, monkeypatch):
+def test_a_targeted_grid_stays_put_when_the_stage_moves(
+    qapp, interactive_widget, monkeypatch
+):
     from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     widget = interactive_widget
@@ -1289,7 +1613,9 @@ def test_a_targeted_grid_stays_put_when_the_stage_moves(qapp, interactive_widget
     assert widget.tile_grid_overlay._anchor() == pytest.approx(targeted)
 
 
-def test_centring_the_grid_is_only_offered_once_it_is_off_centre(qapp, interactive_widget):
+def test_centring_the_grid_is_only_offered_once_it_is_off_centre(
+    qapp, interactive_widget
+):
     """The way back from a drag. A control that is always live invites a click that
     does nothing, and one that is never live strands the state it set."""
     widget = interactive_widget
@@ -1318,9 +1644,13 @@ def test_the_target_reaches_the_acquisition(qapp, interactive_widget, monkeypatc
             recorded.update(kwargs)
 
     monkeypatch.setattr(module, "FMTiledAcquisitionRunner", _RecordingRunner)
-    monkeypatch.setattr(module, "FunctionWorker", lambda *a, **k: _SynchronousWorker(lambda: None))
     monkeypatch.setattr(
-        module.FMOverviewConfirmationDialog, "exec_", lambda self: module.QDialog.Accepted
+        module, "FunctionWorker", lambda *a, **k: _SynchronousWorker(lambda: None)
+    )
+    monkeypatch.setattr(
+        module.FMOverviewConfirmationDialog,
+        "exec_",
+        lambda self: module.QDialog.Accepted,
     )
     anchor = widget.tile_grid_overlay._anchor()
     widget._on_grid_move(anchor[0] + 800.0, anchor[1])
@@ -1341,15 +1671,19 @@ def test_the_cursor_readout_names_the_position_under_it(qapp, interactive_widget
 
     widget._on_cursor_moved(1500.0, -900.0)
 
-    text = widget.cursor_readout.text()
+    text = widget.canvas.canvas._readout_text
     assert f"{under.x * 1e6:.1f}" in text
     assert f"{under.y * 1e6:.1f}" in text
 
     widget._on_cursor_moved(None, None)
-    assert widget.cursor_readout.text() == "", "the readout must not freeze off-canvas"
+    assert widget.canvas.canvas._readout_text is None, (
+        "the readout must not freeze off-canvas"
+    )
 
 
-def test_the_reported_offset_is_measured_in_the_frame_it_is_drawn_in(qapp, interactive_widget):
+def test_the_reported_offset_is_measured_in_the_frame_it_is_drawn_in(
+    qapp, interactive_widget
+):
     """Subtracting stage axes describes the same gap in a frame the user cannot see: on
     a compustage at t = -180 it reports y with the sign reversed, so the panel said the
     grid was above the stage while it was drawn below."""
@@ -1369,7 +1703,9 @@ def test_the_reported_offset_is_measured_in_the_frame_it_is_drawn_in(qapp, inter
     assert widget._target_offset()[1] > 0
 
 
-def test_the_working_area_follows_the_grid_not_the_canvas_origin(qapp, interactive_widget):
+def test_the_working_area_follows_the_grid_not_the_canvas_origin(
+    qapp, interactive_widget
+):
     """Pinned to the origin, it framed empty space once the stage travelled far from
     wherever the frame was anchored -- moving to an offset FM mount steps 48 mm -- and
     stretched the content extent across the gap, which capped how far the view could
@@ -1377,15 +1713,21 @@ def test_the_working_area_follows_the_grid_not_the_canvas_origin(qapp, interacti
     widget = interactive_widget
     span = widget.canvas.canvas.world_extent[0]
 
-    widget._on_grid_move(*[v + 4 * span / widget.canvas.canvas.reference_pixel_size
-                           for v in widget.tile_grid_overlay._anchor()])
+    widget._on_grid_move(
+        *[
+            v + 4 * span / widget.canvas.canvas.reference_pixel_size
+            for v in widget.tile_grid_overlay._anchor()
+        ]
+    )
     qapp.processEvents()
 
     _, _, cx, cy = widget.canvas.canvas.world_extent
     assert (cx, cy) == pytest.approx(widget._grid_offset())
 
 
-def test_a_move_inside_the_working_area_leaves_the_framing_alone(qapp, interactive_widget):
+def test_a_move_inside_the_working_area_leaves_the_framing_alone(
+    qapp, interactive_widget
+):
     """A move must not throw away the user's zoom -- a double-click to somewhere 100 µm
     away did, the same failure a tile toggle used to cause.
 
@@ -1407,7 +1749,9 @@ def test_a_move_inside_the_working_area_leaves_the_framing_alone(qapp, interacti
 
     assert (tuple(ax.get_xlim()), tuple(ax.get_ylim())) == framing
     # ...and the grid still moved, which is the point of not re-framing for it
-    assert widget.tile_grid_overlay._anchor()[0] == pytest.approx(anchor[0] + span_px / 4)
+    assert widget.tile_grid_overlay._anchor()[0] == pytest.approx(
+        anchor[0] + span_px / 4
+    )
 
 
 def test_the_working_area_follows_the_grid_on_every_move(qapp, interactive_widget):
@@ -1467,7 +1811,11 @@ def test_the_frame_can_be_anchored_at_a_chosen_position(qapp, interactive_widget
     widget.canvas.clear_overviews()
     stage = widget._current_stage_position()
     elsewhere = FibsemStagePosition(
-        x=stage.x + 48e-3, y=stage.y, z=stage.z, r=stage.r, t=stage.t,
+        x=stage.x + 48e-3,
+        y=stage.y,
+        z=stage.z,
+        r=stage.r,
+        t=stage.t,
         coordinate_system=stage.coordinate_system,
     )
     try:
@@ -1491,10 +1839,16 @@ def test_anchoring_again_returns_to_following_the_stage(qapp, interactive_widget
     widget = interactive_widget
     widget.canvas.clear_overviews()
     stage = widget._current_stage_position()
-    widget.set_origin(FibsemStagePosition(
-        x=stage.x + 1e-3, y=stage.y, z=stage.z, r=stage.r, t=stage.t,
-        coordinate_system=stage.coordinate_system,
-    ))
+    widget.set_origin(
+        FibsemStagePosition(
+            x=stage.x + 1e-3,
+            y=stage.y,
+            z=stage.z,
+            r=stage.r,
+            t=stage.t,
+            coordinate_system=stage.coordinate_system,
+        )
+    )
     qapp.processEvents()
 
     widget.set_origin(None)
@@ -1698,9 +2052,9 @@ def test_an_empty_grid_still_forbids_acquiring_after_a_lock_is_lifted(qapp):
     """The third fact. A tab unlocked with no tiles selected has nothing to acquire,
     and the button that starts it should say so."""
     widget = _fresh_widget(qapp)
-    widget.settings_widget.tile_mask.mask = [[False, False], [False, False]]
+    widget.settings_widget.set_mask([[False, False], [False, False]])
     widget.settings_widget.set_grid_size(2, 2)
-    widget.settings_widget.tile_mask.mask = [[False, False], [False, False]]
+    widget.settings_widget.set_mask([[False, False], [False, False]])
     widget._on_settings_changed()
     assert not widget.button_acquire.isEnabled()
 
@@ -1713,6 +2067,21 @@ def test_an_empty_grid_still_forbids_acquiring_after_a_lock_is_lifted(qapp):
 
 
 # ── the host side: building and retiring the tab ─────────────────────────
+
+
+# Aliased: this module already imports `MODALITY_FLUORESCENCE` from
+# `fibsem.imaging.tiling.progress` at the top, and the two are different strings for
+# different things -- 'fluorescence', the value carried on the wire, against
+# 'FLUORESCENCE', the key naming a page of the merged Overview tab. Imported bare, this
+# rebinds the module global, and `_fm()` above then stamps every report it builds with
+# the tab's key. The modality filter drops all of them and seventeen tests fail from
+# inside an early return.
+from fibsem.applications.autolamella.ui.overview_container_tab import (
+    MODALITY_FIBSEM as TAB_MODALITY_FIBSEM,
+)
+from fibsem.applications.autolamella.ui.overview_container_tab import (
+    MODALITY_FLUORESCENCE as TAB_MODALITY_FLUORESCENCE,
+)
 
 
 class _StubHost:
@@ -1734,13 +2103,22 @@ class _StubHost:
         AutoLamellaSingleWindowUI as _Real,
     )
 
-    add_fm_overview_tab = _Real.add_fm_overview_tab
-    _refresh_fm_overview_microscope = _Real._refresh_fm_overview_microscope
-    _on_fm_overview_availability = _Real._on_fm_overview_availability
-    _fm_overview_unavailable_reason = _Real._fm_overview_unavailable_reason
-    _refresh_fm_overview_positions = _Real._refresh_fm_overview_positions
+    # One builder now, and it makes the merged Overview tab: the fluorescence overview is
+    # a page of it rather than a tab of its own (FIB-780). Everything below still reaches
+    # the same `AutoLamellaFluorescenceOverviewTab`, through `self.fm_overview_tab`, which
+    # the builder binds.
+    add_overview_tab = _Real.add_overview_tab
+    _refresh_overview_microscope = _Real._refresh_overview_microscope
+    _on_overview_availability = _Real._on_overview_availability
+    _refresh_overview_positions = _Real._refresh_overview_positions
     _on_fm_overview_lamella_selected = _Real._on_fm_overview_lamella_selected
+    # The builder wires both pages' lists, so the beam handler is reached here too even
+    # though nothing in this file clicks it.
+    _on_beam_overview_lamella_selected = _Real._on_beam_overview_lamella_selected
     _set_minimap_workflow_enabled = _Real._set_minimap_workflow_enabled
+    _apply_overview_locks = _Real._apply_overview_locks
+    _overview_may_work = _Real._overview_may_work
+    _overviews_allowed = _Real._overviews_allowed
     _rebuild_lamella_list = _Real._rebuild_lamella_list
     _wire_position_events = _Real._wire_position_events
 
@@ -1751,13 +2129,23 @@ class _StubHost:
         self.autolamella_ui = type(
             "_UI", (), {"microscope": microscope, "experiment": experiment}
         )()
-        self.add_fm_overview_tab()
+        self.add_overview_tab()
 
     @property
     def tab_enabled(self):
-        return self.tab_widget.isTabEnabled(
-            self.tab_widget.indexOf(self.fm_overview_tab)
-        )
+        """Whether the Overview tab can be opened at all.
+
+        The tab holds both modalities now, so this is no longer "is there an FM". On a
+        system without one the tab is still enabled -- for the beam page -- which is why
+        the tests that used to read this as the fluorescence answer read
+        `fm_modality_available` instead.
+        """
+        return self.tab_widget.isTabEnabled(self.tab_widget.indexOf(self.overview_tab))
+
+    @property
+    def fm_modality_available(self):
+        """Whether the fluorescence page has anything behind it -- the old `tab_enabled`."""
+        return self.fm_overview_tab.is_available
 
     # ── reading through to the tab ───────────────────────────────────────
     # Test scaffolding, not production shims: these say "what the window can see of the
@@ -1778,7 +2166,7 @@ class _StubHost:
         self.fm_overview_tab.refresh_experiment()
 
     def _update_fm_overview_positions(self):
-        self._refresh_fm_overview_positions()
+        self._refresh_overview_positions()
 
     def _update_fm_overview_selection(self, lamella):
         self.fm_overview_tab.set_selected(lamella)
@@ -1793,12 +2181,16 @@ def _plain_microscope():
     return microscope
 
 
-def test_the_fm_overview_tab_is_reserved_but_dead_without_a_microscope(qapp):
+def test_the_overview_tab_is_reserved_but_dead_without_a_microscope(qapp):
     """The widget needs a camera at construction -- every scale on its canvas comes from
-    one -- so the tab exists from startup and fills in on connection."""
+    one -- so the tab exists from startup and fills in on connection.
+
+    "Overview", not "FM Overview": the fluorescence overview is a page of the merged tab
+    (FIB-780), and the tab bar has one entry for both.
+    """
     host = _StubHost()
 
-    assert "FM Overview" in [
+    assert "Overview" in [
         host.tab_widget.tabText(i) for i in range(host.tab_widget.count())
     ]
     assert not host.tab_enabled
@@ -1813,88 +2205,99 @@ def test_the_tab_comes_alive_when_fluorescence_connects(qapp):
 
     host._build_fm_overview_widget()
 
-    assert host.tab_enabled
+    assert host.fm_modality_available
     assert isinstance(host.fm_overview_widget, FMOverviewWidget)
 
     host._teardown_fm_overview_widget()
 
 
-def test_a_microscope_without_fluorescence_greys_the_tab_and_says_why(qapp):
-    """A system with no FM will never drive this tab. It stays in the tab bar rather
-    than being withdrawn -- a tab that vanishes once you connect is more startling than
-    one that is simply dim -- so the tooltip is what keeps that from being a greyed tab
-    with nothing to say for itself."""
+def test_a_microscope_without_fluorescence_greys_the_chip_and_says_why(qapp):
+    """A system with no FM will never drive this page. The chip stays in the strip rather
+    than being withdrawn -- a control that vanishes once you connect is more startling
+    than one that is simply dim -- so the tooltip is what keeps that from being a greyed
+    chip with nothing to say for itself.
+
+    The *tab* stays enabled here, which is the merge's doing and is right: the FIB/SEM
+    page is perfectly usable on a system with no camera.
+    """
     host = _StubHost(microscope=_plain_microscope())
 
-    host._refresh_fm_overview_microscope()
+    host._refresh_overview_microscope()
 
-    index = host.tab_widget.indexOf(host.fm_overview_tab)
-    assert host.tab_widget.isTabVisible(index)
-    assert not host.tab_widget.isTabEnabled(index)
-    assert host.tab_widget.tabToolTip(index) == "No Fluorescence Microscope Available"
+    chip = host.overview_tab.modality_chip(TAB_MODALITY_FLUORESCENCE)
+    assert not chip.isEnabled()
+    assert chip.toolTip() == "No Fluorescence Microscope Available"
     assert host.fm_overview_widget is None
+    assert host.tab_enabled, "the beam page is still reachable without a camera"
 
 
 def test_no_microscope_yet_says_something_different(qapp):
-    """The other absence. Both look identical on the tab bar, but one is waiting for
-    something about to happen and the other is a fact about this system -- so telling
-    the user to connect a microscope is only right for one of them."""
+    """The other absence. Both look identical on a greyed control, but one is waiting for
+    something about to happen and the other is a fact about this system -- so telling the
+    user to connect a microscope is only right for one of them.
+
+    With no microscope neither page can be built, so this one is answered on the tab.
+    """
     host = _StubHost(microscope=None)
 
-    host._refresh_fm_overview_microscope()
+    host._refresh_overview_microscope()
 
-    index = host.tab_widget.indexOf(host.fm_overview_tab)
+    index = host.tab_widget.indexOf(host.overview_tab)
     assert host.tab_widget.isTabVisible(index)
     assert not host.tab_widget.isTabEnabled(index)
-    assert host.tab_widget.tabToolTip(index) == "Connect a microscope to use the FM Overview"
+    assert (
+        host.tab_widget.tabToolTip(index) == "Connect a microscope to use the Overview"
+    )
     assert host.fm_overview_widget is None
 
 
-def test_connecting_a_microscope_without_fluorescence_keeps_the_tab(qapp):
-    """Whether the system has an FM is only known once something is connected. The tab
-    does not move -- only the reason it gives changes, from 'connect one' to 'this
-    system has none'."""
+def test_connecting_a_microscope_without_fluorescence_keeps_the_chip(qapp):
+    """Whether the system has an FM is only known once something is connected. The chip
+    does not move -- only the reason it gives changes, from 'connect one' to 'this system
+    has none'."""
     host = _StubHost(microscope=None)
-    index = host.tab_widget.indexOf(host.fm_overview_tab)
-    assert host.tab_widget.isTabVisible(index)
+    chip = host.overview_tab.modality_chip(TAB_MODALITY_FLUORESCENCE)
+    assert not chip.isEnabled()
+    assert chip.toolTip() == "Connect a microscope to use the Overview"
 
     host.autolamella_ui.microscope = _plain_microscope()
-    host._refresh_fm_overview_microscope()
+    host._refresh_overview_microscope()
 
-    assert host.tab_widget.isTabVisible(index)
-    assert not host.tab_widget.isTabEnabled(index)
-    assert host.tab_widget.tabToolTip(index) == "No Fluorescence Microscope Available"
+    assert not chip.isEnabled()
+    assert chip.toolTip() == "No Fluorescence Microscope Available"
 
 
-def test_a_microscope_with_fluorescence_brings_the_tab_back(qapp):
+def test_a_microscope_with_fluorescence_brings_the_chip_back(qapp):
     """And the reverse, so swapping between systems in one session settles correctly.
 
-    The tooltip has to be cleared, not just the tab enabled: a stale "No Fluorescence
-    Microscope Available" sitting on a working tab is worse than no tooltip at all."""
+    The tooltip has to stop being a reason, not just the chip enabled: a stale "No
+    Fluorescence Microscope Available" sitting on a working chip is worse than none."""
     from fibsem.ui.fm.overview_app import build_microscope
 
     host = _StubHost(microscope=_plain_microscope())
-    host._refresh_fm_overview_microscope()
-    index = host.tab_widget.indexOf(host.fm_overview_tab)
-    assert not host.tab_widget.isTabEnabled(index)
+    host._refresh_overview_microscope()
+    chip = host.overview_tab.modality_chip(TAB_MODALITY_FLUORESCENCE)
+    assert not chip.isEnabled()
 
     host.autolamella_ui.microscope = build_microscope()
-    host._refresh_fm_overview_microscope()
+    host._refresh_overview_microscope()
 
-    assert host.tab_widget.isTabVisible(index)
-    assert host.tab_widget.isTabEnabled(index)
-    assert host.tab_widget.tabToolTip(index) == ""
+    assert chip.isEnabled()
+    assert chip.toolTip() == "Fluorescence"
     assert isinstance(host.fm_overview_widget, FMOverviewWidget)
 
     host._teardown_fm_overview_widget()
 
 
-def test_a_greyed_tab_always_says_why(qapp):
+def test_nothing_unreachable_is_ever_silent(qapp):
     """The invariant behind the tests above, stated once over every state the tab has.
 
     Written as a sweep rather than another case-by-case test because the thing worth
-    protecting is that no *future* unavailable state can add a greyed tab with nothing
-    on it -- which is exactly the failure a per-case test cannot catch.
+    protecting is that no *future* unavailable state can add a greyed control with
+    nothing on it -- which is exactly the failure a per-case test cannot catch.
+
+    Two levels to sweep now, and the invariant is the same on both: the tab, and each
+    chip on it.
     """
     from fibsem.ui.fm.overview_app import build_microscope
 
@@ -1904,8 +2307,8 @@ def test_a_greyed_tab_always_says_why(qapp):
         ("fluorescence available", build_microscope()),
     ):
         host = _StubHost(microscope=microscope)
-        host._refresh_fm_overview_microscope()
-        index = host.tab_widget.indexOf(host.fm_overview_tab)
+        host._refresh_overview_microscope()
+        index = host.tab_widget.indexOf(host.overview_tab)
 
         assert host.tab_widget.isTabVisible(index), f"{label}: the tab is never hidden"
         if host.tab_widget.isTabEnabled(index):
@@ -1917,43 +2320,15 @@ def test_a_greyed_tab_always_says_why(qapp):
                 f"{label}: greyed out with nothing to say why"
             )
 
+        for modality in (TAB_MODALITY_FIBSEM, TAB_MODALITY_FLUORESCENCE):
+            chip = host.overview_tab.modality_chip(modality)
+            assert chip.isVisible() or not host.overview_tab.isVisible(), (
+                f"{label}: the {modality} chip was withdrawn rather than greyed"
+            )
+            assert chip.toolTip(), f"{label}: the {modality} chip says nothing at all"
+
         if host.fm_overview_widget is not None:
             host._teardown_fm_overview_widget()
-
-    host._teardown_fm_overview_widget()
-
-
-def test_the_same_microscope_connecting_again_keeps_the_widget(qapp):
-    """Rebuilding would throw away whatever is on the canvas, and a connection signal
-    can arrive more than once for one instrument."""
-    from fibsem.ui.fm.overview_app import build_microscope
-
-    host = _StubHost(microscope=build_microscope())
-    host._build_fm_overview_widget()
-    first = host.fm_overview_widget
-
-    host._build_fm_overview_widget()
-
-    assert host.fm_overview_widget is first
-
-    host._teardown_fm_overview_widget()
-
-
-def test_a_different_microscope_replaces_the_widget(qapp):
-    """The widget holds its microscope for life. Left alone across a reconnect it would
-    read geometry from an instrument nobody is driving -- FIB-433 is about doing this
-    without discarding the view."""
-    from fibsem.ui.fm.overview_app import build_microscope
-
-    host = _StubHost(microscope=build_microscope())
-    host._build_fm_overview_widget()
-    first = host.fm_overview_widget
-
-    host.autolamella_ui.microscope = build_microscope()
-    host._build_fm_overview_widget()
-
-    assert host.fm_overview_widget is not first
-    assert host.fm_overview_tab._microscope is host.autolamella_ui.microscope
 
     host._teardown_fm_overview_widget()
 
@@ -1966,8 +2341,13 @@ def test_retiring_the_widget_releases_the_stage_signal(qapp):
     from fibsem.ui.fm.overview_app import build_microscope
 
     microscope = build_microscope()
-    before = len(microscope.stage_position_changed)
     host = _StubHost(microscope=microscope)
+    # Measured with the fluorescence widget retired rather than before the host exists:
+    # the merged tab builds the beam widget too, and it subscribes to the same signal.
+    # Counting from an empty microscope would be counting both and attributing them here.
+    host._teardown_fm_overview_widget()
+    before = len(microscope.stage_position_changed)
+
     host._build_fm_overview_widget()
     assert len(microscope.stage_position_changed) == before + 1
 
@@ -1977,16 +2357,23 @@ def test_retiring_the_widget_releases_the_stage_signal(qapp):
     assert host.fm_overview_widget is None
 
 
-def test_disconnecting_the_microscope_retires_the_tab(qapp):
+def test_disconnecting_the_microscope_retires_the_page(qapp):
+    """Both pages, and the tab with them: a disconnect leaves nothing to drive.
+
+    Driven through the tab's own refresh rather than the fluorescence one, because that
+    is what a disconnect actually calls -- the fluorescence-only path would leave the
+    beam widget holding the microscope that was just taken away.
+    """
     from fibsem.ui.fm.overview_app import build_microscope
 
     host = _StubHost(microscope=build_microscope())
-    host._build_fm_overview_widget()
+    host._refresh_overview_microscope()
 
     host.autolamella_ui.microscope = None
-    host._build_fm_overview_widget()
+    host._refresh_overview_microscope()
 
     assert host.fm_overview_widget is None
+    assert not host.overview_tab.available_modalities()
     assert not host.tab_enabled
 
 
@@ -2043,10 +2430,10 @@ def test_everything_tolerates_the_tab_being_dead(qapp):
     the same state."""
     host = _StubHost(microscope=_plain_microscope())
 
-    host._build_fm_overview_widget()           # must not raise
-    host._update_fm_overview_experiment()      # must not raise
+    host._build_fm_overview_widget()  # must not raise
+    host._update_fm_overview_experiment()  # must not raise
     host._set_minimap_workflow_enabled(False)  # must not raise
-    host._refresh_fm_overview_microscope()       # must not raise
+    host._refresh_overview_microscope()  # must not raise
 
     assert getattr(host, "fm_overview_widget", None) is None
 
@@ -2139,7 +2526,7 @@ def test_a_finished_run_keeps_its_outcome_on_screen(qapp):
     qapp.processEvents()
     widget._set_running(True)
 
-    widget._finish("overview-failed", "nope")
+    widget._finish(TiledStatus.FAILED, "nope")
     qapp.processEvents()
 
     assert widget.progress_tiles.isVisible()
@@ -2168,27 +2555,57 @@ def test_showing_the_bars_survives_their_own_reset(qapp):
 # ── the canvas says where things are ─────────────────────────────────────
 
 
-def test_the_cursor_readout_is_drawn_over_the_canvas(qapp, interactive_widget):
-    """Not beside it. The only free corner is the top left — the toolbar owns the top
-    right, the scalebar the bottom right, the stage info bar the bottom left."""
+def test_the_cursor_readout_takes_the_status_zone_from_the_grid_hint(
+    qapp, interactive_widget
+):
+    """Both want the top left, and this widget used to give each its own label there --
+    which drew the coordinates straight over the hint. One zone showing one thing at a
+    time is what makes that impossible rather than merely fixed."""
     widget = interactive_widget
+    canvas = widget.canvas.canvas
+    assert "Shift+drag" in canvas._status_label.text(), (
+        "the hint holds the zone at rest"
+    )
 
-    assert widget.cursor_readout.parent() is widget.canvas.canvas
+    widget._on_cursor_moved(1500.0, -900.0)
+    qapp.processEvents()
+
+    shown = canvas._status_label.text()
+    assert "Shift+drag" not in shown
+    assert shown == canvas._readout_text
 
 
-def test_the_cursor_readout_hides_when_the_pointer_leaves(qapp, interactive_widget):
-    """It sits on top of the image, so an empty plaque floating over the data is worse
-    than nothing there."""
+def test_the_zone_goes_back_to_the_hint_when_the_pointer_leaves(
+    qapp, interactive_widget
+):
+    """The readout is only true while the pointer is where it is; the hint is still true
+    afterwards, so leaving the canvas hands the zone back rather than blanking it."""
     widget = interactive_widget
+    canvas = widget.canvas.canvas
 
     widget._on_cursor_moved(100.0, 100.0)
     qapp.processEvents()
-    assert widget.cursor_readout.isVisible()
-    assert widget.cursor_readout.text()
+    assert canvas._readout_text
 
     widget._on_cursor_moved(None, None)
     qapp.processEvents()
-    assert not widget.cursor_readout.isVisible()
+
+    assert canvas._readout_text is None
+    assert "Shift+drag" in canvas._status_label.text()
+
+
+def test_a_flash_outranks_the_cursor_readout(qapp, interactive_widget):
+    """A focus flash is a value that just changed and is about to go away; the readout
+    will still be there a motion event later."""
+    widget = interactive_widget
+    canvas = widget.canvas.canvas
+    widget._on_cursor_moved(1500.0, -900.0)
+    qapp.processEvents()
+
+    canvas.flash_message("OBJ 6000.0 um  (+1.0 um)")
+    qapp.processEvents()
+
+    assert "OBJ" in canvas._status_label.text()
 
 
 def test_the_info_bar_states_the_stage_pose(qapp, interactive_widget):
@@ -2216,7 +2633,9 @@ def test_the_info_bar_leaves_out_the_milling_angle(qapp, interactive_widget):
     assert "milling" not in (widget.canvas.canvas._info_text or "")
 
 
-def test_an_unreadable_objective_does_not_cost_the_stage_position(qapp, interactive_widget):
+def test_an_unreadable_objective_does_not_cost_the_stage_position(
+    qapp, interactive_widget
+):
     """A microscope with no objective, or one that will not answer, should lose that
     field and not the whole line."""
     widget = interactive_widget
@@ -2241,7 +2660,9 @@ def test_an_unreadable_objective_does_not_cost_the_stage_position(qapp, interact
     assert "objective" not in info
 
 
-def test_a_move_updates_the_info_bar_without_reading_the_device(qapp, interactive_widget):
+def test_a_move_updates_the_info_bar_without_reading_the_device(
+    qapp, interactive_widget
+):
     """The point of FIB-534: the bar is rebuilt from what the move announced.
 
     Reading it back would take the shared imaging channel again for numbers the signal
@@ -2273,13 +2694,19 @@ def test_a_move_updates_the_info_bar_without_reading_the_device(qapp, interactiv
     )
 
 
-def test_the_objective_signal_is_dropped_on_close(qapp, interactive_widget):
+def test_the_objective_signal_is_dropped_on_close(qapp):
     """psygnal outlives the widget and holds a bound method of a torn-down Qt object.
 
     Closing the tab and then moving the objective from anywhere else was the segfault
     `closeEvent` already guards for the stage; this is the same for the objective.
+
+    Builds its own widget rather than taking the module-scoped one. A test that proves
+    teardown works has to destroy what it touches, so it cannot share: closing the
+    fixture left every later test in this file driving a widget subscribed to nothing,
+    and none of them failed, because none of them happened to need a live signal
+    (FIB-623).
     """
-    widget = interactive_widget
+    widget = _fresh_widget(qapp)
     objective = widget.fm.objective
     before = len(objective.position_changed)
     assert before, "the widget never subscribed -- the test proves nothing"
@@ -2464,9 +2891,7 @@ def _named(name: str, x: float, y: float, tilt_deg: float = -180.0):
 
     from fibsem.structures import FibsemStagePosition
 
-    position = FibsemStagePosition(
-        x=x, y=y, z=0.0, r=0.0, t=np.deg2rad(tilt_deg)
-    )
+    position = FibsemStagePosition(x=x, y=y, z=0.0, r=0.0, t=np.deg2rad(tilt_deg))
     position.name = name
     return position
 
@@ -2641,9 +3066,13 @@ def test_no_experiment_clears_the_marked_positions(qapp, tmp_path):
     host._build_fm_overview_widget()
     microscope = host.autolamella_ui.microscope
     host.autolamella_ui.experiment = type(
-        "_Exp", (), {
+        "_Exp",
+        (),
+        {
             "path": "/tmp",
-            "positions": [_lamella_with_poses("Lamella-01", microscope, tmp_path, 100e-6, 50e-6)],
+            "positions": [
+                _lamella_with_poses("Lamella-01", microscope, tmp_path, 100e-6, 50e-6)
+            ],
         },
     )()
     host._update_fm_overview_positions()
@@ -2679,9 +3108,9 @@ def test_the_host_tolerates_no_fm_overview_tab(qapp):
     """Both updates are called from paths that run on every system, including those
     with the tab switched off or no fluorescence detector at all."""
     host = _StubHost(microscope=_plain_microscope())
-    host._refresh_fm_overview_microscope()
+    host._refresh_overview_microscope()
 
-    host._update_fm_overview_positions()   # must not raise
+    host._update_fm_overview_positions()  # must not raise
     host._update_fm_overview_selection(None)  # must not raise
 
 
@@ -2799,7 +3228,9 @@ def test_moving_is_offered_only_once_something_is_selected(qapp, interactive_wid
     widget.set_positions([])
 
 
-def test_moving_requests_the_selected_name_and_the_clicked_point(qapp, interactive_widget):
+def test_moving_requests_the_selected_name_and_the_clicked_point(
+    qapp, interactive_widget
+):
     widget = interactive_widget
     widget.set_positions([_named("Lamella-04", 0.0, 0.0)])
     widget.set_selected_position("Lamella-04")
@@ -2883,6 +3314,7 @@ def test_nothing_is_offered_from_a_beam_orientation(qapp):
 
 def _experiment_with(positions, tmp_path):
     """An experiment stub that records saves, for the host handlers."""
+
     class _Exp:
         def __init__(self):
             self.path = str(tmp_path)
@@ -2905,13 +3337,19 @@ def _wired_host(qapp, tmp_path, positions=()):
     host.autolamella_ui.added = []
     host.autolamella_ui.updated = 0
 
-    def add_new_lamella(stage_position=None, name=None, objective_position=None,
-                        marked_at=None):
+    def add_new_lamella(
+        stage_position=None, name=None, objective_position=None, marked_at=None
+    ):
         host.autolamella_ui.added.append(
-            {"position": stage_position, "objective_position": objective_position,
-             "marked_at": marked_at}
+            {
+                "position": stage_position,
+                "objective_position": objective_position,
+                "marked_at": marked_at,
+            }
         )
-        lamella = type("_Lamella", (), {"name": f"Lamella-{len(host.autolamella_ui.added):02d}"})()
+        lamella = type(
+            "_Lamella", (), {"name": f"Lamella-{len(host.autolamella_ui.added):02d}"}
+        )()
         return lamella
 
     def update_ui():
@@ -3001,7 +3439,9 @@ def test_adding_without_an_experiment_is_refused_not_crashed(qapp, tmp_path):
     host = _wired_host(qapp, tmp_path)
     host.autolamella_ui.experiment = None
 
-    host.fm_overview_tab._on_add_requested(_named("wherever", 0.0, 0.0))  # must not raise
+    host.fm_overview_tab._on_add_requested(
+        _named("wherever", 0.0, 0.0)
+    )  # must not raise
 
     assert host.autolamella_ui.added == []
 
@@ -3018,7 +3458,9 @@ def test_a_refused_add_is_reported_rather_than_raised(qapp, tmp_path):
 
     host.autolamella_ui.add_new_lamella = refuse
 
-    host.fm_overview_tab._on_add_requested(_named("wherever", 0.0, 0.0))  # must not raise
+    host.fm_overview_tab._on_add_requested(
+        _named("wherever", 0.0, 0.0)
+    )  # must not raise
 
     host._teardown_fm_overview_widget()
 
@@ -3026,7 +3468,9 @@ def test_a_refused_add_is_reported_rather_than_raised(qapp, tmp_path):
 def test_moving_asks_before_it_moves_anything(qapp, tmp_path, monkeypatch):
     """Moving one pose moves both, and the milling pose is not visible from this canvas.
     Said rather than assumed."""
-    from fibsem.applications.autolamella.ui import autolamella_fluorescence_overview_tab as module
+    from fibsem.applications.autolamella.ui import (
+        autolamella_fluorescence_overview_tab as module,
+    )
     from fibsem.ui.fm.overview_app import build_microscope
 
     host = _wired_host(qapp, tmp_path)
@@ -3040,10 +3484,14 @@ def test_moving_asks_before_it_moves_anything(qapp, tmp_path, monkeypatch):
         module, "message_box_ui", lambda **kwargs: asked.append(kwargs) or False
     )
 
-    host.fm_overview_tab._on_move_requested("Lamella-01", _named("target", 400e-6, -200e-6))
+    host.fm_overview_tab._on_move_requested(
+        "Lamella-01", _named("target", 400e-6, -200e-6)
+    )
 
     assert len(asked) == 1, "moved without asking"
-    assert lamella.poses["MILLING"].stage_position.x == before["MILLING"].stage_position.x
+    assert (
+        lamella.poses["MILLING"].stage_position.x == before["MILLING"].stage_position.x
+    )
     assert (
         lamella.poses["FLUORESCENCE"].stage_position.x
         == before["FLUORESCENCE"].stage_position.x
@@ -3055,7 +3503,9 @@ def test_moving_asks_before_it_moves_anything(qapp, tmp_path, monkeypatch):
 
 
 def test_confirming_a_move_moves_both_poses(qapp, tmp_path, monkeypatch):
-    from fibsem.applications.autolamella.ui import autolamella_fluorescence_overview_tab as module
+    from fibsem.applications.autolamella.ui import (
+        autolamella_fluorescence_overview_tab as module,
+    )
 
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
@@ -3080,11 +3530,15 @@ def test_confirming_a_move_moves_both_poses(qapp, tmp_path, monkeypatch):
     host._teardown_fm_overview_widget()
 
 
-def test_a_move_rewrites_the_stage_positions_and_nothing_else(qapp, tmp_path, monkeypatch):
+def test_a_move_rewrites_the_stage_positions_and_nothing_else(
+    qapp, tmp_path, monkeypatch
+):
     """A move is a move. The poses are edited in place rather than replaced, so the beam
     settings the lamella was marked with survive -- and so does the objective position,
     because the user moved sideways, they did not refocus."""
-    from fibsem.applications.autolamella.ui import autolamella_fluorescence_overview_tab as module
+    from fibsem.applications.autolamella.ui import (
+        autolamella_fluorescence_overview_tab as module,
+    )
 
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
@@ -3094,7 +3548,9 @@ def test_a_move_rewrites_the_stage_positions_and_nothing_else(qapp, tmp_path, mo
     host.autolamella_ui.experiment.positions = [lamella]
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
-    host.fm_overview_tab._on_move_requested("Lamella-01", _named("target", 400e-6, -200e-6))
+    host.fm_overview_tab._on_move_requested(
+        "Lamella-01", _named("target", 400e-6, -200e-6)
+    )
 
     assert lamella.milling_pose.electron_detector.brightness == pytest.approx(0.123)
     assert lamella.fluorescence_pose.objective_position == pytest.approx(7.7e-3)
@@ -3106,7 +3562,9 @@ def test_moving_a_lamella_that_has_no_fluorescence_pose_gives_it_one(
     """Possible on a lamella marked before there was an FM. It gets a whole new pose
     rather than an edit, and that one is built on what the lamella itself recorded --
     not on whatever the microscope happens to be set to now."""
-    from fibsem.applications.autolamella.ui import autolamella_fluorescence_overview_tab as module
+    from fibsem.applications.autolamella.ui import (
+        autolamella_fluorescence_overview_tab as module,
+    )
 
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
@@ -3116,12 +3574,16 @@ def test_moving_a_lamella_that_has_no_fluorescence_pose_gives_it_one(
     host.autolamella_ui.experiment.positions = [lamella]
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
-    host.fm_overview_tab._on_move_requested("Lamella-01", _named("target", 400e-6, -200e-6))
+    host.fm_overview_tab._on_move_requested(
+        "Lamella-01", _named("target", 400e-6, -200e-6)
+    )
 
     assert lamella.fluorescence_pose is not None
     assert lamella.fluorescence_pose.stage_position.x == pytest.approx(400e-6)
     # built on the lamella's own state, not the live microscope's
-    assert lamella.fluorescence_pose.electron_detector.brightness == pytest.approx(0.123)
+    assert lamella.fluorescence_pose.electron_detector.brightness == pytest.approx(
+        0.123
+    )
 
     host._teardown_fm_overview_widget()
 
@@ -3129,7 +3591,9 @@ def test_moving_a_lamella_that_has_no_fluorescence_pose_gives_it_one(
 def test_a_move_re_derives_the_milling_angle(qapp, tmp_path, monkeypatch):
     """It is computed from the milling-pose stage tilt, so a pose that moved without it
     would leave the lamella claiming an angle its own pose no longer implies."""
-    from fibsem.applications.autolamella.ui import autolamella_fluorescence_overview_tab as module
+    from fibsem.applications.autolamella.ui import (
+        autolamella_fluorescence_overview_tab as module,
+    )
 
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
@@ -3138,7 +3602,9 @@ def test_a_move_re_derives_the_milling_angle(qapp, tmp_path, monkeypatch):
     host.autolamella_ui.experiment.positions = [lamella]
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
-    host.fm_overview_tab._on_move_requested("Lamella-01", _named("target", 400e-6, -200e-6))
+    host.fm_overview_tab._on_move_requested(
+        "Lamella-01", _named("target", 400e-6, -200e-6)
+    )
 
     assert lamella.milling_angle != pytest.approx(999.0)
     assert lamella.milling_angle == pytest.approx(
@@ -3151,7 +3617,9 @@ def test_a_move_re_derives_the_milling_angle(qapp, tmp_path, monkeypatch):
 def test_a_move_that_names_nothing_does_nothing(qapp, tmp_path, monkeypatch):
     """The canvas holds its selection by name and is rebuilt independently of the host's
     list, so a name can arrive for a lamella that is no longer there."""
-    from fibsem.applications.autolamella.ui import autolamella_fluorescence_overview_tab as module
+    from fibsem.applications.autolamella.ui import (
+        autolamella_fluorescence_overview_tab as module,
+    )
 
     host = _wired_host(qapp, tmp_path)
     lamella = _real_lamella("Lamella-01", host.autolamella_ui.microscope, tmp_path)
@@ -3313,7 +3781,9 @@ def test_switching_experiments_lets_go_of_the_old_one(qapp, tmp_path):
 def test_a_confirmed_move_re_marks_the_canvas(qapp, tmp_path, monkeypatch):
     """Otherwise the marker stays where the lamella used to be until something else
     happens to refresh it."""
-    from fibsem.applications.autolamella.ui import autolamella_fluorescence_overview_tab as module
+    from fibsem.applications.autolamella.ui import (
+        autolamella_fluorescence_overview_tab as module,
+    )
 
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
@@ -3323,7 +3793,9 @@ def test_a_confirmed_move_re_marks_the_canvas(qapp, tmp_path, monkeypatch):
     before = host.fm_overview_widget._positions[0].x
     monkeypatch.setattr(module, "message_box_ui", lambda **kwargs: True)
 
-    host.fm_overview_tab._on_move_requested("Lamella-01", _named("target", 400e-6, -200e-6))
+    host.fm_overview_tab._on_move_requested(
+        "Lamella-01", _named("target", 400e-6, -200e-6)
+    )
 
     assert host.fm_overview_widget._positions[0].x == pytest.approx(400e-6)
     assert host.fm_overview_widget._positions[0].x != pytest.approx(before)
@@ -3343,9 +3815,7 @@ def _tab_with(qapp, tmp_path, positions=()):
 
     microscope = build_microscope()
     experiment = _experiment_with(positions, tmp_path)
-    ui = type(
-        "_UI", (), {"microscope": microscope, "experiment": experiment}
-    )()
+    ui = type("_UI", (), {"microscope": microscope, "experiment": experiment})()
     ui.update_ui = lambda: None
     tab = AutoLamellaFluorescenceOverviewTab(ui)
     tab.refresh_microscope()
@@ -3399,10 +3869,12 @@ def test_the_list_shows_every_lamella_including_the_unplaceable(qapp, tmp_path):
 def test_picking_a_row_highlights_it_on_the_canvas(qapp, tmp_path):
     tab = _tab_with(qapp, tmp_path)
     microscope = tab.microscope
-    tab.experiment.positions.extend([
-        _lamella_with_poses("Lamella-01", microscope, tmp_path, 100e-6, 50e-6),
-        _lamella_with_poses("Lamella-02", microscope, tmp_path, -80e-6, 20e-6),
-    ])
+    tab.experiment.positions.extend(
+        [
+            _lamella_with_poses("Lamella-01", microscope, tmp_path, 100e-6, 50e-6),
+            _lamella_with_poses("Lamella-02", microscope, tmp_path, -80e-6, 20e-6),
+        ]
+    )
     tab.refresh_positions()
     qapp.processEvents()
 
@@ -3419,10 +3891,12 @@ def test_picking_a_row_tells_the_window(qapp, tmp_path):
     beats four talking to each other."""
     tab = _tab_with(qapp, tmp_path)
     microscope = tab.microscope
-    tab.experiment.positions.extend([
-        _lamella_with_poses("Lamella-01", microscope, tmp_path, 100e-6, 50e-6),
-        _lamella_with_poses("Lamella-02", microscope, tmp_path, -80e-6, 20e-6),
-    ])
+    tab.experiment.positions.extend(
+        [
+            _lamella_with_poses("Lamella-01", microscope, tmp_path, 100e-6, 50e-6),
+            _lamella_with_poses("Lamella-02", microscope, tmp_path, -80e-6, 20e-6),
+        ]
+    )
     tab.refresh_positions()
     qapp.processEvents()
     seen = []
@@ -3441,10 +3915,12 @@ def test_picking_a_row_tells_the_window(qapp, tmp_path):
 def test_a_selection_arriving_from_elsewhere_reaches_the_list(qapp, tmp_path):
     tab = _tab_with(qapp, tmp_path)
     microscope = tab.microscope
-    tab.experiment.positions.extend([
-        _lamella_with_poses("Lamella-01", microscope, tmp_path, 100e-6, 50e-6),
-        _lamella_with_poses("Lamella-02", microscope, tmp_path, -80e-6, 20e-6),
-    ])
+    tab.experiment.positions.extend(
+        [
+            _lamella_with_poses("Lamella-01", microscope, tmp_path, 100e-6, 50e-6),
+            _lamella_with_poses("Lamella-02", microscope, tmp_path, -80e-6, 20e-6),
+        ]
+    )
     tab.refresh_positions()
     qapp.processEvents()
 
@@ -3483,7 +3959,9 @@ def test_move_to_drives_the_stage_to_the_fluorescence_pose(qapp, tmp_path, monke
     tab._drop_overview()
 
 
-def test_move_to_a_lamella_with_no_fluorescence_pose_is_refused(qapp, tmp_path, monkeypatch):
+def test_move_to_a_lamella_with_no_fluorescence_pose_is_refused(
+    qapp, tmp_path, monkeypatch
+):
     from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     tab = _tab_with(qapp, tmp_path)
@@ -3717,8 +4195,9 @@ def test_translating_the_stage_leaves_the_markers_alone(qapp):
 
     here = microscope.get_stage_position()
     microscope.move_stage_absolute(
-        FibsemStagePosition(x=here.x + 200e-6, y=here.y - 90e-6, z=here.z,
-                            r=here.r, t=here.t)
+        FibsemStagePosition(
+            x=here.x + 200e-6, y=here.y - 90e-6, z=here.z, r=here.r, t=here.t
+        )
     )
     widget._on_stage_moved(microscope.get_stage_position())
     qapp.processEvents()
@@ -3775,10 +4254,12 @@ def test_clicking_a_marker_selects_it(qapp, interactive_widget):
     """As the minimap does. The markers are drawn by a non-interactive overlay, so the
     canvas's own click signal does the picking."""
     widget = interactive_widget
-    widget.set_positions([
-        _named("Lamella-01", 120e-6, 90e-6),
-        _named("Lamella-02", -160e-6, 40e-6),
-    ])
+    widget.set_positions(
+        [
+            _named("Lamella-01", 120e-6, 90e-6),
+            _named("Lamella-02", -160e-6, 40e-6),
+        ]
+    )
     picked = []
     widget.position_selected.connect(lambda name: picked.append(name))
     frame = widget._frame()
@@ -3824,6 +4305,12 @@ def test_the_pick_radius_is_screen_space(qapp, interactive_widget):
     before = (ax.get_xlim(), ax.get_ylim())
     # 80 um away from the marker, in stage terms
     near = frame.to_canvas(_named("probe", 200e-6, 90e-6))
+    # ...and outside its field-of-view box, or the box would pick it at every zoom and
+    # this would be testing nothing. 80 um clears a 102 um camera frame by 29 um; a
+    # coarser binning would not, and this says so rather than failing further down.
+    assert not widget.position_overlay.covers(
+        frame.to_canvas(_named("Lamella-01", 120e-6, 90e-6)), *near
+    ), "the probe is inside the box, so the radius is not what is being measured"
 
     ax.set_xlim(-50000, 50000)
     ax.set_ylim(-50000, 50000)
@@ -3851,15 +4338,18 @@ def test_the_nearest_marker_wins(qapp, interactive_widget):
     answer if the nearest happened to come last.
     """
     widget = interactive_widget
-    widget.set_positions([
-        _named("Lamella-02", 121e-6, 90e-6),   # nearest to the probe, and first
-        _named("Lamella-01", 120e-6, 90e-6),
-    ])
+    widget.set_positions(
+        [
+            _named("Lamella-02", 121e-6, 90e-6),  # nearest to the probe, and first
+            _named("Lamella-01", 120e-6, 90e-6),
+        ]
+    )
     frame = widget._frame()
 
-    assert widget._position_at(
-        *frame.to_canvas(_named("probe", 120.9e-6, 90e-6))
-    ) == "Lamella-02"
+    assert (
+        widget._position_at(*frame.to_canvas(_named("probe", 120.9e-6, 90e-6)))
+        == "Lamella-02"
+    )
 
     widget.set_positions([])
 
@@ -3869,10 +4359,12 @@ def test_clicking_a_marker_selects_the_lamella_everywhere(qapp, tmp_path):
     and it goes out on the same path a row click takes."""
     tab = _tab_with(qapp, tmp_path)
     microscope = tab.microscope
-    tab.experiment.positions.extend([
-        _lamella_with_poses("Lamella-01", microscope, tmp_path, 100e-6, 50e-6),
-        _lamella_with_poses("Lamella-02", microscope, tmp_path, -80e-6, 20e-6),
-    ])
+    tab.experiment.positions.extend(
+        [
+            _lamella_with_poses("Lamella-01", microscope, tmp_path, 100e-6, 50e-6),
+            _lamella_with_poses("Lamella-02", microscope, tmp_path, -80e-6, 20e-6),
+        ]
+    )
     tab.refresh_positions()
     qapp.processEvents()
     seen = []
@@ -3931,7 +4423,9 @@ def test_the_tile_grid_summary_is_never_clipped(qapp):
     lines was not enough to trigger it, which is why the widget-level test above passes
     either way.
     """
-    from fibsem.ui.fm.widgets.tile_grid_options_panel import TileGridOptionsPanel
+    from fibsem.ui.widgets.canvas.overlays.tile_grid_options_panel import (
+        TileGridOptionsPanel,
+    )
 
     panel = TileGridOptionsPanel()
     panel.set_summary("3 × 3  ·  10% overlap  ·  9/9 tiles\n287 × 287 µm")
@@ -4054,7 +4548,9 @@ def test_the_live_preview_never_becomes_a_record(qapp, blank_canvas):
     widget = blank_canvas
     import numpy as np
 
-    widget._show_preview({"image": np.zeros((4, 4), dtype=np.uint16), "preview_stride": 1})
+    widget._show_preview(
+        _fm_preview(channels=("CH0",), data=np.zeros((1, 4, 4), dtype=np.uint16))
+    )
     qapp.processEvents()
 
     assert PREVIEW_KEY in widget.canvas.canvas.placed_keys, "the preview was not drawn"
@@ -4136,7 +4632,9 @@ def test_a_record_describes_its_grid_and_scale(qapp, blank_canvas):
     assert widget.overviews()[0].detail == "3×3 · 1.20 µm/px"
 
 
-def test_a_saved_overview_is_labelled_by_the_folder_its_tiles_are_in(qapp, blank_canvas):
+def test_a_saved_overview_is_labelled_by_the_folder_its_tiles_are_in(
+    qapp, blank_canvas
+):
     """`OverviewDestination` stamps the run's directory name onto the mosaic, which is
     what someone looking for it on disk would search for."""
     widget = blank_canvas
@@ -4193,7 +4691,9 @@ def test_the_list_does_not_grow_a_row_for_the_live_preview(qapp, blank_canvas):
     widget = blank_canvas
     import numpy as np
 
-    widget._show_preview({"image": np.zeros((4, 4), dtype=np.uint16), "preview_stride": 1})
+    widget._show_preview(
+        _fm_preview(channels=("CH0",), data=np.zeros((1, 4, 4), dtype=np.uint16))
+    )
     qapp.processEvents()
 
     assert widget.overview_list._list.count() == 0
@@ -4211,7 +4711,9 @@ def _saved(widget, tmp_path, date="2026-08-07T09:00:00", name="overview-14-02-33
     return image, path
 
 
-def test_a_loaded_overview_lands_where_the_acquired_one_did(qapp, blank_canvas, tmp_path):
+def test_a_loaded_overview_lands_where_the_acquired_one_did(
+    qapp, blank_canvas, tmp_path
+):
     """The claim the whole feature rests on. `set_image` places by projecting through
     the image's *own* recorded geometry, and everything that projection needs -- the
     stage position's r and t, the hardware geometry, the pixel size -- survives the
@@ -4244,7 +4746,9 @@ def test_loading_gives_the_overview_a_record_and_a_row(qapp, blank_canvas, tmp_p
     assert widget.overview_list._list.count() == 1
 
 
-def test_a_loaded_overview_is_named_for_the_run_that_made_it(qapp, blank_canvas, tmp_path):
+def test_a_loaded_overview_is_named_for_the_run_that_made_it(
+    qapp, blank_canvas, tmp_path
+):
     """`description` survives the round trip, so the row still names the folder the
     tiles are in rather than falling back to a number."""
     widget = blank_canvas
@@ -4255,7 +4759,9 @@ def test_a_loaded_overview_is_named_for_the_run_that_made_it(qapp, blank_canvas,
     assert record.label == "overview-11-20-05"
 
 
-def test_a_loaded_overview_keeps_its_scale_but_loses_its_grid(qapp, blank_canvas, tmp_path):
+def test_a_loaded_overview_keeps_its_scale_but_loses_its_grid(
+    qapp, blank_canvas, tmp_path
+):
     """Documented, not a bug. `stitch_tileset` carries the grid in
     `stage_position.name`, which the OME-TIFF drops -- so a loaded row shows what it
     still knows rather than guessing (FIB-438)."""
@@ -4305,7 +4811,9 @@ def test_an_overview_with_no_geometry_is_shown_but_not_trusted(
     assert any(level == "warning" for _, level in toasts), "placed with no warning"
 
 
-def test_loading_the_same_file_twice_does_not_stack_two_copies(qapp, blank_canvas, tmp_path):
+def test_loading_the_same_file_twice_does_not_stack_two_copies(
+    qapp, blank_canvas, tmp_path
+):
     """The acquisition date survives the round trip, so the record match still holds
     across a reload."""
     widget = blank_canvas
@@ -4369,7 +4877,9 @@ def test_picking_no_file_places_nothing(qapp, blank_canvas, monkeypatch):
 # ── the start options say what they currently mean (FIB-417) ─────────────
 
 
-def test_the_start_options_show_where_they_would_put_the_objective(qapp, overview_widget):
+def test_the_start_options_show_where_they_would_put_the_objective(
+    qapp, overview_widget
+):
     """An option that names a position has to say which one. "Saved focus position" is
     only actionable next to the number, and next to where the objective is now."""
     widget = overview_widget
@@ -4380,7 +4890,9 @@ def test_the_start_options_show_where_they_would_put_the_objective(qapp, overvie
     combo = widget.settings_widget.combo_objective_start
     labels = [combo.itemText(i) for i in range(combo.count())]
     assert any("mm" in label for label in labels), f"no positions shown: {labels}"
-    assert any("8.000 mm" in label for label in labels), f"saved focus missing: {labels}"
+    assert any("8.000 mm" in label for label in labels), (
+        f"saved focus missing: {labels}"
+    )
 
 
 def test_an_unsaved_focus_position_says_so_rather_than_showing_nothing(
@@ -4458,7 +4970,9 @@ def test_acquiring_with_the_objective_retracted_is_refused_before_the_dialog(
     widget.fm.set_acquiring(False)
     widget.status.setText("")
     assert widget.at_acquisition_orientation()
-    monkeypatch.setattr(type(widget.fm.objective), "state", property(lambda self: "Retracted"))
+    monkeypatch.setattr(
+        type(widget.fm.objective), "state", property(lambda self: "Retracted")
+    )
     shown = []
     monkeypatch.setattr(
         "fibsem.ui.fm.widgets.fm_overview_widget.FMOverviewConfirmationDialog",
@@ -4497,7 +5011,9 @@ def test_loading_parameters_leaves_the_objective_start_combo_able_to_notify(qapp
     rather than a bug report: today only tests call the setter.
     """
     from fibsem.fm.structures import OverviewParameters
-    from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
+    from fibsem.ui.fm.widgets.fm_overview_settings_widget import (
+        FMOverviewSettingsWidget,
+    )
 
     widget = FMOverviewSettingsWidget()
     widget.parameters = OverviewParameters(rows=2, cols=2)
@@ -4563,7 +5079,9 @@ class TestTheCameraTransformReachesTheProjection:
             fm.set_image_transform(CameraImageTransform.FLIP_X)
             qapp.processEvents()
 
-            assert widget._projection().geometry.transform is CameraImageTransform.FLIP_X, (
+            assert (
+                widget._projection().geometry.transform is CameraImageTransform.FLIP_X
+            ), (
                 "the projection still carries the old transform, so every overlay "
                 "placed through it is drawn for a flip that no longer applies"
             )
@@ -4600,3 +5118,918 @@ class TestTheCameraTransformReachesTheProjection:
         assert "transform_changed" in source, (
             "the transform subscription is not in closeEvent's teardown list"
         )
+
+
+def test_the_canvas_says_how_to_edit_the_grid_while_it_is_shown(qapp):
+    """The gestures are otherwise discoverable only by accident: the cursor names the
+    edge drag and the paint modifier, but nothing on screen suggests trying either.
+
+    Tied to the grid's visibility rather than set once, so hiding the grid takes its
+    instructions with it -- a standing instruction for something not on screen is worse
+    than none.
+    """
+    widget = _fresh_widget(qapp)
+
+    hint = widget.canvas.canvas._hint_text
+    assert hint and "Shift+drag" in hint
+
+    widget.tile_grid_panel.visibility_changed.emit(False)
+
+    assert widget.canvas.canvas._hint_text is None
+
+
+def test_zz_the_shared_fixture_is_still_wired_at_the_end_of_the_file(
+    qapp, overview_widget
+):
+    """A canary, deliberately last: it only catches what happens *before* it.
+
+    The module-scoped widget is shared by ~100 tests, and psygnal holds bound methods
+    weakly, so anything that closes or drops it disconnects the lot in silence. Nothing
+    failed when that happened -- the tests carried on driving handlers directly, proving
+    less than they read as proving. If this fails, look for a test that closed, deleted
+    or replaced the shared widget rather than building its own with `_fresh_widget`
+    (FIB-623).
+    """
+    fm = overview_widget.fm
+    counts = {
+        "transform_changed": len(fm.transform_changed),
+        "acquiring_changed": len(fm.acquiring_changed),
+        "acquisition_progress_signal": len(fm.acquisition_progress_signal),
+        "objective.position_changed": len(fm.objective.position_changed),
+    }
+
+    assert all(counts.values()), f"the shared fixture went deaf mid-file: {counts}"
+
+
+def test_the_column_opens_at_the_dataclass_default_overlap(qapp):
+    """The default is stated once, in `OverviewParameters`, and the column takes it.
+
+    It used to be `spin_overlap.setValue(0.1)` in the widget -- the same number written
+    a second time -- and the shared grid panel cannot carry it, because the beam side
+    defaults the same setting to 0.0. Adopting the panel therefore silently opened the
+    fluorescence column at 0 % until this was seeded, which is a different run for
+    anyone who pressed Acquire without touching overlap.
+
+    Caught by rendering the column, not by a test: nothing asserted the default.
+    """
+    from fibsem.fm.structures import OverviewParameters
+
+    widget = FMOverviewSettingsWidget()
+
+    assert widget.parameters.overlap == OverviewParameters().overlap == 0.1
+    assert "10" in widget.grid.spin_overlap.text()
+
+
+class TestTheLockReachesTheCanvasToo:
+    """`set_interactive` gated the buttons and not the canvas.
+
+    So a workflow that owned the instrument could still have the stage driven out from
+    under it by a double-click on this overview -- the beam widget refused that from the
+    start, and the two disagreeing is what made a window-level lock unreliable (FIB-706).
+    """
+
+    def test_a_locked_widget_refuses_to_move(self, interactive_widget, monkeypatch):
+        widget = interactive_widget
+        toasts = []
+        monkeypatch.setattr(
+            "fibsem.ui.fm.widgets.fm_overview_widget.notification_service.show_toast",
+            lambda message, level="info", *a, **k: toasts.append((message, level)),
+        )
+        widget.set_interactive(False)
+        try:
+            assert widget._may_move() is False
+        finally:
+            widget.set_interactive(True)
+        # Refused for the stated reason, not incidentally by the orientation check that
+        # follows it -- which would pass this test while leaving the hole open.
+        assert any("workflow" in message for message, _ in toasts), toasts
+
+    def test_an_unlocked_widget_is_not_refused_for_that_reason(
+        self, interactive_widget, monkeypatch
+    ):
+        widget = interactive_widget
+        toasts = []
+        monkeypatch.setattr(
+            "fibsem.ui.fm.widgets.fm_overview_widget.notification_service.show_toast",
+            lambda message, level="info", *a, **k: toasts.append((message, level)),
+        )
+        widget.set_interactive(True)
+        widget._may_move()
+        assert not any("workflow" in message for message, _ in toasts), toasts
+
+
+class TestSayingWhenARunStarts:
+    """The signal a host locks the other overview off, and the trap underneath it:
+    `acquire()` sets the flag before it builds the worker, so a worker-only
+    `is_acquiring` said no at the exact moment the signal said yes."""
+
+    def test_the_signal_reports_the_new_state(self, interactive_widget):
+        seen = []
+        widget = interactive_widget
+        widget.acquiring_changed.connect(seen.append)
+        widget._set_running(True)
+        widget._set_running(False)
+        assert seen == [True, False]
+
+    def test_is_acquiring_already_agrees_when_the_signal_arrives(
+        self, interactive_widget
+    ):
+        widget = interactive_widget
+        answers = []
+        widget.acquiring_changed.connect(lambda _: answers.append(widget.is_acquiring))
+        widget._set_running(True)
+        try:
+            assert answers == [True], "the widget announced a run it does not admit to"
+        finally:
+            widget._set_running(False)
+        assert answers == [True, False]
+
+
+def test_the_worker_announces_the_save_before_it_writes(
+    qapp, overview_widget, tmp_path
+):
+    """The larger half of the end-of-run gap, and the half the *widget* owns.
+
+    Measured: the stitch is ~0.3 s for a 1.3 GB mosaic and the write is ~2.3 s of the
+    same 2.6 s. So announcing only the stitch — which the runner does — would still
+    leave most of the silence in place (FIB-725).
+
+    Driven through the real `_acquire_worker` rather than by emitting the payload from
+    the test: the whole risk here is that the widget does not send it, which a test that
+    sends it itself cannot see.
+    """
+    from fibsem.fm.acquisition import OverviewDestination
+
+    widget = overview_widget
+    mosaic = _acquire(widget)
+
+    class _StubRunner:
+        def run_and_stitch(self):
+            return mosaic
+
+    seen = []
+    widget.microscope.tiled_acquisition_signal.connect(seen.append)
+    runner, destination, saved = widget._runner, widget._destination, widget._saved_path
+    try:
+        widget._runner = _StubRunner()
+        widget._destination = OverviewDestination.create(str(tmp_path))
+        widget._acquire_worker()
+    finally:
+        widget.microscope.tiled_acquisition_signal.disconnect(seen.append)
+        widget._runner, widget._destination, widget._saved_path = (
+            runner,
+            destination,
+            saved,
+        )
+
+    states = [p.status for p in seen]
+    assert TiledStatus.SAVING in states, "the write is still silent"
+    assert states.index(TiledStatus.SAVING) < states.index(TiledStatus.FINISHED), (
+        "the save was announced after it had already happened"
+    )
+
+
+def test_a_tileset_payload_reaches_the_real_widget(qapp, overview_widget):
+    """The wiring, not the rendering.
+
+    Every other test here drives `_apply_tile_progress` directly, which covers what the
+    widget *does* with a payload and nothing about whether one arrives. The tileset
+    moved to `tiled_acquisition_signal` (FIB-725), so the subscription is precisely what
+    changed — and a broken one leaves this tab's own bar dead for a whole run with no
+    test noticing.
+    """
+    widget = overview_widget
+    widget.microscope.tiled_acquisition_signal.emit(
+        _fm(TiledStatus.TILE_COLLECTED, completed=4, total=9)
+    )
+    qapp.processEvents()
+
+    assert "4 / 9" in _bar(widget.progress_tiles).format()
+
+
+def test_an_fm_payload_reaches_the_real_widget(qapp, overview_widget):
+    """The other subscription, for the same reason as the one above.
+
+    The two scales arrive on two signals and are handled by two slots, so each
+    subscription can break on its own. This one going quiet leaves the within-tile bar
+    dead for a whole run -- visible only as a bar that never moves, which reads as a
+    slow acquisition rather than as a bug.
+    """
+    widget = overview_widget
+    widget.fm.acquisition_progress_signal.emit(
+        _fm_report(
+            FluorescenceAcquisitionStatus.ACQUIRING_ZSTACK,
+            channel="GFP",
+            zlevel=7,
+            total_zlevels=21,
+        )
+    )
+    qapp.processEvents()
+
+    assert "7 / 21" in _bar(widget.progress_tile_detail).format()
+
+
+def test_closing_disconnects_both_progress_signals(qapp, overview_widget):
+    """Both psygnals outlive the widget, so both must be dropped on the way out.
+
+    `tiled_acquisition_signal` was subscribed when the tileset moved onto it (FIB-725)
+    and never added to the teardown list, which the list's own comment claims is
+    exhaustive. Emitting into a closed tab from a beam run elsewhere in the application
+    is the segfault that list exists to prevent.
+    """
+    widget = overview_widget
+    widget.close()
+    qapp.processEvents()
+
+    for signal, slot_name in (
+        (widget.microscope.tiled_acquisition_signal, "_on_tile_progress"),
+        (widget.fm.acquisition_progress_signal, "_on_fm_progress"),
+    ):
+        assert not any(slot_name in repr(s) for s in signal._slots), (
+            f"{slot_name} still connected after close"
+        )
+
+
+def test_a_beam_run_does_not_drive_the_fluorescence_bar(qapp, overview_widget):
+    """Both tilers report on this signal now. This tab draws one of them.
+
+    Ignored today even without the modality check — beam payloads carry no `task` — but
+    that is an accident of vocabulary rather than a decision, and the beam tiler gaining
+    a `task` key would be a reasonable thing for it to do.
+    """
+    widget = overview_widget
+    widget.microscope.tiled_acquisition_signal.emit(
+        _fm(TiledStatus.TILE_COLLECTED, completed=4, total=9)
+    )
+    qapp.processEvents()
+    before = _bar(widget.progress_tiles).format()
+
+    widget.microscope.tiled_acquisition_signal.emit(
+        _fm(
+            TiledStatus.TILE_COLLECTED,
+            modality=MODALITY_BEAM,
+            completed=8,
+            total=9,
+        )
+    )
+    qapp.processEvents()
+
+    assert _bar(widget.progress_tiles).format() == before
+
+
+def test_the_announcement_payload_does_not_redraw_the_tile_bar(qapp):
+    """One producer for one bar.
+
+    A tile emits twice: an announcement before it -- which tile is starting -- and a
+    report after it, carrying the completed tally, the estimate and the preview. Only
+    the second describes progress, and only the second touches the bar.
+
+    Both used to carry counts, with different meanings and different shapes, so the bar
+    changed scale at every boundary: a countdown in tenths of a second against a tally
+    in tiles (FIB-739). Fixing that in this widget left the bar driven by the
+    announcement, which is emitted *before* its tile and could only ever be one short --
+    it stopped at 3/4 for the whole run (FIB-736). The announcement now carries no
+    counts at all, which settles both.
+    """
+    router = _Router()
+    router._apply_tile_progress(
+        _fm(
+            TiledStatus.TILE_COLLECTED,
+            completed=2,
+            total=4,
+            estimated_remaining_seconds=18.0,
+            estimated_total_seconds=24.0,
+        )
+    )
+    before = (
+        _bar(router.progress_tiles).value(),
+        _bar(router.progress_tiles).maximum(),
+        _bar(router.progress_tiles).format(),
+    )
+
+    router._apply_tile_progress(
+        _fm(
+            TiledStatus.TILE_STARTED,
+            row_index=1,
+            column_index=2,
+            rows=2,
+            columns=2,
+        )
+    )
+
+    after = (
+        _bar(router.progress_tiles).value(),
+        _bar(router.progress_tiles).maximum(),
+        _bar(router.progress_tiles).format(),
+    )
+    assert after == before, "the announcement redrew the bar"
+    assert "remaining" in after[2], "the estimate was dropped"
+
+
+def test_the_preview_is_still_shown(qapp):
+    """The filter above must not cost the thing the payload is actually for."""
+    shown = []
+    router = _Router()
+    router._show_preview = shown.append
+
+    preview = _fm_preview()
+    router._apply_tile_progress(
+        _fm(TiledStatus.TILE_COLLECTED, completed=2, total=4, preview=preview)
+    )
+
+    assert shown == [preview]
+
+
+# ── a grid beyond the stage's travel (FIB-741) ───────────────────────────
+
+
+def _runners_verdict(widget, parameters):
+    """What the runner's own route says about the same grid.
+
+    Replicates `FMTiledAcquisitionRunner._compute_grid`'s projection loop -- through
+    `microscope.project_fm_stable_move`, which reads the camera geometry on every call
+    -- so the tab's cached-projection answer is compared against the thing it is
+    standing in for, not against arithmetic repeated from the tab.
+    """
+    from fibsem.imaging.tiling import order_tiles, validate_tile_stage_positions
+    from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
+
+    fov = widget.settings_widget._tile_fov
+    projection = widget._projection()
+    height, width = projection.shape
+    tiles = compute_tile_grid_from_fov(
+        nrows=parameters.rows,
+        ncols=parameters.cols,
+        fov_x=fov[0],
+        fov_y=fov[1],
+        image_width=width,
+        image_height=height,
+        overlap=parameters.overlap,
+        mask=parameters.tile_mask,
+    )
+    step_x = fov[0] * (1 - parameters.overlap)
+    step_y = fov[1] * (1 - parameters.overlap)
+    offset_x = (parameters.cols - 1) * step_x / 2
+    offset_y = (parameters.rows - 1) * step_y / 2
+    centre = widget._grid_centre()
+    ordered = order_tiles(tiles, parameters.tile_order)
+    positions = [
+        widget.microscope.project_fm_stable_move(
+            dx=tile.dx - offset_x, dy=tile.dy + offset_y, base_position=centre
+        )
+        for tile in ordered
+    ]
+    return sorted(
+        validate_tile_stage_positions(
+            ordered, positions, widget.microscope._stage.limits
+        )
+    )
+
+
+@pytest.mark.parametrize(("rows", "cols"), [(3, 3), (11, 11), (25, 3)])
+def test_the_tab_and_the_runner_agree_on_what_cannot_be_reached(
+    qapp, interactive_widget, rows, cols
+):
+    """A compustage travels +/-999.9 um in x and only +/-377.8 um in y, so a grid that
+    looks square and central can be out of range top and bottom -- 11x11 is, 3x3 is not.
+
+    Both sizes on purpose: an agreement test where both sides say "nothing" would pass
+    against a check that never fires.
+    """
+    widget = interactive_widget
+    parameters = widget.settings_widget.parameters
+    previous = (parameters.rows, parameters.cols)
+    try:
+        parameters.rows, parameters.cols = rows, cols
+        assert sorted(widget._unreachable(parameters)) == _runners_verdict(
+            widget, parameters
+        )
+    finally:
+        parameters.rows, parameters.cols = previous
+
+
+@pytest.fixture
+def grid_of(qapp, interactive_widget):
+    """Resize the widget's grid, and put it back.
+
+    Through the settings widget rather than by mutating what `parameters` returns: that
+    property builds a fresh `OverviewParameters` on every read, so an edit to one is
+    not an edit to the widget -- and `acquire()` reads its own.
+    """
+    from copy import deepcopy
+
+    widget = interactive_widget
+    original = deepcopy(widget.settings_widget.parameters)
+
+    def resize(rows, cols):
+        from fibsem.fm.structures import ObjectiveStartPosition
+
+        parameters = deepcopy(original)
+        parameters.rows, parameters.cols = rows, cols
+        parameters.tile_mask = None
+        # Pinned rather than inherited. The widget is module-scoped, and a sibling test
+        # leaves `objective_start` on FOCUS with no focus position saved -- which
+        # `acquire()` refuses before it reaches the dialog, so these would pass alone
+        # and fail in the file.
+        parameters.objective_start = ObjectiveStartPosition.CURRENT
+        widget.settings_widget.parameters = parameters
+        qapp.processEvents()
+        return widget
+
+    yield resize
+    widget.settings_widget.parameters = original
+    qapp.processEvents()
+
+
+@pytest.fixture
+def dialogs(monkeypatch):
+    """Record the pre-flight dialog and decline it -- nothing past it has to run."""
+    from fibsem.ui.fm.widgets import fm_overview_widget as module
+
+    shown = []
+
+    def _exec(dialog):
+        shown.append(dialog)
+        return module.QDialog.Rejected
+
+    monkeypatch.setattr(module.FMOverviewConfirmationDialog, "exec_", _exec)
+    return shown
+
+
+def test_an_out_of_range_grid_reaches_the_dialog(qapp, grid_of, dialogs):
+    """The check is only worth having if what it finds is what the dialog is handed."""
+    widget = grid_of(11, 11)
+    # A sibling test acquires with a fake worker, whose `finally` never runs -- so the
+    # FM can still be marked in use, and `acquire()` refuses before it reaches the
+    # dialog. Cleared rather than depended on: this is already false in a clean state.
+    widget.fm.set_acquiring(False)
+
+    widget.acquire()
+    qapp.processEvents()
+
+    assert len(dialogs) == 1, "the dialog did not open"
+    assert dialogs[0].unreachable, "the dialog was not told the grid is out of range"
+    assert not dialogs[0].button_start.isEnabled()
+
+
+def test_a_check_that_cannot_run_does_not_hold_up_the_fm_dialog(
+    qapp, grid_of, dialogs, monkeypatch
+):
+    """Best effort, like `_camera_resolution` beside it: failing to warn costs the
+    warning, not the run. The runner still refuses the grid."""
+    from fibsem.ui.fm.widgets import fm_overview_widget as module
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("no limits today")
+
+    monkeypatch.setattr(module, "unreachable_tiles", explode)
+
+    widget = grid_of(11, 11)
+    widget.fm.set_acquiring(False)
+
+    widget.acquire()
+    qapp.processEvents()
+
+    assert len(dialogs) == 1, "the dialog did not open"
+    assert dialogs[0].unreachable == []
+    assert dialogs[0].button_start.isEnabled()
+
+
+def test_the_fm_canvas_flags_the_tiles_it_cannot_reach(qapp, grid_of):
+    """The other caller of the shared overlay, and the one where it bites hardest: a
+    compustage travels +/-999.9 um in x and only +/-377.8 um in y, so an 11x11 that
+    looks square and central runs out top and bottom (FIB-750)."""
+    widget = grid_of(3, 3)
+    assert widget.tile_grid_overlay._unreachable == set(), (
+        "a 3x3 was flagged, so this proves nothing"
+    )
+
+    widget = grid_of(11, 11)
+
+    assert widget.tile_grid_overlay._unreachable, "nothing was flagged"
+    assert widget.tile_grid_overlay._unreachable == set(
+        widget._unreachable(widget.settings_widget.parameters)
+    ), "the canvas and the dialog would disagree"
+
+
+def test_the_fm_grid_refresh_repaints_once(qapp, grid_of):
+    """Anchor and flags go over with the grid. Each setter repaints every tile patch,
+    and this runs on every motion event of a drag (FIB-751)."""
+    widget = grid_of(5, 5)
+    overlay = widget.tile_grid_overlay
+    redraws = []
+    original = overlay._redraw
+
+    def counting():
+        redraws.append(1)
+        original()
+
+    overlay._redraw = counting
+    try:
+        widget._refresh_tile_grid()
+    finally:
+        overlay._redraw = original
+
+    assert len(redraws) == 1, f"one refresh caused {len(redraws)} repaints"
+
+
+def test_the_fm_drag_does_not_redeclare_the_working_area(qapp, grid_of):
+    """`set_world_extent` asks the canvas to repaint, and a repaint is what the blitted
+    grid is drawn over -- so doing it per motion event put two full canvas draws on
+    every event and undid the blitting on this tab entirely (FIB-627, FIB-752).
+
+    Deferred to `drag_finished`, which arrives once. Nobody measures zoom limits against
+    it mid-gesture.
+    """
+    widget = grid_of(3, 3)
+    overlay = widget.tile_grid_overlay
+    calls = []
+    original = widget.canvas.set_world_extent
+    widget.canvas.set_world_extent = lambda *a, **k: calls.append(1)
+    try:
+        overlay._move_active = True
+        widget._refresh_tile_grid()
+        assert calls == [], "the working area was re-declared during a drag"
+
+        overlay._move_active = False
+        widget._refresh_tile_grid()
+        assert calls, "it was never re-declared once the drag ended"
+    finally:
+        widget.canvas.set_world_extent = original
+        overlay._move_active = False
+
+
+def test_finishing_a_drag_does_not_move_the_view(qapp, grid_of):
+    """A drag must not re-frame, and the end of a drag is still the drag.
+
+    It did: deferring the working area means it stops following the grid, so by the end
+    of any drag `left_area` is true of an area that simply stayed put -- and every drag
+    ended by fitting the view to the grid.
+    """
+    widget = grid_of(3, 3)
+    overlay = widget.tile_grid_overlay
+    anchor = overlay._anchor()
+    fits = []
+    original = overlay.fit_view
+    overlay.fit_view = lambda *a, **k: fits.append(1)
+    try:
+        # Far enough that the grid genuinely leaves the working area it left behind --
+        # asserted below, because a drag too small for that would make this test pass
+        # against no guard at all.
+        overlay._move_active = True
+        widget._on_grid_move(anchor[0] + 4000.0, anchor[1] + 3000.0)
+        qapp.processEvents()
+
+        parameters = widget.settings_widget.parameters
+        fov = widget.settings_widget._tile_fov
+        span_x = parameters.cols * fov[0] * (1 - parameters.overlap) + fov[0]
+        span_y = parameters.rows * fov[1] * (1 - parameters.overlap) + fov[1]
+        assert widget._grid_has_left_the_working_area(
+            widget._grid_offset(), span_x, span_y
+        ), "the grid never left the working area, so nothing would re-frame anyway"
+
+        overlay._move_active = False
+        overlay.drag_finished.emit()
+        qapp.processEvents()
+    finally:
+        overlay.fit_view = original
+        overlay._move_active = False
+        widget.clear_target()
+        qapp.processEvents()
+
+    assert fits == [], "the end of the drag re-framed the view"
+
+
+def test_a_real_reason_to_re_frame_still_re_frames(qapp, grid_of):
+    """The suppression is for the tail of a gesture, not a blanket off switch: a grid
+    whose footprint changed is a reason the user would expect the view to move."""
+    widget = grid_of(3, 3)
+    overlay = widget.tile_grid_overlay
+    fits = []
+    original = overlay.fit_view
+    overlay.fit_view = lambda *a, **k: fits.append(1)
+    try:
+        grid_of(5, 5)  # a different footprint, outside any drag
+        qapp.processEvents()
+    finally:
+        overlay.fit_view = original
+
+    assert fits, "a changed footprint no longer re-frames"
+
+
+def test_the_fm_tab_finishes_the_drag_when_the_overlay_says_so(qapp, grid_of):
+    """The deferred work has to actually arrive, or the working area stays as it was
+    when the drag started.
+
+    Asserted through `set_world_extent` rather than by patching `_refresh_tile_grid`:
+    the signal is connected to the bound method at construction, so replacing the
+    attribute afterwards intercepts nothing and the test passes on a disconnected
+    signal.
+    """
+    widget = grid_of(3, 3)
+    calls = []
+    original = widget.canvas.set_world_extent
+    widget.canvas.set_world_extent = lambda *a, **k: calls.append(1)
+    try:
+        widget.tile_grid_overlay.drag_finished.emit()
+        qapp.processEvents()
+    finally:
+        widget.canvas.set_world_extent = original
+
+    assert calls, "drag_finished is not wired to anything on this tab"
+
+
+# ── the typed contract (FIB-402) ─────────────────────────────────────────────
+#
+# Nothing emits a `TiledProgress` yet. The dict tests above are what proves that path
+# has not moved; these drive the typed path directly, so the producer flip is a change
+# to the producers alone.
+
+
+def test_a_typed_tile_report_moves_only_the_tile_bar(qapp):
+    from fibsem.imaging.tiling.progress import TiledStatus
+
+    router = _Router()
+
+    router._apply_tile_progress(_fm(TiledStatus.TILE_COLLECTED, completed=4, total=9))
+
+    assert (
+        _bar(router.progress_tiles).value(),
+        _bar(router.progress_tiles).maximum(),
+    ) == (4, 9)
+    assert not router.progress_tile_detail.isVisible()
+
+
+def test_a_typed_beam_report_is_ignored_entirely(qapp):
+    """The two tilers write into different canvases and different bars, so the modality
+    is checked before anything else — terminal states included (FIB-725)."""
+    from fibsem.imaging.tiling.progress import MODALITY_BEAM, TiledStatus
+
+    router = _Router()
+
+    router._apply_tile_progress(
+        _fm(TiledStatus.FINISHED, modality=MODALITY_BEAM, completed=9, total=9)
+    )
+
+    assert not hasattr(router, "finished")
+    assert _bar(router.progress_tiles).maximum() != 9
+
+
+def test_a_typed_stage_move_labels_rather_than_filling_the_bar(qapp):
+    """`indeterminate` paints a *full* bar with a spinner, so every stage move looked
+    like the run had just completed. The count stays; the state goes to the label."""
+    from fibsem.imaging.tiling.progress import TiledStatus
+
+    router = _Router()
+    router._apply_tile_progress(_fm(TiledStatus.TILE_COLLECTED, completed=4, total=9))
+
+    router._apply_tile_progress(_fm(TiledStatus.MOVING))
+
+    assert router.status.text() == "Moving stage…"
+    assert (
+        _bar(router.progress_tiles).value(),
+        _bar(router.progress_tiles).maximum(),
+    ) == (4, 9)
+
+
+def test_a_typed_state_with_nothing_to_say_clears_the_label(qapp):
+    """`TILES_ACQUIRED` is a real transition with no wording of its own — the label the
+    stage move put up has to come down rather than sit there through the stitch."""
+    from fibsem.imaging.tiling.progress import TiledStatus
+
+    router = _Router()
+    router._apply_tile_progress(_fm(TiledStatus.MOVING))
+    assert router.status.text() == "Moving stage…"
+
+    router._apply_tile_progress(_fm(TiledStatus.TILES_ACQUIRED))
+
+    assert router.status.text() == ""
+
+
+def test_a_typed_tile_announcement_does_not_move_the_bar(qapp):
+    """Emitted *before* the tile, so a count taken from it is always one short — a bar
+    driven off it stopped at 3/4 for a whole four-tile run (FIB-736)."""
+    from fibsem.imaging.tiling.progress import TiledStatus
+
+    router = _Router()
+    router._apply_tile_progress(_fm(TiledStatus.TILE_COLLECTED, completed=4, total=9))
+
+    router._apply_tile_progress(
+        _fm(TiledStatus.TILE_STARTED, row_index=1, column_index=2, rows=3, columns=3)
+    )
+
+    assert (
+        _bar(router.progress_tiles).value(),
+        _bar(router.progress_tiles).maximum(),
+    ) == (4, 9)
+
+
+@pytest.mark.parametrize("status", ["FINISHED", "CANCELLED", "FAILED"])
+def test_every_terminal_state_finishes_the_run(qapp, status):
+    """`_finish` is this widget's only exit path: it swaps the preview for the stitch,
+    clears the worker and re-enables the tab. A terminal state that misses it leaves the
+    FM unusable for the rest of the session with nothing on screen to say why."""
+    from fibsem.imaging.tiling.progress import TiledStatus
+
+    router = _Router()
+
+    router._apply_tile_progress(
+        _fm(getattr(TiledStatus, status), error="why" if status == "FAILED" else None)
+    )
+
+    assert router.finished == (
+        getattr(TiledStatus, status),
+        "why" if status == "FAILED" else None,
+    )
+
+
+def test_a_typed_preview_is_drawn_once_per_completed_tile(qapp):
+    from fibsem.imaging.tiling.progress import TiledStatus
+
+    router = _Router()
+    preview = _fm_preview()
+
+    router._apply_tile_progress(
+        _fm(TiledStatus.TILE_COLLECTED, completed=1, total=9, preview=preview)
+    )
+
+    assert router.previews == [preview]
+
+
+class _FakeCanvas:
+    def __init__(self):
+        self.composite_key = None
+        self.placement = None
+        self.pixel_size = None
+        self.retained = None
+        self.channels = None
+
+    def set_composite_key(self, key):
+        self.composite_key = key
+
+    def set_placement(self, offset):
+        self.placement = offset
+
+    def set_pixel_size(self, size):
+        self.pixel_size = size
+
+    def retain_channels(self, names):
+        self.retained = list(names)
+
+    def set_channels(self, channels):
+        self.channels = list(channels)
+
+
+class _PreviewHost:
+    """Only what `_show_typed_preview` is allowed to touch.
+
+    Deliberately missing `_runner`, `_projection` and `channels`. The dict version read
+    all three; if the typed one still reaches for any of them it raises `AttributeError`
+    into the method's own `except`, the canvas is never touched, and the assertions
+    below fail. That absence is the test.
+    """
+
+    _show_preview = FMOverviewWidget._show_preview
+
+    def __init__(self):
+        self.canvas = _FakeCanvas()
+        self.offsets = []
+
+    def _offset_from_origin(self, position):
+        self.offsets.append(position)
+        return (1.0, 2.0)
+
+
+def test_a_typed_preview_places_itself_from_its_own_metadata(qapp):
+    """Where, at what scale, and which channels — all off the preview.
+
+    The dict form took the centre from `self._runner`, the pixel size from
+    `self._projection().pixel_size * stride`, and the channels from the widget. The
+    middle one reads the camera under an `active_channel()` scope once a tile *during*
+    a run, so the display was taking the shared channel from the acquisition using it.
+    """
+    from fibsem.structures import FibsemStagePosition
+    from fibsem.ui.fm.widgets.fm_overview_widget import PREVIEW_KEY
+
+    host = _PreviewHost()
+    position = FibsemStagePosition(x=1e-3, y=2e-3, z=0.0)
+
+    host._show_preview(_fm_preview(pixel_size=2e-7, position=position))
+
+    assert host.canvas.composite_key == PREVIEW_KEY
+    assert host.offsets == [position]
+    assert host.canvas.placement == (1.0, 2.0)
+    # Already stride-scaled by the producer: no multiply on this side.
+    assert host.canvas.pixel_size == 2e-7
+    assert host.canvas.retained == ["DAPI", "GFP"]
+    assert [name for name, _, _ in host.canvas.channels] == ["DAPI", "GFP"]
+    assert [colour for _, _, colour in host.canvas.channels] == ["cyan", "magenta"]
+
+
+def test_a_typed_preview_without_a_position_still_draws(qapp):
+    """A run that could not resolve a centre lands at the origin rather than not at
+    all — the same fallback the dict form had."""
+    host = _PreviewHost()
+
+    host._show_preview(_fm_preview(position=None))
+
+    assert host.offsets == []
+    assert host.canvas.placement == (0.0, 0.0)
+    assert host.canvas.channels is not None
+
+
+# ── the typed fluorescence progress contract (FIB-401) ───────────────────────
+#
+# The detector's own signal, which drives the *within-tile* bar -- a different scale from
+# the tileset progress above, and a different signal. Nothing emits a typed report yet;
+# the dict tests above are what proves that path has not moved.
+
+
+def test_a_typed_zstack_report_counts_planes_on_the_detail_bar(qapp):
+    from fibsem.fm.progress import FluorescenceAcquisitionStatus
+
+    router = _Router()
+
+    router._apply_fm_progress(
+        _fm_report(
+            FluorescenceAcquisitionStatus.ACQUIRING_ZSTACK,
+            channel="DAPI",
+            zlevel=3,
+            total_zlevels=7,
+        )
+    )
+
+    assert (
+        _bar(router.progress_tile_detail).value(),
+        _bar(router.progress_tile_detail).maximum(),
+    ) == (3, 7)
+
+
+def test_a_typed_channel_report_counts_channels_instead(qapp):
+    """The same bar reads sensibly either way, rather than sitting empty whenever
+    z-stacking happens to be off."""
+    from fibsem.fm.progress import FluorescenceAcquisitionStatus
+
+    router = _Router()
+
+    router._apply_fm_progress(
+        _fm_report(
+            FluorescenceAcquisitionStatus.ACQUIRING_CHANNELS,
+            channel="GFP",
+            channel_index=2,
+            total_channels=3,
+        )
+    )
+
+    assert (
+        _bar(router.progress_tile_detail).value(),
+        _bar(router.progress_tile_detail).maximum(),
+    ) == (2, 3)
+
+
+def test_a_typed_focus_sweep_is_labelled_as_focus_not_a_z_stack(qapp):
+    """Both statuses carry a z count and take the same branch -- which is exactly why
+    the contract is one record rather than a type per acquisition routine. What
+    separates them here is the wording."""
+    from fibsem.fm.progress import FluorescenceAcquisitionStatus
+
+    router = _Router()
+
+    router._apply_fm_progress(
+        _fm_report(
+            FluorescenceAcquisitionStatus.ACQUIRING_AUTOFOCUS,
+            channel="DAPI",
+            zlevel=3,
+            total_zlevels=7,
+            pass_index=2,
+            total_passes=2,
+        )
+    )
+
+    text = _bar(router.progress_tile_detail).format()
+    assert "focus" in text and "z-stack" not in text
+    assert "2/2" in text, "a multi-pass sweep should say which pass"
+
+
+def test_a_typed_finished_report_does_not_draw_the_detail_bar(qapp):
+    """It describes the acquisition ending rather than progress within it, so drawing it
+    would be a bar with nothing in it."""
+    from fibsem.fm.progress import FluorescenceAcquisitionStatus
+
+    router = _Router()
+    router._apply_fm_progress(
+        _fm_report(
+            FluorescenceAcquisitionStatus.ACQUIRING_ZSTACK, zlevel=2, total_zlevels=4
+        )
+    )
+    before = (
+        _bar(router.progress_tile_detail).value(),
+        _bar(router.progress_tile_detail).maximum(),
+    )
+
+    router._apply_fm_progress(_fm_report(FluorescenceAcquisitionStatus.FINISHED))
+
+    assert (
+        _bar(router.progress_tile_detail).value(),
+        _bar(router.progress_tile_detail).maximum(),
+    ) == before

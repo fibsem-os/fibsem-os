@@ -19,14 +19,12 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     AutoLamellaTaskState,
-)
-from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
-from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowConfig,
     DefectType,
     Experiment,
     Lamella,
 )
+from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 
 
@@ -54,13 +52,18 @@ class NoMicroscope:
     Experiment.register_metadata stamps the user and experiment ref onto it, so
     it has to be something attributes can be set on — None will not do.
     """
+
     fm = None
 
 
-def make_lamella(experiment: Experiment, name: str, is_failure: bool = False,
-                 completed=()) -> Lamella:
-    lamella = Lamella(path=Path(experiment.path) / name,
-                      number=len(experiment.positions) + 1, petname=name)
+def make_lamella(
+    experiment: Experiment, name: str, is_failure: bool = False, completed=()
+) -> Lamella:
+    lamella = Lamella(
+        path=Path(experiment.path) / name,
+        number=len(experiment.positions) + 1,
+        petname=name,
+    )
     if is_failure:
         lamella.defect.state = DefectType.FAILURE
     for task_name in completed:
@@ -71,8 +74,11 @@ def make_lamella(experiment: Experiment, name: str, is_failure: bool = False,
     return lamella
 
 
-def make_experiment(tmp_path: Path, requirements: Optional[Dict[str, List[str]]] = None,
-                    lamella_names=("L1", "L2")) -> Experiment:
+def make_experiment(
+    tmp_path: Path,
+    requirements: Optional[Dict[str, List[str]]] = None,
+    lamella_names=("L1", "L2"),
+) -> Experiment:
     """A real Experiment with a real task protocol.
 
     ``required=False`` throughout so nothing is ever "complete" — the completion
@@ -83,8 +89,12 @@ def make_experiment(tmp_path: Path, requirements: Optional[Dict[str, List[str]]]
     experiment.task_protocol = AutoLamellaTaskProtocol(
         workflow_config=AutoLamellaWorkflowConfig(
             tasks=[
-                AutoLamellaTaskDescription(name=name, supervise=False, required=False,
-                                           requires=reqs.get(name, []))
+                AutoLamellaTaskDescription(
+                    name=name,
+                    supervise=False,
+                    required=False,
+                    requires=reqs.get(name, []),
+                )
                 for name in ("Trench", "Undercut", "Polishing")
             ]
         )
@@ -117,8 +127,11 @@ def run_queue_with(manager: TaskManager, on_task=None):
 
 @pytest.fixture
 def manager(tmp_path) -> TaskManager:
-    m = TaskManager(microscope=NoMicroscope(),
-                    experiment=make_experiment(tmp_path), parent_ui=RecordingUI())
+    m = TaskManager(
+        microscope=NoMicroscope(),
+        experiment=make_experiment(tmp_path),
+        parent_ui=RecordingUI(),
+    )
     m.queue.build_from_matrix(["Trench", "Undercut"], ["L1", "L2"])
     return m
 
@@ -129,13 +142,17 @@ def last_status(manager: TaskManager) -> dict:
 
 # ── _emit_status ──────────────────────────────────────────────────────────────
 
+
 def test_emit_reports_position_in_the_live_queue(manager):
     item = manager.queue.items[2]
-    manager._emit_status(item=item, lamella=manager.experiment.get_lamella_by_name(item.lamella_name),
-                         status=Status.InProgress)
+    manager._emit_status(
+        item=item,
+        lamella=manager.experiment.get_lamella_by_name(item.lamella_name),
+        status=Status.InProgress,
+    )
     status = last_status(manager)
-    assert status["queue_position"] == 3
-    assert status["queue_total"] == 4
+    assert status.queue_position == 3
+    assert status.queue_total == 4
 
 
 def test_emit_for_a_task_outside_the_launch_plan(manager):
@@ -143,46 +160,62 @@ def test_emit_for_a_task_outside_the_launch_plan(manager):
     added = manager.queue.add("L1", "Polishing")
     assert added.task_name not in manager.queue.task_names
 
-    manager._emit_status(item=added, lamella=manager.experiment.get_lamella_by_name("L1"),
-                         status=Status.InProgress)
+    manager._emit_status(
+        item=added,
+        lamella=manager.experiment.get_lamella_by_name("L1"),
+        status=Status.InProgress,
+    )
     status = last_status(manager)
-    assert status["task_name"] == "Polishing"
-    assert status["queue_position"] == 5
-    assert status["queue_total"] == 5
+    assert status.task_name == "Polishing"
+    assert status.queue_position == 5
+    assert status.queue_total == 5
 
 
 def test_emit_for_a_lamella_outside_the_launch_plan(manager):
     added = manager.queue.add("L99", "Trench")
-    manager._emit_status(item=added,
-                         lamella=make_lamella(manager.experiment, "L99"),
-                         status=Status.InProgress)
+    manager._emit_status(
+        item=added,
+        lamella=make_lamella(manager.experiment, "L99"),
+        status=Status.InProgress,
+    )
     status = last_status(manager)
-    assert status["item_name"] == "L99"
+    assert status.item_name == "L99"
     # deprecated alias, dropped with the HookContext shims after v0.6 (FIB-464)
-    assert status["lamella_name"] == "L99"
-    assert status["queue_position"] == 5
+    assert status.lamella_name == "L99"
+    assert status.queue_position == 5
 
 
 def test_emit_position_follows_a_reorder(manager):
     item = manager.queue.items[3]
     manager.queue.move_to_front(item.id)
-    manager._emit_status(item=item, lamella=manager.experiment.get_lamella_by_name(item.lamella_name),
-                         status=Status.InProgress)
-    assert last_status(manager)["queue_position"] == 1
+    manager._emit_status(
+        item=item,
+        lamella=manager.experiment.get_lamella_by_name(item.lamella_name),
+        status=Status.InProgress,
+    )
+    assert last_status(manager).queue_position == 1
 
 
 def test_emit_carries_the_launch_plan_as_context(manager):
     item = manager.queue.items[0]
-    manager._emit_status(item=item, lamella=manager.experiment.get_lamella_by_name("L1"), status=Status.InProgress)
+    manager._emit_status(
+        item=item,
+        lamella=manager.experiment.get_lamella_by_name("L1"),
+        status=Status.InProgress,
+    )
     status = last_status(manager)
-    assert status["task_names"] == ["Trench", "Undercut"]
-    assert status["lamella_names"] == ["L1", "L2"]
+    assert status.task_names == ["Trench", "Undercut"]
+    assert status.lamella_names == ["L1", "L2"]
 
 
 def test_emit_includes_a_queue_snapshot(manager):
     item = manager.queue.items[0]
-    manager._emit_status(item=item, lamella=manager.experiment.get_lamella_by_name("L1"), status=Status.InProgress)
-    snapshot = last_status(manager)["queue_items"]
+    manager._emit_status(
+        item=item,
+        lamella=manager.experiment.get_lamella_by_name("L1"),
+        status=Status.InProgress,
+    )
+    snapshot = last_status(manager).queue_items
     assert len(snapshot) == 4
     snapshot[0].status = Status.Failed
     assert manager.queue.items[0].status is not Status.Failed
@@ -190,11 +223,17 @@ def test_emit_includes_a_queue_snapshot(manager):
 
 def test_emit_passes_through_error_and_skip_detail(manager):
     item = manager.queue.items[0]
-    manager._emit_status(item=item, lamella=manager.experiment.get_lamella_by_name("L1"), status=Status.Failed,
-                         msg="boom", error_message="it broke", task_duration=12.5)
+    manager._emit_status(
+        item=item,
+        lamella=manager.experiment.get_lamella_by_name("L1"),
+        status=Status.Failed,
+        msg="boom",
+        error_message="it broke",
+        task_duration=12.5,
+    )
     status = last_status(manager)
-    assert status["error_message"] == "it broke"
-    assert status["task_duration"] == 12.5
+    assert status.error_message == "it broke"
+    assert status.task_duration == 12.5
     assert manager.parent_ui.workflow_update_signal.emitted[-1]["msg"] == "boom"
 
 
@@ -202,12 +241,15 @@ def test_emit_is_a_noop_headless(tmp_path):
     experiment = make_experiment(tmp_path, lamella_names=["L1"])
     m = TaskManager(microscope=NoMicroscope(), experiment=experiment, parent_ui=None)
     m.queue.build_from_matrix(["Trench"], ["L1"])
-    m._emit_status(item=m.queue.items[0],
-                   lamella=experiment.get_lamella_by_name("L1"),
-                   status=Status.InProgress)  # must not raise
+    m._emit_status(
+        item=m.queue.items[0],
+        lamella=experiment.get_lamella_by_name("L1"),
+        status=Status.InProgress,
+    )  # must not raise
 
 
 # ── _should_skip ──────────────────────────────────────────────────────────────
+
 
 def test_lamella_outside_the_launch_selection_is_not_skipped(manager):
     """Regression: the old allow-list check skipped anything added mid-run."""
@@ -223,10 +265,12 @@ def test_failed_lamella_is_skipped(manager):
 
 
 def test_missing_prerequisites_are_skipped(tmp_path):
-    experiment = make_experiment(tmp_path, requirements={"Undercut": ["Trench"]},
-                                 lamella_names=["L1"])
-    m = TaskManager(microscope=NoMicroscope(), experiment=experiment,
-                    parent_ui=RecordingUI())
+    experiment = make_experiment(
+        tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
+    )
+    m = TaskManager(
+        microscope=NoMicroscope(), experiment=experiment, parent_ui=RecordingUI()
+    )
     m.queue.build_from_matrix(["Trench", "Undercut"], ["L1"])
     lamella = experiment.get_lamella_by_name("L1")
     assert m._should_skip(lamella, "Undercut") == "missing_prereqs"
@@ -238,15 +282,21 @@ def test_missing_prerequisites_are_skipped(tmp_path):
 
 
 def test_no_requirements_runs(manager):
-    assert manager._should_skip(manager.experiment.get_lamella_by_name("L1"), "Trench") is None
+    assert (
+        manager._should_skip(manager.experiment.get_lamella_by_name("L1"), "Trench")
+        is None
+    )
 
 
 # ── _run_queue: mid-run queue edits ───────────────────────────────────────────
 
+
 def test_baseline_run_executes_the_whole_matrix(manager):
     assert run_queue_with(manager) == [
-        ("L1", "Trench"), ("L2", "Trench"),
-        ("L1", "Undercut"), ("L2", "Undercut"),
+        ("L1", "Trench"),
+        ("L2", "Trench"),
+        ("L1", "Undercut"),
+        ("L2", "Undercut"),
     ]
 
 
@@ -321,5 +371,5 @@ def test_status_bar_text_is_derivable_for_added_items(manager):
         status = payload.get("status")
         if status is None:
             continue
-        assert status["queue_position"] is not None
-        assert 1 <= status["queue_position"] <= status["queue_total"]
+        assert status.queue_position is not None
+        assert 1 <= status.queue_position <= status.queue_total

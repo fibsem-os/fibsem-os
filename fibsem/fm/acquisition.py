@@ -1,42 +1,54 @@
 import logging
-import math
 import os
 import threading
-from dataclasses import dataclass, replace
 import time
 from copy import deepcopy
-from typing import Dict, List, Optional, Tuple, Union, TYPE_CHECKING, Literal
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 
 from fibsem import utils
 from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
-from fibsem.fm.calibration import run_autofocus, run_coarse_fine_autofocus
-from fibsem.imaging.reduce import downsample
+from fibsem.fm.calibration import run_coarse_fine_autofocus
+from fibsem.fm.microscope import FluorescenceMicroscope
+from fibsem.fm.progress import (
+    FluorescenceAcquisitionProgress,
+    FluorescenceAcquisitionStatus,
+)
+from fibsem.fm.structures import (
+    AutoFocusMode,
+    AutoFocusSettings,
+    ChannelSettings,
+    FluorescenceImage,
+    FluorescenceImageMetadata,
+    FMStagePosition,
+    ObjectiveStartPosition,
+    OverviewParameters,
+    ZParameters,
+    ZStackOrder,
+)
+from fibsem.fm.timing import estimate_tileset_acquisition_time
+from fibsem.imaging.reduce import (
+    PreviewMosaic,
+)
 from fibsem.imaging.tiling.geometry import (
     TilePosition,
     compute_tile_grid_from_fov,
     order_tiles,
     raise_if_outside_stage_limits,
 )
-from fibsem.fm.microscope import FluorescenceMicroscope
-from fibsem.fm.structures import (
-    AutoFocusMode,
-    ChannelSettings,
-    FluorescenceImage,
-    ObjectiveStartPosition,
-    OverviewParameters,
-    ZParameters,
-    ZStackOrder,
-    FMStagePosition,
-    AutoFocusSettings,
+from fibsem.imaging.tiling.progress import (
+    MODALITY_FLUORESCENCE,
+    TiledProgress,
+    TiledStatus,
 )
-from fibsem.fm.timing import estimate_tileset_acquisition_time, estimate_positions_acquisition_time
 from fibsem.structures import BeamType, FibsemStagePosition, TileOrderStrategy
+from fibsem.util.filename import remove_suffix
+
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
+
 
 def acquire_channels(
     microscope: FluorescenceMicroscope,
@@ -53,13 +65,14 @@ def acquire_channels(
         # Same payload shape `acquire_z_stack` emits, minus the z fields. Without it a
         # multi-channel acquisition was silent, so anything watching progress within a
         # tile had nothing to show unless a z-stack happened to be enabled.
-        microscope.acquisition_progress_signal.emit({
-            "state": "acquiring",
-            "task": "channels",
-            "channel": channel.name,
-            "channel_index": i + 1,
-            "total_channels": len(channel_settings),
-        })
+        microscope.acquisition_progress_signal.emit(
+            FluorescenceAcquisitionProgress(
+                status=FluorescenceAcquisitionStatus.ACQUIRING_CHANNELS,
+                channel=channel.name,
+                channel_index=i + 1,
+                total_channels=len(channel_settings),
+            )
+        )
 
         # Check for cancellation before each channel
         if stop_event and stop_event.is_set():
@@ -97,24 +110,29 @@ def acquire_z_stack(
             z_level_images: List[List[FluorescenceImage]] = []
             for j, z in enumerate(z_positions):
                 if stop_event and stop_event.is_set():
-                    logging.info("Z-stack acquisition cancelled before z-level acquisition")
+                    logging.info(
+                        "Z-stack acquisition cancelled before z-level acquisition"
+                    )
                     microscope.objective.move_absolute(z_init)
                     return None
 
                 microscope.objective.move_absolute(z)
                 ch_images: List[FluorescenceImage] = []
                 for i, ch in enumerate(channel_settings):
-                    microscope.acquisition_progress_signal.emit({
-                        "state": "acquiring",
-                        "task": "z-stack",
-                        "channel": ch.name,
-                        "channel_index": i + 1,
-                        "total_channels": len(channel_settings),
-                        "zlevel": j + 1,
-                        "total_zlevels": len(z_positions),
-                    })
+                    microscope.acquisition_progress_signal.emit(
+                        FluorescenceAcquisitionProgress(
+                            status=FluorescenceAcquisitionStatus.ACQUIRING_ZSTACK,
+                            channel=ch.name,
+                            channel_index=i + 1,
+                            total_channels=len(channel_settings),
+                            zlevel=j + 1,
+                            total_zlevels=len(z_positions),
+                        )
+                    )
                     if stop_event and stop_event.is_set():
-                        logging.info("Z-stack acquisition cancelled during z-level acquisition")
+                        logging.info(
+                            "Z-stack acquisition cancelled during z-level acquisition"
+                        )
                         microscope.objective.move_absolute(z_init)
                         return None
                     ch_images.append(microscope.acquire_image(channel_settings=ch))
@@ -128,21 +146,24 @@ def acquire_z_stack(
             # Channel-wise (default): for each channel, acquire all z-planes
             for i, ch in enumerate(channel_settings):
                 if stop_event and stop_event.is_set():
-                    logging.info("Z-stack acquisition cancelled before channel acquisition")
+                    logging.info(
+                        "Z-stack acquisition cancelled before channel acquisition"
+                    )
                     microscope.objective.move_absolute(z_init)
                     return None
 
                 ch_images = []
                 for j, z in enumerate(z_positions):
-                    microscope.acquisition_progress_signal.emit({
-                        "state": "acquiring",
-                        "task": "z-stack",
-                        "channel": ch.name,
-                        "channel_index": i + 1,
-                        "total_channels": len(channel_settings),
-                        "zlevel": j + 1,
-                        "total_zlevels": len(z_positions),
-                    })
+                    microscope.acquisition_progress_signal.emit(
+                        FluorescenceAcquisitionProgress(
+                            status=FluorescenceAcquisitionStatus.ACQUIRING_ZSTACK,
+                            channel=ch.name,
+                            channel_index=i + 1,
+                            total_channels=len(channel_settings),
+                            zlevel=j + 1,
+                            total_zlevels=len(z_positions),
+                        )
+                    )
                     if stop_event and stop_event.is_set():
                         logging.info("Z-stack acquisition cancelled during z-stack")
                         microscope.objective.move_absolute(z_init)
@@ -180,7 +201,9 @@ def acquire_image(
         raise ValueError("Microscope parent is not set. Cannot start acquisition.")
 
     if not microscope.has_valid_orientation():
-        raise ValueError(f"Stage is not in valid orientation ({microscope.parent.get_stage_orientation()!r}). Cannot start acquisition.")
+        raise ValueError(
+            f"Stage is not in valid orientation ({microscope.parent.get_stage_orientation()!r}). Cannot start acquisition."
+        )
 
     if zparams is not None:
         # Acquire Z-stack if zparams is provided
@@ -193,170 +216,23 @@ def acquire_image(
     if image is not None and filename is not None:
         try:
             # Set description from filename (without extension)
-            image.metadata.description = os.path.basename(filename).removesuffix(
-                ".ome.tiff"
+            image.metadata.description = remove_suffix(
+                os.path.basename(filename), ".ome.tiff"
             )
             image.metadata.filename = filename
             image.save(filename)
         except Exception as e:
             logging.error(f"Failed to save image to {filename}: {e}")
 
-    microscope.acquisition_progress_signal.emit({"state": "finished"})
+    microscope.acquisition_progress_signal.emit(
+        FluorescenceAcquisitionProgress(status=FluorescenceAcquisitionStatus.FINISHED)
+    )
 
     return image
 
-def acquire_at_positions(
-    microscope: 'FibsemMicroscope',
-    positions: List[FMStagePosition],
-    channel_settings: Union[ChannelSettings, List[ChannelSettings]],
-    zparams: Optional[ZParameters] = None,
-    use_autofocus: bool = False,
-    save_directory: Optional[str] = None,
-    stop_event: Optional[threading.Event] = None,
-) -> List[FluorescenceImage]:
-    """Acquire fluorescence images at specified FMStagePosition locations.
-    This function moves both the stage and objective to each specified position and
-    acquires images for the given channel settings. If zparams is provided, a Z-stack
-    will be acquired at each position.
-    Args:
-        microscope: The fluorescence microscope instance
-        positions: List of FMStagePosition objects defining where to acquire images
-        channel_settings: Single channel or list of channels to acquire
-        zparams: ZParameters for Z-stack acquisition (optional)
-        use_autofocus: Whether to run autofocus at each position (default: False)
-        save_directory: Directory to save images in. If provided,
-                       creates subdirectories for each position (default: None)
-        stop_event: Threading event to signal cancellation (optional)
-    Returns:
-        List of FluorescenceImage objects containing the acquired images
-    Raises:
-        ValueError: If positions is empty or contains invalid stage positions
-    Example:
-        >>> stage_pos = FibsemStagePosition(x=0, y=0, z=0, name="pos1")
-        >>> fm_pos = FMStagePosition(name="Position-01", stage_position=stage_pos, objective_position=0.012)
-        >>> positions = [fm_pos]
-        >>> channel = ChannelSettings(name="DAPI", excitation_wavelength=365,
-        ...                          emission_wavelength=450, power=0.5, exposure_time=0.1)
-        >>> images = acquire_at_positions(microscope, positions, channel,
-        ...                              save_directory="/data/experiment")
-    """
-    if microscope.fm is None:
-        raise ValueError(
-            "Fluorescence microscope not initialized in the FibsemMicroscope instance"
-        )
-    if not microscope.fm.has_valid_orientation():
-        raise ValueError(f"Stage is not in valid orientation ({microscope.get_stage_orientation()!r}). Cannot start acquisition.")
-
-    if not positions:
-        raise ValueError("Positions list cannot be empty")
-    if not isinstance(channel_settings, list):
-        channel_settings = [channel_settings]
-
-    # Calculate time estimates for the entire multi-position acquisition
-    time_estimates = estimate_positions_acquisition_time(
-        channel_settings, len(positions), zparams, use_autofocus
-    )
-    total_estimated_time = time_estimates["total_time"]
-    acquisition_start_time = time.time()
-
-    # Emit initial acquisition progress signal
-    microscope.fm.acquisition_progress_signal.emit({"state": "acquiring", 
-                                                    "task": "multi-position",
-                                                    "position": "null",
-                                                    "current": 1,
-                                                    "total": len(positions),
-                                                    "estimated_total_time": total_estimated_time,
-                                                    "estimated_remaining_time": total_estimated_time,})
-
-    images: List[FluorescenceImage] = []
-    for i, fm_pos in enumerate(positions):
-
-        # Check for cancellation before each position
-        if stop_event and stop_event.is_set():
-            logging.info("Multi-position acquisition cancelled")
-            return images
-
-        logging.info(f"Acquiring at position {i + 1}/{len(positions)}: {fm_pos.name}")
-
-        # Calculate remaining time estimate based on progress
-        current_position = i + 1
-        total_positions = len(positions)
-        # Emit progress signal before starting position acquisition
-        microscope.fm.acquisition_progress_signal.emit({"state": "acquiring", 
-                                                        "task": "multi-position",
-                                                       "position": fm_pos.name,
-                                                       "current": current_position,
-                                                       "total": total_positions,
-                                                    #    "estimated_total_time": total_estimated_time,
-                                                    #    "estimated_remaining_time": estimated_remaining_time,
-                                                    #    "elapsed_time": elapsed_time,
-                                                       })
-
-        # Move stage to the saved stage position and objective position
-        if microscope.get_stage_orientation(fm_pos.stage_position) not in ["SEM", "FM"]:
-            raise ValueError(f"Stage Position {fm_pos.name} is not in valid orientation: {fm_pos.stage_position}")
-        microscope.fm.acquisition_progress_signal.emit({"state": "moving", "task": "multi-position"})
-        microscope.safe_absolute_stage_movement(fm_pos.stage_position)
-        microscope.fm.objective.move_absolute(fm_pos.objective_position)
-
-        # Run autofocus if requested
-        if use_autofocus:
-            result = run_autofocus(microscope.fm, channel_settings[0], stop_event=stop_event)
-            if result is None:
-                logging.info("Multi-position acquisition cancelled during autofocus")
-                return images
-
-        # create filename/path if requested
-        filename = None
-        if save_directory is not None:
-            # Create position-specific subdirectory
-            position_name = fm_pos.name or f"position_{i + 1:03d}"
-            position_dir = os.path.join(save_directory, position_name)
-            os.makedirs(position_dir, exist_ok=True)
-
-            # Generate timestamp-based filename
-            timestamp = utils.current_timestamp_v3(timeonly=True)
-            basename = f"{position_name}-zstack-{timestamp}.ome.tiff"
-            filename = os.path.join(position_dir, basename)
-
-        # Acquire image
-        image = acquire_image(microscope=microscope.fm,
-                              channel_settings=channel_settings,
-                              zparams=zparams,
-                              stop_event=stop_event,
-                              filename=filename)
-
-        # Check if acquisition was cancelled
-        if image is None:
-            logging.info("Multi-position acquisition cancelled during image acquisition")
-            return images
-
-        image.metadata.description = f"{fm_pos.name}-{image.metadata.acquisition_date}"
-        images.append(image)
-
-        # Calculate remaining time estimate based on progress
-        elapsed_time = time.time() - acquisition_start_time
-        if current_position > 1:
-            time_per_position = elapsed_time / (current_position - 1)
-            estimated_remaining_time = time_per_position * (total_positions - current_position)
-        else:
-            estimated_remaining_time = total_estimated_time
-
-        microscope.fm.acquisition_progress_signal.emit({"state": "acquiring", 
-                                                        "task": "multi-position",
-                                                       "position": fm_pos.name,
-                                                       "current": current_position,
-                                                       "total": total_positions,
-                                                       "estimated_total_time": total_estimated_time,
-                                                       "estimated_remaining_time": estimated_remaining_time,
-                                                       "elapsed_time": elapsed_time,})
-
-    microscope.fm.acquisition_progress_signal.emit({"state": "finished"})
-
-    return images
 
 def run_tileset_autofocus(
-    microscope: 'FibsemMicroscope',
+    microscope: "FibsemMicroscope",
     channel_settings: Optional[ChannelSettings],
     autofocus_settings: AutoFocusSettings,
     stop_event: Optional[threading.Event] = None,
@@ -397,16 +273,6 @@ def run_tileset_autofocus(
     except Exception as e:
         logging.warning(f"Auto-focus failed: {e}")
         return False
-
-
-PREVIEW_MAX_DIMENSION = 2048
-"""Long-edge size of the live mosaic preview, in pixels.
-
-A full-resolution fluorescence mosaic is multi-channel 16-bit -- a 5x5 of 1024px tiles
-is ~88 MB -- and the whole canvas is pushed through a Qt signal on every tile. The
-preview is decimated to this so watching a run stays cheap; the final stitch is
-untouched and full resolution.
-"""
 
 
 def _to_channel_planes(data: np.ndarray, n_channels: int) -> np.ndarray:
@@ -530,7 +396,7 @@ class FMTiledAcquisitionRunner:
 
     def __init__(
         self,
-        microscope: 'FibsemMicroscope',
+        microscope: "FibsemMicroscope",
         channel_settings: Union[ChannelSettings, List[ChannelSettings]],
         overview_parameters: OverviewParameters,
         zparams: Optional[ZParameters] = None,
@@ -611,6 +477,17 @@ class FMTiledAcquisitionRunner:
         true of none of them.
         """
         self.run()
+        # Between the last tile and the mosaic there is real work, and until this it was
+        # reported as nothing at all: the tile bar stopped at N/N and the run looked
+        # finished while the app built and wrote a multi-gigabyte array. Measured at
+        # ~2.1 s per GB of mosaic on a local SSD -- about 7 s for a 5x5 at ARCTIS
+        # resolution in four channels, and worse to a network drive (FIB-725).
+        #
+        # The beam tiler has always said "Stitching Tiles" here. This is the same phase
+        # in the same place; it is only that the fluorescence stitch and save happen in
+        # two different objects, so they are announced separately -- the save from the
+        # widget that performs it.
+        self._emit(TiledStatus.STITCHING)
         return stitch_tileset(
             self.tileset,
             self.overview_parameters.overlap,
@@ -654,10 +531,14 @@ class FMTiledAcquisitionRunner:
         # A spiral revisits rows non-sequentially, so "autofocus on each new row" would
         # fire almost every tile and still leave stale focus in between. Promote it, as
         # the beam runner does.
-        if (self._autofocus_mode is AutoFocusMode.EACH_ROW
-                and self._tile_order is TileOrderStrategy.SPIRAL):
+        if (
+            self._autofocus_mode is AutoFocusMode.EACH_ROW
+            and self._tile_order is TileOrderStrategy.SPIRAL
+        ):
             self._autofocus_mode = AutoFocusMode.EACH_TILE
-            logging.info("EACH_ROW autofocus upgraded to EACH_TILE for SPIRAL tile order")
+            logging.info(
+                "EACH_ROW autofocus upgraded to EACH_TILE for SPIRAL tile order"
+            )
 
         # Full grid, holes included: the canvas is the whole grid whatever the mask.
         self.tileset = [[None] * self._cols for _ in range(self._rows)]
@@ -697,8 +578,11 @@ class FMTiledAcquisitionRunner:
         self._setup_autofocus()
 
         time_estimates = estimate_tileset_acquisition_time(
-            self.channel_settings, (self._rows, self._cols), self.zparams,
-            self._autofocus_mode, tile_mask=self._tile_mask,
+            self.channel_settings,
+            (self._rows, self._cols),
+            self.zparams,
+            self._autofocus_mode,
+            tile_mask=self._tile_mask,
         )
         self._total_estimated_time = time_estimates["total_time"]
         self._acquisition_start_time = time.time()
@@ -873,19 +757,22 @@ class FMTiledAcquisitionRunner:
 
         self._init_preview_canvas()
 
-        first = self._ordered[0]
-        self._emit({"state": "moving", "task": "tileset"})
-        self._emit({
-            "state": "acquiring", "task": "tileset",
-            "row": first.row + 1, "col": first.col + 1,
-            "total_rows": self._rows, "total_cols": self._cols,
-            # `total` counts tiles that will actually be acquired, not grid cells --
-            # a progress bar that stops at 9/25 on a successful sparse run reads as a
-            # failure.
-            "current": 1, "total": len(self._ordered),
-            "estimated_total_time": self._total_estimated_time,
-            "estimated_remaining_time": self._total_estimated_time,
-        })
+        self._emit(TiledStatus.MOVING)
+        # The run's opening report: nothing acquired, and how long it should take. A
+        # progress report rather than an announcement -- it carries no tile coordinates,
+        # because it is not about a tile. It used to name the first one *and* claim a
+        # count of 1, which was a tile that had not been taken; conflating the two is
+        # what left one key meaning two things (FIB-736).
+        #
+        # `total` counts tiles that will actually be acquired, not grid cells -- a
+        # progress bar that stops at 9/25 on a successful sparse run reads as a failure.
+        self._emit(
+            TiledStatus.STARTING,
+            completed=0,
+            total=len(self._ordered),
+            estimated_total_seconds=self._total_estimated_time,
+            estimated_remaining_seconds=self._total_estimated_time,
+        )
 
     def _init_preview_canvas(self) -> None:
         """Allocate the live mosaic that tiles are painted into as they arrive.
@@ -903,19 +790,14 @@ class FMTiledAcquisitionRunner:
         full_w = max(t.canvas_x for t in self._grid) + self._image_width
         full_h = max(t.canvas_y for t in self._grid) + self._image_height
 
-        self._preview_stride = max(
-            1, int(np.ceil(max(full_w, full_h) / PREVIEW_MAX_DIMENSION))
+        self._preview = PreviewMosaic(
+            full_w, full_h, dtype=np.uint16, channels=len(self.channel_settings)
         )
-        self._preview_canvas = np.zeros(
-            (len(self.channel_settings),
-             int(np.ceil(full_h / self._preview_stride)),
-             int(np.ceil(full_w / self._preview_stride))),
-            dtype=np.uint16,
-        )
-        logging.debug(
-            f"Live preview canvas: {self._preview_canvas.shape} "
-            f"(stride {self._preview_stride}, full {full_h}x{full_w})"
-        )
+        # Built from the first tile that lands, not here: the channel metadata a
+        # consumer needs -- names and display colours -- comes off a real acquisition
+        # rather than being assembled from settings.
+        self._preview_metadata: Optional[FluorescenceImageMetadata] = None
+        logging.debug(f"{self._preview.describe()} (full {full_h}x{full_w})")
 
     def _paint_preview(self, tile: TilePosition, image: FluorescenceImage) -> None:
         """Paint one acquired tile into the live preview mosaic.
@@ -924,39 +806,19 @@ class FMTiledAcquisitionRunner:
         acquisition that is otherwise fine, so this never raises into the tile loop.
         """
         try:
-            stride = self._preview_stride
             data = _to_channel_planes(image.data, len(self.channel_settings))
-            if data.shape[0] != self._preview_canvas.shape[0]:
-                data = data[: self._preview_canvas.shape[0]]
-
-            # Averaged, not sampled. `data[:, ::stride, ::stride]` was free and wrong:
-            # it does not blur what it leaves out, it deletes it, and at a typical
-            # stride of 8 that is 63 pixels in 64. A punctum a couple of pixels across
-            # is then present or absent depending on where it happens to land, with
-            # nothing on screen saying the picture is incomplete -- and the small bright
-            # thing is what someone is looking for. This is FIB-589's reduction, which
-            # the canvas path already uses, reaching the preview path (FIB-629).
-            #
-            # Per plane, not on the stack: `downsample` reads shape as (y, x[, c]), so
-            # a (channels, y, x) array would be reduced across *channels* and y. A
-            # 5-channel stack would also fall to the numpy branch, which is right
-            # answer, wrong axes, and 200x slower.
-            #
-            # `max_px` expressed as the size the thumbnail must come out at, so the
-            # factor it derives is the stride and the shape is unchanged: both give
-            # ceil(n / stride).
-            thumb = np.stack([
-                downsample(plane, math.ceil(max(plane.shape[:2]) / stride))
-                for plane in data
-            ])
-            y0 = tile.canvas_y // stride
-            x0 = tile.canvas_x // stride
-            h = min(thumb.shape[1], self._preview_canvas.shape[1] - y0)
-            w = min(thumb.shape[2], self._preview_canvas.shape[2] - x0)
-            if h > 0 and w > 0:
-                self._preview_canvas[:, y0:y0 + h, x0:x0 + w] = thumb[:, :h, :w]
+            # Truncated here rather than in the shared mosaic: it is a guard against a
+            # mismatch that should not arise, and the mosaic asking for one would be a
+            # defensive rule carried for a single caller.
+            if data.shape[0] != self._preview.canvas.shape[0]:
+                data = data[: self._preview.canvas.shape[0]]
+            self._preview.paint(data, tile.canvas_x, tile.canvas_y)
+            if self._preview_metadata is None:
+                self._build_preview_metadata(image)
         except Exception as e:  # pragma: no cover - preview is never load-bearing
-            logging.debug(f"Could not paint tile ({tile.row}, {tile.col}) into preview: {e}")
+            logging.debug(
+                f"Could not paint tile ({tile.row}, {tile.col}) into preview: {e}"
+            )
 
     def _autofocus_if_mode(self, mode: AutoFocusMode) -> None:
         """Run autofocus when the configured mode matches.
@@ -1002,7 +864,9 @@ class FMTiledAcquisitionRunner:
         self._n_acquired = 0
         for tile in self._ordered:
             # Check before moving, so a cancel skips the travel entirely.
-            raise_if_cancelled(self.stop_event, "Tileset acquisition cancelled by user.")
+            raise_if_cancelled(
+                self.stop_event, "Tileset acquisition cancelled by user."
+            )
 
             if tile.row != prev_row:
                 prev_row = tile.row
@@ -1015,7 +879,7 @@ class FMTiledAcquisitionRunner:
             self._emit_preview(tile)
 
             if tile is not self._ordered[-1]:
-                self._emit({"state": "moving", "task": "tileset"})
+                self._emit(TiledStatus.MOVING)
 
     def _acquire_tile(self, row: int, col: int) -> FluorescenceImage:
         """Move to one tile and acquire it.
@@ -1078,7 +942,8 @@ class FMTiledAcquisitionRunner:
             "zparameters": self.zparams.to_dict() if self.zparams is not None else None,
             "autofocus_settings": (
                 self.autofocus_settings.to_dict()
-                if self.autofocus_settings is not None else None
+                if self.autofocus_settings is not None
+                else None
             ),
             "channel_settings": [ch.to_dict() for ch in self.channel_settings],
         }
@@ -1091,65 +956,159 @@ class FMTiledAcquisitionRunner:
         logging.info("Returning to initial position")
         self.microscope.safe_absolute_stage_movement(self._initial_position)
         self.microscope.fm.objective.move_absolute(self._initial_objective_position)
-        self._emit({"state": "finished"})
+        self._emit(TiledStatus.TILES_ACQUIRED)
 
     # ── helpers ──────────────────────────────────────────────────────────
 
-    def _emit(self, payload: dict) -> None:
-        self.microscope.fm.acquisition_progress_signal.emit(payload)
+    def _emit(self, status: TiledStatus, **fields) -> None:
+        """Report a state of this run.
+
+        On `tiled_acquisition_signal`, not the detector's own progress signal. This is
+        tile *n* of *N* and a mosaic so far -- the same event the beam tiler reports,
+        and it belonged on the same signal all along. It grew up on the fluorescence one
+        because this runner grew up in the FM package, next to a signal that was already
+        there and that also carries z-stacks, channel acquisitions and autofocus sweeps
+        (FIB-725).
+
+        What stays on the detector's signal is the work *inside* a tile: those are a
+        different scale, and `FMOverviewWidget` draws them in a different bar.
+
+        Takes the status and the fields rather than a finished event, so that the
+        modality is still stamped in exactly one place. Constructing the event at each
+        call site would read more directly and would mean seven chances to leave the
+        modality off -- and the default is beam, so the failure is silent and wrong:
+        two consumers draw a beam overview from this signal and would paint a
+        fluorescence mosaic into it, which is the FIB-725 bug the field exists to stop.
+        """
+        self.microscope.tiled_acquisition_signal.emit(
+            TiledProgress(status=status, modality=MODALITY_FLUORESCENCE, **fields)
+        )
+
+    def _preview_image(self) -> Optional[FluorescenceImage]:
+        """The mosaic so far, as an image that says where and how big it is.
+
+        A *copy* of the canvas, unlike the beam tiler, which emits its live one. The
+        acquisition runs on a worker thread, so the signal is queued and the slot runs
+        later on the GUI thread -- by which time the shared array has been painted into
+        again. Sending the buffer itself is a read/write race for the sake of the one
+        thing that does not need to be fast: at ~10 MB against a tile exposure, the copy
+        does not show.
+
+        The metadata is built once and shared across every emit of a run. It describes
+        the canvas, which does not change shape, so rebuilding it per tile would deep-
+        copy a channel list N times to produce the same answer.
+        """
+        if self._preview_metadata is None:
+            # No tile has been painted yet, so there is nothing to describe. Painting is
+            # best-effort and never raises into the tile loop, so this is reachable --
+            # and a report with no preview is a report the consumer simply does not draw.
+            return None
+        return FluorescenceImage(
+            data=self._preview.canvas.copy(), metadata=self._preview_metadata
+        )
+
+    def _build_preview_metadata(self, reference: FluorescenceImage) -> None:
+        """Describe the preview canvas, once, from the first tile that lands in it.
+
+        Modelled on what `stitch_tileset` does for the finished mosaic: take a real
+        tile's metadata and correct the three things the canvas changes. Taking it from
+        a tile rather than assembling one is what gets the channels -- names and display
+        colours -- without this having to know how to build them, and
+        `FluorescenceImageMetadata` rejects an empty channel list anyway.
+
+        The pixel size carries the decimation. Coarser pixels over a smaller count cover
+        the same ground, so a display that places by pixel size needs nothing else told
+        to it -- which is what lets the consumer stop multiplying by a stride it had to
+        be sent separately, and stop reading the camera mid-run to find the other factor.
+        """
+        metadata = deepcopy(reference.metadata)
+        stride = self._preview.stride
+        metadata.pixel_size_x = reference.metadata.pixel_size_x * stride
+        metadata.pixel_size_y = reference.metadata.pixel_size_y * stride
+        canvas = self._preview.canvas
+        metadata.resolution = (canvas.shape[-1], canvas.shape[-2])
+        # The grid is laid out centred on this, so it is exact by construction --
+        # unlike averaging the acquired tiles, which is only right for a full grid and
+        # out by up to a whole tile for a masked or cancelled one.
+        metadata.stage_position = deepcopy(self.centre_position)
+        self._preview_metadata = metadata
 
     def _emit_preview(self, tile: TilePosition) -> None:
         """Publish the mosaic-so-far, so a viewer can watch it fill in.
 
-        Keyed `image`, matching what `TiledAcquisitionRunner` emits and what
-        `FibsemMinimapWidget.handle_tile_acquisition_progress` already reads, so a
-        consumer of one reads the other. The whole canvas goes out rather than the
-        single tile: the receiver then needs no state of its own and simply redisplays
-        what it is given, which is also what makes a late subscriber correct.
-
-        A *copy* goes out, unlike the beam tiler, which emits its live canvas directly.
-        The acquisition runs on a worker thread, so the signal is queued and the slot
-        runs later on the GUI thread -- by which time the shared array has been painted
-        into again. Sending the buffer itself is a read/write race for the sake of the
-        one thing that does not need to be fast: at ~10 MB against a tile exposure, the
-        copy does not show.
+        The whole canvas goes out rather than the single tile: the receiver then needs
+        no state of its own and simply redisplays what it is given, which is also what
+        makes a late subscriber correct.
         """
-        self._emit({
-            "state": "tile", "task": "tileset",
-            "row": tile.row, "col": tile.col,
-            "total_rows": self._rows, "total_cols": self._cols,
-            "current": self._n_acquired, "total": len(self._ordered),
-            "image": self._preview_canvas.copy(),
-            "preview_stride": self._preview_stride,
-        })
+        estimated_total, estimated_remaining, _ = self._time_estimate()
+        self._emit(
+            TiledStatus.TILE_COLLECTED,
+            row_index=tile.row,
+            column_index=tile.col,
+            rows=self._rows,
+            columns=self._cols,
+            # **Tiles completed**, not the tile in flight -- the beam tiler increments
+            # and then emits, so the count has always meant this. The fluorescence side
+            # used to say it twice per tile with two meanings: the tile *starting*
+            # before the acquisition, and the tally after. One field cannot be both, and
+            # a consumer choosing between them got a bar that changed scale at every
+            # boundary (FIB-736, FIB-739). `TILE_STARTED` carries no counts at all now,
+            # so there is nothing to choose between.
+            completed=self._n_acquired,
+            total=len(self._ordered),
+            # The estimate rides with the count rather than with the announcement, so
+            # one report carries the whole picture and a consumer never has to assemble
+            # progress from two.
+            estimated_total_seconds=estimated_total,
+            estimated_remaining_seconds=estimated_remaining,
+            preview=self._preview_image(),
+        )
+
+    def _time_estimate(self):
+        """`(total, remaining, elapsed)` for the run, from what it has done so far.
+
+        Expressed in tiles *completed*, which is what the runner actually knows. It was
+        written in terms of the tile starting -- `elapsed / (current - 1)` against
+        `total - current + 1` -- which is the same arithmetic said awkwardly, and part of
+        why the count came to mean two things.
+        """
+        elapsed = time.time() - self._acquisition_start_time
+        completed = self._n_acquired
+        total_tiles = len(self._ordered)
+        if completed:
+            per_tile = elapsed / completed
+            remaining = per_tile * (total_tiles - completed)
+        else:
+            remaining = self._total_estimated_time
+        return self._total_estimated_time, remaining, elapsed
 
     def _emit_tile_progress(self, row: int, col: int) -> None:
-        # Counted by visits, not by grid index. `row * cols + col` assumed a full
-        # row-major traversal; under a spiral it jumps around, and under a mask it
-        # overcounts by every skipped tile.
-        current_tile = self._n_acquired + 1
-        total_tiles = len(self._ordered)
-        elapsed_time = time.time() - self._acquisition_start_time
+        """Announce the tile about to be acquired.
 
-        if current_tile > 1:
-            time_per_tile = elapsed_time / (current_tile - 1)
-            estimated_remaining_time = time_per_tile * (total_tiles - current_tile + 1)
-        else:
-            estimated_remaining_time = self._total_estimated_time
+        Deliberately carries **no counts and no estimate**. Those describe what the run
+        has done, and this is emitted before the tile is taken -- it could only ever
+        report one fewer than the truth, and a consumer driving a bar from it would stop
+        one short of the total for the whole run (measured; the bar ended at 3/4).
 
-        self._emit({
-            "state": "acquiring", "task": "tileset",
-            "row": row + 1, "col": col + 1,
-            "total_rows": self._rows, "total_cols": self._cols,
-            "current": current_tile, "total": total_tiles,
-            "estimated_total_time": self._total_estimated_time,
-            "estimated_remaining_time": estimated_remaining_time,
-            "elapsed_time": elapsed_time,
-        })
+        What it is for is *where we are*: the tile coordinates, and clearing the
+        "Moving stage…" label the previous payload put up. The progress arrives after
+        the tile, with the preview.
+        """
+        self._emit(
+            TiledStatus.TILE_STARTED,
+            # 0-based, matching `_ordered[...]` and the completed-tile report above.
+            # This used to send `row + 1`, one function away from a sibling sending
+            # `tile.row`, so the same signal described the same grid two ways.
+            # `TiledProgress.display_tile` is where the offset for a reader lives now.
+            row_index=row,
+            column_index=col,
+            rows=self._rows,
+            columns=self._cols,
+        )
 
 
 def acquire_tileset(
-    microscope: 'FibsemMicroscope',
+    microscope: "FibsemMicroscope",
     channel_settings: Union[ChannelSettings, List[ChannelSettings]],
     overview_parameters: OverviewParameters,
     zparams: Optional[ZParameters] = None,
@@ -1299,7 +1258,9 @@ def stitch_tileset(
     mosaic_width = effective_tile_width * (cols - 1) + tile_width
     mosaic_height = effective_tile_height * (rows - 1) + tile_height
 
-    logging.info(f"Tile size: {tile_height}x{tile_width}, Mosaic size: {mosaic_height}x{mosaic_width}")
+    logging.info(
+        f"Tile size: {tile_height}x{tile_width}, Mosaic size: {mosaic_height}x{mosaic_width}"
+    )
     logging.info(f"Channels: {nc_channels}, Z-planes: {nz_planes}")
 
     # Initialize mosaic array with proper dimensions (C, Z, Y, X)
@@ -1376,8 +1337,9 @@ def stitch_tileset(
     logging.info(f"Stitching complete: {mosaic_height}x{mosaic_width} mosaic created")
     return stitched_image
 
+
 def acquire_and_stitch_tileset(
-    microscope: 'FibsemMicroscope',
+    microscope: "FibsemMicroscope",
     channel_settings: Union[ChannelSettings, List[ChannelSettings]],
     overview_parameters: OverviewParameters,
     zparams: Optional[ZParameters] = None,
@@ -1411,14 +1373,17 @@ def acquire_and_stitch_tileset(
         channel_settings = [channel_settings]
 
     destination = (
-        OverviewDestination.create(save_directory) if save_directory is not None else None
+        OverviewDestination.create(save_directory)
+        if save_directory is not None
+        else None
     )
     tiles_directory = destination.tiles_directory if destination is not None else None
 
-
     # Check if zparams is provided when z-stack is requested
     if zparams is None and overview_parameters.use_zstack:
-        raise ValueError("Z-stack requested in overview parameters but no zparams provided")
+        raise ValueError(
+            "Z-stack requested in overview parameters but no zparams provided"
+        )
 
     # acquire the tileset
     # A cancel is now signalled explicitly rather than inferred from the result. The
@@ -1449,7 +1414,7 @@ def acquire_and_stitch_tileset(
 
 
 def acquire_multiple_overviews(
-    microscope: 'FibsemMicroscope',
+    microscope: "FibsemMicroscope",
     positions: List[FMStagePosition],
     channel_settings: Union[ChannelSettings, List[ChannelSettings]],
     overview_parameters: OverviewParameters,
@@ -1492,7 +1457,7 @@ def acquire_multiple_overviews(
         >>> pos2 = FMStagePosition(name="Region2", stage_position=stage_pos2, objective_position=0.013)
         >>> positions = [pos1, pos2]
         >>>
-        >>> # Define channel settings and overview parameters  
+        >>> # Define channel settings and overview parameters
         >>> channel = ChannelSettings(name="DAPI", excitation_wavelength=365,
         ...                          emission_wavelength=450, power=50, exposure_time=0.1)
         >>> overview_params = OverviewParameters(rows=3, cols=3, overlap=0.1)
@@ -1587,7 +1552,7 @@ def acquire_multiple_overviews(
 
 
 def convert_grid_positions_to_stage_positions(
-    microscope: 'FibsemMicroscope',
+    microscope: "FibsemMicroscope",
     positions: List[Tuple[float, float]],
     beam_type: BeamType = BeamType.ELECTRON,
     base_position: Optional[FibsemStagePosition] = None,

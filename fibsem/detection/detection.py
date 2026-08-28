@@ -6,7 +6,7 @@ import os
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import List, Tuple, Union, Optional, Dict, Any, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
@@ -25,8 +25,8 @@ from fibsem.structures import (
     BeamType,
     FibsemImage,
     FibsemStagePosition,
-    MicroscopeSettings,
     ImageSettings,
+    MicroscopeSettings,
     Point,
 )
 

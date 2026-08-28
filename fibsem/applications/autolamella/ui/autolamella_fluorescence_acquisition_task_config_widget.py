@@ -1,11 +1,18 @@
 import copy
+from typing import TYPE_CHECKING, Optional
+
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QGridLayout, QLabel, QWidget
-from typing import TYPE_CHECKING, Optional
+
 from fibsem.applications.autolamella.workflows.tasks.tasks import (
     AcquireFluorescenceImageConfig,
 )
-from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, ZParameters, FocusMethod
+from fibsem.fm.structures import (
+    AutoFocusSettings,
+    ChannelSettings,
+    FocusMethod,
+    ZParameters,
+)
 from fibsem.ui.fm.widgets import (
     AutofocusWidget,
     ChannelSettingsWidget,
@@ -48,7 +55,9 @@ class AutoLamellaFluorescenceAcquisitionTaskConfigWidget(QWidget):
         self.orientation_combo.currentIndexChanged.connect(self._on_orientation_changed)
 
         # Channel Settings
-        from fibsem.ui.fm.widgets.fm_multi_channel_widget import FluorescenceMultiChannelWidget
+        from fibsem.ui.fm.widgets.fm_multi_channel_widget import (
+            FluorescenceMultiChannelWidget,
+        )
         self.channelSettingsWidget = FluorescenceMultiChannelWidget(fm=self.microscope.fm,
                                                                     channel_settings=self.config.channel_settings,
                                                                     parent=self)

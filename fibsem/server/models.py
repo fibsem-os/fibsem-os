@@ -2,7 +2,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel
 
-
 # --- Shared ---
 
 class BeamTypeRequest(BaseModel):

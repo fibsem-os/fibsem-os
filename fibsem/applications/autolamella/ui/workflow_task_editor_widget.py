@@ -16,17 +16,17 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from fibsem.ui.icon import fibsem_icon
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskDescription
 from fibsem.ui import stylesheets
-from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
     BORDER_COLOR,
     NEUTRAL_500,
     NEUTRAL_700,
     TEXT_COLOR,
 )
+from fibsem.ui.widgets.custom_widgets import TitledPanel
 
 _ROW_HEIGHT = 40
 # Requirements list shows up to this many rows before it starts to scroll.

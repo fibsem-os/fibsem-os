@@ -1,28 +1,34 @@
 from __future__ import annotations
+
 import datetime
 import logging
 import os
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, List, Optional
-from queue import Queue
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
-import tifffile as tff
 from psygnal import Signal
 
 from fibsem import constants
-from fibsem.utils import save_json
-from fibsem.fm.structures import ChannelSettings, FluorescenceImage, ZParameters
+from fibsem.fm.structures import FluorescenceImage
 from fibsem.microscope import FibsemMicroscope
+from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.milling import (
-    setup_milling,
     FibsemMillingStage,
     MillingStrategy,
     MillingStrategyConfig,
+    setup_milling,
 )
-from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, field_meta
-from fibsem.microscopes.simulator import DemoMicroscope
+from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+from fibsem.structures import (
+    BeamType,
+    FibsemImage,
+    FibsemRectangle,
+    MillingState,
+    field_meta,
+)
+from fibsem.utils import save_json
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
@@ -106,7 +112,9 @@ class CoincidenceMillingStrategyConfig(MillingStrategyConfig):
     )
     bbox: Optional[FibsemRectangle] = field(
         default=None,
-        metadata=field_meta(hidden=True),  # set interactively via the FM ROI, not a form control
+        metadata=field_meta(
+            hidden=True
+        ),  # set interactively via the FM ROI, not a form control
     )  # reduced area for intensity monitoring
     # oscillation parameters
 
@@ -360,9 +368,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
 
             # unsupervised runs: automatically stop on intensity drop
             if not self.config.supervised and self._drop_detected:
-                logging.info(
-                    "Unsupervised: intensity drop detected. Stopping milling."
-                )
+                logging.info("Unsupervised: intensity drop detected. Stopping milling.")
                 self.microscope.stop_milling()
                 break
 
@@ -373,15 +379,21 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
             # update milling progress via signal
             remaining_time = max(0.0, max_end_time - time.time())
             self.microscope.milling_progress_signal.emit(
-                {
-                    "progress": {
-                        "state": "update",
-                        "start_time": start_time,
-                        "milling_state": "UNKNOWN",
-                        "estimated_time": estimated_time,
-                        "remaining_time": remaining_time,
-                    }
-                }
+                MillingProgress(
+                    status=MillingProgressStatus.STAGE_UPDATE,
+                    message=f"Coincidence milling: {self.stage.name}",
+                    stage_name=self.stage.name,
+                    start_time=start_time,
+                    # Deliberately not `self.microscope.get_milling_state()`. On
+                    # ThermoFisher that getter *sets the active view* as a side effect,
+                    # and this strategy is running a fluorescence acquisition that holds
+                    # the view for its whole duration -- asking would yank it away
+                    # mid-acquisition. UNKNOWN says "cannot be read without disturbing
+                    # something", which is the truth here.
+                    milling_state=MillingState.UNKNOWN,
+                    estimated_time=estimated_time,
+                    remaining_time=remaining_time,
+                )
             )
             # timeout
             if time.time() >= max_end_time:

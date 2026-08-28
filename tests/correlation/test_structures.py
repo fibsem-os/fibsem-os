@@ -16,7 +16,6 @@ from fibsem.correlation.structures import (
 )
 from fibsem.structures import Point
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

@@ -21,8 +21,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.ui.widgets.hook_config_widget import HookConfigWidget
-from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
 from fibsem.hooks import (
     FunctionHook,
     HookContext,
@@ -31,6 +29,8 @@ from fibsem.hooks import (
     LoggingHook,
     NotificationHook,
 )
+from fibsem.ui.widgets.hook_config_widget import HookConfigWidget
+from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
 
 
 class HookTestWindow(QMainWindow):

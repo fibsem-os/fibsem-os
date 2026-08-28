@@ -1,8 +1,8 @@
 """No microscope is a normal state for the text overlay, not an error.
 
-`FibsemUI` builds `FibsemMinimapWidget` during setup, before any connection. That
-widget's `microscope` property reads through to its parent, so it is None at that
-point -- which the widget already handles everywhere else with
+`AutoLamellaMainUI` builds `FibsemMinimapWidget` during setup, before any
+connection. That widget's `microscope` property reads through to its parent, so it
+is None at that point -- which the widget already handles everywhere else with
 `if self.microscope is None: return`. `update_text_overlay` was the one path that
 passed it through to be dereferenced, so every launch logged:
 

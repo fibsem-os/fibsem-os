@@ -18,9 +18,9 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from superqt import QFlowLayout
-from fibsem.ui.icon import fibsem_icon
 
 from fibsem.structures import FibsemImage
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
     NEUTRAL_300,
     NEUTRAL_900,

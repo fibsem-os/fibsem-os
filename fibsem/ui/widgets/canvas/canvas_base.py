@@ -39,20 +39,20 @@ import numpy as np
 from matplotlib.backend_bases import MouseEvent
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
-from PyQt5.QtCore import QSize, QTimer, Qt, pyqtSignal
+from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QFontMetrics
 from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QSizePolicy
 
 from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.stylesheets import CANVAS_BG as _BG, PRIMARY_ACCENT as _ACCENT
-from fibsem.ui.widgets.canvas.contrast_gamma_control import ContrastGammaControl
+from fibsem.ui.stylesheets import CANVAS_BG as _BG
+from fibsem.ui.stylesheets import PRIMARY_ACCENT as _ACCENT
 from fibsem.ui.tokens import (
     GRAY_WHITE_COLOR,
     NEUTRAL_400,
     NEUTRAL_450,
-    NEUTRAL_900,
     WHITE_ICON_COLOR,
 )
+from fibsem.ui.widgets.canvas.contrast_gamma_control import ContrastGammaControl
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
@@ -137,16 +137,41 @@ _LIVE_BADGE_STYLE = (
     " border-radius: 3px; padding: 0px 6px; font-size: 10px; font-weight: bold; }"
 )
 # The status zone mirrors the toolbar on the left of the same row, and carries whichever
-# of the hint or the flash is current. Two looks, because they say different things: the
-# hint is a standing instruction, the flash is a value that just changed and is about to
-# go away, so it keeps the accent outline the artist had.
+# of the flash, the readout or the hint is current -- in that order. Three looks, because
+# they say different things, but all on the same dark plaque the rest of the canvas
+# chrome uses: the hint was a near-white one, which shouted over the data it was drawn
+# on and read as an alert rather than an aside.
+_STATUS_PLAQUE = "background: rgba(26, 26, 26, 190); border-radius: 3px;"
+# How long a readout holds the zone after the pointer stops. Long enough to have been
+# read at a glance and then some, since it goes away without being asked -- and any
+# motion at all brings it straight back.
+_READOUT_DECAY_MS = 2500
+# A standing instruction, so the dimmest of the three: it is still true after you have
+# read it, and it should not compete with the image once it has been.
 _STATUS_HINT_STYLE = (
-    f"QLabel {{ background: #e6e6e6; color: {NEUTRAL_900};"
-    " border-radius: 3px; padding: 0px 6px; font-size: 11px; }"
+    f"QLabel {{ color: {NEUTRAL_450}; font-size: 11px; padding: 0px 6px;"
+    f" {_STATUS_PLAQUE} }}"
 )
+# Live numbers under the cursor. Monospaced so the digits sit still while it moves --
+# a proportional font makes the whole readout shuffle on every pixel of travel.
+_STATUS_READOUT_STYLE = (
+    f"QLabel {{ color: #e8e8e8; font-size: 10px; font-family: monospace;"
+    f" padding: 0px 6px; {_STATUS_PLAQUE} }}"
+)
+# A value that just changed and is about to go away, so it keeps the accent outline the
+# artist had, and stays opaque so it reads at a glance mid-gesture.
 _STATUS_FLASH_STYLE = (
     f"QLabel {{ background: {_BG}; color: #e8e8e8; border: 1px solid {_ACCENT};"
     " border-radius: 3px; padding: 0px 6px; font-size: 12px; }"
+)
+# The bottom-left info bar: microscope state, standing until the instrument moves. The
+# same dark plaque as the status zone, since it is read against the readout up there --
+# the pose under the cursor above, the pose the stage is actually at below.
+# Padded vertically, unlike the status chips: those are a fixed row height, this one
+# sizes to however many lines it is given.
+_INFO_BAR_STYLE = (
+    f"QLabel {{ color: #e8e8e8; font-size: 9px; padding: 3px 6px;"
+    f" {_STATUS_PLAQUE} }}"
 )
 
 
@@ -163,6 +188,18 @@ _QT_MODIFIER_MAP = (
     (Qt.ControlModifier, "Control"),
     (Qt.MetaModifier, "Meta"),
 )
+
+
+def _pass_clicks_through(widget) -> None:
+    """Make a chrome label invisible to the mouse.
+
+    Qt routes a click to the topmost child under the cursor, and a `QLabel` accepts the
+    press rather than passing it on -- so a label parented to the canvas puts a dead
+    patch over the image the size of its own text. That is what the chrome it replaced
+    was avoiding, drawn as an artist. Anything here that is read rather than operated
+    gets this; the toolbar buttons deliberately do not.
+    """
+    widget.setAttribute(Qt.WA_TransparentForMouseEvents, True)
 
 
 def _modifiers_from_event(event) -> Tuple[str, ...]:
@@ -249,7 +286,10 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._hint_text: Optional[str] = None  # remembered; the status zone shows it
         self._title_artist = None  # top-centre image caption (e.g. FM z-slice)
         self._title_text: Optional[str] = None  # remembered so it survives set_image
-        self._info_artist = None  # bottom-left microscope-state info bar
+        # Bottom-left microscope-state info bar. A child widget, not an artist:
+        # see `set_info_text` for why, and note that `ax.cla()` therefore leaves
+        # it alone -- nothing restores it across an image change.
+        self._info_label = None
         self._info_text: Optional[str] = None  # remembered so it survives set_image
         self._live_badge = None  # top-right "● LIVE" chip during live acquisition
         self._live_on: bool = False  # remembered so it survives set_image
@@ -257,6 +297,11 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         # Transient status message (e.g. "WD 4.001 mm" on Shift+scroll); auto-clears.
         # Shares the top-left status zone with the hint, and outranks it while up.
         self._flash_text: Optional[str] = None
+        # Live numbers tracking the pointer (e.g. the stage position under the cursor).
+        # Also the status zone: hosts used to put this in a hand-placed label of their
+        # own, in "the one free corner" -- which stopped being free the moment the zone
+        # arrived, and the two drew on top of each other.
+        self._readout_text: Optional[str] = None
         # The status zone itself: one chip mirroring the toolbar at the other end of the
         # row. Qt-laid-out, so nothing converts between logical and device pixels.
         self._status_label = None
@@ -264,6 +309,9 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._flash_timer = QTimer(self)
         self._flash_timer.setSingleShot(True)
         self._flash_timer.timeout.connect(self._clear_flash)
+        self._readout_timer = QTimer(self)
+        self._readout_timer.setSingleShot(True)
+        self._readout_timer.timeout.connect(self._clear_readout)
 
         # Optional patch legend (list of (color, label)); re-applied across image changes.
         self._legend_artist = None
@@ -400,6 +448,34 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._hint_text = text or None
         self._refresh_status()
 
+    def set_status_readout(self, text: Optional[str]) -> None:
+        """Show live numbers tracking the pointer in the status zone, or clear with None.
+
+        For values that change on every motion event — the stage position under the
+        cursor, a measured distance. Outranks :meth:`set_hint`, which is a standing
+        instruction that will still be true once the pointer has moved on, and is
+        outranked by :meth:`flash_message`.
+
+        Cheap enough for the rate it is called at: ~0.1 ms per update, against the 16 ms
+        a frame has. Hosts that reach for a hand-placed label instead should not — that
+        is what put two things in this corner drawing over each other.
+
+        Decays once the pointer has been still for a while, so a hint waiting underneath
+        is not shut out for as long as the pointer happens to be over the canvas — which
+        is most of the time, and would make a standing instruction unreadable in
+        practice. Only when there *is* a hint underneath: with nothing to reveal,
+        decaying would blank the corner rather than free it.
+        """
+        self._readout_text = text or None
+        self._readout_timer.stop()
+        if self._readout_text and self._hint_text:
+            self._readout_timer.start(_READOUT_DECAY_MS)
+        self._refresh_status()
+
+    def _clear_readout(self) -> None:
+        self._readout_text = None
+        self._refresh_status()
+
     def set_title(self, text: Optional[str]) -> None:
         """Show a caption centred at the top of the image, or hide with None/''.
 
@@ -468,28 +544,64 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
     def set_info_text(self, text: Optional[str]) -> None:
         """Show a small, muted info bar in the bottom-left, or hide with None/''.
 
-        Remembered + re-applied after each image change (like the hint). Driven by
-        the controller from the canvas-state model — microscope state, not image."""
+        Driven by the controller from the canvas-state model — microscope state, not
+        image. A `QLabel` rather than an axes artist, for the reason the top strip is
+        one: it updates on every stage read and every objective move, and an artist
+        update ends in `draw_idle`, which repaints every image the canvas holds. That
+        was ~1.7 ms per placed image and unbounded — 61.7 ms at 36 — against a flat
+        0.07 ms here (FIB-650). Being a child widget also means `ax.cla()` cannot take
+        it down, so nothing has to remember and restore it across an image change.
+        """
         self._info_text = text or None
         self._refresh_info_bar()
-        self.draw_idle()
 
     def _refresh_info_bar(self) -> None:
-        """(Re)create the info artist from the cached text, or remove it."""
-        if self._info_artist is not None:
-            try:
-                self._info_artist.remove()
-            except Exception:
-                pass
-            self._info_artist = None
-        if self._info_text:
-            self._info_artist = self._ax.text(
-                0.012, 0.015, self._info_text,
-                transform=self._ax.transAxes, ha="left", va="bottom",
-                fontsize=6.5, color="#e8e8e8", zorder=11,
-                bbox=dict(boxstyle="round,pad=0.25", facecolor=_BG,
-                          edgecolor="none", alpha=0.55),
+        """Put the cached text in the info label, or hide it."""
+        if not self._info_text:
+            if self._info_label is not None:
+                self._info_label.hide()
+            return
+        if self._info_label is None:
+            self._info_label = self._make_info_label()
+        self._info_label.show()
+        self._place_info_label()
+
+    def _make_info_label(self) -> QLabel:
+        """The bottom-left info bar."""
+        label = QLabel("", self)
+        label.setStyleSheet(_INFO_BAR_STYLE)
+        _pass_clicks_through(label)
+        label.raise_()
+        return label
+
+    def _place_info_label(self) -> None:
+        """Sit the info bar in the bottom-left corner, elided to the canvas width.
+
+        Elided per line, because the text is several lines as often as one, and
+        `QFontMetrics.elidedText` works on a single line. The clamp is the canvas
+        width rather than the scalebar's left edge: the scalebar is an axes artist, so
+        asking where it starts means a renderer call and arithmetic between two
+        coordinate systems, which is the thing this whole class of chrome moved to Qt
+        to stop doing. A long enough string can still reach it, exactly as before.
+        """
+        label = self._info_label
+        if label is None or label.isHidden():
+            return
+        available = max(self.width() - 2 * _OVERLAY_MARGIN, 0)
+        metrics = QFontMetrics(label.font())
+        label.setText(self._info_text)
+        padding = max(label.sizeHint().width() - metrics.width(self._info_text), 0)
+        room = max(available - padding, 0)
+        label.setText(
+            "\n".join(
+                metrics.elidedText(line, Qt.ElideRight, room)
+                for line in self._info_text.split("\n")
             )
+        )
+        label.adjustSize()
+        label.move(
+            _OVERLAY_MARGIN, max(self.height() - label.height() - _OVERLAY_MARGIN, 0)
+        )
 
     def set_live_badge(self, on: bool) -> None:
         """Show/hide a green "● LIVE" chip in the top-right during live acquisition.
@@ -519,6 +631,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         badge.setStyleSheet(_LIVE_BADGE_STYLE)
         badge.setFixedHeight(_OVERLAY_BTN_SIZE)
         badge.adjustSize()
+        _pass_clicks_through(badge)
         badge.raise_()
         return badge
 
@@ -548,19 +661,26 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         on a screen that is not a Retina one (FIB-639). Qt lays out in logical pixels
         natively, so a `QLabel` has no conversion to get wrong.
 
-        The flash outranks the hint: it is a value that just changed and is about to go
-        away, while the hint is a standing instruction still true underneath it.
+        Three occupants, in order of how fleeting they are: the flash is a value that
+        just changed and is about to go away; the readout is live and true only while
+        the pointer is where it is; the hint is a standing instruction still true
+        underneath both. Sharing one label is what makes them unable to collide -- the
+        alternative, a corner each, ran out of corners.
         """
-        text = self._flash_text or self._hint_text
+        text = self._flash_text or self._readout_text or self._hint_text
         if not text:
             if self._status_label is not None:
                 self._status_label.hide()
             return
         if self._status_label is None:
             self._status_label = self._make_status_label()
-        self._status_label.setStyleSheet(
-            _STATUS_FLASH_STYLE if self._flash_text else _STATUS_HINT_STYLE
-        )
+        if self._flash_text:
+            style = _STATUS_FLASH_STYLE
+        elif self._readout_text:
+            style = _STATUS_READOUT_STYLE
+        else:
+            style = _STATUS_HINT_STYLE
+        self._status_label.setStyleSheet(style)
         self._status_full_text = text
         self._status_label.show()
         self._reposition_overlay_buttons()  # sizes and elides it to the room available
@@ -569,6 +689,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         """The status chip, sized to sit in the toolbar row."""
         label = QLabel("", self)
         label.setFixedHeight(_OVERLAY_BTN_SIZE)
+        _pass_clicks_through(label)
         label.raise_()
         return label
 
@@ -634,15 +755,18 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._hint_text = None  # the status chip is a widget; hidden below, not by cla()
         self._title_artist = None
         self._title_text = None
-        self._info_artist = None
         self._info_text = None
+        if self._info_label is not None:
+            self._info_label.hide()
         # The chip is a child widget, so `cla()` does not take it down the way it took
         # the artist. Hidden by hand to keep the reset meaning what it always did.
         if self._live_badge is not None:
             self._live_badge.hide()
         self._live_on = False
         self._flash_text = None
+        self._readout_text = None
         self._flash_timer.stop()
+        self._readout_timer.stop()
         if self._status_label is not None:
             self._status_label.hide()
         self._legend_artist = None  # removed by cla(); drop the cached entries too
@@ -704,6 +828,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             x -= badge.width()
             badge.move(x, _OVERLAY_MARGIN)
         self._place_status_label(right_edge=x)
+        self._place_info_label()  # bottom left, in the same logical-pixel pass
 
     def _place_status_label(self, right_edge: int) -> None:
         """Put the status chip at the left of the same row, elided to fit.
@@ -846,6 +971,19 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._ax.set_xlim(xmin - mx, xmax + mx)
         self._ax.set_ylim(ybot + my, ytop - my)  # y-axis stays inverted (origin upper)
 
+    def _view_moved_by_user(self) -> None:
+        """The view was just panned or zoomed by hand.
+
+        A hook rather than behaviour: nothing here re-frames itself, so the base has
+        nothing to stop doing. A canvas that *does* -- see
+        :attr:`FibsemRealSpaceCanvas.auto_fit`, which refits as content arrives --
+        overrides this to hand the camera over, because from here the framing is
+        something the user chose rather than something the canvas guessed.
+
+        Called only where the limits actually changed, so a scroll the zoom limiter
+        refused is not mistaken for one.
+        """
+
     def set_view_margin(self, frac: float) -> None:
         """Empty space kept around the image when fitting the view, as a fraction of the
         image size per side (0 = tight, 0.5 = 2x the image extent). Also keeps overlays
@@ -870,11 +1008,19 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         """Register an overlay and attach it to the current axes."""
         self._overlays.append(overlay)
         overlay.attach(self._ax, self)
-        if self._img_w is not None:
-            try:
-                self._notify_overlay(overlay, self._content_rect())
-            except Exception:
-                _logger.exception("Overlay content update failed: %r", overlay)
+        # Unconditionally, and `_content_rect()` decides whether there is anything to
+        # report. The guard here used to be `self._img_w is not None`, which is a
+        # *single image* canvas's notion of content and is never set by one that places
+        # images in stage space -- so an overlay added to a real-space canvas was never
+        # told what it had been added to. Harmless for an overlay its host redraws by
+        # hand (a tile grid), and fatal for one that builds its artists on the first
+        # content report (a rectangle), which simply never appeared. The guard was
+        # redundant even here: the base `_content_rect` already answers `EMPTY_CONTENT`
+        # when there is no image, and every overlay checks `rect.is_empty`.
+        try:
+            self._notify_overlay(overlay, self._content_rect())
+        except Exception:
+            _logger.exception("Overlay content update failed: %r", overlay)
         self.draw_idle()
 
     def remove_overlay(self, overlay: CanvasOverlay) -> None:
@@ -1160,6 +1306,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         dx, dy = x1 - x0, y1 - y0
         self._ax.set_xlim(xlim0[0] - dx, xlim0[1] - dx)
         self._ax.set_ylim(ylim0[0] - dy, ylim0[1] - dy)
+        self._view_moved_by_user()
         self._schedule_redraw()
 
     def _on_release(self, event):
@@ -1233,6 +1380,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             return
         self._ax.set_xlim(cx + (xlim[0] - cx) * factor, cx + (xlim[1] - cx) * factor)
         self._ax.set_ylim(cy + (ylim[0] - cy) * factor, cy + (ylim[1] - cy) * factor)
+        self._view_moved_by_user()
         self._schedule_redraw()
 
     def _zoom_allowed(self, span: float) -> bool:

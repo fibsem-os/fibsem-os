@@ -65,3 +65,41 @@ def qapp():
         gc.collect()
         if gc_was_enabled:
             gc.enable()
+
+
+@pytest.fixture
+def destroy_widgets_after_test(qapp):
+    """Destroy every top-level widget the test creates, once it is over.
+
+    ``close()`` is not destruction -- it hides. A test that builds a window, closes it
+    in teardown and drops its reference leaves the window alive for the rest of the
+    session, because the Qt object outlives the Python wrapper and nothing has asked
+    for it to go. ``tests/ui/`` reaches 2541 live top-level widgets in a full run this
+    way, and the files that leak most are the ones that *do* call ``close()``.
+
+    That matters less for memory than for what the next test sees.
+    ``QApplication.activeWindow()`` is process-global, so an abandoned window is still
+    a candidate answer to it -- which is how three tests in
+    test_coincidence_viewer_layering.py came to assert about the window stack rather
+    than about the code (#583).
+
+    Two things are needed and neither is obvious. ``deleteLater()`` posts a
+    ``DeferredDelete`` event rather than deleting anything, and ``processEvents()``
+    does **not** deliver that event -- only ``sendPostedEvents`` with the type named
+    explicitly does. Using ``processEvents`` here measures as a complete no-op: the
+    widget count does not move, which reads as "the fix does not work" rather than as
+    "the deletion never ran".
+
+    Only widgets that appear during the test are touched, so a module-scoped fixture's
+    widget built by an earlier test is left alone.
+    """
+    from PyQt5.QtCore import QEvent
+    from PyQt5.QtWidgets import QApplication
+
+    before = set(QApplication.topLevelWidgets())
+    yield
+    for widget in QApplication.topLevelWidgets():
+        if widget not in before:
+            widget.close()
+            widget.deleteLater()
+    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)

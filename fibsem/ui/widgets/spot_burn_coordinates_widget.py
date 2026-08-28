@@ -12,13 +12,12 @@ from PyQt5.QtWidgets import (
 
 from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.structures import BeamType, Point
-from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
-from fibsem.ui.widgets.custom_widgets import IconToolButton
 from fibsem.ui.stylesheets import CANVAS_BG
 from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
 )
-
+from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
+from fibsem.ui.widgets.custom_widgets import IconToolButton
 
 _HEADER_BG = CANVAS_BG
 _MUTED = TEXT_MUTED_COLOR
@@ -212,8 +211,8 @@ class SpotBurnCoordinatesWidget(QWidget):
         return PointsSpec(
             id=self.OVERLAY_ID,
             points=px_points,
-            color="white",
-            selected_color="cyan",
+            color="cyan",
+            selected_color="lime",
             marker="o",
             # markersize, in points. Deliberately small: fiducial patterns put spots
             # ~0.01 of the frame apart, and a larger marker merges the cluster into one

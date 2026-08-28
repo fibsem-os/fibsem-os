@@ -1,6 +1,6 @@
 import logging
-from typing import List, Optional, Tuple
 from dataclasses import dataclass
+from typing import List, Optional, Tuple
 
 import napari
 import numpy as np

@@ -8,14 +8,13 @@ from typing import List
 
 import matplotlib.pyplot as plt
 import pandas as pd
+import tifffile as tff
 from tqdm import tqdm
 
 from fibsem.detection import detection
 from fibsem.segmentation.model import load_model
 from fibsem.segmentation.utils import decode_segmap_v2
 from fibsem.structures import FibsemImage, Point
-
-import tifffile as tff
 
 
 def _run_evaluation(path:Path, image_path: Path, checkpoints: List[dict], plot: bool = False, _FEATURES_TO_IGNORE: List[str] = ["ImageCentre", "LandingPost"], save: bool = False, save_path: Path = None):
@@ -360,7 +359,7 @@ def plot_evaluation_data(df: pd.DataFrame, category_orders: dict, show: bool = T
         df_group.fillna(0, inplace=True)
 
         # # calc percentage
-        df_group[f"under_threshold"] = df_group[True] / (df_group[True] + df_group[False])
+        df_group["under_threshold"] = df_group[True] / (df_group[True] + df_group[False])
         
         # concat to df_ret
         df_ret = pd.concat([df_ret, df_group], axis=0)
@@ -377,7 +376,7 @@ def plot_evaluation_data(df: pd.DataFrame, category_orders: dict, show: bool = T
     df_ret["threshold"] = df_ret["threshold"].astype(str)
 
     fig = px.bar(df_ret, x="threshold", y="under_threshold", color="feature", facet_col="checkpoint", barmode="group",                    
-                        text=df_ret[f"under_threshold"].apply(lambda x: f"{x:.2f}"),
+                        text=df_ret["under_threshold"].apply(lambda x: f"{x:.2f}"),
                         category_orders=category_orders, 
                         hover_data=df_ret.columns,
                         title="Percentage of Distance under threshold (px)")

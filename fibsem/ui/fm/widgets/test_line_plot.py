@@ -1,8 +1,9 @@
 """Quick test script for LinePlotWidget with random data generation."""
 import sys
+
 import numpy as np
-from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import QTimer
+from PyQt5.QtWidgets import QApplication
 
 from fibsem.ui.fm.widgets.line_plot_widget import LinePlotWidget
 

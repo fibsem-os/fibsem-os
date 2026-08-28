@@ -65,7 +65,6 @@ fibsem/ui/test_qt.py
 scripts/dev-notebook2.ipynb
 scripts/launch-autolamella.sh
 fibsem/applications/autolamella/log/*
-CLAUDE.md
 fibsem/fm/*.ome.tiff
 notes.md
 fibsem/ui/test-ndv.py
@@ -97,3 +96,15 @@ tests/data/
 # Those scrubbed fixtures are the committed artifact, so they have to be re-included
 # against the blanket `*.json` above.
 !tests/fixtures/metadata/*.json
+
+# Overview runs started without a save directory fall back to the working directory
+# (`FibsemOverviewWidget.acquire`), so running the app from a checkout writes tilesets
+# into it. 11 MB of them reached a commit once.
+overview-image-*.tif
+overview-image-*/
+
+# Autofocus sweep plots default to a relative path when no save_path is given
+# (`fibsem/autofunctions/plotting.py:224` does os.makedirs("autofocus")), so running
+# the app or a sweep from a checkout writes them into it. Same shape as the overview
+# tilesets above.
+autofocus/

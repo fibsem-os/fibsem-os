@@ -23,15 +23,19 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QImage, QPixmap
 
+from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
+    ZoomableImageView,
+)
 from fibsem.structures import FibsemImage
 from fibsem.ui.widgets.angle_measure import AngleMeasureOverlay
 from fibsem.ui.widgets.annotation_pin import AnnotationPinOverlay
 from fibsem.ui.widgets.drag_distance import (
-    DragDistanceOverlay, RectMeasureOverlay,
-    _fmt_distance, _fmt_area,
+    DragDistanceOverlay,
+    RectMeasureOverlay,
+    _fmt_area,
+    _fmt_distance,
 )
 from fibsem.ui.widgets.hud_ticker import HUDTicker
-from fibsem.applications.autolamella.ui.lamella_task_image_widget import ZoomableImageView
 from fibsem.ui.widgets.profile_line import ProfileLineOverlay
 from fibsem.ui.widgets.radial_menu import RadialMenuOverlay
 from fibsem.ui.widgets.zoom_loupe import ZoomLoupeOverlay

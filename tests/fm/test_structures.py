@@ -1,24 +1,25 @@
 import tempfile
-import pytest
-import numpy as np
-import yaml
 from datetime import datetime
+
+import numpy as np
+import pytest
+import yaml
 
 from fibsem.fm.structures import (
     AutoFocusMode,
     ChannelSettings,
+    FluorescenceChannelMetadata,
     FluorescenceConfiguration,
     FluorescenceImage,
-    FluorescenceChannelMetadata,
     FluorescenceImageMetadata,
     OverviewParameters,
     ZParameters,
     ZStackOrder,
 )
 from fibsem.fm.timing import (
-    DEFAULT_STAGE_MOVE_TIME,
     DEFAULT_AUTOFOCUS_TIME,
     DEFAULT_OVERHEAD_PER_IMAGE,
+    DEFAULT_STAGE_MOVE_TIME,
     DEFAULT_Z_MOVE_TIME,
     calculate_total_images_count,
     estimate_acquisition_time,
@@ -1730,7 +1731,7 @@ def test_estimate_acquisition_time_single_channel():
 
     # Single channel, no z-stack, default overhead (0.5s)
     time_s = estimate_acquisition_time(channel)
-    expected_time = 0.1 + 0.5  # exposure + overhead
+    expected_time = 0.1 + DEFAULT_OVERHEAD_PER_IMAGE  # exposure + overhead
     assert time_s == expected_time
 
     # Note: Custom timing parameters are now constants in the timing module
@@ -1751,11 +1752,11 @@ def test_estimate_acquisition_time_z_stack():
 
     time_s = estimate_acquisition_time(channel, zparams)
 
-    # Expected: 5 images × (0.05s exposure + 0.5s overhead) + 4 z-moves × 0.1s
+    # Expected: 5 images × (0.05s exposure + per-image overhead) + 4 z-moves × 0.1s
     expected_exposure = 5 * 0.05  # 0.25s total exposure
-    expected_overhead = 5 * 0.5  # 2.5s total overhead
+    expected_overhead = 5 * DEFAULT_OVERHEAD_PER_IMAGE
     expected_z_moves = 4 * 0.1  # 0.4s z-movement time
-    expected_total = expected_exposure + expected_overhead + expected_z_moves  # 3.15s
+    expected_total = expected_exposure + expected_overhead + expected_z_moves
 
     assert time_s == expected_total
 
@@ -1782,8 +1783,8 @@ def test_estimate_acquisition_time_multiple_channels():
     # Multiple channels, no z-stack
     time_s = estimate_acquisition_time(channels)
     expected_exposure = 0.1 + 0.05  # 0.15s total exposure
-    expected_overhead = 2 * 0.5  # 1.0s total overhead
-    expected_total = expected_exposure + expected_overhead  # 1.15s
+    expected_overhead = 2 * DEFAULT_OVERHEAD_PER_IMAGE
+    expected_total = expected_exposure + expected_overhead
     assert time_s == expected_total
 
 
@@ -1814,9 +1815,9 @@ def test_estimate_acquisition_time_multiple_channels_z_stack():
     expected_exposure = 3 * (
         0.1 + 0.05
     )  # 3 z-planes × (0.1 + 0.05)s per z-plane = 0.45s
-    expected_overhead = total_images * 0.5  # 6 × 0.5s = 3.0s
+    expected_overhead = total_images * DEFAULT_OVERHEAD_PER_IMAGE
     expected_z_moves = 2 * 2 * 0.1  # 2 channels × 2 z-moves × 0.1s = 0.4s
-    expected_total = expected_exposure + expected_overhead + expected_z_moves  # 3.85s
+    expected_total = expected_exposure + expected_overhead + expected_z_moves
 
     assert time_s == expected_total
 
@@ -1836,11 +1837,11 @@ def test_estimate_acquisition_time_custom_parameters():
     # Test with default timing constants
     time_s = estimate_acquisition_time(channel, zparams)
 
-    # Expected: 3 images × (0.2s exposure + 0.5s overhead) + 2 z-moves × 0.1s
+    # Expected: 3 images × (0.2s exposure + per-image overhead) + 2 z-moves × 0.1s
     expected_exposure = 3 * 0.2  # 0.6s
-    expected_overhead = 3 * 0.5  # 1.5s (using DEFAULT_OVERHEAD_PER_IMAGE)
+    expected_overhead = 3 * DEFAULT_OVERHEAD_PER_IMAGE
     expected_z_moves = 2 * 0.1  # 0.2s (using DEFAULT_Z_MOVE_TIME)
-    expected_total = expected_exposure + expected_overhead + expected_z_moves  # 2.3s
+    expected_total = expected_exposure + expected_overhead + expected_z_moves
 
     assert time_s == expected_total
 
@@ -1858,7 +1859,7 @@ def test_estimate_acquisition_time_edge_cases():
     # Single z-plane (no z-movement)
     zparams_single = ZParameters(zmin=0, zmax=0, zstep=1e-6)
     time_single = estimate_acquisition_time(channel, zparams_single)
-    expected_single = 0.01 + 0.5  # exposure + overhead, no z-moves
+    expected_single = 0.01 + DEFAULT_OVERHEAD_PER_IMAGE  # exposure + overhead, no z-moves
     assert time_single == expected_single
 
     # Note: Timing constants are now fixed in the timing module
@@ -2438,10 +2439,10 @@ class TestCombiningImagesKeepsTheirMetadata:
     def _image(**overrides):
         from fibsem.fm.structures import (
             CameraImageTransform,
+            FibsemHardwareGeometry,
             FluorescenceChannelMetadata,
             FluorescenceImage,
             FluorescenceImageMetadata,
-            FibsemHardwareGeometry,
         )
 
         metadata = FluorescenceImageMetadata(

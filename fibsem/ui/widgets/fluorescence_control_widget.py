@@ -18,21 +18,23 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from superqt import ensure_main_thread
-from fibsem import conversions, utils
+
 from fibsem import config as fcfg
+from fibsem import conversions, utils
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.calibration import run_autofocus
 from fibsem.fm.config import record_recent_channels
 from fibsem.fm.structures import (
     AutoFocusSettings,
     ChannelSettings,
-    FluorescenceImage,
     FluorescenceConfiguration,
+    FluorescenceImage,
     OverviewParameters,
     ZParameters,
 )
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import Point
+from fibsem.ui import notification_service
 from fibsem.ui.fm.widgets import (
     AutofocusWidget,
     CameraWidget,
@@ -41,12 +43,11 @@ from fibsem.ui.fm.widgets import (
     ObjectiveControlWidget,
     ZParametersWidget,
 )
-from fibsem.ui import notification_service
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
-from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     TitledPanel,
@@ -91,11 +92,6 @@ class FMControlWidget(QWidget):
         self._acquisition_thread: Optional[FunctionWorker] = None
         self._acquisition_stop_event = threading.Event()
         self._current_acquisition_type: Optional[str] = None
-        # Initialised here, not only in the acquire methods: the widget is connected to
-        # the microscope's progress signal from construction, so a workflow task driving
-        # the FM reaches _on_acquisition_progress without this widget having started
-        # anything.
-        self._last_remaining_time: Optional[float] = None
 
         # FM canvas click context (quad-view): retained from the latest image so a
         # double-click can convert pixel -> stage without napari layer metadata
@@ -198,10 +194,8 @@ class FMControlWidget(QWidget):
 
         # Create progress bar (hidden by default)
         self.progressBar_current_acquisition = QProgressBar(self)
-        self.progressBar_acquisition_task = QProgressBar(self)
         self.progressText = QLabel("Acquisition Progress", self)
         self.progressBar_current_acquisition.hide()
-        self.progressBar_acquisition_task.hide()
         self.progressText.hide()
 
         # Create scroll area for main content
@@ -232,7 +226,6 @@ class FMControlWidget(QWidget):
         button_layout.addWidget(self.pushButton_cancel_acquisition, 5, 0, 1, 2)
         button_layout.addWidget(self.progressText, 6, 0, 1, 2)
         button_layout.addWidget(self.progressBar_current_acquisition, 7, 0, 1, 2)
-        button_layout.addWidget(self.progressBar_acquisition_task, 8, 0, 1, 2)
 
         # Main layout with scroll area and buttons
         layout = QVBoxLayout()
@@ -310,8 +303,13 @@ class FMControlWidget(QWidget):
         # Debounced auto-save of the FM working state on any settings change, so
         # edits persist even if the app is force-killed before closeEvent runs.
         from superqt.utils import qdebounced
-        self._autosave_fm_configuration = qdebounced(self.save_fm_configuration, timeout=1000)
-        self.channelSettingsWidget.settings_changed.connect(self._on_fm_settings_changed)
+
+        self._autosave_fm_configuration = qdebounced(
+            self.save_fm_configuration, timeout=1000
+        )
+        self.channelSettingsWidget.settings_changed.connect(
+            self._on_fm_settings_changed
+        )
         self.cameraWidget.settings_changed.connect(self._on_fm_settings_changed)
         self.autofocusWidget.settings_changed.connect(self._on_fm_settings_changed)
         self.zParametersWidget.settings_changed.connect(self._on_fm_settings_changed)
@@ -333,7 +331,9 @@ class FMControlWidget(QWidget):
             # canvas outlives this widget, so a leaked connection would drive a stale
             # stage move through a destroyed widget
             self._fm_canvas = controller.fm_canvas
-            self._fm_canvas.canvas_double_clicked.connect(self._on_canvas_fm_double_click)
+            self._fm_canvas.canvas_double_clicked.connect(
+                self._on_canvas_fm_double_click
+            )
             self._fm_canvas.canvas_scrolled.connect(
                 self.objectiveControlWidget._on_canvas_scroll
             )
@@ -377,8 +377,14 @@ class FMControlWidget(QWidget):
 
         if self._fm_canvas is not None:
             for signal, slot in (
-                (self._fm_canvas.canvas_double_clicked, self._on_canvas_fm_double_click),
-                (self._fm_canvas.canvas_scrolled, self.objectiveControlWidget._on_canvas_scroll),
+                (
+                    self._fm_canvas.canvas_double_clicked,
+                    self._on_canvas_fm_double_click,
+                ),
+                (
+                    self._fm_canvas.canvas_scrolled,
+                    self.objectiveControlWidget._on_canvas_scroll,
+                ),
             ):
                 try:
                     signal.disconnect(slot)
@@ -499,10 +505,8 @@ class FMControlWidget(QWidget):
 
         # clear acquisition state
         self._current_acquisition_type = None
-        self._last_remaining_time = None
 
         # hide progress bar when acquisition finishes
-        self.progressBar_acquisition_task.hide()
         self.progressBar_current_acquisition.hide()
         self.progressText.setText("")
 
@@ -512,98 +516,71 @@ class FMControlWidget(QWidget):
         self._update_acquisition_button_states()
 
     @ensure_main_thread
-    def _on_acquisition_progress(self, progress: dict):
-        """Update progress bars on acquisition signal"""
+    def _on_acquisition_progress(
+        self, report: "FluorescenceAcquisitionProgress"
+    ) -> None:
+        """Update progress bars on acquisition signal.
 
-        # Show progress bar when acquisition progress is updated
-        if self._current_acquisition_type in ["positions", "overview"]:
-            # only show acquisition_task progress bar when acquiring overview/positions
-            if not self.progressBar_acquisition_task.isVisible():
-                self.progressBar_acquisition_task.show()
+        Two branches the dict form carried are absent rather than ported:
+
+        * `state == "moving"` -- nothing has emitted a stage move on this signal since
+          the workflow emits were deleted in step 1 of this issue. The two remaining
+          `state: "moving"` sites in `fm/acquisition.py` belong to the tileset runner
+          and go to `tiled_acquisition_signal`.
+        * `state == "autofocus"` -- the sweep-start announcement, deleted in this stack.
+          It set "Running Autofocus…" and reset the bar, and the per-step report that
+          arrives microseconds later overwrote both with something strictly better,
+          having named the channel and the step.
+        """
+        from fibsem.fm.progress import FluorescenceAcquisitionStatus
+
         if not self.progressBar_current_acquisition.isVisible():
             self.progressBar_current_acquisition.show()
         if not self.progressText.isVisible():
             self.progressText.show()
 
-        progress_zlevels = progress.get("zlevel", None)
-        progress_total_zlevels = progress.get("total_zlevels", None)
-        progress_current = progress.get("current", None)
-        progress_total = progress.get("total", None)
-        channel_name = progress.get("channel", None)
-        progress_state = progress.get("state", None)
-        progress_task = progress.get("task", None)
-
-        if progress_state == "moving":
-            self.progressText.setText("Moving stage...")
-            self.progressBar_current_acquisition.setValue(0)
-            self.progressBar_current_acquisition.setFormat("")
-
-        if progress_state == "autofocus":
-            self.progressText.setText("Running Autofocus...")
-            self.progressBar_current_acquisition.setValue(0)
-            self.progressBar_current_acquisition.setFormat("")
-
-        if progress_state == "finished":
-            self.progressBar_acquisition_task.hide()
+        if report.status is FluorescenceAcquisitionStatus.FINISHED:
             self.progressBar_current_acquisition.hide()
             self.progressText.setText("Acquisition complete.")
             self.progressText.hide()
             return
 
-        # set progress message
-        if progress_task == "autofocus":
+        channel = report.channel
+        is_autofocus = (
+            report.status is FluorescenceAcquisitionStatus.ACQUIRING_AUTOFOCUS
+        )
+
+        if is_autofocus:
             # Handled before the channel branch, not inside it: a sweep with no channel
             # reports an empty name, which used to render "Acquiring  (1/1)..." and now
             # would leave the previous message sitting there instead.
             self.progressText.setText(
-                f"Focusing on {channel_name}..." if channel_name else "Focusing..."
+                f"Focusing on {channel}..." if channel else "Focusing..."
             )
-        elif channel_name:
-            channel_index = progress.get("channel_index", 1)
-            total_channels = progress.get("total_channels", 1)
-            msg = f"Acquiring {channel_name} ({channel_index}/{total_channels})..."
-            self.progressText.setText(msg)
+        elif channel:
+            index = report.channel_index or 1
+            total = report.total_channels or 1
+            self.progressText.setText(f"Acquiring {channel} ({index}/{total})...")
 
-        # set individual image acquisition progress bar
-        if progress_zlevels and progress_total_zlevels:
-            percentage_zlevel = (
-                int((progress_zlevels / progress_total_zlevels) * 100)
-                if progress_total_zlevels > 0
-                else 0
+        if report.zlevel and report.total_zlevels:
+            self.progressBar_current_acquisition.setValue(
+                int((report.zlevel / report.total_zlevels) * 100)
             )
-            self.progressBar_current_acquisition.setValue(percentage_zlevel)
-            if progress_task == "autofocus":
+            if is_autofocus:
                 # A focus sweep steps the objective through a search range. Calling
                 # those positions "Z-level" names the z-stack, which is not running --
                 # and says which pass, so a coarse sweep followed by a fine one does
                 # not look like the same bar inexplicably starting over.
-                total_passes = progress.get("total_passes", 1)
-                which = (f" · pass {progress.get('pass_index', 1)}/{total_passes}"
-                         if total_passes > 1 else "")
-                label = f"Focus {progress_zlevels}/{progress_total_zlevels}{which}"
+                total_passes = report.total_passes or 1
+                which = (
+                    f" · pass {report.pass_index or 1}/{total_passes}"
+                    if total_passes > 1
+                    else ""
+                )
+                label = f"Focus {report.zlevel}/{report.total_zlevels}{which}"
             else:
-                label = f"Z-level {progress_zlevels}/{progress_total_zlevels}"
+                label = f"Z-level {report.zlevel}/{report.total_zlevels}"
             self.progressBar_current_acquisition.setFormat(label)
-
-        # set total acquisition task progress
-        if progress_current is not None and progress_total is not None:
-            # Format time remaining string if available
-            time_remaining_str = ""
-            remaining_time = progress.get("estimated_remaining_time", 0)
-            if remaining_time > 0:
-                self._last_remaining_time = remaining_time
-            if self._last_remaining_time is not None and self._last_remaining_time > 0:
-                time_remaining_str = f"Remaining Time: {utils.format_duration(self._last_remaining_time)}"
-
-            # Set progress bar/text
-            percentage = (
-                int((progress_current / progress_total) * 100)
-                if progress_total > 0
-                else 0
-            )
-            msg = f"Position {progress_current}/{progress_total} - {time_remaining_str}"
-            self.progressBar_acquisition_task.setValue(percentage)
-            self.progressBar_acquisition_task.setFormat(msg)
 
     @ensure_main_thread
     def update_image(self, image: FluorescenceImage):
@@ -866,7 +843,6 @@ class FMControlWidget(QWidget):
 
         logging.info("Starting image acquisition")
         self._current_acquisition_type = "image"
-        self._last_remaining_time = None
         self._update_acquisition_button_states()
         self._acquisition_stop_event.clear()
 
@@ -1018,7 +994,6 @@ class FMControlWidget(QWidget):
 
         logging.info("Starting auto-focus")
         self._current_acquisition_type = "autofocus"
-        self._last_remaining_time = None
         self._update_acquisition_button_states()
         self._acquisition_stop_event.clear()
 
@@ -1041,15 +1016,16 @@ class FMControlWidget(QWidget):
         """Worker thread for auto-focus."""
         try:
             ranges = ", ".join(
-                f"{p.search_range*1e6:.1f}µm/{p.step_size*1e6:.1f}µm"
-                for p in autofocus_settings.passes if p.enabled
+                f"{p.search_range * 1e6:.1f}µm/{p.step_size * 1e6:.1f}µm"
+                for p in autofocus_settings.passes
+                if p.enabled
             )
             logging.info(
                 f"Running auto-focus: {len(autofocus_settings.passes)} pass(es) [{ranges}], "
                 f"method={autofocus_settings.method.value}"
             )
 
-            from fibsem.fm.calibration import run_coarse_fine_autofocus, plot_autofocus
+            from fibsem.fm.calibration import plot_autofocus, run_coarse_fine_autofocus
 
             result = run_coarse_fine_autofocus(
                 self.fm,
@@ -1140,6 +1116,7 @@ class FMControlWidget(QWidget):
         if self.microscope.fm is None:
             return
         from fibsem.fm.config import save_fm_configuration
+
         try:
             save_fm_configuration(self._build_fluorescence_configuration())
         except Exception as e:

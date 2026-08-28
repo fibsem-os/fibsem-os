@@ -35,6 +35,7 @@ import numpy as np
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QAction,
+    QApplication,
     QDialog,
     QFileDialog,
     QFrame,
@@ -55,39 +56,44 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from superqt import ensure_main_thread
-from fibsem.ui.icon import fibsem_icon
 
 from fibsem import conversions
+from fibsem.applications.autolamella.poses import sync_fluorescence_pose
+from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
+    LamellaNameListWidget,
+)
+from fibsem.applications.autolamella.ui.selected_lamella_widget import (
+    SelectedLamellaWidget,
+)
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
 from fibsem.fm.structures import FluorescenceImage
+from fibsem.milling.progress import (
+    MillingMessageTracker,
+    MillingProgress,
+    MillingProgressStatus,
+)
 from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
 from fibsem.structures import BeamType, FibsemImage, Point
 from fibsem.ui import notification_service, stylesheets
-from fibsem.ui.stylesheets import CANVAS_BG, SURFACE_COLOR
 from fibsem.ui.fm.widgets import LinePlotWidget
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.ui.widgets.custom_widgets import (
-    IntegerValueSpinBox,
-    TitledPanel,
-)
-from fibsem.applications.autolamella.poses import sync_fluorescence_pose
-from fibsem.applications.autolamella.ui.lamella_name_list_widget import LamellaNameListWidget
-from fibsem.ui.widgets.coincidence_milling_confirmation_dialog import (
-    CoincidenceMillingConfirmationDialog,
-)
-from fibsem.applications.autolamella.ui.selected_lamella_widget import SelectedLamellaWidget
-from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
-from fibsem.ui.widgets.canvas.overlays import RectOverlay, ScanDirectionArrowOverlay
+from fibsem.ui.stylesheets import CANVAS_BG, SURFACE_COLOR
 from fibsem.ui.tokens import (
     BORDER_COLOR,
     DISABLED_BG_COLOR,
     DISABLED_TEXT_COLOR,
-    OK_COLOR,
-    ORANGE_COLOR,
-    PRIMARY_COLOR,
-    SEMANTIC_ERROR_COLOR,
     SURFACE_COLOR,
     TEXT_COLOR,
+)
+from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.overlays import RectOverlay, ScanDirectionArrowOverlay
+from fibsem.ui.widgets.coincidence_milling_confirmation_dialog import (
+    CoincidenceMillingConfirmationDialog,
+)
+from fibsem.ui.widgets.custom_widgets import (
+    IntegerValueSpinBox,
+    TitledPanel,
 )
 
 if TYPE_CHECKING:
@@ -102,15 +108,6 @@ _HEADER_BG = CANVAS_BG
 
 # name used for the coincidence entry in the lamella review panel / task history
 COINCIDENCE_REVIEW_TASK_NAME = "Coincidence Milling"
-
-COINCIDENCE_BORDER_STYLESHEET = f"""
-    QFrame#coincidence_border_frame[borderState="idle"]       {{ border: 4px solid {SURFACE_COLOR}; }}
-    QFrame#coincidence_border_frame[borderState="automated"]  {{ border: 4px solid {OK_COLOR}; }}
-    QFrame#coincidence_border_frame[borderState="supervised"] {{ border: 4px solid {PRIMARY_COLOR}; }}
-    QFrame#coincidence_border_frame[borderState="waiting"]    {{ border: 4px solid {ORANGE_COLOR}; }}
-    QFrame#coincidence_border_frame[borderState="finished"]   {{ border: 4px solid {OK_COLOR}; }}
-    QFrame#coincidence_border_frame[borderState="stopped"]    {{ border: 4px solid {SEMANTIC_ERROR_COLOR}; }}
-"""
 
 
 def _fmt_timestamp(ts: float) -> str:
@@ -684,7 +681,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
         outer.addWidget(self._build_bottom_bar())
 
-        self.setStyleSheet(stylesheets.NAPARI_STYLE + COINCIDENCE_BORDER_STYLESHEET)
+        self.setStyleSheet(
+            stylesheets.NAPARI_STYLE
+            + stylesheets.border_stylesheet("coincidence_border_frame")
+        )
 
         # Apply initial selected-view border (FM selected by default)
         self._set_selected_view(self.selected_view)
@@ -781,11 +781,11 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if self.microscope is None:
             return self._placeholder("No microscope connected")
 
-        from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
         from fibsem.milling.base import FibsemMillingSettings, FibsemMillingStage
         from fibsem.milling.patterning import RectanglePattern
         from fibsem.milling.tasks import FibsemMillingTaskConfig
         from fibsem.structures import CrossSectionPattern
+        from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 
         # Default coincidence milling task config (previously defined in the
         # removed fluorescence_coincidence_widget module).
@@ -829,7 +829,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         # alone could go unsaved for hours and be lost on a force-kill.
         # Connected after construction so the initial load doesn't trigger a save.
         from superqt.utils import qdebounced
-        self._autosave_milling_config = qdebounced(self._save_milling_config, timeout=1000)
+
+        self._autosave_milling_config = qdebounced(
+            self._save_milling_config, timeout=1000
+        )
         self.milling_viewer_widget.settings_changed.connect(
             lambda *_: self._autosave_milling_config()
         )
@@ -856,7 +859,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         # Objective control
         from fibsem.ui.widgets.custom_widgets import IconToolButton
 
-        self.fm_objective_widget = ObjectiveControlWidget(fm=fm, microscope=self.microscope)
+        self.fm_objective_widget = ObjectiveControlWidget(
+            fm=fm, microscope=self.microscope
+        )
         btn_refresh_objective = IconToolButton(
             icon="mdi:refresh", tooltip="Refresh objective position"
         )
@@ -924,6 +929,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             OverviewParameters,
             ZParameters,
         )
+
         fm = self.microscope.fm
         return FluorescenceConfiguration(
             channel_settings=self.fm_channel_widget.channel_settings,
@@ -949,6 +955,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         """On open, apply the FM config: the live main-UI config if provided,
         else the last-used working state as a fallback."""
         from fibsem.fm.config import load_fm_configuration
+
         config = self._seed_fm_config or load_fm_configuration()
         if config is not None:
             try:
@@ -959,6 +966,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
     def _save_fm_configuration(self) -> None:
         """Persist the current FM configuration as the working state."""
         from fibsem.fm.config import save_fm_configuration
+
         try:
             save_fm_configuration(self._read_fm_configuration())
         except Exception as e:
@@ -967,9 +975,11 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
     def _load_milling_config(self):
         """Load the last-used coincidence milling config, or None."""
         import os
+
         from fibsem import config as cfg
         from fibsem.milling.tasks import FibsemMillingTaskConfig
         from fibsem.utils import load_yaml
+
         if not os.path.exists(cfg.COINCIDENCE_MILLING_CONFIG_PATH):
             return None
         try:
@@ -986,6 +996,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             return
         from fibsem import config as cfg
         from fibsem.utils import save_yaml
+
         try:
             save_yaml(
                 cfg.COINCIDENCE_MILLING_CONFIG_PATH,
@@ -1007,9 +1018,14 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
     def _export_configuration(self) -> None:
         """Export the current FM + milling configuration to a YAML file."""
         from fibsem.utils import save_yaml
-        default_path = os.path.join(self._default_config_dir(), "coincidence-configuration.yaml")
+
+        default_path = os.path.join(
+            self._default_config_dir(), "coincidence-configuration.yaml"
+        )
         filename, _ = QFileDialog.getSaveFileName(
-            self, "Export Coincidence Configuration", default_path,
+            self,
+            "Export Coincidence Configuration",
+            default_path,
             "YAML files (*.yaml *.yml);;All files (*.*)",
         )
         if not filename:
@@ -1034,8 +1050,11 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
     def _load_configuration(self) -> None:
         """Load an FM + milling configuration from a YAML file and apply it."""
         from fibsem.utils import load_yaml
+
         filename, _ = QFileDialog.getOpenFileName(
-            self, "Load Coincidence Configuration", self._default_config_dir(),
+            self,
+            "Load Coincidence Configuration",
+            self._default_config_dir(),
             "YAML files (*.yaml *.yml);;All files (*.*)",
         )
         if not filename:
@@ -1048,10 +1067,12 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             fm_config = None
             if data.get("fm") is not None:
                 from fibsem.fm.structures import FluorescenceConfiguration
+
                 fm_config = FluorescenceConfiguration.from_dict(data["fm"])
             milling_config = None
             if data.get("milling") is not None:
                 from fibsem.milling.tasks import FibsemMillingTaskConfig
+
                 milling_config = FibsemMillingTaskConfig.from_dict(data["milling"])
         except Exception as e:
             logging.error(f"Failed to read coincidence configuration: {e}")
@@ -1059,7 +1080,11 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             return
 
         try:
-            if fm_config is not None and self.microscope is not None and self.microscope.fm is not None:
+            if (
+                fm_config is not None
+                and self.microscope is not None
+                and self.microscope.fm is not None
+            ):
                 self._apply_fm_configuration(fm_config)
             if milling_config is not None and self.milling_viewer_widget is not None:
                 self.milling_viewer_widget.set_config(milling_config)
@@ -1091,17 +1116,13 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         layout.addStretch()
 
         self.progressBar_stages = QProgressBar()
-        self.progressBar_stages.setStyleSheet(
-            stylesheets.PROGRESS_BAR_STYLESHEET
-        )
+        self.progressBar_stages.setStyleSheet(stylesheets.PROGRESS_BAR_STYLESHEET)
         self.progressBar_stages.setFixedHeight(24)
         self.progressBar_stages.setFixedWidth(180)
         self.progressBar_stages.setVisible(False)
 
         self.progressBar_stage = QProgressBar()
-        self.progressBar_stage.setStyleSheet(
-            stylesheets.PROGRESS_BAR_STYLESHEET
-        )
+        self.progressBar_stage.setStyleSheet(stylesheets.PROGRESS_BAR_STYLESHEET)
         self.progressBar_stage.setFixedHeight(24)
         self.progressBar_stage.setFixedWidth(180)
         self.progressBar_stage.setVisible(False)
@@ -1112,11 +1133,17 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         )
         self.btn_milling.setStyleSheet(stylesheets.CONFIRM_BUTTON_STYLESHEET)
 
+        # The last words a producer supplied, so a backend's messageless tick still has
+        # a label to show. See `MillingMessageTracker`.
+        self._milling_label = MillingMessageTracker()
+
         # single pause control: tool button with milling/acquisition menu options
         self._milling_paused = False
         self.btn_pause = QToolButton()
         self.btn_pause.setText("Pause")
-        self.btn_pause.setIcon(fibsem_icon("mdi:pause", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_pause.setIcon(
+            fibsem_icon("mdi:pause", color=stylesheets.GRAY_ICON_COLOR)
+        )
         self.btn_pause.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)  # type: ignore[attr-defined]
         self.btn_pause.setPopupMode(QToolButton.InstantPopup)
         # SECONDARY_BUTTON_STYLESHEET targets QPushButton; a QToolButton needs its
@@ -1314,7 +1341,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         obj = self.microscope.fm.objective
         value_m = obj.position if obj.state == "Inserted" else obj.focus_position
         if value_m is None:
-            notification_service.show_toast("Objective position unavailable.", "warning")
+            notification_service.show_toast(
+                "Objective position unavailable.", "warning"
+            )
             return
         lamella.fluorescence_pose.objective_position = value_m
         if self.experiment is not None:
@@ -1428,7 +1457,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             return
         state = self.microscope.get_microscope_state()
         if state is None or state.stage_position is None:
-            notification_service.show_toast("Failed to get microscope state.", "warning")
+            notification_service.show_toast(
+                "Failed to get microscope state.", "warning"
+            )
             return
 
         ret = QMessageBox.question(
@@ -1578,7 +1609,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
         worker = FunctionWorker(_worker)
         # reset the label on the GUI thread; setText from the worker thread is unsafe
-        worker.finished.connect(lambda: self.btn_autocontrast_fib.setText("AutoContrast"))
+        worker.finished.connect(
+            lambda: self.btn_autocontrast_fib.setText("AutoContrast")
+        )
         worker.start()
 
     def _run_fib_autofocus(self) -> None:
@@ -1974,7 +2007,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
     def _toggle_milling(self):
         """Start milling if idle, stop if running."""
         if self.btn_milling.text() == "Stop Milling":
-            self._set_border_state("stopped")
+            self._set_border_state("stopping")
             if self.milling_viewer_widget is not None:
                 self.milling_viewer_widget.milling_widget.stop_milling()
         else:
@@ -2064,28 +2097,27 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         )
 
     @ensure_main_thread
-    def _on_milling_progress(self, progress: dict):
-        progress_info: dict = progress.get("progress", {})
-        state = progress_info.get("state")
+    def _on_milling_progress(self, payload: object):
+        # Total-by-construction decode. Every in-tree producer emits a
+        # `MillingProgress` and this is a no-op for them; it stands because a
+        # plugin-loaded strategy is a producer too, and psygnal hands whatever it
+        # emits to this slot unchanged (FIB-797).
+        report = MillingProgress.from_payload(payload)
+        label = self._milling_label.label(report)
 
-        if state == "start":
-            self._set_border_state(
-                "supervised" if self._supervised else "automated"
-            )
-            current_stage = progress_info.get("current_stage", 0)
-            total_stages = progress_info.get("total_stages", 1)
-            msg = progress.get("msg", "Preparing...")
+        if report.status is MillingProgressStatus.STAGE_STARTED:
+            self._set_border_state("supervised" if self._supervised else "automated")
+            # `or 1` rather than a `.get` default: a producer that sends 0 total stages
+            # is as much a division by zero as one that sends nothing.
+            total_stages = report.total_stages or 1
+            stage = report.display_stage or 1
             self.progressBar_stage.setRange(0, 100)
             self.progressBar_stage.setValue(0)
-            self.progressBar_stage.setFormat(msg)
+            self.progressBar_stage.setFormat(label)
             self.progressBar_stage.setVisible(True)
             self.progressBar_stages.setRange(0, 100)
-            self.progressBar_stages.setValue(
-                int((current_stage + 1) / total_stages * 100)
-            )
-            self.progressBar_stages.setFormat(
-                f"Stage {current_stage + 1}/{total_stages}"
-            )
+            self.progressBar_stages.setValue(int(stage / total_stages * 100))
+            self.progressBar_stages.setFormat(f"Stage {stage}/{total_stages}")
             self.progressBar_stages.setVisible(True)
             self.btn_milling.setText("Stop Milling")
             self.btn_milling.setIcon(
@@ -2106,22 +2138,26 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             )
             self.label_threshold_chip.setVisible(True)
 
-        elif state == "update":
-            remaining = progress_info.get("remaining_time")
-            estimated = progress_info.get("estimated_time")
-            if remaining is not None and estimated is not None and estimated > 0:
-                pct = int((1 - remaining / estimated) * 100)
+        elif report.status is MillingProgressStatus.STAGE_UPDATE:
+            remaining = report.remaining_time
+            if remaining is not None and report.estimated_time:
+                pct = int((1 - remaining / report.estimated_time) * 100)
                 self.progressBar_stage.setValue(pct)
                 from fibsem.utils import format_duration
 
                 self.progressBar_stage.setFormat(
-                    f"{format_duration(remaining)} remaining"
+                    f"{label} - {format_duration(remaining)} remaining"
                 )
+            else:
+                # No countdown to draw, but the producer's words are still worth showing:
+                # this is the branch a strategy's own report lands in, and it used to
+                # match nothing at all and render nowhere.
+                self.progressBar_stage.setFormat(label)
 
-        # NOTE: no "finished" handling here. The progress "finished" state fires
-        # before finish_milling + the post-stop final image, so the viewer is kept
-        # frozen until the milling widget reports true completion — see
-        # _finalize_milling_ui (wired to finished_milling_signal).
+        # NOTE: no terminal handling here. The task's terminal report fires before
+        # finish_milling + the post-stop final image, so the viewer is kept frozen until
+        # the milling widget reports true completion — see _finalize_milling_ui (wired
+        # to finished_milling_signal).
 
     @ensure_main_thread
     def _finalize_milling_ui(self) -> None:
@@ -2148,6 +2184,36 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.label_threshold_chip.setVisible(False)
         self._record_coincidence_result()
         self.milling_finished_signal.emit()
+        self._restack_after_run()
+
+    def _restack_after_run(self) -> None:
+        """Put this window back in front once a run ends, unless the operator has
+        deliberately moved to another of the app's windows.
+
+        Reported from a session: when coincidence milling stops, the main window comes
+        to the front and hides this one. The cause was the end-of-run toast, which used
+        to be a child of the main window wherever it was raised from -- on Windows that
+        drags the main window's z-order group in front of this deliberately parentless
+        one (see open_coincidence_viewer_window and ToastManager). Fixed there; this is
+        the backstop, kept because that diagnosis is inferred from the platform's
+        window rules rather than measured.
+
+        The active-window check is what keeps the backstop from becoming the same
+        complaint in reverse. A window pulled forward as a side effect does not take
+        focus, so the reported case still restacks; but an operator who clicked over to
+        the main window mid-run owns the focus, and their window is left alone.
+        """
+        if (
+            not self.isWindow()
+        ):  # embedded: raising the host would be someone else's call
+            return
+        active = QApplication.activeWindow()
+        if active is not None and active is not self:
+            return
+        # raise_() restacks within the application only: it takes no keyboard focus, so
+        # it cannot pull the app in front of the microscope software, and it leaves a
+        # minimized window minimized.
+        self.raise_()
 
     def _record_coincidence_result(self) -> None:
         """Record the latest coincidence run against the selected lamella.
@@ -2270,15 +2336,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         layout.addWidget(canvas)
         return frame
 
-    _BORDER_STATES = [
-        "idle",
-        "automated",
-        "supervised",
-        "waiting",
-        "finished",
-        "stopped",
-    ]
-
     def set_border_enabled(self, enabled: bool) -> None:
         """Enable or disable the workflow border state animation.
 
@@ -2360,7 +2417,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if not pixelsize:
             return
         if not self.microscope.fm.has_valid_orientation():
-            logging.info(f"Stage must be in a valid FM orientation to move via FM image (current: {self.microscope.get_stage_orientation()})")
+            logging.info(
+                f"Stage must be in a valid FM orientation to move via FM image (current: {self.microscope.get_stage_orientation()})"
+            )
             return
         image_shape = self.fm_canvas._img_shape
         if image_shape is None:
@@ -2416,7 +2475,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 # ---------------------------------------------------------------------------
 
 
-def open_coincidence_viewer_window(microscope, experiment, viewer=None, parent=None, fm_config=None):
+def open_coincidence_viewer_window(
+    microscope, experiment, viewer=None, parent=None, fm_config=None
+):
     """Open FluorescenceCoincidenceViewerWidget as a non-modal top-level window.
 
     A plain top-level widget (not a QDialog): it never blocks, gets native
@@ -2428,7 +2489,10 @@ def open_coincidence_viewer_window(microscope, experiment, viewer=None, parent=N
     Returns the widget (caller should keep a reference to prevent GC).
     """
     widget = FluorescenceCoincidenceViewerWidget(
-        microscope=microscope, experiment=experiment, viewer=viewer, parent=None,
+        microscope=microscope,
+        experiment=experiment,
+        viewer=viewer,
+        parent=None,
         fm_config=fm_config,
     )
     widget.setWindowTitle("Coincidence Milling Viewer")
@@ -2448,14 +2512,15 @@ open_coincidence_viewer_dialog = open_coincidence_viewer_window
 
 def main():
     import sys
+
     from PyQt5.QtWidgets import QApplication
 
     app = QApplication.instance() or QApplication(sys.argv)
     # app.setStyle("Fusion")
 
     from fibsem import utils
-    from fibsem.config import load_user_preferences
     from fibsem.applications.autolamella.structures import Experiment
+    from fibsem.config import load_user_preferences
 
     microscope, settings = utils.setup_session()
     import os

@@ -34,13 +34,13 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
+from fibsem.structures import FibsemImage, Point
 from fibsem.ui.correlation.widgets.correlation_setup_section import (
     SEED_NONE,
     SEED_PREVIOUS,
     SEED_SPOT_BURNS,
     CorrelationSetupSection,
 )
-from fibsem.structures import FibsemImage, Point
 
 
 @pytest.fixture(autouse=True)

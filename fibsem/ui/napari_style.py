@@ -18,6 +18,7 @@ from fibsem.ui.tokens import (
     PANEL_COLOR,
     SURFACE_COLOR,
     TEXT_COLOR,
+    TEXT_MUTED_COLOR,
 )
 
 # Same directory as stylesheets.py, so this resolves identically; kept local
@@ -335,6 +336,65 @@ QListWidget::item:selected {{
 
 QListWidget::item:hover {{
     background-color: #2d313b;
+}}
+
+/* Every scrolling surface in the app -- lists, scroll areas, tables, text edits,
+   spread across ~50 modules -- painted the platform's scrollbar until this rule.
+   One block reaches all of them, which is why it is here rather than beside any
+   one of them.
+
+   A transparent track takes the colour of whatever it sits on, so the same rule
+   works over SURFACE_COLOR and PANEL_COLOR without a second copy. */
+QScrollBar:vertical {{
+    background: transparent;
+    width: 10px;
+    margin: 0px;
+}}
+
+QScrollBar:horizontal {{
+    background: transparent;
+    height: 10px;
+    margin: 0px;
+}}
+
+QScrollBar::handle:vertical, QScrollBar::handle:horizontal {{
+    background-color: {BORDER_COLOR};
+    border-radius: 3px;
+}}
+
+QScrollBar::handle:vertical {{
+    min-height: 24px;
+    margin: 2px;
+}}
+
+QScrollBar::handle:horizontal {{
+    min-width: 24px;
+    margin: 2px;
+}}
+
+QScrollBar::handle:hover {{
+    background-color: {TEXT_MUTED_COLOR};
+}}
+
+/* No arrow buttons: the loudest part of the default control and the least used.
+   Zero-sized rather than hidden, so no gap is reserved for them. */
+QScrollBar::add-line, QScrollBar::sub-line {{
+    height: 0px;
+    width: 0px;
+    border: none;
+    background: none;
+}}
+
+/* The trough either side of the handle stays the surface behind it. */
+QScrollBar::add-page, QScrollBar::sub-page {{
+    background: none;
+}}
+
+/* Where both scrollbars are shown -- the tables -- the square between them is
+   the last piece of platform chrome left once the bars themselves are styled. */
+QAbstractScrollArea::corner {{
+    background: transparent;
+    border: none;
 }}
 
 QToolButton {{

@@ -6,12 +6,13 @@ from abc import ABC
 from contextlib import contextmanager, nullcontext
 from copy import deepcopy
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Optional, Tuple, Union, Literal
+from typing import TYPE_CHECKING, Literal, Optional, Tuple, Union
 
 import numpy as np
 from psygnal import Signal
 
 from fibsem._timing import sim_sleep
+from fibsem.fm.progress import FluorescenceAcquisitionProgress
 from fibsem.fm.structures import (
     CameraImageTransform,
     ChannelSettings,
@@ -675,7 +676,29 @@ class FluorescenceMicroscope(ABC):
 
     # live acquisition signals (psygnal binds these per-instance on access)
     acquisition_signal = Signal(FluorescenceImage)
-    acquisition_progress_signal = Signal(dict)
+    # How far along an acquisition *routine* is. Still a bare dict, pending the typed
+    # payload it should carry (FIB-401); until then the contract is here rather than
+    # only in the emit sites.
+    #
+    #   operation: which routine -- "channels" | "z-stack" | "autofocus". A closed set,
+    #             one member per function in `fm.acquisition` / `fm.calibration` that
+    #             reports progress. Absent on events that are not about a routine.
+    #   state:    "acquiring" | "moving" | "finished" | "autofocus"
+    #
+    # Plus, per operation: `channel`, `channel_index`, `total_channels`; `zlevel` and
+    # `total_zlevels` for a z-stack or a focus sweep; `pass_index` and `total_passes`
+    # for a sweep.
+    #
+    # `operation`, not `task`: an AutoLamella *task* is a different and larger thing,
+    # and while this field was called `task` the workflow tasks filled it in with their
+    # own names -- six emit sites whose value no consumer could ever match, since every
+    # read compares against the closed set above. Removed in #521, renamed here so the
+    # mistake is not available to make again.
+    #
+    # What a *task* is doing belongs on the task's own signals (`step_update_signal`,
+    # `workflow_update_signal`), and tile progress belongs on `tiled_acquisition_signal`
+    # (FIB-725). This signal is the acquisition functions', and nothing else's.
+    acquisition_progress_signal = Signal(FluorescenceAcquisitionProgress)
     # Raised when something starts or stops driving the FM, so a widget that did not
     # start it can grey its controls out. Emitted from whichever thread set the flag --
     # connect with `@ensure_main_thread` if the slot touches widgets.
@@ -722,7 +745,9 @@ class FluorescenceMicroscope(ABC):
             "MILLING",
         ]  # valid orientations for fluorescence acquisition
         self._allow_unknown_orientations: bool = ALLOW_UNKNOWN_ORIENTATIONS
-        self.default_orientation: str = "FM"  # orientation used when computing fluorescence pose for new lamellas
+        self.default_orientation: str = (
+            "FM"  # orientation used when computing fluorescence pose for new lamellas
+        )
         # Orientations the objective can actually image the sample from -- a stricter
         # question than `valid_orientations`, which asks only whether FM control is
         # allowed. Turning the light on and watching the camera from a beam pose is

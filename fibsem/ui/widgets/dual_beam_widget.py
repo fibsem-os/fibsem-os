@@ -8,13 +8,14 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from fibsem.ui.icon import fibsem_icon
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamSettings, BeamType, FibsemDetectorSettings
-from fibsem.ui.widgets.beam_widget import FibsemBeamWidget
 from fibsem.ui import stylesheets
+from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.widgets.beam_widget import FibsemBeamWidget
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
+
 
 class FibsemDualBeamWidget(QWidget):
     """Dual-beam widget with SEM / FIB radio buttons to switch between beam views.

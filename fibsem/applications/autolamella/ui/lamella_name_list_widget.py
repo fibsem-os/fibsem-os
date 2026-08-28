@@ -16,6 +16,7 @@ there yet: three of its consumers (the minimap, the coincidence viewer and the s
 burn widget) live in ``fibsem/ui/``, so moving it now would create three new
 generic-to-application imports rather than removing any. That move is FIB-559.
 """
+
 from __future__ import annotations
 
 from typing import Any, List, Optional
@@ -44,7 +45,6 @@ from fibsem.ui import stylesheets as stylesheets
 from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
 from fibsem.ui.tokens import CANVAS_BG, NEUTRAL_550
 from fibsem.ui.widgets.custom_widgets import IconToolButton
-
 
 _LAMELLA_NAME_MIN_WIDTH = 160
 _LAMELLA_ROW_HEIGHT = 30
@@ -76,7 +76,11 @@ def _lamella_defect_icon(lamella) -> tuple[str, str, str]:
         return "mdi:check-circle", stylesheets.GREEN_COLOR, "No defect"
     if defect.state == DefectType.REWORK:
         desc = f": {defect.description}" if defect.description else ""
-        return "mdi:refresh-circle", stylesheets.DEFECT_ORANGE_COLOR, f"Rework required{desc}"
+        return (
+            "mdi:refresh-circle",
+            stylesheets.DEFECT_ORANGE_COLOR,
+            f"Rework required{desc}",
+        )
     if defect.state == DefectType.FAILURE:
         desc = f": {defect.description}" if defect.description else ""
         return "mdi:close-circle", stylesheets.DEFECT_RED_COLOR, f"Failure{desc}"
@@ -119,36 +123,46 @@ class _LamellaRow(QWidget):
 
         # Direct action buttons (replaces "…" dropdown)
         self.btn_move_to = QToolButton()
-        self.btn_move_to.setIcon(fibsem_icon(ICON_MOVE_TO_POSITION, color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_move_to.setIcon(
+            fibsem_icon(ICON_MOVE_TO_POSITION, color=stylesheets.GRAY_ICON_COLOR)
+        )
         self.btn_move_to.setToolTip("Move to Position")
         self.btn_move_to.setFixedSize(_LAMELLA_BTN_SIZE)
         self.btn_move_to.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
         self.btn_move_to.setVisible(False)
         layout.addWidget(self.btn_move_to)
 
-        self.btn_edit = QToolButton()
-        self.btn_edit.setIcon(fibsem_icon("mdi:pencil", color=stylesheets.GRAY_ICON_COLOR))
-        self.btn_edit.setToolTip("Edit Lamella")
-        self.btn_edit.setFixedSize(_LAMELLA_BTN_SIZE)
-        self.btn_edit.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
-        self.btn_edit.setVisible(False)
-        layout.addWidget(self.btn_edit)
-
         self.btn_update = QToolButton()
-        self.btn_update.setIcon(fibsem_icon(ICON_UPDATE_POSITION, color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_update.setIcon(
+            fibsem_icon(ICON_UPDATE_POSITION, color=stylesheets.GRAY_ICON_COLOR)
+        )
         self.btn_update.setToolTip("Update Position")
         self.btn_update.setFixedSize(_LAMELLA_BTN_SIZE)
         self.btn_update.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
         self.btn_update.setVisible(False)
         layout.addWidget(self.btn_update)
 
-        self.btn_move_to.clicked.connect(lambda: self.move_to_clicked.emit(self.lamella))
+        self.btn_edit = QToolButton()
+        self.btn_edit.setIcon(
+            fibsem_icon("mdi:pencil", color=stylesheets.GRAY_ICON_COLOR)
+        )
+        self.btn_edit.setToolTip("Edit Lamella")
+        self.btn_edit.setFixedSize(_LAMELLA_BTN_SIZE)
+        self.btn_edit.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
+        self.btn_edit.setVisible(False)
+        layout.addWidget(self.btn_edit)
+
+        self.btn_move_to.clicked.connect(
+            lambda: self.move_to_clicked.emit(self.lamella)
+        )
         self.btn_edit.clicked.connect(lambda: self.edit_clicked.emit(self.lamella))
         self.btn_update.clicked.connect(lambda: self.update_clicked.emit(self.lamella))
 
         # Remove button
         self.btn_remove = QToolButton()
-        self.btn_remove.setIcon(fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_remove.setIcon(
+            fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR)
+        )
         self.btn_remove.setToolTip("Remove")
         self.btn_remove.setFixedSize(_LAMELLA_BTN_SIZE)
         self.btn_remove.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
@@ -191,12 +205,16 @@ class _LamellaRow(QWidget):
             fibsem_icon("mdi:check-circle", color=stylesheets.GREEN_COLOR), "No defect"
         )
         action_rework = menu.addAction(
-            fibsem_icon("mdi:refresh-circle", color=stylesheets.DEFECT_ORANGE_COLOR), "Rework required"
+            fibsem_icon("mdi:refresh-circle", color=stylesheets.DEFECT_ORANGE_COLOR),
+            "Rework required",
         )
         action_failure = menu.addAction(
-            fibsem_icon("mdi:close-circle", color=stylesheets.DEFECT_RED_COLOR), "Failure"
+            fibsem_icon("mdi:close-circle", color=stylesheets.DEFECT_RED_COLOR),
+            "Failure",
         )
-        chosen = menu.exec_(self.btn_defect.mapToGlobal(self.btn_defect.rect().bottomLeft()))
+        chosen = menu.exec_(
+            self.btn_defect.mapToGlobal(self.btn_defect.rect().bottomLeft())
+        )
         if chosen == action_none:
             self.lamella.defect = DefectState(state=DefectType.NONE)
         elif chosen == action_rework:
@@ -210,8 +228,11 @@ class _LamellaRow(QWidget):
 
     def _on_remove_clicked(self) -> None:
         reply = QMessageBox.question(
-            self, "Remove Lamella", f"Remove <b>{self.lamella.name}</b>?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            self,
+            "Remove Lamella",
+            f"Remove <b>{self.lamella.name}</b>?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
         )
         if reply == QMessageBox.Yes:
             self.remove_clicked.emit(self.lamella)
@@ -278,7 +299,9 @@ class LamellaNameListWidget(QWidget):
         lbl_status = QLabel("Status")
         lbl_status.setStyleSheet("font-weight: bold; background: transparent;")
         header_layout.addWidget(lbl_status, stretch=1)
-        self.btn_add = IconToolButton(icon="mdi:plus", tooltip="Add", size=_LAMELLA_BTN_SIZE.width())
+        self.btn_add = IconToolButton(
+            icon="mdi:plus", tooltip="Add", size=_LAMELLA_BTN_SIZE.width()
+        )
         self.btn_add.setVisible(False)
         self.btn_add.clicked.connect(self.add_requested.emit)
         header_layout.addWidget(self.btn_add)

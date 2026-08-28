@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import math
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from fibsem.ui.stylesheets import CANVAS_BG as _BG
-from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
-
-from typing import TYPE_CHECKING
 from fibsem.ui.tokens import (
     WHITE_ICON_COLOR,
 )
+from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.canvas.canvas_base import ContentRect

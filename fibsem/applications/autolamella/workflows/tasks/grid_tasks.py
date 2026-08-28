@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import os
-import uuid
 import time
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, ClassVar, Dict, Literal, Optional, Type
@@ -10,7 +10,13 @@ from typing import TYPE_CHECKING, ClassVar, Dict, Literal, Optional, Type
 from fibsem.imaging.tiled import tiled_image_acquisition_and_stitch
 from fibsem.microscope import FibsemMicroscope
 from fibsem.microscopes._stage import GridSlot, SampleGrid, SampleHolder
-from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings, OverviewAcquisitionSettings, field_meta
+from fibsem.structures import (
+    BeamType,
+    FibsemStagePosition,
+    ImageSettings,
+    OverviewAcquisitionSettings,
+    field_meta,
+)
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment

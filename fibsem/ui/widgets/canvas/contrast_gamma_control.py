@@ -32,15 +32,7 @@ from PyQt5.QtWidgets import (
 from superqt import QDoubleSlider
 
 from fibsem.autofunctions.gamma import apply_gamma
-
-_PANEL_STYLE = (
-    "QFrame { background: rgba(30,33,36,230); border: 1px solid #555;"
-    " border-radius: 4px; }"
-    "QLabel { color: #d1d2d4; font-size: 10px; background: transparent; border: none; }"
-    "QPushButton { background: rgba(60,63,70,200); border: 1px solid #666;"
-    " border-radius: 3px; color: #d1d2d4; font-size: 10px; padding: 2px 8px; }"
-    "QPushButton:hover { background: rgba(80,83,90,220); }"
-)
+from fibsem.ui.stylesheets import CANVAS_POPOVER_STYLE as _PANEL_STYLE
 
 
 class ContrastGammaControl(QFrame):

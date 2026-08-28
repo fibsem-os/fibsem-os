@@ -23,11 +23,12 @@ from fibsem.applications.autolamella.structures import (
     Lamella,
 )
 from fibsem.applications.autolamella.ui.lamella_list_widget import LamellaListWidget
-from fibsem.applications.autolamella.ui.workflow_config_widget import WorkflowConfigWidget
+from fibsem.applications.autolamella.ui.workflow_config_widget import (
+    WorkflowConfigWidget,
+)
 from fibsem.applications.autolamella.ui.workflow_info_widget import WorkflowInfoWidget
-from fibsem.applications.autolamella.ui.workflow_task_editor_widget import WorkflowTaskEditorWidget
-from fibsem.ui.widgets.custom_widgets import (
-    ValueComboBox,
+from fibsem.applications.autolamella.ui.workflow_task_editor_widget import (
+    WorkflowTaskEditorWidget,
 )
 from fibsem.ui.tokens import (
     CANVAS_BG,
@@ -35,6 +36,9 @@ from fibsem.ui.tokens import (
     PRIMARY_COLOR,
     SURFACE_COLOR,
     TEXT_COLOR,
+)
+from fibsem.ui.widgets.custom_widgets import (
+    ValueComboBox,
 )
 
 _SECTION_LABEL_STYLE = (

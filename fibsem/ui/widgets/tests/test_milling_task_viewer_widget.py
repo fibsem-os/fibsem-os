@@ -18,8 +18,8 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import utils
-from fibsem.config import AUTOLAMELLA_TASK_PROTOCOL_PATH
 from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
+from fibsem.config import AUTOLAMELLA_TASK_PROTOCOL_PATH
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import BeamType, FibsemImage
 from fibsem.ui.stylesheets import NAPARI_STYLE

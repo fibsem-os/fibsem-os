@@ -103,12 +103,25 @@ class TestOneCompositePerUpdate:
         assert np.array_equal(np.asarray(batched), np.asarray(looped))
 
 
-class TestHeldPlanesAreReducedOnce:
-    def test_re_rendering_a_held_overview_does_not_reduce_it_again(self, widget, reductions):
+class TestHeldOverviewsAreNotRedrawnWholesale:
+    """What replaced the reduced-plane cache.
+
+    Held planes used to be reduced once and kept, because `_restyle_others` re-blended
+    every held image at the display cap on every layer change. Both are gone: each placed
+    image now carries a detail source, and the canvas asks it only for the part of itself
+    on screen -- so there is nothing to cache the whole reduction *for*. See
+    `test_fm_detail_source.py` for what the source itself guarantees.
+    """
+
+    def test_placing_a_second_overview_does_not_re_reduce_the_first(
+        self, widget, reductions
+    ):
         """The dominant cost: held planes are at acquisition resolution and never change.
 
-        Place one overview, then place a second somewhere else — which re-renders the
-        first through `_restyle_others`. The first one's planes must come from the cache.
+        `_reduce` is the whole-image path, so counting it here counts exactly the work
+        the source was supposed to remove. The first overview is redrawn -- it has to be,
+        the new one may overlap it -- but through `_patch`, which reduces the visible
+        region rather than the mosaic.
         """
         widget.set_composite_key("first")
         widget.set_channels([(n, plane(seed=i), c) for i, (n, c) in enumerate(CHANNELS)])
@@ -119,28 +132,23 @@ class TestHeldPlanesAreReducedOnce:
         widget.set_channels([(n, plane(seed=i + 9), c) for i, (n, c) in enumerate(CHANNELS)])
 
         assert len(reductions) == len(CHANNELS), (
-            f"{len(reductions)} reductions placing a second overview — only the new "
-            f"one's {len(CHANNELS)} planes should be reduced. The first overview is "
-            f"held and unchanged, so re-reducing it recomputes the same answer"
+            f"{len(reductions)} whole-image reductions placing a second overview — only "
+            f"the new one's {len(CHANNELS)} planes should take that path"
         )
 
-    def test_the_cache_is_dropped_with_the_overview(self, widget):
-        """It holds full-size arrays, so a leak here is a memory leak."""
-        widget.set_composite_key("first")
+    def test_a_layer_edit_reduces_nothing_at_all(self, widget, reductions):
+        """No pixels changed, so there is nothing to blend up front -- the canvas asks
+        each source for what it can show. This is the path a slider drag takes, once per
+        mouse move."""
         widget.set_channels([(n, plane(seed=i), c) for i, (n, c) in enumerate(CHANNELS)])
-        assert widget._held_reduced.get("first")
+        reductions.clear()
 
-        widget.forget_overview("first")
+        widget.layers[0].opacity = 0.5
+        widget._panel.changed.emit()
 
-        assert "first" not in widget._held_reduced
-
-    def test_clearing_drops_every_cached_reduction(self, widget):
-        widget.set_composite_key("first")
-        widget.set_channels([(n, plane(seed=i), c) for i, (n, c) in enumerate(CHANNELS)])
-
-        widget.clear_overviews()
-
-        assert widget._held_reduced == {}
+        assert reductions == [], (
+            "a layer edit re-reduced whole planes; it should only refresh detail"
+        )
 
 
 class TestThePreviewUsesTheBatchedPath:
