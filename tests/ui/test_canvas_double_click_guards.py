@@ -304,7 +304,7 @@ def test_a_refused_click_reports_nothing(movement, toasts):
     the time the worker decided to do nothing.
     """
     reports = []
-    movement.movement_progress_signal.connect(lambda d: reports.append(dict(d)))
+    movement._set_move_status = reports.append
 
     movement._on_canvas_double_click(BeamType.ELECTRON, 100.0, 100.0, {"Shift"})
     _pump()
@@ -318,12 +318,14 @@ def test_a_refused_click_reports_nothing(movement, toasts):
 def _move_trace(movement, monkeypatch) -> list:
     """Every reported effect of the move, in order."""
     seen = []
+    original_status = movement._set_move_status
 
-    def _reported(ddict: dict) -> None:
-        if ddict.get("msg") is not None:
-            seen.append(("msg", ddict["msg"]))
+    def _reported(msg):
+        if msg is not None:
+            seen.append(("msg", msg))
+        original_status(msg)
 
-    movement.movement_progress_signal.connect(_reported)
+    monkeypatch.setattr(movement, "_set_move_status", _reported)
     monkeypatch.setattr(
         movement.microscope,
         "stable_move",

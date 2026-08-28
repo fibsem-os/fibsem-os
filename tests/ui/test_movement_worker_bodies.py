@@ -79,14 +79,18 @@ def _trace(movement, monkeypatch) -> list:
     and it keeps the recorder from being queued behind the assertions.
     """
     seen = []
+    # `_set_move_status` is where the reporting lands on the info bar. It was a
+    # `movement_progress_signal` emit until the signal turned out to be the widget
+    # calling itself; the clear it also receives (None, once a move is done) is pinned
+    # by the buttons-back test instead.
+    original_status = movement._set_move_status
 
-    def _reported(ddict: dict) -> None:
-        # Only the messages. `move_stage_finished` also emits {"finished": True}, which
-        # carries no message and is pinned by the buttons-back test instead.
-        if ddict.get("msg") is not None:
-            seen.append(("msg", ddict["msg"]))
+    def _reported(msg):
+        if msg is not None:
+            seen.append(("msg", msg))
+        original_status(msg)
 
-    movement.movement_progress_signal.connect(_reported)
+    monkeypatch.setattr(movement, "_set_move_status", _reported)
 
     def _moved(stage_position, *args, **kwargs):
         seen.append(("move", stage_position))
@@ -287,19 +291,19 @@ def test_a_real_move_keeps_the_buttons_down_until_the_images_land(movement):
     what ``move_stage_finished`` reads when it decides whether to give the buttons
     back, and the one fact in this file that a stub cannot supply honestly.
 
-    The buttons must be down from the moment the move starts, still down when
-    ``finished`` arrives mid-acquisition, and back only once the images have landed.
+    The buttons must be down from the moment the move starts, stay down through the
+    acquisition that follows it, and come back only once the images have landed --
+    which is also when the status is cleared, by `handle_acquisition_update` rather
+    than by `move_stage_finished`.
     """
     seen = []
-    movement.movement_progress_signal.connect(
-        lambda d: seen.append(
-            (
-                dict(d),
-                movement.pushButton_move.isEnabled(),
-                movement.image_widget.is_acquiring,
-            )
-        )
-    )
+    original_status = movement._set_move_status
+
+    def _sample(msg):
+        seen.append((msg, movement.pushButton_move.isEnabled()))
+        original_status(msg)
+
+    movement._set_move_status = _sample
 
     assert movement.pushButton_move.isEnabled(), "precondition: buttons start enabled"
     movement._move_to_absolute_position(TARGET)
@@ -309,23 +313,18 @@ def test_a_real_move_keeps_the_buttons_down_until_the_images_land(movement):
 
     _run(
         lambda: (
-            len(seen) >= 3
+            None in [msg for msg, _ in seen]
             and movement.pushButton_move.isEnabled()
             and not movement.image_widget.is_acquiring
         ),
         tries=60,
     )
 
-    assert [d.get("msg") for d, _, _ in seen[:2]] == [
-        seen[0][0].get("msg"),
-        ACQUIRING_IMAGES,
-    ], seen
-    assert not any(enabled for _, enabled, _ in seen), (
+    messages = [msg for msg, _ in seen]
+    assert messages[:2] == [messages[0], ACQUIRING_IMAGES], seen
+    assert messages[0] and messages[0].startswith("Moving to"), seen
+    assert None in messages, f"the status was never cleared: {seen}"
+    assert not any(enabled for msg, enabled in seen if msg is not None), (
         f"the buttons came back while the move was still reporting: {seen}"
-    )
-    assert seen[-1][0].get("finished") is True, seen[-1]
-    assert seen[-1][2] is True, (
-        "the acquisition had not started when the move finished -- move_stage_finished "
-        "would have re-enabled the buttons over it"
     )
     assert movement.pushButton_move.isEnabled(), "the buttons never came back"

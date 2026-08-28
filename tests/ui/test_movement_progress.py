@@ -26,7 +26,7 @@ from PyQt5.QtCore import QEventLoop, QTimer
 
 # The real construction seam: a host with a view controller, a real image widget and a
 # Demo microscope. Building the widget through `__new__` and hand-injecting a label
-# would let every test here pass with `movement_progress_signal` disconnected.
+# would let every test here pass without the info bar ever being reached.
 sys.path.insert(0, os.path.dirname(__file__))  # not str.rsplit: Windows paths
 from test_viewer_less_widgets import (  # noqa: E402
     _CanvasHost,
@@ -81,9 +81,21 @@ def _status(widget, beam: BeamType = BeamType.ELECTRON):
 
 
 def _record(widget) -> list:
-    """Every status the info bar held, in order, as the move ran."""
+    """Every status the info bar held, in order, as the move ran.
+
+    Sampled by wrapping `_set_move_status`, which is what actually writes the bar. This
+    was a `movement_progress_signal` connection until that signal turned out to be the
+    widget calling itself on one thread; the observation point moved to the method the
+    signal existed to reach.
+    """
     seen = []
-    widget.movement_progress_signal.connect(lambda _d: seen.append(_status(widget)))
+    original = widget._set_move_status
+
+    def _sample(msg):
+        original(msg)
+        seen.append(_status(widget))
+
+    widget._set_move_status = _sample
     return seen
 
 
@@ -144,9 +156,11 @@ def test_the_status_shows_from_another_tab(movement):
 def test_the_instructions_label_is_left_alone(movement):
     """It says what a double-click does, which does not change while the stage moves."""
     seen = []
-    movement.movement_progress_signal.connect(
-        lambda _d: seen.append(movement.label_movement_instructions.text())
-    )
+    original = movement._set_move_status
+    movement._set_move_status = lambda msg: (
+        original(msg),
+        seen.append(movement.label_movement_instructions.text()),
+    )[0]
     movement._move_to_absolute_position(TARGET)
     _run(lambda: seen and _status(movement) is None)
     assert set(seen) == {INSTRUCTIONS_TEXT}, seen
@@ -171,7 +185,8 @@ def test_progress_does_not_toast(movement, monkeypatch):
         lambda *a, **k: shown.append(a[0] if a else ""),
     )
     progress = []
-    movement.movement_progress_signal.connect(lambda d: progress.append(d.get("msg")))
+    original = movement._set_move_status
+    movement._set_move_status = lambda msg: (original(msg), progress.append(msg))[0]
     movement._move_to_absolute_position(TARGET)
     _run(lambda: _status(movement) is None)
 
@@ -189,14 +204,11 @@ def test_it_clears_when_the_images_land_not_before(movement):
     the status cleared there it would read "nothing is happening" over the acquisition
     it just announced, and offer a double-click that is still disabled."""
     at_finished = []
-    movement.movement_progress_signal.connect(
-        lambda d: (
-            d.get("finished")
-            and at_finished.append(
-                (_status(movement), movement.image_widget.is_acquiring)
-            )
-        )
-    )
+    original = movement.move_stage_finished
+    movement.move_stage_finished = lambda: (
+        original(),
+        at_finished.append((_status(movement), movement.image_widget.is_acquiring)),
+    )[0]
     movement._move_to_absolute_position(TARGET)
     _run(lambda: at_finished and not movement.image_widget.is_acquiring)
 
@@ -271,16 +283,21 @@ def test_no_progress_message_says_updating_ui(movement):
 
 
 def test_the_status_is_written_on_the_gui_thread(movement):
-    """`movement_progress_signal` is a `pyqtSignal` on a widget with main-thread
-    affinity, so emitting it from a worker queues delivery onto the GUI thread -- which
-    is why the handler needs no `@ensure_main_thread` (`update_ui_after_movement` does,
-    because a worker calls *that* directly rather than through a signal). Asserted
-    rather than assumed: writing the info bar off-thread would be a Qt violation."""
+    """Writing the info bar off-thread would be a Qt violation, so nothing may.
+
+    This used to hold because the reporting went through a signal, which queued
+    delivery when a worker emitted it. There is no signal and no queueing now: the
+    reporting is a direct call, and it is safe only because every caller is already on
+    the GUI thread. That is a property of where the calls are, so it can be broken by
+    moving one -- which is what this catches. Run over a whole move, worker included.
+    """
     threads = []
-    movement.movement_progress_signal.connect(
-        lambda _d: threads.append(threading.current_thread().name)
-    )
+    original = movement._set_move_status
+    movement._set_move_status = lambda msg: (
+        threads.append(threading.current_thread().name),
+        original(msg),
+    )[1]
     movement._move_to_absolute_position(TARGET)
     _run(lambda: _status(movement) is None)
-    assert threads, "the handler never ran"
+    assert threads, "the status was never written"
     assert set(threads) == {"MainThread"}, threads
