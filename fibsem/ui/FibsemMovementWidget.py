@@ -510,17 +510,33 @@ class FibsemMovementWidget(QtWidgets.QWidget):
     def _move_to_absolute_position(self, stage_position: FibsemStagePosition):
         """Move the stage to the specified position"""
         self._toggle_interactions(enable=False)
+        # Said here rather than from inside the worker: this is the GUI thread, so the
+        # status is on the info bar before the stage starts moving instead of racing the
+        # move through the event loop.
+        self.movement_progress_signal.emit(
+            {"msg": f"Moving to {stage_position.pretty}…"}
+        )
         worker = self.absolute_movement_worker(stage_position=stage_position)
+        worker.returned.connect(self._on_stage_move_returned)
         worker.finished.connect(self.move_stage_finished)
         worker.start()
 
     @thread_worker
     def absolute_movement_worker(self, stage_position: FibsemStagePosition) -> None:
-        """Worker function to move the stage to the specified position"""
-        self.movement_progress_signal.emit(
-            {"msg": f"Moving to {stage_position.pretty}…"}
-        )
+        """Move the stage. Runs off the GUI thread — only signals may cross back."""
         self.microscope.safe_absolute_stage_movement(stage_position)
+
+    def _on_stage_move_returned(self, _result: object = None) -> None:
+        """The move landed: say the images are coming, and retake them. GUI thread.
+
+        Hangs off ``returned``, not ``finished``, so a move that raised skips it — the
+        widget never claims to be retaking images for a move that did not happen.
+
+        Ordering matters here and is not incidental. ``FunctionWorker`` emits
+        ``returned`` before ``finished``, so the acquisition this queues is already
+        under way by the time ``move_stage_finished`` asks whether it is, and the
+        buttons stay disabled until the images actually land.
+        """
         self.movement_progress_signal.emit({"msg": ACQUIRING_IMAGES})
         self.update_ui_after_movement()
 
@@ -685,18 +701,18 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         if orientation not in ["SEM", "FIB", "MILLING"]:
             raise ValueError(f"Invalid orientation: {orientation}")
         self._toggle_interactions(False)
+        self.movement_progress_signal.emit(
+            {"msg": f"Moving to the {orientation} orientation…"}
+        )
         worker = self.move_to_orientation_worker(orientation)
+        # The orientation path never reported the acquisition, so the label sat on
+        # "Moving to the SEM orientation…" while the move had finished and the images
+        # were being retaken. Both paths now share the one slot that says it.
+        worker.returned.connect(self._on_stage_move_returned)
         worker.finished.connect(self.move_stage_finished)
         worker.start()
 
     @thread_worker
     def move_to_orientation_worker(self, orientation: str) -> None:
-        """Threaded worker function to move the stage to the specified orientation"""
-        self.movement_progress_signal.emit(
-            {"msg": f"Moving to the {orientation} orientation…"}
-        )
+        """Move the stage. Runs off the GUI thread — only signals may cross back."""
         self.microscope.move_to_orientation(orientation)
-        # The orientation path never said this, so the label sat on "Moving to the SEM
-        # orientation…" while the move had finished and the images were being retaken.
-        self.movement_progress_signal.emit({"msg": ACQUIRING_IMAGES})
-        self.update_ui_after_movement()
