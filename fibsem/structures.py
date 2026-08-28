@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from dataclasses import InitVar, asdict, dataclass, field, fields
 from datetime import datetime
 from enum import Enum, auto
@@ -1962,6 +1963,134 @@ class FibsemMillingSettings:
         return "\n".join(lines)
 
 
+# The axes a device is allowed to constrain.
+#
+# Linear only, and that is the model rather than a shortcut: a device is a *place*,
+# and the pose the sample is held in once the stage is there is the orientation, which
+# is the other axis of this model entirely. A device that also fixed r or t would be
+# the same conflation this is here to undo. It also sidesteps a units question --
+# x/y/z are metres in the configuration, while `rotation_reference` and
+# `shuttle_pre_tilt` are degrees, converted at use.
+DEVICE_AXES = ("x", "y", "z")
+
+
+def device_axes_to_dict(position: FibsemStagePosition) -> dict:
+    """The device axes a partial position sets, as a plain dict. Absent axes are absent."""
+    return {
+        axis: getattr(position, axis)
+        for axis in DEVICE_AXES
+        if getattr(position, axis) is not None
+    }
+
+
+def device_axes_from_dict(axes: dict, what: str) -> FibsemStagePosition:
+    """A partial position from device axes, refusing anything that is not one."""
+    axes = axes or {}
+    unknown = set(axes) - set(DEVICE_AXES)
+    if unknown:
+        raise ValueError(
+            f"Unsupported {what} axes: {sorted(unknown)}. Supported: {list(DEVICE_AXES)}."
+        )
+    return FibsemStagePosition(**{axis: float(value) for axis, value in axes.items()})
+
+
+@dataclass
+class StageDeviceSettings:
+    """Where the stage travels for one instrument to see the sample.
+
+    An offset fluorescence microscope is not under the grid; the stage travels to it.
+    So the FM is a *place* on the stage rather than a pose the stage is held in, and
+    `origin` is that place, in stage coordinates.
+
+    It is a reference point, not a destination. The stage does not land on it: it
+    travels by the difference between two origins and arrives wherever that puts it.
+    Partial, too -- an offset FM is an x location and leaves y, z, r and t free, so an
+    axis that is absent does not decide anything.
+    """
+
+    origin: FibsemStagePosition
+
+    def contains(
+        self, stage_position: FibsemStagePosition, device_range: FibsemStagePosition
+    ) -> bool:
+        """Is `stage_position` within `device_range` of this device's origin?
+
+        `device_range` is the region belonging to a device, as a half-width per axis
+        from its origin. One value shared by every device, and it has to be shared.
+        The stage travels by the *difference* between two origins, so it keeps its
+        offset: a grid position 15 mm along at the beams arrives 15 mm along at the
+        FM. If the destination's range were the smaller of the two, the traverse could
+        legally produce a position the destination refuses to recognise -- the stage
+        would arrive somewhere it reports it has not arrived, ask again and traverse a
+        second time, and be unable to go back either. That is not hypothetical: the
+        two windows this replaces were 20 mm at the beams and about 10 mm at the FM,
+        written out separately, and that is exactly what they did.
+
+        Sharing it makes the mapping invertible, and makes a destination check
+        unnecessary rather than merely omitted: `|arrival - target| = |start -
+        source|`, so a traverse that starts inside a range always ends inside one.
+        What has to be checked is the *start*, which
+        `FibsemMicroscope.move_to_microscope` does.
+
+        Not the same question as whether the device usefully *covers* the sample
+        here -- an objective's field, a knife's approach -- which genuinely does vary
+        per device. Nothing needs that yet; see FIB-839.
+
+        Devices may overlap, and on a compustage they fully do: the objective is under
+        the grid, so the beams and the FM are the same place reached by flipping. The
+        device axis is degenerate there and this question is not the one to ask -- see
+        `FibsemMicroscope.get_current_device`.
+
+        A device whose origin constrains an axis that `device_range` says nothing
+        about answers **no**. The caller is "have I already arrived", and the two costs are
+        not symmetric: a wrong `False` costs a move that was not needed, a wrong
+        `True` skips one that was.
+        """
+        constrained = [
+            axis for axis in DEVICE_AXES if getattr(self.origin, axis) is not None
+        ]
+        if not constrained:
+            return False
+
+        for axis in constrained:
+            extent, value = getattr(device_range, axis), getattr(stage_position, axis)
+            if extent is None or value is None:
+                return False
+            if abs(value - getattr(self.origin, axis)) > extent:
+                return False
+        return True
+
+    def to_dict(self) -> dict:
+        return {"origin": device_axes_to_dict(self.origin)}
+
+    @staticmethod
+    def from_dict(ddict: dict) -> "StageDeviceSettings":
+        return StageDeviceSettings(
+            origin=device_axes_from_dict(ddict.get("origin"), "device origin")
+        )
+
+
+# The region belonging to a device, as a half-width from its origin: the grid, give
+# or take. One value for every device, so no device can be given a range inconsistent
+# with the traverse that gets to it -- that inconsistency was a real bug, and
+# per-device windows are how it happened.
+DEFAULT_DEVICE_RANGE = FibsemStagePosition(x=20.0e-3)
+
+# The TFS SDB chamber layout -- piescope, METEOR, iFLM -- which is where every offset
+# fluorescence microscope sits today. The traverse between these two was a constant
+# inlined in `move_to_microscope` (`TRANSLATION_DX`), carrying its own "THIS needs to
+# be configurable" note, with two further constants for the windows it had to agree
+# with. They stay the defaults so that no existing configuration changes behaviour by
+# saying nothing; a site whose chamber differs now has somewhere to say so.
+#
+# A compustage never reaches them: its objective is under the grid, so it takes the
+# `move_to_microscope_compustage` branch and does not travel to the FM at all.
+DEFAULT_STAGE_DEVICES: Dict[str, StageDeviceSettings] = {
+    "FIBSEM": StageDeviceSettings(origin=FibsemStagePosition(x=0.0)),
+    "FM": StageDeviceSettings(origin=FibsemStagePosition(x=48.8e-3)),
+}
+
+
 @dataclass
 class StageSystemSettings:
     rotation_reference: float
@@ -1972,6 +2101,19 @@ class StageSystemSettings:
     rotation: bool = True
     tilt: bool = True
     milling_angle: float = 15
+    # Where the stage travels for each instrument to see the sample. Keyed by device
+    # name -- "FIBSEM" and "FM" today -- and separate from `orientations`, which says
+    # what pose the sample is held in once the stage is there.
+    #
+    # `device_range` is how far from one of them the stage can be and still count as
+    # having travelled to it. Not to be confused with `microscope._stage.limits`,
+    # which is how far the axes can physically move.
+    device_range: FibsemStagePosition = field(
+        default_factory=lambda: deepcopy(DEFAULT_DEVICE_RANGE)
+    )
+    devices: Dict[str, StageDeviceSettings] = field(
+        default_factory=lambda: deepcopy(DEFAULT_STAGE_DEVICES)
+    )
 
     def to_dict(self):
         return {
@@ -1983,10 +2125,16 @@ class StageSystemSettings:
             "rotation": self.rotation,
             "tilt": self.tilt,
             "milling_angle": self.milling_angle,
+            "device_range": device_axes_to_dict(self.device_range),
+            "devices": {
+                name: device.to_dict() for name, device in self.devices.items()
+            },
         }
 
     @staticmethod
     def from_dict(settings: dict):
+        devices = settings.get("devices")
+        device_range = settings.get("device_range")
         return StageSystemSettings(
             rotation_reference=settings["rotation_reference"],
             rotation_180=settings["rotation_180"],
@@ -1996,6 +2144,19 @@ class StageSystemSettings:
             rotation=settings.get("rotation", True),
             tilt=settings.get("tilt", True),
             milling_angle=settings.get("milling_angle", 15.0),
+            device_range=(
+                device_axes_from_dict(device_range, "device range")
+                if device_range
+                else deepcopy(DEFAULT_DEVICE_RANGE)
+            ),
+            devices=(
+                {
+                    name: StageDeviceSettings.from_dict(device)
+                    for name, device in devices.items()
+                }
+                if devices
+                else deepcopy(DEFAULT_STAGE_DEVICES)
+            ),
         )
 
 

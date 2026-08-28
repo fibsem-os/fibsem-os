@@ -28,6 +28,12 @@ stage:
     rotation_180:               180                         # the reference rotation + 180 degrees                          [DERIVED - rotation-reference]
     shuttle_pre_tilt:           35.0                        # the pre-tilt of the shuttle                                   [SPECIFIED]
     manipulator_height_limit:   0.0037                      # the linked height limit for manipulator (Thermo Only)         [DERIVED - manufactuer]
+    device_range:               {x: 20.0e-3}                # the region belonging to each device, from its origin    [metres][SPECIFIED]
+    devices:                                                # where the stage travels for each instrument to see the sample
+        FIBSEM:
+            origin:     {x: 0.0}                            # the beams: the chamber origin                         [metres][SPECIFIED]
+        FM:
+            origin:     {x: 48.8e-3}                        # the FM: offset along x                                [metres][SPECIFIED]
 electron:
     enabled:                    true                        # the electron beam is enabled                                  [USER]
     column_tilt:                0                           # the column tilt of the electron beam                          [DERIVED - manufactuer]
