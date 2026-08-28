@@ -27,7 +27,56 @@ Migration is a one-line import swap::
 
 This intentionally implements only the non-generator, bare-decorator subset. A generator body
 or ``@thread_worker(connect=...)`` will fail loudly rather than silently misbehave.
+
+What belongs in a worker body
+-----------------------------
+
+**The operation, and nothing else.** A worker body runs on a plain daemon thread, so the
+widget it was started from is off limits in there. The codebase settles this two ways,
+depending on whether the worker has anything to say before it is done.
+
+**It only reports afterwards** — return a value, and put every GUI update in a slot on
+``returned`` / ``errored``. ``ObjectiveControlWidget`` is the model::
+
+    def _wheel_move_worker(self, position_m: float) -> float:
+        # Worker: move the objective, and report back where it was sent.
+        self.fm.objective.move_absolute(position_m)
+        return position_m
+
+    worker = self._wheel_move_worker(position_um * MICRON_TO_METRE)
+    worker.returned.connect(self._on_wheel_move_finished)
+    worker.errored.connect(self._on_wheel_move_error)
+
+Prefer this one. ``returned`` fires only on success and before ``finished``, so the success
+path and the failure path separate themselves and anything queued from ``returned`` is already
+under way by the time a ``finished`` slot runs.
+
+**It reports while it runs** — emit one of the widget's own ``pyqtSignal``s. Both overview
+widgets state the rule on their ``_move_worker``, and it is worth quoting whole: *"Runs off the
+GUI thread. Only signals may cross back."* Emitting is safe from any thread; calling is not.
+
+Either way, **let the exception out**. ``FunctionWorker`` logs it with a traceback and re-emits
+it as ``errored`` on the GUI thread, which is the only way the widget can tell a failed run from
+a finished one. Swallowing it inside the body left a status line reading "Moving to …" for the
+rest of the session (FIB-765).
+
+The one sanctioned exception to "no calls": ``notification_service.show_toast`` (and ``show``),
+which is a queued ``pyqtSignal`` behind a function and may be called from anywhere. It is queued
+only because the service ``QObject`` lives on the GUI thread, and ``_get_service()`` constructs
+it lazily on first use — so the affinity is decided by whoever calls first. ``AutoLamellaMainUI``
+connects to it during setup, which is what settles it today.
+
+Why the rule is about coupling, not safety
+------------------------------------------
+
+``@ensure_main_thread`` (39 sites, 23 of them under ``fibsem/ui/``) marshals a widget method onto
+the GUI thread, so a worker that calls one is *correctly synchronised*. The reason not to write
+it that way anyway is that the sequence — do the thing, then update these five widgets — ends up
+expressed only as a widget method, and cannot be run, tested, or reused without the widget. A
+body holding just the operation keeps the schedule-and-report half where the widget can see it,
+and the reusable half where it can be called without one (FIB-828).
 """
+
 from __future__ import annotations
 
 import functools
