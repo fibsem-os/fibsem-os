@@ -24,6 +24,7 @@ import pytest
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
 from PyQt5.QtCore import QEventLoop, QTimer
+from PyQt5.QtWidgets import QWidget
 
 # The real construction seam: a host with a view controller, a real image widget and a
 # Demo microscope. The guards read `image_widget.eb_image` and `parent.milling_widget`,
@@ -196,6 +197,10 @@ def test_a_click_during_milling_is_refused_out_loud(movement, dispatched, toasts
     """
     from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 
+    # `milling_widget` is the name FibsemUI uses. AutoLamella's name is covered by
+    # test_the_guard_finds_the_real_milling_widget_on_a_real_host, which builds the
+    # host rather than naming the attribute -- this one only needs *a* host that has
+    # one, to exercise the refusal itself.
     viewer = MillingTaskViewerWidget(microscope=_session()[0])
     movement.host.milling_widget = viewer
 
@@ -245,6 +250,93 @@ def test_the_no_image_guard_never_fires(qapp, toasts):
     assert len(calls) == 1, "the guard fired -- if this changed, the finding is fixed"
     assert toasts == [], toasts
     host.deleteLater()
+
+
+def test_the_guard_finds_the_real_milling_widget_on_a_real_host(qapp):
+    """FIB-855. The guard above passes against any host that happens to carry
+    ``milling_widget`` -- including one the test itself gave the attribute to. This one
+    builds the host the operator actually mills from and asks whether the guard can
+    find anything at all.
+
+    It is the check that was missing: click-to-move went unguarded through every mill in
+    AutoLamella, because `FibsemUI` publishes the `MillingTaskViewerWidget` as
+    `milling_widget` and `AutoLamellaUI` keeps the same widget as
+    `milling_task_config_widget`. The old lookup read the first name only and the
+    `hasattr` turned the miss into a silent skip.
+
+    Deliberately asserts on the *resolved object*, not on an attribute name. Naming the
+    attribute here would re-create the original bug the moment the widget moves again.
+    """
+    from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
+
+    ui = AutoLamellaUI(parent_ui=None)
+    ui.system_widget.connect_to_microscope()
+    qapp.processEvents()
+    try:
+        control = ui.movement_widget.control_widget
+        found = control._milling_widget()
+
+        assert found is not None, (
+            "the guard cannot see a milling widget on AutoLamellaUI, so click-to-move "
+            "is unguarded during a mill"
+        )
+        assert found.is_milling is False, "precondition: nothing should be milling"
+
+        # Now drive the click itself, with that widget really reporting a mill. Asserting
+        # on `_milling_widget()` alone would not do: it passes with the guard still
+        # reading `host.milling_widget` directly and never calling the resolver, which
+        # is exactly the bug. The refusal has to be observed end to end.
+        image_widget = ui.image_widget
+        image_widget._on_acquire(_image(BeamType.ELECTRON))
+        dispatched = []
+        control._execute_stage_move = lambda *a, **k: dispatched.append(a)
+
+        release = threading.Event()
+        thread = threading.Thread(target=release.wait, daemon=True)
+        thread.start()
+        found.milling_widget._milling_thread = thread
+        try:
+            assert found.is_milling, "precondition: the widget should report milling"
+            assert control._is_milling(), "the guard cannot tell that a mill is running"
+            control._on_canvas_double_click(BeamType.ELECTRON, 100.0, 100.0, set())
+        finally:
+            release.set()
+            thread.join(timeout=5)
+
+        assert dispatched == [], "the stage was moved during a mill"
+    finally:
+        ui.movement_widget._teardown_connections()
+        ui.microscope.disconnect()
+        ui.deleteLater()
+
+
+def test_a_host_with_no_milling_widget_is_not_milling(movement):
+    """Nothing to ask means nothing is milling. The resolver fails open, as the old
+    ``hasattr`` did -- a host without a milling widget cannot be running a mill."""
+    assert movement._milling_widget() is None
+    assert movement._is_milling() is False
+
+
+def test_a_name_that_is_not_a_milling_widget_is_skipped(movement):
+    """The resolver picks by capability, not by name -- so a host where the first name
+    resolves to something else keeps working instead of silently losing the guard.
+
+    This is what the original bug cost: a lookup that trusted one name, and a
+    ``hasattr`` that turned the miss into a skip. Making the *name* the search order and
+    ``is_milling`` the test means a rename degrades to "look in the next place" rather
+    than to "no guard".
+    """
+    from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
+
+    decoy = QWidget()  # carries the name, cannot answer the question
+    real = MillingTaskViewerWidget(microscope=_session()[0])
+    movement.host.milling_widget = decoy
+    movement.host.milling_task_config_widget = real
+
+    assert movement._milling_widget() is real, (
+        "the resolver stopped at a name instead of finding what can answer"
+    )
+    assert movement._is_milling() is False
 
 
 def test_a_click_outside_the_image_is_ignored(movement, dispatched, toasts):

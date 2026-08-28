@@ -12,8 +12,9 @@ them is optional decoration:
 * ``host.image_widget`` -- the interaction handshake (the buttons stay down through the
   acquisition that follows a move, and the image widget brings them back), the live
   image a canvas click is resolved against, and the acquisition-finished signal.
-* ``host.milling_widget`` -- refuses a click-to-move while milling. Optional, so it is
-  reached through ``hasattr``.
+* the milling widget -- refuses a click-to-move while milling. Optional, and the hosts
+  keep it under different names, so it is found by ``_milling_widget`` rather than read
+  off a fixed attribute (FIB-855).
 * the quad-view controller -- where move status and the position readout are written.
 
 ``StagePositionWidget`` needs none of that, which is why it came out first and needs no
@@ -229,6 +230,40 @@ class StageControlWidget(QWidget):
             return controller
         parent_ui = getattr(self.host, "parent_widget", None)
         return getattr(parent_ui, "view_controller", None)
+
+    def _milling_widget(self):
+        """Return whatever can answer ``is_milling``, or None if nothing can.
+
+        The hosts disagree about where the milling widget lives -- ``FibsemUI``
+        publishes it as ``milling_widget``, ``AutoLamellaUI`` keeps the same
+        ``MillingTaskViewerWidget`` as ``milling_task_config_widget``. This looked at
+        the first name only, so in AutoLamella the guard below found nothing and
+        click-to-move went unguarded through every mill (FIB-855).
+
+        **Selected by capability, not by name.** A candidate counts only if it actually
+        carries ``is_milling``; the names are where to look, not what makes it the right
+        object. That is what stops this going quiet again the next time the widget is
+        renamed or re-parented -- a name that stops resolving falls through to the next
+        one instead of silently disabling the guard.
+        """
+        for holder in (self.host, getattr(self.host, "parent_widget", None)):
+            if holder is None:
+                continue
+            for name in ("milling_widget", "milling_task_config_widget"):
+                candidate = getattr(holder, name, None)
+                if candidate is not None and hasattr(candidate, "is_milling"):
+                    return candidate
+        return None
+
+    def _is_milling(self) -> bool:
+        """Whether a mill is running right now.
+
+        False when no milling widget can be found at all -- a host without one cannot
+        be milling. That is the same fail-open the old ``hasattr`` had, but it is now
+        the answer to a question rather than the side effect of looking in one place.
+        """
+        widget = self._milling_widget()
+        return bool(widget is not None and widget.is_milling)
 
     def _toggle_interactions(self, enable: bool, caller: Optional[str] = None):
         """Toggle the interactions in the widget depending on microscope state"""
@@ -525,7 +560,7 @@ class StageControlWidget(QWidget):
             return
         if "Shift" in modifiers:
             return
-        if hasattr(self.host, "milling_widget") and self.host.milling_widget.is_milling:
+        if self._is_milling():
             notification_service.show_toast(
                 "Cannot move stage while milling is in progress."
             )
