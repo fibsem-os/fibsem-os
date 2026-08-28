@@ -10,6 +10,9 @@ import pandas as pd
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue, WorkItem
+from fibsem.applications.autolamella.workflows.tasks.status import (
+    WorkflowStatusUpdate,
+)
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
 from fibsem.cancellation import AnyStopEvent, OperationCancelledError
 from fibsem.constants import DATETIME_DISPLAY_AMPM
@@ -571,27 +574,28 @@ class TaskManager:
         items = self.queue.items
         position = next((i for i, it in enumerate(items) if it.id == item.id), None)
 
-        status_dict = {
-            "task_name": item.task_name,
-            "item_name": lamella.name,
-            # Deprecated alias for item_name, kept for consumers outside this repo.
-            # Drop alongside the HookContext shims after v0.6.
-            "lamella_name": lamella.name,
-            "status": status,
-            "timestamp": time.time(),
-            "error_message": error_message,
-            "task_duration": task_duration,
-            "skip_reason": skip_reason,
-            "queue_position": position + 1 if position is not None else None,
-            "queue_total": len(items),
-            "queue_items": items,  # thread-safe snapshot
+        # `lamella_name` is no longer a field: `WorkflowStatusUpdate` derives it from
+        # `item_name` as a property, so the deprecated alias cannot drift from the name
+        # it aliases, and drops cleanly with the HookContext shims after v0.6.
+        update = WorkflowStatusUpdate(
+            task_name=item.task_name,
+            item_name=lamella.name,
+            status=status,
+            timestamp=time.time(),
+            error_message=error_message,
+            task_duration=task_duration,
+            skip_reason=skip_reason,
+            # Already 1-based on the wire. Consumers render it as-is.
+            queue_position=position + 1 if position is not None else None,
+            queue_total=len(items),
+            queue_items=items,  # thread-safe snapshot: Queue.items returns copies
             # The plan this run was launched with. Informational only — the live
             # queue may since have diverged from it.
-            "task_names": self.queue.task_names,
-            "lamella_names": self.queue.lamella_names,
-        }
+            task_names=self.queue.task_names,
+            lamella_names=self.queue.lamella_names,
+        )
 
-        self.parent_ui.workflow_update_signal.emit({"msg": msg, "status": status_dict})
+        self.parent_ui.workflow_update_signal.emit({"msg": msg, "status": update})
 
     def _run_single_task(
         self, task_name: str, lamella: "Lamella"

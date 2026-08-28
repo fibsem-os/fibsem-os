@@ -151,8 +151,8 @@ def test_emit_reports_position_in_the_live_queue(manager):
         status=Status.InProgress,
     )
     status = last_status(manager)
-    assert status["queue_position"] == 3
-    assert status["queue_total"] == 4
+    assert status.queue_position == 3
+    assert status.queue_total == 4
 
 
 def test_emit_for_a_task_outside_the_launch_plan(manager):
@@ -166,9 +166,9 @@ def test_emit_for_a_task_outside_the_launch_plan(manager):
         status=Status.InProgress,
     )
     status = last_status(manager)
-    assert status["task_name"] == "Polishing"
-    assert status["queue_position"] == 5
-    assert status["queue_total"] == 5
+    assert status.task_name == "Polishing"
+    assert status.queue_position == 5
+    assert status.queue_total == 5
 
 
 def test_emit_for_a_lamella_outside_the_launch_plan(manager):
@@ -179,10 +179,10 @@ def test_emit_for_a_lamella_outside_the_launch_plan(manager):
         status=Status.InProgress,
     )
     status = last_status(manager)
-    assert status["item_name"] == "L99"
+    assert status.item_name == "L99"
     # deprecated alias, dropped with the HookContext shims after v0.6 (FIB-464)
-    assert status["lamella_name"] == "L99"
-    assert status["queue_position"] == 5
+    assert status.lamella_name == "L99"
+    assert status.queue_position == 5
 
 
 def test_emit_position_follows_a_reorder(manager):
@@ -193,7 +193,7 @@ def test_emit_position_follows_a_reorder(manager):
         lamella=manager.experiment.get_lamella_by_name(item.lamella_name),
         status=Status.InProgress,
     )
-    assert last_status(manager)["queue_position"] == 1
+    assert last_status(manager).queue_position == 1
 
 
 def test_emit_carries_the_launch_plan_as_context(manager):
@@ -204,8 +204,8 @@ def test_emit_carries_the_launch_plan_as_context(manager):
         status=Status.InProgress,
     )
     status = last_status(manager)
-    assert status["task_names"] == ["Trench", "Undercut"]
-    assert status["lamella_names"] == ["L1", "L2"]
+    assert status.task_names == ["Trench", "Undercut"]
+    assert status.lamella_names == ["L1", "L2"]
 
 
 def test_emit_includes_a_queue_snapshot(manager):
@@ -215,7 +215,7 @@ def test_emit_includes_a_queue_snapshot(manager):
         lamella=manager.experiment.get_lamella_by_name("L1"),
         status=Status.InProgress,
     )
-    snapshot = last_status(manager)["queue_items"]
+    snapshot = last_status(manager).queue_items
     assert len(snapshot) == 4
     snapshot[0].status = Status.Failed
     assert manager.queue.items[0].status is not Status.Failed
@@ -232,8 +232,8 @@ def test_emit_passes_through_error_and_skip_detail(manager):
         task_duration=12.5,
     )
     status = last_status(manager)
-    assert status["error_message"] == "it broke"
-    assert status["task_duration"] == 12.5
+    assert status.error_message == "it broke"
+    assert status.task_duration == 12.5
     assert manager.parent_ui.workflow_update_signal.emitted[-1]["msg"] == "boom"
 
 
@@ -371,5 +371,5 @@ def test_status_bar_text_is_derivable_for_added_items(manager):
         status = payload.get("status")
         if status is None:
             continue
-        assert status["queue_position"] is not None
-        assert 1 <= status["queue_position"] <= status["queue_total"]
+        assert status.queue_position is not None
+        assert 1 <= status.queue_position <= status.queue_total
