@@ -2328,6 +2328,37 @@ class SystemInfo:
 
 
 @dataclass
+class FluorescenceSystemSettings:
+    """Whether this site's instrument has a fluorescence microscope.
+
+    A hardware fact about the site, so it belongs beside `manipulator.enabled` in the
+    microscope configuration rather than in user preferences: a changed preference
+    default reaches only fresh installs, and an operator toggling one would be
+    asserting their instrument has hardware it may not have.
+
+    **Default off, and it must stay off.** Where the objective is offset, support for
+    it is incomplete -- an Aquilos or Helios with an iFLM fitted must not find half
+    of it appearing in the UI on upgrade. Detecting the hardware is the failure mode
+    here, not the goal: the flag decides, and the driver's own probe only confirms the
+    hardware is really there once a site has said it should be.
+
+    The key already existed in the file format and was read by nothing; `config` is
+    the only part of the block anything consumed.
+    """
+
+    enabled: bool = False
+
+    def to_dict(self) -> dict:
+        return {"enabled": self.enabled}
+
+    @staticmethod
+    def from_dict(settings: dict) -> "FluorescenceSystemSettings":
+        return FluorescenceSystemSettings(
+            enabled=bool((settings or {}).get("enabled", False))
+        )
+
+
+@dataclass
 class SystemSettings:
     stage: StageSystemSettings
     electron: BeamSystemSettings
@@ -2336,6 +2367,7 @@ class SystemSettings:
     gis: GISSystemSettings
     info: SystemInfo
     sim: Dict[str, Union[str, bool]] = field(default_factory=dict)
+    fm: FluorescenceSystemSettings = field(default_factory=FluorescenceSystemSettings)
 
     def to_dict(self):
         return {
@@ -2346,6 +2378,7 @@ class SystemSettings:
             "gis": self.gis.to_dict(),
             "info": self.info.to_dict(),
             "sim": self.sim,
+            "fm": self.fm.to_dict(),
         }
 
     @staticmethod
@@ -2363,6 +2396,10 @@ class SystemSettings:
             gis=GISSystemSettings.from_dict(settings["gis"]),
             info=SystemInfo.from_dict(settings["info"]),
             sim=settings.get("sim", {}),
+            # The same `fm:` block `MicroscopeSettings.from_dict` reads `config` from.
+            # Two readers, one key each: this is the hardware fact, that is a path to
+            # imaging parameters.
+            fm=FluorescenceSystemSettings.from_dict(settings.get("fm", {})),
         )
 
 
