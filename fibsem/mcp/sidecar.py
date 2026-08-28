@@ -118,7 +118,7 @@ def build_sidecar(client, scopes):
     ``scopes`` is the /capabilities scopes payload; only tools whose scope is
     armed get registered (the server enforces regardless).
     """
-    from mcp.server.mcpserver import MCPServer, Image
+    from mcp.server.mcpserver import Image, MCPServer
 
     mcp = MCPServer("fibsem")
     armed = {t.name for t in CATALOG if scopes.get(t.scope, False)}
