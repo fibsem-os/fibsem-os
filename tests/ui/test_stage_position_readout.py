@@ -12,10 +12,22 @@ rewrite that happens to still construct. They are deliberately written against t
 public surface a host uses -- ``update_ui`` and ``get_position_from_ui`` -- so they keep
 their meaning when the form moves behind a delegating facade.
 
-Two of them branch on ``stage_is_compustage``. The default microscope configuration is
-user state and is not the same on every machine, so a test that assumed either answer
-would pass here and fail elsewhere; each asserts the behaviour for the configuration it
-actually got, and the branch it did not take is covered from the other side.
+**The default microscope configuration is user state and is not the same on every
+machine**, and it reaches these tests twice over.
+
+Once through ``stage_is_compustage``: two tests branch on it rather than assuming an
+answer, and the branch not taken is covered directly in
+``tests/ui/test_stage_position_widget.py``, where the form is cheap enough to build
+against a chosen configuration.
+
+And once through the *ranges*, which is the subtler of the two. A spin box clamps to its
+range, so a sample position outside the configured stage limits comes back as the limit
+and the failure reads as a broken conversion rather than an out-of-range fixture. That
+is exactly what happened: ``sim-arctis`` tilts to -195 degrees and the shipped default
+only to -10, so a -12 degree sample passed locally and came back as -10.0 in CI.
+``SAMPLE`` therefore sits inside the intersection of the shipped configurations, and
+``test_the_sample_is_inside_this_stages_limits`` says so out loud -- so a future
+configuration that narrows further fails by name instead of by clamping.
 
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python -m pytest tests/ui/test_stage_position_readout.py
@@ -48,13 +60,18 @@ from fibsem import constants  # noqa: E402
 from fibsem.structures import FibsemStagePosition  # noqa: E402
 
 # Off-origin on every axis, and asymmetric, so a transposed pair or a dropped
-# conversion cannot coincide with the right answer. Inside the Demo stage limits.
+# conversion cannot coincide with the right answer.
+#
+# Inside every shipped configuration's stage limits, which is narrower than it looks:
+# z starts at 0 on the default configuration and tilt only reaches -10 there, against
+# -195 on sim-arctis. A spin box clamps silently, so a sample outside the range does
+# not fail as "out of range" -- it fails as a wrong conversion.
 SAMPLE = FibsemStagePosition(
     x=120e-6,
     y=-45e-6,
     z=310e-6,
     r=np.radians(37.0),
-    t=np.radians(-12.0),
+    t=np.radians(-8.0),
     coordinate_system="RAW",
 )
 
@@ -94,6 +111,31 @@ def _wheel(delta: int = 120) -> QWheelEvent:
 # --- the conversions ---------------------------------------------------------
 
 
+def test_the_sample_is_inside_this_stages_limits(movement):
+    """The fixture, not the widget. A spin box clamps silently, so a SAMPLE outside the
+    configured range would make every conversion test above fail as though a unit had
+    been dropped. This one names the real cause instead.
+
+    It bites because the shipped configurations disagree: tilt reaches -195 degrees on
+    sim-arctis and only -10 on the default, and z starts at 0 there.
+    """
+    limits = movement.microscope._stage.limits
+
+    for axis, value_mm in (
+        ("x", SAMPLE.x * constants.SI_TO_MILLI),
+        ("y", SAMPLE.y * constants.SI_TO_MILLI),
+        ("z", SAMPLE.z * constants.SI_TO_MILLI),
+    ):
+        low = limits[axis].min * constants.SI_TO_MILLI
+        high = limits[axis].max * constants.SI_TO_MILLI
+        assert low <= value_mm <= high, f"SAMPLE.{axis} is outside {low}..{high} mm"
+
+    tilt_deg = np.degrees(SAMPLE.t)
+    assert limits["t"].min <= tilt_deg <= limits["t"].max, (
+        f"SAMPLE.t is outside {limits['t'].min}..{limits['t'].max} deg"
+    )
+
+
 def test_the_form_shows_millimetres_and_degrees(movement):
     """Metres and radians go in; the operator reads millimetres and degrees."""
     movement.update_ui(stage_position=SAMPLE)
@@ -103,7 +145,7 @@ def test_the_form_shows_millimetres_and_degrees(movement):
     assert boxes["y"].value() == pytest.approx(-0.045, abs=1e-9)
     assert boxes["z"].value() == pytest.approx(0.31, abs=1e-9)
     assert boxes["r"].value() == pytest.approx(37.0, abs=1e-3)
-    assert boxes["t"].value() == pytest.approx(-12.0, abs=1e-3)
+    assert boxes["t"].value() == pytest.approx(-8.0, abs=1e-3)
 
 
 def test_the_form_reads_back_in_si_units(movement):
