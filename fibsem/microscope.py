@@ -114,6 +114,7 @@ from fibsem.microscopes.autoscript import (
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
+    DEVICE_AXES,
     BeamSettings,
     BeamSystemSettings,
     BeamType,
@@ -141,6 +142,7 @@ from fibsem.structures import (
     MillingState,
     Point,
     RangeLimit,
+    StageDeviceSettings,
     SystemSettings,
 )
 from fibsem.transformations import (
@@ -2111,10 +2113,86 @@ class FibsemMicroscope(ABC):
         )
         pass
 
+    def _get_device(self, device: str) -> StageDeviceSettings:
+        """The configuration for `device`, or a refusal naming the ones there are."""
+        try:
+            return self.system.stage.devices[device]
+        except KeyError:
+            raise ValueError(
+                f"Microscope {device} not supported. "
+                f"Configured devices: {sorted(self.system.stage.devices)}."
+            ) from None
+
+    def get_device_position(self, device: str) -> FibsemStagePosition:
+        """Where the stage travels for `device` to see the sample.
+
+        Partial: an offset fluorescence microscope is an x location and leaves y, z, r
+        and t free, so the axes it does not constrain come back `None`.
+        """
+        return deepcopy(self._get_device(device).origin)
+
+    def is_at_device(
+        self, device: str, stage_position: Optional[FibsemStagePosition] = None
+    ) -> bool:
+        """Is the stage at `device`?
+
+        The question nothing could ask before. `get_stage_orientation` cannot answer
+        it on an offset mount -- the FM orientation there is byte-identical to the FIB
+        one -- because it is not a question about orientation at all.
+
+        Only meaningful for a device the stage *travels to*. A device that comes to
+        the sample instead has no origin, and answers `False` rather than pretending
+        position decides it.
+        """
+        if stage_position is None:
+            stage_position = self.get_stage_position()
+        return self._get_device(device).contains(
+            stage_position, self.system.stage.device_range
+        )
+
+    def get_current_device(
+        self, stage_position: Optional[FibsemStagePosition] = None
+    ) -> Optional[str]:
+        """Which device the stage is at, or `None` if it is at no configured device.
+
+        `None` is a real answer, not a failure to find one: the device ranges
+        deliberately leave a gap between them, so a stage part-way through a traverse
+        -- or left there by one that was aborted -- is at neither.
+
+        Positional, so it is the wrong question on a compustage, where the beams and
+        the FM are the same place reached by flipping and the devices fully overlap.
+        Nothing asks it there: `move_to_microscope` branches to the compustage path
+        first, and the device is decided by orientation instead.
+        """
+        if stage_position is None:
+            stage_position = self.get_stage_position()
+
+        for device in self.system.stage.devices:
+            if self.is_at_device(device, stage_position):
+                return device
+        return None
+
+    def _device_translation(self, source: str, target: str) -> FibsemStagePosition:
+        """The relative stage move from one device to another.
+
+        A difference of two configured places rather than a constant, so the traverse
+        and the "am I already there" windows can no longer drift apart. Relative
+        rather than absolute on purpose: the devices constrain x only, and a relative
+        move carries y, z, r and t across unchanged.
+        """
+        source_origin = self._get_device(source).origin
+        target_origin = self._get_device(target).origin
+
+        translation = FibsemStagePosition()
+        for axis in DEVICE_AXES:
+            start, end = getattr(source_origin, axis), getattr(target_origin, axis)
+            if start is not None and end is not None:
+                setattr(translation, axis, end - start)
+        return translation
+
     def move_to_microscope(self, target: str) -> None:
         """Move the stage to the specified microscope (FIBSEM <-> FM)"""
-        if target not in ["FIBSEM", "FM"]:
-            raise ValueError(f"Microscope {target} not supported.")
+        self._get_device(target)  # refuses by name if it is not a configured device
 
         if self.stage_is_compustage:
             self.move_to_microscope_compustage(target)
@@ -2130,38 +2208,30 @@ class FibsemMicroscope(ABC):
                 "Cannot move to FM from SEM or MILLING orientation. Please switch to FIB orientation first."
             )
 
-        # check if we are already at the target position
-        # this is for TFS SDB chamber: e.g. piescope, meteor, iflm
-        # arctis has same range for FIBSEM/FM (stage is flipped upside down)
-        FM_RANGE = (40e-3, 60e-3)  # 40 mm to 60 mm
-        FIBSEM_RANGE = (-20e-3, 20e-3)  # -20 mm to 20 mm
-        if target == "FM" and (FM_RANGE[0] < stage_position.x < FM_RANGE[1]):
-            logging.info("Already at FM position, no need to move.")
-            return
+        source = self.get_current_device(stage_position)
+        if source is None:
+            raise ValueError(
+                f"The stage is not at any configured device "
+                f"({sorted(self.system.stage.devices)}), so there is nothing to "
+                f"travel from. Position: {stage_position}."
+            )
 
-        if target == "FIBSEM" and (
-            FIBSEM_RANGE[0] < stage_position.x < FIBSEM_RANGE[1]
-        ):
-            logging.info("Already at FIBSEM position, no need to move.")
-            return
+        if source == target:
+            logging.info(f"Already at {target} position, no need to move.")
+        else:
+            # Retracted immediately before the stage travels, and only then. The
+            # objective must not be out over the sample while the stage moves, but
+            # every reason to retract it is the move itself -- so a call that refuses,
+            # or that finds it has nowhere to go, leaves the objective exactly as it
+            # found it rather than pulling it out of the sample for nothing.
+            logging.info(f"Moving to {target} position...")
+            self.fm.objective.retract()
+            self.move_stage_relative(self._device_translation(source, target))
 
-        logging.info(f"Moving to {target} position...")
-
-        # retract objective (safety precaution)
-        self.fm.objective.retract()
-
-        TRANSLATION_DX = (
-            48.8e-3  # 48.8 mm # THIS needs to be configurable for different microscopes
-        )
-        transf = FibsemStagePosition(x=TRANSLATION_DX)
-
-        # move to FIBSEM
-        if target == "FIBSEM":
-            transf.x *= -1
-            self.move_stage_relative(transf)
-        # move to FM
+        # Unconditional, so that the postcondition is the device *and* the objective
+        # state together: asking again for a device the stage is already at cannot
+        # leave the FM blind.
         if target == "FM":
-            self.move_stage_relative(transf)
             self.fm.objective.insert()
 
     def move_to_microscope_compustage(self, target: str) -> None:
