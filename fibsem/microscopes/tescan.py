@@ -59,6 +59,7 @@ from fibsem.imaging.spot import (
     SpotBurnStatus,
 )
 from fibsem.milling.base import set_preset_driven_estimation
+from fibsem.milling.progress import MillingProgress, MillingStatus
 from fibsem.structures import (  # noqa
     ACTIVE_MILLING_STATES,
     BeamSettings,
@@ -1375,15 +1376,13 @@ class TescanMicroscope(FibsemMicroscope):
 
                 # update milling progress via signal
                 self.milling_progress_signal.emit(
-                    {
-                        "progress": {
-                            "state": "update",
-                            "milling_state": self.get_milling_state(),
-                            "start_time": start_time,
-                            "estimated_time": estimated_time,
-                            "remaining_time": remaining_time,
-                        }
-                    }
+                    MillingProgress(
+                        status=MillingStatus.STAGE_UPDATE,
+                        milling_state=self.get_milling_state(),
+                        start_time=start_time,
+                        estimated_time=estimated_time,
+                        remaining_time=remaining_time,
+                    )
                 )
 
         except Exception as err:
