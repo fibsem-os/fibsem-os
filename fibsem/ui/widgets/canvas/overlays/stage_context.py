@@ -44,10 +44,20 @@ OVERLAY_SLOTS = "slots"
 
 # Label and default for each, so the two tabs cannot offer the same switch under
 # different words.
+#
+# Grid boundaries and holder slots default **off**. Both describe a cryo sample holder --
+# where its grids sit, and where its slots are -- so on a system without one they draw a
+# holder that is not there, over an overview of a sample that is. Travel limits stay on:
+# they are a property of the stage itself, and true on every system.
+#
+# Off for everyone rather than gated on the stage type, which is the narrower change: the
+# switch is one click away in the overlays popover, and a default that read the hardware
+# would have to be resolved per-microscope at construction rather than being the module
+# constant both tabs share.
 CONTEXT_OVERLAY_ENTRIES = (
     (OVERLAY_LIMITS, "Stage travel limits", True),
-    (OVERLAY_BOUNDARIES, "Grid boundaries", True),
-    (OVERLAY_SLOTS, "Holder slots", True),
+    (OVERLAY_BOUNDARIES, "Grid boundaries", False),
+    (OVERLAY_SLOTS, "Holder slots", False),
 )
 
 __all__ = [
@@ -152,8 +162,12 @@ def slot_landmark(microscope, slot: object) -> Optional[FibsemStagePosition]:
         logger.debug(f"Could not resolve the holder's reference orientation: {e}")
         return None
     return FibsemStagePosition(
-        name=position.name or "", x=position.x, y=position.y,
-        z=position.z or 0.0, r=pose.r, t=pose.t,
+        name=position.name or "",
+        x=position.x,
+        y=position.y,
+        z=position.z or 0.0,
+        r=pose.r,
+        t=pose.t,
     )
 
 
@@ -186,8 +200,15 @@ def limit_shapes(microscope, frame: StageFrame) -> List[ShapeSpec]:
         logger.debug(f"Could not draw the stage limits: {e}")
         return []
     return [
-        ShapeSpec(kind="rect", cx=box_cx, cy=box_cy, width=width, height=height,
-                  color=STAGE_LIMITS_COLOUR, label="Stage Limits"),
+        ShapeSpec(
+            kind="rect",
+            cx=box_cx,
+            cy=box_cy,
+            width=width,
+            height=height,
+            color=STAGE_LIMITS_COLOUR,
+            label="Stage Limits",
+        ),
     ]
 
 
@@ -221,9 +242,17 @@ def boundary_shapes(microscope, frame: StageFrame) -> List[ShapeSpec]:
         except Exception as e:
             logger.debug(f"Could not draw a grid boundary: {e}")
             continue
-        specs.append(ShapeSpec(kind="ellipse", cx=cx, cy=cy,
-                               width=2 * span_x, height=2 * span_y,
-                               color=GRID_BOUNDARY_COLOUR, label="Grid Boundary"))
+        specs.append(
+            ShapeSpec(
+                kind="ellipse",
+                cx=cx,
+                cy=cy,
+                width=2 * span_x,
+                height=2 * span_y,
+                color=GRID_BOUNDARY_COLOUR,
+                label="Grid Boundary",
+            )
+        )
     return specs
 
 
@@ -243,8 +272,15 @@ def slot_shapes(microscope, frame: StageFrame) -> List[ShapeSpec]:
         except Exception as e:
             logger.debug(f"Could not draw a holder slot: {e}")
             continue
-        specs.append(ShapeSpec(kind="crosshair", cx=cx, cy=cy,
-                               color=SLOT_COLOUR, label=place.name or ""))
+        specs.append(
+            ShapeSpec(
+                kind="crosshair",
+                cx=cx,
+                cy=cy,
+                color=SLOT_COLOUR,
+                label=place.name or "",
+            )
+        )
     return specs
 
 

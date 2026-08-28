@@ -1231,6 +1231,18 @@ def test_the_grid_keeps_its_scale_under_a_decimated_preview(qapp, overview_widge
     assert after[3] == pytest.approx(before[3])
 
 
+def _show_holder_overlays(widget):
+    """Turn the holder overlays on, and redraw.
+
+    Grid boundaries and holder slots default *off*: both describe a cryo sample holder,
+    so on a system without one they draw a holder that is not there. Tests about what
+    those shapes look like have to ask for them.
+    """
+    widget.overlay_controls.set_visible("boundaries", True)
+    widget.overlay_controls.set_visible("slots", True)
+    widget._refresh_stage_metadata()
+
+
 def test_the_stage_and_grid_limits_are_drawn_in_the_canvas_frame(qapp, overview_widget):
     """Same context the minimap gives, without its indirection: on a real-space canvas
     stage coordinates map straight to canvas coordinates, so there is no stitched image
@@ -1239,6 +1251,7 @@ def test_the_stage_and_grid_limits_are_drawn_in_the_canvas_frame(qapp, overview_
     image = widget.microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
     widget.set_image(image)
     qapp.processEvents()
+    _show_holder_overlays(widget)
 
     by_label = {s.label: s for s in widget.stage_overlay._specs}
     reference = widget.canvas.canvas.reference_pixel_size
@@ -1276,7 +1289,7 @@ def test_stage_metadata_does_not_wait_for_an_image(qapp, overview_widget):
     widget._records.clear()
     widget._origin = None
 
-    widget._refresh_stage_metadata()
+    _show_holder_overlays(widget)
 
     labels = [spec.label for spec in widget.stage_overlay._specs]
     assert "Stage Limits" in labels

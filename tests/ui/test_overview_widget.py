@@ -120,6 +120,18 @@ def widget(microscope):
     w.close()
 
 
+def _show_holder_overlays(widget):
+    """Turn the holder overlays on, and redraw.
+
+    Grid boundaries and holder slots default *off*: both describe a cryo sample holder,
+    so on a system without one they draw a holder that is not there. Tests about what
+    those shapes look like have to ask for them.
+    """
+    widget.overlay_controls.set_visible("boundaries", True)
+    widget.overlay_controls.set_visible("slots", True)
+    widget._refresh_context_overlays()
+
+
 def _beam_report(status, **fields):
     """A beam report, the shape `imaging.tiled` emits."""
     from fibsem.imaging.tiling.progress import MODALITY_BEAM, TiledProgress
@@ -606,6 +618,7 @@ class TestWhatIsDrawn:
     ):
         base = microscope.get_stage_position()
         widget.place_image(_tile(microscope, _at(base)))
+        _show_holder_overlays(widget)
         labels = {spec.label for spec in widget.context_overlay._specs}
         # The limits and the holder slots are configuration-dependent; on a compustage
         # system all of these are present, and this fixture is one.
@@ -1362,6 +1375,7 @@ class TestTheCanvasDrawsBeforeAnythingIsAcquired:
     def test_it_draws_the_context_with_nothing_placed(self, widget):
         """The whole point. Every one of these used to wait for the first tile."""
         assert not widget.canvas.placed_keys, "this test is about the empty canvas"
+        _show_holder_overlays(widget)
         drawn = {spec.label for spec in widget.context_overlay._specs}
         assert "Stage Limits" in drawn
         assert "Grid Boundary" in drawn
@@ -1472,6 +1486,7 @@ class TestOverlaysAreDrawnInTheView:
     def _show(self, widget, view):
         """Put the canvas in *view* and return its frame."""
         widget.set_image(self._image(widget.microscope, *view))
+        _show_holder_overlays(widget)
         return widget._frame()
 
     @staticmethod
@@ -1642,7 +1657,7 @@ class TestTheHolderIsDrawnOnEveryStage:
             "Slot-02": self._slot("Slot-02", 5.0e-3),
         }
         monkeypatch.setattr(holder, "slots", slots)
-        widget._refresh_context_overlays()
+        _show_holder_overlays(widget)
         return slots
 
     @staticmethod
@@ -1727,6 +1742,7 @@ class TestTheHolderIsDrawnOnEveryStage:
     def test_a_single_centred_slot_still_draws_the_one_circle(self, widget):
         """The compustage case, unchanged: one slot at the origin, one circle on it.
         The simulator's own holder, so this is the behaviour that shipped."""
+        _show_holder_overlays(widget)
         boundaries = self._specs(widget, "ellipse", "Grid Boundary")
         crosshairs = [
             s for s in self._specs(widget, "crosshair") if s.label.startswith("Slot-")
@@ -3882,8 +3898,26 @@ class TestTheOverlaysCanBeTurnedOff:
         widget.context_overlay.set_shapes = real
         return seen.get("n", 0)
 
+    def test_the_holder_overlays_ship_off_and_the_travel_box_ships_on(self, widget):
+        """Grid boundaries and holder slots describe a cryo sample holder, so on a system
+        without one they draw a holder that is not there, over an overview of a sample
+        that is. Travel limits stay on: they are a property of the stage itself.
+
+        Asserted rather than left to the module constant, because the default is the
+        whole of what these switches do for anyone who never opens the popover.
+        """
+        assert widget.overlay_controls.is_visible("limits")
+        assert not widget.overlay_controls.is_visible("boundaries")
+        assert not widget.overlay_controls.is_visible("slots")
+
+        drawn = {spec.label for spec in widget.context_overlay._specs}
+        assert "Stage Limits" in drawn
+        assert "Grid Boundary" not in drawn
+
     @pytest.mark.parametrize("key", ["limits", "boundaries", "slots"])
     def test_turning_one_off_stops_it_being_drawn(self, widget, key):
+        # Two of the three ship off, so "turning it off" starts by turning it on.
+        widget.overlay_controls.set_visible(key, True)
         before = self._context_shapes(widget)
 
         widget.overlay_controls.set_visible(key, False)
