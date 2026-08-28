@@ -44,10 +44,20 @@ OVERLAY_SLOTS = "slots"
 
 # Label and default for each, so the two tabs cannot offer the same switch under
 # different words.
+#
+# Grid boundaries and holder slots default **off**. Both describe a cryo sample holder --
+# where its grids sit, and where its slots are -- so on a system without one they draw a
+# holder that is not there, over an overview of a sample that is. Travel limits stay on:
+# they are a property of the stage itself, and true on every system.
+#
+# Off for everyone rather than gated on the stage type, which is the narrower change: the
+# switch is one click away in the overlays popover, and a default that read the hardware
+# would have to be resolved per-microscope at construction rather than being the module
+# constant both tabs share.
 CONTEXT_OVERLAY_ENTRIES = (
     (OVERLAY_LIMITS, "Stage travel limits", True),
-    (OVERLAY_BOUNDARIES, "Grid boundaries", True),
-    (OVERLAY_SLOTS, "Holder slots", True),
+    (OVERLAY_BOUNDARIES, "Grid boundaries", False),
+    (OVERLAY_SLOTS, "Holder slots", False),
 )
 
 __all__ = [
