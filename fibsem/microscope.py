@@ -159,6 +159,13 @@ if TYPE_CHECKING:
     from fibsem.structures import TFibsemPatternSettings
 
 
+# The device the orientation transform is defined at. `_get_compucentric_rotation_position`
+# is a half turn about a chamber-fixed centre, and the beams are the only place it has
+# ever been applied on any instrument -- so `get_target_position` carries a position
+# into this device's frame before re-posing it, and back out afterwards.
+ROTATION_FRAME_DEVICE = "FIBSEM"
+
+
 class FibsemMicroscope(ABC):
     """Abstract class containing all the core microscope functionalities"""
 
@@ -1481,17 +1488,48 @@ class FibsemMicroscope(ABC):
 
         return target_position
 
-    def get_target_position(
-        self, stage_position: FibsemStagePosition, target_orientation: str
+    def _apply_device_translation(
+        self, stage_position: FibsemStagePosition, source: str, target: str
     ) -> FibsemStagePosition:
-        """Convert the stage position to the target position for the given orientation."""
+        """`stage_position`, moved from one device to another. Mutates and returns it."""
+        translation = self._device_translation(source, target)
+        for axis in DEVICE_AXES:
+            delta = getattr(translation, axis)
+            if delta is None:
+                continue
+            value = getattr(stage_position, axis)
+            if value is None:
+                raise ValueError(
+                    f"Cannot convert between devices {source} and {target}: the "
+                    f"position has no {axis}, and the two differ along it."
+                )
+            setattr(stage_position, axis, value + delta)
+        return stage_position
+
+    def get_target_position(
+        self,
+        stage_position: FibsemStagePosition,
+        target_orientation: str,
+        target_device: Optional[str] = None,
+    ) -> FibsemStagePosition:
+        """Convert the stage position to the target position for the given orientation.
+
+        `target_device` converts across the *device* axis as well. Where the objective
+        is offset the two are independent -- the device is a place the stage travels
+        to, the orientation is the pose it is held in once there -- so a caller may
+        ask for either or both. `FM-MILLING` is not a fifth orientation; it is
+        `("MILLING", device="FM")`.
+
+        Returns the canonical r and t of the target orientation, so a position a
+        degree or two off its nominal pose is snapped rather than carried across.
+        """
 
         currrent_orientation = self.get_stage_orientation(stage_position)
         logging.info(
             f"Getting target position for {target_orientation} from {currrent_orientation}"
         )
 
-        if currrent_orientation == target_orientation:
+        if currrent_orientation == target_orientation and target_device is None:
             return stage_position
 
         if currrent_orientation == "NONE":
@@ -1501,15 +1539,60 @@ class FibsemMicroscope(ABC):
         # offset mount it is a *place*, reached by translating rather than re-posing,
         # and `orientations["FM"]` there is a copy of the FIB entry carrying no
         # positional term -- so converting into it would return a position under the
-        # beam wearing the FM's rotation and tilt. Refused until the device axis
-        # exists (FIB-830).
+        # beam wearing the FM's rotation and tilt. Ask for it as a device instead:
+        # `target_device="FM"`, with whichever orientation the sample should be in.
         if "FM" in (currrent_orientation, target_orientation) and (
             not self.stage_is_compustage
         ):
             raise ValueError("Cannot move to FM position on non-compustage systems.")
 
+        # Which device the stage is at, read *before* either leg runs. The orientation
+        # leg below can move x and y most of the way across the grid, so asking
+        # afterwards would sometimes name a different device, or none.
+        source_device = self.get_current_device(stage_position)
+        if target_device is not None and source_device is None:
+            raise ValueError(
+                f"The stage is not at any configured device "
+                f"({sorted(self.system.stage.devices)}), so there is nothing to "
+                f"convert from. Position: {stage_position}."
+            )
+
         stage_position = deepcopy(stage_position)
         orientation = self.get_orientation(target_orientation)
+
+        # The device legs **bracket** the orientation leg rather than following it,
+        # so that the re-pose always happens at the beams. Written out, that is the
+        # order an operator would use:
+        #
+        #   leaving the beams:  re-pose first, then traverse to the device
+        #   returning:          traverse back to the beams first, then re-pose
+        #
+        # Both come out of one expression, `f(p) = rotate(p - source) + target`.
+        # Leaving, `source` is zero and the rotation happens before the traverse;
+        # returning, `target` is zero and the traverse happens before the rotation.
+        #
+        # **The stage must not be re-posed while it is parked at the FM.** The
+        # objective is inserted over the sample there, and a half turn swings the
+        # sample about a centre ~48.8 mm away. Bracketing is what keeps the rotation
+        # out of that pose; the arrangement that re-poses wherever the stage happens
+        # to be would compute a target that commands exactly that move.
+        #
+        # It is also the only arrangement that round-trips, which is how the wrong one
+        # was caught rather than reasoned about: re-posing at the FM and translating
+        # afterwards sends `(SEM, beams) -> (FIB, FM) -> (SEM, beams)` back to
+        # -97.6 mm instead of 0. `rotate` is an involution, so `f` inverts by swapping
+        # source and target -- which is exactly what the reverse call does.
+        #
+        # This computes a target; it does not order the moves. Nothing yet stops a
+        # caller re-posing while at the FM -- see FIB-841, a prerequisite for opening
+        # the connection gate.
+        #
+        # A compustage brackets with a zero translation, so it takes this path and
+        # gets its old answer untouched.
+        if source_device is not None:
+            stage_position = self._apply_device_translation(
+                stage_position, source_device, ROTATION_FRAME_DEVICE
+            )
 
         # One rule, in place of a branch per ordered pair.
         #
@@ -1567,6 +1650,15 @@ class FibsemMicroscope(ABC):
 
         stage_position.r = orientation.r
         stage_position.t = orientation.t
+
+        # ... and back out, to whichever device was asked for. `target_device` of None
+        # means the one it started at, so an orientation-only conversion at the FM is
+        # still re-posed about the right centre rather than about wherever it is
+        # parked.
+        if source_device is not None:
+            stage_position = self._apply_device_translation(
+                stage_position, ROTATION_FRAME_DEVICE, target_device or source_device
+            )
 
         return stage_position
 
@@ -2179,7 +2271,17 @@ class FibsemMicroscope(ABC):
         and the "am I already there" windows can no longer drift apart. Relative
         rather than absolute on purpose: the devices constrain x only, and a relative
         move carries y, z, r and t across unchanged.
+
+        **Nothing on a compustage.** There the objective is under the grid, so the
+        beams and the FM are the same place and the stage reaches one from the other
+        by flipping, not travelling -- the configured origins describe an offset
+        chamber and do not apply. Answering here rather than at each call site is the
+        same arrangement `_get_compucentric_rotation_position` already uses: the
+        primitive is the no-op, so no caller needs a stage-type branch.
         """
+        if self.stage_is_compustage:
+            return FibsemStagePosition()
+
         source_origin = self._get_device(source).origin
         target_origin = self._get_device(target).origin
 
