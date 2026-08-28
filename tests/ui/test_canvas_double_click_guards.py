@@ -3,17 +3,13 @@
 Five guards stand between a double-click and a stage move: the Shift modifier, milling
 in progress, no image acquired yet, a click landing outside the image, and -- one level
 down in ``_execute_stage_move`` -- a SEM-view vertical move on a backend that cannot do
-one. Only the first of those is checked on the GUI thread today. The rest are evaluated
-inside ``_canvas_double_click_worker``, on the worker thread, after the widget has
-already disabled its buttons in anticipation of a move.
+one. All five are answered on the GUI thread, in ``_on_canvas_double_click``, before
+anything is committed.
 
-Nothing here is a threading bug; the guards give the right answers. What is untested is
-the answers themselves, so this file pins them before they are moved.
-
-Two of these tests pin behaviour that is expected to *change*: a refused click currently
-disables and re-enables the buttons, and reports ``finished`` for a move that never
-happened. They are marked where they appear. Recording them is the point -- it is what
-makes the follow-up visible as a behaviour change rather than a silent one.
+They used to be evaluated inside the worker, after the widget had already disabled its
+buttons in anticipation of a move -- so a click that was never going to move the stage
+still flickered the buttons and reported ``finished``. The last two tests here pin that
+those side effects are gone; they previously pinned that they happened.
 """
 
 from __future__ import annotations
@@ -43,7 +39,10 @@ from test_viewer_less_widgets import (  # noqa: E402
 
 from fibsem.structures import BeamType, Point  # noqa: E402
 from fibsem.ui import notification_service  # noqa: E402
-from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget  # noqa: E402
+from fibsem.ui.FibsemMovementWidget import (  # noqa: E402
+    ACQUIRING_IMAGES,
+    FibsemMovementWidget,
+)
 
 
 def _pump(ms: int = 150) -> None:
@@ -97,10 +96,12 @@ def dispatched(movement, monkeypatch):
 
 
 def _click(movement, beam=BeamType.ELECTRON, x=100.0, y=100.0, modifiers=frozenset()):
-    """Run the worker body on this thread -- `@thread_worker` would hide the outcome."""
-    FibsemMovementWidget._canvas_double_click_worker.__wrapped__(
-        movement, beam, x, y, set(modifiers)
-    )
+    """A double-click. Every guard resolves synchronously on this thread now."""
+    movement._on_canvas_double_click(beam, x, y, set(modifiers))
+
+
+def _explode(*args, **kwargs):
+    raise RuntimeError("the stage did not get there")
 
 
 def _centre(movement, beam=BeamType.ELECTRON):
@@ -271,48 +272,106 @@ def test_the_far_edge_is_outside_and_the_near_edge_is_inside(movement, dispatche
 # --- what the widget does around a refusal (expected to change) --------------
 
 
-def test_a_refused_click_still_toggles_the_buttons(movement, toasts):
-    """CURRENT BEHAVIOUR, pinned so that changing it is visible.
+def test_a_refused_click_leaves_the_buttons_alone(movement, toasts):
+    """A gesture that was never going to move the stage must not flicker the buttons.
 
-    `_on_canvas_double_click` disables the buttons before starting the worker, and the
-    worker is where the refusal is decided -- so a Shift-click spawns a thread, disables
-    the buttons, decides to do nothing, and re-enables them. The operator sees a flicker
-    for a gesture that was never going to move the stage.
-
-    Moving the guards onto the GUI thread removes this; when it does, this test should
-    be updated to assert the buttons never moved, not deleted.
+    The refusal is decided before `_execute_stage_move` disables anything, so nothing is
+    toggled at all -- where this used to disable, spawn a thread to decide, re-enable.
     """
     assert movement.pushButton_move.isEnabled(), "precondition: buttons start enabled"
 
     seen = []
     original = movement._toggle_interactions
     # Each call round-trips (movement -> image widget -> movement, terminated by the
-    # `caller` sentinel), so what is asserted is the transition, not the call count.
+    # `caller` sentinel), so a single toggle would show up here twice.
     movement._toggle_interactions = lambda enable, caller=None: (
         seen.append(enable),
         original(enable, caller),
     )[1]
 
     movement._on_canvas_double_click(BeamType.ELECTRON, 100.0, 100.0, {"Shift"})
-    _run(lambda: movement.pushButton_move.isEnabled() and True in seen)
+    _pump()
 
-    assert False in seen, f"the buttons were never disabled: {seen}"
-    assert seen[0] is False and seen[-1] is True, (
-        f"expected the buttons disabled and then re-enabled around a refusal: {seen}"
-    )
+    assert seen == [], f"a refused click toggled the buttons: {seen}"
+    assert movement.pushButton_move.isEnabled()
 
 
-def test_a_refused_click_still_reports_finished(movement, toasts):
-    """CURRENT BEHAVIOUR, pinned so that changing it is visible.
+def test_a_refused_click_reports_nothing(movement, toasts):
+    """No worker is started, so nothing hangs off `finished`.
 
-    `move_stage_finished` hangs off the worker's `finished`, which fires whether or not
-    the body did anything -- so a refused click emits `{"finished": True}` and refreshes
-    the stage readout for a move that never happened.
+    A refused click used to emit `{"finished": True}` and refresh the stage readout for
+    a move that never happened, because `move_stage_finished` was already connected by
+    the time the worker decided to do nothing.
     """
     reports = []
     movement.movement_progress_signal.connect(lambda d: reports.append(dict(d)))
 
     movement._on_canvas_double_click(BeamType.ELECTRON, 100.0, 100.0, {"Shift"})
-    _run(lambda: reports)
+    _pump()
 
-    assert reports == [{"finished": True}], reports
+    assert reports == [], reports
+
+
+# --- what the move itself does, once a click has survived the guards ---------
+
+
+def _move_trace(movement, monkeypatch) -> list:
+    """Every reported effect of the move, in order."""
+    seen = []
+
+    def _reported(ddict: dict) -> None:
+        if ddict.get("msg") is not None:
+            seen.append(("msg", ddict["msg"]))
+
+    movement.movement_progress_signal.connect(_reported)
+    monkeypatch.setattr(
+        movement.microscope,
+        "stable_move",
+        lambda dx, dy, beam_type: seen.append(("move", beam_type)),
+    )
+    monkeypatch.setattr(
+        movement,
+        "update_ui_after_movement",
+        lambda *a, **k: seen.append(("refresh", None)),
+    )
+    return seen
+
+
+def test_the_worker_body_only_moves(movement, monkeypatch):
+    """No message, no refresh -- one call to the microscope.
+
+    The same rule the absolute and orientation workers follow. Anything else in here is
+    a widget touched from a worker thread.
+    """
+    seen = _move_trace(movement, monkeypatch)
+    FibsemMovementWidget._stage_move_worker.__wrapped__(
+        movement, BeamType.ELECTRON, Point(x=1e-6, y=1e-6), False
+    )
+    assert [kind for kind, _ in seen] == ["move"], seen
+
+
+def test_a_click_move_is_bracketed_by_its_two_messages(movement, monkeypatch):
+    """Says it is moving, moves, says it is retaking the images, retakes them."""
+    seen = _move_trace(movement, monkeypatch)
+    x, y = _centre(movement)
+    _click(movement, BeamType.ELECTRON, x, y)
+    _run(lambda: [kind for kind, _ in seen] == ["msg", "move", "msg", "refresh"])
+
+    assert [kind for kind, _ in seen] == ["msg", "move", "msg", "refresh"], seen
+    assert seen[0][1] == "Moving the stage…"
+    assert seen[2][1] == ACQUIRING_IMAGES
+
+
+def test_a_failed_click_move_reports_nothing_further(movement, monkeypatch):
+    """The reporting hangs off `returned`, so a move that raised skips it -- the widget
+    never claims to be retaking images for a move that did not happen."""
+    seen = _move_trace(movement, monkeypatch)
+    monkeypatch.setattr(movement.microscope, "stable_move", _explode)
+
+    x, y = _centre(movement)
+    _click(movement, BeamType.ELECTRON, x, y)
+    _run(lambda: movement.pushButton_move.isEnabled())
+
+    assert [kind for kind, _ in seen] == ["msg"], seen
+    assert ACQUIRING_IMAGES not in [value for _, value in seen]
+    assert movement.pushButton_move.isEnabled(), "a failed click move left it disabled"
