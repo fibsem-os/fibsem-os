@@ -56,7 +56,17 @@ def main_ui(qapp):
     yield window
     if window.autolamella_ui.microscope is not None:
         window.autolamella_ui.microscope.disconnect()
-    window.close()
+    # closeEvent ends in app.quit() — the shipped quit-freeze workaround. On the
+    # shared test QApplication that latches an interrupt (no event loop is running
+    # to consume it), and every later QEventLoop.exec_() in the pytest process
+    # then returns immediately — which silently broke every worker test that ran
+    # after this module. Run the real close cleanup with quit stubbed out.
+    original_quit = qapp.quit
+    qapp.quit = lambda: None
+    try:
+        window.close()
+    finally:
+        qapp.quit = original_quit
 
 
 def test_a_transient_status_bar_message_is_shown(main_ui):
