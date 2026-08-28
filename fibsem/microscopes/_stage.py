@@ -289,8 +289,10 @@ class Stage:
     ) -> FibsemStagePosition:
         return self.parent.stable_move(dx, dy, beam_type)
 
-    def vertical_move(self, dy: float, dx: float = 0.0) -> FibsemStagePosition:
-        return self.parent.vertical_move(dy, dx)
+    def vertical_move(
+        self, dy: float, dx: float = 0.0, beam_type: BeamType = BeamType.ION
+    ) -> FibsemStagePosition:
+        return self.parent.vertical_move(dy, dx, beam_type)
 
     def move_to_milling_angle(self, milling_angle: float) -> bool:
         return self.parent.move_to_milling_angle(milling_angle)

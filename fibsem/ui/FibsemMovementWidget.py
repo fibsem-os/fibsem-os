@@ -593,19 +593,16 @@ class FibsemMovementWidget(QtWidgets.QWidget):
             }
         )
 
-        # refuse rather than silently fall through to stable_move below: on backends
-        # without move_coincident_from_sem (e.g. the simulator) the operator would
-        # ask to restore coincidence and get a sample-plane move instead
-        if (
-            beam_type is BeamType.ELECTRON
-            and vertical_move
-            and not hasattr(self.microscope, "move_coincident_from_sem")
-        ):
+        # refuse rather than silently fall through to stable_move below: on a backend
+        # that cannot correct coincidence from this view, the operator would ask to
+        # restore coincidence and get a sample-plane move instead
+        if vertical_move and not self.microscope.supports_vertical_move(beam_type):
+            view = "SEM" if beam_type is BeamType.ELECTRON else "FIB"
             logging.warning(
-                "Vertical move from the SEM view is not supported on this system."
+                f"Vertical move from the {view} view is not supported on this system."
             )
             notification_service.show_toast(
-                "Vertical move from the SEM view is not supported on this system - use the FIB view.",
+                f"Vertical move from the {view} view is not supported on this system - use the other view.",
                 "warning",
             )
             return
@@ -630,18 +627,14 @@ class FibsemMovementWidget(QtWidgets.QWidget):
     ) -> None:
         """Move the stage. Runs off the GUI thread — only signals may cross back.
 
-        Which of the three calls applies is decided from arguments, not from widget
+        Which of the two calls applies is decided from arguments, not from widget
         state: the beam and the modifier were resolved by the caller while it was still
         on the GUI thread.
         """
-        # eucentric is only supported for ION beam
-        if beam_type is BeamType.ION and vertical_move:
-            self.microscope.vertical_move(dx=point.x, dy=point.y)
-        elif beam_type is BeamType.ELECTRON and vertical_move:
-            # move coincident from SEM
-            self.microscope.move_coincident_from_sem(
-                dx=0, dy=point.y
-            )  # TMP: disable dx for now
+        if vertical_move:
+            # TMP: an x offset measured in the SEM view is still discarded
+            dx = point.x if beam_type is BeamType.ION else 0
+            self.microscope.vertical_move(dx=dx, dy=point.y, beam_type=beam_type)
         else:
             # corrected stage movement
             self.microscope.stable_move(

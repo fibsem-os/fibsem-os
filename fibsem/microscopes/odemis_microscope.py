@@ -241,6 +241,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
 
     milling_progress_signal = Signal(MillingProgress)
     _last_imaging_settings: ImageSettings
+    vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
 
     def __init__(self, system_settings: SystemSettings):
         self.system: SystemSettings = system_settings
@@ -853,13 +854,26 @@ class OdemisThermoMicroscope(FibsemMicroscope):
             self, dx=dx, dy=dy, beam_type=beam_type, static_wd=static_wd
         )
 
-    def vertical_move(self, dy: float, dx: float = 0.0) -> FibsemStagePosition:
-        """Move the stage vertically by the specified amount."""
-        return ThermoMicroscope.vertical_move(self, dy=dy, dx=dx)
+    def vertical_move(
+        self, dy: float, dx: float = 0.0, beam_type: BeamType = BeamType.ION
+    ) -> FibsemStagePosition:
+        """Restore the coincidence point from an offset measured in one beam view."""
+        return ThermoMicroscope.vertical_move(self, dy=dy, dx=dx, beam_type=beam_type)
+
+    def _vertical_move_from_fib(
+        self, dy: float, dx: float = 0.0
+    ) -> FibsemStagePosition:
+        return ThermoMicroscope._vertical_move_from_fib(self, dy=dy, dx=dx)
+
+    def _vertical_move_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
+        return ThermoMicroscope._vertical_move_from_sem(self, dx=dx, dy=dy)
 
     def move_coincident_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
-        """Correct coincident point from SEM to FIB stage position."""
-        return ThermoMicroscope.move_coincident_from_sem(self, dx=dx, dy=dy)
+        """Correct coincident point from SEM to FIB stage position.
+
+        Deprecated: call ``vertical_move(dy, dx, beam_type=BeamType.ELECTRON)``.
+        """
+        return self.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
 
     def _y_corrected_stage_movement(
         self, expected_y: float, beam_type: BeamType

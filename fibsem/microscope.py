@@ -174,6 +174,11 @@ class FibsemMicroscope(ABC):
     stage_is_compustage: bool = False
     milling_channel: BeamType = BeamType.ION
 
+    # The views a coincidence correction can be measured in -- the beam_type
+    # values vertical_move accepts. The FIB view is universal; the SEM view
+    # needs a backend that knows how to slide along the FIB line of sight.
+    vertical_move_views: Tuple[BeamType, ...] = (BeamType.ION,)
+
     # live acquisition
     sem_acquisition_signal = Signal(FibsemImage)
     fib_acquisition_signal = Signal(FibsemImage)
@@ -332,8 +337,35 @@ class FibsemMicroscope(ABC):
         pass
 
     @abstractmethod
-    def vertical_move(self, dy: float, dx: float = 0) -> FibsemStagePosition:
+    def vertical_move(
+        self, dy: float, dx: float = 0, beam_type: BeamType = BeamType.ION
+    ) -> FibsemStagePosition:
+        """Restore coincidence from an offset measured in one of the beam views.
+
+        Args:
+            dy: offset along the image y-axis, in the view named by beam_type.
+            dx: offset along the image x-axis, in the same view.
+            beam_type: the view the offset was measured in. ION (the default, and
+                the historical behaviour) corrects a feature already centred in the
+                SEM; ELECTRON corrects one already centred in the FIB.
+
+        Raises:
+            NotImplementedError: if this backend cannot correct from that view.
+                Ask supports_vertical_move first rather than catching this.
+        """
         pass
+
+    def supports_vertical_move(self, beam_type: BeamType = BeamType.ION) -> bool:
+        """Whether coincidence can be restored from the given view on this system."""
+        return beam_type in self.vertical_move_views
+
+    def _check_vertical_move_supported(self, beam_type: BeamType) -> None:
+        """Guard for a vertical_move implementation -- one message, one source of truth."""
+        if not self.supports_vertical_move(beam_type):
+            raise NotImplementedError(
+                f"{type(self).__name__} cannot restore coincidence from the "
+                f"{beam_type.name} view."
+            )
 
     @abstractmethod
     def project_stable_move(
@@ -2236,8 +2268,8 @@ class ThermoMicroscope(FibsemMicroscope):
         stable_move(self, dx: float, dy: float, beam_type: BeamType,) -> None:
             Calculate the corrected stage movements based on the beam_type, and then move the stage relatively.
 
-        vertical_move(self,  dy: float, dx: float = 0) -> None:
-            Move the stage vertically to correct eucentric point
+        vertical_move(self, dy: float, dx: float = 0, beam_type: BeamType = BeamType.ION) -> None:
+            Move the stage to correct the coincidence point, from either beam view.
 
         get_manipulator_position(self) -> FibsemManipulatorPosition:
             Get the current manipulator position.
@@ -2300,6 +2332,8 @@ class ThermoMicroscope(FibsemMicroscope):
         _y_corrected_stage_movement(self, expected_y: float, beam_type: BeamType = BeamType.ELECTRON) -> FibsemStagePosition:
             Calculate the y corrected stage movement, corrected for the additional tilt of the sample holder (pre-tilt angle).
     """
+
+    vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
 
     def __init__(self, system_settings: SystemSettings):
         if not THERMO_API_AVAILABLE:
@@ -3038,8 +3072,30 @@ class ThermoMicroscope(FibsemMicroscope):
         self,
         dy: float,
         dx: float = 0.0,
+        beam_type: BeamType = BeamType.ION,
+    ) -> FibsemStagePosition:
+        """Restore the coincidence point from an offset measured in one beam view.
+
+        Args:
+            dy (float): distance along the y-axis (image coordinates)
+            dx (float, optional): distance along the x-axis (image coordinates). Defaults to 0.0.
+            beam_type (BeamType, optional): the view the offset was measured in.
+                Defaults to ION.
+        """
+        self._check_vertical_move_supported(beam_type)
+        if beam_type is BeamType.ELECTRON:
+            return self._vertical_move_from_sem(dx=dx, dy=dy)
+        return self._vertical_move_from_fib(dx=dx, dy=dy)
+
+    def _vertical_move_from_fib(
+        self,
+        dy: float,
+        dx: float = 0.0,
     ) -> FibsemStagePosition:
         """Move the stage vertically to correct coincidence point
+
+        The offset is measured in the FIB view: the feature is already centred in
+        the SEM, and a chamber-vertical move is invisible to the electron beam.
 
         Args:
             dy (float): distance along the y-axis (image coordinates)
@@ -3109,7 +3165,24 @@ class ThermoMicroscope(FibsemMicroscope):
         return self.get_stage_position()
 
     def move_coincident_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
-        """Correct coincident point from SEM to FIB stage position."""
+        """Correct coincident point from SEM to FIB stage position.
+
+        Deprecated: call ``vertical_move(dy, dx, beam_type=BeamType.ELECTRON)``.
+        Kept for one release because custom scripts may call it.
+        """
+        return self.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
+
+    def _vertical_move_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
+        """Correct the coincidence point from an offset measured in the SEM view.
+
+        Not the mirror image of the FIB path but a superset: a stable move first
+        brings the feature to the centre of the SEM, and the height correction
+        that follows puts the FIB back.
+
+        NOTE: the geometry here is known to be wrong away from the flat pose, and
+        the two constants below cancel each other -- see FIB-773. Moved verbatim
+        from ``move_coincident_from_sem``; correcting it needs bench time.
+        """
 
         # NOTE:
         # inaccurate over longer distances, but works for small movements
@@ -3136,7 +3209,7 @@ class ThermoMicroscope(FibsemMicroscope):
             dy *= -1.0
 
         # apply the vertical move to correct the position
-        self.vertical_move(
+        self._vertical_move_from_fib(
             dx=0, dy=dy * 1.11
         )  # TODO: MAGIC_NUMBER To correct for perspective correction...
 
