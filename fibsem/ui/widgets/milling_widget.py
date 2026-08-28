@@ -185,6 +185,12 @@ class FibsemMillingWidget2(QWidget):
         self._milling_thread = FunctionWorker(
             self._milling_worker, self.microscope, config
         )
+        # Both of these used to run from inside the worker's `finally`, which put the
+        # widget update on the worker thread. Connected here in the order they used to
+        # happen in: the controls have to be unlocked before anything acts on
+        # `finished_milling_signal`, which listeners take to mean "fully complete".
+        self._milling_thread.finished.connect(self._update_button_states)
+        self._milling_thread.finished.connect(self.finished_milling_signal.emit)
 
         self._milling_thread.start()
 
@@ -197,7 +203,13 @@ class FibsemMillingWidget2(QWidget):
     def _milling_worker(
         self, microscope: FibsemMicroscope, milling_task_config: FibsemMillingTaskConfig
     ):
-        """Worker function to run the milling task in a separate thread."""
+        """Run the milling task. Runs off the GUI thread — only signals may cross back.
+
+        Clearing ``_milling_thread`` stays here. ``is_milling`` would answer correctly
+        without it — it also asks ``is_alive()``, and the thread has normally exited by
+        the time the queued ``finished`` is processed — but that makes the button state
+        depend on a race the clear settles outright, and it drops the reference.
+        """
         try:
             if not milling_task_config.enabled_stages:
                 raise ValueError("No milling stages defined in the configuration.")
@@ -213,8 +225,6 @@ class FibsemMillingWidget2(QWidget):
 
         finally:
             self._milling_thread = None
-            self._update_button_states()
-            self.finished_milling_signal.emit()
 
     def stop_milling(self):
         if self.is_milling:
