@@ -61,10 +61,12 @@ a finished one. Swallowing it inside the body left a status line reading "Moving
 rest of the session (FIB-765).
 
 The one sanctioned exception to "no calls": ``notification_service.show_toast`` (and ``show``),
-which is a queued ``pyqtSignal`` behind a function and may be called from anywhere. It is queued
-only because the service ``QObject`` lives on the GUI thread, and ``_get_service()`` constructs
-it lazily on first use — so the affinity is decided by whoever calls first. ``AutoLamellaMainUI``
-connects to it during setup, which is what settles it today.
+which is a queued ``pyqtSignal`` behind a function and may be called from anywhere. Qt picks the
+connection type from the *receiver's* thread affinity, not the sender's, and every receiver here
+is a widget on the GUI thread — so this holds even though ``_get_service()`` constructs the
+service lazily and could bind it to whichever thread happens to call first. Measured, not
+assumed: a service built on a worker thread still delivers to a GUI-thread slot on the GUI
+thread.
 
 Why the rule is about coupling, not safety
 ------------------------------------------
