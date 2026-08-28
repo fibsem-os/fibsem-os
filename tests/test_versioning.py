@@ -105,17 +105,52 @@ def test_revision_and_branch_from_real_checkout(monkeypatch):
 
     revision = get_revision()
     assert revision is not None
-    assert DESCRIBE_RE.match(revision), revision
 
-    # Cross-check against git itself rather than hardcoding a sha.
-    head = subprocess.run(
-        ["git", "rev-parse", "--short", "HEAD"],
+    # Cross-check against git itself rather than hardcoding a sha. This is the whole
+    # contract -- `get_revision` is `git describe` and nothing else -- and it holds
+    # wherever HEAD is, which the shape assertions below do not.
+    described = subprocess.run(
+        ["git", "describe", "--tags", "--always", "--dirty", "--match", "v*"],
         cwd=str(REPO_ROOT),
         capture_output=True,
         encoding="utf-8",
         errors="replace",
     ).stdout.strip()
-    assert head in revision
+    assert revision == described
+
+    # `git describe` returns a *bare tag name* when HEAD sits exactly on a tag, and
+    # <tag>-<n>-g<sha> otherwise. Every release commit is the first case, so asserting
+    # the second shape unconditionally made this test fail on precisely the commits a
+    # release is cut from -- it blocked v0.5.2rc1, in the publish workflow, after the
+    # version check had passed.
+    #
+    # Only the described form carries a sha, so only it can be checked against HEAD.
+    if DESCRIBE_RE.match(revision):
+        head = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+        ).stdout.strip()
+        assert head in revision
+    else:
+        # On a tag, the tag itself is the identifier, and it must be one git agrees
+        # points at HEAD rather than any string that failed the pattern.
+        tags = subprocess.run(
+            ["git", "tag", "--points-at", "HEAD"],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+        ).stdout.split()
+        # Not str.removesuffix: that is 3.9+, and CI builds 3.8 (#553 fixed the same
+        # thing in fibsem/ itself).
+        suffix = "-dirty"
+        name = revision[: -len(suffix)] if revision.endswith(suffix) else revision
+        assert name in tags, (
+            f"{revision} is neither a describe with a sha nor a tag on HEAD"
+        )
 
     # Branch is None on a detached HEAD, which is legitimate; when present it
     # must not be the literal "HEAD" that `rev-parse --abbrev-ref` would give.
@@ -444,7 +479,9 @@ def test_failure_is_logged_quietly(monkeypatch, caplog):
 @pytest.mark.parametrize(
     "describe",
     [
-        pytest.param(lambda: (_ for _ in ()).throw(RuntimeError("kaboom")), id="raises"),
+        pytest.param(
+            lambda: (_ for _ in ()).throw(RuntimeError("kaboom")), id="raises"
+        ),
         pytest.param(lambda: None, id="none"),
         pytest.param(lambda: "v0.5.1-48-g4cd11d9c", id="value"),
     ],
