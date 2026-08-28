@@ -20,7 +20,7 @@ from fibsem.milling.progress import (
     _DEFAULT_MESSAGES,
     MillingMessageTracker,
     MillingProgress,
-    MillingStatus,
+    MillingProgressStatus,
 )
 from fibsem.structures import ACTIVE_MILLING_STATES, MillingState
 
@@ -31,36 +31,48 @@ class TestTheStatusVocabulary:
         times) sitting beside `state: "finished"` (emitted once, from the task's
         `finally`). They read like a matched pair and were not one, so a consumer
         bracketing them was wrong N-1 times."""
-        assert MillingStatus.STAGE_FINISHED is not MillingStatus.TASK_FINISHED
-        assert MillingStatus.STAGE_STARTED is not MillingStatus.TASK_STARTED
+        assert (
+            MillingProgressStatus.STAGE_FINISHED
+            is not MillingProgressStatus.TASK_FINISHED
+        )
+        assert (
+            MillingProgressStatus.STAGE_STARTED
+            is not MillingProgressStatus.TASK_STARTED
+        )
 
     def test_only_the_task_outcomes_are_terminal(self):
         """`STAGE_FINISHED` is not the end of anything. A consumer that hides its
         progress bar on it hides it after the first stage of an N-stage task."""
-        terminal = {s for s in MillingStatus if s.is_terminal}
+        terminal = {s for s in MillingProgressStatus if s.is_terminal}
         assert terminal == {
-            MillingStatus.TASK_FINISHED,
-            MillingStatus.TASK_CANCELLED,
-            MillingStatus.TASK_FAILED,
+            MillingProgressStatus.TASK_FINISHED,
+            MillingProgressStatus.TASK_CANCELLED,
+            MillingProgressStatus.TASK_FAILED,
         }
-        assert not MillingStatus.STAGE_FINISHED.is_terminal
+        assert not MillingProgressStatus.STAGE_FINISHED.is_terminal
 
     def test_a_cancelled_task_is_not_a_failed_one(self):
         """A cancel is someone getting what they asked for. Today both land in the same
         `finally` and report as *finished*; keeping them apart in the vocabulary is what
         lets a consumer paint one neutrally and the other red."""
-        assert MillingStatus.TASK_CANCELLED is not MillingStatus.TASK_FAILED
-        assert MillingStatus.TASK_CANCELLED is not MillingStatus.TASK_FINISHED
+        assert (
+            MillingProgressStatus.TASK_CANCELLED
+            is not MillingProgressStatus.TASK_FAILED
+        )
+        assert (
+            MillingProgressStatus.TASK_CANCELLED
+            is not MillingProgressStatus.TASK_FINISHED
+        )
 
     def test_a_member_compares_equal_to_its_own_value(self):
         """The `str` mixin, so these read as themselves in a log line."""
-        assert MillingStatus.STAGE_UPDATE == "stage-update"
+        assert MillingProgressStatus.STAGE_UPDATE == "stage-update"
 
     def test_every_status_has_a_default_message(self):
         """`display_message` indexes `_DEFAULT_MESSAGES` directly. A status added
         without one is a `KeyError` raised inside a queued Qt slot, which on PyQt5 is
         `qFatal` -- the process aborts with nothing in the logfile (FIB-329)."""
-        assert set(_DEFAULT_MESSAGES) == set(MillingStatus)
+        assert set(_DEFAULT_MESSAGES) == set(MillingProgressStatus)
 
 
 class TestDisplayStage:
@@ -68,15 +80,17 @@ class TestDisplayStage:
         """`current_stage` is 0-based on the wire, like every other index in the
         codebase. The `+ 1` was written out by hand at seven call sites across three
         widgets before this property existed."""
-        first = MillingProgress(MillingStatus.STAGE_STARTED, current_stage=0)
-        fourth = MillingProgress(MillingStatus.STAGE_STARTED, current_stage=3)
+        first = MillingProgress(MillingProgressStatus.STAGE_STARTED, current_stage=0)
+        fourth = MillingProgress(MillingProgressStatus.STAGE_STARTED, current_stage=3)
         assert first.display_stage == 1
         assert fourth.display_stage == 4
 
     def test_a_report_with_no_stage_index_has_no_display_stage(self):
         """Rather than defaulting to 0 and rendering "Stage 1" for a task-level report
         that is about no stage at all."""
-        assert MillingProgress(MillingStatus.TASK_FINISHED).display_stage is None
+        assert (
+            MillingProgress(MillingProgressStatus.TASK_FINISHED).display_stage is None
+        )
 
 
 class TestDisplayMessage:
@@ -84,38 +98,47 @@ class TestDisplayMessage:
         """The point of keeping `message` at all: milling strategies are plugin-loadable
         and users asked to customise the text a strategy shows while it runs."""
         words = "Polishing at 30 pA"
-        report = MillingProgress(MillingStatus.STAGE_UPDATE, message=words)
+        report = MillingProgress(MillingProgressStatus.STAGE_UPDATE, message=words)
         assert report.display_message == words
 
     def test_an_empty_message_falls_back_to_the_default(self):
         """Falsy, not `is not None`. A plugin returning `""` is a bug, not a request for
         a blank label -- FIB-401 hit this exactly, where an empty channel rendered
         "Acquiring  (1/1)..."."""
-        report = MillingProgress(MillingStatus.STAGE_UPDATE, message="")
-        assert report.display_message == _DEFAULT_MESSAGES[MillingStatus.STAGE_UPDATE]
+        report = MillingProgress(MillingProgressStatus.STAGE_UPDATE, message="")
+        assert (
+            report.display_message
+            == _DEFAULT_MESSAGES[MillingProgressStatus.STAGE_UPDATE]
+        )
 
     def test_the_default_says_which_stage_when_the_report_names_one(self):
         """One home for the wording. The three consumers defaulted three different ways
         for the same report -- "Preparing Milling Conditions...", "Preparing...",
         "Milling..." -- which is the drift a single table removes."""
-        report = MillingProgress(MillingStatus.STAGE_STARTED, stage_name="Rough Mill")
+        report = MillingProgress(
+            MillingProgressStatus.STAGE_STARTED, stage_name="Rough Mill"
+        )
         assert report.display_message == "Preparing: Rough Mill"
 
     def test_the_default_says_which_task_when_the_report_names_one(self):
-        report = MillingProgress(MillingStatus.TASK_FINISHED, task_name="Trench")
+        report = MillingProgress(
+            MillingProgressStatus.TASK_FINISHED, task_name="Trench"
+        )
         assert report.display_message == "Finished milling task: Trench"
 
     def test_an_outcome_is_not_qualified_by_a_stage_name(self):
         """A label reading "Milling cancelled: Rough Mill" invites the reading that one
         *stage* was cancelled. The outcomes are task-level; that is the whole reason the
         vocabulary has two scales."""
-        report = MillingProgress(MillingStatus.TASK_CANCELLED, stage_name="Rough Mill")
+        report = MillingProgress(
+            MillingProgressStatus.TASK_CANCELLED, stage_name="Rough Mill"
+        )
         assert report.display_message == "Milling cancelled"
 
     def test_a_report_naming_nothing_still_renders(self):
         """Every status, with no fields at all. A label reading "Preparing: None" is
         worse than one reading "Preparing..."."""
-        for status in MillingStatus:
+        for status in MillingProgressStatus:
             message = MillingProgress(status).display_message
             assert message
             assert "None" not in message
@@ -123,7 +146,9 @@ class TestDisplayMessage:
     def test_a_qualified_label_does_not_keep_its_ellipsis(self):
         """It reads as a pause rather than as "and then the name" once something
         follows it."""
-        report = MillingProgress(MillingStatus.STAGE_UPDATE, stage_name="Polish")
+        report = MillingProgress(
+            MillingProgressStatus.STAGE_UPDATE, stage_name="Polish"
+        )
         assert report.display_message == "Milling: Polish"
 
 
@@ -131,13 +156,13 @@ class TestTheRecord:
     def test_status_is_the_only_required_field(self):
         """Which is also what keeps this constructible on the 3.8 CI jobs, where
         `dataclass(kw_only=...)` does not exist and required fields must come first."""
-        report = MillingProgress(MillingStatus.TASK_STARTED)
-        assert report.status is MillingStatus.TASK_STARTED
+        report = MillingProgress(MillingProgressStatus.TASK_STARTED)
+        assert report.status is MillingProgressStatus.TASK_STARTED
         assert report.message is None
         assert report.error is None
 
     def test_a_report_is_frozen(self):
-        report = MillingProgress(MillingStatus.STAGE_UPDATE)
+        report = MillingProgress(MillingProgressStatus.STAGE_UPDATE)
         with pytest.raises(dataclasses.FrozenInstanceError):
             report.remaining_time = 1.0  # type: ignore[misc]
 
@@ -145,8 +170,8 @@ class TestTheRecord:
         """Equality is left generated, unlike `TiledProgress` -- nothing here holds a
         numpy array whose `__eq__` returns an array. That is what makes these usable in
         `assert emitted == [...]`, which every consumer test in this stack relies on."""
-        a = MillingProgress(MillingStatus.STAGE_UPDATE, remaining_time=12.0)
-        b = MillingProgress(MillingStatus.STAGE_UPDATE, remaining_time=12.0)
+        a = MillingProgress(MillingProgressStatus.STAGE_UPDATE, remaining_time=12.0)
+        b = MillingProgress(MillingProgressStatus.STAGE_UPDATE, remaining_time=12.0)
         assert a == b
         assert len({a, b}) == 1
 
@@ -155,7 +180,7 @@ class TestTheRecord:
         free: on ThermoFisher `get_milling_state()` sets the active view as a side
         effect."""
         report = MillingProgress(
-            MillingStatus.STAGE_UPDATE, milling_state=MillingState.RUNNING
+            MillingProgressStatus.STAGE_UPDATE, milling_state=MillingState.RUNNING
         )
         assert report.milling_state is MillingState.RUNNING
 
@@ -209,7 +234,7 @@ class TestTheTotalityGuard:
                 },
             }
         )
-        assert report.status is MillingStatus.STAGE_STARTED
+        assert report.status is MillingProgressStatus.STAGE_STARTED
         assert report.display_stage == 1
         assert report.total_stages == 3
         assert report.stage_name == "Rough Mill"
@@ -227,7 +252,7 @@ class TestTheTotalityGuard:
                 }
             }
         )
-        assert report.status is MillingStatus.STAGE_UPDATE
+        assert report.status is MillingProgressStatus.STAGE_UPDATE
         assert report.remaining_time == 12.0
         assert report.milling_state is MillingState.RUNNING
 
@@ -242,7 +267,7 @@ class TestTheTotalityGuard:
                 },
             }
         )
-        assert report.status is MillingStatus.TASK_FINISHED
+        assert report.status is MillingProgressStatus.TASK_FINISHED
         assert report.status.is_terminal
 
     def test_a_delegating_strategys_shape_decodes_to_something(self):
@@ -265,7 +290,7 @@ class TestTheTotalityGuard:
                 },
             }
         )
-        assert report.status is MillingStatus.STAGE_UPDATE
+        assert report.status is MillingProgressStatus.STAGE_UPDATE
         assert report.display_message == "Running Rough Mill..."
         # `name` is the older spelling of `stage_name`.
         assert report.stage_name == "Rough Mill"
@@ -282,7 +307,7 @@ class TestTheTotalityGuard:
     def test_a_typed_report_passes_straight_through(self):
         """The in-tree path, which is every producer in this repo. Identity, not a
         rebuild -- the guard must cost nothing on the path that is always taken."""
-        original = MillingProgress(MillingStatus.TASK_CANCELLED, error=None)
+        original = MillingProgress(MillingProgressStatus.TASK_CANCELLED, error=None)
         assert MillingProgress.from_payload(original) is original
 
     @pytest.mark.parametrize(
@@ -326,23 +351,31 @@ class TestTheStickyMessage:
 
     def test_a_message_survives_the_ticks_that_follow_it(self):
         tracker = MillingMessageTracker()
-        tracker.label(MillingProgress(MillingStatus.STAGE_UPDATE, message="Polishing"))
-        plain = MillingProgress(MillingStatus.STAGE_UPDATE, remaining_time=4.0)
+        tracker.label(
+            MillingProgress(MillingProgressStatus.STAGE_UPDATE, message="Polishing")
+        )
+        plain = MillingProgress(MillingProgressStatus.STAGE_UPDATE, remaining_time=4.0)
         assert tracker.label(plain) == "Polishing"
 
     def test_a_new_stage_drops_the_previous_stages_words(self):
         """Only `STAGE_UPDATE` inherits. Every other status is its own moment: a stage
         that has just started is not still "Polishing" the one before it."""
         tracker = MillingMessageTracker()
-        tracker.label(MillingProgress(MillingStatus.STAGE_UPDATE, message="Polishing"))
-        started = MillingProgress(MillingStatus.STAGE_STARTED, stage_name="Rough Mill")
+        tracker.label(
+            MillingProgress(MillingProgressStatus.STAGE_UPDATE, message="Polishing")
+        )
+        started = MillingProgress(
+            MillingProgressStatus.STAGE_STARTED, stage_name="Rough Mill"
+        )
         assert tracker.label(started) == "Preparing: Rough Mill"
 
     def test_a_finished_task_is_not_captioned_with_what_it_was_doing(self):
         tracker = MillingMessageTracker()
-        tracker.label(MillingProgress(MillingStatus.STAGE_UPDATE, message="Polishing"))
+        tracker.label(
+            MillingProgress(MillingProgressStatus.STAGE_UPDATE, message="Polishing")
+        )
         assert (
-            tracker.label(MillingProgress(MillingStatus.TASK_FINISHED))
+            tracker.label(MillingProgress(MillingProgressStatus.TASK_FINISHED))
             == "Finished milling task"
         )
 
@@ -350,12 +383,15 @@ class TestTheStickyMessage:
         """Falsy, not `is not None`: a plugin returning `""` is a bug, not a request for
         a blank label."""
         tracker = MillingMessageTracker()
-        tracker.label(MillingProgress(MillingStatus.STAGE_UPDATE, message="Polishing"))
-        blank = MillingProgress(MillingStatus.STAGE_UPDATE, message="")
+        tracker.label(
+            MillingProgress(MillingProgressStatus.STAGE_UPDATE, message="Polishing")
+        )
+        blank = MillingProgress(MillingProgressStatus.STAGE_UPDATE, message="")
         assert tracker.label(blank) == "Polishing"
 
     def test_a_tracker_that_has_seen_nothing_still_renders(self):
         tracker = MillingMessageTracker()
         assert (
-            tracker.label(MillingProgress(MillingStatus.STAGE_UPDATE)) == "Milling..."
+            tracker.label(MillingProgress(MillingProgressStatus.STAGE_UPDATE))
+            == "Milling..."
         )

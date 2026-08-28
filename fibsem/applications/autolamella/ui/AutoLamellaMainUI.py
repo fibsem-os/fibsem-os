@@ -81,7 +81,7 @@ from fibsem.imaging.tiling.progress import TiledProgress, TiledStatus
 from fibsem.milling.progress import (
     MillingMessageTracker,
     MillingProgress,
-    MillingStatus,
+    MillingProgressStatus,
 )
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service
@@ -1568,7 +1568,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         label = self._milling_label.label(report)
 
-        if report.status is MillingStatus.STAGE_STARTED:
+        if report.status is MillingProgressStatus.STAGE_STARTED:
             # `or 1` rather than a `.get` default: a producer that sends 0 total stages
             # is as much a division by zero as one that sends nothing.
             total_stages = report.total_stages or 1
@@ -1581,7 +1581,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 f"Milling Stage: {stage}/{total_stages} - {stage_name}"
             )
 
-        elif report.status is MillingStatus.STAGE_UPDATE:
+        elif report.status is MillingProgressStatus.STAGE_UPDATE:
             remaining_time = report.remaining_time
             if remaining_time is not None and report.estimated_time:
                 percent_complete = int(
