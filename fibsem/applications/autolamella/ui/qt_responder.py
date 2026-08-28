@@ -22,7 +22,12 @@ from typing import TYPE_CHECKING, Callable, Dict, Type
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
-from fibsem.applications.autolamella.workflows.interaction import Request, SetImages
+from fibsem.applications.autolamella.workflows.interaction import (
+    ClearMillingConfig,
+    Request,
+    SetImages,
+    SetMillingConfig,
+)
 from fibsem.structures import BeamType
 
 if TYPE_CHECKING:
@@ -43,6 +48,8 @@ class QtResponder(QObject):
         self._ui = ui
         self._handlers: Dict[Type[Request], Callable] = {
             SetImages: self._set_images,
+            SetMillingConfig: self._set_milling_config,
+            ClearMillingConfig: self._clear_milling_config,
         }
         self._submitted.connect(self._dispatch)
 
@@ -86,3 +93,22 @@ class QtResponder(QObject):
                 image_settings=request.fib_image.metadata.image_settings,
                 beam_type=BeamType.ION,
             )
+
+    def _milling_widget(self):
+        widget = self._ui.milling_task_config_widget
+        if widget is None:
+            # Under the old signal this raise was a process abort; now it surfaces
+            # in the workflow thread as the instruction's failure.
+            raise RuntimeError("No milling task config widget available.")
+        return widget
+
+    def _set_milling_config(self, request: SetMillingConfig) -> None:
+        """Load the config into the milling editor and bring its tab forward."""
+        widget = self._milling_widget()
+        widget.update_from_settings(request.config)
+        widget.setEnabled(True)
+        self._ui.tabWidget.setCurrentWidget(widget)
+
+    def _clear_milling_config(self, request: ClearMillingConfig) -> None:
+        """Clear the milling editor. Moved from handle_workflow_update."""
+        self._milling_widget().clear()

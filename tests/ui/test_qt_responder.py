@@ -184,3 +184,53 @@ def test_a_wedged_gui_thread_times_out_instead_of_hanging_forever(ui, monkeypatc
 
     assert isinstance(outcome.get("error"), TimeoutError)
     assert time.monotonic() - started < 5
+
+
+# ── milling config instructions ─────────────────────────────────────────────────
+
+
+def test_a_milling_config_lands_in_the_editor_and_fronts_its_tab(ui, qapp):
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
+
+    config = FibsemMillingTaskConfig(name="from-the-workflow")
+
+    from fibsem.applications.autolamella.workflows.interaction import (
+        SetMillingConfig,
+    )
+
+    outcome = _call_on_worker_thread(
+        qapp,
+        lambda: ask(ui.ui_responder, SetMillingConfig(config=config)),
+    )
+
+    assert "error" not in outcome
+    assert ui.milling_task_config_widget.get_config().name == "from-the-workflow"
+    assert ui.tabWidget.currentWidget() is ui.milling_task_config_widget
+    assert ui.WAITING_FOR_UI_UPDATE is False
+
+
+def test_clearing_the_milling_config_resets_the_editor(ui, qapp):
+    from fibsem.applications.autolamella.workflows.interaction import (
+        ClearMillingConfig,
+        SetMillingConfig,
+    )
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
+
+    _call_on_worker_thread(
+        qapp,
+        lambda: ask(
+            ui.ui_responder,
+            SetMillingConfig(config=FibsemMillingTaskConfig(name="to-be-cleared")),
+        ),
+    )
+    assert ui.milling_task_config_widget.get_config().name == "to-be-cleared"
+
+    outcome = _call_on_worker_thread(
+        qapp, lambda: ask(ui.ui_responder, ClearMillingConfig())
+    )
+
+    assert "error" not in outcome
+    assert (
+        ui.milling_task_config_widget.get_config().name
+        == FibsemMillingTaskConfig().name
+    )
