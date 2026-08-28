@@ -44,7 +44,8 @@ def armed_sidecar():
 
 
 def _tool_names(sidecar):
-    return {t.name for t in asyncio.run(sidecar.list_tools())}
+    listed = asyncio.run(sidecar.list_tools())
+    return {t.name for t in getattr(listed, "tools", listed)}
 
 
 def test_armed_sidecar_registers_the_full_catalog(armed_sidecar):
@@ -80,7 +81,7 @@ def test_image_tool_returns_image_content(armed_sidecar):
     types = {getattr(c, "type", None) for c in contents}
     assert "image" in types
     image = next(c for c in contents if getattr(c, "type", None) == "image")
-    assert image.mimeType == "image/jpeg"
+    assert getattr(image, "mime_type", None) == "image/jpeg"
 
 
 def test_hardware_refusal_is_readable_text_not_an_error():
@@ -99,4 +100,4 @@ def _contents(result):
     # (contents, structured). Normalize.
     if isinstance(result, tuple):
         result = result[0]
-    return list(result)
+    return list(getattr(result, "content", result))
