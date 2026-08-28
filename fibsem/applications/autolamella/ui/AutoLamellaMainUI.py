@@ -71,6 +71,9 @@ from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     WorkflowProgressWidget,
 )
 from fibsem.applications.autolamella.workflows.tasks.queue import QueueOp, QueueResult
+from fibsem.applications.autolamella.workflows.tasks.status import (
+    WorkflowStatusUpdate,
+)
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
 from fibsem.applications.autolamella.workflows.workflow_estimate import (
     AdditionEstimate,
@@ -2626,20 +2629,31 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             # through the same path.
             self.workflow_timeline.update_from_status(status_msg)
 
-            task_name = status_msg.get("task_name", "Unknown Task")
-            lamella_name = status_msg.get("item_name", "Unknown Lamella")
-            queue_position = status_msg.get("queue_position", None)
-            queue_total = status_msg.get("queue_total", None)
-            error_msg = status_msg.get("error_message", None)
-            timestamp = status_msg.get("timestamp", None)
-            task_duration = status_msg.get("task_duration", None)
+            # One decode at the boundary rather than a `.get()` per field. Accepts the
+            # dict the signal still carries and the typed report the producer will send
+            # (FIB-827); total by construction, because raising here is a process abort
+            # rather than a missing label (FIB-329).
+            report = WorkflowStatusUpdate.from_payload(status_msg)
+
+            task_name = report.task_name
+            lamella_name = report.item_name
+            queue_position = report.queue_position
+            queue_total = report.queue_total
+            # `error_message`, `timestamp` and `task_duration` were decoded here and
+            # never used -- dead before this change, so not converted into typed dead
+            # code. The timeline renders all three from the same report; the status bar
+            # never did. If the intent was for it to, that is a feature to add rather
+            # than three assignments to keep warm.
             msg = info.get("msg", "No message")
-            status = status_msg.get("status", "info")
+            status = report.status
 
             # Position in the live queue, not the launch matrix — stays correct
             # when the queue is added to or reordered mid-run.
             txt = f"Workflow: {task_name} | {lamella_name}"
-            if queue_position is not None and queue_total is not None:
+            # `queue_total` is a count, so 0 means "nothing to be in the middle of"
+            # rather than "unknown" -- truthiness, not `is not None`, or a malformed
+            # payload renders "3/0".
+            if queue_position is not None and queue_total:
                 txt += f" | {queue_position}/{queue_total}"
 
             self.set_workflow_running(txt)

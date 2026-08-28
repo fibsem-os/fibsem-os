@@ -869,13 +869,23 @@ class WorkflowProgressWidget(QWidget):
         Reads queue_items snapshot to update all row statuses directly.
         """
         from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+        from fibsem.applications.autolamella.workflows.tasks.status import (
+            WorkflowStatusUpdate,
+        )
 
-        queue_items = status.get("queue_items", None)
+        # One decode at the boundary: accepts the dict the signal still carries and the
+        # typed report the producer will send (FIB-827).
+        report = WorkflowStatusUpdate.from_payload(status)
+
+        queue_items = report.queue_items
         if queue_items is None:
+            # No snapshot in this payload -- leave the rows as they are. An *empty*
+            # snapshot is a different thing and does fall through, to reconcile the
+            # timeline down to zero rows.
             return
 
-        task_status = status.get("status", None)
-        task_duration = status.get("task_duration", None)
+        task_status = report.status
+        task_duration = report.task_duration
 
         # Reconcile rows with the snapshot; this also refreshes every status.
         self._sync(queue_items)
@@ -893,7 +903,9 @@ class WorkflowProgressWidget(QWidget):
                 n for n, i in enumerate(self._items) if i.id == active_id
             )
             self._inner_finished = False
-            self._active_start_time = status.get("timestamp", time.time())
+            self._active_start_time = (
+                report.timestamp if report.timestamp is not None else time.time()
+            )
             # The pause accounting belongs to one task, not to the workflow.
             self._waiting_for_user = False
             self._paused_total = 0.0
@@ -919,11 +931,11 @@ class WorkflowProgressWidget(QWidget):
             if 0 <= idx < len(self._outer._rows):
                 task_name = self._items[idx].task_name
                 self._set_completion_subtitle(
-                    idx, task_duration, task_name, completed_at=status.get("timestamp")
+                    idx, task_duration, task_name, completed_at=report.timestamp
                 )
                 # Show error message on failed rows, before the refresh that renders it
                 if task_status == AutoLamellaTaskStatus.Failed:
-                    error_msg = status.get("error_message", None)
+                    error_msg = report.error_message
                     if error_msg:
                         self._outer._rows[idx].set_error(error_msg)
                 # Refresh the row so the updated subtitle is rendered
@@ -932,9 +944,9 @@ class WorkflowProgressWidget(QWidget):
             self._finish_inner(failed=(task_status == AutoLamellaTaskStatus.Failed))
 
         elif task_status == AutoLamellaTaskStatus.Skipped:
-            skip_reason = status.get("skip_reason", None)
-            task_name = status.get("task_name", "")
-            item_name = status.get("item_name", "")
+            skip_reason = report.skip_reason
+            task_name = report.task_name
+            item_name = report.item_name
             reason_str = _SKIP_REASON_LABELS.get(skip_reason, skip_reason or "Skipped")
             for i, item in enumerate(self._items):
                 if item.lamella_name == item_name and item.task_name == task_name:
