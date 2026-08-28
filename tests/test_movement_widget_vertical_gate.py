@@ -71,7 +71,7 @@ def make_widget(microscope):
     # allocates just the Python wrapper (no QApplication / C++ widget needed)
     widget = FibsemMovementWidget.__new__(FibsemMovementWidget)
     widget.microscope = microscope
-    widget.movement_progress_signal = Mock()
+    widget._report_move = Mock()
     widget.update_ui_after_movement = Mock()
     return widget
 
