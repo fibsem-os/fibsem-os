@@ -59,8 +59,8 @@ def test_the_devices_come_from_the_configuration_file():
     """
     microscope = _microscope()
 
-    assert microscope.get_device_position("FIBSEM").x == pytest.approx(0.0)
-    assert microscope.get_device_position("FM").x == pytest.approx(48.8e-3)
+    assert microscope.get_device_origin("FIBSEM").x == pytest.approx(0.0)
+    assert microscope.get_device_origin("FM").x == pytest.approx(48.8e-3)
     assert microscope.system.stage.device_range.x == pytest.approx(20.0e-3)
 
 
@@ -83,7 +83,7 @@ def test_a_device_is_a_place_and_leaves_the_pose_alone():
     A device that also fixed r or t would be the same conflation this is undoing, so
     the configuration refuses to express one.
     """
-    position = _microscope().get_device_position("FM")
+    position = _microscope().get_device_origin("FM")
 
     assert position.x is not None
     assert (position.y, position.z, position.r, position.t) == (None, None, None, None)
