@@ -27,14 +27,20 @@ def app():
 
 
 def test_every_catalog_entry_is_a_real_route(app):
-    routes = {
-        (method, route.path)
-        for route in app.routes
-        if hasattr(route, "methods")
-        for method in route.methods
-    }
+    # Dispatch a real request per entry instead of introspecting app.routes:
+    # route-object metadata shapes vary across FastAPI/Starlette versions (the
+    # introspection form of this test passed locally and failed on CI's newer
+    # FastAPI), but dispatch is version-proof. Any status except 404/405 proves
+    # the (method, path) pair exists — 401 is the expected answer, since no
+    # token is sent.
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app, raise_server_exceptions=False)
     missing = [
-        (t.name, t.method, t.path) for t in CATALOG if (t.method, t.path) not in routes
+        (t.name, t.method, t.path, resp.status_code)
+        for t in CATALOG
+        for resp in [client.request(t.method, t.path)]
+        if resp.status_code in (404, 405)
     ]
     assert missing == []
 
