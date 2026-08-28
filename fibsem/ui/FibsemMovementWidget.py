@@ -581,11 +581,15 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         vertical_move: bool,
         coords: Optional[dict] = None,
     ) -> None:
-        """Dispatch a stage move from a microscope-space delta (worker thread).
+        """Start a stage move from a microscope-space delta (GUI thread).
 
         ``coords`` is the
         originating image-space click, carried through purely so the debug log still
         records where the operator actually clicked when a move goes wrong on hardware.
+
+        The backend-capability refusal below is the last thing that can decline the
+        move, so nothing is committed until it has had its say: the buttons are not
+        disabled, and no worker is started, for a move that is about to be refused.
         """
         movement_mode = "Vertical" if vertical_move else "Stable"
 
@@ -616,6 +620,7 @@ class FibsemMovementWidget(QtWidgets.QWidget):
             )
             return
 
+        self._toggle_interactions(enable=False)
         # Which kind of move, because they are different operations and the user chose
         # between them: a plain double-click moves laterally, Alt + double-click moves
         # along the beam axis to hold eucentricity. "Vertically" rather than
@@ -628,6 +633,21 @@ class FibsemMovementWidget(QtWidgets.QWidget):
                 else "Moving the stage…"
             }
         )
+        worker = self._stage_move_worker(beam_type, point, vertical_move)
+        worker.returned.connect(self._on_stage_move_returned)
+        worker.finished.connect(self.move_stage_finished)
+        worker.start()
+
+    @thread_worker
+    def _stage_move_worker(
+        self, beam_type: BeamType, point: Point, vertical_move: bool
+    ) -> None:
+        """Move the stage. Runs off the GUI thread — only signals may cross back.
+
+        Which of the three calls applies is decided from arguments, not from widget
+        state: the beam and the modifier were resolved by the caller while it was still
+        on the GUI thread.
+        """
         # eucentric is only supported for ION beam
         if beam_type is BeamType.ION and vertical_move:
             self.microscope.vertical_move(dx=point.x, dy=point.y)
@@ -643,29 +663,27 @@ class FibsemMovementWidget(QtWidgets.QWidget):
                 dy=point.y,
                 beam_type=beam_type,
             )
-        self.movement_progress_signal.emit({"msg": ACQUIRING_IMAGES})
-        self.update_ui_after_movement()
 
     def _on_canvas_double_click(
         self, beam_type: BeamType, x: float, y: float, modifiers
     ) -> None:
-        """Canvas double-click -> move stage."""
-        if not self._click_to_move_available():
-            return
-        self._toggle_interactions(enable=False)
-        worker = self._canvas_double_click_worker(beam_type, x, y, modifiers)
-        worker.finished.connect(self.move_stage_finished)
-        worker.start()
+        """Canvas double-click -> move stage.
 
-    @thread_worker
-    def _canvas_double_click_worker(
-        self, beam_type: BeamType, x: float, y: float, modifiers
-    ):
-        """Thread worker for quad-view double-clicks (one image per canvas).
+        Every guard is answered here, on the GUI thread, before anything is committed.
+        They used to run inside the worker, which meant a click that was never going to
+        move the stage still disabled the buttons, spawned a thread to decide that, and
+        re-enabled them — and still reported ``finished``, refreshing the stage readout
+        for a move that never happened.
+
+        Answering them here also makes them atomic with respect to the event loop: the
+        whole decision is one handler, so nothing can change ``is_milling`` or swap the
+        image out between the check and the dispatch.
 
         ``x, y`` are already beam-local, full-resolution image pixels — the canvas emits
         data coords, one image per canvas, so there is no side-by-side offset to undo.
         """
+        if not self._click_to_move_available():
+            return
         if "Shift" in modifiers:
             return
         if (

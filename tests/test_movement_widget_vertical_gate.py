@@ -1,14 +1,19 @@
 """The SEM-view vertical-move gate (FIB-507 T4a).
 
-``FibsemMovementWidget._execute_stage_move`` dispatches an Alt-click vertical move
-to ``move_coincident_from_sem`` for the ELECTRON view -- a method only some
-backends implement (ThermoFisher, Odemis). Backends without it (e.g. TESCAN) used
-to fall through to ``stable_move`` silently: the operator asked to restore
-coincidence and got a sample-plane move instead. The widget must refuse with a
-toast, and leave every other dispatch branch untouched.
+An Alt-click vertical move dispatches to ``move_coincident_from_sem`` for the
+ELECTRON view -- a method only some backends implement (ThermoFisher, Odemis).
+Backends without it (e.g. TESCAN) used to fall through to ``stable_move``
+silently: the operator asked to restore coincidence and got a sample-plane move
+instead. The widget must refuse with a toast, and leave every other dispatch
+branch untouched.
+
+The refusal and the dispatch now live either side of a thread. ``_execute_stage_move``
+decides, on the GUI thread, whether the move may go ahead at all; ``_stage_move_worker``
+performs whichever of the three calls applies. So the refusal is asserted on the former
+and the three branches on the latter, called through ``__wrapped__``.
 
 No Qt event loop or microscope required: the widget is created without __init__
-and only the attributes ``_execute_stage_move`` touches are provided.
+and only the attributes each function touches are provided.
 """
 
 from unittest.mock import Mock
@@ -71,15 +76,23 @@ def make_widget(microscope):
     return widget
 
 
-def execute(widget, beam_type, vertical):
+def refuse_or_start(widget, beam_type, vertical):
+    """The GUI-thread half: it either declines, or commits to starting a worker."""
     widget._execute_stage_move(
         beam_type=beam_type, point=Point(1e-6, 2e-6), vertical_move=vertical
     )
 
 
+def dispatch(widget, beam_type, vertical):
+    """The worker half, run in place -- `@thread_worker` would put it on a thread."""
+    FibsemMovementWidget._stage_move_worker.__wrapped__(
+        widget, beam_type, Point(1e-6, 2e-6), vertical
+    )
+
+
 def test_sem_vertical_without_backend_support_refuses_with_a_toast(toasts):
     m = RecordingMicroscope()
-    execute(make_widget(m), BeamType.ELECTRON, vertical=True)
+    refuse_or_start(make_widget(m), BeamType.ELECTRON, vertical=True)
 
     assert m.calls == []  # no silent stable_move fallback
     assert len(toasts) == 1
@@ -90,7 +103,7 @@ def test_sem_vertical_without_backend_support_refuses_with_a_toast(toasts):
 
 def test_sem_vertical_with_backend_support_moves_coincident(toasts):
     m = SemCoincidentMicroscope()
-    execute(make_widget(m), BeamType.ELECTRON, vertical=True)
+    dispatch(make_widget(m), BeamType.ELECTRON, vertical=True)
 
     assert [c[0] for c in m.calls] == ["move_coincident_from_sem"]
     assert toasts == []
@@ -98,7 +111,7 @@ def test_sem_vertical_with_backend_support_moves_coincident(toasts):
 
 def test_fib_vertical_is_unaffected(toasts):
     m = RecordingMicroscope()
-    execute(make_widget(m), BeamType.ION, vertical=True)
+    dispatch(make_widget(m), BeamType.ION, vertical=True)
 
     assert [c[0] for c in m.calls] == ["vertical_move"]
     assert toasts == []
@@ -106,7 +119,7 @@ def test_fib_vertical_is_unaffected(toasts):
 
 def test_sem_stable_move_is_unaffected(toasts):
     m = RecordingMicroscope()
-    execute(make_widget(m), BeamType.ELECTRON, vertical=False)
+    dispatch(make_widget(m), BeamType.ELECTRON, vertical=False)
 
     assert [c[0] for c in m.calls] == ["stable_move"]
     assert toasts == []
