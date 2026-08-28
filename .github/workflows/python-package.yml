@@ -11,8 +11,15 @@ on:
   # whole of what has to change.
   push:
     branches: [ "main", "release/**" ]
+  # No `branches:` filter: it matches the *base* branch, so scoping it to main gave a
+  # stacked PR -- one based on another feature branch -- no checks at all.
   pull_request:
-    branches: [ "main", "release/**" ]
+
+# Cancel superseded PR runs, but not `push` runs: each of those is the record of one
+# commit on main, and two quick merges would leave the first permanently untested.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
