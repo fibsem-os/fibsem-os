@@ -4,10 +4,15 @@
 name: Python package
 
 on:
+  # `release/**` alongside main: a release branch is cut from a release tag and the
+  # final is tagged from it, so what lands there by cherry-pick is what ships -- and
+  # without this it would be the one code path in the repository that reaches users
+  # having run no tests at all. Nothing else is branch-scoped here, so this is the
+  # whole of what has to change.
   push:
-    branches: [ "main" ]
+    branches: [ "main", "release/**" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "release/**" ]
 
 jobs:
   build:
