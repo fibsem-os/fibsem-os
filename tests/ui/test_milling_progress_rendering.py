@@ -32,7 +32,7 @@ from fibsem.applications.autolamella.ui.fluorescence_coincidence_viewer_widget i
 from fibsem.milling.progress import (  # noqa: E402
     MillingMessageTracker,
     MillingProgress,
-    MillingStatus,
+    MillingProgressStatus,
 )
 from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2  # noqa: E402
 
@@ -47,7 +47,7 @@ from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2  # noqa: E402
 def stage_start(stage_name="Rough Mill", current_stage=0, total_stages=3):
     """`MillingTask._mill_stage`, once per stage."""
     return MillingProgress(
-        status=MillingStatus.STAGE_STARTED,
+        status=MillingProgressStatus.STAGE_STARTED,
         message=None,
         task_id="task-1",
         task_name="Trench",
@@ -62,7 +62,7 @@ def backend_tick(remaining_time=30.0, estimated_time=60.0):
     """A backend's poll loop -- `microscope.py`, `simulator.py`, `tescan.py`. Carries no
     message: the backend has no idea what the strategy driving it calls itself."""
     return MillingProgress(
-        status=MillingStatus.STAGE_UPDATE,
+        status=MillingProgressStatus.STAGE_UPDATE,
         start_time=100.0,
         estimated_time=estimated_time,
         remaining_time=remaining_time,
@@ -73,7 +73,7 @@ def strategy_message(stage_name="Rough Mill"):
     """`strategy/standard.py`. This is the report that used to carry no `state` at all,
     so it matched no branch in any of the three consumers and rendered nowhere."""
     return MillingProgress(
-        status=MillingStatus.STAGE_UPDATE,
+        status=MillingProgressStatus.STAGE_UPDATE,
         message=f"Running {stage_name}...",
         stage_name=stage_name,
         start_time=100.0,
@@ -84,7 +84,7 @@ def strategy_message(stage_name="Rough Mill"):
 def task_finished():
     """`MillingTask.run`'s `finally`, once per task."""
     return MillingProgress(
-        status=MillingStatus.TASK_FINISHED,
+        status=MillingProgressStatus.TASK_FINISHED,
         task_id="task-1",
         task_name="Trench",
     )
@@ -419,7 +419,9 @@ class TestATaskEnding:
         milling_widget._on_milling_progress(stage_start())
         milling_widget.progressBar_milling.setVisible(True)
         milling_widget._on_milling_progress(
-            MillingProgress(MillingStatus.STAGE_FINISHED, stage_name="Rough Mill")
+            MillingProgress(
+                MillingProgressStatus.STAGE_FINISHED, stage_name="Rough Mill"
+            )
         )
         assert milling_widget.progressBar_milling.isVisible()
 
@@ -428,7 +430,9 @@ class TestATaskEnding:
         but the consumer has to be ready before they do, or a cancelled mill leaves the
         bar up for the rest of the session."""
         main_window._on_milling_progress(stage_start())
-        main_window._on_milling_progress(MillingProgress(MillingStatus.TASK_CANCELLED))
+        main_window._on_milling_progress(
+            MillingProgress(MillingProgressStatus.TASK_CANCELLED)
+        )
         assert not main_window.milling_progress_bar.isVisible()
 
 
@@ -448,21 +452,25 @@ class TestNothingTakesTheProcessDown:
     """
 
     DEGENERATE = [
-        MillingProgress(MillingStatus.STAGE_STARTED),
-        MillingProgress(MillingStatus.STAGE_STARTED, total_stages=0, current_stage=0),
-        MillingProgress(MillingStatus.STAGE_STARTED, current_stage=7, total_stages=2),
-        MillingProgress(MillingStatus.STAGE_UPDATE),
+        MillingProgress(MillingProgressStatus.STAGE_STARTED),
         MillingProgress(
-            MillingStatus.STAGE_UPDATE, remaining_time=1.0, estimated_time=0.0
+            MillingProgressStatus.STAGE_STARTED, total_stages=0, current_stage=0
         ),
-        MillingProgress(MillingStatus.STAGE_UPDATE, estimated_time=60.0),
         MillingProgress(
-            MillingStatus.STAGE_UPDATE, remaining_time=99.0, estimated_time=1.0
+            MillingProgressStatus.STAGE_STARTED, current_stage=7, total_stages=2
         ),
-        MillingProgress(MillingStatus.STAGE_FINISHED),
-        MillingProgress(MillingStatus.TASK_STARTED),
-        MillingProgress(MillingStatus.TASK_CANCELLED, stage_name="Rough Mill"),
-        MillingProgress(MillingStatus.TASK_FAILED, error="the column tripped"),
+        MillingProgress(MillingProgressStatus.STAGE_UPDATE),
+        MillingProgress(
+            MillingProgressStatus.STAGE_UPDATE, remaining_time=1.0, estimated_time=0.0
+        ),
+        MillingProgress(MillingProgressStatus.STAGE_UPDATE, estimated_time=60.0),
+        MillingProgress(
+            MillingProgressStatus.STAGE_UPDATE, remaining_time=99.0, estimated_time=1.0
+        ),
+        MillingProgress(MillingProgressStatus.STAGE_FINISHED),
+        MillingProgress(MillingProgressStatus.TASK_STARTED),
+        MillingProgress(MillingProgressStatus.TASK_CANCELLED, stage_name="Rough Mill"),
+        MillingProgress(MillingProgressStatus.TASK_FAILED, error="the column tripped"),
     ]
 
     @pytest.mark.parametrize("report", DEGENERATE, ids=lambda r: r.status.value)

@@ -111,7 +111,7 @@ from fibsem.microscopes.autoscript import (
     stage_position_from_autoscript,
     stage_position_to_autoscript,
 )
-from fibsem.milling.progress import MillingProgress, MillingStatus
+from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
     BeamSettings,
@@ -3621,7 +3621,7 @@ class ThermoMicroscope(FibsemMicroscope):
             # update milling progress via signal
             self.milling_progress_signal.emit(
                 MillingProgress(
-                    status=MillingStatus.STAGE_UPDATE,
+                    status=MillingProgressStatus.STAGE_UPDATE,
                     start_time=start_time,
                     milling_state=self.get_milling_state(),
                     estimated_time=estimated_time,

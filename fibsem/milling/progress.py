@@ -6,7 +6,7 @@ with a `.get("progress")`, a `None` guard, and then a second level of `.get` bef
 could read anything. Four payload shapes were in flight, one of which matched no branch
 in any consumer and therefore rendered nowhere.
 
-`MillingProgress` is the whole contract, and `MillingStatus` is the whole vocabulary.
+`MillingProgress` is the whole contract, and `MillingProgressStatus` is the whole vocabulary.
 
 # One flat record, not a union -- but it is the closest call of the three
 
@@ -69,13 +69,13 @@ from typing import Dict, Optional
 from fibsem.structures import MillingState
 
 __all__ = [
-    "MillingStatus",
+    "MillingProgressStatus",
     "MillingProgress",
     "MillingMessageTracker",
 ]
 
 
-class MillingStatus(str, Enum):
+class MillingProgressStatus(str, Enum):
     """Where a milling task has got to.
 
     Seven members across **two scales**, and the prefixes are the whole point: `TASK_*`
@@ -85,7 +85,7 @@ class MillingStatus(str, Enum):
 
     A `str` mixin so a member compares equal to its own value: these are persisted
     nowhere, but they reach log lines, and `"stage-update"` reads better than
-    `MillingStatus.STAGE_UPDATE`.
+    `MillingProgressStatus.STAGE_UPDATE`.
     """
 
     # The task is beginning, before any stage has started. No producer emitted an
@@ -129,9 +129,9 @@ class MillingStatus(str, Enum):
 
 _TERMINAL_STATUSES = frozenset(
     {
-        MillingStatus.TASK_FINISHED,
-        MillingStatus.TASK_CANCELLED,
-        MillingStatus.TASK_FAILED,
+        MillingProgressStatus.TASK_FINISHED,
+        MillingProgressStatus.TASK_CANCELLED,
+        MillingProgressStatus.TASK_FAILED,
     }
 )
 
@@ -144,14 +144,14 @@ _TERMINAL_STATUSES = frozenset(
 # `{stage}` and `{task}` are filled by `display_message` when the report carries a name,
 # and the whole clause is dropped when it does not. A label reading "Preparing: None" is
 # worse than one reading "Preparing...".
-_DEFAULT_MESSAGES: Dict[MillingStatus, str] = {
-    MillingStatus.TASK_STARTED: "Preparing milling task...",
-    MillingStatus.STAGE_STARTED: "Preparing...",
-    MillingStatus.STAGE_UPDATE: "Milling...",
-    MillingStatus.STAGE_FINISHED: "Finished stage",
-    MillingStatus.TASK_FINISHED: "Finished milling task",
-    MillingStatus.TASK_CANCELLED: "Milling cancelled",
-    MillingStatus.TASK_FAILED: "Milling failed",
+_DEFAULT_MESSAGES: Dict[MillingProgressStatus, str] = {
+    MillingProgressStatus.TASK_STARTED: "Preparing milling task...",
+    MillingProgressStatus.STAGE_STARTED: "Preparing...",
+    MillingProgressStatus.STAGE_UPDATE: "Milling...",
+    MillingProgressStatus.STAGE_FINISHED: "Finished stage",
+    MillingProgressStatus.TASK_FINISHED: "Finished milling task",
+    MillingProgressStatus.TASK_CANCELLED: "Milling cancelled",
+    MillingProgressStatus.TASK_FAILED: "Milling failed",
 }
 
 # Which name each default is qualified by, when the report carries one -- a stage report
@@ -160,12 +160,14 @@ _DEFAULT_MESSAGES: Dict[MillingStatus, str] = {
 # cancelled, which is the two-scale confusion the status vocabulary exists to remove.
 _STAGE_QUALIFIED = frozenset(
     {
-        MillingStatus.STAGE_STARTED,
-        MillingStatus.STAGE_UPDATE,
-        MillingStatus.STAGE_FINISHED,
+        MillingProgressStatus.STAGE_STARTED,
+        MillingProgressStatus.STAGE_UPDATE,
+        MillingProgressStatus.STAGE_FINISHED,
     }
 )
-_TASK_QUALIFIED = frozenset({MillingStatus.TASK_STARTED, MillingStatus.TASK_FINISHED})
+_TASK_QUALIFIED = frozenset(
+    {MillingProgressStatus.TASK_STARTED, MillingProgressStatus.TASK_FINISHED}
+)
 
 
 @dataclass(frozen=True)
@@ -186,7 +188,7 @@ class MillingProgress:
     makes these usable in `assert emitted == [...]` and in a set.
     """
 
-    status: MillingStatus
+    status: MillingProgressStatus
     # The producer's own wording, and the one free field on this record. `None` means
     # "no opinion, use the default"; see the module docstring for why it is sticky and
     # why it is tested falsy rather than `is not None`.
@@ -272,7 +274,7 @@ class MillingProgress:
         if isinstance(payload, cls):
             return payload
         if not isinstance(payload, dict):
-            return cls(MillingStatus.STAGE_UPDATE)
+            return cls(MillingProgressStatus.STAGE_UPDATE)
 
         inner = payload.get("progress")
         if not isinstance(inner, dict):
@@ -281,16 +283,16 @@ class MillingProgress:
 
         state = inner.get("state")
         if state == "start":
-            status = MillingStatus.STAGE_STARTED
+            status = MillingProgressStatus.STAGE_STARTED
         elif state == "finished":
-            status = MillingStatus.TASK_FINISHED
+            status = MillingProgressStatus.TASK_FINISHED
         else:
             # `"update"`, and also the shape that carries no `state` at all -- a
             # delegating strategy's own report, whose content is its `msg` plus a
             # countdown. That shape matched no branch in any consumer under the old
             # vocabulary, so its words rendered nowhere; decoding it as an update is
             # what finally puts them on the screen.
-            status = MillingStatus.STAGE_UPDATE
+            status = MillingProgressStatus.STAGE_UPDATE
 
         return cls(
             status=status,
@@ -356,6 +358,6 @@ class MillingMessageTracker:
         """What to show for *report*, given everything before it."""
         if report.message:
             self._message = report.message
-        elif report.status is not MillingStatus.STAGE_UPDATE:
+        elif report.status is not MillingProgressStatus.STAGE_UPDATE:
             self._message = ""
         return self._message or report.display_message

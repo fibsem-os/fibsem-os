@@ -70,7 +70,7 @@ from fibsem.fm.structures import FluorescenceImage
 from fibsem.milling.progress import (
     MillingMessageTracker,
     MillingProgress,
-    MillingStatus,
+    MillingProgressStatus,
 )
 from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
 from fibsem.structures import BeamType, FibsemImage, Point
@@ -2105,7 +2105,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         report = MillingProgress.from_payload(payload)
         label = self._milling_label.label(report)
 
-        if report.status is MillingStatus.STAGE_STARTED:
+        if report.status is MillingProgressStatus.STAGE_STARTED:
             self._set_border_state("supervised" if self._supervised else "automated")
             # `or 1` rather than a `.get` default: a producer that sends 0 total stages
             # is as much a division by zero as one that sends nothing.
@@ -2138,7 +2138,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             )
             self.label_threshold_chip.setVisible(True)
 
-        elif report.status is MillingStatus.STAGE_UPDATE:
+        elif report.status is MillingProgressStatus.STAGE_UPDATE:
             remaining = report.remaining_time
             if remaining is not None and report.estimated_time:
                 pct = int((1 - remaining / report.estimated_time) * 100)

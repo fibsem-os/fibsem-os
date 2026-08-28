@@ -15,7 +15,7 @@ from fibsem import config as fcfg
 from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage
-from fibsem.milling.progress import MillingProgress, MillingStatus
+from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -244,7 +244,7 @@ class FibsemMillingTask:
         """Return the list of milling stages."""
         return self.config.enabled_stages
 
-    def _emit(self, status: MillingStatus, **fields) -> None:
+    def _emit(self, status: MillingProgressStatus, **fields) -> None:
         """Report where this task has got to.
 
         Replaces `_handle_progress`, which was a pass-through: it emitted whatever it
@@ -310,10 +310,10 @@ class FibsemMillingTask:
         # with the failure case because `except Exception` does not catch everything:
         # a KeyboardInterrupt unwinds straight through to the `finally`, and reporting
         # that as a completed mill is the defect this whole block exists to fix.
-        outcome = MillingStatus.TASK_FAILED
+        outcome = MillingProgressStatus.TASK_FAILED
         error: Optional[str] = None
 
-        self._emit(MillingStatus.TASK_STARTED, total_stages=len(self.stages))
+        self._emit(MillingProgressStatus.TASK_STARTED, total_stages=len(self.stages))
 
         try:
             self.initial_beam_shift = self.microscope.get_beam_shift(
@@ -342,13 +342,13 @@ class FibsemMillingTask:
             for idx, stage in enumerate(self.stages):
                 self._mill_stage(stage, idx)
 
-            outcome = MillingStatus.TASK_FINISHED
+            outcome = MillingProgressStatus.TASK_FINISHED
         except OperationCancelledError as e:
             logging.info(f"Milling task '{self.name}' cancelled by user: {e}")
-            outcome = MillingStatus.TASK_CANCELLED
+            outcome = MillingProgressStatus.TASK_CANCELLED
         except Exception as e:
             logging.error(e)
-            outcome = MillingStatus.TASK_FAILED
+            outcome = MillingProgressStatus.TASK_FAILED
             error = str(e)
         finally:
             # The outcome, not just "it stopped". Both `except` blocks used to log and
@@ -400,7 +400,7 @@ class FibsemMillingTask:
         raise_if_cancelled(self._stop_event)
 
         self._emit(
-            MillingStatus.STAGE_STARTED,
+            MillingProgressStatus.STAGE_STARTED,
             start_time=start_time,
             current_stage=idx,
             total_stages=len(self.stages),
@@ -447,7 +447,7 @@ class FibsemMillingTask:
                 )
 
             self._emit(
-                MillingStatus.STAGE_FINISHED,
+                MillingProgressStatus.STAGE_FINISHED,
                 start_time=start_time,
                 current_stage=idx,
                 total_stages=len(self.stages),

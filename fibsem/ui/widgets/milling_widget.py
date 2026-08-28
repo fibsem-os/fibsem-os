@@ -15,7 +15,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.progress import (
     MillingMessageTracker,
     MillingProgress,
-    MillingStatus,
+    MillingProgressStatus,
 )
 from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
 from fibsem.structures import MillingState
@@ -126,7 +126,7 @@ class FibsemMillingWidget2(QWidget):
 
         label = self._milling_label.label(report)
 
-        if report.status is MillingStatus.STAGE_STARTED:
+        if report.status is MillingProgressStatus.STAGE_STARTED:
             # `or 1` rather than a `.get` default: a producer that sends 0 total stages
             # is as much a division by zero as one that sends nothing.
             total_stages = report.total_stages or 1
@@ -143,7 +143,7 @@ class FibsemMillingWidget2(QWidget):
                 f"Milling Stage: {stage}/{total_stages} - {stage_name}"
             )
 
-        elif report.status is MillingStatus.STAGE_UPDATE:
+        elif report.status is MillingProgressStatus.STAGE_UPDATE:
             remaining_time = report.remaining_time
             # Falsy rather than `is None`, so an estimate of zero takes this branch
             # instead of dividing by it. That division runs inside a queued Qt slot, and

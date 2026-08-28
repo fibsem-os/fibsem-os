@@ -12,7 +12,7 @@ from fibsem.milling.base import (
     MillingStrategy,
     MillingStrategyConfig,
 )
-from fibsem.milling.progress import MillingProgress, MillingStatus
+from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 
 
 @dataclass
@@ -53,7 +53,7 @@ class StandardMillingStrategy(MillingStrategy[StandardMillingConfig]):
         # that has no idea what this strategy calls itself.
         microscope.milling_progress_signal.emit(
             MillingProgress(
-                status=MillingStatus.STAGE_UPDATE,
+                status=MillingProgressStatus.STAGE_UPDATE,
                 message=f"Running {stage.name}...",
                 stage_name=stage.name,
                 start_time=time.time(),

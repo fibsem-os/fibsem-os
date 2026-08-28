@@ -20,7 +20,7 @@ import pytest
 import fibsem
 from fibsem import utils
 from fibsem.milling import FibsemMillingStage
-from fibsem.milling.progress import MillingProgress, MillingStatus
+from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.milling.strategy.coincidence import (
     CoincidenceMillingStrategy,
     CoincidenceMillingStrategyConfig,
@@ -66,7 +66,7 @@ class TestADelegatingStrategy:
         assert first.message == "Running Rough Mill..."
         assert first.stage_name == "Rough Mill"
         # A status a consumer actually renders, which is what makes the message visible.
-        assert first.status is MillingStatus.STAGE_UPDATE
+        assert first.status is MillingProgressStatus.STAGE_UPDATE
 
     def test_the_backends_ticks_carry_the_countdown_and_the_instrument_state(
         self, microscope
@@ -76,7 +76,7 @@ class TestADelegatingStrategy:
 
         ticks = [r for r in emitted if r.remaining_time is not None]
         assert ticks, "the backend poll loop reported no countdown"
-        assert all(t.status is MillingStatus.STAGE_UPDATE for t in ticks)
+        assert all(t.status is MillingProgressStatus.STAGE_UPDATE for t in ticks)
         # Carried on the report so a consumer does not have to poll for it -- and on
         # ThermoFisher that poll sets the active view as a side effect.
         assert all(isinstance(t.milling_state, MillingState) for t in ticks)
@@ -144,7 +144,7 @@ class TestTheCoincidenceStrategy:
         assert all(
             r.message == "Coincidence milling: Coincidence Mill" for r in emitted
         )
-        assert all(r.status is MillingStatus.STAGE_UPDATE for r in emitted)
+        assert all(r.status is MillingProgressStatus.STAGE_UPDATE for r in emitted)
 
 
 # --------------------------------------------------------------------------------------
@@ -234,7 +234,7 @@ def test_the_scan_sees_through_the_relay(tmp_path):
         "    def relayed(self):\n"
         "        self._handle_progress({'progress': {}})\n"
         "    def typed(self):\n"
-        "        self._handle_progress(MillingProgress(MillingStatus.TASK_FINISHED))\n",
+        "        self._handle_progress(MillingProgress(MillingProgressStatus.TASK_FINISHED))\n",
         encoding="utf-8",
     )
     assert _dict_emits(probe) == [3, 5]
@@ -281,7 +281,7 @@ class TestHowATaskEnds:
         emitted = _collect(microscope)
         task.run()
 
-        assert emitted[-1].status is MillingStatus.TASK_FINISHED
+        assert emitted[-1].status is MillingProgressStatus.TASK_FINISHED
         assert emitted[-1].error is None
 
     def test_a_cancelled_task_does_not_claim_to_have_finished(self, microscope):
@@ -291,7 +291,7 @@ class TestHowATaskEnds:
         emitted = _collect(microscope)
         task.run()
 
-        assert emitted[-1].status is MillingStatus.TASK_CANCELLED
+        assert emitted[-1].status is MillingProgressStatus.TASK_CANCELLED
 
     def test_a_cancelled_task_is_not_painted_as_a_failure(self, microscope):
         """A cancel is someone getting what they asked for, so it is a distinct status
@@ -302,7 +302,7 @@ class TestHowATaskEnds:
         emitted = _collect(microscope)
         task.run()
 
-        assert emitted[-1].status is not MillingStatus.TASK_FAILED
+        assert emitted[-1].status is not MillingProgressStatus.TASK_FAILED
         assert emitted[-1].error is None
 
     def test_a_failed_task_carries_why(self, microscope):
@@ -315,7 +315,7 @@ class TestHowATaskEnds:
         emitted = _collect(microscope)
         task.run()
 
-        assert emitted[-1].status is MillingStatus.TASK_FAILED
+        assert emitted[-1].status is MillingProgressStatus.TASK_FAILED
         assert emitted[-1].error == "the column tripped"
 
     def test_the_terminal_is_the_last_thing_the_task_says(self, microscope):
@@ -339,15 +339,19 @@ class TestTheTwoScales:
         emitted = _collect(microscope)
         task.run()
 
-        assert [r.status for r in emitted].count(MillingStatus.TASK_STARTED) == 1
-        assert [r.status for r in emitted].count(MillingStatus.STAGE_STARTED) == 2
+        assert [r.status for r in emitted].count(
+            MillingProgressStatus.TASK_STARTED
+        ) == 1
+        assert [r.status for r in emitted].count(
+            MillingProgressStatus.STAGE_STARTED
+        ) == 2
 
     def test_each_stage_reports_its_own_index_zero_based(self, microscope):
         task = _task(microscope, [_stage("Rough Mill"), _stage("Polish")])
         emitted = _collect(microscope)
         task.run()
 
-        starts = [r for r in emitted if r.status is MillingStatus.STAGE_STARTED]
+        starts = [r for r in emitted if r.status is MillingProgressStatus.STAGE_STARTED]
         assert [r.current_stage for r in starts] == [0, 1]
         assert [r.display_stage for r in starts] == [1, 2]
         assert [r.stage_name for r in starts] == ["Rough Mill", "Polish"]
@@ -358,7 +362,9 @@ class TestTheTwoScales:
         emitted = _collect(microscope)
         task.run()
 
-        finishes = [r for r in emitted if r.status is MillingStatus.STAGE_FINISHED]
+        finishes = [
+            r for r in emitted if r.status is MillingProgressStatus.STAGE_FINISHED
+        ]
         assert len(finishes) == 2
         assert not any(r.status.is_terminal for r in finishes)
 
