@@ -133,6 +133,38 @@ jobs:
       # for a result that means the same thing twice in a row.
       run: pytest tests/ui/ -q --timeout=300
 
+  server-tests:
+    # The one job that installs the [server] and [mcp] extras, and the only
+    # place tests/server/ runs with them present. Every file there opens with
+    # `pytest.importorskip("fastapi")`, so the matrix job's green says nothing
+    # about that directory — the same silent-skip failure mode the ui-tests job
+    # above exists to end. The original fibsem/server shipped with zero CI
+    # coverage for exactly this reason: no job ever installed its extra.
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        # One version, not the matrix: the mcp SDK requires >=3.10, so the
+        # 3.8/3.9 legs could never run the sidecar tests anyway, and what this
+        # job answers — does the server behave with its real dependencies —
+        # does not vary across the versions that can.
+        python-version: "3.11"
+        cache: 'pip'
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install ".[test,server,mcp]"
+    - name: Fail if the extras did not actually install
+      # Same rationale as the ui-tests guard: every test file skips on missing
+      # imports, so a broken install empties the run instead of reddening it.
+      # Pillow is asserted too — the preview endpoints need it, and today it
+      # only arrives transitively.
+      run: python -c "import fastapi, uvicorn, httpx, mcp, PIL"
+    - name: Test with pytest
+      run: pytest tests/server/ -q --timeout=300
+
   lint:
     # Its own job, not a step inside the matrix above: ruff's result does not
     # vary by OS or Python version, so running it in the matrix would repeat the
