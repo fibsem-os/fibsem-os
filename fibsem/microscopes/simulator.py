@@ -449,16 +449,31 @@ class DemoMicroscope(FibsemMicroscope):
             logging.error("Failed to set up sim image iterators: %s", str(e))
 
         # fluorescence microscope
-        if self.stage_is_compustage:
+        #
+        # `has_fm` stands in for a capability read, not for configuration. A real
+        # Thermo system has no `is_installed` for the FM -- every other subsystem has
+        # one -- so the only way to know is to try selecting it and see whether the
+        # microscope refuses, which `ThermoMicroscope.__init__` already does. The
+        # simulator has nothing to ask, so it is told what the pretend hardware would
+        # have answered, and that belongs in `sim:` rather than in a configuration
+        # block describing the instrument.
+        #
+        # Deliberately separate from the fluorescence *geometry*, so that "an FM is
+        # present but nothing is configured for it" stays representable -- that is the
+        # state an existing site hits on upgrade, and the one worth testing (FIB-830).
+        #
+        # Defaults to `stage_is_compustage`, which is what this branched on before, so
+        # every simulator configuration keeps its current behaviour without the key.
+        has_fm = bool(self.system.sim.get("has_fm", self.stage_is_compustage))
+
+        if has_fm:
             self.fm = SimulatedFluorescenceMicroscope(self)
             # Bringing the FM up leaves the shared channel on it, as
             # `ThermoMicroscope.__init__` does; taking it back is the next beam
             # operation's job.
             self.fm.set_active_channel()
         else:
-            logging.warning(
-                "Fluorescence microscope module is currently only implemented for compustage systems. FM will not be available."
-            )
+            logging.info("No fluorescence microscope in this simulated system.")
             self.fm = None
 
         # user, experiment metadata
