@@ -71,6 +71,7 @@ from fibsem.structures import MillingState
 __all__ = [
     "MillingStatus",
     "MillingProgress",
+    "MillingMessageTracker",
 ]
 
 
@@ -242,3 +243,108 @@ class MillingProgress:
         # The trailing ellipsis reads as "and then the name" rather than as a pause once
         # something follows it, so it is dropped when the label is qualified.
         return f"{default.rstrip('.')}: {name}"
+
+    @classmethod
+    def from_payload(cls, payload: object) -> "MillingProgress":
+        """Decode whatever arrived on `milling_progress_signal` into one of these.
+
+        **Temporary**, for the window in which the producers still build nested dicts
+        and the consumers have already been taught the typed report. Deleted in the last
+        PR of FIB-797, along with `Signal(dict)` itself.
+
+        **Total by construction.** Every branch returns; nothing here indexes, and the
+        one `int()` that could raise is guarded. This runs inside a queued Qt slot, and
+        on PyQt5 an exception escaping one of those is `qFatal`: the process aborts with
+        nothing written to the logfile (FIB-329). A report that decodes to
+        `MillingStatus.STAGE_UPDATE` carrying nothing is a progress bar that does not
+        move; a raise here is a dead application.
+        """
+        if isinstance(payload, cls):
+            return payload
+        if not isinstance(payload, dict):
+            return cls(MillingStatus.STAGE_UPDATE)
+
+        inner = payload.get("progress")
+        if not isinstance(inner, dict):
+            inner = {}
+        message = payload.get("msg")
+
+        state = inner.get("state")
+        if state == "start":
+            status = MillingStatus.STAGE_STARTED
+        elif state == "finished":
+            status = MillingStatus.TASK_FINISHED
+        else:
+            # `"update"`, and also the shape that carries no `state` at all -- the
+            # strategy's own report, whose only content is its `msg`. It matched no
+            # branch in any consumer before, so its message rendered nowhere; decoding
+            # it as an update is what puts those words on the screen.
+            status = MillingStatus.STAGE_UPDATE
+
+        return cls(
+            status=status,
+            message=message if isinstance(message, str) else None,
+            task_id=inner.get("task_id"),
+            task_name=inner.get("task_name"),
+            # `name` is the strategy's spelling of `stage_name`.
+            stage_name=inner.get("stage_name") or inner.get("name"),
+            current_stage=_as_int(inner.get("current_stage")),
+            total_stages=_as_int(inner.get("total_stages")),
+            start_time=_as_float(inner.get("start_time")),
+            estimated_time=_as_float(inner.get("estimated_time")),
+            remaining_time=_as_float(inner.get("remaining_time")),
+            milling_state=_as_milling_state(inner.get("milling_state")),
+        )
+
+
+def _as_int(value: object) -> Optional[int]:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _as_float(value: object) -> Optional[float]:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def _as_milling_state(value: object) -> Optional[MillingState]:
+    """Coerce the legacy field, which three producers send as an enum and one as a str.
+
+    The odd one out is `strategy/coincidence.py`, whose `"UNKNOWN"` is deliberate: it
+    declines to call `get_milling_state()` because that getter sets the active view, and
+    the strategy is running a fluorescence acquisition that holds it.
+    """
+    if isinstance(value, MillingState):
+        return value
+    if isinstance(value, str):
+        return MillingState.__members__.get(value.upper())
+    return None
+
+
+class MillingMessageTracker:
+    """Keeps the last words a producer supplied, so a messageless tick still has a label.
+
+    The stickiness rule, in one testable place rather than reimplemented in each of the
+    three widgets that need it.
+
+    It exists for the *delegating* strategy: one that calls `microscope.run_milling()`
+    and hands the loop to a backend. Such a strategy emits its label once, and every tick
+    after that comes from a backend that has no idea what the strategy calls itself. The
+    considered alternative -- threading the message through `run_milling()` so the
+    backend stamps every tick -- changes three backend signatures and still leaves the
+    backend not owning the words.
+
+    Only `STAGE_UPDATE` inherits. Every other status is its own moment and gets its own
+    label: a task that has finished should not still be captioned "Running Rough Mill".
+    """
+
+    def __init__(self) -> None:
+        self._message = ""
+
+    def label(self, report: MillingProgress) -> str:
+        """What to show for *report*, given everything before it."""
+        if report.message:
+            self._message = report.message
+        elif report.status is not MillingStatus.STAGE_UPDATE:
+            self._message = ""
+        return self._message or report.display_message

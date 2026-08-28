@@ -67,6 +67,11 @@ from fibsem.applications.autolamella.ui.selected_lamella_widget import (
 )
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
 from fibsem.fm.structures import FluorescenceImage
+from fibsem.milling.progress import (
+    MillingMessageTracker,
+    MillingProgress,
+    MillingStatus,
+)
 from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
 from fibsem.structures import BeamType, FibsemImage, Point
 from fibsem.ui import notification_service, stylesheets
@@ -1128,6 +1133,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         )
         self.btn_milling.setStyleSheet(stylesheets.CONFIRM_BUTTON_STYLESHEET)
 
+        # The last words a producer supplied, so a backend's messageless tick still has
+        # a label to show. See `MillingMessageTracker`.
+        self._milling_label = MillingMessageTracker()
+
         # single pause control: tool button with milling/acquisition menu options
         self._milling_paused = False
         self.btn_pause = QToolButton()
@@ -2088,26 +2097,25 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         )
 
     @ensure_main_thread
-    def _on_milling_progress(self, progress: dict):
-        progress_info: dict = progress.get("progress", {})
-        state = progress_info.get("state")
+    def _on_milling_progress(self, payload: object):
+        # `payload` is still a nested dict from every producer; `from_payload` decodes
+        # it, and is a no-op once they emit `MillingProgress` directly (FIB-797).
+        report = MillingProgress.from_payload(payload)
+        label = self._milling_label.label(report)
 
-        if state == "start":
+        if report.status is MillingStatus.STAGE_STARTED:
             self._set_border_state("supervised" if self._supervised else "automated")
-            current_stage = progress_info.get("current_stage", 0)
-            total_stages = progress_info.get("total_stages", 1)
-            msg = progress.get("msg", "Preparing...")
+            # `or 1` rather than a `.get` default: a producer that sends 0 total stages
+            # is as much a division by zero as one that sends nothing.
+            total_stages = report.total_stages or 1
+            stage = report.display_stage or 1
             self.progressBar_stage.setRange(0, 100)
             self.progressBar_stage.setValue(0)
-            self.progressBar_stage.setFormat(msg)
+            self.progressBar_stage.setFormat(label)
             self.progressBar_stage.setVisible(True)
             self.progressBar_stages.setRange(0, 100)
-            self.progressBar_stages.setValue(
-                int((current_stage + 1) / total_stages * 100)
-            )
-            self.progressBar_stages.setFormat(
-                f"Stage {current_stage + 1}/{total_stages}"
-            )
+            self.progressBar_stages.setValue(int(stage / total_stages * 100))
+            self.progressBar_stages.setFormat(f"Stage {stage}/{total_stages}")
             self.progressBar_stages.setVisible(True)
             self.btn_milling.setText("Stop Milling")
             self.btn_milling.setIcon(
@@ -2128,22 +2136,26 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             )
             self.label_threshold_chip.setVisible(True)
 
-        elif state == "update":
-            remaining = progress_info.get("remaining_time")
-            estimated = progress_info.get("estimated_time")
-            if remaining is not None and estimated is not None and estimated > 0:
-                pct = int((1 - remaining / estimated) * 100)
+        elif report.status is MillingStatus.STAGE_UPDATE:
+            remaining = report.remaining_time
+            if remaining is not None and report.estimated_time:
+                pct = int((1 - remaining / report.estimated_time) * 100)
                 self.progressBar_stage.setValue(pct)
                 from fibsem.utils import format_duration
 
                 self.progressBar_stage.setFormat(
-                    f"{format_duration(remaining)} remaining"
+                    f"{label} - {format_duration(remaining)} remaining"
                 )
+            else:
+                # No countdown to draw, but the producer's words are still worth showing:
+                # this is the branch a strategy's own report lands in, and it used to
+                # match nothing at all and render nowhere.
+                self.progressBar_stage.setFormat(label)
 
-        # NOTE: no "finished" handling here. The progress "finished" state fires
-        # before finish_milling + the post-stop final image, so the viewer is kept
-        # frozen until the milling widget reports true completion — see
-        # _finalize_milling_ui (wired to finished_milling_signal).
+        # NOTE: no terminal handling here. The task's terminal report fires before
+        # finish_milling + the post-stop final image, so the viewer is kept frozen until
+        # the milling widget reports true completion — see _finalize_milling_ui (wired
+        # to finished_milling_signal).
 
     @ensure_main_thread
     def _finalize_milling_ui(self) -> None:

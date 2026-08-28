@@ -78,6 +78,11 @@ from fibsem.applications.autolamella.workflows.workflow_estimate import (
     estimate_workflow,
 )
 from fibsem.imaging.tiling.progress import TiledProgress, TiledStatus
+from fibsem.milling.progress import (
+    MillingMessageTracker,
+    MillingProgress,
+    MillingStatus,
+)
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service
 from fibsem.ui.FibsemMinimapWidget import FibsemMinimapWidget
@@ -404,6 +409,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        # The last words a producer supplied, so a backend's messageless tick still
+        # has a label to show. See `MillingMessageTracker`.
+        self._milling_label = MillingMessageTracker()
         self.setWindowTitle(f"AutoLamella v{get_version_string()} ")
         self.resize(1600, 1000)
 
@@ -1547,43 +1555,46 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._update_instructions()
 
     @ensure_main_thread
-    def _on_milling_progress(self, progress: dict):
+    def _on_milling_progress(self, payload: object):
         """Handle milling progress updates from the microscope."""
-        progress_info = progress.get("progress", None)
-        if progress_info is None:
+        # `payload` is still a nested dict from every producer; `from_payload` decodes
+        # it, and is a no-op once they emit `MillingProgress` directly (FIB-797).
+        report = MillingProgress.from_payload(payload)
+
+        if report.status.is_terminal:
+            self.milling_progress_bar.setVisible(False)
             return
 
-        state = progress_info.get("state", None)
+        label = self._milling_label.label(report)
 
-        if state == "start":
-            msg = progress.get("msg", "Milling...")
-            current_stage = progress_info.get("current_stage", 0)
-            total_stages = progress_info.get("total_stages", 1)
-            stage_name = progress_info.get("stage_name", f"Stage {current_stage + 1}")
+        if report.status is MillingStatus.STAGE_STARTED:
+            # `or 1` rather than a `.get` default: a producer that sends 0 total stages
+            # is as much a division by zero as one that sends nothing.
+            total_stages = report.total_stages or 1
+            stage = report.display_stage or 1
+            stage_name = report.stage_name or f"Stage {stage}"
             self.milling_progress_bar.setVisible(True)
             self.milling_progress_bar.setValue(0)
-            self.milling_progress_bar.setFormat(msg)
+            self.milling_progress_bar.setFormat(label)
             self.milling_progress_bar.setToolTip(
-                f"Milling Stage: {current_stage + 1}/{total_stages} - {stage_name}"
+                f"Milling Stage: {stage}/{total_stages} - {stage_name}"
             )
 
-        elif state == "update":
-            estimated_time = progress_info.get("estimated_time", None)
-            remaining_time = progress_info.get("remaining_time", None)
-
-            if (
-                remaining_time is not None
-                and estimated_time is not None
-                and estimated_time > 0
-            ):
-                percent_complete = int((1 - (remaining_time / estimated_time)) * 100)
+        elif report.status is MillingStatus.STAGE_UPDATE:
+            remaining_time = report.remaining_time
+            if remaining_time is not None and report.estimated_time:
+                percent_complete = int(
+                    (1 - (remaining_time / report.estimated_time)) * 100
+                )
                 self.milling_progress_bar.setValue(percent_complete)
                 self.milling_progress_bar.setFormat(
-                    f"Milling: {format_duration(remaining_time)} remaining"
+                    f"{label} - {format_duration(remaining_time)} remaining"
                 )
-
-        elif state == "finished":
-            self.milling_progress_bar.setVisible(False)
+            else:
+                # No countdown to draw, but the producer's words are still worth showing:
+                # this is the branch a strategy's own report lands in, and it used to
+                # match nothing at all and render nowhere.
+                self.milling_progress_bar.setFormat(label)
 
     @ensure_main_thread
     def _on_spot_burn_progress(self, ddict: dict) -> None:
