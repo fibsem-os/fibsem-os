@@ -246,18 +246,28 @@ class MillingProgress:
 
     @classmethod
     def from_payload(cls, payload: object) -> "MillingProgress":
-        """Decode whatever arrived on `milling_progress_signal` into one of these.
+        """Decode whatever actually arrived on `milling_progress_signal`.
 
-        **Temporary**, for the window in which the producers still build nested dicts
-        and the consumers have already been taught the typed report. Deleted in the last
-        PR of FIB-797, along with `Signal(dict)` itself.
+        Every in-tree producer emits a `MillingProgress`, so this is a no-op for all of
+        them, and on that basis it could be deleted. It is kept because the producer set
+        is **open**. Milling strategies are plugin-loadable (`register_strategy` plus
+        entry points in `fibsem/milling/strategy/__init__.py`) and a strategy drives its
+        own execution loop, so one built against the older contract still emits the
+        nested `{"msg", "progress": {...}}` dict. `psygnal` does not validate emissions:
+        a `Signal(MillingProgress)` hands a dict to the slot unchanged, and the first
+        attribute access on it raises.
 
-        **Total by construction.** Every branch returns; nothing here indexes, and the
-        one `int()` that could raise is guarded. This runs inside a queued Qt slot, and
-        on PyQt5 an exception escaping one of those is `qFatal`: the process aborts with
-        nothing written to the logfile (FIB-329). A report that decodes to
-        `MillingStatus.STAGE_UPDATE` carrying nothing is a progress bar that does not
-        move; a raise here is a dead application.
+        That raise lands inside a queued Qt slot, where on PyQt5 it is `qFatal` -- the
+        process aborts with nothing written to the logfile (FIB-329). It is not a
+        hypothetical: the sibling workflow-update signal killed the app exactly that way
+        on every queue action, because one payload lacked a key a consumer indexed.
+
+        The asymmetry is the whole argument. A payload that decodes to a bare
+        `STAGE_UPDATE` is a progress bar that does not move; a raise is a dead
+        application that takes the milling run with it.
+
+        **Total by construction.** Every branch returns, nothing here indexes, and the
+        coercions below cannot raise on any input.
         """
         if isinstance(payload, cls):
             return payload
@@ -275,10 +285,11 @@ class MillingProgress:
         elif state == "finished":
             status = MillingStatus.TASK_FINISHED
         else:
-            # `"update"`, and also the shape that carries no `state` at all -- the
-            # strategy's own report, whose only content is its `msg`. It matched no
-            # branch in any consumer before, so its message rendered nowhere; decoding
-            # it as an update is what puts those words on the screen.
+            # `"update"`, and also the shape that carries no `state` at all -- a
+            # delegating strategy's own report, whose content is its `msg` plus a
+            # countdown. That shape matched no branch in any consumer under the old
+            # vocabulary, so its words rendered nowhere; decoding it as an update is
+            # what finally puts them on the screen.
             status = MillingStatus.STAGE_UPDATE
 
         return cls(
@@ -286,7 +297,7 @@ class MillingProgress:
             message=message if isinstance(message, str) else None,
             task_id=inner.get("task_id"),
             task_name=inner.get("task_name"),
-            # `name` is the strategy's spelling of `stage_name`.
+            # `name` is the older spelling of `stage_name`.
             stage_name=inner.get("stage_name") or inner.get("name"),
             current_stage=_as_int(inner.get("current_stage")),
             total_stages=_as_int(inner.get("total_stages")),
@@ -308,11 +319,11 @@ def _as_float(value: object) -> Optional[float]:
 
 
 def _as_milling_state(value: object) -> Optional[MillingState]:
-    """Coerce the legacy field, which three producers send as an enum and one as a str.
+    """Coerce the field, which older producers send as an enum and one as a `str`.
 
-    The odd one out is `strategy/coincidence.py`, whose `"UNKNOWN"` is deliberate: it
-    declines to call `get_milling_state()` because that getter sets the active view, and
-    the strategy is running a fluorescence acquisition that holds it.
+    The string spelling comes from a strategy that declines to call
+    `get_milling_state()` -- on ThermoFisher that getter *sets the active view*, and
+    such a strategy may be holding the view for a fluorescence acquisition.
     """
     if isinstance(value, MillingState):
         return value

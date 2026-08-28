@@ -49,6 +49,8 @@ class FibsemMillingWidget2(QWidget):
         # The last words a producer supplied, so a backend's messageless tick still
         # has a label to show. See `MillingMessageTracker`.
         self._milling_label = MillingMessageTracker()
+        # What the instrument last said it was doing. See `pause_resume_milling`.
+        self._milling_state: Optional[MillingState] = None
         layout = QGridLayout()
 
         # pushbutton for run milling
@@ -104,10 +106,15 @@ class FibsemMillingWidget2(QWidget):
 
     @ensure_main_thread
     def _on_milling_progress(self, payload: object) -> None:
-        # `payload` is still a nested dict from every producer; `from_payload` decodes
-        # it, and is a no-op once they emit `MillingProgress` directly (FIB-797).
+        # Total-by-construction decode. Every in-tree producer emits a
+        # `MillingProgress` and this is a no-op for them; it stands because a
+        # plugin-loaded strategy is a producer too, and psygnal hands whatever it
+        # emits to this slot unchanged (FIB-797).
         report = MillingProgress.from_payload(payload)
         logging.debug("Milling progress: %s", report)
+
+        if report.milling_state is not None:
+            self._milling_state = report.milling_state
 
         # update the UI based on the progress information
         self._update_button_states()
@@ -215,8 +222,12 @@ class FibsemMillingWidget2(QWidget):
             self.microscope.stop_milling()
 
     def pause_resume_milling(self):
-        milling_state = self.microscope.get_milling_state()
-        if self.is_milling and milling_state is MillingState.RUNNING:
+        # The last state a progress report carried, not a fresh `get_milling_state()`.
+        # On ThermoFisher that getter *sets the active view* as a side effect, so a
+        # click here during a coincidence mill competes for the view with the
+        # fluorescence acquisition the strategy is running. Every producer now carries
+        # the value on the report, so the widget already has it.
+        if self.is_milling and self._milling_state is MillingState.RUNNING:
             self.microscope.pause_milling()
             self.pushButton_pause_milling.setText("Resume Milling")
         else:

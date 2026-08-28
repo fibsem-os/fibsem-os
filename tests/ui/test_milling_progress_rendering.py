@@ -37,60 +37,57 @@ from fibsem.milling.progress import (  # noqa: E402
 from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2  # noqa: E402
 
 # --------------------------------------------------------------------------------------
-# The payloads the producers actually build today. Written out rather than constructed
-# through a helper: these are the wire format, and a helper that drifts from it is a
-# suite that passes while the real payload stops decoding.
+# One builder per producer, each shaped exactly as that producer builds it. Kept
+# separate rather than collapsed into one parametrised helper: the differences between
+# them -- which fields a backend tick omits, which a strategy stamps -- are the thing
+# under test.
 # --------------------------------------------------------------------------------------
 
 
-def legacy_stage_start(stage_name="Rough Mill", current_stage=0, total_stages=3):
+def stage_start(stage_name="Rough Mill", current_stage=0, total_stages=3):
     """`MillingTask._mill_stage`, once per stage."""
-    return {
-        "msg": f"Preparing: {stage_name}",
-        "progress": {
-            "state": "start",
-            "start_time": 100.0,
-            "current_stage": current_stage,
-            "total_stages": total_stages,
-            "task_id": "task-1",
-            "task_name": "Trench",
-            "stage_name": stage_name,
-        },
-    }
+    return MillingProgress(
+        status=MillingStatus.STAGE_STARTED,
+        message=None,
+        task_id="task-1",
+        task_name="Trench",
+        stage_name=stage_name,
+        current_stage=current_stage,
+        total_stages=total_stages,
+        start_time=100.0,
+    )
 
 
-def legacy_update(remaining_time=30.0, estimated_time=60.0):
-    """A backend's poll loop -- `microscope.py`, `simulator.py`, `tescan.py`."""
-    return {
-        "progress": {
-            "state": "update",
-            "start_time": 100.0,
-            "estimated_time": estimated_time,
-            "remaining_time": remaining_time,
-        }
-    }
+def backend_tick(remaining_time=30.0, estimated_time=60.0):
+    """A backend's poll loop -- `microscope.py`, `simulator.py`, `tescan.py`. Carries no
+    message: the backend has no idea what the strategy driving it calls itself."""
+    return MillingProgress(
+        status=MillingStatus.STAGE_UPDATE,
+        start_time=100.0,
+        estimated_time=estimated_time,
+        remaining_time=remaining_time,
+    )
 
 
-def legacy_strategy_message(stage_name="Rough Mill"):
-    """`strategy/standard.py`. Carries **no** `state`, so it matched no branch in any of
-    the three consumers and its message rendered nowhere."""
-    return {
-        "msg": f"Running {stage_name}...",
-        "progress": {
-            "started": True,
-            "start_time": 100.0,
-            "estimated_time": 60.0,
-            "name": stage_name,
-        },
-    }
+def strategy_message(stage_name="Rough Mill"):
+    """`strategy/standard.py`. This is the report that used to carry no `state` at all,
+    so it matched no branch in any of the three consumers and rendered nowhere."""
+    return MillingProgress(
+        status=MillingStatus.STAGE_UPDATE,
+        message=f"Running {stage_name}...",
+        stage_name=stage_name,
+        start_time=100.0,
+        estimated_time=60.0,
+    )
 
 
-def legacy_task_finished():
+def task_finished():
     """`MillingTask.run`'s `finally`, once per task."""
-    return {
-        "msg": "Finished Milling Task: Trench. Restoring Imaging Conditions...",
-        "progress": {"state": "finished", "task_id": "task-1", "task_name": "Trench"},
-    }
+    return MillingProgress(
+        status=MillingStatus.TASK_FINISHED,
+        task_id="task-1",
+        task_name="Trench",
+    )
 
 
 # --------------------------------------------------------------------------------------
@@ -230,7 +227,7 @@ class TestTheStageCountIsOneBased:
 
     def test_the_milling_widget_counts_from_one(self, milling_widget):
         milling_widget._on_milling_progress(
-            legacy_stage_start(current_stage=0, total_stages=3)
+            stage_start(current_stage=0, total_stages=3)
         )
         assert (
             milling_widget.progressBar_milling_stages.format()
@@ -239,16 +236,14 @@ class TestTheStageCountIsOneBased:
 
     def test_the_main_window_counts_from_one(self, main_window):
         main_window._on_milling_progress(
-            legacy_stage_start(current_stage=1, total_stages=3, stage_name="Polish")
+            stage_start(current_stage=1, total_stages=3, stage_name="Polish")
         )
         assert (
             main_window.milling_progress_bar.toolTip() == "Milling Stage: 2/3 - Polish"
         )
 
     def test_the_coincidence_viewer_counts_from_one(self, coincidence):
-        coincidence._on_milling_progress(
-            legacy_stage_start(current_stage=2, total_stages=3)
-        )
+        coincidence._on_milling_progress(stage_start(current_stage=2, total_stages=3))
         assert coincidence.progressBar_stages.format() == "Stage 3/3"
 
 
@@ -264,35 +259,107 @@ class TestTheStrategysWordsReachTheScreen:
     signal keeps a `message` at all."""
 
     def test_the_milling_widget_shows_it(self, milling_widget):
-        milling_widget._on_milling_progress(legacy_strategy_message())
+        milling_widget._on_milling_progress(strategy_message())
         assert "Running Rough Mill..." in milling_widget.progressBar_milling.format()
 
     def test_the_main_window_shows_it(self, main_window):
-        main_window._on_milling_progress(legacy_strategy_message())
+        main_window._on_milling_progress(strategy_message())
         assert "Running Rough Mill..." in main_window.milling_progress_bar.format()
 
     def test_the_coincidence_viewer_shows_it(self, coincidence):
-        coincidence._on_milling_progress(legacy_strategy_message())
+        coincidence._on_milling_progress(strategy_message())
         assert "Running Rough Mill..." in coincidence.progressBar_stage.format()
 
     def test_it_survives_the_backends_messageless_ticks(self, milling_widget):
         """The stickiness rule, end to end. A *delegating* strategy emits its label once
         and then hands the loop to `microscope.run_milling()`; every tick after that
         comes from a backend that has no idea what the strategy calls itself."""
-        milling_widget._on_milling_progress(legacy_strategy_message())
-        milling_widget._on_milling_progress(legacy_update(remaining_time=15.0))
+        milling_widget._on_milling_progress(strategy_message())
+        milling_widget._on_milling_progress(backend_tick(remaining_time=15.0))
 
         rendered = milling_widget.progressBar_milling.format()
         assert "Running Rough Mill..." in rendered
         assert "remaining" in rendered
 
     def test_a_new_stage_drops_the_previous_stages_words(self, milling_widget):
-        milling_widget._on_milling_progress(legacy_strategy_message("Rough Mill"))
-        milling_widget._on_milling_progress(legacy_stage_start("Polish", 1, 3))
+        milling_widget._on_milling_progress(strategy_message("Rough Mill"))
+        milling_widget._on_milling_progress(stage_start("Polish", 1, 3))
 
         rendered = milling_widget.progressBar_milling.format()
         assert "Rough Mill" not in rendered
         assert rendered == "Preparing: Polish"
+
+
+# --------------------------------------------------------------------------------------
+# The producers this repo does not own
+# --------------------------------------------------------------------------------------
+
+
+def out_of_tree_delegating_strategy():
+    """A strategy built against the older contract: nested dict, no `state`, `name`
+    rather than `stage_name`, and a `msg` of its own.
+
+    Milling strategies are plugin-loadable, so this is not a historical shape that went
+    away when the in-tree producers were flipped -- it is what an installed plugin still
+    emits, and `psygnal` hands it to these slots unchanged.
+    """
+    return {
+        "msg": "Running Rough Mill cycle 2...",
+        "progress": {
+            "started": True,
+            "start_time": 100.0,
+            "estimated_time": 60.0,
+            "name": "Rough Mill",
+        },
+    }
+
+
+class TestAnUnknownProducerCannotKillTheApp:
+    """The consequence of getting this wrong is not a missing label.
+
+    These slots are queued, and on PyQt5 an exception escaping a queued slot is
+    `qFatal`: the process aborts with nothing written to the logfile (FIB-329). An
+    `AttributeError` on the first field read would take the milling run with it.
+    """
+
+    def test_the_milling_widget_survives_and_renders(self, milling_widget):
+        milling_widget._on_milling_progress(out_of_tree_delegating_strategy())
+        assert (
+            "Running Rough Mill cycle 2..."
+            in milling_widget.progressBar_milling.format()
+        )
+
+    def test_the_main_window_survives_and_renders(self, main_window):
+        main_window._on_milling_progress(out_of_tree_delegating_strategy())
+        assert (
+            "Running Rough Mill cycle 2..." in main_window.milling_progress_bar.format()
+        )
+
+    def test_the_coincidence_viewer_survives_and_renders(self, coincidence):
+        coincidence._on_milling_progress(out_of_tree_delegating_strategy())
+        assert "Running Rough Mill cycle 2..." in coincidence.progressBar_stage.format()
+
+    @pytest.mark.parametrize(
+        "payload",
+        [None, "not a dict", 42, {}, {"progress": None}, {"progress": {"state": "?"}}],
+    )
+    def test_no_payload_at_all_raises_in_any_consumer(
+        self, payload, milling_widget, main_window, coincidence
+    ):
+        """Nothing a producer can emit may escape as an exception -- not a malformed
+        dict, not `None`, not a bare string."""
+        milling_widget._on_milling_progress(payload)
+        main_window._on_milling_progress(payload)
+        coincidence._on_milling_progress(payload)
+
+    def test_a_legacy_terminal_still_clears_the_bar(self, milling_widget):
+        """The guard has to decode the *outcome* too, or a plugin's run leaves the
+        progress bar up forever."""
+        milling_widget._on_milling_progress(out_of_tree_delegating_strategy())
+        milling_widget._on_milling_progress(
+            {"msg": "done", "progress": {"state": "finished", "task_name": "Trench"}}
+        )
+        assert not milling_widget.progressBar_milling.isVisible()
 
 
 # --------------------------------------------------------------------------------------
@@ -303,7 +370,7 @@ class TestTheStrategysWordsReachTheScreen:
 class TestTheCountdown:
     def test_the_bar_tracks_the_time_left(self, milling_widget):
         milling_widget._on_milling_progress(
-            legacy_update(remaining_time=15.0, estimated_time=60.0)
+            backend_tick(remaining_time=15.0, estimated_time=60.0)
         )
         assert milling_widget.progressBar_milling.value() == 75
         assert "remaining" in milling_widget.progressBar_milling.format()
@@ -314,7 +381,7 @@ class TestTheCountdown:
         slot, and on PyQt5 an exception escaping one of those is `qFatal`: the process
         aborts with nothing written to the logfile (FIB-329)."""
         milling_widget._on_milling_progress(
-            legacy_update(remaining_time=0.0, estimated_time=0.0)
+            backend_tick(remaining_time=0.0, estimated_time=0.0)
         )
         assert milling_widget.progressBar_milling.format()
 
@@ -323,7 +390,7 @@ class TestTheCountdown:
     ):
         """Same class: `int(stage / total_stages * 100)` with a total of zero."""
         milling_widget._on_milling_progress(
-            legacy_stage_start(current_stage=0, total_stages=0)
+            stage_start(current_stage=0, total_stages=0)
         )
         assert milling_widget.progressBar_milling_stages.format()
 
@@ -335,21 +402,21 @@ class TestTheCountdown:
 
 class TestATaskEnding:
     def test_the_milling_widget_hides_both_bars(self, milling_widget):
-        milling_widget._on_milling_progress(legacy_stage_start())
+        milling_widget._on_milling_progress(stage_start())
         assert milling_widget.progressBar_milling.isVisible()
-        milling_widget._on_milling_progress(legacy_task_finished())
+        milling_widget._on_milling_progress(task_finished())
         assert not milling_widget.progressBar_milling.isVisible()
         assert not milling_widget.progressBar_milling_stages.isVisible()
 
     def test_the_main_window_hides_its_bar(self, main_window):
-        main_window._on_milling_progress(legacy_stage_start())
-        main_window._on_milling_progress(legacy_task_finished())
+        main_window._on_milling_progress(stage_start())
+        main_window._on_milling_progress(task_finished())
         assert not main_window.milling_progress_bar.isVisible()
 
     def test_a_stage_finishing_does_not_hide_the_bar(self, milling_widget):
         """`STAGE_FINISHED` is not terminal. Treating it as one hides the bar after the
         first stage of an N-stage task, and it stays hidden for the rest of the run."""
-        milling_widget._on_milling_progress(legacy_stage_start())
+        milling_widget._on_milling_progress(stage_start())
         milling_widget.progressBar_milling.setVisible(True)
         milling_widget._on_milling_progress(
             MillingProgress(MillingStatus.STAGE_FINISHED, stage_name="Rough Mill")
@@ -360,7 +427,7 @@ class TestATaskEnding:
         """Nothing emits `TASK_CANCELLED` yet -- the producers land in the next PRs --
         but the consumer has to be ready before they do, or a cancelled mill leaves the
         bar up for the rest of the session."""
-        main_window._on_milling_progress(legacy_stage_start())
+        main_window._on_milling_progress(stage_start())
         main_window._on_milling_progress(MillingProgress(MillingStatus.TASK_CANCELLED))
         assert not main_window.milling_progress_bar.isVisible()
 
@@ -370,64 +437,42 @@ class TestATaskEnding:
 # --------------------------------------------------------------------------------------
 
 
-class TestATypedReportRendersTheSame:
-    """The consumers are dual-tolerant for the length of the migration: a dict and the
-    typed report it decodes to must render identically, or flipping a producer changes
-    what the user sees."""
-
-    @pytest.mark.parametrize(
-        "payload",
-        [legacy_stage_start(), legacy_update(), legacy_strategy_message()],
-    )
-    def test_a_dict_and_its_decoded_report_render_the_same(self, qapp, payload):
-        from_dict = _MillingWidgetHost()
-        from_typed = _MillingWidgetHost()
-        try:
-            from_dict._on_milling_progress(payload)
-            from_typed._on_milling_progress(MillingProgress.from_payload(payload))
-
-            assert (
-                from_dict.progressBar_milling.format()
-                == from_typed.progressBar_milling.format()
-            )
-            assert (
-                from_dict.progressBar_milling_stages.format()
-                == from_typed.progressBar_milling_stages.format()
-            )
-        finally:
-            from_dict.deleteLater()
-            from_typed.deleteLater()
-
-
 class TestNothingTakesTheProcessDown:
     """Every one of these runs inside a queued Qt slot. On PyQt5 an exception escaping
-    one is `qFatal`, so a malformed payload has to render badly rather than abort."""
+    one is `qFatal`: the process aborts with nothing written to the logfile (FIB-329),
+    so a degenerate report has to render badly rather than abort.
 
-    @pytest.mark.parametrize(
-        "payload",
-        [
-            None,
-            {},
-            "not a dict",
-            {"progress": None},
-            {"progress": {"state": "start", "total_stages": 0}},
-            {"progress": {"state": "update", "estimated_time": 0}},
-            {"progress": {"state": "update", "milling_state": "NOT_A_STATE"}},
-        ],
-    )
-    def test_the_milling_widget_survives(self, milling_widget, payload):
-        milling_widget._on_milling_progress(payload)
+    Typed now that the payload is, which narrows the risk to field *values* -- a zero
+    where a divisor is expected, a count with no total, an outcome carrying stage
+    fields. Those are what a producer can still get wrong.
+    """
 
-    @pytest.mark.parametrize(
-        "payload",
-        [None, {}, "not a dict", {"progress": {"state": "start", "total_stages": 0}}],
-    )
-    def test_the_main_window_survives(self, main_window, payload):
-        main_window._on_milling_progress(payload)
+    DEGENERATE = [
+        MillingProgress(MillingStatus.STAGE_STARTED),
+        MillingProgress(MillingStatus.STAGE_STARTED, total_stages=0, current_stage=0),
+        MillingProgress(MillingStatus.STAGE_STARTED, current_stage=7, total_stages=2),
+        MillingProgress(MillingStatus.STAGE_UPDATE),
+        MillingProgress(
+            MillingStatus.STAGE_UPDATE, remaining_time=1.0, estimated_time=0.0
+        ),
+        MillingProgress(MillingStatus.STAGE_UPDATE, estimated_time=60.0),
+        MillingProgress(
+            MillingStatus.STAGE_UPDATE, remaining_time=99.0, estimated_time=1.0
+        ),
+        MillingProgress(MillingStatus.STAGE_FINISHED),
+        MillingProgress(MillingStatus.TASK_STARTED),
+        MillingProgress(MillingStatus.TASK_CANCELLED, stage_name="Rough Mill"),
+        MillingProgress(MillingStatus.TASK_FAILED, error="the column tripped"),
+    ]
 
-    @pytest.mark.parametrize(
-        "payload",
-        [None, {}, "not a dict", {"progress": {"state": "start", "total_stages": 0}}],
-    )
-    def test_the_coincidence_viewer_survives(self, coincidence, payload):
-        coincidence._on_milling_progress(payload)
+    @pytest.mark.parametrize("report", DEGENERATE, ids=lambda r: r.status.value)
+    def test_the_milling_widget_survives(self, milling_widget, report):
+        milling_widget._on_milling_progress(report)
+
+    @pytest.mark.parametrize("report", DEGENERATE, ids=lambda r: r.status.value)
+    def test_the_main_window_survives(self, main_window, report):
+        main_window._on_milling_progress(report)
+
+    @pytest.mark.parametrize("report", DEGENERATE, ids=lambda r: r.status.value)
+    def test_the_coincidence_viewer_survives(self, coincidence, report):
+        coincidence._on_milling_progress(report)

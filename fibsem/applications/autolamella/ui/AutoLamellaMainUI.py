@@ -1557,10 +1557,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     @ensure_main_thread
     def _on_milling_progress(self, payload: object):
         """Handle milling progress updates from the microscope."""
-        # `payload` is still a nested dict from every producer; `from_payload` decodes
-        # it, and is a no-op once they emit `MillingProgress` directly (FIB-797).
+        # Total-by-construction decode. Every in-tree producer emits a
+        # `MillingProgress` and this is a no-op for them; it stands because a
+        # plugin-loaded strategy is a producer too, and psygnal hands whatever it
+        # emits to this slot unchanged (FIB-797).
         report = MillingProgress.from_payload(payload)
-
         if report.status.is_terminal:
             self.milling_progress_bar.setVisible(False)
             return
