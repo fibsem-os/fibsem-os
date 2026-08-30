@@ -1995,7 +1995,8 @@ class FibsemMicroscope(ABC):
         stage_position = FibsemStagePosition(t=stage_tilt, r=rotation)
         self.safe_absolute_stage_movement(stage_position)
 
-        return self.is_close_to_milling_angle(milling_angle)
+        # milling_angle is radians here; is_close_to_milling_angle compares degrees (FIB-853)
+        return self.is_close_to_milling_angle(np.degrees(milling_angle))
 
     def _beam_view_tilt(self, beam_type: BeamType) -> float:
         """Tilt of a beam column's viewing axis from the electron column, in radians."""
