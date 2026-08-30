@@ -477,6 +477,28 @@ class FibsemMicroscope(ABC):
             and self.fm.objective.state == "Inserted"
         )
 
+    def _fluorescence_is_configured(self) -> bool:
+        """Whether this site has said its instrument has a fluorescence microscope.
+
+        The **flag decides**; the driver's own probe only confirms afterwards, and
+        that order matters. There is no `is_installed` for the FM in AutoScript --
+        every other subsystem has one -- so the only capability test available is to
+        select it and see whether the microscope throws. Running that on every system
+        would be autodetection, and an Aquilos or Helios with an iFLM fitted would
+        find half-built offset support appearing in its UI on upgrade: a fluorescence
+        tab that builds, a button that traverses 48 mm, pose derivation that is only
+        partly right. Probing also touches the shared imaging channel on machines that
+        have never had an FM.
+
+        **A compustage keeps its answer.** `stage_is_compustage` is read from the
+        hardware (`compustage.is_installed`), not from configuration, and no shipped
+        Arctis configuration carries the flag -- `tfs-arctis-configuration.yaml` has
+        no `fm:` block at all. Replacing the old check rather than widening it would
+        take the FM away from every Arctis site on upgrade. So the compustage stays
+        exactly as it was, and an offset mount must opt in.
+        """
+        return self.system.fm.enabled or self.stage_is_compustage
+
     def _refuse_rotation_at_the_fluorescence_microscope(
         self, stage_position: FibsemStagePosition
     ) -> None:
@@ -2755,9 +2777,10 @@ class ThermoMicroscope(FibsemMicroscope):
         self.milling_channel: BeamType = BeamType.ION
 
         try:
-            if not self.stage_is_compustage:
-                logging.warning(
-                    "Fluorescence microscope module is currently only implemented for compustage systems. FM will not be available."
+            if not self._fluorescence_is_configured():
+                logging.info(
+                    "No fluorescence microscope configured for this system. Set "
+                    "`fm.enabled` in the microscope configuration to enable it."
                 )
                 self.fm = None
                 self.set_channel(BeamType.ELECTRON)
