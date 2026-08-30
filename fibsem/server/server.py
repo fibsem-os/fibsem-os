@@ -40,6 +40,7 @@ from fastapi.responses import JSONResponse, Response
 from fibsem import utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.server.auth import AuthConfig, Scope, command_slot, require_scope
+from fibsem.server.images import preview_payload
 from fibsem.server.models import (
     AcquireImageRequest,
     AvailableValuesRequest,
@@ -210,6 +211,24 @@ def build_server(
     @hw.post("/acquire_chamber_image")
     def acquire_chamber_image() -> Response:
         return _image_response(microscope.acquire_chamber_image())
+
+    # --- Preview renditions (agent/browser-sized JPEG instead of full TIFF) ---
+
+    @hw.post("/acquire_image_preview")
+    def acquire_image_preview(body: AcquireImageRequest):
+        bt = _beam_type(body.beam_type)
+        image_settings = (
+            ImageSettings.from_dict(body.image_settings)
+            if body.image_settings
+            else None
+        )
+        image = microscope.acquire_image(image_settings=image_settings, beam_type=bt)
+        return preview_payload(image)
+
+    @hw.post("/last_image_preview")
+    def last_image_preview(body: BeamTypeRequest):
+        image = microscope.last_image(beam_type=_beam_type(body.beam_type))
+        return preview_payload(image)
 
     @hw.post("/autocontrast")
     def autocontrast(body: BeamTypeRequest):
