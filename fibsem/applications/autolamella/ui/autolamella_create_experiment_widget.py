@@ -284,6 +284,17 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
                 "Invalid Protocol",
                 "The selected protocol file is not valid. It may be corrupted, incorrectly formatted, or missing required fields.\n\nPlease select a valid protocol file (*.yaml)."
             )
+            return
+
+        # This button accepts a legacy file too, converting it on the way in --
+        # the same notice the explicit legacy button gives, so a converted
+        # protocol is never adopted silently. (FIB-663)
+        if self.protocol.converted_from_legacy:
+            QtWidgets.QMessageBox.information(
+                self,
+                "Legacy Protocol Converted",
+                "The legacy protocol has been successfully converted to the new task-based format."
+            )
 
     def _select_legacy_protocol(self):
         """Open dialog to select a legacy protocol file and convert it."""

@@ -52,6 +52,24 @@ if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
 
+def _known_fields(cls: type, data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Drop keys that are not fields of the dataclass `cls`.
+
+    Protocols and experiments are long-lived files: one written by another
+    version of AutoLamella can carry keys that no longer exist (or do not exist
+    yet). Passing those straight to a dataclass constructor raises TypeError and
+    fails the whole load, so unknown keys are dropped with a warning instead of
+    taking the file down with them. (FIB-663)
+    """
+    if not data:
+        return {}
+    names = {f.name for f in fields(cls)}
+    unknown = set(data) - names
+    if unknown:
+        logging.warning(
+            f"Ignoring unknown {cls.__name__} field(s) while loading: {sorted(unknown)}"
+        )
+    return {k: v for k, v in data.items() if k in names}
 
 
 class AutoLamellaTaskStatus(Enum):
@@ -131,8 +149,7 @@ class AutoLamellaTaskState:
         data["status"] = AutoLamellaTaskStatus[data.get("status", "NotStarted")]
         # drop keys this build doesn't know about: an experiment written by a newer
         # version must still load in an older one rather than raising TypeError.
-        known = {f.name for f in fields(cls)}
-        return cls(**{k: v for k, v in data.items() if k in known})
+        return cls(**_known_fields(cls, data))
 
 
 @evented
@@ -295,7 +312,7 @@ class AutoLamellaTaskDescription:
         sa = data.get("scheduled_at")
         if isinstance(sa, str):
             data["scheduled_at"] = datetime.fromisoformat(sa)
-        return cls(**data)
+        return cls(**_known_fields(cls, data))
 
 
 @evented
@@ -312,8 +329,9 @@ class AutoLamellaWorkflowConfig:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'AutoLamellaWorkflowConfig':
+        data = dict(data or {})
         data["tasks"] = [AutoLamellaTaskDescription.from_dict(task) for task in data.get("tasks", [])]
-        return cls(**data)
+        return cls(**_known_fields(cls, data))
 
     @property
     def workflow(self) -> List[str]:
@@ -417,7 +435,7 @@ class AutoLamellaWorkflowOptions:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'AutoLamellaWorkflowOptions':
-        return cls(**data)
+        return cls(**_known_fields(cls, data))
 
 
 @evented
@@ -466,6 +484,11 @@ class AutoLamellaTaskProtocol:
     # Experiment-global correlation config (FIB-298): a user-step config, not an
     # automated task, so a peer field rather than an entry in task_config.
     correlation: CorrelationConfig = field(default_factory=CorrelationConfig)
+    # True when this protocol was built by converting a legacy protocol on load,
+    # so the UI can tell the user their file was upgraded. Deliberately not
+    # serialised and not compared: it describes where this object came from, not
+    # what the protocol is, and saving it writes the task-based format anyway.
+    converted_from_legacy: bool = field(default=False, compare=False, repr=False)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -482,7 +505,24 @@ class AutoLamellaTaskProtocol:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'AutoLamellaTaskProtocol':
+        from fibsem.applications.autolamella.protocol.legacy import is_legacy_protocol
         from fibsem.applications.autolamella.workflows.tasks import load_task_config
+
+        # An empty or truncated protocol.yaml parses to None, which used to fail
+        # with an opaque AttributeError several frames down.
+        if not isinstance(data, dict):
+            raise ValueError(
+                "This file is empty or is not a valid protocol file. "
+                "Check that you selected an AutoLamella protocol file."
+            )
+
+        # protocol.yaml is written in both the legacy and the task-based format,
+        # so a file saved by an older version has to be converted on the way in
+        # rather than rejected as invalid. (FIB-663)
+        if is_legacy_protocol(data):
+            logging.info("Legacy protocol detected, converting to task protocol.")
+            return cls.from_legacy_dict(data)
+
         task_config = load_task_config(data.get("tasks", {}))
         workflow_config = AutoLamellaWorkflowConfig.from_dict(data.get("workflow", {}))
 
@@ -522,6 +562,21 @@ class AutoLamellaTaskProtocol:
 
     @classmethod
     def load_from_old_protocol(cls, path: Path) -> 'AutoLamellaTaskProtocol':
+        """Load a legacy protocol file and convert it to an AutoLamellaTaskProtocol.
+
+        A task protocol given to this loader is read as-is, so the user picking
+        the wrong one of the two protocol buttons is not an error. Anything that
+        is neither format still goes to the legacy converter, so a corrupt file
+        raises rather than loading as an empty protocol.
+        """
+        with open(path, 'r') as file:
+            data = yaml.safe_load(file)
+        if isinstance(data, dict) and ("tasks" in data or "workflow" in data):
+            return cls.from_dict(data)
+        return cls.from_legacy_dict(data)
+
+    @classmethod
+    def from_legacy_dict(cls, data: Dict[str, Any]) -> 'AutoLamellaTaskProtocol':
         """Convert an AutoLamellaProtocol to an AutoLamellaTaskProtocol.
         This involves mapping the milling configurations to the new task names.
         Used to converte old protocols to the new task-based protocol format."""
@@ -530,6 +585,8 @@ class AutoLamellaTaskProtocol:
             AutoLamellaMethod,
             AutoLamellaProtocol,
             AutoLamellaStage,
+            SUPPORTED_TASK_CONVERSION_METHODS,
+            get_legacy_protocol_method,
         )
         from fibsem.applications.autolamella.workflows.tasks.tasks import (
             MillFiducialTaskConfig,
@@ -539,7 +596,28 @@ class AutoLamellaTaskProtocol:
             MillUndercutTaskConfig,
             SelectMillingPositionTaskConfig,
         )
-        protocol = AutoLamellaProtocol.load(path)
+
+        # A file with neither format's required keys is not an AutoLamella
+        # protocol at all -- usually the wrong file picked in the dialog, e.g. a
+        # microscope configuration, which also has a top-level "milling" key.
+        # Say so, rather than failing on whichever key the parser reaches first.
+        missing = [k for k in ("milling", "options") if not isinstance(data, dict) or k not in data]
+        if missing:
+            raise ValueError(
+                "This file does not look like an AutoLamella protocol: a legacy "
+                f"protocol needs top-level {' and '.join(repr(k) for k in missing)}, "
+                "and a task protocol needs 'tasks'. Check that you selected an "
+                "AutoLamella protocol file."
+            )
+
+        # check the method before parsing: an unsupported one (liftout) fails
+        # deep inside the milling parser with an unhelpful error otherwise. An
+        # unrecognised name is left to the parser, which names the valid ones.
+        method = get_legacy_protocol_method(data)
+        if method is not None and method not in SUPPORTED_TASK_CONVERSION_METHODS:
+            raise ValueError(f"Protocol method {method.name} not supported for conversion to task protocol")
+
+        protocol = AutoLamellaProtocol.parse(data)
 
         # we need to map the milling configurations to the new task names
         # mill_rough -> Rough Milling / mill_rough
@@ -550,7 +628,7 @@ class AutoLamellaTaskProtocol:
         # fiducial -> Setup Lamella / fiducial
         # mill_polishing -> Polishing
         
-        if protocol.method not in [AutoLamellaMethod.ON_GRID, AutoLamellaMethod.TRENCH, AutoLamellaMethod.WAFFLE]:
+        if protocol.method not in SUPPORTED_TASK_CONVERSION_METHODS:
             raise ValueError(f"Protocol method {protocol.method} not supported for conversion to task protocol")
 
         ROUGH_MILLING_TASK_NAME = "Rough Milling"
@@ -640,7 +718,8 @@ class AutoLamellaTaskProtocol:
             description=f"auto-converted protocol from {protocol.name} - {protocol.method.name}",
             task_config=task_config,
             workflow_config=workflow_config,
-            options=options
+            options=options,
+            converted_from_legacy=True,
         )
 
         return task_protocol
