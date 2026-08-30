@@ -26,6 +26,8 @@ from fibsem.imaging.tiling.geometry import (  # noqa: E402,F401
     validate_tile_stage_positions,
 )
 from fibsem.imaging.tiling.plotting import (  # noqa: E402,F401
+    DEFECT_FAILURE_COLOUR,
+    DEFECT_REWORK_COLOUR,
     POSITION_COLOURS,
     plot_minimap,
     plot_stage_positions_on_image,

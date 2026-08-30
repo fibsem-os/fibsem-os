@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import glob
 import logging
 import os
 import uuid
@@ -1534,6 +1535,41 @@ class Experiment:
     def at_failure(self) -> List[Lamella]:
         """Return a list of lamellas that have failed"""
         return [lamella for lamella in self.positions if lamella.is_failure]
+
+    def find_overview_images(self) -> List[str]:
+        """Every beam overview saved into this experiment, oldest name first.
+
+        One place, because there were two and they disagreed. Both the export dialog and
+        the PDF report globbed ``*overview*.tif`` for themselves; the dialog then took
+        ``filenames[-1]`` and rendered that one with no way to choose another, so an
+        experiment with several overviews silently reported on an arbitrary one.
+
+        **Beam overviews only.** A fluorescence overview is saved as ``.ome.tiff`` and is
+        a `FluorescenceImage`, which neither reprojects nor loads through
+        `FibsemImage.load`. More to the point it is a different *view* of the sample --
+        acquired at a different stage tilt, through a different instrument -- so it does
+        not belong on the same picture as a beam overview even once it can be loaded.
+        `find_fluorescence_overview_images` lists those separately.
+
+        Returns:
+            Absolute paths, sorted by name. Overview filenames carry the time of the run,
+            so name order is acquisition order within a day (see FIB-588 for why it is
+            only within a day).
+        """
+        paths = set()
+        for pattern in ("*overview*.tif", "*overview*.tiff"):
+            paths.update(glob.glob(os.path.join(str(self.path), pattern)))
+        # `.ome.tiff` matches `*.tiff`, and those are the fluorescence ones.
+        return sorted(p for p in paths if not p.lower().endswith(".ome.tiff"))
+
+    def find_fluorescence_overview_images(self) -> List[str]:
+        """Every fluorescence overview saved into this experiment, oldest name first.
+
+        Listed separately from the beam ones rather than alongside them: see
+        `find_overview_images` for why the two cannot share a picture.
+        """
+        paths = glob.glob(os.path.join(str(self.path), "*overview*.ome.tiff"))
+        return sorted(paths)
 
     def get_milling_positions(self) -> List[FibsemStagePosition]:
         """Get the milling stage positions for all lamellas in the experiment"""
