@@ -442,6 +442,41 @@ class FibsemMicroscope(ABC):
         else:
             self.move_stage_absolute(stage_position)
 
+    def _axis_restrictions_apply(self) -> bool:
+        """Whether the microscope refuses z and rotation, so an absolute move drops them.
+
+        Two halves, and they are not the same rule.
+
+        The **orientation** half is a compustage flipped to face its objective. It
+        stays as it was: `get_stage_orientation` can never return "FM" on an offset
+        mount -- the FM is a device there and `orientations["FM"]` is a copy of the FIB
+        entry -- so that half is naturally confined to the mounting it was written for.
+
+        The **objective** half is gated on `stage_is_compustage` **temporarily**, and
+        that gate belongs to FIB-640 to remove. It has only ever run on a compustage,
+        because `self.fm` is None everywhere else, and the axes it drops are not
+        equivalent across stage types: `stage_position_to_autoscript` returns a
+        `CompustagePosition(x, y, z, a)` with no `r` field at all, so dropping `r`
+        there has never done anything, while on an offset mount it would drop a real
+        rotation axis. Opening the connection gate is what makes that reachable, so
+        the gate goes on first.
+
+        Removing it silently would be the worse failure of the two. Without the gate
+        an offset move half-succeeds -- lands at x and y, no z, no rotation -- where
+        with it the full move is sent and the *microscope* refuses if it objects,
+        which is an error an operator can see and report. FIB-640 argues for exactly
+        that preference, and is also where the axis pair gets settled: it measured
+        z and t, not z and r.
+        """
+        if self.get_stage_orientation() == "FM":
+            return True
+
+        return (
+            self.stage_is_compustage
+            and self.fm is not None
+            and self.fm.objective.state == "Inserted"
+        )
+
     def _refuse_rotation_at_the_fluorescence_microscope(
         self, stage_position: FibsemStagePosition
     ) -> None:
@@ -3232,9 +3267,7 @@ class ThermoMicroscope(FibsemMicroscope):
             position, compustage=self.stage_is_compustage
         )  # TODO: apply compucentric/raw coordinate offset here?
 
-        if self.get_stage_orientation() == "FM" or (
-            self.fm is not None and self.fm.objective.state == "Inserted"
-        ):  # ONLY when restrictions are on
+        if self._axis_restrictions_apply():  # ONLY when restrictions are on
             autoscript_position.z = None
             autoscript_position.r = None
 

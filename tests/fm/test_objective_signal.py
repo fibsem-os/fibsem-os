@@ -39,7 +39,9 @@ def fm():
 def moves(fm):
     """Every `(position, state)` emitted."""
     seen = []
-    fm.objective.position_changed.connect(lambda position, state: seen.append((position, state)))
+    fm.objective.position_changed.connect(
+        lambda position, state: seen.append((position, state))
+    )
     return seen
 
 
@@ -80,7 +82,9 @@ class TestTheSimulatedObjectiveAnnounces:
 
         objective = ObjectiveLens()
         seen = []
-        objective.position_changed.connect(lambda position, state: seen.append(position))
+        objective.position_changed.connect(
+            lambda position, state: seen.append(position)
+        )
 
         objective.move_absolute(1e-3)
 
@@ -146,6 +150,7 @@ class TestThePayload:
         which surfaces as a *process abort* rather than a failure once a Qt slot reads it
         (FIB-329).
         """
+
         def raises(self):
             raise RuntimeError("detector did not answer")
 
@@ -180,7 +185,9 @@ class TestEveryDriverAnnounces:
     def _announces(method: ast.FunctionDef) -> bool:
         """Either it notifies, or it delegates to something that does."""
         for child in ast.walk(method):
-            if not isinstance(child, ast.Call) or not isinstance(child.func, ast.Attribute):
+            if not isinstance(child, ast.Call) or not isinstance(
+                child.func, ast.Attribute
+            ):
                 continue
             if child.func.attr in ("_notify_moved", "move_absolute", "move_relative"):
                 return True
@@ -189,7 +196,9 @@ class TestEveryDriverAnnounces:
     def test_all_three_implementations_are_found(self):
         """Guard against the probe silently matching nothing."""
         classes = self._objective_classes()
-        assert len(classes) == 3, f"expected three ObjectiveLens classes, found {sorted(classes)}"
+        assert len(classes) == 3, (
+            f"expected three ObjectiveLens classes, found {sorted(classes)}"
+        )
 
     @pytest.mark.parametrize("write_method", WRITE_METHODS)
     def test_every_write_method_announces(self, write_method):
@@ -220,7 +229,8 @@ class TestTheGuardsStillReadTheDevice:
 
     `ObjectiveLens.position_changed` is for *displays*. Guards read the device, every time, because one
     of them is a collision guard: `ThermoMicroscope.move_stage_absolute` suppresses z and
-    r from a stage move while the objective is inserted, and a stale `"Retracted"` there
+    r from a stage move while the objective is inserted -- the condition itself now lives
+    in `FibsemMicroscope._axis_restrictions_apply` -- and a stale `"Retracted"` there
     means the stage changes height and rotates with the objective in the chamber.
 
     That is affordable because the guards were never the polling load -- this one runs
@@ -232,7 +242,9 @@ class TestTheGuardsStillReadTheDevice:
 
     @staticmethod
     def _method(class_name: str, method_name: str) -> ast.FunctionDef:
-        source = (Path(fibsem.__file__).parent / "microscope.py").read_text(encoding="utf-8")
+        source = (Path(fibsem.__file__).parent / "microscope.py").read_text(
+            encoding="utf-8"
+        )
         cls = next(
             node
             for node in ast.walk(ast.parse(source))
@@ -244,8 +256,16 @@ class TestTheGuardsStillReadTheDevice:
             if isinstance(node, ast.FunctionDef) and node.name == method_name
         )
 
-    def test_the_stage_move_reads_the_objective_state_directly(self):
-        guard = self._method("ThermoMicroscope", "move_stage_absolute")
+    def test_the_guard_reads_the_objective_state_directly(self):
+        """Wherever the predicate lives, it must ask the device.
+
+        It moved out of `move_stage_absolute` into `_axis_restrictions_apply` when the
+        objective half was compustage-gated, so that the condition could be tested at
+        all -- AutoScript is absent here, so the move itself cannot be executed. That
+        is a relocation, not a weakening: the read is still live. The companion test
+        below is what keeps the two connected.
+        """
+        guard = self._method("FibsemMicroscope", "_axis_restrictions_apply")
 
         reads = [
             node
@@ -257,8 +277,26 @@ class TestTheGuardsStillReadTheDevice:
         ]
 
         assert reads, (
-            "move_stage_absolute no longer reads `objective.state` off the device. If "
-            "that is now a cached or pushed value, the collision guard can be wrong: a "
-            "stale 'Retracted' lets the stage move in z and rotate with the objective "
-            "inserted (FIB-534)"
+            "_axis_restrictions_apply no longer reads `objective.state` off the "
+            "device. If that is now a cached or pushed value, the collision guard can "
+            "be wrong: a stale 'Retracted' lets the stage move in z and rotate with "
+            "the objective inserted (FIB-534)"
+        )
+
+    def test_the_stage_move_still_asks_the_guard(self):
+        """The other half. Splitting the predicate out means the read being live is no
+        longer enough on its own -- the move has to still consult it."""
+        move = self._method("ThermoMicroscope", "move_stage_absolute")
+
+        calls = [
+            node
+            for node in ast.walk(move)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "_axis_restrictions_apply"
+        ]
+
+        assert calls, (
+            "move_stage_absolute no longer calls `_axis_restrictions_apply`, so "
+            "nothing suppresses z and r while the objective is inserted (FIB-534)"
         )
