@@ -214,6 +214,18 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={"item_name": "the item (lamella) name"},
     ),
     ToolSpec(
+        name="get_events",
+        description="Events after a sequence number: milling/acquisition progress, stage moves, task lifecycle. Long-polls up to timeout seconds.",
+        method="GET",
+        path="/app/events",
+        scope="read",
+        router="app",
+        params={
+            "since": "return events with seq greater than this (0 for all held)",
+            "timeout": "seconds to wait for new events before returning (max 30)",
+        },
+    ),
+    ToolSpec(
         name="list_recent_experiments",
         description="Recently opened experiments on this machine, without loading them.",
         method="GET",

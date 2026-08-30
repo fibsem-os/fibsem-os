@@ -43,6 +43,8 @@ class AppContext(Protocol):
 
     def recent_experiments(self) -> List[Dict[str, Any]]: ...
 
+    def events(self, since: int = 0, timeout: float = 0.0) -> Dict[str, Any]: ...
+
 
 def build_app_router(context: AppContext) -> APIRouter:
     router = APIRouter(prefix="/app")
@@ -78,5 +80,12 @@ def build_app_router(context: AppContext) -> APIRouter:
     @router.get("/recent_experiments")
     def recent_experiments():
         return {"items": context.recent_experiments()}
+
+    @router.get("/events")
+    def events(since: int = 0, timeout: float = 0.0):
+        # A long-poll: parks up to `timeout` seconds waiting for news. Capped
+        # here because the park occupies a threadpool worker — a transport
+        # concern, so the transport owns the ceiling.
+        return context.events(since=since, timeout=min(max(timeout, 0.0), 30.0))
 
     return router
