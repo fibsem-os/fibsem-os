@@ -20,6 +20,8 @@ info:
     name: sim-iflm-configuration                            # a descriptive name for your configuration                     [SPECIFIED]
     ip_address: 192.168.0.1                                 # the ip address of the microscope PC                           [SPECIFIED]
     manufacturer: Demo                                      # the microscope manufactuer                                    [SPECIFIED]
+fm:
+    enabled:                    true                        # this site has a fluorescence microscope                       [USER]
 stage:
     enabled:                    true                        # the stage is enabled                                          [USER]
     rotation:                   true                        # the stage is able to rotate                                   [USER]

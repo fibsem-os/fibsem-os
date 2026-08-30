@@ -442,6 +442,63 @@ class FibsemMicroscope(ABC):
         else:
             self.move_stage_absolute(stage_position)
 
+    def _axis_restrictions_apply(self) -> bool:
+        """Whether the microscope refuses z and rotation, so an absolute move drops them.
+
+        Two halves, and they are not the same rule.
+
+        The **orientation** half is a compustage flipped to face its objective. It
+        stays as it was: `get_stage_orientation` can never return "FM" on an offset
+        mount -- the FM is a device there and `orientations["FM"]` is a copy of the FIB
+        entry -- so that half is naturally confined to the mounting it was written for.
+
+        The **objective** half is gated on `stage_is_compustage` **temporarily**, and
+        that gate belongs to FIB-640 to remove. It has only ever run on a compustage,
+        because `self.fm` is None everywhere else, and the axes it drops are not
+        equivalent across stage types: `stage_position_to_autoscript` returns a
+        `CompustagePosition(x, y, z, a)` with no `r` field at all, so dropping `r`
+        there has never done anything, while on an offset mount it would drop a real
+        rotation axis. Opening the connection gate is what makes that reachable, so
+        the gate goes on first.
+
+        Removing it silently would be the worse failure of the two. Without the gate
+        an offset move half-succeeds -- lands at x and y, no z, no rotation -- where
+        with it the full move is sent and the *microscope* refuses if it objects,
+        which is an error an operator can see and report. FIB-640 argues for exactly
+        that preference, and is also where the axis pair gets settled: it measured
+        z and t, not z and r.
+        """
+        if self.get_stage_orientation() == "FM":
+            return True
+
+        return (
+            self.stage_is_compustage
+            and self.fm is not None
+            and self.fm.objective.state == "Inserted"
+        )
+
+    def _fluorescence_is_configured(self) -> bool:
+        """Whether this site has said its instrument has a fluorescence microscope.
+
+        The **flag decides**; the driver's own probe only confirms afterwards, and
+        that order matters. There is no `is_installed` for the FM in AutoScript --
+        every other subsystem has one -- so the only capability test available is to
+        select it and see whether the microscope throws. Running that on every system
+        would be autodetection, and an Aquilos or Helios with an iFLM fitted would
+        find half-built offset support appearing in its UI on upgrade: a fluorescence
+        tab that builds, a button that traverses 48 mm, pose derivation that is only
+        partly right. Probing also touches the shared imaging channel on machines that
+        have never had an FM.
+
+        **A compustage keeps its answer.** `stage_is_compustage` is read from the
+        hardware (`compustage.is_installed`), not from configuration, and no shipped
+        Arctis configuration carries the flag -- `tfs-arctis-configuration.yaml` has
+        no `fm:` block at all. Replacing the old check rather than widening it would
+        take the FM away from every Arctis site on upgrade. So the compustage stays
+        exactly as it was, and an offset mount must opt in.
+        """
+        return self.system.fm.enabled or self.stage_is_compustage
+
     def _refuse_rotation_at_the_fluorescence_microscope(
         self, stage_position: FibsemStagePosition
     ) -> None:
@@ -1938,7 +1995,8 @@ class FibsemMicroscope(ABC):
         stage_position = FibsemStagePosition(t=stage_tilt, r=rotation)
         self.safe_absolute_stage_movement(stage_position)
 
-        return self.is_close_to_milling_angle(milling_angle)
+        # milling_angle is radians here; is_close_to_milling_angle compares degrees (FIB-853)
+        return self.is_close_to_milling_angle(np.degrees(milling_angle))
 
     def _beam_view_tilt(self, beam_type: BeamType) -> float:
         """Tilt of a beam column's viewing axis from the electron column, in radians."""
@@ -2720,9 +2778,10 @@ class ThermoMicroscope(FibsemMicroscope):
         self.milling_channel: BeamType = BeamType.ION
 
         try:
-            if not self.stage_is_compustage:
-                logging.warning(
-                    "Fluorescence microscope module is currently only implemented for compustage systems. FM will not be available."
+            if not self._fluorescence_is_configured():
+                logging.info(
+                    "No fluorescence microscope configured for this system. Set "
+                    "`fm.enabled` in the microscope configuration to enable it."
                 )
                 self.fm = None
                 self.set_channel(BeamType.ELECTRON)
@@ -3232,9 +3291,7 @@ class ThermoMicroscope(FibsemMicroscope):
             position, compustage=self.stage_is_compustage
         )  # TODO: apply compucentric/raw coordinate offset here?
 
-        if self.get_stage_orientation() == "FM" or (
-            self.fm is not None and self.fm.objective.state == "Inserted"
-        ):  # ONLY when restrictions are on
+        if self._axis_restrictions_apply():  # ONLY when restrictions are on
             autoscript_position.z = None
             autoscript_position.r = None
 
