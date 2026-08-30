@@ -180,11 +180,6 @@ def test_milling_angle_boundary_is_degrees(armed_client):
     assert body["milling_angle_deg"] == pytest.approx(15.0, abs=0.5)
 
 
-def test_app_context_not_implemented_yet(microscope):
-    with pytest.raises(NotImplementedError):
-        build_server(microscope, app_context=object())
-
-
 def test_fibsem_server_defaults_to_localhost(microscope):
     server = FibsemServer(microscope)
     assert server.host == "127.0.0.1"

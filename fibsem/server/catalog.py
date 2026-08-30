@@ -23,6 +23,9 @@ class ToolSpec:
     path: str
     scope: str  # "read" | "hardware"
     params: Dict[str, str] = field(default_factory=dict)  # name -> description
+    # Which router serves it: "microscope" is always mounted; "app" only when
+    # the server was built with an app_context (/capabilities reports which).
+    router: str = "microscope"
 
 
 CATALOG: Tuple[ToolSpec, ...] = (
@@ -152,6 +155,93 @@ CATALOG: Tuple[ToolSpec, ...] = (
 )
 
 
+APP_TOOLS: Tuple[ToolSpec, ...] = (
+    ToolSpec(
+        name="get_app_status",
+        description="What the application is doing: experiment, running workflow, current task and item.",
+        method="GET",
+        path="/app/status",
+        scope="read",
+        router="app",
+    ),
+    ToolSpec(
+        name="get_app_queue",
+        description="The live work queue: id-anchored items with status, plus the mutation version.",
+        method="GET",
+        path="/app/queue",
+        scope="read",
+        router="app",
+    ),
+    ToolSpec(
+        name="get_experiment_summary",
+        description="Per-item summary of the open experiment.",
+        method="GET",
+        path="/app/experiment_summary",
+        scope="read",
+        router="app",
+    ),
+    ToolSpec(
+        name="get_task_history",
+        description="Every task run so far: outcomes, durations, errors.",
+        method="GET",
+        path="/app/task_history",
+        scope="read",
+        router="app",
+    ),
+    ToolSpec(
+        name="get_run_summary",
+        description="The most recent workflow run's outcome table.",
+        method="GET",
+        path="/app/run_summary",
+        scope="read",
+        router="app",
+    ),
+    ToolSpec(
+        name="get_protocol",
+        description="The workflow definition with live supervision flags and schedules.",
+        method="GET",
+        path="/app/protocol",
+        scope="read",
+        router="app",
+    ),
+    ToolSpec(
+        name="get_task_outputs",
+        description="The files an item's completed tasks produced (reference images by role).",
+        method="GET",
+        path="/app/task_outputs/{item_name}",
+        scope="read",
+        router="app",
+        params={"item_name": "the item (lamella) name"},
+    ),
+    ToolSpec(
+        name="list_recent_experiments",
+        description="Recently opened experiments on this machine, without loading them.",
+        method="GET",
+        path="/app/recent_experiments",
+        scope="read",
+        router="app",
+    ),
+)
+
+CATALOG = CATALOG + APP_TOOLS
+
+
 def tools_for_scopes(armed: Dict[str, bool]) -> Tuple[ToolSpec, ...]:
-    """The catalog entries usable given the /capabilities scopes payload."""
+    """Catalog entries usable given armed scopes alone (router-blind)."""
     return tuple(t for t in CATALOG if armed.get(t.scope, False))
+
+
+def tools_for_capabilities(capabilities: Dict) -> Tuple[ToolSpec, ...]:
+    """Catalog entries usable given a full /capabilities payload.
+
+    Filters on both dimensions: the tool's scope must be armed AND the router
+    serving it must be mounted. The server enforces either way -- this filter
+    only keeps the agent's tool list honest about what can succeed.
+    """
+    scopes = capabilities.get("scopes", {})
+    routers = capabilities.get("routers", {})
+    return tuple(
+        t
+        for t in CATALOG
+        if scopes.get(t.scope, False) and routers.get(t.router, False)
+    )
