@@ -469,7 +469,14 @@ class DemoMicroscope(FibsemMicroscope):
         # every simulator configuration keeps its current behaviour without the key.
         has_fm = bool(self.system.sim.get("has_fm", self.stage_is_compustage))
 
-        if has_fm:
+        # Two independent questions, and the simulator is the only place both can be
+        # posed. `_fluorescence_is_configured` is whether the site said its instrument
+        # has an FM; `has_fm` is what the hardware probe would have answered. Both are
+        # required, which is what makes the middle row of the table below the sim
+        # configuration representable: an FM detected on a system nothing is
+        # configured for -- a site upgrading -- gets no FM, and that is the case worth
+        # being able to test.
+        if has_fm and self._fluorescence_is_configured():
             self.fm = SimulatedFluorescenceMicroscope(self)
             # Bringing the FM up leaves the shared channel on it, as
             # `ThermoMicroscope.__init__` does; taking it back is the next beam

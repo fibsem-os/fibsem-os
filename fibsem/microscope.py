@@ -442,6 +442,63 @@ class FibsemMicroscope(ABC):
         else:
             self.move_stage_absolute(stage_position)
 
+    def _axis_restrictions_apply(self) -> bool:
+        """Whether the microscope refuses z and rotation, so an absolute move drops them.
+
+        Two halves, and they are not the same rule.
+
+        The **orientation** half is a compustage flipped to face its objective. It
+        stays as it was: `get_stage_orientation` can never return "FM" on an offset
+        mount -- the FM is a device there and `orientations["FM"]` is a copy of the FIB
+        entry -- so that half is naturally confined to the mounting it was written for.
+
+        The **objective** half is gated on `stage_is_compustage` **temporarily**, and
+        that gate belongs to FIB-640 to remove. It has only ever run on a compustage,
+        because `self.fm` is None everywhere else, and the axes it drops are not
+        equivalent across stage types: `stage_position_to_autoscript` returns a
+        `CompustagePosition(x, y, z, a)` with no `r` field at all, so dropping `r`
+        there has never done anything, while on an offset mount it would drop a real
+        rotation axis. Opening the connection gate is what makes that reachable, so
+        the gate goes on first.
+
+        Removing it silently would be the worse failure of the two. Without the gate
+        an offset move half-succeeds -- lands at x and y, no z, no rotation -- where
+        with it the full move is sent and the *microscope* refuses if it objects,
+        which is an error an operator can see and report. FIB-640 argues for exactly
+        that preference, and is also where the axis pair gets settled: it measured
+        z and t, not z and r.
+        """
+        if self.get_stage_orientation() == "FM":
+            return True
+
+        return (
+            self.stage_is_compustage
+            and self.fm is not None
+            and self.fm.objective.state == "Inserted"
+        )
+
+    def _fluorescence_is_configured(self) -> bool:
+        """Whether this site has said its instrument has a fluorescence microscope.
+
+        The **flag decides**; the driver's own probe only confirms afterwards, and
+        that order matters. There is no `is_installed` for the FM in AutoScript --
+        every other subsystem has one -- so the only capability test available is to
+        select it and see whether the microscope throws. Running that on every system
+        would be autodetection, and an Aquilos or Helios with an iFLM fitted would
+        find half-built offset support appearing in its UI on upgrade: a fluorescence
+        tab that builds, a button that traverses 48 mm, pose derivation that is only
+        partly right. Probing also touches the shared imaging channel on machines that
+        have never had an FM.
+
+        **A compustage keeps its answer.** `stage_is_compustage` is read from the
+        hardware (`compustage.is_installed`), not from configuration, and no shipped
+        Arctis configuration carries the flag -- `tfs-arctis-configuration.yaml` has
+        no `fm:` block at all. Replacing the old check rather than widening it would
+        take the FM away from every Arctis site on upgrade. So the compustage stays
+        exactly as it was, and an offset mount must opt in.
+        """
+        return self.system.fm.enabled or self.stage_is_compustage
+
     def _refuse_rotation_at_the_fluorescence_microscope(
         self, stage_position: FibsemStagePosition
     ) -> None:
@@ -1566,25 +1623,39 @@ class FibsemMicroscope(ABC):
     def get_target_position(
         self,
         stage_position: FibsemStagePosition,
-        target_orientation: str,
+        target_orientation: Optional[str] = None,
         target_device: Optional[str] = None,
     ) -> FibsemStagePosition:
-        """Convert the stage position to the target position for the given orientation.
+        """Convert a stage position across the orientation axis, the device axis, or both.
 
-        `target_device` converts across the *device* axis as well. Where the objective
-        is offset the two are independent -- the device is a place the stage travels
-        to, the orientation is the pose it is held in once there -- so a caller may
-        ask for either or both. `FM-MILLING` is not a fifth orientation; it is
-        `("MILLING", device="FM")`.
+        Where the objective is offset the two are independent -- the device is a place
+        the stage travels to, the orientation is the pose it is held in once there --
+        so either may be asked for alone:
 
-        Returns the canonical r and t of the target orientation, so a position a
-        degree or two off its nominal pose is snapped rather than carried across.
+            (p, "FIB")                        re-pose, stay put
+            (p, target_device="FM")           relocate, keep the pose
+            (p, "MILLING", target_device="FM") both -- this is FM-MILLING, which is
+                                              a pair rather than a fifth orientation
+
+        **Asking for an orientation snaps the pose.** An orientation *is* a canonical
+        r and t, so a position a degree or two off nominal is written to nominal
+        rather than carried across. That is right for a conversion and wrong for a
+        relocation, which is why the second form exists: the traverse must not discard
+        a milling angle somebody dialled in on the way to the FM.
+
+        Note `target_orientation="FM"` means something on a compustage, where the FM
+        really is an orientation -- a flip to `t = -180`. On an offset mount it is
+        refused: the FM is a device there, and `orientations["FM"]` is a copy of the
+        FIB entry carrying no positional term.
         """
 
         currrent_orientation = self.get_stage_orientation(stage_position)
         logging.info(
             f"Getting target position for {target_orientation} from {currrent_orientation}"
         )
+
+        if target_orientation is None and target_device is None:
+            return stage_position
 
         if currrent_orientation == target_orientation and target_device is None:
             return stage_position
@@ -1615,7 +1686,11 @@ class FibsemMicroscope(ABC):
             )
 
         stage_position = deepcopy(stage_position)
-        orientation = self.get_orientation(target_orientation)
+        orientation = (
+            self.get_orientation(target_orientation)
+            if target_orientation is not None
+            else None
+        )
 
         # The device legs **bracket** the orientation leg rather than following it,
         # so that the re-pose always happens at the beams. Written out, that is the
@@ -1694,19 +1769,26 @@ class FibsemMicroscope(ABC):
         # and this rule is keyed on that classifier's answer, so the two share one
         # definition rather than agreeing by coincidence. Same 5 degree tolerance, for
         # the same reason.
-        from fibsem import movement
+        # Only when a pose was asked for. Relocating alone changes no rotation, so
+        # there is nothing for the compucentric correction to correct and nothing to
+        # write to r and t -- the bracket below collapses to a plain translation from
+        # one device to the other, which is exactly what a traverse is.
+        if orientation is not None:
+            from fibsem import movement
 
-        rotation = movement.angle_difference(
-            self.get_orientation(currrent_orientation).r, orientation.r
-        )
-        rotation_is_half_turn = movement.rotation_angle_is_smaller(
-            rotation, np.pi, atol=5
-        )
-        if rotation_is_half_turn:
-            stage_position = self._get_compucentric_rotation_position(stage_position)
+            rotation = movement.angle_difference(
+                self.get_orientation(currrent_orientation).r, orientation.r
+            )
+            rotation_is_half_turn = movement.rotation_angle_is_smaller(
+                rotation, np.pi, atol=5
+            )
+            if rotation_is_half_turn:
+                stage_position = self._get_compucentric_rotation_position(
+                    stage_position
+                )
 
-        stage_position.r = orientation.r
-        stage_position.t = orientation.t
+            stage_position.r = orientation.r
+            stage_position.t = orientation.t
 
         # ... and back out, to whichever device was asked for. `target_device` of None
         # means the one it started at, so an orientation-only conversion at the FM is
@@ -1913,7 +1995,8 @@ class FibsemMicroscope(ABC):
         stage_position = FibsemStagePosition(t=stage_tilt, r=rotation)
         self.safe_absolute_stage_movement(stage_position)
 
-        return self.is_close_to_milling_angle(milling_angle)
+        # milling_angle is radians here; is_close_to_milling_angle compares degrees (FIB-853)
+        return self.is_close_to_milling_angle(np.degrees(milling_angle))
 
     def _beam_view_tilt(self, beam_type: BeamType) -> float:
         """Tilt of a beam column's viewing axis from the electron column, in radians."""
@@ -2272,8 +2355,11 @@ class FibsemMicroscope(ABC):
                 f"Configured devices: {sorted(self.system.stage.devices)}."
             ) from None
 
-    def get_device_position(self, device: str) -> FibsemStagePosition:
+    def get_device_origin(self, device: str) -> FibsemStagePosition:
         """Where the stage travels for `device` to see the sample.
+
+        The device's *origin*, not a position expressed at it -- for that, ask
+        `get_target_position(position, target_device=...)`.
 
         Partial: an offset fluorescence microscope is an x location and leaves y, z, r
         and t free, so the axes it does not constrain come back `None`.
@@ -2385,6 +2471,11 @@ class FibsemMicroscope(ABC):
             # found it rather than pulling it out of the sample for nothing.
             logging.info(f"Moving to {target} position...")
             self.fm.objective.retract()
+
+            # No orientation asked for, so the pose comes across untouched. That is
+            # the whole point of the traverse, and the reason this cannot pass the
+            # current orientation's name instead: doing so would snap r and t to
+            # nominal and quietly discard a milling angle somebody dialled in.
             self.move_stage_relative(self._device_translation(source, target))
 
         # Unconditional, so that the postcondition is the device *and* the objective
@@ -2687,9 +2778,10 @@ class ThermoMicroscope(FibsemMicroscope):
         self.milling_channel: BeamType = BeamType.ION
 
         try:
-            if not self.stage_is_compustage:
-                logging.warning(
-                    "Fluorescence microscope module is currently only implemented for compustage systems. FM will not be available."
+            if not self._fluorescence_is_configured():
+                logging.info(
+                    "No fluorescence microscope configured for this system. Set "
+                    "`fm.enabled` in the microscope configuration to enable it."
                 )
                 self.fm = None
                 self.set_channel(BeamType.ELECTRON)
@@ -3199,9 +3291,7 @@ class ThermoMicroscope(FibsemMicroscope):
             position, compustage=self.stage_is_compustage
         )  # TODO: apply compucentric/raw coordinate offset here?
 
-        if self.get_stage_orientation() == "FM" or (
-            self.fm is not None and self.fm.objective.state == "Inserted"
-        ):  # ONLY when restrictions are on
+        if self._axis_restrictions_apply():  # ONLY when restrictions are on
             autoscript_position.z = None
             autoscript_position.r = None
 

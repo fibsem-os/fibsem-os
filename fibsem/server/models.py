@@ -4,18 +4,23 @@ from pydantic import BaseModel
 
 # --- Shared ---
 
+
 class BeamTypeRequest(BaseModel):
     beam_type: str  # "ELECTRON" or "ION"
 
 
 # --- Image ---
 
+
 class AcquireImageRequest(BaseModel):
     beam_type: str
-    image_settings: Optional[Dict[str, Any]] = None  # ImageSettings.to_dict(); if None uses current settings
+    image_settings: Optional[Dict[str, Any]] = (
+        None  # ImageSettings.to_dict(); if None uses current settings
+    )
 
 
 # --- Stage ---
+
 
 class StagePositionRequest(BaseModel):
     position: Dict[str, Any]
@@ -48,6 +53,7 @@ class FlatToBeamRequest(BaseModel):
 
 
 # --- Beam / Detector / State ---
+
 
 class BeamSettingsRequest(BaseModel):
     beam_settings: Dict[str, Any]
@@ -92,6 +98,7 @@ class ResolutionBeamRequest(BaseModel):
 
 # --- Milling ---
 
+
 class MillingSettingsRequest(BaseModel):
     mill_settings: Dict[str, Any]
 
@@ -117,16 +124,27 @@ class DrawPatternsRequest(BaseModel):
     patterns: List[Dict[str, Any]]
 
 
+# The HTTP boundary speaks degrees everywhere (fields named *_deg); the server
+# converts for the one ABC method that takes radians (FIB-853).
+
+
 class MillingAngleRequest(BaseModel):
-    milling_angle: float  # degrees
+    milling_angle_deg: float
+
 
 class MillingAngleFromPositionRequest(BaseModel):
-    stage_position: Optional[Dict[str, Any]] = None  # FibsemStagePosition.to_dict(); if None uses current position
+    stage_position: Optional[Dict[str, Any]] = (
+        None  # FibsemStagePosition.to_dict(); if None uses current position
+    )
+
 
 class MoveToMillingAngleRequest(BaseModel):
-    milling_angle: float                # radians (underlying move_to_milling_angle takes radians)
-    rotation: Optional[float] = None   # radians; if None uses rotation_reference from system settings
+    milling_angle_deg: float
+    rotation_deg: Optional[float] = (
+        None  # if None uses rotation_reference from system settings
+    )
+
 
 class IsCloseToMillingAngleRequest(BaseModel):
-    milling_angle: float        # degrees
-    atol: float = 2.0           # degrees
+    milling_angle_deg: float
+    atol_deg: float = 2.0

@@ -213,3 +213,80 @@ def test_converting_from_between_the_devices_is_refused():
 
     with pytest.raises(ValueError, match="not at any configured device"):
         microscope.get_target_position(stranded, "FIB", target_device="FM")
+
+
+# ── one axis at a time ───────────────────────────────────────────────
+
+# Three degrees off nominal, which is what makes a snap visible. Inside the 5 degree
+# band `get_stage_orientation` classifies within, so the position still reads as the
+# orientation it is at -- and at the nominal pose these tests would pass against a
+# transform that snapped, which is the whole thing they exist to catch.
+OFF_NOMINAL_DEG = 3.0
+
+
+def _off_nominal(microscope, orientation: str, x_mm: float = 7.0):
+    position = _at(microscope, orientation, x_mm)
+    position.t = position.t + np.radians(OFF_NOMINAL_DEG)
+    return position
+
+
+def test_asking_for_a_device_alone_keeps_the_pose():
+    """The operation the traverse performs, and the one the signature used to refuse.
+
+    An orientation *is* a canonical r and t, so naming one snaps the pose. There was
+    no way to say "somewhere else, same pose" -- the nearest thing was passing the
+    current orientation's name, which is exactly what snaps.
+    """
+    microscope = _microscope()
+    start = _off_nominal(microscope, "FIB")
+
+    target = microscope.get_target_position(start, target_device="FM")
+
+    assert target.x == pytest.approx(start.x + TRAVERSE)
+    assert np.isclose(target.r, start.r)
+    assert np.isclose(target.t, start.t)  # not snapped to the nominal FIB tilt
+    assert not np.isclose(target.t, microscope.get_orientation("FIB").t)
+
+
+def test_asking_for_an_orientation_alone_still_snaps():
+    """Unchanged, and correct: a conversion answers "what pose is orientation X"."""
+    microscope = _microscope()
+    start = _off_nominal(microscope, "FIB")
+
+    target = microscope.get_target_position(start, "MILLING")
+
+    assert np.isclose(target.t, microscope.get_orientation("MILLING").t)
+    assert microscope.get_current_device(target) == "FIBSEM"
+
+
+def test_asking_for_both_snaps_and_relocates():
+    """FM-MILLING: a pair, not a fifth orientation."""
+    microscope = _microscope()
+    start = _off_nominal(microscope, "FIB")
+
+    target = microscope.get_target_position(start, "MILLING", target_device="FM")
+
+    assert microscope.get_current_device(target) == "FM"
+    assert microscope.get_stage_orientation(target) == "MILLING"
+    assert np.isclose(target.t, microscope.get_orientation("MILLING").t)
+
+
+def test_asking_for_neither_is_not_a_conversion():
+    """Returns the argument itself, the way asking for the orientation it is at does."""
+    microscope = _microscope()
+    start = _at(microscope, "FIB", 7.0)
+
+    assert microscope.get_target_position(start) is start
+
+
+def test_relocating_alone_round_trips():
+    """No rotation, so the compucentric leg never runs and the bracket is a plain
+    translation -- out and back has to land exactly where it started."""
+    microscope = _microscope()
+    start = _off_nominal(microscope, "FIB")
+
+    away = microscope.get_target_position(start, target_device="FM")
+    returned = microscope.get_target_position(away, target_device="FIBSEM")
+
+    assert returned.x == pytest.approx(start.x, abs=1e-12)
+    assert np.isclose(returned.t, start.t)

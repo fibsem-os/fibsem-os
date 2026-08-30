@@ -16,16 +16,32 @@ On the machine connected to the microscope:
 from fibsem.server import FibsemServer
 
 server = FibsemServer.from_session(manufacturer="ThermoFisher", ip_address="192.168.1.1", port=8001)
-server.run()
+server.run()   # logs the bearer token; read-only unless scopes are armed
 ```
 
 Or with the Demo microscope for development:
 
 ```bash
-python -m fibsem.server.server --manufacturer Demo --ip-address localhost --port 8001
+python -m fibsem.server.server --manufacturer Demo --arm-hardware
 ```
 
 The Swagger UI is available at `http://<host>:8001/docs`.
+
+### Authentication and scopes
+
+Every request needs the server's bearer token (generated at startup and logged,
+or supplied with `--token`), sent as an `Authorization: Bearer <token>` header.
+A valid token grants the `read` scope (observation). The `hardware` scope —
+moves, acquisition, milling — must be armed explicitly (`--arm-hardware`);
+unarmed hardware calls are refused with a structured `403 scope_not_armed`.
+Hardware commands are serialized: a second concurrent command gets `409 busy`.
+`POST /stop_milling` is deliberately read-scope and lock-exempt — stopping is
+always allowed. `GET /capabilities` reports the armed scopes.
+
+The server binds `127.0.0.1` by default. Exposing it on the LAN
+(`--host 0.0.0.0`) is an explicit choice: the token then travels in cleartext
+HTTP, which keeps strangers out but is not sniff-proof — see the AutoLamella
+Agent Server design doc for the trust model.
 
 ---
 
@@ -34,7 +50,7 @@ The Swagger UI is available at `http://<host>:8001/docs`.
 ```python
 from fibsem.server import FibsemClient
 
-microscope = FibsemClient(host="192.168.1.100", port=8001)
+microscope = FibsemClient(host="192.168.1.100", port=8001, token="<token from the server log>")
 ```
 
 ### Image Acquisition

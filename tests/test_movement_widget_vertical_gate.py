@@ -24,7 +24,7 @@ import pytest
 
 try:
     from fibsem.ui import notification_service
-    from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
+    from fibsem.ui.widgets.stage_control_widget import StageControlWidget
 
     _MISSING_UI_DEPS = None
 except ImportError as e:  # pragma: no cover - exercised only on UI-less CI
@@ -74,7 +74,7 @@ def toasts(monkeypatch):
 def make_widget(microscope):
     # sip forbids object.__new__ on QWidget subclasses; the class's own __new__
     # allocates just the Python wrapper (no QApplication / C++ widget needed)
-    widget = FibsemMovementWidget.__new__(FibsemMovementWidget)
+    widget = StageControlWidget.__new__(StageControlWidget)
     widget.microscope = microscope
     widget._report_move = Mock()
     widget.update_ui_after_movement = Mock()
@@ -90,7 +90,7 @@ def refuse_or_start(widget, beam_type, vertical):
 
 def dispatch(widget, beam_type, vertical):
     """The worker half, run in place -- `@thread_worker` would put it on a thread."""
-    FibsemMovementWidget._stage_move_worker.__wrapped__(
+    StageControlWidget._stage_move_worker.__wrapped__(
         widget, beam_type, Point(1e-6, 2e-6), vertical
     )
 

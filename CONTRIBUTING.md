@@ -5,11 +5,21 @@ late or not at all.
 
 ## Pull requests
 
-**Cap a pull request at about five files.** Reviewability is set by what a person can
-hold in their head, not by how well the change is verified — a machine-generated sweep
-with an AST-level safety check and a green suite is still too large to review at twenty
-files. For a mechanical change across many files, slice by directory or module so each
-pull request is one coherent area, and open them independently off `main` rather than
+**Aim for about five files in a pull request.** A target to design toward, not a limit
+to obey: the constraint is reviewability, which is set by what a person can hold in
+their head rather than by a file count. A machine-generated sweep with an AST-level
+safety check and a green suite is still too large to review at twenty files — verifying
+it well does not buy back the size of the thing someone has to read.
+
+Go over five when the extra files are **cohesive** — one change rather than a sweep —
+and **unavoidable**, in the sense that they break without it. Say so in the pull request
+body, and say what they contain: "six test files, four of them a one-line fixture
+change" is the sentence that makes eight files readable. Do not contort the design to
+hit the number; a forwarding shim that exists only to keep the count down is worse than
+the extra file.
+
+For a mechanical change across many files, slice by directory or module so each pull
+request is one coherent area, and open them independently off `main` rather than
 stacking. More pull requests is the accepted cost.
 
 This bites hardest under format-on-touch (below), where editing a file forces a full

@@ -17,6 +17,7 @@ See FIB-830.
 import os
 from copy import deepcopy
 
+import numpy as np
 import pytest
 
 import fibsem.config as cfg
@@ -58,8 +59,8 @@ def test_the_devices_come_from_the_configuration_file():
     """
     microscope = _microscope()
 
-    assert microscope.get_device_position("FIBSEM").x == pytest.approx(0.0)
-    assert microscope.get_device_position("FM").x == pytest.approx(48.8e-3)
+    assert microscope.get_device_origin("FIBSEM").x == pytest.approx(0.0)
+    assert microscope.get_device_origin("FM").x == pytest.approx(48.8e-3)
     assert microscope.system.stage.device_range.x == pytest.approx(20.0e-3)
 
 
@@ -82,7 +83,7 @@ def test_a_device_is_a_place_and_leaves_the_pose_alone():
     A device that also fixed r or t would be the same conflation this is undoing, so
     the configuration refuses to express one.
     """
-    position = _microscope().get_device_position("FM")
+    position = _microscope().get_device_origin("FM")
 
     assert position.x is not None
     assert (position.y, position.z, position.r, position.t) == (None, None, None, None)
@@ -448,3 +449,34 @@ def test_devices_are_allowed_to_overlap():
 
     assert microscope.is_at_device("FIBSEM") is True
     assert microscope.is_at_device("FM") is True
+
+
+# ── what the traverse does not do ────────────────────────────────────
+
+
+def test_the_traverse_commands_only_the_axes_the_devices_differ_along():
+    """A device change is a translation, not a re-pose.
+
+    Worth pinning because the obvious refactor breaks it: `get_target_position` also
+    answers "where should the stage go", but it snaps r and t to the target
+    orientation's canonical pose. Reaching for it here would quietly discard a milling
+    angle an operator had dialled in. It converts a pose; the traverse relocates one.
+    """
+    microscope = _at_beam_x(_microscope(), 7.0)
+    # Three degrees off the nominal FIB tilt -- still inside the 5 degree band that
+    # `get_stage_orientation` calls FIB, so the traverse accepts it. Off-nominal is
+    # the whole point: at the canonical pose a snap is invisible, and this test would
+    # pass against the very refactor it exists to refuse.
+    microscope.move_stage_relative(
+        FibsemStagePosition(x=0.0, y=3.0e-3, z=1.0e-3, r=0.0, t=np.radians(3))
+    )
+    before = deepcopy(microscope.get_stage_position())
+
+    microscope.move_to_microscope("FM")
+    after = microscope.get_stage_position()
+
+    assert after.x == pytest.approx(before.x + 48.8e-3)
+    assert after.y == pytest.approx(before.y)
+    assert after.z == pytest.approx(before.z)
+    assert after.r == pytest.approx(before.r)
+    assert after.t == pytest.approx(before.t)
