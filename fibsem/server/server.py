@@ -26,9 +26,11 @@ Or as a script:
     python -m fibsem.server.server --manufacturer Demo --arm-hardware
 """
 
+import atexit
 import io
 import logging
 import math
+import os
 import threading
 from typing import Optional
 
@@ -40,6 +42,12 @@ from fastapi.responses import JSONResponse, Response
 from fibsem import utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.server.auth import AuthConfig, Scope, command_slot, require_scope
+from fibsem.server.discovery import (
+    DISCOVERY_FILE,
+    read_discovery_file,
+    remove_discovery_file,
+    write_discovery_file,
+)
 from fibsem.server.images import preview_payload
 from fibsem.server.models import (
     AcquireImageRequest,
@@ -683,6 +691,15 @@ class FibsemServer:
         self.app = build_server(microscope, auth=self.auth)
 
     def run(self):
+        # One server per microscope/machine: the discovery file is the guard.
+        existing = read_discovery_file()
+        if existing is not None and existing.get("pid") != os.getpid():
+            raise RuntimeError(
+                f"A fibsem server already appears to be running "
+                f"(pid {existing.get('pid')}, {existing.get('url')}). "
+                "One server per microscope: stop it first, or delete "
+                f"{DISCOVERY_FILE} if it is stale."
+            )
         armed = ", ".join(s.value for s in self.auth.armed_scopes())
         logging.info(
             "fibsem server on http://%s:%s — scopes armed: %s",
@@ -691,7 +708,12 @@ class FibsemServer:
             armed,
         )
         logging.info("bearer token: %s", self.auth.token)
-        uvicorn.run(self.app, host=self.host, port=self.port)
+        write_discovery_file(self.host, self.port, self.auth)
+        atexit.register(remove_discovery_file)
+        try:
+            uvicorn.run(self.app, host=self.host, port=self.port)
+        finally:
+            remove_discovery_file()
 
     @classmethod
     def from_session(
