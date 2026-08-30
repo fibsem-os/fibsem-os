@@ -33,9 +33,28 @@ from fibsem.structures import FibsemRectangle
 
 
 @pytest.fixture
-def ui(qapp):
-    """A real AutoLamellaUI, connected (Demo), same harness as the payload tests."""
+def ui(qapp, monkeypatch):
+    """A real AutoLamellaUI, connected (Demo), same harness as the payload tests.
+
+    Pinned to the simulated Arctis configuration rather than whatever this
+    machine's default is: `DemoMicroscope` only builds a fluorescence microscope
+    on a compustage config, and the fluorescence test needs `fm_control_widget`
+    to exist. Resolving the default made the test pass on a machine whose
+    default is a compustage and fail on CI, whose default is not.
+    """
+    import fibsem.config as fibsem_config
+
+    arctis_config = os.path.join(
+        os.path.dirname(fibsem_config.__file__),
+        "config",
+        "sim-arctis-configuration.yaml",
+    )
     widget = AutoLamellaUI(parent_ui=None)
+    monkeypatch.setattr(
+        widget.system_widget,
+        "load_configuration",
+        lambda configuration_name=None: arctis_config,
+    )
     widget.system_widget.connect_to_microscope()
     yield widget
     if widget.microscope is not None:
