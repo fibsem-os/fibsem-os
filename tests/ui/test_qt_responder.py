@@ -24,12 +24,8 @@ pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 from fibsem.applications.autolamella.workflows import ui as workflow_ui
-from fibsem.applications.autolamella.workflows.interaction import (
-    EditAlignmentArea,
-    ask,
-)
+from fibsem.applications.autolamella.workflows.interaction import ask
 from fibsem.applications.autolamella.workflows.ui import set_images_ui
-from fibsem.structures import FibsemRectangle
 
 
 @pytest.fixture
@@ -131,17 +127,26 @@ def test_a_gui_side_failure_reraises_on_the_workflow_thread(ui, qapp):
 
 
 def test_an_unhandled_request_type_fails_fast_not_by_timeout(ui, qapp):
-    # EditAlignmentArea has no QtResponder handler yet (it converts in a later
-    # step). Asking for it must fail the caller immediately with a TypeError,
-    # not leave it hanging until the instruction timeout.
+    # A request type QtResponder has never heard of must fail the caller
+    # immediately with a TypeError, not leave it hanging until the instruction
+    # timeout. Purpose-built rather than borrowing a not-yet-converted type, so
+    # this test survives every conversion.
+    from dataclasses import dataclass
+
+    from fibsem.applications.autolamella.workflows.interaction import Request
+
+    @dataclass(frozen=True)
+    class NeverHandled(Request[None]):
+        pass
+
     started = time.monotonic()
     outcome = _call_on_worker_thread(
         qapp,
-        lambda: ask(ui.ui_responder, EditAlignmentArea(initial=FibsemRectangle())),
+        lambda: ask(ui.ui_responder, NeverHandled()),
     )
 
     assert isinstance(outcome.get("error"), TypeError)
-    assert "EditAlignmentArea" in str(outcome["error"])
+    assert "NeverHandled" in str(outcome["error"])
     assert time.monotonic() - started < 5
 
 

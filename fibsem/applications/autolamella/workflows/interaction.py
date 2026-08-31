@@ -120,6 +120,7 @@ class EditAlignmentArea(Request["FibsemRectangle"]):
     """Let the supervisor adjust an alignment area; answer with the final area."""
 
     initial: "FibsemRectangle"
+    message: str = "Edit Alignment Area"
 
 
 @dataclass(frozen=True)
