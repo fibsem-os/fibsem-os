@@ -255,6 +255,22 @@ def build_sidecar(client, capabilities):
     def get_events(since: int = 0, timeout: float = 0.0):
         return _app_get(f"/app/events?since={since}&timeout={timeout}")
 
+    def get_display_images():
+        data, err = _call(client, "GET", "/app/images", None)
+        if err:
+            return err
+        # The previews travel as MCP images so the agent sees them directly;
+        # everything else (availability, timestamps) rides along as JSON.
+        content = []
+        for key in ("sem", "fib"):
+            entry = data.get(key)
+            if isinstance(entry, dict) and "image_b64_jpeg" in entry:
+                jpeg = base64.b64decode(entry.pop("image_b64_jpeg"))
+                entry["beam"] = key
+                content.append(Image(data=jpeg, format="jpeg"))
+        content.insert(0, json.dumps(data))
+        return content
+
     def get_pending_prompt():
         return _app_get("/app/prompt")
 
@@ -294,6 +310,7 @@ def build_sidecar(client, capabilities):
             get_task_outputs,
             list_recent_experiments,
             get_events,
+            get_display_images,
             get_pending_prompt,
             answer_prompt,
         )

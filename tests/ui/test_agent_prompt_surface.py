@@ -100,6 +100,8 @@ def test_agent_sees_and_answers_the_question_over_http(ui, qapp):
         assert pending["message"] == "Continue to polishing?"
         assert pending["positive"] == "Continue"
         assert isinstance(pending["nonce"], int)
+        # A Confirm has no live half — no GUI peek happens, no "current" key.
+        assert "current" not in pending
 
         # POST from a separate thread, as production does: the answer applies on
         # the GUI thread, which in this test is the thread running the loop —
@@ -151,6 +153,15 @@ def test_a_stale_nonce_is_refused_and_the_question_stands(ui, qapp):
         ui.ui_responder.answer_confirm(False)
         _spin_until(qapp, lambda: "answer" in outcome)
         thread.join(timeout=5)
+
+
+def test_display_images_are_served_read_scope(ui, qapp):
+    with _client(ui, arm_control=False) as client:
+        body = client.get("/app/images", headers=AUTH).json()
+        assert body["available"] is True
+        # A connected UI displays the seeded placeholder images on both sides.
+        for beam in ("sem", "fib"):
+            assert body[beam]["image_b64_jpeg"]
 
 
 def test_an_answer_without_a_nonce_is_rejected(ui, qapp):
