@@ -224,13 +224,14 @@ class FMOverviewWidget(QWidget):
     #
     # One per source, because the two describe different things at different scales and
     # each drives its own bar: the run as a whole, and the tile currently being taken.
-    # `object`, not `dict`: carries a dict today and a `TiledProgress` once the
-    # producers flip (FIB-402). Both marshal to `PyQt_PyObject`, so this changes nothing
-    # at the Qt level -- it stops the declaration lying.
+    # `object`, not `TiledProgress`: the producers have flipped (FIB-402), but psygnal
+    # hands a slot whatever was emitted, and a plugin-loaded producer is not obliged to
+    # emit the typed record. Both marshal to `PyQt_PyObject` regardless, so `object` is
+    # the honest declaration rather than a looser one.
     _tile_progress_received = pyqtSignal(object)
-    # `object`, not `dict`: carries a dict today and a typed report once the producers
-    # flip (FIB-401). Both marshal to `PyQt_PyObject`, so this changes nothing at the Qt
-    # level -- it stops the declaration lying.
+    # `object`, not the typed record: the producers have flipped (FIB-401), but psygnal
+    # hands a slot whatever was emitted. Both marshal to `PyQt_PyObject` regardless, so
+    # `object` is the honest declaration rather than a looser one.
     _fm_progress_received = pyqtSignal(object)
     # Same hop for stage moves: `stage_position_changed` is a psygnal, so it fires
     # on whichever thread moved the stage -- a worker, during an acquisition.
@@ -2702,11 +2703,11 @@ class FMOverviewWidget(QWidget):
 
     # ── progress ─────────────────────────────────────────────────────────
 
-    def _on_tile_progress(self, payload: dict) -> None:
+    def _on_tile_progress(self, payload: TiledProgress) -> None:
         """Called by psygnal, on whichever thread emitted. Touches no widgets."""
         self._tile_progress_received.emit(payload)
 
-    def _on_fm_progress(self, payload: dict) -> None:
+    def _on_fm_progress(self, payload: FluorescenceAcquisitionProgress) -> None:
         """Called by psygnal, on whichever thread emitted. Touches no widgets."""
         self._fm_progress_received.emit(payload)
 
