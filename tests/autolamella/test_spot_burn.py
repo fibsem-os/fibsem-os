@@ -521,11 +521,14 @@ def test_update_spot_burn_ui_runs_stored_coordinates_headless(monkeypatch, tmp_p
 # --- SpotBurnFiducialTask supervised loop ---------------------------------------
 
 
-def _make_supervised_spot_burn_task(monkeypatch, tmp_path, ask_user_responses):
-    """A supervised SpotBurnFiducialTask with a mock parent UI + spot burn widget.
+def _make_supervised_spot_burn_task(monkeypatch, tmp_path, ask_answer=None):
+    """A supervised SpotBurnFiducialTask whose RunSpotBurn ask is faked.
 
-    ask_user_responses is an iterable of the booleans ask_user should return.
-    Returns (task, widget, cleared_list).
+    ``ask_answer`` is what the fake ask delivers — a SpotBurnSettings, None
+    (no spot-burn widget), or an exception instance to raise. The supervised
+    loop itself lives in QtResponder and is covered with real widgets in
+    tests/ui/test_run_spot_burn_question.py; what this pins is the task's side
+    of the seam. Returns (task, asks_list).
     """
     import fibsem.applications.autolamella.workflows.tasks.spot_burn as sb_mod
     from fibsem.applications.autolamella.structures import Lamella
@@ -533,23 +536,19 @@ def _make_supervised_spot_burn_task(monkeypatch, tmp_path, ask_user_responses):
         SpotBurnFiducialTask,
     )
 
-    widget = MagicMock()
-    widget.is_burning = False  # each burn "completes" immediately
-    # the task now reads back the whole settings object (coordinates + current +
-    # exposure), not just the coordinates — see update_spot_burn_parameters' typed contract
-    widget.get_settings.return_value = SpotBurnSettings(
-        coordinates=[Point(0.5, 0.5)], exposure_time=1.0, milling_current=1e-9
-    )
     parent_ui = (
         MagicMock()
     )  # truthy experiment.task_protocol.get_supervision -> supervised
-    parent_ui.spot_burn_widget = widget
 
-    responses = iter(ask_user_responses)
-    monkeypatch.setattr(sb_mod, "ask_user", lambda *a, **k: next(responses))
-    monkeypatch.setattr(sb_mod, "update_spot_burn_parameters", lambda **k: None)
-    cleared = []
-    monkeypatch.setattr(sb_mod, "clear_spot_burn_ui", lambda ui: cleared.append(ui))
+    asks = []
+
+    def fake_ask(responder, request, abort=None, timeout=None):
+        asks.append(request)
+        if isinstance(ask_answer, BaseException):
+            raise ask_answer
+        return ask_answer
+
+    monkeypatch.setattr(sb_mod, "ask", fake_ask)
 
     lamella = Lamella(path=tmp_path / "lam", number=0, petname="test")
     config = SpotBurnFiducialTaskConfig(
@@ -558,55 +557,61 @@ def _make_supervised_spot_burn_task(monkeypatch, tmp_path, ask_user_responses):
     task = SpotBurnFiducialTask(
         microscope=MagicMock(), config=config, lamella=lamella, parent_ui=parent_ui
     )
-    task.update_status_ui = lambda *a, **k: None  # isolate the loop
-    task._check_for_abort = lambda: None
-    return task, widget, cleared
+    return task, asks
 
 
-def test_supervised_spot_burn_runs_then_continues(monkeypatch, tmp_path):
-    """'Run Spot Burn' triggers the widget and waits; then Continue proceeds."""
-    task, widget, cleared = _make_supervised_spot_burn_task(
-        monkeypatch, tmp_path, ask_user_responses=[True, False]
+def test_supervised_spot_burn_asks_and_applies_the_answer(monkeypatch, tmp_path):
+    """The request carries the task's settings; the answer is written back."""
+    from fibsem.applications.autolamella.workflows.interaction import RunSpotBurn
+
+    answer = SpotBurnSettings(
+        coordinates=[Point(0.1, 0.2), Point(0.3, 0.4)],
+        exposure_time=3.0,
+        milling_current=2e-9,
     )
+    task, asks = _make_supervised_spot_burn_task(monkeypatch, tmp_path, answer)
 
     task.update_spot_burn_parameters_ui()
 
-    widget.start_spot_burn_signal.emit.assert_called_once()
-    widget.get_settings.assert_called_once()
-    assert cleared  # spot burn UI was cleared afterwards
+    assert len(asks) == 1
+    assert isinstance(asks[0], RunSpotBurn)
+    assert asks[0].settings.coordinates == [Point(0.5, 0.5)]
+    # the answer — coordinates, exposure and current as the user left them —
+    # is applied back onto the task config
+    assert task.config.coordinates == answer.coordinates
+    assert task.config.exposure_time == 3.0
+    assert task.config.milling_current == 2e-9
 
 
-def test_supervised_spot_burn_continue_without_running(monkeypatch, tmp_path):
-    """Pressing Continue immediately runs no burn but still reads back + clears."""
-    task, widget, cleared = _make_supervised_spot_burn_task(
-        monkeypatch, tmp_path, ask_user_responses=[False]
-    )
+def test_supervised_spot_burn_none_answer_leaves_the_config_alone(
+    monkeypatch, tmp_path
+):
+    """None means no spot-burn widget (optional hardware): skip, do not fail."""
+    task, asks = _make_supervised_spot_burn_task(monkeypatch, tmp_path, None)
 
     task.update_spot_burn_parameters_ui()
 
-    widget.start_spot_burn_signal.emit.assert_not_called()
-    widget.get_settings.assert_called_once()
-    assert cleared
+    assert len(asks) == 1
+    assert task.config.coordinates == [Point(0.5, 0.5)]
 
 
 def test_supervised_spot_burn_abort_cancels_burn(monkeypatch, tmp_path):
-    """Workflow abort during the wait loop cancels the in-progress burn.
+    """Workflow abort during the ask cancels an in-progress burn.
 
-    Also covers the stop-vs-start race: a burn that starts after the workflow
-    Stop already ran cancel_spot_burn (clearing its stop_event) is still taken
-    down by the aborting task.
+    Covers the stop-vs-start race: a burn that starts after the workflow Stop
+    already ran cancel_spot_burn (clearing its stop_event) is still taken down
+    by the aborting task.
     """
-    task, widget, cleared = _make_supervised_spot_burn_task(
-        monkeypatch, tmp_path, ask_user_responses=[True]
+    task, _ = _make_supervised_spot_burn_task(
+        monkeypatch, tmp_path, InterruptedError("aborted")
     )
-    widget.is_burning = True  # burn in progress
-    task._check_for_abort = MagicMock(side_effect=InterruptedError("aborted"))
 
     with pytest.raises(InterruptedError):
         task.update_spot_burn_parameters_ui()
 
-    widget.cancel_spot_burn.assert_called_once()
-    assert not cleared  # abort propagates before the UI cleanup runs
+    task.parent_ui.spot_burn_widget.cancel_spot_burn.assert_called_once()
+    # the abort propagates before the answer handling runs
+    assert task.config.coordinates == [Point(0.5, 0.5)]
 
 
 # --- SpotBurnFiducialTaskConfig serialization -----------------------------------
