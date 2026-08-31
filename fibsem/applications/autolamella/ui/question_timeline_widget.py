@@ -1,17 +1,25 @@
-"""Who answered what: the question timeline under the workflow interaction area.
+"""Who answered what: the latest supervision answer, under the interaction area.
 
-A dumb render of the responder's question-lifecycle feed — one row per
-answered (or withdrawn) question, newest first, capped. It subscribes to the
-same single code path that applies answers, so it can never show something
-that didn't happen; there is no "update the timeline" step to forget.
+A dumb render of the responder's question-lifecycle feed — the single most
+recent answered (or withdrawn) question on one line, with the last few kept
+as the line's tooltip. One line rather than a stack: the glance question is
+"did the agent just act?", and a growing list under the buttons is noise
+(operator feedback from the first live look). The durable history is the
+experiment logfile and the event stream, not this label.
+
+It subscribes to the same single code path that applies answers, so it can
+never show something that didn't happen; there is no "update the timeline"
+step to forget.
 
 User-facing wording rule: who · what · when. Wire vocabulary (nonces, request
 type names) stays off the screen.
 """
 
 import time
-from typing import Dict
+from collections import deque
+from typing import Deque, Dict, Tuple
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from fibsem.ui import tokens
@@ -34,52 +42,63 @@ _ROW_STYLESHEET = (
     f"color: {tokens.TEXT_MUTED_COLOR}; font-size: 11px; "
     'font-family: "Menlo", "Consolas", monospace;'
 )
-_AGENT_ROW_STYLESHEET = (
-    f"color: {BORDER_STATE_COLOURS['agent']}; font-size: 11px; "
-    'font-family: "Menlo", "Consolas", monospace;'
-)
+_AGENT_COLOR = BORDER_STATE_COLOURS["agent"]
 
 
 class QuestionTimelineWidget(QWidget):
-    """The last few supervision answers, newest first. GUI thread only."""
+    """The most recent supervision answer; recent ones on hover. GUI thread only."""
 
-    MAX_ROWS = 6
+    HISTORY = 6
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._layout = QVBoxLayout(self)
-        self._layout.setContentsMargins(0, 2, 0, 0)
-        self._layout.setSpacing(1)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 2, 0, 0)
+        layout.setSpacing(0)
+        self._label = QLabel("")
+        self._label.setTextFormat(Qt.RichText)  # only "agent" is coloured
+        self._label.setStyleSheet(_ROW_STYLESHEET)
+        layout.addWidget(self._label)
+        self._current = ""
+        self._history: Deque[Tuple[str, bool]] = deque(maxlen=self.HISTORY)
         # Nothing to show until a question is answered; an empty strip is noise.
         self.setVisible(False)
 
     def record(self, kind: str, payload: Dict) -> None:
-        """One lifecycle event in; zero or one row out. Ignores prompt_raised —
+        """One lifecycle event in; the line updates. Ignores prompt_raised —
         the standing question already has the whole instruction label."""
         if kind == "prompt_answered":
             who = "agent" if payload.get("answered_by") == "agent" else "you"
             verb = "answered" if payload.get("response") else "declined"
             label = _QUESTION_LABELS.get(payload.get("type"), payload.get("type"))
-            self._add_row(f"{who} · {verb} {label} · {self._now()}", who == "agent")
+            self._show(f"{who} · {verb} {label} · {self._now()}", who == "agent")
         elif kind == "prompt_cancelled":
-            self._add_row(f"question withdrawn · {self._now()}", False)
+            self._show(f"question withdrawn · {self._now()}", False)
 
     def _now(self) -> str:
         return time.strftime("%H:%M:%S")
 
-    def _add_row(self, text: str, is_agent: bool) -> None:
-        row = QLabel(text)
-        row.setStyleSheet(_AGENT_ROW_STYLESHEET if is_agent else _ROW_STYLESHEET)
-        self._layout.insertWidget(0, row)
-        while self._layout.count() > self.MAX_ROWS:
-            item = self._layout.takeAt(self._layout.count() - 1)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
+    def _show(self, text: str, is_agent: bool) -> None:
+        self._history.appendleft((text, is_agent))
+        self._current = text
+        if is_agent:
+            # Just the who is purple; the rest of the line stays quiet.
+            self._label.setText(
+                text.replace(
+                    "agent", f'<span style="color:{_AGENT_COLOR}">agent</span>', 1
+                )
+            )
+        else:
+            self._label.setText(text)
+        # The recent trail lives in the tooltip, newest first.
+        self._label.setToolTip("\n".join(row for row, _ in self._history))
         self.setVisible(True)
 
     def rows(self):
-        """The visible row texts, newest first (for tests and tooling)."""
-        return [
-            self._layout.itemAt(i).widget().text() for i in range(self._layout.count())
-        ]
+        """The remembered rows, newest first (for tests, tooling — and the
+        tooltip)."""
+        return [row for row, _ in self._history]
+
+    def current_text(self) -> str:
+        """The one visible line, as plain text."""
+        return self._current

@@ -83,25 +83,27 @@ def test_answers_land_as_rows_with_who_and_what(ui, qapp):
     _spin_until(qapp, answered.done)
     thread.join(timeout=5)
 
+    # One visible line (the latest); the trail lives in memory + tooltip.
+    assert timeline.current_text().startswith("agent · declined confirmation · ")
     rows = timeline.rows()
     assert len(rows) == 2
-    # Newest first; who · what · when, no wire vocabulary.
     assert rows[0].startswith("agent · declined confirmation · ")
     assert rows[1].startswith("you · answered confirmation · ")
     assert "nonce" not in rows[0]
     assert not timeline.isHidden()
+    assert rows[1] in timeline._label.toolTip()
 
 
 def test_a_withdrawn_question_reads_as_withdrawn(ui, qapp):
     thread, _ = _ask_on_worker(ui, qapp, Confirm("Continue?"))
     ui.ui_responder.abandon()
     thread.join(timeout=5)
-    assert ui.question_timeline.rows()[0].startswith("question withdrawn · ")
+    assert ui.question_timeline.current_text().startswith("question withdrawn · ")
 
 
-def test_the_timeline_stays_bounded(ui, qapp):
-    for _ in range(ui.question_timeline.MAX_ROWS + 3):
+def test_the_remembered_trail_stays_bounded(ui, qapp):
+    for _ in range(ui.question_timeline.HISTORY + 3):
         thread, _ = _ask_on_worker(ui, qapp, Confirm("Continue?"))
         ui.ui_responder.answer_confirm(True)
         thread.join(timeout=5)
-    assert len(ui.question_timeline.rows()) == ui.question_timeline.MAX_ROWS
+    assert len(ui.question_timeline.rows()) == ui.question_timeline.HISTORY
