@@ -325,7 +325,7 @@ class QtResponder(QObject):
         widget.milling_widget.pushButton_run_milling.setVisible(False)
         self._wire_milling_finished(widget)
 
-        if not request.confirm:
+        if not request.confirm():
             if request.enabled:
                 self._start_milling_run(request, future)
             else:
@@ -368,8 +368,11 @@ class QtResponder(QObject):
                 f"{len(request.config.stages)} stages completed."
             }
         )
-        if request.confirm:
-            # Same prompt again: Run Milling reruns (after edits), Continue ends.
+        if request.confirm():
+            # Same prompt again: Run Milling reruns (after edits), Continue ends —
+            # and confirm is read live, so a supervision flip made during the mill
+            # decides here: auto→supervised drops the operator into the loop,
+            # supervised→auto continues without re-asking.
             self._park_question(
                 request, future, request.message, "Run Milling", "Continue"
             )

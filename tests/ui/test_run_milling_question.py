@@ -135,7 +135,7 @@ def test_continue_without_running_answers_without_a_mill(ui, qapp):
 
 
 def test_unsupervised_runs_once_without_a_prompt(ui, qapp):
-    request = RunMillingTask(config=_config("auto"), confirm=False, message=MSG)
+    request = RunMillingTask(config=_config("auto"), confirm=lambda: False, message=MSG)
     thread, outcome = _ask_on_worker_thread(ui, qapp, request, wait_for_prompt=False)
 
     _finish(thread, qapp)
@@ -245,3 +245,56 @@ def test_a_click_after_a_stop_starts_nothing(ui, qapp):
 
     assert ui._mill_runs == []
     assert ui.label_instructions.text() == ""
+
+
+def test_flipping_to_auto_mid_mill_continues_without_reasking(ui, qapp):
+    # confirm is a live predicate, not a snapshot: the old loop re-read
+    # self.validate on every iteration, so turning supervision off during a
+    # mill meant no re-prompt at its end — pinned here because the first
+    # conversion snapshotted it and lost the behaviour (bench-found).
+    mode = {"supervised": True}
+    request = RunMillingTask(
+        config=_config("flip-to-auto"),
+        confirm=lambda: mode["supervised"],
+        message=MSG,
+    )
+    thread, outcome = _ask_on_worker_thread(ui, qapp, request)
+
+    ui.pushButton_yes.click()  # run
+    mode["supervised"] = False  # the operator flips supervision off mid-mill
+    _finish(thread, qapp)
+
+    assert "error" not in outcome
+    assert outcome["config"].name == "flip-to-auto"
+    assert len(ui._mill_runs) == 1
+
+
+def test_flipping_to_supervised_mid_mill_drops_into_the_loop(ui, qapp):
+    # The other direction: an automated run whose operator flips supervision on
+    # while the mill runs gets the prompt when it finishes — "dropping in on a
+    # milling run", as the old loop allowed.
+    mode = {"supervised": False}
+    request = RunMillingTask(
+        config=_config("drop-in"),
+        confirm=lambda: mode["supervised"],
+        message=MSG,
+    )
+    thread, outcome = _ask_on_worker_thread(ui, qapp, request, wait_for_prompt=False)
+
+    # Flip only once the unprompted mill has actually started — flipping before
+    # the ask dispatches would just make it prompt at entry.
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and not ui._mill_runs:
+        qapp.processEvents()
+        time.sleep(0.005)
+    assert ui._mill_runs, "the unprompted mill never started"
+    mode["supervised"] = True  # flipped while the mill runs
+
+    _wait_for_prompt(ui, qapp, MSG)  # ...so its end asks instead of completing
+    assert len(ui._mill_runs) == 1
+
+    ui.pushButton_no.click()  # continue
+    _finish(thread, qapp)
+
+    assert "error" not in outcome
+    assert outcome["config"].name == "drop-in"

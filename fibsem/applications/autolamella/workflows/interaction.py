@@ -135,20 +135,28 @@ class PickPOI(Request[Optional["Point"]]):
     message: str = "Select Point of Interest"
 
 
+def _always_confirm() -> bool:
+    return True
+
+
 @dataclass(frozen=True)
 class RunMillingTask(Request["FibsemMillingTaskConfig"]):
     """Hand over a milling config to edit and (if ``enabled``) run; answer with the
     config as actually used. Absorbs today's ``start_milling_signal`` sibling poll:
     running the mill is the responder's job, not a second channel's.
 
-    ``confirm`` is the supervision mode: True shows the prompt (Run Milling reruns
-    after edits, Continue ends the question); False runs once unprompted when
-    ``enabled``, or just delivers the config back when not.
+    ``confirm`` is the supervision mode, and — like ``abort`` — a predicate rather
+    than a snapshot: the old loop re-read ``self.validate`` on every iteration, so
+    flipping supervision mid-mill took effect when the mill finished, in both
+    directions (supervised→auto continued without re-asking; auto→supervised
+    dropped the operator into the loop). The responder consults it at each
+    decision point — at entry (prompt or run immediately) and when a run finishes
+    (re-ask or complete) — to keep exactly that behaviour.
     """
 
     config: "FibsemMillingTaskConfig"
     enabled: bool = True
-    confirm: bool = True
+    confirm: Callable[[], bool] = _always_confirm
     message: str = "Run Milling"
 
 

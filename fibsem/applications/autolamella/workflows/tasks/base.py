@@ -416,7 +416,10 @@ class AutoLamellaTask(ABC):
                 # the operator's to edit without the task's own moving under it.
                 config=deepcopy(milling_config),
                 enabled=milling_enabled,
-                confirm=self.validate,
+                # live, not a snapshot: validate re-reads the protocol's
+                # supervision each call, so a mid-mill flip takes effect at the
+                # next decision point — as the old loop's re-read did
+                confirm=lambda: self.validate,
                 message=msg,
             ),
             abort=lambda: _abort_requested(self.parent_ui),
