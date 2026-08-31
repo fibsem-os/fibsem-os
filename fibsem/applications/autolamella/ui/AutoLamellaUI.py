@@ -41,7 +41,6 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,
     FibsemImage,
-    FibsemRectangle,
     FibsemStagePosition,
     MicroscopeSettings,
     Point,
@@ -1920,19 +1919,9 @@ class AutoLamellaUI(QMainWindow):
                 False
             )
 
-        # Detections no longer arrive here: update_detection_ui asks a
-        # ConfirmDetection question through the Responder seam
-        # (QtResponder._confirm_detection).
-
-        # update the alignment area
-        alignment_area = info.get("alignment_area", None)
-        if isinstance(alignment_area, FibsemRectangle):
-            self.image_widget.toggle_alignment_area(alignment_area)
-        if alignment_area == "clear":
-            # `clear` here means hide-but-keep: update_alignment_area_ui reads
-            # get_alignment_area() straight after, so the rect has to survive.
-            # (#111 renamed this to hide_alignment_area; 4a kept main's name.)
-            self.image_widget.clear_alignment_area()
+        # Detections and the alignment area no longer arrive here: they are
+        # questions over the Responder seam (QtResponder._confirm_detection,
+        # QtResponder._edit_alignment_area).
 
         # POI selection
         poi_selection = info.get("poi_selection", None)

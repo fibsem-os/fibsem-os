@@ -24,6 +24,7 @@ workflow thread blocks on each; a pending future found when the next question
 arrives belonged to a waiter that aborted and unwound, and is cancelled.
 """
 
+from copy import deepcopy
 from typing import TYPE_CHECKING, Callable, Dict, Optional, Tuple, Type
 
 from PyQt5.QtCore import QObject, pyqtSignal
@@ -33,6 +34,7 @@ from fibsem.applications.autolamella.workflows.interaction import (
     ClearSpotBurn,
     Confirm,
     ConfirmDetection,
+    EditAlignmentArea,
     Request,
     SetFluorescenceChannels,
     SetImages,
@@ -71,6 +73,7 @@ class QtResponder(QObject):
         self._deferred_handlers: Dict[Type[Request], Callable] = {
             Confirm: self._confirm,
             ConfirmDetection: self._confirm_detection,
+            EditAlignmentArea: self._edit_alignment_area,
         }
         self._pending_question: Optional[Tuple[Request, "Future"]] = None
         self._submitted.connect(self._dispatch)
@@ -219,6 +222,16 @@ class QtResponder(QObject):
             None,
         )
 
+    def _edit_alignment_area(
+        self, request: EditAlignmentArea, future: "Future"
+    ) -> None:
+        """Show the editable alignment overlay; the click answers with the area."""
+        image_widget = self._ui.image_widget
+        if image_widget is None:
+            raise RuntimeError("No image widget available to edit the alignment area.")
+        image_widget.toggle_alignment_area(request.initial)
+        self._park_question(request, future, request.message, "Continue", None)
+
     def answer_confirm(self, clicked_yes: bool) -> bool:
         """Complete the pending question from the yes/no click.
 
@@ -253,4 +266,13 @@ class QtResponder(QObject):
             detection = det_widget._get_detected_features()
             det_widget.confirm_button_clicked()
             return detection
+        if isinstance(request, EditAlignmentArea):
+            # Read, then hide. This absorbs the old flow's second handshake: the
+            # workflow used to emit "clear" and poll WAITING_FOR_UI_UPDATE before
+            # reading the area across the seam — here both run in the click's
+            # slot, and clear_alignment_area hides the overlay but keeps the rect.
+            image_widget = self._ui.image_widget
+            area = deepcopy(image_widget.get_alignment_area())
+            image_widget.clear_alignment_area()
+            return area
         return clicked_yes

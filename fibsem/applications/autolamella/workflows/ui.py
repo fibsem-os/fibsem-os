@@ -11,6 +11,7 @@ from fibsem.applications.autolamella.workflows.interaction import (
     ClearSpotBurn,
     Confirm,
     ConfirmDetection,
+    EditAlignmentArea,
     SetImages,
     SetSpotBurnSettings,
     ask,
@@ -217,7 +218,13 @@ def update_alignment_area_ui(
     msg: str = "Edit Alignment Area",
     validate: bool = True,
 ) -> FibsemRectangle:
-    """Update the alignment area in the UI and return the updated alignment area."""
+    """Show the editable alignment area and return the (possibly edited) area.
+
+    The answer IS the area: the Continue click reads it and hides the overlay on
+    the GUI thread, so the old second handshake — emit "clear", poll
+    WAITING_FOR_UI_UPDATE, then read across the seam — is gone with it.
+    No timeout: a human answers, and silence means thinking.
+    """
 
     _check_for_abort(parent_ui)
 
@@ -225,35 +232,11 @@ def update_alignment_area_ui(
     if parent_ui is None or not validate:
         return alignment_area
 
-    INFO = {
-        "msg": msg,
-        "pos": "Continue",
-        "alignment_area": alignment_area,
-    }
-    parent_ui.workflow_update_signal.emit(INFO)
-
-    parent_ui.WAITING_FOR_USER_INTERACTION = True
-    logging.info("WAITING_FOR_USER_INTERACTION...")
-    while parent_ui.WAITING_FOR_USER_INTERACTION:
-        _check_for_abort(parent_ui=parent_ui)
-        time.sleep(1)
-
-    _check_for_abort(parent_ui)
-
-    INFO = {
-        "msg": "Clearing Alignment Area",
-        "alignment_area": "clear",
-    }
-
-    parent_ui.WAITING_FOR_UI_UPDATE = True
-    parent_ui.workflow_update_signal.emit(INFO)
-    while parent_ui.WAITING_FOR_UI_UPDATE:
-        time.sleep(0.5)
-
-    # retrieve the updated alignment area
-    alignment_area = deepcopy(parent_ui.image_widget.get_alignment_area())
-
-    return alignment_area
+    return ask(
+        parent_ui.ui_responder,
+        EditAlignmentArea(initial=alignment_area, message=msg),
+        abort=lambda: _abort_requested(parent_ui),
+    )
 
 
 def select_poi_ui(
