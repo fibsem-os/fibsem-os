@@ -223,6 +223,12 @@ def set_menu_icon(action: QAction, key: str) -> None:
     action.setIconVisibleInMenu(True)
 
 
+# How long a question addressed to the agent may stand unanswered before it
+# escalates to the operator. A preference later; a constant until the arming
+# dialog gives it a home.
+AGENT_WATCHDOG_MS = 5 * 60 * 1000
+
+
 def play_notification_sound():
     """Play a notification sound to alert the user."""
     QApplication.beep()
@@ -1220,6 +1226,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # Add supervised status chip (shown during workflow to indicate supervision mode)
         self._current_task_name = None  # Track current task for supervision toggle
+        # The agent watchdog: a question addressed to the agent that goes
+        # unanswered this long stops being the agent's and becomes yours —
+        # the ordinary waiting chrome (orange border, attention button, sound)
+        # takes over, with a toast saying why. Lives in the app, so it
+        # survives the agent's own loop dying — the whole point.
+        self._agent_watchdog = QTimer(self)
+        self._agent_watchdog.setSingleShot(True)
+        self._agent_watchdog.timeout.connect(self._on_agent_watchdog_expired)
+        self._agent_watchdog_expired = False
         self.supervised_status_btn = QPushButton("Supervised")
         self.supervised_status_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
         self.supervised_status_btn.setToolTip("Click to toggle supervision")
@@ -1778,6 +1793,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._on_workflow_finished
         )
         self.autolamella_ui._hook_toast_signal.connect(self.show_toast)
+        # Question lifecycle drives the agent watchdog (armed per prompt on
+        # agent-designated tasks, disarmed by any answer). GUI thread: the
+        # responder emits these where the lifecycle already runs.
+        self.autolamella_ui.ui_responder.add_question_observer(self._on_question_event)
         notification_service._get_service().toast.connect(self._on_notification_service)
         self.autolamella_ui.system_widget.connected_signal.connect(
             self._on_microscope_connected
@@ -2741,16 +2760,54 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.lamella_list.refresh_all()
         self._on_lamella_card_selected(getattr(self, "_selected_card_lamella", None))
 
+    def _on_question_event(self, kind: str, payload: dict) -> None:
+        """GUI thread, from the responder: arm/disarm the agent watchdog."""
+        if kind == "prompt_raised":
+            self._agent_watchdog_expired = False
+            if self._agent_supervision_active(self._current_task_name):
+                self._agent_watchdog.start(AGENT_WATCHDOG_MS)
+            else:
+                self._agent_watchdog.stop()
+        elif kind in ("prompt_answered", "prompt_cancelled"):
+            self._agent_watchdog.stop()
+            self._agent_watchdog_expired = False
+        self._refresh_workflow_indicators()
+
+    def _on_agent_watchdog_expired(self) -> None:
+        """The agent went quiet: the standing question becomes the operator's."""
+        if not self.autolamella_ui.WAITING_FOR_USER_INTERACTION:
+            return  # the answer raced the timer; nothing is standing
+        self._agent_watchdog_expired = True
+        minutes = max(1, AGENT_WATCHDOG_MS // 60000)
+        notification_service.show_toast(
+            f"The agent hasn't answered in {minutes} minutes — "
+            "this question is now yours.",
+            "warning",
+        )
+        # The ordinary waiting chrome (orange border, attention button, sound)
+        # takes over below, now that agent_holding no longer suppresses it.
+        self._refresh_workflow_indicators()
+
     def _refresh_workflow_indicators(self) -> None:
         """Re-read the waiting/supervised/running state into the window chrome."""
         # refresh the supervised status chip
         self._update_supervised_status()
 
         waiting = self.autolamella_ui.WAITING_FOR_USER_INTERACTION
-        # The timeline freezes its countdown on this: a wait for a human is not machine
-        # time, and left running it would spend the estimate while nothing is happening.
+        # A question addressed to a running agent is not (yet) a wait for the
+        # operator: the chrome stays agent-purple and quiet while the watchdog
+        # counts down. Expiry — or a human-designated question — is what turns
+        # this into the ordinary waiting state.
+        agent_holding = (
+            waiting
+            and not self._agent_watchdog_expired
+            and self._agent_supervision_active(self._current_task_name)
+        )
+        # The timeline freezes its countdown on this: a wait for an answer is not
+        # machine time whoever is answering, and left running it would spend the
+        # estimate while nothing is happening.
         self.workflow_timeline.set_waiting_for_user(waiting)
-        if waiting:
+        if waiting and not agent_holding:
             # Show user attention button and change status bar color
             self.user_attention_btn.show()
             # Play notification sound once when entering waiting state
@@ -2765,6 +2822,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Update border to reflect current workflow state
         if self._border_state == "stopping":
             pass  # Keep the red border until the workflow finishes unwinding
+        elif waiting and agent_holding:
+            self._set_border_state("agent")
         elif waiting:
             self._set_border_state("waiting")
         elif self.autolamella_ui.WORKFLOW_PENDING:
