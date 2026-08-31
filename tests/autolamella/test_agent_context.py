@@ -128,6 +128,94 @@ def test_task_outputs_for_a_real_item_and_a_missing_one(experiment):
     assert "no-such-item" in missing["error"]
 
 
+def test_stop_workflow_takes_the_stop_path_only_while_running():
+    calls = []
+
+    class StoppableHost(Host):
+        def stop_task_workflow(self):
+            calls.append("stop")
+
+    host = StoppableHost()
+    ctx = AgentContext(host)
+    idle = ctx.stop_workflow()
+    assert idle == {
+        "available": True,
+        "stopped": False,
+        "reason": "no workflow is running",
+    }
+    assert calls == []
+
+    host.is_workflow_running = True
+    assert ctx.stop_workflow() == {"available": True, "stopped": True}
+    assert calls == ["stop"]
+
+    # A host without the stop path at all reads as unavailable, not an error.
+    assert AgentContext(Host()).stop_workflow()["available"] is False
+
+
+def test_set_supervision_flips_the_live_protocol(experiment):
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskDescription,
+    )
+
+    experiment.task_protocol.workflow_config.tasks.append(
+        AutoLamellaTaskDescription(name="Rough Milling", supervise=False, required=True)
+    )
+    host = Host()
+    host.experiment = experiment
+    ctx = AgentContext(host)
+
+    applied = ctx.set_supervision("Rough Milling", True)
+    assert applied["applied"] is True
+    # The same read the workflow's decision points use sees the new value.
+    assert experiment.task_protocol.get_supervision("Rough Milling") is True
+
+    unknown = ctx.set_supervision("No Such Task", True)
+    assert unknown["applied"] is False
+    assert unknown["task_names"] == ["Rough Milling"]
+    _assert_json_safe(unknown)
+
+    assert AgentContext(Host()).set_supervision("x", True)["available"] is False
+
+
+def test_requeue_task_reruns_a_completed_pair(experiment, microscope):
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskDescription,
+    )
+    from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+
+    experiment.task_protocol.workflow_config.tasks.append(
+        AutoLamellaTaskDescription(name="Rough Milling", supervise=False, required=True)
+    )
+    host = Host()
+    host.experiment = experiment
+    ctx = AgentContext(host)
+
+    # Before a run there is no queue: a structured refusal, not an error.
+    idle = ctx.requeue_task(experiment.positions[0].name, "Rough Milling")
+    assert idle["queued"] is False
+    assert "no workflow is running" in idle["reason"]
+
+    manager = TaskManager(microscope, experiment, parent_ui=None)
+    manager.queue.build_from_matrix(
+        ["Rough Milling"], [p.name for p in experiment.positions]
+    )
+    host._task_manager = manager
+    before = len(manager.queue.items)
+
+    queued = ctx.requeue_task(experiment.positions[0].name, "Rough Milling")
+    assert queued["queued"] is True
+    assert queued["queue_version"] == manager.queue.version
+    assert len(manager.queue.items) == before + 1
+    _assert_json_safe(queued)
+
+    # Refusals stay structured: unknown item, unknown task.
+    assert ctx.requeue_task("no-such-item", "Rough Milling")["queued"] is False
+    bad_task = ctx.requeue_task(experiment.positions[0].name, "No Such Task")
+    assert bad_task["queued"] is False
+    assert bad_task["task_names"] == ["Rough Milling"]
+
+
 def test_queue_snapshot_uses_item_name_vocabulary(experiment, microscope):
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 

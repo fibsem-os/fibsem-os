@@ -276,6 +276,106 @@ class AgentContext:
         except Exception:
             return None
 
+    # --- workflow control -------------------------------------------------------
+
+    def stop_workflow(self) -> Dict[str, Any]:
+        """Stop the running workflow — the same path as the GUI's Stop button.
+
+        Everything on that path is thread-safe from here: the manager's stop is
+        an event, and halting the mill/burn is an event plus the same hardware
+        stop call the core server's ``stop_milling`` route already issues from
+        this thread. Stopping is the safety action, so like ``stop_milling`` it
+        rides the read scope and never waits on the command lock.
+        """
+        host = self._host
+        if not hasattr(host, "stop_task_workflow"):
+            return {"available": False, "stopped": False}
+        if not bool(getattr(host, "is_workflow_running", False)):
+            return {
+                "available": True,
+                "stopped": False,
+                "reason": "no workflow is running",
+            }
+        host.stop_task_workflow()
+        return {"available": True, "stopped": True}
+
+    def set_supervision(self, task_name: str, supervise: bool) -> Dict[str, Any]:
+        """Set whether ``task_name`` asks for supervision, in the live protocol.
+
+        The workflow reads this at every decision point (never a snapshot), so
+        a change takes effect at the next prompt-or-proceed choice — exactly
+        the mid-run behaviour the GUI's supervised/automated toggle has. The
+        GUI's own indicators refresh on the next task transition rather than
+        instantly.
+        """
+        experiment = self._experiment
+        protocol = getattr(experiment, "task_protocol", None) if experiment else None
+        config = getattr(protocol, "workflow_config", None) if protocol else None
+        if config is None:
+            return {"available": False, "applied": False}
+        for task in config.tasks:
+            if task.name == task_name:
+                task.supervise = bool(supervise)
+                return {
+                    "available": True,
+                    "applied": True,
+                    "task_name": task_name,
+                    "supervise": bool(supervise),
+                }
+        return {
+            "available": True,
+            "applied": False,
+            "error": f"No task named {task_name!r} in the protocol.",
+            "task_names": [t.name for t in config.tasks],
+        }
+
+    def requeue_task(
+        self, item_name: str, task_name: str, front: bool = False
+    ) -> Dict[str, Any]:
+        """Queue ``task_name`` for ``item_name`` (again) — the batch-review verb.
+
+        The queue exists only while a workflow runs, so a re-run is queued into
+        the live run: "run 03 again" while the batch continues. Adding a
+        duplicate of a completed pair is the queue's own re-run mechanism; the
+        item lands at the back (or the front with ``front=True``).
+        """
+        manager = self._manager
+        if manager is None:
+            return {
+                "available": True,
+                "queued": False,
+                "reason": "no workflow is running — the queue exists only during a run",
+            }
+        experiment = self._experiment
+        if experiment is None or experiment.get_lamella_by_name(item_name) is None:
+            return {
+                "available": True,
+                "queued": False,
+                "reason": f"No item named {item_name!r} in this experiment.",
+            }
+        protocol = getattr(experiment, "task_protocol", None)
+        config = getattr(protocol, "workflow_config", None) if protocol else None
+        known = [t.name for t in config.tasks] if config is not None else []
+        if known and task_name not in known:
+            return {
+                "available": True,
+                "queued": False,
+                "reason": f"No task named {task_name!r} in the protocol.",
+                "task_names": known,
+            }
+        item = manager.queue.add(item_name, task_name, front=bool(front))
+        if item is None:
+            return {"available": True, "queued": False, "reason": "add refused"}
+        manager.notify_queue_changed()
+        return {
+            "available": True,
+            "queued": True,
+            "item_id": item.id,
+            "item_name": item_name,
+            "task_name": task_name,
+            "queue_version": manager.queue.version,
+        }
+
     # --- supervision prompts (FIB-851) ------------------------------------------
 
     @property
