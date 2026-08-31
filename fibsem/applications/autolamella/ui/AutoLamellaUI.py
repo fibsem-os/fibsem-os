@@ -251,6 +251,9 @@ class AutoLamellaUI(QMainWindow):
         self._workflow_stop_event: threading.Event = threading.Event()
         self._task_worker_thread: Optional[FunctionWorker] = None
         self._task_manager: Optional[TaskManager] = None
+        # The embedded agent server (FIB-845): built on microscope connect when the
+        # agent_server_enabled preference is on; None means the feature is off.
+        self._agent_server_host = None
         self._last_run_summary: Optional["pd.DataFrame"] = None
 
         # setup connections
@@ -624,8 +627,24 @@ class AutoLamellaUI(QMainWindow):
         if self.experiment is not None:
             self._disconnect_experiment_events()
             self._setup_experiment_connections()
+        self._start_agent_server()
+
+    def _start_agent_server(self) -> None:
+        """Host the agent server over this session, if the preference asks for it.
+
+        Read-only until scopes are armed; never raises — an optional observer
+        must not be able to take the session down (see hosting.py).
+        """
+        if fibsem_cfg.load_user_preferences().features.agent_server_enabled:
+            from fibsem.applications.autolamella.server.hosting import AgentServerHost
+
+            if self._agent_server_host is None:
+                self._agent_server_host = AgentServerHost(self)
+            self._agent_server_host.start(self.microscope)
 
     def disconnect_from_microscope(self):
+        if self._agent_server_host is not None:
+            self._agent_server_host.stop()
         self.microscope = None
         self.settings = None
         self.update_microscope_ui()
@@ -1062,6 +1081,13 @@ class AutoLamellaUI(QMainWindow):
         """
         preferences = fibsem_cfg.load_user_preferences()
         manager = build_hook_manager(preferences.hooks)
+
+        # The agent server's lifecycle feed. Registered here, per run, because this
+        # manager is rebuilt each run — a once-at-startup registration would go
+        # silently deaf after the first workflow (the trap events.py documents).
+        host = self._agent_server_host
+        if host is not None and host.running and host.lifecycle_hook is not None:
+            manager.register(host.lifecycle_hook)
 
         # Deliberately not registered yet. The trigger is proven end to end and the
         # writer is tested, but completion-summary.json is a placeholder for the real
