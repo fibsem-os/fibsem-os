@@ -91,3 +91,47 @@ def test_an_adopted_experiment_is_visible_through_the_facade(ui, tmp_path):
     assert status["experiment"]["name"] == "host-exp"
     assert status["experiment"]["num_items"] == 1
     assert ctx.task_outputs(exp.positions[0].name)["available"] is True
+
+
+def test_run_summary_survives_the_post_run_dialog(ui, monkeypatch):
+    # The live-run regression: _show_workflow_summary used to consume
+    # _last_run_summary to make the dialog once-only, so a remote read after
+    # the run always found nothing. The dialog stays once-only; the record
+    # stays readable.
+    import pandas as pd
+
+    from fibsem.applications.autolamella.ui import AutoLamellaUI as ui_module
+
+    shown = []
+
+    class _Dialog:
+        def __init__(self, summary, parent=None):
+            shown.append(summary)
+
+        def exec_(self):
+            return 0
+
+    monkeypatch.setattr(ui_module, "WorkflowSummaryDialog", _Dialog)
+    ui._last_run_summary = pd.DataFrame(
+        [
+            {
+                "lamella_name": "01",
+                "task_name": "Rough Milling",
+                "task_status": "Finished",
+            }
+        ]
+    )
+
+    ui._show_workflow_summary()
+    ui._show_workflow_summary()  # a second finished-signal must not re-show
+    assert len(shown) == 1
+
+    payload = AgentContext(ui).run_summary()
+    assert payload["available"] is True
+    assert payload["items"][0]["task_name"] == "Rough Milling"
+    json.dumps(payload)
+
+    # The next run's capture is a new object: the dialog shows again.
+    ui._last_run_summary = pd.DataFrame([{"task_name": "Polishing"}])
+    ui._show_workflow_summary()
+    assert len(shown) == 2

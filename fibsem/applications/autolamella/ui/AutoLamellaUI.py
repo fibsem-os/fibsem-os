@@ -262,6 +262,10 @@ class AutoLamellaUI(QMainWindow):
         # agent_server_enabled preference is on; None means the feature is off.
         self._agent_server_host = None
         self._last_run_summary: Optional["pd.DataFrame"] = None
+        # The summary the dialog has already shown (by identity): the dialog is
+        # once-per-run, while _last_run_summary itself must survive as the
+        # record remote readers see.
+        self._shown_run_summary: Optional["pd.DataFrame"] = None
 
         # setup connections
         self.setup_connections()
@@ -2019,10 +2023,20 @@ class AutoLamellaUI(QMainWindow):
         self._show_workflow_summary()
 
     def _show_workflow_summary(self) -> None:
-        """Show a modal summary dialog of the tasks run in the last workflow."""
+        """Show a modal summary dialog of the tasks run in the last workflow.
+
+        Show-once, but never consume: ``_last_run_summary`` is also the
+        record the agent server's ``run_summary`` endpoint reads after the
+        worker nulls the manager — nulling it here meant the record lived
+        only for the milliseconds between the worker's capture and this
+        handler, and every remote read found nothing. The record stays until
+        the next run's capture overwrites it; only the dialog is once-only.
+        """
         summary = self._last_run_summary
-        self._last_run_summary = None
-        if summary is None or summary.empty:
+        if summary is None or summary is self._shown_run_summary:
+            return
+        self._shown_run_summary = summary
+        if summary.empty:
             return
         try:
             dialog = WorkflowSummaryDialog(summary, parent=self)
