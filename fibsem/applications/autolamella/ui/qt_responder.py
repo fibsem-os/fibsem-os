@@ -60,6 +60,7 @@ class QtResponder(QObject):
     """Answers workflow requests by driving the window's widgets, on the GUI thread."""
 
     _submitted = pyqtSignal(object, object)  # (Request, Future)
+    _agent_answered = pyqtSignal(bool, object)  # (clicked_yes, Future[bool])
 
     def __init__(self, ui: "AutoLamellaUI"):
         super().__init__()
@@ -92,10 +93,52 @@ class QtResponder(QObject):
         self._active_spot_burn: Optional[Tuple[RunSpotBurn, "Future"]] = None
         self._spot_burn_finished_wired: Optional[object] = None
         self._submitted.connect(self._dispatch)
+        self._agent_answered.connect(self._apply_agent_answer)
 
     def submit(self, request: "Request", future: "Future") -> None:
         """Hand ``request`` to the GUI thread; never blocks. Any thread."""
         self._submitted.emit(request, future)
+
+    # --- the agent's side of the seam (FIB-851) --------------------------------
+
+    def pending_question(self) -> Optional["Request"]:
+        """The request currently awaiting an answer, or None. Any thread.
+
+        Returns the frozen request itself — safe to read cross-thread, and it
+        carries its own context by contract ("a responder must be able to
+        answer from the request alone"), which is exactly what lets a remote
+        agent see what it is being asked. A question whose asker already
+        aborted reads as None: nobody is waiting on it.
+        """
+        pending = self._pending_question
+        if pending is None or pending[1].cancelled():
+            return None
+        return pending[0]
+
+    def submit_answer(self, clicked_yes: bool) -> "Future":
+        """Answer the pending question as if the matching button were clicked.
+
+        Any thread; returns a Future[bool] that resolves True when the answer
+        was applied and False when there was nothing pending (the human beat
+        this answer to it, or the prompt was already gone). Routes through
+        :meth:`answer_confirm` on the GUI thread — the *same* path as the
+        buttons, so widget read-backs, the Run Milling interception, and the
+        first-writer-wins guards all behave identically for agent and human.
+        """
+        from concurrent.futures import Future as _Future
+
+        outcome: "_Future" = _Future()
+        self._agent_answered.emit(clicked_yes, outcome)
+        return outcome
+
+    def _apply_agent_answer(self, clicked_yes: bool, outcome: "Future") -> None:
+        """GUI thread. Complete ``outcome`` with whether the answer applied."""
+        try:
+            applied = self.answer_confirm(clicked_yes)
+        except Exception as exc:  # noqa: BLE001 - the asker owns the failure
+            self._fail(outcome, exc)
+            return
+        self._deliver(outcome, applied)
 
     def _dispatch(self, request: "Request", future: "Future") -> None:
         """GUI thread. Complete the future, whatever happens in the handler."""
