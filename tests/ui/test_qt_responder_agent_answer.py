@@ -174,8 +174,8 @@ def test_each_posting_gets_a_fresh_nonce(ui, qapp):
 
 def test_question_lifecycle_events_carry_who_answered(ui, qapp):
     events = []
-    ui.ui_responder.on_question_event = lambda kind, payload: events.append(
-        (kind, payload)
+    dispose = ui.ui_responder.add_question_observer(
+        lambda kind, payload: events.append((kind, payload))
     )
     try:
         # Operator answers via the button path.
@@ -190,7 +190,7 @@ def test_question_lifecycle_events_carry_who_answered(ui, qapp):
         _spin_until(qapp, answered.done)
         thread.join(timeout=5)
     finally:
-        ui.ui_responder.on_question_event = None
+        dispose()
 
     kinds = [k for k, _ in events]
     assert kinds == [
@@ -214,25 +214,27 @@ def test_a_broken_observer_cannot_break_the_click(ui, qapp):
     def broken(kind, payload):
         raise RuntimeError("observer fell over")
 
-    ui.ui_responder.on_question_event = broken
+    dispose = ui.ui_responder.add_question_observer(broken)
     try:
         thread, outcome = _ask_on_worker(ui, qapp, Confirm("Continue?"))
         assert ui.ui_responder.answer_confirm(True) is True
         thread.join(timeout=5)
         assert outcome.get("answer") is True  # the click still applied
     finally:
-        ui.ui_responder.on_question_event = None
+        dispose()
 
 
 def test_an_abandoned_question_reports_cancelled(ui, qapp):
     events = []
-    ui.ui_responder.on_question_event = lambda kind, payload: events.append(kind)
+    dispose = ui.ui_responder.add_question_observer(
+        lambda kind, payload: events.append(kind)
+    )
     try:
         thread, _ = _ask_on_worker(ui, qapp, Confirm("Continue?"))
         ui.ui_responder.abandon()
         thread.join(timeout=5)
     finally:
-        ui.ui_responder.on_question_event = None
+        dispose()
     assert events == ["prompt_raised", "prompt_cancelled"]
 
 
