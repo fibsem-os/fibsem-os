@@ -21,7 +21,7 @@ try:  # Protocol is typing-only; keep import robust on the 3.8 floor
 except ImportError:  # pragma: no cover
     Protocol = object  # type: ignore[assignment]
 
-__all__ = ["AppContext", "build_app_router"]
+__all__ = ["AppContext", "build_app_control_router", "build_app_router"]
 
 
 class AppContext(Protocol):
@@ -44,6 +44,10 @@ class AppContext(Protocol):
     def recent_experiments(self) -> List[Dict[str, Any]]: ...
 
     def events(self, since: int = 0, timeout: float = 0.0) -> Dict[str, Any]: ...
+
+    def pending_prompt(self) -> Dict[str, Any]: ...
+
+    def answer_prompt(self, response: bool) -> Dict[str, Any]: ...
 
 
 def build_app_router(context: AppContext) -> APIRouter:
@@ -81,11 +85,31 @@ def build_app_router(context: AppContext) -> APIRouter:
     def recent_experiments():
         return {"items": context.recent_experiments()}
 
+    @router.get("/prompt")
+    def pending_prompt():
+        return context.pending_prompt()
+
     @router.get("/events")
     def events(since: int = 0, timeout: float = 0.0):
         # A long-poll: parks up to `timeout` seconds waiting for news. Capped
         # here because the park occupies a threadpool worker — a transport
         # concern, so the transport owns the ceiling.
         return context.events(since=since, timeout=min(max(timeout, 0.0), 30.0))
+
+    return router
+
+
+def build_app_control_router(context: AppContext) -> APIRouter:
+    """Routes that act on the session rather than observe it.
+
+    Mounted (by build_server) behind the ``control`` scope, which embedded
+    hosting does not arm yet — so today these exist only where a hosting
+    explicitly arms control (tests; later, the arming dialog).
+    """
+    router = APIRouter(prefix="/app")
+
+    @router.post("/prompt/answer")
+    def answer_prompt(body: Dict[str, Any]):
+        return context.answer_prompt(bool(body.get("response", False)))
 
     return router

@@ -226,6 +226,23 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="get_pending_prompt",
+        description="The supervision question awaiting an answer, if any — message, options, and context images.",
+        method="GET",
+        path="/app/prompt",
+        scope="read",
+        router="app",
+    ),
+    ToolSpec(
+        name="answer_prompt",
+        description="Answer the pending supervision question, exactly as clicking the matching button would. True = the positive option.",
+        method="POST",
+        path="/app/prompt/answer",
+        scope="control",
+        router="app",
+        params={"response": "true for the positive option, false for the negative"},
+    ),
+    ToolSpec(
         name="list_recent_experiments",
         description="Recently opened experiments on this machine, without loading them.",
         method="GET",
