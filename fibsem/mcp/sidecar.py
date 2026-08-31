@@ -26,7 +26,7 @@ import os
 import sys
 from typing import Optional, Tuple
 
-from fibsem.server.catalog import CATALOG
+from fibsem.server.catalog import CATALOG, tools_for_capabilities
 
 _TIMEOUT_S = 120.0  # acquisitions and moves on real hardware are slow
 
@@ -112,16 +112,17 @@ def _call(client, method, path, payload=None):
     return resp.json(), None
 
 
-def build_sidecar(client, scopes):
-    """Build the FastMCP server over an httpx-compatible client.
+def build_sidecar(client, capabilities):
+    """Build the MCP server over an httpx-compatible client.
 
-    ``scopes`` is the /capabilities scopes payload; only tools whose scope is
-    armed get registered (the server enforces regardless).
+    ``capabilities`` is the full /capabilities payload; a tool registers only
+    when its scope is armed AND its router is mounted (an app tool exists only
+    when the server hosts an application). The server enforces regardless.
     """
     from mcp.server.mcpserver import Image, MCPServer
 
     mcp = MCPServer("fibsem")
-    armed = {t.name for t in CATALOG if scopes.get(t.scope, False)}
+    armed = {t.name for t in tools_for_capabilities(capabilities)}
     by_name = {t.name: t for t in CATALOG}
 
     def _json_tool(name, payload_fn=None):
@@ -223,6 +224,34 @@ def build_sidecar(client, scopes):
         data, err = _call(client, "POST", "/autocontrast", {"beam_type": beam_type})
         return err if err else data
 
+    def _app_get(path):
+        data, err = _call(client, "GET", path)
+        return err if err else data
+
+    def get_app_status():
+        return _app_get("/app/status")
+
+    def get_app_queue():
+        return _app_get("/app/queue")
+
+    def get_experiment_summary():
+        return _app_get("/app/experiment_summary")
+
+    def get_task_history():
+        return _app_get("/app/task_history")
+
+    def get_run_summary():
+        return _app_get("/app/run_summary")
+
+    def get_protocol():
+        return _app_get("/app/protocol")
+
+    def get_task_outputs(item_name: str):
+        return _app_get(f"/app/task_outputs/{item_name}")
+
+    def list_recent_experiments():
+        return _app_get("/app/recent_experiments")
+
     implementations = {
         fn.__name__: fn
         for fn in (
@@ -241,6 +270,14 @@ def build_sidecar(client, scopes):
             move_stage_absolute,
             move_to_milling_angle,
             autocontrast,
+            get_app_status,
+            get_app_queue,
+            get_experiment_summary,
+            get_task_history,
+            get_run_summary,
+            get_protocol,
+            get_task_outputs,
+            list_recent_experiments,
         )
     }
     # The catalog is the contract: refuse to start with an implementation gap.
@@ -301,7 +338,7 @@ def main(argv=None):
     )
     if args.check:
         return
-    build_sidecar(client, capabilities.get("scopes", {})).run()
+    build_sidecar(client, capabilities).run()
 
 
 if __name__ == "__main__":

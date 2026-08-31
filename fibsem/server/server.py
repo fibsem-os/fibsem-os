@@ -41,6 +41,7 @@ from fastapi.responses import JSONResponse, Response
 
 from fibsem import utils
 from fibsem.microscope import FibsemMicroscope
+from fibsem.server.app_routes import build_app_router
 from fibsem.server.auth import AuthConfig, Scope, command_slot, require_scope
 from fibsem.server.discovery import (
     DISCOVERY_FILE,
@@ -140,13 +141,10 @@ def build_server(
     """Build the server app around an already-connected microscope.
 
     ``auth`` defaults to a generated token with only the ``read`` scope armed.
-    ``app_context`` mounts the app-level router (FIB-846); until that lands,
-    passing one is an error rather than a silent no-op.
+    ``app_context`` is anything satisfying app_routes.AppContext (structurally
+    -- the application's AgentContext in practice); passing one mounts the
+    app-level router and flips ``routers.app`` in /capabilities.
     """
-    if app_context is not None:
-        raise NotImplementedError(
-            "The app router lands with FIB-846; app_context is not usable yet."
-        )
     if auth is None:
         auth = AuthConfig.generate()
 
@@ -183,7 +181,7 @@ def build_server(
         return {
             "api_version": API_VERSION,
             "manufacturer": type(microscope).__name__,
-            "routers": {"microscope": True, "app": False},
+            "routers": {"microscope": True, "app": app_context is not None},
             "scopes": {s.value: auth.is_armed(s) for s in Scope},
         }
 
@@ -668,6 +666,13 @@ def build_server(
 
     app.include_router(read)
     app.include_router(hw)
+    if app_context is not None:
+        # Read scope applied here so auth stays in one place; the router itself
+        # is a thin pass-through over the context's JSON-able snapshots.
+        app.include_router(
+            build_app_router(app_context),
+            dependencies=[Depends(require_scope(Scope.READ))],
+        )
     return app
 
 

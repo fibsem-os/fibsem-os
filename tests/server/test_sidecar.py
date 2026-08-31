@@ -33,14 +33,14 @@ def _make_client(arm_hardware):
     return client
 
 
-def _scopes(client):
-    return client.get("/capabilities").json()["scopes"]
+def _capabilities(client):
+    return client.get("/capabilities").json()
 
 
 @pytest.fixture(scope="module")
 def armed_sidecar():
     client = _make_client(arm_hardware=True)
-    return build_sidecar(client, _scopes(client))
+    return build_sidecar(client, _capabilities(client))
 
 
 def _tool_names(sidecar):
@@ -48,15 +48,19 @@ def _tool_names(sidecar):
     return {t.name for t in getattr(listed, "tools", listed)}
 
 
-def test_armed_sidecar_registers_the_full_catalog(armed_sidecar):
-    assert _tool_names(armed_sidecar) == {t.name for t in CATALOG}
+def test_armed_sidecar_registers_the_full_microscope_catalog(armed_sidecar):
+    # No app_context on this server, so app tools must not register even armed.
+    expected = {t.name for t in CATALOG if t.router == "microscope"}
+    assert _tool_names(armed_sidecar) == expected
 
 
 def test_read_only_sidecar_registers_read_tools_only():
     client = _make_client(arm_hardware=False)
-    sidecar = build_sidecar(client, _scopes(client))
+    sidecar = build_sidecar(client, _capabilities(client))
     names = _tool_names(sidecar)
-    assert names == {t.name for t in CATALOG if t.scope == "read"}
+    assert names == {
+        t.name for t in CATALOG if t.scope == "read" and t.router == "microscope"
+    }
     assert "stop_milling" in names
     assert "acquire_image_preview" not in names
 
@@ -88,7 +92,10 @@ def test_hardware_refusal_is_readable_text_not_an_error():
     # Registered tools + unarmed server = the server refuses; the agent should
     # see the structured refusal as text, not a raised exception.
     read_client = _make_client(arm_hardware=False)
-    armed_shape = {"read": True, "control": False, "hardware": True}
+    armed_shape = {
+        "scopes": {"read": True, "control": False, "hardware": True},
+        "routers": {"microscope": True, "app": False},
+    }
     sidecar = build_sidecar(read_client, armed_shape)
     result = asyncio.run(sidecar.call_tool("move_stage_relative", {"dx": 1e-6}))
     text = "".join(getattr(c, "text", "") for c in _contents(result))
