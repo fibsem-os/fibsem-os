@@ -12,6 +12,7 @@ class of bug that got through twice on the pre-flight dialog.
 
 Uses the shared offscreen ``qapp`` fixture from tests/conftest.py.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -90,6 +91,7 @@ def column(widget) -> list:
 
 # ── pending rows ──────────────────────────────────────────────────────────────
 
+
 def test_every_pending_row_shows_its_estimate(widget):
     assert column(widget) == ["1m 40s"] * 4
 
@@ -125,14 +127,16 @@ def test_an_item_added_mid_workflow_gets_its_estimate(widget, queue):
 
 # ── the running row ───────────────────────────────────────────────────────────
 
+
 def test_the_running_row_counts_down(widget, queue, monkeypatch):
     start_next(widget, queue)
     tick(widget, monkeypatch, 40.0)
     assert column(widget)[0] == "1m 00s left"
 
 
-def test_the_running_row_stops_predicting_once_the_estimate_is_spent(widget, queue,
-                                                                    monkeypatch):
+def test_the_running_row_stops_predicting_once_the_estimate_is_spent(
+    widget, queue, monkeypatch
+):
     """It reports elapsed instead -- the same kind of number the row will show when it
     finishes. Never a negative, never a stalled zero, and never a new word for what is
     ordinary variance."""
@@ -143,7 +147,8 @@ def test_the_running_row_stops_predicting_once_the_estimate_is_spent(widget, que
 
 
 def test_the_elapsed_moves_out_of_the_subtitle_when_the_column_takes_it_over(
-        widget, queue, monkeypatch):
+    widget, queue, monkeypatch
+):
     """Both at once would be the same number twice."""
     start_next(widget, queue)
     tick(widget, monkeypatch, 40.0)
@@ -153,7 +158,8 @@ def test_the_elapsed_moves_out_of_the_subtitle_when_the_column_takes_it_over(
 
 
 def test_a_running_row_with_no_estimate_just_shows_elapsed_in_the_subtitle(
-        app, queue, monkeypatch):
+    app, queue, monkeypatch
+):
     w = WorkflowProgressWidget()
     w.set_actions_enabled(True)
     w.set_workflow(queue.items)
@@ -165,8 +171,10 @@ def test_a_running_row_with_no_estimate_just_shows_elapsed_in_the_subtitle(
 
 # ── supervised waits ──────────────────────────────────────────────────────────
 
+
 def test_a_wait_for_a_human_pauses_the_countdown_rather_than_spending_it(
-        widget, queue, monkeypatch):
+    widget, queue, monkeypatch
+):
     """40 s of work then a 300 s pause leaves the same 60 s of work to do. Left running,
     the wait would spend the whole estimate with all of the task still ahead of it."""
     start_next(widget, queue)
@@ -210,8 +218,9 @@ def test_the_pause_belongs_to_one_task_not_the_workflow(widget, queue, monkeypat
     first = start_next(widget, queue)
     widget.set_waiting_for_user(True)
     queue.mark_done(first, Status.Completed)
-    widget.update_from_status(status_for(queue, first, Status.Completed,
-                                         task_duration=50.0))
+    widget.update_from_status(
+        status_for(queue, first, Status.Completed, task_duration=50.0)
+    )
     start_next(widget, queue)
     assert widget._paused_total == 0.0
     assert widget._waiting_for_user is False
@@ -219,11 +228,13 @@ def test_the_pause_belongs_to_one_task_not_the_workflow(widget, queue, monkeypat
 
 # ── finished rows ─────────────────────────────────────────────────────────────
 
+
 def test_a_finished_row_shows_what_it_actually_took(widget, queue):
     item = start_next(widget, queue)
     queue.mark_done(item, Status.Completed)
-    widget.update_from_status(status_for(queue, item, Status.Completed,
-                                         task_duration=112.0))
+    widget.update_from_status(
+        status_for(queue, item, Status.Completed, task_duration=112.0)
+    )
     assert column(widget)[0] == "1m 52s"
     assert "1m 52s" not in widget._outer._steps[0].subtitle
 
@@ -233,8 +244,9 @@ def test_a_finished_row_is_not_overwritten_by_its_own_estimate(widget, queue):
     estimate and must keep the actual."""
     item = start_next(widget, queue)
     queue.mark_done(item, Status.Completed)
-    widget.update_from_status(status_for(queue, item, Status.Completed,
-                                         task_duration=112.0))
+    widget.update_from_status(
+        status_for(queue, item, Status.Completed, task_duration=112.0)
+    )
     widget.refresh_queue(queue.items)
     assert column(widget)[0] == "1m 52s"
 
@@ -244,12 +256,16 @@ def test_the_two_clocks_in_the_panel_agree_on_their_format(widget, queue):
     beside `7:13PM` would read as two different conventions."""
     item = start_next(widget, queue)
     queue.mark_done(item, Status.Completed)
-    widget.update_from_status(status_for(queue, item, Status.Completed,
-                                         task_duration=112.0, completed_at=START))
+    widget.update_from_status(
+        status_for(
+            queue, item, Status.Completed, task_duration=112.0, completed_at=START
+        )
+    )
     assert not widget._outer._steps[0].subtitle.split("· ")[-1].startswith("0")
 
 
 # ── the header line ───────────────────────────────────────────────────────────
+
 
 def test_the_header_quotes_what_is_left_and_when_it_lands(widget):
     text = widget._summary.text()
@@ -270,8 +286,9 @@ def test_the_header_is_silent_when_no_workflow_is_live(app, queue):
     assert w._summary.isHidden()
 
 
-def test_the_header_drops_the_clock_while_waiting_for_a_human(widget, queue,
-                                                              monkeypatch):
+def test_the_header_drops_the_clock_while_waiting_for_a_human(
+    widget, queue, monkeypatch
+):
     """The wait is unbounded, so any finish time quoted through it is a guess dressed as
     a fact. The work still to do is knowable either way."""
     start_next(widget, queue)
@@ -283,7 +300,7 @@ def test_the_header_drops_the_clock_while_waiting_for_a_human(widget, queue,
 
 
 def test_a_scheduled_hold_is_inside_the_time_the_header_quotes(app, queue):
-    """"When do I come back" includes four hours of dead time in the middle."""
+    """ "When do I come back" includes four hours of dead time in the middle."""
     w = WorkflowProgressWidget()
     w.set_actions_enabled(True)
     w.set_estimates({(i.lamella_name, i.task_name): 100.0 for i in queue.items})
@@ -296,12 +313,14 @@ def test_the_header_goes_quiet_once_there_is_nothing_left_to_do(widget, queue):
     for _ in range(4):
         item = start_next(widget, queue)
         queue.mark_done(item, Status.Completed)
-        widget.update_from_status(status_for(queue, item, Status.Completed,
-                                             task_duration=100.0))
+        widget.update_from_status(
+            status_for(queue, item, Status.Completed, task_duration=100.0)
+        )
     assert widget._summary.isHidden()
 
 
 # ── the layout this column has to survive ─────────────────────────────────────
+
 
 def test_a_long_name_elides_instead_of_pushing_the_column_off_screen(app):
     """The rows sit in a QScrollArea that is widget-resizable with horizontal scrolling
@@ -374,7 +393,7 @@ TASKS = {
 class _ParentUI(QObject):
     """The two signals TaskManager emits on, as real Qt signals."""
 
-    workflow_update_signal = pyqtSignal(dict)
+    workflow_status_signal = pyqtSignal(object)
     queue_changed_signal = pyqtSignal(dict)
 
 
@@ -396,24 +415,27 @@ def live(app, tmp_path):
 
     widget = WorkflowProgressWidget()
     parent_ui = _ParentUI()
-    parent_ui.workflow_update_signal.connect(
-        lambda info: widget.update_from_status(info["status"])
+    parent_ui.workflow_status_signal.connect(
+        lambda event: widget.update_from_status(event.report)
     )
     parent_ui.queue_changed_signal.connect(
         lambda info: widget.refresh_queue(info["queue_items"])
     )
-    manager = TaskManager(microscope=_NoMicroscope(), experiment=experiment,
-                          parent_ui=parent_ui)
+    manager = TaskManager(
+        microscope=_NoMicroscope(), experiment=experiment, parent_ui=parent_ui
+    )
     names = [p.name for p in experiment.positions]
     manager.queue.build_from_matrix(list(TASKS), names)
 
     # What AutoLamellaMainUI does at workflow start.
     widget.set_actions_enabled(True)
-    widget.set_estimates({
-        (lamella.name, task_name): lamella.task_config[task_name].estimated_duration
-        for lamella in experiment.positions
-        for task_name in TASKS
-    })
+    widget.set_estimates(
+        {
+            (lamella.name, task_name): lamella.task_config[task_name].estimated_duration
+            for lamella in experiment.positions
+            for task_name in TASKS
+        }
+    )
     widget.set_workflow(manager.queue.items)
     return manager, widget, experiment
 
@@ -436,6 +458,7 @@ def test_a_real_config_reaches_the_column_through_the_managers_own_payload(live)
 
 def _fmt(seconds: float) -> str:
     from fibsem.ui.widgets.preflight import format_duration
+
     return format_duration(seconds)
 
 

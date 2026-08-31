@@ -38,11 +38,18 @@ class RecordingUI:
     """
 
     def __init__(self):
-        self.workflow_update_signal = self
-        self.emitted: List[dict] = []
+        # update_status_ui still uses the dict signal; _emit_status now reports on
+        # workflow_status_signal. Both record here, into per-channel lists.
+        self.workflow_update_signal = _Recorder()
+        self.workflow_status_signal = _Recorder()
         self._task_manager = None  # _check_for_abort reads this
 
-    def emit(self, payload: dict) -> None:
+
+class _Recorder:
+    def __init__(self):
+        self.emitted: List = []
+
+    def emit(self, payload) -> None:
         self.emitted.append(payload)
 
 
@@ -136,8 +143,8 @@ def manager(tmp_path) -> TaskManager:
     return m
 
 
-def last_status(manager: TaskManager) -> dict:
-    return manager.parent_ui.workflow_update_signal.emitted[-1]["status"]
+def last_status(manager: TaskManager):
+    return manager.parent_ui.workflow_status_signal.emitted[-1].report
 
 
 # ── _emit_status ──────────────────────────────────────────────────────────────
@@ -234,7 +241,7 @@ def test_emit_passes_through_error_and_skip_detail(manager):
     status = last_status(manager)
     assert status.error_message == "it broke"
     assert status.task_duration == 12.5
-    assert manager.parent_ui.workflow_update_signal.emitted[-1]["msg"] == "boom"
+    assert manager.parent_ui.workflow_status_signal.emitted[-1].message == "boom"
 
 
 def test_emit_is_a_noop_headless(tmp_path):
@@ -367,8 +374,8 @@ def test_status_bar_text_is_derivable_for_added_items(manager):
             added.append(manager.queue.add("L99", "Polishing"))
 
     run_queue_with(manager, on_task)
-    for payload in manager.parent_ui.workflow_update_signal.emitted:
-        status = payload.get("status")
+    for event in manager.parent_ui.workflow_status_signal.emitted:
+        status = event.report
         if status is None:
             continue
         assert status.queue_position is not None

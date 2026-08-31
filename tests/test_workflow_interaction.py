@@ -9,6 +9,7 @@ run, rather than only in ``tests/ui``.
 import dataclasses
 import threading
 import time
+from concurrent.futures import Future
 
 import pytest
 
@@ -16,6 +17,7 @@ from fibsem.applications.autolamella.workflows.interaction import (
     Confirm,
     SetImages,
     ask,
+    wait_for,
 )
 
 
@@ -113,3 +115,25 @@ def test_requests_are_immutable():
 
     with pytest.raises(dataclasses.FrozenInstanceError):
         request.message = "changed"
+
+
+def test_an_abandoned_wait_cancels_its_future():
+    # The responder's contract for a Stop: cancellation is visible on the future
+    # itself, so a responder does not act again for a question nobody will read
+    # (bench-found: a Stop mid-mill resurrected the prompt when the cancelled
+    # mill finished, because the future looked like it still had a waiter).
+    future = Future()
+
+    with pytest.raises(InterruptedError):
+        wait_for(future, abort=lambda: True)
+
+    assert future.cancelled()
+
+
+def test_a_timed_out_wait_cancels_its_future():
+    future = Future()
+
+    with pytest.raises(TimeoutError):
+        wait_for(future, timeout=0.05)
+
+    assert future.cancelled()

@@ -14,6 +14,7 @@ Driven through `LamellaNameListWidget` rather than a bare `_LamellaRow`: the def
 button is hidden until `enable_defect_button(True)`, and `refresh` skips a hidden
 button, so a bare row silently asserts nothing.
 """
+
 import ast
 import os
 
@@ -116,10 +117,12 @@ def test_the_workflow_update_refreshes_the_name_list(row, lamella):
         AutoLamellaSingleWindowUI,
     )
 
-    source = inspect.getsource(AutoLamellaSingleWindowUI._on_workflow_update)
+    # Lifecycle reports arrive on workflow_status_signal now; the refresh lives
+    # in _apply_status_report, which _on_workflow_status runs for every report.
+    source = inspect.getsource(AutoLamellaSingleWindowUI._apply_status_report)
 
     assert "autolamella_ui.lamella_list.refresh_lamella(" in source, (
-        "`_on_workflow_update` does not refresh the name list, and the row no longer "
+        "`_apply_status_report` does not refresh the name list, and the row no longer "
         "subscribes -- so nothing keeps it current while a workflow runs"
     )
 

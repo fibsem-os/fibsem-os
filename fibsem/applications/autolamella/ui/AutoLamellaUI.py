@@ -28,10 +28,10 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem import conversions
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
     LamellaNameListWidget,
 )
+from fibsem.applications.autolamella.ui.qt_responder import QtResponder
 from fibsem.applications.autolamella.ui.selected_lamella_widget import (
     SelectedLamellaWidget,
 )
@@ -40,10 +40,8 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,
     FibsemImage,
-    FibsemRectangle,
     FibsemStagePosition,
     MicroscopeSettings,
-    Point,
 )
 from fibsem.ui import (
     DETECTION_AVAILABLE,
@@ -109,6 +107,9 @@ if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
         AutoLamellaSingleWindowUI,
     )
+    from fibsem.applications.autolamella.workflows.tasks.status import (
+        WorkflowStatusEvent,
+    )
 
 # Suppress a specific upstream Napari/NumPy warning from shapes miter computation. This
 # module no longer imports napari, but the minimap still loads it, and a filter is matched
@@ -167,13 +168,18 @@ INSTRUCTIONS = {
 
 class AutoLamellaUI(QMainWindow):
     workflow_update_signal = pyqtSignal(dict)
+    # The fire-and-forget third of workflow_update_signal's traffic, moving to its
+    # own channel for the same reason queue_changed_signal has one: that signal's
+    # handler clears WAITING_FOR_UI_UPDATE on every emission, so on the shared
+    # channel merely saying something releases whoever is blocked on that flag.
+    # Carries a WorkflowStatusEvent.
+    workflow_status_signal = pyqtSignal(object)
     # Kept separate from workflow_update_signal on purpose: that one drives
-    # handle_workflow_update, which reconfigures the interaction UI and clears
-    # WAITING_FOR_UI_UPDATE on every emission. A queue edit is not a step in the
-    # task lifecycle and must not disturb any of that.
+    # handle_workflow_update, which reconfigures the interaction UI on every
+    # emission. A queue edit is not a step in the task lifecycle and must not
+    # disturb any of that.
     queue_changed_signal = pyqtSignal(dict)
     step_update_signal = pyqtSignal(str)  # emits human-readable step label
-    detection_confirmed_signal = pyqtSignal(bool)
     _workflow_finished_signal = pyqtSignal(bool)
     experiment_update_signal = pyqtSignal()
     _hook_toast_signal = pyqtSignal(
@@ -188,6 +194,10 @@ class AutoLamellaUI(QMainWindow):
 
         self._setup_ui()
         self.parent_widget = parent_ui
+
+        # The Qt side of the workflow's Responder seam: workflow code is handed
+        # this one-method object, never the window itself.
+        self.ui_responder = QtResponder(self)
 
         self._protocol_lock = threading.RLock()
 
@@ -228,13 +238,16 @@ class AutoLamellaUI(QMainWindow):
         if not self._connection_chip_enabled:
             self.tabWidget.insertTab(0, self.system_widget, "Connection")
 
+        # Display state, not a handshake: a question is up and waiting for a
+        # click. QtResponder is the only setter; the attention button, border
+        # and timeline pause read it. The cross-thread flag-poll it used to be
+        # -- and USER_RESPONSE and WAITING_FOR_UI_UPDATE alongside it -- is
+        # gone: every workflow interaction is a typed request on its own future
+        # (workflows/interaction.py).
         self.WAITING_FOR_USER_INTERACTION: bool = False
         # A run is active but nothing is executing -- today only during a
         # scheduled-start wait. Set from the worker thread, read by the border.
         self.WORKFLOW_PENDING: bool = False
-        self.USER_RESPONSE: bool = False
-        self.WAITING_FOR_UI_UPDATE: bool = False
-        self.SELECTED_POI: Optional[Point] = None
         self._workflow_stop_event: threading.Event = threading.Event()
         self._task_worker_thread: Optional[FunctionWorker] = None
         self._task_manager: Optional[TaskManager] = None
@@ -346,8 +359,8 @@ class AutoLamellaUI(QMainWindow):
         self.pushButton_no.clicked.connect(self.push_interaction_button)
 
         # signals
-        self.detection_confirmed_signal.connect(self.handle_confirmed_detection_signal)
         self.workflow_update_signal.connect(self.handle_workflow_update)
+        self.workflow_status_signal.connect(self.handle_workflow_status)
         self._workflow_finished_signal.connect(self._workflow_finished)  # type: ignore
 
         # workflow info
@@ -1772,18 +1785,15 @@ class AutoLamellaUI(QMainWindow):
         self.pushButton_yes.setEnabled(False)
         self.pushButton_no.setEnabled(False)
 
-        # positve / negative response
-        self.USER_RESPONSE = bool(self.sender() == self.pushButton_yes)
-        self.WAITING_FOR_USER_INTERACTION = False
+        clicked_yes = bool(self.sender() == self.pushButton_yes)
+        # The pending question owns this click; with every interaction converted
+        # to the Responder there is no other path. A click with nothing pending
+        # (a stray double-click after the answer landed) means nothing.
+        self.ui_responder.answer_confirm(clicked_yes)
 
     def handle_acquisition_update(self, ddict: dict) -> None:
         if ddict.get("finished", False):
             self.update_lamella_ui()
-
-    def handle_confirmed_detection_signal(self):
-        # TODO: this seem very redundant if we just use the signal directly
-        if self.det_widget is not None:
-            self.det_widget.confirm_button_clicked()
 
     def stop_current_operations(self) -> None:
         """Interrupt whatever the microscope is doing right now.
@@ -1811,6 +1821,12 @@ class AutoLamellaUI(QMainWindow):
     def _workflow_finished(self):
         """Handle the completion of the workflow."""
         logging.info("Workflow finished.")
+        # Before the early returns: whatever question the run left behind must
+        # come down even if the widgets below are gone. Covers the abort race
+        # where a finished mill re-parks the prompt in the gap before the
+        # aborting waiter cancels its future — by the time this runs, the
+        # workflow thread has exited, so anything still parked belongs to nobody.
+        self.ui_responder.abandon()
         if self.image_widget is None:
             return
         if self.microscope is None:
@@ -1870,6 +1886,19 @@ class AutoLamellaUI(QMainWindow):
         except Exception as e:
             logging.warning(f"Failed to show workflow summary dialog: {e}")
 
+    def handle_workflow_status(self, event: "WorkflowStatusEvent") -> None:
+        """Show a fire-and-forget status update. GUI thread, via workflow_status_signal.
+
+        The display half of what handle_workflow_update does for a status payload,
+        and nothing else. Two deliberate absences: no widget-existence guards (these
+        two labels exist from construction, so there is nothing to raise about in a
+        queued slot), and no touching of the WAITING_* flags — a status update on its
+        own channel can never release a blocked waiter, which is the point of the
+        channel.
+        """
+        self.set_instructions_msg(event.message)
+        self.set_current_workflow_message(event.workflow_info)
+
     def handle_workflow_update(self, info: dict) -> None:
         """Update the UI with the given information, ready for user interaction"""
 
@@ -1883,86 +1912,17 @@ class AutoLamellaUI(QMainWindow):
                 "No milling task config widget available. Please create a milling task config widget first."
             )
 
-        # update the image viewer
-        sem_image: FibsemImage = info.get("sem_image", None)  # type: ignore
-        if sem_image is not None:
-            self.image_widget.eb_image = sem_image
-            self.image_widget._on_acquire(sem_image)
-            self.image_widget.set_ui_from_settings(
-                image_settings=sem_image.metadata.image_settings,  # type: ignore
-                beam_type=BeamType.ELECTRON,
-            )
+        # Images no longer arrive here: set_images_ui sends a SetImages request
+        # through the Responder seam (QtResponder._set_images).
 
-        fib_image: FibsemImage = info.get("fib_image", None)  # type: ignore
-        if fib_image is not None:
-            self.image_widget.ib_image = fib_image
-            self.image_widget._on_acquire(fib_image)
-            self.image_widget.set_ui_from_settings(
-                image_settings=fib_image.metadata.image_settings,  # type: ignore
-                beam_type=BeamType.ION,
-            )
+        # Detections, the alignment area, POI selection and the milling question
+        # no longer arrive here: they are questions over the Responder seam
+        # (QtResponder._confirm_detection, _edit_alignment_area, _pick_poi).
 
-        # what?
-        enable_milling = info.get("milling_enabled", None)
-        if enable_milling is not None:
-            self.tabWidget.setCurrentWidget(self.milling_task_config_widget)
-            self.milling_task_config_widget.milling_widget.pushButton_run_milling.setVisible(
-                False
-            )
-
-        # update milling stages
-        detections = info.get("det", None)
-        if self.det_widget is not None and detections is not None:
-            self.det_widget.set_detected_features(detections)
-            det_idx = self.tabWidget.indexOf(self.det_widget)
-            if det_idx != -1:
-                self.tabWidget.setTabVisible(det_idx, True)
-                self.tabWidget.setCurrentIndex(det_idx)
-
-        # update the alignment area
-        alignment_area = info.get("alignment_area", None)
-        if isinstance(alignment_area, FibsemRectangle):
-            self.image_widget.toggle_alignment_area(alignment_area)
-        if alignment_area == "clear":
-            # `clear` here means hide-but-keep: update_alignment_area_ui reads
-            # get_alignment_area() straight after, so the rect has to survive.
-            # (#111 renamed this to hide_alignment_area; 4a kept main's name.)
-            self.image_widget.clear_alignment_area()
-
-        # POI selection
-        poi_selection = info.get("poi_selection", None)
-        if poi_selection is True:
-            self._show_poi_selection_layer(info.get("initial_poi", None))
-        elif poi_selection == "clear":
-            self._compute_and_clear_poi_layer()
-
-        # spot_burn
-        spot_burn = info.get("spot_burn", None)
-        if spot_burn:
-            self.set_spot_burn_widget_active(True)
-            if self.spot_burn_widget is not None:
-                # hide the widget's own Burn button; the burn is run from the workflow control
-                self.spot_burn_widget.set_workflow_mode(True)
-        spot_burn_settings = info.get("spot_burn_settings", None)
-        if spot_burn_settings is not None and self.spot_burn_widget is not None:
-            self.spot_burn_widget.set_settings(spot_burn_settings)
-        if info.get("clear_spot_burn", False) and self.spot_burn_widget is not None:
-            self.spot_burn_widget.clear_points_layer()
-            self.spot_burn_widget.set_workflow_mode(False)
-
-        milling_config = info.get("milling_config", None)
-        if milling_config is not None:
-            self.milling_task_config_widget.update_from_settings(milling_config)
-            self.milling_task_config_widget.setEnabled(True)
-            self.tabWidget.setCurrentWidget(self.milling_task_config_widget)
-        if info.get("clear_milling_config", False):
-            self.milling_task_config_widget.clear()
-        # fluorescence channel settings
-        fluorescence_channel_settings = info.get("fluorescence_channel_settings", None)
-        if fluorescence_channel_settings is not None and self.fm_control_widget:
-            self.fm_control_widget.channelSettingsWidget.channel_settings = (
-                fluorescence_channel_settings
-            )
+        # Milling config, spot-burn settings and fluorescence channels no longer
+        # arrive here: their instructions go through the Responder seam
+        # (QtResponder). The spot-burn question converted last (RunSpotBurn), so
+        # no variant payloads remain — only status text below.
 
         # Instruction message. Read with `.get`, not indexed: this signal has no
         # declared contract, and 12 of its 13 emit sites pass an opaque variable, so
@@ -1982,67 +1942,3 @@ class AutoLamellaUI(QMainWindow):
             info.get("msg", ""), info.get("pos", None), info.get("neg", None)
         )
         self.set_current_workflow_message(info.get("workflow_info", None))
-
-        self.WAITING_FOR_UI_UPDATE = False
-
-    _POI_LAYER_NAME = "Point of Interest"
-
-    def _show_poi_selection_layer(self, initial_poi: Optional[Point] = None) -> None:
-        """Show a draggable POI marker on the FIB canvas (via the controller)."""
-        controller = getattr(self.parent_widget, "view_controller", None)
-        if controller is not None:
-            self._show_poi_overlay(controller, initial_poi)
-
-    def _show_poi_overlay(self, controller, initial_poi: Optional[Point]) -> None:
-        """Quad-view POI: a magenta '+' point on the FIB canvas (move-only), via the reducer."""
-        from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
-
-        ib_image = self.image_widget.ib_image
-        if initial_poi is not None:
-            px = conversions.microscope_image_to_image_coordinates(
-                initial_poi, ib_image.data.shape, ib_image.metadata.pixel_size.x
-            )
-            col, row = px.x, px.y
-        else:
-            row = ib_image.data.shape[0] / 2
-            col = ib_image.data.shape[1] / 2
-        controller.set_overlay(
-            BeamType.ION,
-            PointsSpec(
-                id="poi",
-                points=[(col, row)],
-                # Matches the protocol editor's POI, down to the legend entry: same
-                # concept, same marker. Left to the defaults this drew at size 18 with
-                # PointOverlay's 2.0 edge, a cross visibly fatter than the thin one the
-                # editor and the config preview draw, and absent from the legend
-                # (FIB-582). 1.2 keeps it reading like the centre crosshair.
-                color="magenta",
-                selected_color="magenta",
-                marker="+",
-                size=14,
-                edge_width=1.2,
-                legend_label="Point of Interest",
-                add_on_right_click=False,
-                removable=False,
-            ),
-        )
-        # POI owns FIB-canvas input: stage-move + milling menu stand down. The toolbar
-        # toggle lets the user drop to Move and back. (See active-overlay model.)
-        controller.arm_overlay(BeamType.ION, "poi", label="POI", icon="mdi:map-marker")
-        controller.fib_canvas.set_hint("drag to move")
-
-    def _compute_and_clear_poi_layer(self) -> None:
-        """Compute POI from the current marker position, clear it, store in SELECTED_POI."""
-        controller = getattr(self.parent_widget, "view_controller", None)
-        if controller is None:
-            return
-        pts = controller.overlay_points(BeamType.ION, "poi")
-        if pts:
-            col, row = pts[0]
-            ib_image = self.image_widget.ib_image
-            self.SELECTED_POI = conversions.image_to_microscope_image_coordinates(
-                Point(x=col, y=row), ib_image.data, ib_image.metadata.pixel_size.x
-            )
-        controller.arm_overlay(BeamType.ION, None)  # restore Move
-        controller.remove_overlay(BeamType.ION, "poi")
-        controller.fib_canvas.set_hint(None)

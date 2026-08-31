@@ -72,6 +72,7 @@ from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
 )
 from fibsem.applications.autolamella.workflows.tasks.queue import QueueOp, QueueResult
 from fibsem.applications.autolamella.workflows.tasks.status import (
+    WorkflowStatusEvent,
     WorkflowStatusUpdate,
 )
 from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_supervision
@@ -80,6 +81,7 @@ from fibsem.applications.autolamella.workflows.workflow_estimate import (
     estimate_addition,
     estimate_workflow,
 )
+from fibsem.imaging.spot import SpotBurnProgress
 from fibsem.imaging.tiling.progress import TiledProgress, TiledStatus
 from fibsem.milling.progress import (
     MillingMessageTracker,
@@ -453,6 +455,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._user_interaction_sound_played = False  # Track if sound was played
         self._sound_enabled = self._preferences.display.sound_enabled
         self._border_enabled = self._preferences.display.border_enabled
+        # First assigned here rather than on the Run click: the workflow handlers
+        # read it unconditionally, and an AttributeError in a queued slot is a
+        # process abort (FIB-329), not a missing border. The attribute alone -- the
+        # frame is unstyled until _set_border_state changes it, which is idle's look.
+        self._border_state = "idle"
         self.dev_mode = self._preferences.display.dev_mode
 
         # create menus, status bar, and tabs
@@ -1601,10 +1608,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 self.milling_progress_bar.setFormat(label)
 
     @ensure_main_thread
-    def _on_spot_burn_progress(self, ddict: dict) -> None:
+    def _on_spot_burn_progress(self, report: SpotBurnProgress) -> None:
         """Handle spot burn progress updates from the microscope (supervised + unsupervised)."""
-        self.progress_widget.update_progress(build_spot_burn_progress_update(ddict))
-        if ddict.get("finished"):
+        self.progress_widget.update_progress(build_spot_burn_progress_update(report))
+        if report.status.is_terminal:
             # hide the Done/Failed state after a moment; reset_if_finished leaves the
             # widget alone if another operation has started rendering progress since
             QTimer.singleShot(2000, self.progress_widget.reset_if_finished)
@@ -1718,6 +1725,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # Connect to workflow update signal from AutoLamellaUI
         self.autolamella_ui.workflow_update_signal.connect(self._on_workflow_update)
+        self.autolamella_ui.workflow_status_signal.connect(self._on_workflow_status)
         self.autolamella_ui.queue_changed_signal.connect(self._on_queue_changed)
         self.autolamella_ui.step_update_signal.connect(self._on_step_update)
         self.autolamella_ui.experiment_update_signal.connect(self._on_experiment_update)
@@ -2612,106 +2620,100 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if message and self.status_bar is not None:
             self.status_bar.showMessage(message, 4000)
 
-    def _on_workflow_update(self, info: dict):
-        """Handle workflow update signal and update the workflow status bar."""
-        t0 = t1 = time.time()
-        timings = {}
+    def _on_workflow_status(self, event: "WorkflowStatusEvent"):
+        """Handle a fire-and-forget status update, from workflow_status_signal.
 
+        The status half of what _on_workflow_update used to do, on the notification
+        channel. The run indicators refresh from both handlers because both kinds of
+        traffic change what they show: a lifecycle report starts or finishes the
+        run, an instruction or question flips the waiting state.
+        """
+        # transient status-bar messages (e.g. scheduled-start countdown)
+        if event.status_bar is not None and self.status_bar is not None:
+            self.status_bar.showMessage(event.status_bar)
+
+        if event.report is not None:
+            self._apply_status_report(event.report)
+
+        if self.autolamella_ui is None:
+            return
+        self._refresh_workflow_indicators()
+
+    def _apply_status_report(self, report: "WorkflowStatusUpdate") -> None:
+        """Render one task-lifecycle report: timeline, run message, list refreshes."""
+        # No build-once guard: update_from_status reconciles rows against the
+        # snapshot by WorkItem id, so first paint and every later change go
+        # through the same path.
+        self.workflow_timeline.update_from_status(report)
+
+        task_name = report.task_name
+        lamella_name = report.item_name
+        queue_position = report.queue_position
+        queue_total = report.queue_total
+        status = report.status
+
+        # Position in the live queue, not the launch matrix — stays correct
+        # when the queue is added to or reordered mid-run.
+        txt = f"Workflow: {task_name} | {lamella_name}"
+        # `queue_total` is a count, so 0 means "nothing to be in the middle of"
+        # rather than "unknown" -- truthiness, not `is not None`, or a malformed
+        # payload renders "3/0".
+        if queue_position is not None and queue_total:
+            txt += f" | {queue_position}/{queue_total}"
+
+        self.set_workflow_running(txt)
+
+        # update current task
+        self._current_task_name = task_name
+
+        # Lock editor when the active lamella/task is being processed
+        if status is AutoLamellaTaskStatus.InProgress:
+            self.lamella_widget.set_active_lamella_name(lamella_name, task_name)
+        else:
+            self.lamella_widget.set_active_lamella_name(None)
+
+        # Refresh only the affected lamella if we can identify it
+        lamella = None
+        experiment = self.autolamella_ui.experiment
+        if experiment is not None and lamella_name is not None:
+            lamella = experiment.get_lamella_by_name(lamella_name)
+
+        # The name list is refreshed from here rather than subscribing per row.
+        # `_LamellaRow` used to connect to `task_state.events.name`/`.status`, which
+        # the workflow writes from its worker thread; the marshalled refresh then
+        # arrived after the row had been replaced and its widgets destroyed
+        # (`RuntimeError: wrapped C/C++ object of type QLabel has been deleted`).
+        # It joins the other two on the same named-lamella path, so it costs one row
+        # -- unlike them, though, nothing else was refreshing this list mid-workflow.
+        if lamella is not None:
+            self.lamella_list_widget.refresh_lamella(lamella)
+            self.lamella_card_container.refresh_lamella(lamella)
+            self.autolamella_ui.lamella_list.refresh_lamella(lamella)
+        else:
+            self.lamella_list_widget.refresh_all()
+            self.lamella_card_container.refresh_all()
+            self.autolamella_ui.lamella_list.refresh_all()
+        self._on_lamella_card_selected(getattr(self, "_selected_card_lamella", None))
+
+    def _on_workflow_update(self, info: dict):
+        """Handle the remaining workflow_update_signal traffic.
+
+        Status now arrives on workflow_status_signal (_on_workflow_status); what is
+        left on the dict signal is the instructions and questions, plus
+        update_status_ui's payloads until that converts too — hence the status_bar
+        read staying for now.
+        """
         # transient status-bar messages (e.g. scheduled-start countdown)
         status_bar_msg = info.get("status_bar", None)
         if status_bar_msg is not None and self.status_bar is not None:
             self.status_bar.showMessage(status_bar_msg)
 
-        status_msg = info.get("status", None)
-        if status_msg is not None:
-            # No build-once guard: update_from_status reconciles rows against the
-            # snapshot by WorkItem id, so first paint and every later change go
-            # through the same path.
-            self.workflow_timeline.update_from_status(status_msg)
-
-            # One decode at the boundary rather than a `.get()` per field. Accepts the
-            # dict the signal still carries and the typed report the producer will send
-            # (FIB-827); total by construction, because raising here is a process abort
-            # rather than a missing label (FIB-329).
-            report = WorkflowStatusUpdate.from_payload(status_msg)
-
-            task_name = report.task_name
-            lamella_name = report.item_name
-            queue_position = report.queue_position
-            queue_total = report.queue_total
-            # `error_message`, `timestamp` and `task_duration` were decoded here and
-            # never used -- dead before this change, so not converted into typed dead
-            # code. The timeline renders all three from the same report; the status bar
-            # never did. If the intent was for it to, that is a feature to add rather
-            # than three assignments to keep warm.
-            msg = info.get("msg", "No message")
-            status = report.status
-
-            # Position in the live queue, not the launch matrix — stays correct
-            # when the queue is added to or reordered mid-run.
-            txt = f"Workflow: {task_name} | {lamella_name}"
-            # `queue_total` is a count, so 0 means "nothing to be in the middle of"
-            # rather than "unknown" -- truthiness, not `is not None`, or a malformed
-            # payload renders "3/0".
-            if queue_position is not None and queue_total:
-                txt += f" | {queue_position}/{queue_total}"
-
-            self.set_workflow_running(txt)
-            timings["set_workflow_running"] = time.time() - t1
-            t1 = time.time()
-
-            # update current task
-            self._current_task_name = task_name
-
-            # Lock editor when the active lamella/task is being processed
-            if status is AutoLamellaTaskStatus.InProgress:
-                self.lamella_widget.set_active_lamella_name(lamella_name, task_name)
-            else:
-                self.lamella_widget.set_active_lamella_name(None)
-
-            # Refresh only the affected lamella if we can identify it
-            lamella = None
-            experiment = self.autolamella_ui.experiment
-            if experiment is not None and lamella_name is not None:
-                lamella = experiment.get_lamella_by_name(lamella_name)
-
-            # The name list is refreshed from here rather than subscribing per row.
-            # `_LamellaRow` used to connect to `task_state.events.name`/`.status`, which
-            # the workflow writes from its worker thread; the marshalled refresh then
-            # arrived after the row had been replaced and its widgets destroyed
-            # (`RuntimeError: wrapped C/C++ object of type QLabel has been deleted`).
-            # It joins the other two on the same named-lamella path, so it costs one row
-            # -- unlike them, though, nothing else was refreshing this list mid-workflow.
-            if lamella is not None:
-                self.lamella_list_widget.refresh_lamella(lamella)
-                timings["lamella_list.refresh_lamella"] = time.time() - t1
-                t1 = time.time()
-                self.lamella_card_container.refresh_lamella(lamella)
-                timings["lamella_cards.refresh_lamella"] = time.time() - t1
-                t1 = time.time()
-                self.autolamella_ui.lamella_list.refresh_lamella(lamella)
-                timings["lamella_name_list.refresh_lamella"] = time.time() - t1
-                t1 = time.time()
-            else:
-                self.lamella_list_widget.refresh_all()
-                timings["lamella_list.refresh_all"] = time.time() - t1
-                t1 = time.time()
-                self.lamella_card_container.refresh_all()
-                timings["lamella_cards.refresh_all"] = time.time() - t1
-                t1 = time.time()
-                self.autolamella_ui.lamella_list.refresh_all()
-                timings["lamella_name_list.refresh_all"] = time.time() - t1
-                t1 = time.time()
-            self._on_lamella_card_selected(
-                getattr(self, "_selected_card_lamella", None)
-            )
-            timings["lamella_card_selected"] = time.time() - t1
-            t1 = time.time()
-
-        # Check if waiting for user response and update status bar
         if self.autolamella_ui is None:
             return
+        self._refresh_workflow_indicators()
 
+    def _refresh_workflow_indicators(self) -> None:
+        """Re-read the waiting/supervised/running state into the window chrome."""
         # refresh the supervised status chip
         supervised = self._update_supervised_status()
 
@@ -2730,7 +2732,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             # Hide user attention button and reset to original dark theme
             self.user_attention_btn.hide()
             self._user_interaction_sound_played = False  # Reset for next time
-        t1 = time.time()
 
         # Update border to reflect current workflow state
         if self._border_state == "stopping":
@@ -2743,7 +2744,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._set_border_state("supervised" if supervised else "automated")
         else:
             self._set_border_state("idle")
-        timings["set_border_state"] = time.time() - t1
 
     def _rebuild_lamella_list(self):
         """Clear and repopulate the lamella list and card container from the current experiment."""

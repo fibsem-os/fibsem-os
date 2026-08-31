@@ -69,12 +69,11 @@ __all__ = [
     "EditAlignmentArea",
     "PickPOI",
     "RunMillingTask",
+    "RunSpotBurn",
     "SetImages",
     "SetMillingConfig",
     "ClearMillingConfig",
     "SetFluorescenceChannels",
-    "SetSpotBurnSettings",
-    "ClearSpotBurn",
     "Responder",
     "ask",
     "wait_for",
@@ -120,6 +119,7 @@ class EditAlignmentArea(Request["FibsemRectangle"]):
     """Let the supervisor adjust an alignment area; answer with the final area."""
 
     initial: "FibsemRectangle"
+    message: str = "Edit Alignment Area"
 
 
 @dataclass(frozen=True)
@@ -132,6 +132,11 @@ class PickPOI(Request[Optional["Point"]]):
 
     image: "FibsemImage"
     initial: Optional["Point"] = None
+    message: str = "Select Point of Interest"
+
+
+def _always_confirm() -> bool:
+    return True
 
 
 @dataclass(frozen=True)
@@ -139,10 +144,35 @@ class RunMillingTask(Request["FibsemMillingTaskConfig"]):
     """Hand over a milling config to edit and (if ``enabled``) run; answer with the
     config as actually used. Absorbs today's ``start_milling_signal`` sibling poll:
     running the mill is the responder's job, not a second channel's.
+
+    ``confirm`` is the supervision mode, and — like ``abort`` — a predicate rather
+    than a snapshot: the old loop re-read ``self.validate`` on every iteration, so
+    flipping supervision mid-mill took effect when the mill finished, in both
+    directions (supervised→auto continued without re-asking; auto→supervised
+    dropped the operator into the loop). The responder consults it at each
+    decision point — at entry (prompt or run immediately) and when a run finishes
+    (re-ask or complete) — to keep exactly that behaviour.
     """
 
     config: "FibsemMillingTaskConfig"
     enabled: bool = True
+    confirm: Callable[[], bool] = _always_confirm
+    message: str = "Run Milling"
+
+
+@dataclass(frozen=True)
+class RunSpotBurn(Request[Optional["SpotBurnSettings"]]):
+    """Hand over spot-burn settings to place points and run; answer with the
+    settings as actually used — or None without a spot-burn widget (optional
+    hardware must not fail a workflow).
+
+    Mirrors :class:`RunMillingTask`: Run Spot Burn runs the widget's current
+    points, the widget's finished signal re-raises the prompt, and Continue
+    answers with ``get_settings()`` and clears the widget.
+    """
+
+    settings: "SpotBurnSettings"
+    message: str = "Run Spot Burn"
 
 
 # --- instructions: one-way, answered with a bare acknowledgement ------------------
@@ -173,18 +203,6 @@ class SetFluorescenceChannels(Request[None]):
     """Load these channel settings into the fluorescence widget."""
 
     channels: Sequence["ChannelSettings"]
-
-
-@dataclass(frozen=True)
-class SetSpotBurnSettings(Request[None]):
-    """Load these spot-burn settings into the spot-burn widget."""
-
-    settings: "SpotBurnSettings"
-
-
-@dataclass(frozen=True)
-class ClearSpotBurn(Request[None]):
-    """Clear the spot-burn widget."""
 
 
 # --- transport --------------------------------------------------------------------
@@ -227,8 +245,16 @@ def wait_for(
             return future.result(timeout=_POLL_INTERVAL_S)
         except _FutureTimeoutError:
             if abort is not None and abort():
+                # Cancel before leaving: this tells the responder nobody will
+                # read an answer, so it must not act for this question again —
+                # concretely, a Stop mid-mill must not resurrect the prompt when
+                # the cancelled mill finishes. cancel() always succeeds here
+                # (the future has no runner), and the race where the responder
+                # completes it first is benign: the answer is simply dropped.
+                future.cancel()
                 raise InterruptedError(f"{description} cancelled")
             if deadline is not None and time.monotonic() >= deadline:
+                future.cancel()
                 raise TimeoutError(f"No response to {description} within {timeout} s")
 
 

@@ -11,6 +11,7 @@ import pandas as pd
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 from fibsem.applications.autolamella.workflows.tasks.queue import TaskQueue, WorkItem
 from fibsem.applications.autolamella.workflows.tasks.status import (
+    WorkflowStatusEvent,
     WorkflowStatusUpdate,
 )
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
@@ -552,7 +553,12 @@ class TaskManager:
         task_duration: Optional[float] = None,
         skip_reason: Optional[str] = None,
     ) -> None:
-        """Emit workflow_update_signal with the standard status dict.
+        """Emit one lifecycle report on workflow_status_signal.
+
+        On the notification channel rather than workflow_update_signal for the same
+        reason notify_queue_changed is: that signal's handler rebuilds the
+        interaction UI and clears WAITING_FOR_UI_UPDATE every time it fires, and a
+        report that a task started is not a step in any request's handshake.
 
         This stream and the hook stream describe the same lifecycle from two different
         brackets — the manager brackets the task *call*, the task brackets its own
@@ -595,7 +601,9 @@ class TaskManager:
             lamella_names=self.queue.lamella_names,
         )
 
-        self.parent_ui.workflow_update_signal.emit({"msg": msg, "status": update})
+        self.parent_ui.workflow_status_signal.emit(
+            WorkflowStatusEvent(message=msg, report=update)
+        )
 
     def _run_single_task(
         self, task_name: str, lamella: "Lamella"
