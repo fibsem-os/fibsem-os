@@ -51,6 +51,14 @@ class AppContext(Protocol):
 
     def answer_prompt(self, response: bool, nonce: int) -> Dict[str, Any]: ...
 
+    def stop_workflow(self) -> Dict[str, Any]: ...
+
+    def set_supervision(self, task_name: str, supervise: bool) -> Dict[str, Any]: ...
+
+    def requeue_task(
+        self, item_name: str, task_name: str, front: bool = False
+    ) -> Dict[str, Any]: ...
+
 
 def build_app_router(context: AppContext) -> APIRouter:
     router = APIRouter(prefix="/app")
@@ -94,6 +102,13 @@ def build_app_router(context: AppContext) -> APIRouter:
     @router.get("/prompt")
     def pending_prompt():
         return context.pending_prompt()
+
+    @router.post("/workflow/stop")
+    def stop_workflow():
+        # Deliberately on the read router, like the core server's stop_milling:
+        # stopping is the safety action, and must never be gated behind the
+        # arming the dangerous actions need, nor wait on the command lock.
+        return context.stop_workflow()
 
     @router.get("/events")
     def events(since: int = 0, timeout: float = 0.0):
@@ -141,5 +156,35 @@ def build_app_control_router(context: AppContext) -> APIRouter:
                 },
             )
         return result
+
+    @router.post("/supervision")
+    def set_supervision(body: Dict[str, Any]):
+        task_name = body.get("task_name")
+        if not isinstance(task_name, str) or "supervise" not in body:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "missing_field",
+                    "message": "Pass task_name (string) and supervise (boolean).",
+                },
+            )
+        return context.set_supervision(task_name, bool(body["supervise"]))
+
+    @router.post("/queue/requeue")
+    def requeue_task(body: Dict[str, Any]):
+        item_name = body.get("item_name")
+        task_name = body.get("task_name")
+        if not isinstance(item_name, str) or not isinstance(task_name, str):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "missing_field",
+                    "message": "Pass item_name and task_name (strings); "
+                    "front (boolean) is optional.",
+                },
+            )
+        return context.requeue_task(
+            item_name, task_name, front=bool(body.get("front", False))
+        )
 
     return router
