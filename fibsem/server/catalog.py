@@ -226,6 +226,14 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="get_display_images",
+        description="The SEM and FIB images the app's GUI is displaying right now, as previews — the display cache, not a new acquisition. Post-mill images appear here as soon as the GUI shows them, before they reach disk.",
+        method="GET",
+        path="/app/images",
+        scope="read",
+        router="app",
+    ),
+    ToolSpec(
         name="get_pending_prompt",
         description="The supervision question awaiting an answer, if any — message, options, and context images.",
         method="GET",

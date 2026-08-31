@@ -64,6 +64,7 @@ class QtResponder(QObject):
     _agent_answered = pyqtSignal(
         bool, object, object
     )  # (clicked_yes, nonce, Future[bool])
+    _agent_peeked = pyqtSignal(object)  # (Future[(nonce, live value)])
 
     def __init__(self, ui: "AutoLamellaUI"):
         super().__init__()
@@ -102,6 +103,7 @@ class QtResponder(QObject):
         self._spot_burn_finished_wired: Optional[object] = None
         self._submitted.connect(self._dispatch)
         self._agent_answered.connect(self._apply_agent_answer)
+        self._agent_peeked.connect(self._apply_agent_peek)
 
     def submit(self, request: "Request", future: "Future") -> None:
         """Hand ``request`` to the GUI thread; never blocks. Any thread."""
@@ -180,6 +182,63 @@ class QtResponder(QObject):
             self._fail(outcome, exc)
             return
         self._deliver(outcome, applied)
+
+    def peek_live_answer(self) -> "Future":
+        """What would the answer be if Yes were clicked right now? Any thread.
+
+        Some questions are answered from live widget state — the POI marker the
+        operator is dragging, the alignment area being resized — which the
+        frozen request cannot show a remote agent. This reads that state on the
+        GUI thread, without disturbing it: no overlay comes down, nothing is
+        answered. Resolves to ``(nonce, value)`` — the nonce pairs the value
+        with a posting of the question, and value is None for question types
+        with no live half (or no question at all, in which case nonce is None
+        too).
+        """
+        from concurrent.futures import Future as _Future
+
+        outcome: "_Future" = _Future()
+        self._agent_peeked.emit(outcome)
+        return outcome
+
+    def _apply_agent_peek(self, outcome: "Future") -> None:
+        """GUI thread. Complete ``outcome`` with (nonce, live value)."""
+        try:
+            result = self._live_answer()
+        except Exception as exc:  # noqa: BLE001 - the peeker owns the failure
+            self._fail(outcome, exc)
+            return
+        self._deliver(outcome, result)
+
+    def _live_answer(self):
+        """The live half of the pending question, read without taking anything
+        down — the same widget reads as :meth:`answer_confirm`, minus the
+        teardown."""
+        pending = self._pending_question
+        if pending is None or pending[1].cancelled():
+            return None, None
+        request, _, nonce = pending
+        if isinstance(request, PickPOI):
+            controller = self._view_controller()
+            if controller is None:
+                return nonce, None
+            pts = controller.overlay_points(BeamType.ION, "poi")
+            if not pts:
+                return nonce, None
+            from fibsem import conversions
+            from fibsem.structures import Point
+
+            col, row = pts[0]
+            image = request.image
+            return nonce, conversions.image_to_microscope_image_coordinates(
+                Point(x=col, y=row), image.data, image.metadata.pixel_size.x
+            )
+        if isinstance(request, EditAlignmentArea):
+            image_widget = self._ui.image_widget
+            if image_widget is None:
+                return nonce, None
+            return nonce, deepcopy(image_widget.get_alignment_area())
+        return nonce, None
 
     def _dispatch(self, request: "Request", future: "Future") -> None:
         """GUI thread. Complete the future, whatever happens in the handler."""

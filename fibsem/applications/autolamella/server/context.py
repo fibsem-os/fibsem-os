@@ -241,6 +241,41 @@ class AgentContext:
             return {"available": False, "position": None}
         return {"available": True, "position": cached.to_dict()}
 
+    def display_images(self) -> Dict[str, Any]:
+        """The SEM/FIB images the GUI is displaying right now, as previews.
+
+        This is the display cache, not an acquisition: nothing touches
+        hardware, and the workflow's post-mill images appear here the moment
+        the GUI shows them — long before task completion writes them to disk —
+        which is what makes inline inspection possible.
+
+        Thread note: grabs the widget's current image references (replaced
+        whole on acquisition, never mutated in place) and encodes previews on
+        the server thread; the GUI thread is neither entered nor blocked.
+        """
+        widget = getattr(self._host, "image_widget", None)
+        if widget is None:
+            return {"available": False, "sem": None, "fib": None}
+        from fibsem.applications.autolamella.server.prompts import _preview_b64
+
+        payload: Dict[str, Any] = {"available": True}
+        for key, image in (
+            ("sem", getattr(widget, "eb_image", None)),
+            ("fib", getattr(widget, "ib_image", None)),
+        ):
+            entry = _preview_b64(getattr(image, "data", None))
+            if entry is not None:
+                entry["acquired_at"] = self._acquired_at(image)
+            payload[key] = entry
+        return payload
+
+    @staticmethod
+    def _acquired_at(image) -> Optional[str]:
+        try:
+            return image.metadata.acquisition_date.isoformat()
+        except Exception:
+            return None
+
     # --- supervision prompts (FIB-851) ------------------------------------------
 
     @property
@@ -263,7 +298,38 @@ class AgentContext:
 
         payload = serialize_request(request)
         payload["nonce"] = nonce
+        current = self._peek_current(responder, payload["type"], nonce)
+        if current is not None:
+            payload["current"] = current
         return {"available": True, "pending": payload}
+
+    def _peek_current(
+        self, responder, request_type: str, nonce: int
+    ) -> Optional[Dict[str, Any]]:
+        """The live half of the question — where the marker IS, not where it
+        started.
+
+        PickPOI and EditAlignmentArea are answered from widget state the
+        operator may still be adjusting; the frozen request only shows the
+        starting value. The peek marshals to the GUI thread, so it is skipped
+        entirely for question types with no live half, and degrades to absent
+        (never an error — the question itself must still be visible) if the GUI
+        is too busy to answer within 2 s or the prompt changed mid-peek.
+        """
+        if request_type not in ("PickPOI", "EditAlignmentArea"):
+            return None
+        from fibsem.applications.autolamella.server.events import to_plain
+
+        try:
+            peeked_nonce, value = responder.peek_live_answer().result(timeout=2.0)
+        except Exception:
+            return None
+        if peeked_nonce != nonce or value is None:
+            return None
+        try:
+            return to_plain(value.to_dict())
+        except Exception:
+            return None
 
     def answer_prompt(
         self, response: bool, nonce: int, timeout: float = 10.0

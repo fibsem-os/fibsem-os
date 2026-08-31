@@ -45,6 +45,8 @@ class AppContext(Protocol):
 
     def events(self, since: int = 0, timeout: float = 0.0) -> Dict[str, Any]: ...
 
+    def display_images(self) -> Dict[str, Any]: ...
+
     def pending_prompt(self) -> Dict[str, Any]: ...
 
     def answer_prompt(self, response: bool, nonce: int) -> Dict[str, Any]: ...
@@ -84,6 +86,10 @@ def build_app_router(context: AppContext) -> APIRouter:
     @router.get("/recent_experiments")
     def recent_experiments():
         return {"items": context.recent_experiments()}
+
+    @router.get("/images")
+    def display_images():
+        return context.display_images()
 
     @router.get("/prompt")
     def pending_prompt():
