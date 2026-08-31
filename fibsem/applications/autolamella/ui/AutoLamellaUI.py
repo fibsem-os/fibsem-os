@@ -110,6 +110,9 @@ if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
         AutoLamellaSingleWindowUI,
     )
+    from fibsem.applications.autolamella.workflows.tasks.status import (
+        WorkflowStatusEvent,
+    )
 
 # Suppress a specific upstream Napari/NumPy warning from shapes miter computation. This
 # module no longer imports napari, but the minimap still loads it, and a filter is matched
@@ -168,6 +171,12 @@ INSTRUCTIONS = {
 
 class AutoLamellaUI(QMainWindow):
     workflow_update_signal = pyqtSignal(dict)
+    # The fire-and-forget third of workflow_update_signal's traffic, moving to its
+    # own channel for the same reason queue_changed_signal has one: that signal's
+    # handler clears WAITING_FOR_UI_UPDATE on every emission, so on the shared
+    # channel merely saying something releases whoever is blocked on that flag.
+    # Carries a WorkflowStatusEvent.
+    workflow_status_signal = pyqtSignal(object)
     # Kept separate from workflow_update_signal on purpose: that one drives
     # handle_workflow_update, which reconfigures the interaction UI and clears
     # WAITING_FOR_UI_UPDATE on every emission. A queue edit is not a step in the
@@ -353,6 +362,7 @@ class AutoLamellaUI(QMainWindow):
         # signals
         self.detection_confirmed_signal.connect(self.handle_confirmed_detection_signal)
         self.workflow_update_signal.connect(self.handle_workflow_update)
+        self.workflow_status_signal.connect(self.handle_workflow_status)
         self._workflow_finished_signal.connect(self._workflow_finished)  # type: ignore
 
         # workflow info
@@ -1879,6 +1889,19 @@ class AutoLamellaUI(QMainWindow):
             dialog.exec_()
         except Exception as e:
             logging.warning(f"Failed to show workflow summary dialog: {e}")
+
+    def handle_workflow_status(self, event: "WorkflowStatusEvent") -> None:
+        """Show a fire-and-forget status update. GUI thread, via workflow_status_signal.
+
+        The display half of what handle_workflow_update does for a status payload,
+        and nothing else. Two deliberate absences: no widget-existence guards (these
+        two labels exist from construction, so there is nothing to raise about in a
+        queued slot), and no touching of the WAITING_* flags — a status update on its
+        own channel can never release a blocked waiter, which is the point of the
+        channel.
+        """
+        self.set_instructions_msg(event.message)
+        self.set_current_workflow_message(event.workflow_info)
 
     def handle_workflow_update(self, info: dict) -> None:
         """Update the UI with the given information, ready for user interaction"""

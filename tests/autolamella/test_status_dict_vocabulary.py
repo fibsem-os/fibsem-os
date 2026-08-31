@@ -32,7 +32,7 @@ class _FakeUI:
     """Just enough parent_ui for _emit_status: it only touches this one signal."""
 
     def __init__(self) -> None:
-        self.workflow_update_signal = _FakeSignal()
+        self.workflow_status_signal = _FakeSignal()
 
 
 @pytest.fixture
@@ -57,7 +57,7 @@ def _emit(manager: TaskManager, name: str = "lam-1") -> dict:
         lamella=lamella,
         status=AutoLamellaTaskStatus.InProgress,
     )
-    return manager.parent_ui.workflow_update_signal.payloads[-1]["status"]
+    return manager.parent_ui.workflow_status_signal.payloads[-1].report
 
 
 def test_the_status_dict_names_the_item_the_way_the_hook_does(manager: TaskManager):
