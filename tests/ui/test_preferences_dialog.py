@@ -10,6 +10,7 @@ So these tests drive the dialog's own load/save round trip rather than looking f
 attributes by name: what matters is that a value put in comes back out, not that some
 particular widget exists.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -93,3 +94,21 @@ def test_the_exemption_list_only_names_flags_that_exist(qapp):
     known = {f.name for f in dataclasses.fields(FeatureFlags)}
 
     assert NOT_IN_DIALOG <= known, f"stale exemptions: {NOT_IN_DIALOG - known}"
+
+
+def test_agent_section_round_trips(qapp):
+    from fibsem.config import UserPreferences
+    from fibsem.ui.widgets.preferences_dialog import PreferencesDialog
+
+    prefs = UserPreferences()
+    prefs.agent.watchdog_minutes = 12
+    dialog = PreferencesDialog(prefs)
+    assert dialog._spin_watchdog.value() == 12
+    dialog._spin_watchdog.setValue(7)
+    rebuilt = dialog.get_preferences()
+    assert rebuilt.agent.watchdog_minutes == 7
+    # And the section survives serialization (absent key -> defaults).
+    again = UserPreferences.from_dict(rebuilt.to_dict())
+    assert again.agent.watchdog_minutes == 7
+    assert UserPreferences.from_dict({"features": {}}).agent.watchdog_minutes == 5
+    dialog.deleteLater()

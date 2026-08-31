@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
     QListWidget,
     QMessageBox,
     QPushButton,
+    QSpinBox,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -77,11 +78,17 @@ _TIP_SCRIPTS = (
     "itself and none of its safety checks — nothing validates what it does."
 )
 _LBL_AGENT_SERVER = "Enable Agent Server"
+_LBL_WATCHDOG = "Watchdog (minutes)"
+_TIP_WATCHDOG = (
+    "How long a question addressed to the agent may stand unanswered before "
+    "it is handed to you — orange border, attention button, sound. Applies "
+    "only to tasks supervised by the agent."
+)
 _TIP_AGENT_SERVER = (
     "Host a local, token-protected API over this session when a microscope "
     "connects, so an AI agent (via the fibsem-mcp sidecar) can observe it. "
-    "Read-only: nothing can move hardware through it. The session token is "
-    "printed in the log on connect."
+    "Read-only until scopes are armed for the session in Tools → Agent "
+    "Server, which also shows the session token."
 )
 
 # Experiment defaults
@@ -136,7 +143,9 @@ class PreferencesDialog(QDialog):
 
         self._sidebar = QListWidget()
         self._sidebar.setFixedWidth(120)
-        self._sidebar.addItems(["Display", "Features", "Experiment", "Movement"])
+        self._sidebar.addItems(
+            ["Display", "Features", "Experiment", "Movement", "Agent"]
+        )
         self._sidebar.setCurrentRow(0)
 
         self._stack = QStackedWidget()
@@ -177,8 +186,6 @@ class PreferencesDialog(QDialog):
         self._chk_bug_report.setToolTip(_TIP_BUG_REPORT)
         self._chk_scripts = QCheckBox()
         self._chk_scripts.setToolTip(_TIP_SCRIPTS)
-        self._chk_agent_server = QCheckBox()
-        self._chk_agent_server.setToolTip(_TIP_AGENT_SERVER)
         self._chk_napari_overview = QCheckBox()
         self._chk_napari_overview.setToolTip(_TIP_NAPARI_OVERVIEW)
         self._chk_connection_chip = QCheckBox()
@@ -187,7 +194,6 @@ class PreferencesDialog(QDialog):
         features_form.addRow(_LBL_SAMPLE_HOLDER, self._chk_sample_holder)
         features_form.addRow(_LBL_BUG_REPORT, self._chk_bug_report)
         features_form.addRow(_LBL_SCRIPTS, self._chk_scripts)
-        features_form.addRow(_LBL_AGENT_SERVER, self._chk_agent_server)
         features_form.addRow(_LBL_NAPARI_OVERVIEW, self._chk_napari_overview)
         features_form.addRow(_LBL_CONNECTION_CHIP, self._chk_connection_chip)
         self._stack.addWidget(features_page)
@@ -222,6 +228,21 @@ class PreferencesDialog(QDialog):
         movement_form.addRow(_LBL_ACQ_SEM, self._chk_acquire_sem)
         movement_form.addRow(_LBL_ACQ_FIB, self._chk_acquire_fib)
         self._stack.addWidget(movement_page)
+
+        # --- Agent ---
+        # Durable policy only. Scope ARMING is deliberately absent: arming is
+        # consent, granted per session in Tools -> Agent Server, and must not
+        # survive a restart via this file.
+        agent_page = QWidget()
+        agent_form = QFormLayout(agent_page)
+        self._chk_agent_server = QCheckBox()
+        self._chk_agent_server.setToolTip(_TIP_AGENT_SERVER)
+        self._spin_watchdog = QSpinBox()
+        self._spin_watchdog.setRange(1, 120)
+        self._spin_watchdog.setToolTip(_TIP_WATCHDOG)
+        agent_form.addRow(_LBL_AGENT_SERVER, self._chk_agent_server)
+        agent_form.addRow(_LBL_WATCHDOG, self._spin_watchdog)
+        self._stack.addWidget(agent_page)
 
         self._sidebar.currentRowChanged.connect(self._stack.setCurrentIndex)
 
@@ -263,6 +284,8 @@ class PreferencesDialog(QDialog):
         self._chk_agent_server.setChecked(f.agent_server_enabled)
         self._chk_napari_overview.setChecked(f.napari_overview_tab)
         self._chk_connection_chip.setChecked(f.connection_chip)
+
+        self._spin_watchdog.setValue(prefs.agent.watchdog_minutes)
 
         e = prefs.experiment
         self._dir_experiment.setText(e.default_experiment_directory)
@@ -314,6 +337,7 @@ class PreferencesDialog(QDialog):
     def get_preferences(self) -> UserPreferences:
         """Build a UserPreferences instance from current widget state."""
         from fibsem.config import (
+            AgentPreferences,
             DisplayPreferences,
             ExperimentPreferences,
             FeatureFlags,
@@ -339,6 +363,9 @@ class PreferencesDialog(QDialog):
             movement=MovementPreferences(
                 acquire_sem_after_stage_movement=self._chk_acquire_sem.isChecked(),
                 acquire_fib_after_stage_movement=self._chk_acquire_fib.isChecked(),
+            ),
+            agent=AgentPreferences(
+                watchdog_minutes=self._spin_watchdog.value(),
             ),
             experiment=ExperimentPreferences(
                 default_experiment_directory=self._dir_experiment.text(),

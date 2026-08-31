@@ -28,15 +28,34 @@ class Scope(str, Enum):
     HARDWARE = "hardware"
 
 
-@dataclass(frozen=True)
+@dataclass
 class AuthConfig:
     """Token + armed scopes for one server instance.
 
     ``read`` is implicitly armed for any valid token and need not be listed.
+
+    The token is fixed for the instance's lifetime; the armed set is the one
+    mutable thing, and only through :meth:`set_armed` — the arming dialog's
+    seam. Mutating it live (rather than rebuilding the server) keeps the
+    token stable, so connected agents gain or lose a scope without being
+    disconnected. Arming is deliberately never persisted: every session
+    starts read-only and arming is a fresh, deliberate act.
     """
 
     token: str
     armed: FrozenSet[Scope] = field(default_factory=frozenset)
+
+    def set_armed(self, scope: Scope, armed: bool) -> None:
+        """Arm or disarm one scope, effective for the next request."""
+        if scope is Scope.READ:
+            return  # read is unconditional; there is nothing to disarm
+        current = set(self.armed)
+        if armed:
+            current.add(scope)
+        else:
+            current.discard(scope)
+        # One atomic rebind (reads never see a half-edited set).
+        self.armed = frozenset(current)
 
     @classmethod
     def generate(

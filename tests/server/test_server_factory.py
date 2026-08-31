@@ -185,3 +185,32 @@ def test_fibsem_server_defaults_to_localhost(microscope):
     assert server.host == "127.0.0.1"
     assert server.auth.is_armed(Scope.READ)
     assert not server.auth.is_armed(Scope.HARDWARE)
+
+
+def test_arming_mid_session_takes_effect_without_a_new_token(microscope):
+    """The arming dialog's contract: flip the live AuthConfig, next request obeys."""
+    from fastapi.testclient import TestClient
+
+    from fibsem.server import AuthConfig, build_server
+    from fibsem.server.auth import Scope
+
+    auth = AuthConfig.generate(token="live-arm-token")
+    app = build_server(microscope, auth=auth)
+    headers = {"Authorization": "Bearer live-arm-token"}
+    with TestClient(app, raise_server_exceptions=False) as client:
+        refused = client.post(
+            "/autocontrast", headers=headers, json={"beam_type": "ELECTRON"}
+        )
+        assert refused.status_code == 403
+
+        auth.set_armed(Scope.HARDWARE, True)
+        allowed = client.post(
+            "/autocontrast", headers=headers, json={"beam_type": "ELECTRON"}
+        )
+        assert allowed.status_code == 200
+
+        auth.set_armed(Scope.HARDWARE, False)
+        refused_again = client.post(
+            "/autocontrast", headers=headers, json={"beam_type": "ELECTRON"}
+        )
+        assert refused_again.status_code == 403

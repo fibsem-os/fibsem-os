@@ -106,9 +106,8 @@ def test_an_answer_disarms_the_watchdog(main_ui, agent_question_standing):
 def test_expiry_hands_the_question_to_the_operator(
     main_ui, agent_question_standing, qapp, monkeypatch
 ):
-    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
-
-    monkeypatch.setattr(module, "AGENT_WATCHDOG_MS", 50)
+    # The deadline comes from Preferences -> Agent; shorten it at the seam.
+    monkeypatch.setattr(main_ui, "_watchdog_ms", lambda: 50)
     main_ui._on_question_event("prompt_raised", {})
     assert main_ui._border_state == "agent"
 
