@@ -1885,16 +1885,8 @@ class AutoLamellaUI(QMainWindow):
         # Images no longer arrive here: set_images_ui sends a SetImages request
         # through the Responder seam (QtResponder._set_images).
 
-        # what?
-        enable_milling = info.get("milling_enabled", None)
-        if enable_milling is not None:
-            self.tabWidget.setCurrentWidget(self.milling_task_config_widget)
-            self.milling_task_config_widget.milling_widget.pushButton_run_milling.setVisible(
-                False
-            )
-
-        # Detections, the alignment area and POI selection no longer arrive
-        # here: they are questions over the Responder seam
+        # Detections, the alignment area, POI selection and the milling question
+        # no longer arrive here: they are questions over the Responder seam
         # (QtResponder._confirm_detection, _edit_alignment_area, _pick_poi).
 
         # spot_burn

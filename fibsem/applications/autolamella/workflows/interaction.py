@@ -141,10 +141,16 @@ class RunMillingTask(Request["FibsemMillingTaskConfig"]):
     """Hand over a milling config to edit and (if ``enabled``) run; answer with the
     config as actually used. Absorbs today's ``start_milling_signal`` sibling poll:
     running the mill is the responder's job, not a second channel's.
+
+    ``confirm`` is the supervision mode: True shows the prompt (Run Milling reruns
+    after edits, Continue ends the question); False runs once unprompted when
+    ``enabled``, or just delivers the config back when not.
     """
 
     config: "FibsemMillingTaskConfig"
     enabled: bool = True
+    confirm: bool = True
+    message: str = "Run Milling"
 
 
 # --- instructions: one-way, answered with a bare acknowledgement ------------------
