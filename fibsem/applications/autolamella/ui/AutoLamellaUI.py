@@ -1777,8 +1777,13 @@ class AutoLamellaUI(QMainWindow):
         self.pushButton_yes.setEnabled(False)
         self.pushButton_no.setEnabled(False)
 
+        clicked_yes = bool(self.sender() == self.pushButton_yes)
+        # A pending Confirm question owns this click; the legacy flag path serves
+        # the questions that have not converted yet (detection, milling, spot burn).
+        if self.ui_responder.answer_confirm(clicked_yes):
+            return
         # positve / negative response
-        self.USER_RESPONSE = bool(self.sender() == self.pushButton_yes)
+        self.USER_RESPONSE = clicked_yes
         self.WAITING_FOR_USER_INTERACTION = False
 
     def handle_acquisition_update(self, ddict: dict) -> None:

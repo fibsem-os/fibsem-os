@@ -9,6 +9,7 @@ from fibsem import milling
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.workflows.interaction import (
     ClearSpotBurn,
+    Confirm,
     SetImages,
     SetSpotBurnSettings,
     ask,
@@ -168,6 +169,17 @@ def ask_user(
             f"User input requested in headless mode: {msg}, always returning True."
         )
         return True
+
+    if mill is None and det is None and spot_burn is None:
+        # A plain yes/no confirmation: the typed path. The answer arrives on this
+        # call's own future when a button is clicked — USER_RESPONSE and the
+        # polled flag are not involved. No timeout: a human answers, and silence
+        # means thinking; `abort` keeps Stop working while the prompt is up.
+        return ask(
+            parent_ui.ui_responder,
+            Confirm(message=msg, positive=pos, negative=neg),
+            abort=lambda: _abort_requested(parent_ui),
+        )
 
     INFO = {
         "msg": msg,
