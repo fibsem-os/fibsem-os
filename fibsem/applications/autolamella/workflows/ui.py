@@ -159,7 +159,6 @@ def ask_user(
     msg: str,
     pos: str,
     neg: Optional[str] = None,
-    mill: Optional[bool] = None,
     spot_burn: Optional[bool] = None,
 ) -> bool:
 
@@ -169,7 +168,7 @@ def ask_user(
         )
         return True
 
-    if mill is None and spot_burn is None:
+    if spot_burn is None:
         # A plain yes/no confirmation: the typed path. The answer arrives on this
         # call's own future when a button is clicked — USER_RESPONSE and the
         # polled flag are not involved. No timeout: a human answers, and silence
@@ -184,7 +183,6 @@ def ask_user(
         "msg": msg,
         "pos": pos,
         "neg": neg,
-        "milling_enabled": mill,
         "spot_burn": spot_burn,
     }
     parent_ui.workflow_update_signal.emit(INFO)

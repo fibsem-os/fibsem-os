@@ -24,6 +24,7 @@ workflow thread blocks on each; a pending future found when the next question
 arrives belonged to a waiter that aborted and unwound, and is cancelled.
 """
 
+from concurrent.futures import InvalidStateError
 from copy import deepcopy
 from typing import TYPE_CHECKING, Callable, Dict, Optional, Tuple, Type
 
@@ -37,6 +38,7 @@ from fibsem.applications.autolamella.workflows.interaction import (
     EditAlignmentArea,
     PickPOI,
     Request,
+    RunMillingTask,
     SetFluorescenceChannels,
     SetImages,
     SetMillingConfig,
@@ -76,8 +78,15 @@ class QtResponder(QObject):
             ConfirmDetection: self._confirm_detection,
             EditAlignmentArea: self._edit_alignment_area,
             PickPOI: self._pick_poi,
+            RunMillingTask: self._run_milling_task,
         }
         self._pending_question: Optional[Tuple[Request, "Future"]] = None
+        # A RunMillingTask whose mill is currently running: the prompt is down,
+        # the future is pending, and finished_milling_signal decides what next.
+        self._active_milling: Optional[Tuple[RunMillingTask, "Future"]] = None
+        # Which milling widget's finished signal is wired to _on_milling_finished
+        # (by identity — the widget is rebuilt on reconnect, taking the wire with it).
+        self._milling_finished_wired: Optional[object] = None
         self._submitted.connect(self._dispatch)
 
     def submit(self, request: "Request", future: "Future") -> None:
@@ -91,7 +100,7 @@ class QtResponder(QObject):
             try:
                 deferred(request, future)
             except Exception as exc:  # noqa: BLE001 - the caller owns the failure
-                future.set_exception(exc)
+                self._fail(future, exc)
             return
         handler = self._handlers.get(type(request))
         try:
@@ -99,9 +108,30 @@ class QtResponder(QObject):
                 raise TypeError(
                     f"QtResponder has no handler for {type(request).__name__}"
                 )
-            future.set_result(handler(request))
+            self._deliver(future, handler(request))
         except Exception as exc:  # noqa: BLE001 - the caller owns the failure
+            self._fail(future, exc)
+
+    # An abandoned ask cancels its future (wait_for, on abort or timeout), and
+    # the cancel runs on the workflow thread — so any GUI-side completion can
+    # find the future already cancelled, including between a cancelled() check
+    # and the set. set_result on a cancelled future is InvalidStateError inside
+    # a Qt slot, i.e. a process abort; these two tolerate it instead. Dropping
+    # the value is correct: cancellation means nobody will read it.
+
+    @staticmethod
+    def _deliver(future: "Future", value) -> None:
+        try:
+            future.set_result(value)
+        except InvalidStateError:
+            pass
+
+    @staticmethod
+    def _fail(future: "Future", exc: Exception) -> None:
+        try:
             future.set_exception(exc)
+        except InvalidStateError:
+            pass
 
     # --- handlers, one per request type ------------------------------------------
 
@@ -248,7 +278,7 @@ class QtResponder(QObject):
         """
         controller = self._view_controller()
         if controller is None:
-            future.set_result(None)
+            self._deliver(future, None)
             return
 
         from fibsem import conversions
@@ -289,6 +319,105 @@ class QtResponder(QObject):
         controller.fib_canvas.set_hint("drag to move")
         self._park_question(request, future, request.message, "Continue", None)
 
+    def _run_milling_task(self, request: RunMillingTask, future: "Future") -> None:
+        """Hand the config to the editor; run and re-ask until Continue.
+
+        The whole mill loop lives here now: show the config, ask (when
+        ``confirm``), run on the Run Milling click, wait for the widget's own
+        ``finished_milling_signal``, re-ask, and only complete the future — with
+        the config as actually used — on Continue. The workflow thread just
+        blocks on its future, instead of emitting ``start_milling_signal`` with
+        a BlockingQueuedConnection and sleep-polling ``is_milling`` across the
+        seam.
+        """
+        widget = self._milling_widget()
+        widget.update_from_settings(request.config)
+        widget.setEnabled(True)
+        self._ui.tabWidget.setCurrentWidget(widget)
+        # The workflow runs the mill; the editor's own Run button stands down
+        # (moved from handle_workflow_update's milling_enabled branch).
+        widget.milling_widget.pushButton_run_milling.setVisible(False)
+        self._wire_milling_finished(widget)
+
+        if not request.confirm:
+            if request.enabled:
+                self._start_milling_run(request, future)
+            else:
+                self._deliver(future, self._finish_milling_question())
+            return
+        pos, neg = (
+            ("Run Milling", "Continue") if request.enabled else ("Continue", None)
+        )
+        self._park_question(request, future, request.message, pos, neg)
+
+    def _wire_milling_finished(self, widget) -> None:
+        """Connect the (possibly rebuilt) milling widget's finished signal, once."""
+        if self._milling_finished_wired is widget:
+            return
+        widget.milling_widget.finished_milling_signal.connect(self._on_milling_finished)
+        self._milling_finished_wired = widget
+
+    def _start_milling_run(self, request: RunMillingTask, future: "Future") -> None:
+        """Run the editor's current config; the finished signal decides what next."""
+        self._active_milling = (request, future)
+        self._ui.workflow_update_signal.emit(
+            {"msg": f"Milling {request.config.name}..."}
+        )
+        # None: the widget builds the config from the editor, so the operator's
+        # edits are what actually runs — as the old start_milling_signal path did.
+        self._milling_widget().milling_widget.run_milling(None)
+
+    def _on_milling_finished(self) -> None:
+        """GUI thread, from finished_milling_signal — success and failure alike."""
+        active = self._active_milling
+        if active is None:
+            return  # a mill the operator ran outside a question
+        self._active_milling = None
+        request, future = active
+        if future.cancelled():
+            return
+        self._ui.workflow_update_signal.emit(
+            {
+                "msg": f"Milling {request.config.name} Complete: "
+                f"{len(request.config.stages)} stages completed."
+            }
+        )
+        if request.confirm:
+            # Same prompt again: Run Milling reruns (after edits), Continue ends.
+            self._park_question(
+                request, future, request.message, "Run Milling", "Continue"
+            )
+            return
+        try:
+            self._deliver(future, self._finish_milling_question())
+        except Exception as exc:  # noqa: BLE001 - the caller owns the failure
+            self._fail(future, exc)
+
+    def _finish_milling_question(self):
+        """The answer: the config as the editor holds it, with the editor cleared."""
+        widget = self._milling_widget()
+        config = deepcopy(widget.get_config())
+        widget.clear()
+        return config
+
+    def abandon(self) -> None:
+        """Drop whatever a finished run left behind. GUI thread, workflow end.
+
+        An abort races the GUI: a cancelled mill that finishes quickly re-parks
+        the prompt in the gap before the aborting waiter cancels its future.
+        The run is over when this is called — the workflow thread has exited —
+        so a question still parked, or a run still tracked, belongs to nobody:
+        cancel it and take the prompt down.
+        """
+        pending, self._pending_question = self._pending_question, None
+        active, self._active_milling = self._active_milling, None
+        for pair in (pending, active):
+            if pair is not None:
+                pair[1].cancel()
+        if pending is not None:
+            self._ui.WAITING_FOR_USER_INTERACTION = False
+            self._ui.workflow_update_signal.emit({"msg": ""})
+
     def answer_confirm(self, clicked_yes: bool) -> bool:
         """Complete the pending question from the yes/no click.
 
@@ -305,15 +434,31 @@ class QtResponder(QObject):
         request, future = pending
         self._pending_question = None
         self._ui.WAITING_FOR_USER_INTERACTION = False
+        if future.cancelled():
+            # The asker aborted while the prompt stood. The click means nothing
+            # beyond taking the stale prompt down — in particular it must not
+            # start a mill for a question nobody is waiting on.
+            self._ui.workflow_update_signal.emit({"msg": ""})
+            return True
+        if isinstance(request, RunMillingTask) and clicked_yes and request.enabled:
+            # Run Milling: the prompt comes down but the question stays open —
+            # the finished signal re-asks or completes. (No {"msg": ""} clear;
+            # _start_milling_run puts the running status up in its place.)
+            self._start_milling_run(request, future)
+            return True
         self._ui.workflow_update_signal.emit({"msg": ""})
         try:
-            future.set_result(self._answer(request, clicked_yes))
+            self._deliver(future, self._answer(request, clicked_yes))
         except Exception as exc:  # noqa: BLE001 - the caller owns the failure
-            future.set_exception(exc)
+            self._fail(future, exc)
         return True
 
     def _answer(self, request: Request, clicked_yes: bool):
         """What the click means for this question's asker."""
+        if isinstance(request, RunMillingTask):
+            # Only the not-run clicks reach here (answer_confirm intercepts Run
+            # Milling): Continue, or either button when running is disabled.
+            return self._finish_milling_question()
         if isinstance(request, ConfirmDetection):
             # Both the read-back and the save used to straddle threads: the
             # workflow thread called _get_detected_features across the seam, then

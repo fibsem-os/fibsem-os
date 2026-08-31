@@ -1820,6 +1820,12 @@ class AutoLamellaUI(QMainWindow):
     def _workflow_finished(self):
         """Handle the completion of the workflow."""
         logging.info("Workflow finished.")
+        # Before the early returns: whatever question the run left behind must
+        # come down even if the widgets below are gone. Covers the abort race
+        # where a finished mill re-parks the prompt in the gap before the
+        # aborting waiter cancels its future — by the time this runs, the
+        # workflow thread has exited, so anything still parked belongs to nobody.
+        self.ui_responder.abandon()
         if self.image_widget is None:
             return
         if self.microscope is None:
@@ -1908,16 +1914,8 @@ class AutoLamellaUI(QMainWindow):
         # Images no longer arrive here: set_images_ui sends a SetImages request
         # through the Responder seam (QtResponder._set_images).
 
-        # what?
-        enable_milling = info.get("milling_enabled", None)
-        if enable_milling is not None:
-            self.tabWidget.setCurrentWidget(self.milling_task_config_widget)
-            self.milling_task_config_widget.milling_widget.pushButton_run_milling.setVisible(
-                False
-            )
-
-        # Detections, the alignment area and POI selection no longer arrive
-        # here: they are questions over the Responder seam
+        # Detections, the alignment area, POI selection and the milling question
+        # no longer arrive here: they are questions over the Responder seam
         # (QtResponder._confirm_detection, _edit_alignment_area, _pick_poi).
 
         # spot_burn

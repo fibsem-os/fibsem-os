@@ -141,10 +141,16 @@ class RunMillingTask(Request["FibsemMillingTaskConfig"]):
     """Hand over a milling config to edit and (if ``enabled``) run; answer with the
     config as actually used. Absorbs today's ``start_milling_signal`` sibling poll:
     running the mill is the responder's job, not a second channel's.
+
+    ``confirm`` is the supervision mode: True shows the prompt (Run Milling reruns
+    after edits, Continue ends the question); False runs once unprompted when
+    ``enabled``, or just delivers the config back when not.
     """
 
     config: "FibsemMillingTaskConfig"
     enabled: bool = True
+    confirm: bool = True
+    message: str = "Run Milling"
 
 
 # --- instructions: one-way, answered with a bare acknowledgement ------------------
@@ -229,8 +235,16 @@ def wait_for(
             return future.result(timeout=_POLL_INTERVAL_S)
         except _FutureTimeoutError:
             if abort is not None and abort():
+                # Cancel before leaving: this tells the responder nobody will
+                # read an answer, so it must not act for this question again —
+                # concretely, a Stop mid-mill must not resurrect the prompt when
+                # the cancelled mill finishes. cancel() always succeeds here
+                # (the future has no runner), and the race where the responder
+                # completes it first is benign: the answer is simply dropped.
+                future.cancel()
                 raise InterruptedError(f"{description} cancelled")
             if deadline is not None and time.monotonic() >= deadline:
+                future.cancel()
                 raise TimeoutError(f"No response to {description} within {timeout} s")
 
 
