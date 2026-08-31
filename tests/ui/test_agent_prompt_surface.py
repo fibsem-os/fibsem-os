@@ -99,6 +99,7 @@ def test_agent_sees_and_answers_the_question_over_http(ui, qapp):
         assert pending["type"] == "Confirm"
         assert pending["message"] == "Continue to polishing?"
         assert pending["positive"] == "Continue"
+        assert isinstance(pending["nonce"], int)
 
         # POST from a separate thread, as production does: the answer applies on
         # the GUI thread, which in this test is the thread running the loop —
@@ -107,7 +108,9 @@ def test_agent_sees_and_answers_the_question_over_http(ui, qapp):
 
         def do_post():
             posted["response"] = client.post(
-                "/app/prompt/answer", headers=AUTH, json={"response": True}
+                "/app/prompt/answer",
+                headers=AUTH,
+                json={"response": True, "nonce": pending["nonce"]},
             )
 
         poster = threading.Thread(target=do_post, daemon=True)
@@ -121,12 +124,50 @@ def test_agent_sees_and_answers_the_question_over_http(ui, qapp):
         assert outcome.get("answer") is True
 
 
+def test_a_stale_nonce_is_refused_and_the_question_stands(ui, qapp):
+    with _client(ui, arm_control=True) as client:
+        thread, outcome = _ask_on_worker(ui, qapp)
+        nonce = client.get("/app/prompt", headers=AUTH).json()["pending"]["nonce"]
+
+        posted = {}
+
+        def do_post():
+            posted["response"] = client.post(
+                "/app/prompt/answer",
+                headers=AUTH,
+                json={"response": True, "nonce": nonce - 1},
+            )
+
+        poster = threading.Thread(target=do_post, daemon=True)
+        poster.start()
+        _spin_until(qapp, lambda: "response" in posted)
+        refused = posted["response"]
+        assert refused.status_code == 409
+        assert refused.json()["detail"]["error_type"] == "stale_prompt"
+        # Nothing was clicked: the question still stands and the asker waits.
+        assert ui.ui_responder.pending_question() is not None
+        assert outcome == {}
+        # Clean up: answer for real so the worker thread can finish.
+        ui.ui_responder.answer_confirm(False)
+        _spin_until(qapp, lambda: "answer" in outcome)
+        thread.join(timeout=5)
+
+
+def test_an_answer_without_a_nonce_is_rejected(ui, qapp):
+    with _client(ui, arm_control=True) as client:
+        rejected = client.post(
+            "/app/prompt/answer", headers=AUTH, json={"response": True}
+        )
+        assert rejected.status_code == 422
+        assert rejected.json()["detail"]["error_type"] == "missing_nonce"
+
+
 def test_answering_requires_the_control_scope(ui, qapp):
     with _client(ui, arm_control=False) as client:
         # Reading the prompt is observation: read scope suffices.
         assert client.get("/app/prompt", headers=AUTH).status_code == 200
         refused = client.post(
-            "/app/prompt/answer", headers=AUTH, json={"response": True}
+            "/app/prompt/answer", headers=AUTH, json={"response": True, "nonce": 1}
         )
         assert refused.status_code == 403
         assert refused.json()["detail"]["scope"] == "control"

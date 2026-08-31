@@ -120,6 +120,58 @@ def test_agent_and_human_race_produces_one_winner(ui, qapp):
     assert outcome.get("answer") is False  # and the asker got exactly one answer
 
 
+def test_an_answer_naming_the_question_applies(ui, qapp):
+    thread, outcome = _ask_on_worker(ui, qapp, Confirm("Continue?"))
+    request, nonce = ui.ui_responder.pending_question_and_nonce()
+    assert isinstance(request, Confirm)
+    assert isinstance(nonce, int)
+
+    answered = ui.ui_responder.submit_answer(True, nonce=nonce)
+    _spin_until(qapp, answered.done)
+    assert answered.result() is True
+    thread.join(timeout=5)
+    assert outcome.get("answer") is True
+
+
+def test_a_wrong_nonce_is_refused_and_clicks_nothing(ui, qapp):
+    from fibsem.applications.autolamella.workflows.interaction import (
+        StalePromptError,
+    )
+
+    thread, outcome = _ask_on_worker(ui, qapp, Confirm("Continue?"))
+    _, nonce = ui.ui_responder.pending_question_and_nonce()
+
+    answered = ui.ui_responder.submit_answer(True, nonce=nonce + 1)
+    _spin_until(qapp, answered.done)
+    with pytest.raises(StalePromptError):
+        answered.result()
+    # The refused answer clicked nothing: the question still stands.
+    assert ui.ui_responder.pending_question() is not None
+    assert outcome == {}
+
+    ui.ui_responder.answer_confirm(False)
+    thread.join(timeout=5)
+    assert outcome.get("answer") is False
+
+
+def test_each_posting_gets_a_fresh_nonce(ui, qapp):
+    thread1, _ = _ask_on_worker(ui, qapp, Confirm("First?"))
+    _, first = ui.ui_responder.pending_question_and_nonce()
+    ui.ui_responder.answer_confirm(True)
+    thread1.join(timeout=5)
+
+    thread2, outcome2 = _ask_on_worker(ui, qapp, Confirm("Second?"))
+    _, second = ui.ui_responder.pending_question_and_nonce()
+    assert second != first
+    # An answer still naming the first question is stale, not misapplied.
+    answered = ui.ui_responder.submit_answer(True, nonce=first)
+    _spin_until(qapp, answered.done)
+    assert answered.exception() is not None
+    ui.ui_responder.answer_confirm(False)
+    thread2.join(timeout=5)
+    assert outcome2.get("answer") is False
+
+
 def test_aborted_question_reads_as_nothing_pending(ui, qapp):
     thread, outcome = _ask_on_worker(ui, qapp, Confirm("Continue?"))
     # The asker's future is cancelled (abort path); the corpse must not look

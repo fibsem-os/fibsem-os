@@ -42,6 +42,7 @@ from fibsem.applications.autolamella.workflows.interaction import (
     SetFluorescenceChannels,
     SetImages,
     SetMillingConfig,
+    StalePromptError,
 )
 from fibsem.structures import BeamType
 
@@ -57,7 +58,9 @@ class QtResponder(QObject):
     """Answers workflow requests by driving the window's widgets, on the GUI thread."""
 
     _submitted = pyqtSignal(object, object)  # (Request, Future)
-    _agent_answered = pyqtSignal(bool, object)  # (clicked_yes, Future[bool])
+    _agent_answered = pyqtSignal(
+        bool, object, object
+    )  # (clicked_yes, nonce, Future[bool])
 
     def __init__(self, ui: "AutoLamellaUI"):
         super().__init__()
@@ -79,7 +82,12 @@ class QtResponder(QObject):
             RunMillingTask: self._run_milling_task,
             RunSpotBurn: self._run_spot_burn,
         }
-        self._pending_question: Optional[Tuple[Request, "Future"]] = None
+        # (request, future, nonce): one attribute so a cross-thread reader sees
+        # a question and its nonce as a single consistent pair. The nonce names
+        # this posting of a question — a re-park (post-mill re-ask, replaced
+        # corpse) is a new question and gets a new one.
+        self._pending_question: Optional[Tuple[Request, "Future", int]] = None
+        self._question_seq = 0
         # A RunMillingTask whose mill is currently running: the prompt is down,
         # the future is pending, and finished_milling_signal decides what next.
         self._active_milling: Optional[Tuple[RunMillingTask, "Future"]] = None
@@ -107,12 +115,22 @@ class QtResponder(QObject):
         agent see what it is being asked. A question whose asker already
         aborted reads as None: nobody is waiting on it.
         """
+        request, _ = self.pending_question_and_nonce()
+        return request
+
+    def pending_question_and_nonce(self) -> Tuple[Optional["Request"], Optional[int]]:
+        """The pending request and the nonce naming it, or (None, None). Any thread.
+
+        The nonce is how a remote answer names *which* question it answers:
+        echo it back through :meth:`submit_answer` and the answer applies only
+        if that exact posting is still standing.
+        """
         pending = self._pending_question
         if pending is None or pending[1].cancelled():
-            return None
-        return pending[0]
+            return None, None
+        return pending[0], pending[2]
 
-    def submit_answer(self, clicked_yes: bool) -> "Future":
+    def submit_answer(self, clicked_yes: bool, nonce: Optional[int] = None) -> "Future":
         """Answer the pending question as if the matching button were clicked.
 
         Any thread; returns a Future[bool] that resolves True when the answer
@@ -121,15 +139,38 @@ class QtResponder(QObject):
         :meth:`answer_confirm` on the GUI thread — the *same* path as the
         buttons, so widget read-backs, the Run Milling interception, and the
         first-writer-wins guards all behave identically for agent and human.
+
+        With a ``nonce`` (from :meth:`pending_question_and_nonce`), the answer
+        applies only to that posting of the question: if it has meanwhile been
+        answered, withdrawn, or replaced, the future fails with
+        :class:`StalePromptError` and nothing is clicked. Without one, the
+        answer takes whatever is pending — the trusting form, for callers that
+        just looked (tests, a local console).
         """
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_answered.emit(clicked_yes, outcome)
+        self._agent_answered.emit(clicked_yes, nonce, outcome)
         return outcome
 
-    def _apply_agent_answer(self, clicked_yes: bool, outcome: "Future") -> None:
-        """GUI thread. Complete ``outcome`` with whether the answer applied."""
+    def _apply_agent_answer(
+        self, clicked_yes: bool, nonce: Optional[int], outcome: "Future"
+    ) -> None:
+        """GUI thread. Complete ``outcome`` with whether the answer applied.
+
+        The nonce check happens here, on the thread that posts and clears
+        questions — the one place it cannot race a swap.
+        """
+        if nonce is not None:
+            pending = self._pending_question
+            if pending is None or pending[1].cancelled() or pending[2] != nonce:
+                self._fail(
+                    outcome,
+                    StalePromptError(
+                        f"answer named question {nonce}, which is no longer pending"
+                    ),
+                )
+                return
         try:
             applied = self.answer_confirm(clicked_yes)
         except Exception as exc:  # noqa: BLE001 - the asker owns the failure
@@ -245,7 +286,8 @@ class QtResponder(QObject):
             # that aborted and unwound without an answer. Cancel it so nobody
             # trips over the corpse.
             self._pending_question[1].cancel()
-        self._pending_question = (request, future)
+        self._question_seq += 1
+        self._pending_question = (request, future, self._question_seq)
         # Display state, not a handshake: the workflow no longer polls this flag
         # for converted questions, but the attention button, border and timeline
         # pause still read it.
@@ -527,7 +569,7 @@ class QtResponder(QObject):
         pending = self._pending_question
         if pending is None:
             return False
-        request, future = pending
+        request, future = pending[0], pending[1]
         self._pending_question = None
         self._ui.WAITING_FOR_USER_INTERACTION = False
         if future.cancelled():

@@ -235,12 +235,15 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="answer_prompt",
-        description="Answer the pending supervision question, exactly as clicking the matching button would. True = the positive option.",
+        description="Answer the pending supervision question, exactly as clicking the matching button would. True = the positive option. Echo the nonce from get_pending_prompt; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one.",
         method="POST",
         path="/app/prompt/answer",
         scope="control",
         router="app",
-        params={"response": "true for the positive option, false for the negative"},
+        params={
+            "response": "true for the positive option, false for the negative",
+            "nonce": "the nonce from get_pending_prompt, naming the question being answered",
+        },
     ),
     ToolSpec(
         name="list_recent_experiments",

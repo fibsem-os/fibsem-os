@@ -75,9 +75,20 @@ __all__ = [
     "ClearMillingConfig",
     "SetFluorescenceChannels",
     "Responder",
+    "StalePromptError",
     "ask",
     "wait_for",
 ]
+
+
+class StalePromptError(Exception):
+    """An answer named a question that is no longer the pending one.
+
+    Raised back to a remote answerer (never to the workflow thread) when the
+    nonce it echoed does not match the standing question — the prompt it saw
+    was answered, withdrawn, or replaced while its answer was in flight.
+    """
+
 
 R = TypeVar("R")
 
