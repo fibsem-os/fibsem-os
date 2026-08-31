@@ -173,6 +173,34 @@ def test_an_answer_without_a_nonce_is_rejected(ui, qapp):
         assert rejected.json()["detail"]["error_type"] == "missing_nonce"
 
 
+def test_stop_workflow_rides_the_read_scope(ui, qapp):
+    # The safety action: available without arming, like stop_milling.
+    with _client(ui, arm_control=False) as client:
+        body = client.post("/app/workflow/stop", headers=AUTH)
+        assert body.status_code == 200
+        assert body.json() == {
+            "available": True,
+            "stopped": False,
+            "reason": "no workflow is running",
+        }
+
+
+def test_supervision_and_requeue_require_the_control_scope(ui, qapp):
+    with _client(ui, arm_control=False) as client:
+        for path, payload in (
+            ("/app/supervision", {"task_name": "Rough Milling", "supervise": True}),
+            ("/app/queue/requeue", {"item_name": "01", "task_name": "x"}),
+        ):
+            refused = client.post(path, headers=AUTH, json=payload)
+            assert refused.status_code == 403
+            assert refused.json()["detail"]["scope"] == "control"
+    with _client(ui, arm_control=True) as client:
+        for path in ("/app/supervision", "/app/queue/requeue"):
+            rejected = client.post(path, headers=AUTH, json={})
+            assert rejected.status_code == 422
+            assert rejected.json()["detail"]["error_type"] == "missing_field"
+
+
 def test_answering_requires_the_control_scope(ui, qapp):
     with _client(ui, arm_control=False) as client:
         # Reading the prompt is observation: read scope suffices.

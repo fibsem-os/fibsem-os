@@ -255,6 +255,28 @@ def build_sidecar(client, capabilities):
     def get_events(since: int = 0, timeout: float = 0.0):
         return _app_get(f"/app/events?since={since}&timeout={timeout}")
 
+    def stop_workflow():
+        data, err = _call(client, "POST", "/app/workflow/stop", None)
+        return err if err else data
+
+    def set_task_supervision(task_name: str, supervise: bool):
+        data, err = _call(
+            client,
+            "POST",
+            "/app/supervision",
+            {"task_name": task_name, "supervise": bool(supervise)},
+        )
+        return err if err else data
+
+    def requeue_task(item_name: str, task_name: str, front: bool = False):
+        data, err = _call(
+            client,
+            "POST",
+            "/app/queue/requeue",
+            {"item_name": item_name, "task_name": task_name, "front": bool(front)},
+        )
+        return err if err else data
+
     def get_display_images():
         data, err = _call(client, "GET", "/app/images", None)
         if err:
@@ -313,6 +335,9 @@ def build_sidecar(client, capabilities):
             get_display_images,
             get_pending_prompt,
             answer_prompt,
+            stop_workflow,
+            set_task_supervision,
+            requeue_task,
         )
     }
     # The catalog is the contract: refuse to start with an implementation gap.
