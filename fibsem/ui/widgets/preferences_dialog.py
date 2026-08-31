@@ -88,7 +88,7 @@ _TIP_WATCHDOG = (
 _TIP_AGENT_SERVER = (
     "Host a local, token-protected API over this session when a microscope "
     "connects, so an AI agent (via the fibsem-mcp sidecar) can observe it. "
-    "Read-only until scopes are armed for the session in Tools → Agent "
+    "Read-only until you grant permissions for the session in Tools → Agent "
     "Server, which also shows the session token."
 )
 
