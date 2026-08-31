@@ -69,6 +69,7 @@ __all__ = [
     "EditAlignmentArea",
     "PickPOI",
     "RunMillingTask",
+    "RunSpotBurn",
     "SetImages",
     "SetMillingConfig",
     "ClearMillingConfig",
@@ -151,6 +152,21 @@ class RunMillingTask(Request["FibsemMillingTaskConfig"]):
     enabled: bool = True
     confirm: bool = True
     message: str = "Run Milling"
+
+
+@dataclass(frozen=True)
+class RunSpotBurn(Request[Optional["SpotBurnSettings"]]):
+    """Hand over spot-burn settings to place points and run; answer with the
+    settings as actually used — or None without a spot-burn widget (optional
+    hardware must not fail a workflow).
+
+    Mirrors :class:`RunMillingTask`: Run Spot Burn runs the widget's current
+    points, the widget's finished signal re-raises the prompt, and Continue
+    answers with ``get_settings()`` and clears the widget.
+    """
+
+    settings: "SpotBurnSettings"
+    message: str = "Run Spot Burn"
 
 
 # --- instructions: one-way, answered with a bare acknowledgement ------------------

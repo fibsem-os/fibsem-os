@@ -79,6 +79,9 @@ class FibsemSpotBurnWidget(QWidget):
 
     # emitted by the workflow task to trigger a burn (mirrors milling's start_milling_signal)
     start_spot_burn_signal = pyqtSignal()
+    # emitted when a burn ends, success and failure alike (mirrors milling's
+    # finished_milling_signal); listeners take it to mean the widget is idle again
+    finished_spot_burn_signal = pyqtSignal()
 
     def __init__(self, parent: QWidget):
         super().__init__(parent=parent)
@@ -428,6 +431,7 @@ class FibsemSpotBurnWidget(QWidget):
         )
         # in workflow mode, hide the button again now the burn is done
         self._update_run_button_visibility()
+        self.finished_spot_burn_signal.emit()
 
     @ensure_main_thread
     def _update_progress_bar(self, ddict: dict) -> None:

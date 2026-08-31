@@ -159,46 +159,24 @@ def ask_user(
     msg: str,
     pos: str,
     neg: Optional[str] = None,
-    spot_burn: Optional[bool] = None,
 ) -> bool:
-
+    """A yes/no prompt. The last variant (spot burn) converted with RunSpotBurn,
+    so every ask is the typed path now: the answer arrives on this call's own
+    future when a button is clicked — USER_RESPONSE and the polled flag are not
+    involved. No timeout: a human answers, and silence means thinking; ``abort``
+    keeps Stop working while the prompt is up.
+    """
     if parent_ui is None:
         logging.warning(
             f"User input requested in headless mode: {msg}, always returning True."
         )
         return True
 
-    if spot_burn is None:
-        # A plain yes/no confirmation: the typed path. The answer arrives on this
-        # call's own future when a button is clicked — USER_RESPONSE and the
-        # polled flag are not involved. No timeout: a human answers, and silence
-        # means thinking; `abort` keeps Stop working while the prompt is up.
-        return ask(
-            parent_ui.ui_responder,
-            Confirm(message=msg, positive=pos, negative=neg),
-            abort=lambda: _abort_requested(parent_ui),
-        )
-
-    INFO = {
-        "msg": msg,
-        "pos": pos,
-        "neg": neg,
-        "spot_burn": spot_burn,
-    }
-    parent_ui.workflow_update_signal.emit(INFO)
-
-    parent_ui.WAITING_FOR_USER_INTERACTION = True
-    logging.info("WAITING_FOR_USER_INTERACTION...")
-    while parent_ui.WAITING_FOR_USER_INTERACTION:
-        _check_for_abort(parent_ui=parent_ui)
-        time.sleep(1)
-
-    INFO = {
-        "msg": "",
-    }
-    parent_ui.workflow_update_signal.emit(INFO)  # clear the message
-
-    return parent_ui.USER_RESPONSE
+    return ask(
+        parent_ui.ui_responder,
+        Confirm(message=msg, positive=pos, negative=neg),
+        abort=lambda: _abort_requested(parent_ui),
+    )
 
 
 def ask_user_continue_workflow(
