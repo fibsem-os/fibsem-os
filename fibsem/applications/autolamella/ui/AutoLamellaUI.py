@@ -196,6 +196,9 @@ class AutoLamellaUI(QMainWindow):
         # The Qt side of the workflow's Responder seam: workflow code is handed
         # this one-method object, never the window itself.
         self.ui_responder = QtResponder(self)
+        # The timeline renders the responder's question-lifecycle feed; the
+        # widget itself is built in _setup_ui, before the responder exists.
+        self.ui_responder.add_question_observer(self.question_timeline.record)
 
         self._protocol_lock = threading.RLock()
 
@@ -302,11 +305,20 @@ class AutoLamellaUI(QMainWindow):
         self.pushButton_yes = QPushButton("Yes")
         self.pushButton_no = QPushButton("No")
 
+        # Who answered what, under the buttons: fed by the responder's
+        # question-lifecycle feed, hidden until the first answer.
+        from fibsem.applications.autolamella.ui.question_timeline_widget import (
+            QuestionTimelineWidget,
+        )
+
+        self.question_timeline = QuestionTimelineWidget(self.centralwidget)
+
         self.gridLayout.addWidget(self.tabWidget, 1, 0, 1, 2)
         self.gridLayout.addWidget(self.label_workflow_information, 2, 0, 1, 2)
         self.gridLayout.addWidget(self.label_instructions, 3, 0, 1, 2)
         self.gridLayout.addWidget(self.pushButton_yes, 4, 0)
         self.gridLayout.addWidget(self.pushButton_no, 4, 1)
+        self.gridLayout.addWidget(self.question_timeline, 5, 0, 1, 2)
 
         self.setCentralWidget(self.centralwidget)
         self.tabWidget.setCurrentIndex(0)

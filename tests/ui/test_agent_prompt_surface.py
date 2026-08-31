@@ -184,7 +184,7 @@ def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
         app_context=AgentContext(ui, event_buffer=buffer),
         auth=AuthConfig.generate(arm_control=True, token=TOKEN),
     )
-    ui.ui_responder.on_question_event = buffer.append
+    dispose = ui.ui_responder.add_question_observer(buffer.append)
     try:
         with TestClient(app, raise_server_exceptions=False) as client:
             thread, outcome = _ask_on_worker(ui, qapp)
@@ -213,7 +213,7 @@ def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
             assert answered["payload"]["response"] is True
             assert answered["payload"]["nonce"] == nonce
     finally:
-        ui.ui_responder.on_question_event = None
+        dispose()
 
 
 def test_stop_workflow_rides_the_read_scope(ui, qapp):
