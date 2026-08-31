@@ -19,8 +19,8 @@ immediately.
   (`fibsem/applications/autolamella/workflows/tasks/manager.py`) blocks before the
   task's `InProgress` status is emitted, in an interruptible loop
   (`while not self.is_stopped`). It emits a ~15s countdown to the **bottom status bar**
-  via `update_status_ui(..., status_bar=msg)` → `workflow_update_signal` →
-  `AutoLamellaMainUI._on_workflow_update`.
+  via `update_status_ui(..., status_bar=msg)` → `WorkflowStatusEvent` on
+  `workflow_status_signal` → `AutoLamellaMainUI._on_workflow_status`.
 - **Cancel during wait** — the Stop button is shown as soon as the workflow starts
   (`set_workflow_running()` in `_on_run_workflow_clicked`), so a scheduled-but-not-yet-
   started run is cancellable. Stop sets the manager's `_stop_event`, which the wait loop
@@ -49,8 +49,9 @@ event — on skip, `is_stopped` stays False and `_run_queue` falls through to ru
      `if self.is_stopped: break` in `_run_queue` is unchanged — on skip it falls through
      and runs the task. Clearing on entry scopes the skip to the *current* wait, so a
      later scheduled task still waits (see decision 1).
-2. **`workflows/ui.py`** — add a `waiting: bool = False` flag to `update_status_ui`,
-   included in the emitted dict; the manager passes `waiting=True` on its countdown emits.
+2. **`workflows/tasks/status.py`** — add a `waiting: bool = False` field to
+   `WorkflowStatusEvent` (the dict signal is gone), threaded through
+   `update_status_ui`; the manager passes `waiting=True` on its countdown emits.
 3. **`AutoLamellaUI.py`** — add `skip_scheduled_wait()` mirroring `stop_task_workflow`:
    guard on `is_workflow_running` / `_task_manager is not None`, then
    `self._task_manager.skip_wait()`.
@@ -58,8 +59,8 @@ event — on skip, `is_stopped` stays False and `_run_queue` falls through to ru
    - In `_create_status_bar`: create `self.resume_now_btn = QPushButton("Resume Workflow Now")`,
      hidden by default, `addPermanentWidget` next to `stop_workflow_btn`, connect to a
      handler that calls `self.autolamella_ui.skip_scheduled_wait()`.
-   - In `_on_workflow_update`: `self.resume_now_btn.setVisible(bool(info.get("waiting")))`;
-     hide it once a real task `status` dict arrives (task started).
+   - In `_on_workflow_status`: `self.resume_now_btn.setVisible(event.waiting)`;
+     hide it once an event carrying a lifecycle `report` arrives (task started).
    - Hide it in `hide_workflow_running()` and `_on_workflow_finished()`. Do NOT show it in
      `set_workflow_running()` (that fires at run start, before any wait).
 
