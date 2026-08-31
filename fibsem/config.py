@@ -396,6 +396,12 @@ class FeatureFlags:
     # microscope and none of its guard rails, so the menu is not offered to anyone
     # who has not asked for it (FIB-338).
     scripts_enabled: bool = False
+    # The embedded agent server (FIB-845): an HTTP API over the running session that
+    # agents reach through the fibsem-mcp sidecar. Off by default and fail-closed like
+    # scripts: enabling starts a localhost-only, token-authenticated, READ-ONLY server
+    # when a microscope connects. Nothing can move hardware through it until the
+    # control/hardware scopes are armed, which no configuration file can do.
+    agent_server_enabled: bool = False
     # The old napari Minimap tab, beside the Overview tab that replaced it. **Off**: the
     # canvas Overview ships to everyone and holds both modalities (FIB-780), so the old
     # tab is not what anyone should land on -- it is here to be turned back on by anyone
