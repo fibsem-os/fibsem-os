@@ -6,9 +6,9 @@ have an answer. At the FM on an offset mount the classifier reports the pose the
 sample was carried out in -- "FIB", measured -- so the runner refused at the one
 place it is meant to run, and nothing noticed.
 
-This file is the pin from FIB-856. The gate here is interim (an inline mounting
-split); when the gates move onto `get_device_imaging_state` (FIB-839) the gate
-changes and these tests keep it honest.
+This file is the pin from FIB-856. The gate started as an interim inline mounting
+split and now asks `get_device_imaging_state` (FIB-839), READY strictly -- the same
+gate the overview widget always applied on its acquire button.
 """
 
 import os
@@ -110,18 +110,18 @@ def test_an_offset_system_still_refuses_at_milling():
         )
 
 
-def test_a_compustage_keeps_exactly_the_list_it_had():
-    """["SEM", "FM"] on a compustage, unchanged.
+def test_a_compustage_tileset_needs_the_fm_pose():
+    """The runner now applies the gate the widget always applied.
 
-    The tempting one-liner -- swap the inlined list for
-    `is_acquisition_orientation()` -- would have *newly refused* SEM tilesets on
-    every Arctis, because that predicate's list is `["FM"]` there. The refusal at
-    FIB below is the old behaviour too, kept.
+    A tileset walks the stage and stitches through a frame built from the pose, so it
+    requires the pose the objective images from -- `["FM"]` on a compustage. The
+    widget's acquire button was already gated exactly this way; only direct API calls
+    could previously start a tileset from SEM, through the runner's own inlined list.
     """
     microscope, _ = utils.setup_session(config_path=ARCTIS_CONFIG)
     microscope.fm.objective.insert()
 
-    microscope.move_to_orientation("SEM")
+    microscope.move_to_microscope("FM")
     tiles = acquire_tileset(
         microscope=microscope,
         channel_settings=CHANNEL,
@@ -129,8 +129,8 @@ def test_a_compustage_keeps_exactly_the_list_it_had():
     )
     assert tiles[0][0] is not None
 
-    microscope.move_to_orientation("FIB")
-    with pytest.raises(ValueError, match="FIB"):
+    microscope.move_to_orientation("SEM")
+    with pytest.raises(ValueError, match="needs_repose"):
         acquire_tileset(
             microscope=microscope,
             channel_settings=CHANNEL,

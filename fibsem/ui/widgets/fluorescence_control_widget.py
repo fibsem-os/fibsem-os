@@ -33,7 +33,7 @@ from fibsem.fm.structures import (
     ZParameters,
 )
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import Point
+from fibsem.structures import DeviceImagingState, Point
 from fibsem.ui import notification_service
 from fibsem.ui.fm.widgets import (
     AutofocusWidget,
@@ -451,9 +451,15 @@ class FMControlWidget(QWidget):
         if self.is_acquisition_active:
             logging.info("Stage movement disabled during acquisition")
             return
-        if not self.microscope.fm.has_valid_orientation():
+        # READY strictly: a click is a stage move computed through a frame built from
+        # the current pose, so from one the objective cannot image from, nothing has
+        # checked where it would send the stage.
+        if (
+            self.microscope.get_device_imaging_state("FM")
+            is not DeviceImagingState.READY
+        ):
             logging.info(
-                "Stage must be in a valid FM orientation to move via FM "
+                "Stage must be at the fluorescence microscope to move via FM "
                 f"(current: {self.microscope.get_stage_orientation()})"
             )
             return
@@ -631,10 +637,11 @@ class FMControlWidget(QWidget):
                 f"Cannot start {what}: the fluorescence microscope is in use ({reason})."
             )
             return True
-        if not self.fm.has_valid_orientation():
+        state = self.microscope.get_device_imaging_state("FM")
+        if not state.allows_acquisition:
             logging.warning(
-                f"Cannot start {what}: the stage is not in a valid FM orientation "
-                f"(currently {self.microscope.get_stage_orientation()})."
+                f"Cannot start {what}: {state.value} "
+                f"(the stage is at {self.microscope.get_stage_orientation()})."
             )
             return True
         return False
@@ -932,9 +939,12 @@ class FMControlWidget(QWidget):
         # buttons and skipped every line below, so the objective panel and the channel
         # settings kept whatever they were last set to, including enabled during
         # somebody else's tileset. It also missed two of the buttons it claimed to
-        # cover. Dead as shipped -- `ALLOW_UNKNOWN_ORIENTATIONS` answers this yes
-        # unconditionally -- which is why nobody noticed.
-        posed = self.microscope.fm.has_valid_orientation()
+        # cover. Enforcing for the first time here: the old predicate was answered
+        # yes unconditionally by its escape flag, which is why nobody noticed. A
+        # compustage keeps its buttons everywhere (it can never need
+        # travel); an offset mount loses them at the beams, where the objective is
+        # 48.8 mm from the sample.
+        posed = self.microscope.get_device_imaging_state("FM").allows_acquisition
         may_start = posed and not acquiring
         may_touch = posed and interactive
 

@@ -2016,6 +2016,22 @@ class DeviceImagingState(Enum):
     # rotation happens at the beams and never under an objective.
     NEEDS_REPOSE_THEN_TRAVEL = "needs_repose_then_travel"
 
+    @property
+    def allows_acquisition(self) -> bool:
+        """The acquisition-gate policy, in one place.
+
+        Acquiring in place from a "wrong" pose is a harmless watch when the device is
+        here -- an Arctis user turning the light on at a beam pose -- so a re-pose
+        does not refuse. Travel states do: from a different place in the chamber the
+        device is not looking at the sample at all. `NO_DEVICE` refuses, terminally.
+
+        Sites that *drive the stage* through an FM-built frame, or *write the pose
+        down* (marking a lamella, a tileset walking a grid), require `READY` and do
+        not use this: from a pose the device cannot image from, nothing has checked
+        the frame their numbers go through.
+        """
+        return self in (DeviceImagingState.READY, DeviceImagingState.NEEDS_REPOSE)
+
 
 def device_axes_to_dict(position: FibsemStagePosition) -> dict:
     """The device axes a partial position sets, as a plain dict. Absent axes are absent."""

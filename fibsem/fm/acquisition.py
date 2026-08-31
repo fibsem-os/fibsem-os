@@ -43,7 +43,12 @@ from fibsem.imaging.tiling.progress import (
     TiledProgress,
     TiledStatus,
 )
-from fibsem.structures import BeamType, FibsemStagePosition, TileOrderStrategy
+from fibsem.structures import (
+    BeamType,
+    DeviceImagingState,
+    FibsemStagePosition,
+    TileOrderStrategy,
+)
 from fibsem.util.filename import remove_suffix
 
 if TYPE_CHECKING:
@@ -200,9 +205,11 @@ def acquire_image(
     if microscope.parent is None:
         raise ValueError("Microscope parent is not set. Cannot start acquisition.")
 
-    if not microscope.has_valid_orientation():
+    state = microscope.parent.get_device_imaging_state("FM")
+    if not state.allows_acquisition:
         raise ValueError(
-            f"Stage is not in valid orientation ({microscope.parent.get_stage_orientation()!r}). Cannot start acquisition."
+            f"Cannot start acquisition: {state.value} "
+            f"(stage at {microscope.parent.get_stage_orientation()!r})."
         )
 
     if zparams is not None:
@@ -506,19 +513,17 @@ class FMTiledAcquisitionRunner:
                 "Fluorescence microscope not initialized in the FibsemMicroscope instance"
             )
 
-        # TEMPORARY (FIB-856): an inline mounting split, deleted when the gates move
-        # onto `get_device_imaging_state` (FIB-839). At the FM on an offset mount the
-        # classifier reports the pose the sample was carried out in -- "FIB", measured
-        # on sim-iflm -- so the old ["SEM", "FM"] list refused at the one place this
-        # runner is meant to run. The compustage list is unchanged; widening it instead
-        # (or swapping in `is_acquisition_orientation`) would newly refuse SEM tilesets
-        # on every Arctis.
-        orientation = microscope.get_stage_orientation()
-        allowed = ["SEM", "FM"] if microscope.stage_is_compustage else ["SEM", "FIB"]
-        if orientation not in allowed:
+        # READY strictly, not `allows_acquisition`: a tileset walks the stage across a
+        # grid and stitches the result through a frame built from the pose, so from a
+        # pose the objective cannot image from, nothing has checked where its tiles
+        # land. This is the gate the widget already applied on its acquire button; the
+        # runner used to carry its own inlined ["SEM", "FM"] list instead, which
+        # additionally allowed direct SEM tileset calls on a compustage.
+        state = microscope.get_device_imaging_state("FM")
+        if state is not DeviceImagingState.READY:
             raise ValueError(
-                f"Stage orientation is {orientation}, not one of {allowed}. "
-                "Cannot start acquisition."
+                f"Cannot start a tiled acquisition: {state.value} "
+                f"(stage at {microscope.get_stage_orientation()!r})."
             )
 
         if not isinstance(self.channel_settings, list):
