@@ -1485,7 +1485,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return False
         supervised = get_task_supervision(task_name, self.autolamella_ui)
         if supervised and self._agent_supervision_active(task_name):
-            self.supervised_status_btn.setIcon(fibsem_icon("mdi:robot", color="white"))
+            self.supervised_status_btn.setIcon(
+                fibsem_icon("mdi:star-four-points", color="white")
+            )
             self.supervised_status_btn.setText("Agent")
             self.supervised_status_btn.setToolTip(
                 f"{task_name} is supervised by the connected agent. "
