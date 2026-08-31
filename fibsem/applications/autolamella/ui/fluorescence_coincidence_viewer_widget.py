@@ -2418,12 +2418,11 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             return
         # READY strictly: the click becomes a stage move computed through a frame
         # built from the current pose.
-        if (
-            self.microscope.get_device_imaging_state("FM")
-            is not DeviceImagingState.READY
-        ):
+        state = self.microscope.get_device_imaging_state("FM")
+        if state is not DeviceImagingState.READY:
             logging.info(
-                f"Stage must be at the fluorescence microscope to move via FM image (current: {self.microscope.get_stage_orientation()})"
+                "Cannot move the stage via the FM image. "
+                + self.microscope.describe_device_imaging_state("FM", state)
             )
             return
         image_shape = self.fm_canvas._img_shape

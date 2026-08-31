@@ -167,7 +167,10 @@ class FMControlWidget(QWidget):
         self.pushButton_run_autofocus = QPushButton("Run Auto-Focus", self)
         self.pushButton_cancel_acquisition = QPushButton("Cancel Acquisition", self)
 
-        # Default orientation for fluorescence pose when adding a lamella
+        # Default orientation for fluorescence pose when adding a lamella. This is a
+        # *planning* choice -- which pose new lamellas get their fluorescence pose
+        # derived into -- and both options are orientations; the device the pose is
+        # imaged at is not this control's business.
         self.label_default_orientation = QLabel("Default Orientation", self)
         self.comboBox_default_orientation = ValueComboBox(parent=self)
         self.comboBox_default_orientation.addItems(["SEM", "FM"])
@@ -175,6 +178,16 @@ class FMControlWidget(QWidget):
         self.comboBox_default_orientation.setToolTip(
             "Stage orientation used when computing the fluorescence pose for new lamellas"
         )
+        # On an offset mount there is no FM orientation and the pose derivation cannot
+        # produce a fluorescence pose at all yet (it needs the device leg -- FIB-831),
+        # so a choice here would decide nothing. Disabled rather than hidden, with the
+        # reason where the user's pointer already is.
+        if not self.microscope.stage_is_compustage:
+            self.comboBox_default_orientation.setEnabled(False)
+            self.comboBox_default_orientation.setToolTip(
+                "Fluorescence poses cannot yet be derived on an offset-mounted FM; "
+                "mark positions from the FM overview instead."
+            )
 
         # Checkbox for lamella association
         self.checkBox_associate_with_lamella = QCheckBox(
@@ -630,19 +643,14 @@ class FMControlWidget(QWidget):
         The pose check used to live in `start_acquisition` alone, so an image, a z-stack
         or an autofocus sweep could be started from a pose the FM cannot see anything
         from. Nothing but the buttons stopped them, and the buttons are not the guard.
+
+        Both questions now live on the instrument (`fm.refusal_to_start`), where every
+        entry point can ask them; this wrapper is the widget's delivery -- log it --
+        plus the bool shape its three callers already branch on.
         """
-        if self.fm.is_acquiring:
-            reason = self.fm.acquiring_reason or "another acquisition"
-            logging.warning(
-                f"Cannot start {what}: the fluorescence microscope is in use ({reason})."
-            )
-            return True
-        state = self.microscope.get_device_imaging_state("FM")
-        if not state.allows_acquisition:
-            logging.warning(
-                f"Cannot start {what}: {state.value} "
-                f"(the stage is at {self.microscope.get_stage_orientation()})."
-            )
+        refusal = self.fm.refusal_to_start(what)
+        if refusal is not None:
+            logging.warning(refusal)
             return True
         return False
 

@@ -850,6 +850,35 @@ class FluorescenceMicroscope(ABC):
         self._acquiring_reason = reason if acquiring else ""
         self.acquiring_changed.emit(self.is_acquiring)
 
+    def refusal_to_start(self, what: str) -> Optional[str]:
+        """Why *what* may not start right now, as one actionable sentence -- or None.
+
+        The two questions every entry point has to ask, in the order that matters
+        (FIB-839): *when* first -- is something already driving the instrument --
+        then *where* -- can it image the sample from here. Asked together so no
+        caller assembles them its own way; the control widget used to be the only
+        site that composed both, as a private method returning a bare bool, and
+        every other gate either asked half the question or logged a message about
+        the wrong half.
+
+        Returns the message rather than raising or logging, because the right
+        delivery differs per caller: a workflow raises, a widget toasts, a canvas
+        handler logs. `None` means go.
+        """
+        if self.is_acquiring:
+            reason = self.acquiring_reason or "another acquisition"
+            return (
+                f"Cannot start {what}: the fluorescence microscope is in use "
+                f"({reason})."
+            )
+        state = self.parent.get_device_imaging_state("FM")
+        if not state.allows_acquisition:
+            return (
+                f"Cannot start {what}. "
+                f"{self.parent.describe_device_imaging_state('FM', state)}"
+            )
+        return None
+
     def set_active_channel(self) -> None:
         """Point the microscope's imaging channel at the FM, and leave it there.
 

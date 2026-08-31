@@ -130,7 +130,7 @@ def test_a_compustage_tileset_needs_the_fm_pose():
     assert tiles[0][0] is not None
 
     microscope.move_to_orientation("SEM")
-    with pytest.raises(ValueError, match="needs_repose"):
+    with pytest.raises(ValueError, match="Re-pose"):
         acquire_tileset(
             microscope=microscope,
             channel_settings=CHANNEL,

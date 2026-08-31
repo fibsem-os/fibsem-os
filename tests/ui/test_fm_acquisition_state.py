@@ -281,6 +281,10 @@ class TestTheControlWidgetGuard:
         widget = FMControlWidget.__new__(FMControlWidget)
         widget.fm = fm
         widget.microscope = _StageAt(state or DeviceImagingState.READY)
+        # The guard now lives on the instrument (`fm.refusal_to_start`) and asks the
+        # top-level system through `fm.parent` -- wire the harness the way a real
+        # connection does.
+        fm.parent = widget.microscope
         widget._acquisition_thread = None
         return widget
 
@@ -443,6 +447,11 @@ class _StageAt:
 
     def get_device_imaging_state(self, device: str, stage_position=None):
         return self._state
+
+    def describe_device_imaging_state(
+        self, device: str, state=None, stage_position=None
+    ) -> str:
+        return f"described({(state or self._state).value})"
 
     def get_stage_orientation(self, stage_position=None) -> str:
         return "SEM"

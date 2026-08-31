@@ -556,7 +556,7 @@ class FMOverviewWidget(QWidget):
         # button naming one orientation while going to another is worse than no button.
         self.button_move_to_fm = QPushButton()
         self.button_move_to_fm.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.button_move_to_fm.clicked.connect(self.move_to_fm_orientation)
+        self.button_move_to_fm.clicked.connect(self.move_to_fm_device)
 
         self.orientation_banner = QWidget()
         banner_layout = QHBoxLayout(self.orientation_banner)
@@ -1760,11 +1760,18 @@ class FMOverviewWidget(QWidget):
             self.microscope.get_device_imaging_state("FM") is DeviceImagingState.READY
         )
 
-    def move_to_fm_orientation(self) -> None:
-        """Drive the stage to the fluorescence orientation, having asked first.
+    def move_to_fm_device(self) -> None:
+        """Drive the stage to where the FM can image, having asked first.
+
+        The target is the *device*, not an orientation -- this used to read a variable
+        named `orientation` from `fm.default_orientation` and pass it to a device
+        parameter, which worked only because "FM" happened to name both (FIB-832). On
+        an offset mount the move is a traverse across the chamber, possibly with a
+        re-pose at the beams first; the confirmation describes the actual route, since
+        one button press should not grow into a multi-leg motion silently.
 
         A real stage move, so it gets the same confirmation as the other moves in this
-        widget -- and the same worker, since `move_to_microscope` blocks for as long as
+        widget -- and the same worker, since `move_to_device` blocks for as long as
         the stage takes.
         """
         if self._running or self.fm.is_acquiring:
@@ -1772,30 +1779,29 @@ class FMOverviewWidget(QWidget):
                 "Cannot move the stage during an acquisition.", "warning"
             )
             return
-        orientation = self.fm.default_orientation
         reply = QMessageBox.question(
             self,
             "Confirm Movement",
-            f"Move the stage to the {orientation} orientation?\n\n"
-            f"The stage is currently at {self.microscope.get_stage_orientation()}.",
+            f"Move the stage to the fluorescence microscope?\n\n"
+            f"{self.microscope.describe_device_imaging_state('FM')}",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
         if reply != QMessageBox.Yes:
-            logging.info("Move to FM orientation cancelled by user")
+            logging.info("Move to FM device cancelled by user")
             return
 
-        self.status.setText(f"Moving to {orientation}…")
-        worker = FunctionWorker(self._move_to_orientation_worker, orientation)
+        self.status.setText("Moving to the FM…")
+        worker = FunctionWorker(self._move_to_device_worker, "FM")
         worker.start()
 
-    def _move_to_orientation_worker(self, orientation: str) -> None:
+    def _move_to_device_worker(self, device: str) -> None:
         """Runs off the GUI thread. Only signals may cross back."""
         try:
-            self.microscope.move_to_microscope(orientation)
-            logging.info(f"Moved to {orientation} orientation")
+            self.microscope.move_to_device(device)
+            logging.info(f"Moved to the {device} device")
         except Exception as e:
-            logging.error(f"Failed to move to {orientation} orientation: {e}")
+            logging.error(f"Failed to move to the {device} device: {e}")
         # Not followed by a refresh: the move raises `stage_position_changed`, which
         # arrives at `_on_stage_moved` and re-derives everything the pose feeds.
 
@@ -1838,7 +1844,10 @@ class FMOverviewWidget(QWidget):
                 f"Stage is at {self._where_the_stage_is()} — an overview needs to be at "
                 f"{self._where_the_stage_needs_to_be()}."
             )
-            self.button_move_to_fm.setText(f"Move to {self.fm.default_orientation}")
+            # The device, by name: the button travels to the FM, whatever pose that
+            # takes on this mounting -- naming an orientation here was half of the
+            # device/orientation mix-up FIB-832 records.
+            self.button_move_to_fm.setText("Move to FM")
 
     def _on_fm_acquiring_signal(self, acquiring: bool) -> None:
         """Called by psygnal, on whichever thread started or stopped. No widgets here."""
