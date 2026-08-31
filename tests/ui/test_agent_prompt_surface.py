@@ -184,7 +184,7 @@ def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
         app_context=AgentContext(ui, event_buffer=buffer),
         auth=AuthConfig.generate(arm_control=True, token=TOKEN),
     )
-    ui.ui_responder.on_question_event = buffer.append
+    dispose = ui.ui_responder.add_question_observer(buffer.append)
     try:
         with TestClient(app, raise_server_exceptions=False) as client:
             thread, outcome = _ask_on_worker(ui, qapp)
@@ -213,7 +213,7 @@ def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
             assert answered["payload"]["response"] is True
             assert answered["payload"]["nonce"] == nonce
     finally:
-        ui.ui_responder.on_question_event = None
+        dispose()
 
 
 def test_stop_workflow_rides_the_read_scope(ui, qapp):
@@ -226,6 +226,92 @@ def test_stop_workflow_rides_the_read_scope(ui, qapp):
             "stopped": False,
             "reason": "no workflow is running",
         }
+
+
+def test_start_workflow_validates_and_starts_on_the_gui_thread(ui, qapp):
+    from psygnal.containers import EventedDict
+
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskDescription,
+        AutoLamellaTaskProtocol,
+        Experiment,
+    )
+    from fibsem.structures import MicroscopeState
+
+    experiment = Experiment(path="/tmp/agent-start", name="agent-start")
+    experiment.task_protocol = AutoLamellaTaskProtocol()
+    experiment.task_protocol.workflow_config.tasks.append(
+        AutoLamellaTaskDescription(name="Mill Fiducial", supervise=True, required=True)
+    )
+    experiment.add_new_lamella(MicroscopeState(), EventedDict())
+    ui.experiment = experiment
+
+    calls = []
+
+    class _AliveThread:
+        @staticmethod
+        def is_alive():
+            return True
+
+    def fake_start(task_names, item_names):
+        calls.append((task_names, item_names))
+        ui._task_worker_thread = _AliveThread()
+
+    ui._start_run_workflow_thread = fake_start
+
+    with _client(ui, arm_control=True) as client:
+        posted = {}
+
+        def do_post(body):
+            posted["response"] = client.post(
+                "/app/workflow/start", headers=AUTH, json=body
+            )
+
+        # Unknown task: structured refusal carrying the valid names.
+        poster = threading.Thread(
+            target=do_post, args=({"task_names": ["No Such Task"]},), daemon=True
+        )
+        poster.start()
+        _spin_until(qapp, lambda: "response" in posted)
+        refused = posted["response"].json()
+        assert refused["started"] is False
+        assert refused["task_names"] == ["Mill Fiducial"]
+        assert calls == []
+
+        # Valid start; omitted items means every item in the experiment.
+        posted.clear()
+        poster = threading.Thread(
+            target=do_post, args=({"task_names": ["Mill Fiducial"]},), daemon=True
+        )
+        poster.start()
+        _spin_until(qapp, lambda: "response" in posted)
+        assert posted["response"].json() == {"available": True, "started": True}
+        assert calls == [(["Mill Fiducial"], [experiment.positions[0].name])]
+
+        # And now that it is "running", a second start is refused.
+        posted.clear()
+        poster = threading.Thread(
+            target=do_post, args=({"task_names": ["Mill Fiducial"]},), daemon=True
+        )
+        poster.start()
+        _spin_until(qapp, lambda: "response" in posted)
+        assert posted["response"].json()["started"] is False
+        ui._task_worker_thread = None
+
+    ui.experiment = None
+
+
+def test_start_workflow_requires_control_and_a_valid_body(ui, qapp):
+    with _client(ui, arm_control=False) as client:
+        refused = client.post(
+            "/app/workflow/start", headers=AUTH, json={"task_names": ["x"]}
+        )
+        assert refused.status_code == 403
+        assert refused.json()["detail"]["scope"] == "control"
+    with _client(ui, arm_control=True) as client:
+        rejected = client.post("/app/workflow/start", headers=AUTH, json={})
+        assert rejected.status_code == 422
+        assert rejected.json()["detail"]["error_type"] == "missing_field"
 
 
 def test_supervision_and_requeue_require_the_control_scope(ui, qapp):

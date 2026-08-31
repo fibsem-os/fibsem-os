@@ -234,6 +234,18 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
     ),
     ToolSpec(
+        name="start_workflow",
+        description="Start a workflow — the Run button, remotely. Names the tasks to run (from the protocol) and optionally the items; omitted items means all of them. Refused while a workflow is already running.",
+        method="POST",
+        path="/app/workflow/start",
+        scope="control",
+        router="app",
+        params={
+            "task_names": "the tasks to run, from the protocol's task names",
+            "item_names": "the items (lamellae) to run them for; omit for all",
+        },
+    ),
+    ToolSpec(
         name="set_task_supervision",
         description="Set whether a task asks for supervision, in the live protocol. Takes effect at the workflow's next prompt-or-proceed decision, mid-run — the same behaviour as the GUI's supervised/automated toggle.",
         method="POST",
