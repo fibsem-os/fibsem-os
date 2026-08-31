@@ -12,6 +12,7 @@ from fibsem.applications.autolamella.workflows.interaction import (
     Confirm,
     ConfirmDetection,
     EditAlignmentArea,
+    PickPOI,
     SetImages,
     SetSpotBurnSettings,
     ask,
@@ -241,40 +242,29 @@ def update_alignment_area_ui(
 
 def select_poi_ui(
     parent_ui: Optional["AutoLamellaUI"],
+    image: Optional[FibsemImage],
     msg: str = "Select Point of Interest",
     validate: bool = True,
     initial_poi: Optional[Point] = None,
 ) -> Optional[Point]:
-    """Display a draggable POI marker on the FIB image; return the selected point in milling coordinates."""
+    """Show a draggable POI marker on ``image`` and return the picked point.
+
+    The image travels in the request (the marker's coordinates only mean
+    something against it), and the answer IS the point: the Continue click reads
+    the marker, converts, and takes the overlay down on the GUI thread — no
+    SELECTED_POI read-back, no second WAITING_FOR_UI_UPDATE handshake.
+    No timeout: a human answers, and silence means thinking.
+    """
     _check_for_abort(parent_ui)
 
-    if parent_ui is None or not validate:
+    if parent_ui is None or not validate or image is None:
         return None
 
-    INFO = {
-        "msg": msg,
-        "pos": "Continue",
-        "poi_selection": True,
-        "initial_poi": initial_poi,
-    }
-    parent_ui.workflow_update_signal.emit(INFO)
-
-    parent_ui.WAITING_FOR_USER_INTERACTION = True
-    logging.info("WAITING_FOR_USER_INTERACTION (POI selection)...")
-    while parent_ui.WAITING_FOR_USER_INTERACTION:
-        _check_for_abort(parent_ui=parent_ui)
-        time.sleep(1)
-
-    _check_for_abort(parent_ui)
-
-    # clear the layer and compute POI
-    INFO = {"msg": "", "poi_selection": "clear"}
-    parent_ui.WAITING_FOR_UI_UPDATE = True
-    parent_ui.workflow_update_signal.emit(INFO)
-    while parent_ui.WAITING_FOR_UI_UPDATE:
-        time.sleep(0.5)
-
-    return deepcopy(parent_ui.SELECTED_POI)
+    return ask(
+        parent_ui.ui_responder,
+        PickPOI(image=image, initial=initial_poi, message=msg),
+        abort=lambda: _abort_requested(parent_ui),
+    )
 
 
 def update_experiment_ui(

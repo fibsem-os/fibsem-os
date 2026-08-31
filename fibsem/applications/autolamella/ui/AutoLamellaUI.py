@@ -28,7 +28,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem import conversions
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
     LamellaNameListWidget,
 )
@@ -43,7 +42,6 @@ from fibsem.structures import (
     FibsemImage,
     FibsemStagePosition,
     MicroscopeSettings,
-    Point,
 )
 from fibsem.ui import (
     DETECTION_AVAILABLE,
@@ -246,7 +244,6 @@ class AutoLamellaUI(QMainWindow):
         self.WORKFLOW_PENDING: bool = False
         self.USER_RESPONSE: bool = False
         self.WAITING_FOR_UI_UPDATE: bool = False
-        self.SELECTED_POI: Optional[Point] = None
         self._workflow_stop_event: threading.Event = threading.Event()
         self._task_worker_thread: Optional[FunctionWorker] = None
         self._task_manager: Optional[TaskManager] = None
@@ -1919,16 +1916,9 @@ class AutoLamellaUI(QMainWindow):
                 False
             )
 
-        # Detections and the alignment area no longer arrive here: they are
-        # questions over the Responder seam (QtResponder._confirm_detection,
-        # QtResponder._edit_alignment_area).
-
-        # POI selection
-        poi_selection = info.get("poi_selection", None)
-        if poi_selection is True:
-            self._show_poi_selection_layer(info.get("initial_poi", None))
-        elif poi_selection == "clear":
-            self._compute_and_clear_poi_layer()
+        # Detections, the alignment area and POI selection no longer arrive
+        # here: they are questions over the Responder seam
+        # (QtResponder._confirm_detection, _edit_alignment_area, _pick_poi).
 
         # spot_burn
         spot_burn = info.get("spot_burn", None)
@@ -1962,65 +1952,3 @@ class AutoLamellaUI(QMainWindow):
         self.set_current_workflow_message(info.get("workflow_info", None))
 
         self.WAITING_FOR_UI_UPDATE = False
-
-    _POI_LAYER_NAME = "Point of Interest"
-
-    def _show_poi_selection_layer(self, initial_poi: Optional[Point] = None) -> None:
-        """Show a draggable POI marker on the FIB canvas (via the controller)."""
-        controller = getattr(self.parent_widget, "view_controller", None)
-        if controller is not None:
-            self._show_poi_overlay(controller, initial_poi)
-
-    def _show_poi_overlay(self, controller, initial_poi: Optional[Point]) -> None:
-        """Quad-view POI: a magenta '+' point on the FIB canvas (move-only), via the reducer."""
-        from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
-
-        ib_image = self.image_widget.ib_image
-        if initial_poi is not None:
-            px = conversions.microscope_image_to_image_coordinates(
-                initial_poi, ib_image.data.shape, ib_image.metadata.pixel_size.x
-            )
-            col, row = px.x, px.y
-        else:
-            row = ib_image.data.shape[0] / 2
-            col = ib_image.data.shape[1] / 2
-        controller.set_overlay(
-            BeamType.ION,
-            PointsSpec(
-                id="poi",
-                points=[(col, row)],
-                # Matches the protocol editor's POI, down to the legend entry: same
-                # concept, same marker. Left to the defaults this drew at size 18 with
-                # PointOverlay's 2.0 edge, a cross visibly fatter than the thin one the
-                # editor and the config preview draw, and absent from the legend
-                # (FIB-582). 1.2 keeps it reading like the centre crosshair.
-                color="magenta",
-                selected_color="magenta",
-                marker="+",
-                size=14,
-                edge_width=1.2,
-                legend_label="Point of Interest",
-                add_on_right_click=False,
-                removable=False,
-            ),
-        )
-        # POI owns FIB-canvas input: stage-move + milling menu stand down. The toolbar
-        # toggle lets the user drop to Move and back. (See active-overlay model.)
-        controller.arm_overlay(BeamType.ION, "poi", label="POI", icon="mdi:map-marker")
-        controller.fib_canvas.set_hint("drag to move")
-
-    def _compute_and_clear_poi_layer(self) -> None:
-        """Compute POI from the current marker position, clear it, store in SELECTED_POI."""
-        controller = getattr(self.parent_widget, "view_controller", None)
-        if controller is None:
-            return
-        pts = controller.overlay_points(BeamType.ION, "poi")
-        if pts:
-            col, row = pts[0]
-            ib_image = self.image_widget.ib_image
-            self.SELECTED_POI = conversions.image_to_microscope_image_coordinates(
-                Point(x=col, y=row), ib_image.data, ib_image.metadata.pixel_size.x
-            )
-        controller.arm_overlay(BeamType.ION, None)  # restore Move
-        controller.remove_overlay(BeamType.ION, "poi")
-        controller.fib_canvas.set_hint(None)
