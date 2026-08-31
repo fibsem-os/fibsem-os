@@ -128,3 +128,18 @@ def test_start_failure_is_contained_not_raised(microscope, tmp_path):
     )
     assert server_host.start(microscope) is False
     assert not server_host.running
+
+
+def test_env_override_arms_control_scope(microscope, tmp_path, monkeypatch):
+    monkeypatch.setenv("FIBSEM_AGENT_ARM_CONTROL", "1")
+    ui = Host()
+    server_host = AgentServerHost(
+        ui, port=_free_port(), discovery_path=tmp_path / "agent-server.json"
+    )
+    try:
+        assert server_host.start(microscope) is True
+        scopes = _get(server_host, "/capabilities").json()["scopes"]
+        assert scopes["control"] is True
+        assert scopes["hardware"] is False  # the override never arms hardware
+    finally:
+        server_host.stop()

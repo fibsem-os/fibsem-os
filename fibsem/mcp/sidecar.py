@@ -255,6 +255,15 @@ def build_sidecar(client, capabilities):
     def get_events(since: int = 0, timeout: float = 0.0):
         return _app_get(f"/app/events?since={since}&timeout={timeout}")
 
+    def get_pending_prompt():
+        return _app_get("/app/prompt")
+
+    def answer_prompt(response: bool):
+        data, err = _call(
+            client, "POST", "/app/prompt/answer", {"response": bool(response)}
+        )
+        return err if err else data
+
     implementations = {
         fn.__name__: fn
         for fn in (
@@ -282,6 +291,8 @@ def build_sidecar(client, capabilities):
             get_task_outputs,
             list_recent_experiments,
             get_events,
+            get_pending_prompt,
+            answer_prompt,
         )
     }
     # The catalog is the contract: refuse to start with an implementation gap.

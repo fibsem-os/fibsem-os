@@ -25,6 +25,7 @@ exactly as if the feature were off.
 
 import atexit
 import logging
+import os
 import threading
 import time
 from typing import Callable, List, Optional
@@ -98,8 +99,17 @@ class AgentServerHost:
             )
             return False
 
-        # Read-only until scopes are armed; arming arrives with the GUI dialog.
-        self.auth = AuthConfig.generate()
+        # Read-only until scopes are armed; proper arming arrives with the GUI
+        # dialog. FIBSEM_AGENT_ARM_CONTROL=1 is the developer override until
+        # then: set by whoever launches the app, never by a config file, and
+        # loudly logged. It arms answering supervision prompts — not hardware.
+        arm_control = os.environ.get("FIBSEM_AGENT_ARM_CONTROL") == "1"
+        if arm_control:
+            logging.warning(
+                "agent server: control scope ARMED via FIBSEM_AGENT_ARM_CONTROL "
+                "(developer override; the arming dialog replaces this)"
+            )
+        self.auth = AuthConfig.generate(arm_control=arm_control)
         self.event_buffer = EventBuffer()
         self.lifecycle_hook = make_lifecycle_hook(self.event_buffer)
         self._disposers = attach_microscope_taps(self.event_buffer, microscope)
@@ -152,7 +162,8 @@ class AgentServerHost:
         )
         self._wrote_discovery = True
         atexit.register(self._remove_discovery)
-        logging.info("agent server on %s — scopes: read only", self.url)
+        armed = ", ".join(s.value for s in self.auth.armed_scopes())
+        logging.info("agent server on %s — scopes: %s", self.url, armed)
         logging.info("agent server token: %s", self.auth.token)
         return True
 
