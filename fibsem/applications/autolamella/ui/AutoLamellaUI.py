@@ -167,17 +167,14 @@ INSTRUCTIONS = {
 
 
 class AutoLamellaUI(QMainWindow):
-    workflow_update_signal = pyqtSignal(dict)
-    # The fire-and-forget third of workflow_update_signal's traffic, moving to its
-    # own channel for the same reason queue_changed_signal has one: that signal's
-    # handler clears WAITING_FOR_UI_UPDATE on every emission, so on the shared
-    # channel merely saying something releases whoever is blocked on that flag.
-    # Carries a WorkflowStatusEvent.
+    # Everything the workflow says without needing an answer, as a
+    # WorkflowStatusEvent. Questions and instructions do not travel on a signal
+    # at all: they are typed requests to the QtResponder, each on its own
+    # future (workflows/interaction.py) — the dict workflow_update_signal that
+    # once carried all three kinds of traffic is gone.
     workflow_status_signal = pyqtSignal(object)
-    # Kept separate from workflow_update_signal on purpose: that one drives
-    # handle_workflow_update, which reconfigures the interaction UI on every
-    # emission. A queue edit is not a step in the task lifecycle and must not
-    # disturb any of that.
+    # Its own signal: a queue edit is not a step in the task lifecycle and must
+    # not disturb the interaction UI.
     queue_changed_signal = pyqtSignal(dict)
     step_update_signal = pyqtSignal(str)  # emits human-readable step label
     _workflow_finished_signal = pyqtSignal(bool)
@@ -359,7 +356,6 @@ class AutoLamellaUI(QMainWindow):
         self.pushButton_no.clicked.connect(self.push_interaction_button)
 
         # signals
-        self.workflow_update_signal.connect(self.handle_workflow_update)
         self.workflow_status_signal.connect(self.handle_workflow_status)
         self._workflow_finished_signal.connect(self._workflow_finished)  # type: ignore
 
@@ -1889,56 +1885,14 @@ class AutoLamellaUI(QMainWindow):
     def handle_workflow_status(self, event: "WorkflowStatusEvent") -> None:
         """Show a fire-and-forget status update. GUI thread, via workflow_status_signal.
 
-        The display half of what handle_workflow_update does for a status payload,
-        and nothing else. Two deliberate absences: no widget-existence guards (these
-        two labels exist from construction, so there is nothing to raise about in a
-        queued slot), and no touching of the WAITING_* flags — a status update on its
-        own channel can never release a blocked waiter, which is the point of the
-        channel.
+        Two deliberate absences: no widget-existence guards (these two labels
+        exist from construction, so there is nothing to raise about in a queued
+        slot), and no touching of the waiting display state — a status update on
+        its own channel can never release a blocked waiter, which is the point
+        of the channel. A ``message`` of None says nothing about the prompt and
+        leaves it standing — the responder pings this signal for chrome
+        refreshes while its question is up.
         """
-        self.set_instructions_msg(event.message)
+        if event.message is not None:
+            self.set_instructions_msg(event.message)
         self.set_current_workflow_message(event.workflow_info)
-
-    def handle_workflow_update(self, info: dict) -> None:
-        """Update the UI with the given information, ready for user interaction"""
-
-        if self.image_widget is None:
-            raise ValueError(
-                "No image widget available. Please create an image widget first."
-            )
-
-        if self.milling_task_config_widget is None:
-            raise ValueError(
-                "No milling task config widget available. Please create a milling task config widget first."
-            )
-
-        # Images no longer arrive here: set_images_ui sends a SetImages request
-        # through the Responder seam (QtResponder._set_images).
-
-        # Detections, the alignment area, POI selection and the milling question
-        # no longer arrive here: they are questions over the Responder seam
-        # (QtResponder._confirm_detection, _edit_alignment_area, _pick_poi).
-
-        # Milling config, spot-burn settings and fluorescence channels no longer
-        # arrive here: their instructions go through the Responder seam
-        # (QtResponder). The spot-burn question converted last (RunSpotBurn), so
-        # no variant payloads remain — only status text below.
-
-        # Instruction message. Read with `.get`, not indexed: this signal has no
-        # declared contract, and 12 of its 13 emit sites pass an opaque variable, so
-        # what a payload carries is not knowable without running it. Every emitter in
-        # this repository sends `msg` today -- but a raise here does not degrade a
-        # label, it aborts the process. PyQt5 calls `qFatal()` on any exception that
-        # escapes a slot invoked from C++, which a queued signal from the workflow
-        # thread is, and the abort takes the run with it and reaches no logfile
-        # (FIB-329, FIB-402). It has happened: a queue edit put a payload without
-        # `msg` on this signal and killed the app on every queue action.
-        #
-        # The default is `""` rather than a placeholder because an empty message
-        # already means something here: `set_instructions_msg` hides the label, which
-        # is what one emit site sends `{"msg": ""}` deliberately to do. A payload
-        # carrying no message is an update about something other than the prompt.
-        self.set_instructions_msg(
-            info.get("msg", ""), info.get("pos", None), info.get("neg", None)
-        )
-        self.set_current_workflow_message(info.get("workflow_info", None))

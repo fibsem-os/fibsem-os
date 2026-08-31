@@ -67,48 +67,6 @@ def main_ui(qapp):
         qapp.quit = original_quit
 
 
-def test_a_transient_status_bar_message_is_shown(main_ui):
-    main_ui._on_workflow_update({"status_bar": "Scheduled start in 5 s"})
-
-    assert main_ui.status_bar.currentMessage() == "Scheduled start in 5 s"
-
-
-def test_a_payload_without_status_bar_text_leaves_the_bar_alone(main_ui):
-    main_ui.status_bar.showMessage("previous message")
-
-    main_ui._on_workflow_update({"msg": "not for the status bar"})
-
-    assert main_ui.status_bar.currentMessage() == "previous message"
-
-
-def test_a_status_key_on_the_dict_signal_is_ignored(main_ui):
-    # Pre-move, a "status" key here drove the timeline and run controls; those
-    # display assertions live on below against workflow_status_signal. The dict
-    # handler deliberately no longer reads the key, so a straggling emitter
-    # cannot drive the run display through the interaction channel.
-    main_ui.hide_workflow_running()
-    main_ui.status_bar.showMessage("previous message")
-
-    report = WorkflowStatusUpdate(
-        task_name="Rough Milling",
-        item_name="lamella-01",
-        status=AutoLamellaTaskStatus.InProgress,
-        queue_position=2,
-        queue_total=5,
-        queue_items=None,
-    )
-    main_ui._on_workflow_update({"msg": "", "status": report})
-
-    assert main_ui.status_bar.currentMessage() == "previous message"
-    assert not main_ui.stop_workflow_btn.isVisibleTo(main_ui)
-
-
-# ── the new channel ──────────────────────────────────────────────────────────────
-# The manager's lifecycle reports now arrive as WorkflowStatusEvent on
-# workflow_status_signal; the dict handler keeps only status_bar (until
-# update_status_ui converts) and the indicator refresh.
-
-
 def test_a_status_event_report_shows_the_run_on_the_status_bar(main_ui):
     from fibsem.applications.autolamella.workflows.tasks.status import (
         WorkflowStatusEvent,
@@ -249,3 +207,17 @@ def test_a_terminal_report_is_recognised_as_terminal(main_ui):
 
     assert SpotBurnStatus.FINISHED.is_terminal
     assert not SpotBurnStatus.BURNING.is_terminal
+
+
+def test_an_event_without_status_bar_text_leaves_the_bar_alone(main_ui):
+    from fibsem.applications.autolamella.workflows.tasks.status import (
+        WorkflowStatusEvent,
+    )
+
+    main_ui.status_bar.showMessage("previous message")
+
+    main_ui.autolamella_ui.workflow_status_signal.emit(
+        WorkflowStatusEvent(message="not for the status bar")
+    )
+
+    assert main_ui.status_bar.currentMessage() == "previous message"
