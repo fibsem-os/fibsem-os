@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING, List, Optional, Sequence
 
 from fibsem import milling
 from fibsem.applications.autolamella.structures import Experiment
-from fibsem.applications.autolamella.workflows.interaction import SetImages, ask
+from fibsem.applications.autolamella.workflows.interaction import (
+    ClearSpotBurn,
+    SetImages,
+    SetSpotBurnSettings,
+    ask,
+)
 from fibsem.detection import detection
 from fibsem.detection import utils as det_utils
 from fibsem.detection.detection import DetectedFeatures, Feature
@@ -300,16 +305,21 @@ def update_spot_burn_parameters(
     """Push spot-burn settings to the UI (or clear them)."""
     _check_for_abort(parent_ui)
 
-    INFO = {
-        "msg": "Updating Spot Burn Parameters",
-        "spot_burn_settings": settings,
-        "clear_spot_burn": clear_spots,
-    }
-
-    parent_ui.WAITING_FOR_UI_UPDATE = True
-    parent_ui.workflow_update_signal.emit(INFO)
-    while parent_ui.WAITING_FOR_UI_UPDATE:
-        time.sleep(0.5)
+    abort = lambda: _abort_requested(parent_ui)  # noqa: E731 - two waits, one predicate
+    if settings is not None:
+        ask(
+            parent_ui.ui_responder,
+            SetSpotBurnSettings(settings=settings),
+            abort=abort,
+            timeout=INSTRUCTION_TIMEOUT_S,
+        )
+    if clear_spots:
+        ask(
+            parent_ui.ui_responder,
+            ClearSpotBurn(),
+            abort=abort,
+            timeout=INSTRUCTION_TIMEOUT_S,
+        )
 
 
 def clear_spot_burn_ui(parent_ui: "AutoLamellaUI"):

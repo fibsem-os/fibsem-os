@@ -24,9 +24,12 @@ from PyQt5.QtCore import QObject, pyqtSignal
 
 from fibsem.applications.autolamella.workflows.interaction import (
     ClearMillingConfig,
+    ClearSpotBurn,
     Request,
+    SetFluorescenceChannels,
     SetImages,
     SetMillingConfig,
+    SetSpotBurnSettings,
 )
 from fibsem.structures import BeamType
 
@@ -50,6 +53,9 @@ class QtResponder(QObject):
             SetImages: self._set_images,
             SetMillingConfig: self._set_milling_config,
             ClearMillingConfig: self._clear_milling_config,
+            SetFluorescenceChannels: self._set_fluorescence_channels,
+            SetSpotBurnSettings: self._set_spot_burn_settings,
+            ClearSpotBurn: self._clear_spot_burn,
         }
         self._submitted.connect(self._dispatch)
 
@@ -112,3 +118,30 @@ class QtResponder(QObject):
     def _clear_milling_config(self, request: ClearMillingConfig) -> None:
         """Clear the milling editor. Moved from handle_workflow_update."""
         self._milling_widget().clear()
+
+    # Unlike the image and milling widgets, whose absence is a defect, the FM and
+    # spot-burn widgets legitimately do not exist on systems without the hardware —
+    # and a workflow must not fail over that. The old handler skipped silently;
+    # these acknowledge the instruction and do the same.
+
+    def _set_fluorescence_channels(self, request: SetFluorescenceChannels) -> None:
+        """Load the channel settings into the fluorescence widget, if there is one."""
+        widget = self._ui.fm_control_widget
+        if widget is None:
+            return
+        widget.channelSettingsWidget.channel_settings = request.channels
+
+    def _set_spot_burn_settings(self, request: SetSpotBurnSettings) -> None:
+        """Load the settings into the spot-burn widget, if there is one."""
+        widget = self._ui.spot_burn_widget
+        if widget is None:
+            return
+        widget.set_settings(request.settings)
+
+    def _clear_spot_burn(self, request: ClearSpotBurn) -> None:
+        """Clear the spot-burn overlay and leave workflow mode, if there is one."""
+        widget = self._ui.spot_burn_widget
+        if widget is None:
+            return
+        widget.clear_points_layer()
+        widget.set_workflow_mode(False)

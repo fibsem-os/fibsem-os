@@ -1932,22 +1932,10 @@ class AutoLamellaUI(QMainWindow):
             if self.spot_burn_widget is not None:
                 # hide the widget's own Burn button; the burn is run from the workflow control
                 self.spot_burn_widget.set_workflow_mode(True)
-        spot_burn_settings = info.get("spot_burn_settings", None)
-        if spot_burn_settings is not None and self.spot_burn_widget is not None:
-            self.spot_burn_widget.set_settings(spot_burn_settings)
-        if info.get("clear_spot_burn", False) and self.spot_burn_widget is not None:
-            self.spot_burn_widget.clear_points_layer()
-            self.spot_burn_widget.set_workflow_mode(False)
-
-        # Milling config no longer arrives here: the task sends SetMillingConfig /
-        # ClearMillingConfig through the Responder seam (QtResponder).
-
-        # fluorescence channel settings
-        fluorescence_channel_settings = info.get("fluorescence_channel_settings", None)
-        if fluorescence_channel_settings is not None and self.fm_control_widget:
-            self.fm_control_widget.channelSettingsWidget.channel_settings = (
-                fluorescence_channel_settings
-            )
+        # Milling config, spot-burn settings and fluorescence channels no longer
+        # arrive here: their instructions go through the Responder seam
+        # (QtResponder). The spot_burn key above stays — it is part of the
+        # ask_user question flow, which has not converted yet.
 
         # Instruction message. Read with `.get`, not indexed: this signal has no
         # declared contract, and 12 of its 13 emit sites pass an opaque variable, so

@@ -52,6 +52,7 @@ from fibsem.applications.autolamella.workflows.core import (
 )
 from fibsem.applications.autolamella.workflows.interaction import (
     ClearMillingConfig,
+    SetFluorescenceChannels,
     SetMillingConfig,
     ask,
 )
@@ -822,15 +823,12 @@ class AutoLamellaTask(ABC):
         if self.parent_ui is None:
             return
 
-        info = {
-            "msg": "Updating Fluorescence Channel Settings",
-            "fluorescence_channel_settings": deepcopy(channel_settings),
-        }
-
-        self.parent_ui.WAITING_FOR_UI_UPDATE = True
-        self.parent_ui.workflow_update_signal.emit(info)  # type: ignore
-        while self.parent_ui.WAITING_FOR_UI_UPDATE:
-            time.sleep(0.5)
+        ask(
+            self.parent_ui.ui_responder,
+            SetFluorescenceChannels(channels=deepcopy(channel_settings)),
+            abort=lambda: _abort_requested(self.parent_ui),
+            timeout=INSTRUCTION_TIMEOUT_S,
+        )
 
 
 def get_task_supervision(
