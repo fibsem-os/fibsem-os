@@ -103,6 +103,8 @@ from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
 
 if TYPE_CHECKING:
+    from concurrent.futures import Future
+
     import pandas as pd
 
     from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
@@ -183,6 +185,9 @@ class AutoLamellaUI(QMainWindow):
     _hook_toast_signal = pyqtSignal(
         str, str
     )  # (message, notification_type) — thread-safe bridge for NotificationHook
+    # A remote (agent) start request, marshalled to the GUI thread the same
+    # way agent answers are: (task_names, item_names, Future[dict]).
+    _agent_start_workflow = pyqtSignal(list, object, object)
 
     def __init__(
         self,
@@ -196,6 +201,10 @@ class AutoLamellaUI(QMainWindow):
         # The Qt side of the workflow's Responder seam: workflow code is handed
         # this one-method object, never the window itself.
         self.ui_responder = QtResponder(self)
+        # The timeline renders the responder's question-lifecycle feed; the
+        # widget itself is built in _setup_ui, before the responder exists.
+        self.ui_responder.add_question_observer(self.question_timeline.record)
+        self._agent_start_workflow.connect(self._apply_agent_start_workflow)
 
         self._protocol_lock = threading.RLock()
 
@@ -302,11 +311,20 @@ class AutoLamellaUI(QMainWindow):
         self.pushButton_yes = QPushButton("Yes")
         self.pushButton_no = QPushButton("No")
 
+        # Who answered what, under the buttons: fed by the responder's
+        # question-lifecycle feed, hidden until the first answer.
+        from fibsem.applications.autolamella.ui.question_timeline_widget import (
+            QuestionTimelineWidget,
+        )
+
+        self.question_timeline = QuestionTimelineWidget(self.centralwidget)
+
         self.gridLayout.addWidget(self.tabWidget, 1, 0, 1, 2)
         self.gridLayout.addWidget(self.label_workflow_information, 2, 0, 1, 2)
         self.gridLayout.addWidget(self.label_instructions, 3, 0, 1, 2)
         self.gridLayout.addWidget(self.pushButton_yes, 4, 0)
         self.gridLayout.addWidget(self.pushButton_no, 4, 1)
+        self.gridLayout.addWidget(self.question_timeline, 5, 0, 1, 2)
 
         self.setCentralWidget(self.centralwidget)
         self.tabWidget.setCurrentIndex(0)
@@ -1021,6 +1039,88 @@ class AutoLamellaUI(QMainWindow):
             self._run_tasks_worker, selected_tasks, selected_lamella
         )
         self._task_worker_thread.start()
+
+    def request_start_workflow(
+        self, task_names: List[str], item_names: Optional[List[str]] = None
+    ) -> "Future":
+        """Start a workflow as the Run button would; any thread.
+
+        The agent-facing start: marshalled to the GUI thread (which owns the
+        worker creation and the window chrome), resolving to a plain dict —
+        ``{"started": True}`` or a structured refusal with the valid names.
+        Control-scope arming is the consent that replaces the Run click's
+        confirm dialog.
+        """
+        from concurrent.futures import Future as _Future
+
+        outcome: "_Future" = _Future()
+        self._agent_start_workflow.emit(list(task_names), item_names, outcome)
+        return outcome
+
+    def _apply_agent_start_workflow(
+        self, task_names: List[str], item_names, outcome: "Future"
+    ) -> None:
+        """GUI thread. Complete ``outcome`` with the start result."""
+        try:
+            result = self._start_workflow_for_agent(task_names, item_names)
+        except Exception as exc:  # noqa: BLE001 - the requester owns the failure
+            outcome.set_exception(exc)
+            return
+        outcome.set_result(result)
+
+    def _start_workflow_for_agent(
+        self, task_names: List[str], item_names: Optional[List[str]]
+    ) -> dict:
+        """Validate and start, mirroring the Run click's path (GUI thread)."""
+        if self.is_workflow_running:
+            return {"started": False, "reason": "a workflow is already running"}
+        if self.microscope is None:
+            return {"started": False, "reason": "no microscope is connected"}
+        experiment = self.experiment
+        protocol = self.protocol
+        if experiment is None or protocol is None:
+            return {"started": False, "reason": "no experiment is loaded"}
+        known_tasks = [t.name for t in protocol.workflow_config.tasks]
+        unknown = [t for t in task_names if t not in known_tasks]
+        if not task_names or unknown:
+            return {
+                "started": False,
+                "reason": f"unknown tasks: {unknown!r}" if unknown else "no tasks",
+                "task_names": known_tasks,
+            }
+        known_items = [p.name for p in experiment.positions]
+        if item_names is not None:
+            missing = [n for n in item_names if n not in known_items]
+            if missing:
+                return {
+                    "started": False,
+                    "reason": f"unknown items: {missing!r}",
+                    "item_names": known_items,
+                }
+        # The chrome the Run click supplies around the shared start. Guarded:
+        # the standalone window has no parent to decorate.
+        parent = self.parent_widget
+        if parent is not None:
+            try:
+                # FIB-683 one-writer rule: land any edit still in the editor
+                # before the run's thread becomes the experiment's writer.
+                parent.lamella_widget.flush_pending_save()
+            except Exception:
+                logging.exception("flush before agent start failed; continuing")
+        self._start_run_workflow_thread(
+            task_names, list(item_names) if item_names is not None else known_items
+        )
+        started = self.is_workflow_running
+        if started and parent is not None:
+            try:
+                supervised = protocol.get_supervision(task_names[0])
+                parent._set_border_state("supervised" if supervised else "automated")
+                # Show the Stop button immediately — a remotely started run
+                # must be just as cancellable as a clicked one.
+                parent.set_workflow_running()
+            except Exception:
+                logging.exception("window chrome after agent start failed")
+        return {"started": started}
 
     def _run_tasks_worker(
         self, task_names: List[str], lamella_names: Optional[List[str]] = None

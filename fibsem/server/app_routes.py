@@ -12,7 +12,7 @@ The read-scope requirement is applied where the router is included, so auth
 stays in one place (build_server).
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 
@@ -52,6 +52,10 @@ class AppContext(Protocol):
     def answer_prompt(self, response: bool, nonce: int) -> Dict[str, Any]: ...
 
     def stop_workflow(self) -> Dict[str, Any]: ...
+
+    def start_workflow(
+        self, task_names: List[str], item_names: Optional[List[str]] = None
+    ) -> Dict[str, Any]: ...
 
     def set_supervision(self, task_name: str, supervise: bool) -> Dict[str, Any]: ...
 
@@ -156,6 +160,33 @@ def build_app_control_router(context: AppContext) -> APIRouter:
                 },
             )
         return result
+
+    @router.post("/workflow/start")
+    def start_workflow(body: Dict[str, Any]):
+        task_names = body.get("task_names")
+        item_names = body.get("item_names")
+        if (
+            not isinstance(task_names, list)
+            or not task_names
+            or not all(isinstance(t, str) for t in task_names)
+            or (
+                item_names is not None
+                and not (
+                    isinstance(item_names, list)
+                    and all(isinstance(i, str) for i in item_names)
+                )
+            )
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "missing_field",
+                    "message": "Pass task_names (non-empty list of strings); "
+                    "item_names (list of strings) is optional — omitted "
+                    "means every item.",
+                },
+            )
+        return context.start_workflow(task_names, item_names)
 
     @router.post("/supervision")
     def set_supervision(body: Dict[str, Any]):

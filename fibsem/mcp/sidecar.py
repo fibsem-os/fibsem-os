@@ -259,6 +259,13 @@ def build_sidecar(client, capabilities):
         data, err = _call(client, "POST", "/app/workflow/stop", None)
         return err if err else data
 
+    def start_workflow(task_names: list, item_names: list = None):  # noqa: RUF013
+        payload = {"task_names": list(task_names)}
+        if item_names is not None:
+            payload["item_names"] = list(item_names)
+        data, err = _call(client, "POST", "/app/workflow/start", payload)
+        return err if err else data
+
     def set_task_supervision(task_name: str, supervise: bool):
         data, err = _call(
             client,
@@ -338,6 +345,7 @@ def build_sidecar(client, capabilities):
             stop_workflow,
             set_task_supervision,
             requeue_task,
+            start_workflow,
         )
     }
     # The catalog is the contract: refuse to start with an implementation gap.

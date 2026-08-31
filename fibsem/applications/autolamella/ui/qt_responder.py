@@ -27,7 +27,7 @@ arrives belonged to a waiter that aborted and unwound, and is cancelled.
 import logging
 from concurrent.futures import InvalidStateError
 from copy import deepcopy
-from typing import TYPE_CHECKING, Callable, Dict, Optional, Tuple, Type
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Type
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
@@ -102,26 +102,37 @@ class QtResponder(QObject):
         # Same pair for the spot-burn question.
         self._active_spot_burn: Optional[Tuple[RunSpotBurn, "Future"]] = None
         self._spot_burn_finished_wired: Optional[object] = None
-        # Question-lifecycle observer (prompt_raised / prompt_answered /
-        # prompt_cancelled), set by whoever wants the feed — the agent server's
-        # hosting points it at the event buffer. One optional callable rather
-        # than a signal: there is exactly one feed, and a missing observer must
-        # cost nothing on the click path.
-        self.on_question_event: Optional[Callable[[str, Dict], None]] = None
+        # Question-lifecycle observers (prompt_raised / prompt_answered /
+        # prompt_cancelled): the agent server's hosting feeds the event buffer,
+        # the GUI timeline records who answered. A plain list rather than a Qt
+        # signal so each observer is exception-isolated — a failing observer
+        # must never break the click (or the other observers) it is watching.
+        self._question_observers: List[Callable[[str, Dict], None]] = []
         self._submitted.connect(self._dispatch)
         self._agent_answered.connect(self._apply_agent_answer)
         self._agent_peeked.connect(self._apply_agent_peek)
 
+    def add_question_observer(
+        self, observer: Callable[[str, Dict], None]
+    ) -> Callable[[], None]:
+        """Subscribe to question-lifecycle events; returns the unsubscribe."""
+        self._question_observers.append(observer)
+
+        def dispose() -> None:
+            try:
+                self._question_observers.remove(observer)
+            except ValueError:
+                pass
+
+        return dispose
+
     def _emit_question_event(self, kind: str, payload: Dict) -> None:
-        """Tell the observer, if any. An observer failure must never break the
-        click (or the agent answer) that caused the event."""
-        observer = self.on_question_event
-        if observer is None:
-            return
-        try:
-            observer(kind, payload)
-        except Exception:  # noqa: BLE001 - observers are not allowed to matter
-            logging.exception("question-event observer failed; continuing")
+        """Tell every observer, each on its own; failures are logged, never raised."""
+        for observer in list(self._question_observers):
+            try:
+                observer(kind, payload)
+            except Exception:  # noqa: BLE001 - observers are not allowed to matter
+                logging.exception("question-event observer failed; continuing")
 
     def submit(self, request: "Request", future: "Future") -> None:
         """Hand ``request`` to the GUI thread; never blocks. Any thread."""

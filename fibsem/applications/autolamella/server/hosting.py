@@ -120,10 +120,8 @@ class AgentServerHost:
         # polling /app/prompt, and answers carry who answered them.
         responder = getattr(self._ui, "ui_responder", None)
         if responder is not None:
-            buffer = self.event_buffer
-            responder.on_question_event = buffer.append
             self._disposers.append(
-                lambda: setattr(responder, "on_question_event", None)
+                responder.add_question_observer(self.event_buffer.append)
             )
 
         app = build_server(

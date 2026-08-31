@@ -74,12 +74,12 @@ def test_connect_starts_a_live_read_only_server(ui, agent_server_enabled):
     assert host.lifecycle_hook in manager._hooks
 
     # The question-lifecycle feed is wired straight into the buffer...
-    assert ui.ui_responder.on_question_event == host.event_buffer.append
+    assert host.event_buffer.append in ui.ui_responder._question_observers
 
     ui.disconnect_from_microscope()
     assert not host.running
     # ...and unwired with the rest of the taps on stop.
-    assert ui.ui_responder.on_question_event is None
+    assert host.event_buffer.append not in ui.ui_responder._question_observers
 
 
 def _confine_and_control_preferences(monkeypatch, tmp_path):

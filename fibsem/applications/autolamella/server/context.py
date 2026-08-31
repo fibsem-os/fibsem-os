@@ -299,6 +299,28 @@ class AgentContext:
         host.stop_task_workflow()
         return {"available": True, "stopped": True}
 
+    def start_workflow(
+        self,
+        task_names: List[str],
+        item_names: Optional[List[str]] = None,
+        timeout: float = 15.0,
+    ) -> Dict[str, Any]:
+        """Start a workflow as the Run button would — the batch-review opener.
+
+        Marshalled to the GUI thread (which owns worker creation and window
+        chrome); validation refusals come back structured with the valid
+        names. ``item_names`` of None means every item in the experiment.
+        Control-scope arming is the consent that stands in for the Run
+        click's confirm dialog.
+        """
+        host = self._host
+        if not hasattr(host, "request_start_workflow"):
+            return {"available": False, "started": False}
+        outcome = host.request_start_workflow(list(task_names), item_names)
+        result = outcome.result(timeout=timeout)
+        result["available"] = True
+        return result
+
     def set_supervision(self, task_name: str, supervise: bool) -> Dict[str, Any]:
         """Set whether ``task_name`` asks for supervision, in the live protocol.
 
