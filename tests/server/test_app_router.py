@@ -52,9 +52,18 @@ def host(tmp_path, microscope):
 
 
 @pytest.fixture
-def client(microscope, host):
+def event_buffer():
+    from fibsem.applications.autolamella.server.events import EventBuffer
+
+    return EventBuffer()
+
+
+@pytest.fixture
+def client(microscope, host, event_buffer):
     app = build_server(
-        microscope, app_context=AgentContext(host), auth=AuthConfig(token=TOKEN)
+        microscope,
+        app_context=AgentContext(host, event_buffer=event_buffer),
+        auth=AuthConfig(token=TOKEN),
     )
     with TestClient(app, raise_server_exceptions=False) as client:
         yield client
@@ -118,3 +127,26 @@ def test_sidecar_grows_the_app_tools_from_capabilities(client):
     contents = list(getattr(result, "content", result))
     text = "".join(getattr(c, "text", "") for c in contents)
     assert "router-exp" in text
+
+
+def test_events_long_poll_over_http(client, event_buffer):
+    empty = client.get("/app/events?since=0&timeout=0", headers=AUTH).json()
+    assert empty["available"] is True
+    assert empty["events"] == []
+
+    event_buffer.append("milling_progress", {"stage_name": "Rough Mill 01"})
+    body = client.get("/app/events?since=0", headers=AUTH).json()
+    assert body["latest_seq"] == 1
+    assert body["events"][0]["kind"] == "milling_progress"
+
+    caught_up = client.get("/app/events?since=1&timeout=0", headers=AUTH).json()
+    assert caught_up["events"] == []
+
+
+def test_events_unavailable_without_a_buffer(microscope, host):
+    app = build_server(
+        microscope, app_context=AgentContext(host), auth=AuthConfig(token=TOKEN)
+    )
+    with TestClient(app, raise_server_exceptions=False) as bare:
+        body = bare.get("/app/events", headers=AUTH).json()
+    assert body["available"] is False

@@ -67,8 +67,9 @@ def _records(df) -> List[Dict[str, Any]]:
 class AgentContext:
     """Read-only facade over a running (or resting) AutoLamella session."""
 
-    def __init__(self, host):
+    def __init__(self, host, event_buffer=None):
         self._host = host
+        self._event_buffer = event_buffer
 
     # --- call-time resolution: never cache what the app rebinds ---------------
 
@@ -239,6 +240,20 @@ class AgentContext:
         if cached is None:
             return {"available": False, "position": None}
         return {"available": True, "position": cached.to_dict()}
+
+    # --- events -----------------------------------------------------------------
+
+    def events(self, since: int = 0, timeout: float = 0.0) -> Dict[str, Any]:
+        """Events after ``since``, parking up to ``timeout`` seconds for news.
+
+        Unavailable (rather than empty) when the hosting wired no buffer, so a
+        client can tell "no events yet" from "this server has no event stream".
+        """
+        from fibsem.applications.autolamella.server.events import (
+            buffer_or_unavailable,
+        )
+
+        return buffer_or_unavailable(self._event_buffer, since=since, timeout=timeout)
 
     # --- discovery --------------------------------------------------------------
 
