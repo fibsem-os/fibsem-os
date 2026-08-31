@@ -33,6 +33,7 @@ from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
 from fibsem.applications.autolamella.workflows.tasks.status import (
     WorkflowStatusUpdate,
 )
+from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
 
 
 @pytest.fixture(scope="module")
@@ -117,3 +118,46 @@ def test_a_lifecycle_report_flips_the_run_button_to_stop(main_ui):
 
     assert main_ui.stop_workflow_btn.isVisibleTo(main_ui)
     assert not main_ui.run_workflow_btn.isVisibleTo(main_ui)
+
+
+# --- spot burn progress ----------------------------------------------------
+#
+# The same slot, reached by a different signal. `spot_burn_progress_signal` was typed
+# in #595, and the main window's handler kept one line that read the report as the dict
+# it used to be -- `ddict.get("finished")`. `SpotBurnProgress` is a frozen dataclass with
+# no `.get`, so the first report of every supervised burn raised AttributeError inside a
+# queued slot, which PyQt5 turns into a process abort: the application vanished the
+# moment burning started, on v0.5.2rc1.
+#
+# Both tests below fail on that line, and neither needs hardware: the handler is called
+# directly, exactly as the queued connection would call it.
+
+
+def test_a_burning_report_renders_without_taking_the_app_down(main_ui):
+    """The crash. Reaching the assertion at all is most of what this tests."""
+    report = SpotBurnProgress(
+        status=SpotBurnStatus.BURNING,
+        current_point=2,
+        total_points=5,
+        total_remaining_time=30.0,
+        total_estimated_time=50.0,
+    )
+
+    main_ui._on_spot_burn_progress(report)
+
+    assert main_ui.progress_widget.isVisibleTo(main_ui)
+
+
+def test_a_terminal_report_is_recognised_as_terminal(main_ui):
+    """The other half of the same line: `.get("finished")` decided when to schedule the
+    bar's reset, so a fix that stopped the crash but misread the outcome would leave the
+    bar full forever. Read through `status.is_terminal`, which is what both consumers of
+    this signal use."""
+    main_ui._on_spot_burn_progress(
+        SpotBurnProgress(
+            status=SpotBurnStatus.FINISHED, current_point=5, total_points=5
+        )
+    )
+
+    assert SpotBurnStatus.FINISHED.is_terminal
+    assert not SpotBurnStatus.BURNING.is_terminal

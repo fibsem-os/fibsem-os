@@ -80,6 +80,7 @@ from fibsem.applications.autolamella.workflows.workflow_estimate import (
     estimate_addition,
     estimate_workflow,
 )
+from fibsem.imaging.spot import SpotBurnProgress
 from fibsem.imaging.tiling.progress import TiledProgress, TiledStatus
 from fibsem.milling.progress import (
     MillingMessageTracker,
@@ -1601,10 +1602,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 self.milling_progress_bar.setFormat(label)
 
     @ensure_main_thread
-    def _on_spot_burn_progress(self, ddict: dict) -> None:
+    def _on_spot_burn_progress(self, report: SpotBurnProgress) -> None:
         """Handle spot burn progress updates from the microscope (supervised + unsupervised)."""
-        self.progress_widget.update_progress(build_spot_burn_progress_update(ddict))
-        if ddict.get("finished"):
+        self.progress_widget.update_progress(build_spot_burn_progress_update(report))
+        if report.status.is_terminal:
             # hide the Done/Failed state after a moment; reset_if_finished leaves the
             # widget alone if another operation has started rendering progress since
             QTimer.singleShot(2000, self.progress_widget.reset_if_finished)
