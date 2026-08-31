@@ -506,10 +506,19 @@ class FMTiledAcquisitionRunner:
                 "Fluorescence microscope not initialized in the FibsemMicroscope instance"
             )
 
+        # TEMPORARY (FIB-856): an inline mounting split, deleted when the gates move
+        # onto `get_device_imaging_state` (FIB-839). At the FM on an offset mount the
+        # classifier reports the pose the sample was carried out in -- "FIB", measured
+        # on sim-iflm -- so the old ["SEM", "FM"] list refused at the one place this
+        # runner is meant to run. The compustage list is unchanged; widening it instead
+        # (or swapping in `is_acquisition_orientation`) would newly refuse SEM tilesets
+        # on every Arctis.
         orientation = microscope.get_stage_orientation()
-        if orientation not in ["SEM", "FM"]:
+        allowed = ["SEM", "FM"] if microscope.stage_is_compustage else ["SEM", "FIB"]
+        if orientation not in allowed:
             raise ValueError(
-                f"Stage is not in SEM, or FM orientation {orientation}. Cannot start acquisition."
+                f"Stage orientation is {orientation}, not one of {allowed}. "
+                "Cannot start acquisition."
             )
 
         if not isinstance(self.channel_settings, list):
