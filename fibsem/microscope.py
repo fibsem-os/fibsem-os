@@ -114,12 +114,14 @@ from fibsem.microscopes.autoscript import (
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
+    DEFAULT_STAGE_DEVICES,
     DEVICE_AXES,
     BeamSettings,
     BeamSystemSettings,
     BeamType,
     CameraImageTransform,
     CrossSectionPattern,
+    DeviceImagingState,
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemDetectorSettings,
@@ -2407,6 +2409,89 @@ class FibsemMicroscope(ABC):
                 return device
         return None
 
+    def get_device_imaging_state(
+        self, device: str, stage_position: Optional[FibsemStagePosition] = None
+    ) -> DeviceImagingState:
+        """Can `device` see the sample from where the stage is -- and if not, why not.
+
+        One question, answered the same way on both mountings, with the mounting
+        expressed entirely in configuration (FIB-839). Two terms:
+
+        * **place** -- `is_at_device`, against the device's declared origin
+        * **pose** -- `get_stage_orientation`, against the device's declared
+          `acquisition_orientations`; an empty list constrains nothing and the term
+          is vacuously true
+
+        Each mounting makes a *different* term trivially true. A compustage FM shares
+        the beams' origin, so the place carries nothing and the pose carries it all;
+        an offset FM images from the pose the sample was carried out in, so the pose
+        carries nothing and the place carries it all. Which is why the same
+        conjunction discriminates on both -- and why the failing term names the
+        remedy: a wrong place means travel, a wrong pose means re-pose.
+
+        Callers act on the value by policy, not uniformly -- see
+        `DeviceImagingState`. Pass `stage_position` to ask about a stored pose rather
+        than the current one; both workflow tasks do.
+        """
+        # The fluorescence microscope is the one device whose instrument can be
+        # absent -- the beams always exist, and there is no third device yet. `fm` is
+        # an object or None (a present-but-faulted state is not modelled; noted on
+        # FIB-839), so this is the whole of the "no device" test.
+        if device == "FM" and self.fm is None:
+            return DeviceImagingState.NO_DEVICE
+
+        at_device = self.is_at_device(device, stage_position)
+        orientations = self._get_device(device).acquisition_orientations
+        in_orientation = (
+            not orientations
+            or self.get_stage_orientation(stage_position) in orientations
+        )
+
+        if at_device and in_orientation:
+            return DeviceImagingState.READY
+        if in_orientation:
+            return DeviceImagingState.NEEDS_TRAVEL
+        if at_device:
+            return DeviceImagingState.NEEDS_REPOSE
+        return DeviceImagingState.NEEDS_REPOSE_THEN_TRAVEL
+
+    def _warn_on_fluorescence_geometry(self) -> None:
+        """Warn, at connect, about FM geometry that will misbehave quietly later.
+
+        Both cases produce no error at all in operation -- the imaging-state
+        conjunction is simply never (or always) true somewhere it should not be --
+        so the one loud moment available is connection, while the configuration is
+        in front of the person who wrote it.
+        """
+        if self.fm is None:
+            return
+
+        devices = self.system.stage.devices
+
+        # An offset mount that enabled the FM but declared no geometry inherits the
+        # default -- the objective under the grid, sharing the beams' origin -- so
+        # every place-term answer is about somewhere its FM is not.
+        if not self.stage_is_compustage and devices == DEFAULT_STAGE_DEVICES:
+            logging.warning(
+                "A fluorescence microscope is enabled but no `stage.devices` block "
+                "is declared, so the FM defaults to the beams' origin. An offset "
+                "mount (METEOR, iFLM) must declare its traverse -- see "
+                "sim-iflm-configuration.yaml."
+            )
+
+        # A compustage FM declared away from the beams is a phantom: the stage
+        # reaches its FM by flipping, not travelling, so a distinct origin is
+        # somewhere it never goes and `is_at_device(\"FM\")` is False at the
+        # objective itself.
+        if self.stage_is_compustage and "FM" in devices and "FIBSEM" in devices:
+            if devices["FM"].origin != devices["FIBSEM"].origin:
+                logging.warning(
+                    "This compustage declares an FM device origin away from the "
+                    "beams. Its objective is under the grid: the FM shares the "
+                    "beams' origin, and a distinct origin is a place the stage "
+                    "never travels to."
+                )
+
     def _device_translation(self, source: str, target: str) -> FibsemStagePosition:
         """The relative stage move from one device to another.
 
@@ -2799,6 +2884,8 @@ class ThermoMicroscope(FibsemMicroscope):
             )
             self.fm = None
             self.set_channel(BeamType.ELECTRON)
+
+        self._warn_on_fluorescence_geometry()
 
         try:
             self._create_sample_stage()

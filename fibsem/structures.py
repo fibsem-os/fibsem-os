@@ -1980,6 +1980,43 @@ DEVICE_AXES = ("x", "y", "z")
 KNOWN_ORIENTATIONS = ("SEM", "FIB", "MILLING", "FM")
 
 
+class DeviceImagingState(Enum):
+    """Can this device see the sample from where the stage is -- and if not, why not.
+
+    The answer to `FibsemMicroscope.get_device_imaging_state`, and a state rather than
+    a bool because the *reason* is the useful part: each failing value names the remedy
+    a caller should offer, and on either mounting the geometry makes the right one fall
+    out of the same two questions (FIB-839).
+
+    Callers act on it by policy, not uniformly. Acquisition gates refuse `NO_DEVICE`
+    and the travel states but permit `NEEDS_REPOSE` -- acquiring from a "wrong" pose is
+    a harmless watch when the device is here, and a different place in the chamber when
+    it is not. That single policy is what preserves the compustage's acquire-anywhere
+    behaviour (it can never need travel) while refusing at the beams on an offset mount
+    (it always does) -- with no flag and no per-mounting branch. Planning and
+    move-prompt sites require `READY` strictly.
+    """
+
+    # The instrument behind the device is absent: nothing to travel to, nothing to
+    # offer. Terminal -- distinct from every other value, which all mean "it exists
+    # and here is how to reach it".
+    NO_DEVICE = "no_device"
+
+    READY = "ready"
+
+    # Right pose, wrong place: traverse to the device.
+    NEEDS_TRAVEL = "needs_travel"
+
+    # Right place, wrong pose: re-pose. On an offset mount the route is longer --
+    # back to the beams, re-pose there, travel out again -- because rotating while
+    # parked at the device is refused (FIB-841).
+    NEEDS_REPOSE = "needs_repose"
+
+    # Wrong on both axes. Re-pose first, then travel: the bracketing order, so the
+    # rotation happens at the beams and never under an objective.
+    NEEDS_REPOSE_THEN_TRAVEL = "needs_repose_then_travel"
+
+
 def device_axes_to_dict(position: FibsemStagePosition) -> dict:
     """The device axes a partial position sets, as a plain dict. Absent axes are absent."""
     return {
