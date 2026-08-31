@@ -13,6 +13,7 @@ acquiring and driving the stage; `default_orientation` (the single pose a fluore
 position is written down as) gates marking. Neither is `valid_orientations`, which is
 the looser "FM control is allowed here" and still includes the beam poses.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -161,9 +162,13 @@ class TestTheGate:
         assert widget._may_move() is False
 
     def test_the_list_is_what_decides_not_a_hard_coded_pose(self, widget, qapp):
-        """A system whose objective sees the sample from more than one pose widens
-        `acquisition_orientations`; nothing here compares against `default_orientation`."""
-        widget.fm.acquisition_orientations = ["FM", "SEM"]
+        """A system whose objective sees the sample from more than one pose widens the
+        device's `acquisition_orientations`; nothing here compares against
+        `default_orientation`."""
+        widget.microscope.system.stage.devices["FM"].acquisition_orientations = [
+            "FM",
+            "SEM",
+        ]
         _pose(widget, "SEM")
         qapp.processEvents()
 
@@ -171,51 +176,58 @@ class TestTheGate:
         assert widget.button_acquire.isEnabled() is True
         assert widget._may_move() is True
 
-    def test_marking_stays_on_the_fluorescence_pose_alone(self, widget):
-        """The distinction the gate rests on. Stricter than acquiring or moving: a
-        marked position becomes a lamella's *fluorescence* pose, and one carrying SEM
-        rotation and tilt is not one, however right it looked on screen -- so widening
-        `acquisition_orientations` must not widen this."""
-        widget.fm.acquisition_orientations = ["FM", "SEM"]
+    def test_marking_follows_the_device_list_too(self, widget):
+        """Marking and acquiring ask the one question now. A marked position becomes a
+        lamella's *fluorescence* pose, so it must be a pose the objective actually
+        images from -- which is exactly what the device list declares. Widening the
+        list widens both: a site whose objective images at SEM may write SEM
+        fluorescence poses, which is what the Default Orientation planner already
+        allowed."""
         _pose(widget, "SEM")
+        assert widget._position_menu(0.0, 0.0) is None, "SEM is not in the list yet"
+
+        widget.microscope.system.stage.devices["FM"].acquisition_orientations = [
+            "FM",
+            "SEM",
+        ]
 
         assert widget.at_acquisition_orientation() is True
-        assert widget.at_fluorescence_pose() is False
-        assert widget._may_move() is True, "the looser check should still pass here"
-        assert widget._position_menu(0.0, 0.0) is None
+        assert widget._position_menu(0.0, 0.0) is not None
 
 
 class TestOffsetMounts:
-    """Where the question cannot be asked, it must not be answered "no" (FIB-93).
+    """The question has an answer on an offset mount now, and the gate uses it.
 
-    `_update_orientations` gives a non-compustage system an FM orientation copied from
-    its FIB one, so `get_stage_orientation` at the fluorescence position comes back as a
-    beam orientation and never as "FM". A gate that refused on that would leave the tab
-    permanently dead on every METEOR rather than guarding anything.
+    The old predicate returned True everywhere off a compustage by documented design
+    -- neither axis alone could tell an FM position from a beam one, and refusing on
+    an unanswerable question would have left the tab dead on every METEOR. The
+    device axis answers it: the gate opens at the FM and closes at the beams.
     """
 
     @pytest.fixture()
     def offset_widget(self, qapp):
+        import fibsem.config as cfg
         from fibsem import utils
-        from fibsem.fm.microscope import FluorescenceMicroscope
 
-        microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = False
-        microscope._update_orientations()
-        if microscope.fm is None:
-            microscope.fm = FluorescenceMicroscope(parent=microscope)
-        return FMOverviewWidget(microscope)
+        config = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
+        microscope, _ = utils.setup_session(config_path=config)
+        built = FMOverviewWidget(microscope)
+        built.fm.objective.insert()
+        return built
 
     def test_the_fluorescence_pose_does_not_report_itself_as_fm(self, offset_widget):
-        """The premise. If this ever starts returning "FM", the exemption below can go."""
+        """The premise: the classifier still cannot name the FM there -- the pose at
+        the device is the FIB pose it was carried out in."""
         microscope = offset_widget.microscope
-        microscope.move_stage_absolute(microscope.get_orientation("FM"))
+        microscope.move_to_orientation("FIB")
+        microscope.move_to_microscope("FM")
 
-        assert microscope.get_stage_orientation() != "FM"
+        assert microscope.get_stage_orientation() == "FIB"
 
-    def test_acquisition_is_not_gated_there(self, offset_widget, qapp):
+    def test_the_gate_opens_at_the_fm_device(self, offset_widget, qapp):
         microscope = offset_widget.microscope
-        microscope.move_stage_absolute(microscope.get_orientation("FM"))
+        microscope.move_to_orientation("FIB")
+        microscope.move_to_microscope("FM")
         offset_widget._on_stage_moved(microscope.get_stage_position())
         qapp.processEvents()
 
@@ -224,9 +236,25 @@ class TestOffsetMounts:
         assert offset_widget._may_move() is True
         assert offset_widget.orientation_banner.isVisibleTo(offset_widget) is False
 
+    def test_the_gate_closes_at_the_beams(self, offset_widget, qapp):
+        """The half that used to be impossible: at the beams in FIB pose the old
+        predicate said yes, and an overview started there would have stitched tiles
+        of nothing 48.8 mm from the objective."""
+        microscope = offset_widget.microscope
+        microscope.move_to_orientation("FIB")
+        offset_widget._on_stage_moved(microscope.get_stage_position())
+        qapp.processEvents()
+
+        assert offset_widget.at_acquisition_orientation() is False
+        assert offset_widget.button_acquire.isEnabled() is False
+        assert offset_widget._may_move() is False
+        assert offset_widget.orientation_banner.isVisibleTo(offset_widget) is True
+
 
 class TestTheRefusal:
-    def test_acquire_refuses_from_the_wrong_pose(self, widget, accept_dialog, no_worker):
+    def test_acquire_refuses_from_the_wrong_pose(
+        self, widget, accept_dialog, no_worker
+    ):
         """The button is not the guard: a host can call this, and the stage can move
         between the click and here."""
         _pose(widget, "NONE")
@@ -235,7 +263,9 @@ class TestTheRefusal:
 
         assert accept_dialog == [], "asked the user to confirm a run it then refused"
 
-    def test_acquire_runs_once_the_stage_is_posed(self, widget, accept_dialog, no_worker):
+    def test_acquire_runs_once_the_stage_is_posed(
+        self, widget, accept_dialog, no_worker
+    ):
         _pose(widget, "NONE")
         _pose(widget, "FM")
 
@@ -277,20 +307,27 @@ class TestTheBanner:
     def test_it_names_every_orientation_that_would_do(self, widget, allowed, expected):
         """Not only the one the button goes to: on a system configured for more than one
         the stage may already be a shorter move from a different one."""
-        widget.fm.acquisition_orientations = allowed
+        widget.microscope.system.stage.devices["FM"].acquisition_orientations = allowed
         _pose(widget, "NONE")
 
         assert widget.orientation_notice.text().endswith(f"needs to be at {expected}.")
 
-    def test_it_stays_hidden_at_a_valid_but_non_fluorescence_pose(self, widget):
-        widget.fm.acquisition_orientations = ["FM", "SEM"]
+    def test_it_stays_hidden_at_a_widened_pose(self, widget):
+        widget.microscope.system.stage.devices["FM"].acquisition_orientations = [
+            "FM",
+            "SEM",
+        ]
         _pose(widget, "SEM")
 
         assert widget.orientation_banner.isVisibleTo(widget) is False
 
-    def test_the_button_names_where_it_goes(self, widget):
-        """From `default_orientation`, which the control widget can change at runtime --
-        a button naming one orientation while going to another is worse than none."""
+    def test_the_button_names_the_device(self, widget):
+        """ "Move to FM" means the device, on every mounting.
+
+        It used to follow `default_orientation` -- half of the device/orientation
+        mix-up FIB-832 records: the button travels, and on an offset mount what it
+        does is a traverse, not a re-pose, so an orientation name would be wrong
+        exactly where the distinction matters."""
         _pose(widget, "NONE")
 
         assert widget.button_move_to_fm.text() == "Move to FM"
@@ -298,7 +335,7 @@ class TestTheBanner:
         widget.fm.default_orientation = "SEM-ish"
         widget._refresh_orientation_banner()
 
-        assert widget.button_move_to_fm.text() == "Move to SEM-ish"
+        assert widget.button_move_to_fm.text() == "Move to FM"
 
     def test_it_goes_away_again(self, widget):
         _pose(widget, "NONE")
@@ -315,7 +352,7 @@ class TestTheMoveAction:
         _pose(widget, "NONE")
         monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.No)
 
-        widget.move_to_fm_orientation()
+        widget.move_to_fm_device()
 
         assert no_worker == [], "moved the stage without asking"
 
@@ -323,28 +360,29 @@ class TestTheMoveAction:
         _pose(widget, "NONE")
         monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.Yes)
 
-        widget.move_to_fm_orientation()
+        widget.move_to_fm_device()
 
         assert len(no_worker) == 1
         func, args = no_worker[0]
-        assert func == widget._move_to_orientation_worker
+        assert func == widget._move_to_device_worker
         assert args == ("FM",)
 
     def test_the_worker_drives_the_stage(self, widget):
         _pose(widget, "NONE")
 
-        widget._move_to_orientation_worker("FM")
+        widget._move_to_device_worker("FM")
 
         assert widget.microscope.get_stage_orientation() == "FM"
 
     def test_a_failed_move_is_logged_not_raised(self, widget, monkeypatch, caplog):
         """It runs on a worker thread, where an exception has nowhere to go."""
+
         def _boom(target):
             raise RuntimeError("stage refused")
 
-        monkeypatch.setattr(widget.microscope, "move_to_microscope", _boom)
+        monkeypatch.setattr(widget.microscope, "move_to_device", _boom)
 
-        widget._move_to_orientation_worker("FM")
+        widget._move_to_device_worker("FM")
 
         assert "stage refused" in caplog.text
 
@@ -354,7 +392,7 @@ class TestTheMoveAction:
         monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.Yes)
         widget._set_running(True)
 
-        widget.move_to_fm_orientation()
+        widget.move_to_fm_device()
 
         assert no_worker == []
 

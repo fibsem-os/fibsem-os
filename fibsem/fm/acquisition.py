@@ -43,7 +43,12 @@ from fibsem.imaging.tiling.progress import (
     TiledProgress,
     TiledStatus,
 )
-from fibsem.structures import BeamType, FibsemStagePosition, TileOrderStrategy
+from fibsem.structures import (
+    BeamType,
+    DeviceImagingState,
+    FibsemStagePosition,
+    TileOrderStrategy,
+)
 from fibsem.util.filename import remove_suffix
 
 if TYPE_CHECKING:
@@ -200,9 +205,11 @@ def acquire_image(
     if microscope.parent is None:
         raise ValueError("Microscope parent is not set. Cannot start acquisition.")
 
-    if not microscope.has_valid_orientation():
+    state = microscope.parent.get_device_imaging_state("FM")
+    if not state.allows_acquisition:
         raise ValueError(
-            f"Stage is not in valid orientation ({microscope.parent.get_stage_orientation()!r}). Cannot start acquisition."
+            "Cannot start acquisition. "
+            + microscope.parent.describe_device_imaging_state("FM", state)
         )
 
     if zparams is not None:
@@ -506,10 +513,17 @@ class FMTiledAcquisitionRunner:
                 "Fluorescence microscope not initialized in the FibsemMicroscope instance"
             )
 
-        orientation = microscope.get_stage_orientation()
-        if orientation not in ["SEM", "FM"]:
+        # READY strictly, not `allows_acquisition`: a tileset walks the stage across a
+        # grid and stitches the result through a frame built from the pose, so from a
+        # pose the objective cannot image from, nothing has checked where its tiles
+        # land. This is the gate the widget already applied on its acquire button; the
+        # runner used to carry its own inlined ["SEM", "FM"] list instead, which
+        # additionally allowed direct SEM tileset calls on a compustage.
+        state = microscope.get_device_imaging_state("FM")
+        if state is not DeviceImagingState.READY:
             raise ValueError(
-                f"Stage is not in SEM, or FM orientation {orientation}. Cannot start acquisition."
+                "Cannot start a tiled acquisition. "
+                + microscope.describe_device_imaging_state("FM", state)
             )
 
         if not isinstance(self.channel_settings, list):

@@ -60,7 +60,6 @@ UINT16_MAX = np.iinfo(np.uint16).max  # 65535 for uint16
 BINNING_VALUES = [1, 2, 4, 8]  # typical binning values
 
 RATE_LIMIT_DEFAULT = 0.05  # seconds between updates
-ALLOW_UNKNOWN_ORIENTATIONS = True  # allow fm control at any orientation
 
 
 class ObjectiveLens(ABC):
@@ -696,7 +695,7 @@ class FluorescenceMicroscope(ABC):
     # mistake is not available to make again.
     #
     # What a *task* is doing belongs on the task's own signals (`step_update_signal`,
-    # `workflow_update_signal`), and tile progress belongs on `tiled_acquisition_signal`
+    # `workflow_status_signal`), and tile progress belongs on `tiled_acquisition_signal`
     # (FIB-725). This signal is the acquisition functions', and nothing else's.
     acquisition_progress_signal = Signal(FluorescenceAcquisitionProgress)
     # Raised when something starts or stops driving the FM, so a widget that did not
@@ -739,62 +738,38 @@ class FluorescenceMicroscope(ABC):
         self._transform: Optional[CameraImageTransform] = (
             CameraImageTransform.NONE
         )  # image transformation
-        self.valid_orientations: list[str] = [
-            "FM",
-            "SEM",
-            "MILLING",
-        ]  # valid orientations for fluorescence acquisition
-        self._allow_unknown_orientations: bool = ALLOW_UNKNOWN_ORIENTATIONS
         self.default_orientation: str = (
             "FM"  # orientation used when computing fluorescence pose for new lamellas
         )
-        # Orientations the objective can actually image the sample from -- a stricter
-        # question than `valid_orientations`, which asks only whether FM control is
-        # allowed. Turning the light on and watching the camera from a beam pose is
-        # harmless and sometimes useful, so `valid_orientations` includes SEM and
-        # MILLING; driving the stage across a grid and stitching the result from one is
-        # not, since on a compustage the sample is flipped away from the objective there
-        # and on an offset mount it is translated out from under it.
+        # Orientations the objective can actually image the sample from. Not a control
+        # gate: whether the user may *operate* the FM somewhere is answered by hardware
+        # interlocks (the objective's own z/t restrictions, the no-rotation-at-the-FM
+        # guard), and whether an *acquisition* may start is
+        # `get_device_imaging_state(...).allows_acquisition` on the parent microscope
+        # -- the stage owns stage questions.
         #
-        # A list rather than `default_orientation` alone: a system whose objective sees
-        # the sample from more than one pose says so here, and has somewhere to say it.
-        self.acquisition_orientations: list[str] = [self.default_orientation]
+        # Read from the device declaration (`stage.devices.FM.acquisition_orientations`)
+        # so there is exactly one source of truth. On a compustage that is `["FM"]` --
+        # what this attribute always held. On an offset mount it is the beam pose the
+        # sample is held in at the FM (`["FIB"]` on the iFLM simulator), which the old
+        # hardcoded `[default_orientation]` got wrong: `"FM"` is a pose the classifier
+        # never returns there. This attribute survives only until its readers move onto
+        # `get_device_imaging_state` (FIB-839), then goes with them.
+        self.acquisition_orientations: list[str] = (
+            self._configured_acquisition_orientations()
+        )
 
-    def has_valid_orientation(
-        self, stage_position: Optional["FibsemStagePosition"] = None
-    ) -> bool:
-        """Return True if the current (or given) stage orientation is allowed for FM acquisition."""
-        if self._allow_unknown_orientations:
-            return True
-        orientation = self.parent.get_stage_orientation(stage_position)
-        return orientation in self.valid_orientations
+    def _configured_acquisition_orientations(self) -> list[str]:
+        """The FM device's declared imaging orientations, from the stage configuration.
 
-    def is_acquisition_orientation(
-        self, stage_position: Optional["FibsemStagePosition"] = None
-    ) -> bool:
-        """Return True if the objective can image the sample at the current (or given) pose.
-
-        The question anything that drives the stage should ask, and stricter than
-        `has_valid_orientation` in two ways: it asks the narrower
-        `acquisition_orientations`, and it has no `ALLOW_UNKNOWN_ORIENTATIONS` escape
-        hatch. The hatch exists so live FM control works from anywhere while a system is
-        being set up; an unrecognised pose is not an inconvenience to a tileset, which
-        would walk the stage across a grid and stitch the result against a frame nobody
-        has checked.
-
-        Answers True unconditionally on an offset mount, where the question cannot be
-        asked: `_update_orientations` gives a non-compustage system an FM orientation
-        copied from its FIB one, so `get_stage_orientation` at the fluorescence position
-        returns a beam orientation -- measured, "MILLING", since the milling tilt band
-        matches first. It cannot tell a fluorescence position from a beam one at all,
-        which is the same limitation `build_lamella_poses` refuses over (FIB-93).
-        Refusing on a question with no answer is not a guard, it is a lockout: it would
-        leave the overview tab permanently dead on every METEOR.
+        Falls back to `[default_orientation]` for an FM constructed without a parent
+        microscope (widget tests do this), where there is no configuration to read.
         """
-        if not self.parent.stage_is_compustage:
-            return True
-        orientation = self.parent.get_stage_orientation(stage_position)
-        return orientation in self.acquisition_orientations
+        try:
+            devices = self.parent.system.stage.devices
+            return list(devices["FM"].acquisition_orientations)
+        except (AttributeError, KeyError, TypeError):
+            return [self.default_orientation]
 
     def __repr__(self):
         """Return a string representation of the fluorescence microscope.
@@ -874,6 +849,35 @@ class FluorescenceMicroscope(ABC):
         self._acquiring = acquiring
         self._acquiring_reason = reason if acquiring else ""
         self.acquiring_changed.emit(self.is_acquiring)
+
+    def refusal_to_start(self, what: str) -> Optional[str]:
+        """Why *what* may not start right now, as one actionable sentence -- or None.
+
+        The two questions every entry point has to ask, in the order that matters
+        (FIB-839): *when* first -- is something already driving the instrument --
+        then *where* -- can it image the sample from here. Asked together so no
+        caller assembles them its own way; the control widget used to be the only
+        site that composed both, as a private method returning a bare bool, and
+        every other gate either asked half the question or logged a message about
+        the wrong half.
+
+        Returns the message rather than raising or logging, because the right
+        delivery differs per caller: a workflow raises, a widget toasts, a canvas
+        handler logs. `None` means go.
+        """
+        if self.is_acquiring:
+            reason = self.acquiring_reason or "another acquisition"
+            return (
+                f"Cannot start {what}: the fluorescence microscope is in use "
+                f"({reason})."
+            )
+        state = self.parent.get_device_imaging_state("FM")
+        if not state.allows_acquisition:
+            return (
+                f"Cannot start {what}. "
+                f"{self.parent.describe_device_imaging_state('FM', state)}"
+            )
+        return None
 
     def set_active_channel(self) -> None:
         """Point the microscope's imaging channel at the FM, and leave it there.

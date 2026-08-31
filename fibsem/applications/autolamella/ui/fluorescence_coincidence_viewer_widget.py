@@ -73,7 +73,7 @@ from fibsem.milling.progress import (
     MillingProgressStatus,
 )
 from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
-from fibsem.structures import BeamType, FibsemImage, Point
+from fibsem.structures import BeamType, DeviceImagingState, FibsemImage, Point
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.fm.widgets import LinePlotWidget
 from fibsem.ui.icon import fibsem_icon
@@ -2416,9 +2416,13 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         )
         if not pixelsize:
             return
-        if not self.microscope.fm.has_valid_orientation():
+        # READY strictly: the click becomes a stage move computed through a frame
+        # built from the current pose.
+        state = self.microscope.get_device_imaging_state("FM")
+        if state is not DeviceImagingState.READY:
             logging.info(
-                f"Stage must be in a valid FM orientation to move via FM image (current: {self.microscope.get_stage_orientation()})"
+                "Cannot move the stage via the FM image. "
+                + self.microscope.describe_device_imaging_state("FM", state)
             )
             return
         image_shape = self.fm_canvas._img_shape

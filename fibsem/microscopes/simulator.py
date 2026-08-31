@@ -486,6 +486,8 @@ class DemoMicroscope(FibsemMicroscope):
             logging.info("No fluorescence microscope in this simulated system.")
             self.fm = None
 
+        self._warn_on_fluorescence_geometry()
+
         # user, experiment metadata
         # TODO: remove once db integrated
         self.user = FibsemUser.from_environment()

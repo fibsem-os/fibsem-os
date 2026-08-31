@@ -1,13 +1,13 @@
 """Typed requests from the workflow thread to whoever is supervising it.
 
-``workflow_update_signal`` is one ``pyqtSignal(dict)`` carrying three different
-mechanisms: fire-and-forget status, one-way instructions the workflow waits on, and
-questions that need a value back. The waiting is a hand-rolled RPC — a shared mutable
-flag plus a ``time.sleep`` poll — and the answers come back through unsynchronised
-attributes on the main window, or by reaching directly into its widgets.
-
-This module is the replacement's foundation, deliberately unwired: nothing imports it
-yet, and each call site converts on its own.
+This replaced ``workflow_update_signal``: one ``pyqtSignal(dict)`` that carried
+three different mechanisms — fire-and-forget status, one-way instructions the
+workflow waited on, and questions that needed a value back. The waiting was a
+hand-rolled RPC (a shared mutable flag plus a ``time.sleep`` poll), and answers
+came back through unsynchronised attributes on the main window, or by reaching
+directly into its widgets. Now every instruction and question is a request here,
+each on its own future; status rides ``workflow_status_signal`` as a
+``WorkflowStatusEvent``.
 
 * **Payload types** — one dataclass per interaction, split by mechanism. A question
   declares its answer type through ``Request[R]``; an instruction is ``Request[None]``,

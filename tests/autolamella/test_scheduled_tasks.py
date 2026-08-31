@@ -244,7 +244,7 @@ def test_the_workflow_config_finds_a_task_schedule():
 
 
 class _Signal:
-    """The one method `update_status_ui` calls on `workflow_update_signal`."""
+    """The one method `update_status_ui` calls on `workflow_status_signal`."""
 
     def __init__(self, on_emit):
         self._on_emit = on_emit
@@ -257,7 +257,7 @@ class RecordingUI:
     """Stands in for AutoLamellaUI at the only boundary the wait touches.
 
     Samples WORKFLOW_PENDING at each status emit — i.e. exactly where the real UI
-    reads it, since the border block runs at the end of `_on_workflow_update`. That
+    reads it, since the border block runs at the end of `_on_workflow_status`. That
     makes these tests about what the border can *see*, not merely about an attribute
     being written and rewritten around the call.
     """
@@ -266,12 +266,9 @@ class RecordingUI:
         self._task_manager = manager
         self.WORKFLOW_PENDING = False
         self.pending_at_each_emit: List[bool] = []
-        # The border block runs at the end of both handlers now: lifecycle
-        # reports arrive on workflow_status_signal, update_status_ui still on
-        # the dict signal. Sample at each, as the real window would.
-        self.workflow_update_signal = _Signal(
-            lambda info: self.pending_at_each_emit.append(self.WORKFLOW_PENDING)
-        )
+        # Everything the workflow says arrives on workflow_status_signal now
+        # (the dict signal is gone); the border block runs at the end of its
+        # handler. Sample at each emit, as the real window would.
         self.workflow_status_signal = _Signal(
             lambda event: self.pending_at_each_emit.append(self.WORKFLOW_PENDING)
         )

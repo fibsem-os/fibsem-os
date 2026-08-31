@@ -10,6 +10,7 @@ tileset moves the stage between every pair of tiles with no stream running, so
 came to be startable mid-tileset, and how the objective panel came to stay live against
 a runner that was stepping the objective itself.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -221,7 +222,9 @@ class TestTheOverviewRespectsTheInstrument:
 
         assert accept_dialog == [], "asked the user to confirm a run it then refused"
 
-    def test_it_starts_once_the_instrument_is_free(self, widget, accept_dialog, no_worker):
+    def test_it_starts_once_the_instrument_is_free(
+        self, widget, accept_dialog, no_worker
+    ):
         widget.fm.set_acquiring(True, "z-stack")
         widget.fm.set_acquiring(False)
 
@@ -271,11 +274,17 @@ class TestTheControlWidgetGuard:
     """
 
     @staticmethod
-    def _widget(fm):
+    def _widget(fm, state=None):
+        from fibsem.structures import DeviceImagingState
         from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 
         widget = FMControlWidget.__new__(FMControlWidget)
         widget.fm = fm
+        widget.microscope = _StageAt(state or DeviceImagingState.READY)
+        # The guard now lives on the instrument (`fm.refusal_to_start`) and asks the
+        # top-level system through `fm.parent` -- wire the harness the way a real
+        # connection does.
+        fm.parent = widget.microscope
         widget._acquisition_thread = None
         return widget
 
@@ -360,9 +369,7 @@ class TestTheControlWidgetWiring:
     def test_every_worker_is_marked_for(self, name):
         assert "set_acquiring" in self._calls(self._functions()[name])
 
-    @pytest.mark.parametrize(
-        "name", ["_image_acquistion_worker", "_autofocus_worker"]
-    )
+    @pytest.mark.parametrize("name", ["_image_acquistion_worker", "_autofocus_worker"])
     def test_every_worker_clears_on_the_way_out(self, name):
         """In the `finally`, not the happy path: a worker that raises still holds it."""
         import ast
@@ -379,18 +386,31 @@ class TestTheControlWidgetWiring:
     def test_it_refuses_a_pose_the_fm_cannot_see_from(self):
         """`start_acquisition` had this check and the other two did not, so an image, a
         z-stack or an autofocus sweep could be started from a beam pose with nothing but
-        the button stopping it."""
+        the button stopping it. The gate refuses travel states and permits a re-pose --
+        the acquisition policy, in one place on the enum."""
         from fibsem.fm.microscope import FluorescenceMicroscope
+        from fibsem.structures import DeviceImagingState
 
         fm = FluorescenceMicroscope()
-        fm._allow_unknown_orientations = False  # the escape hatch is on by default
-        fm.valid_orientations = []  # so no pose is a valid one
-        fm.parent = _StageAt("SEM")
-        widget = TestTheControlWidgetGuard._widget(fm)
-        widget.microscope = fm.parent
+        widget = TestTheControlWidgetGuard._widget(
+            fm, state=DeviceImagingState.NEEDS_TRAVEL
+        )
 
         assert fm.is_acquiring is False, "refused for the pose, not for being busy"
         assert widget._refuse_to_start("image acquisition") is True
+
+    def test_a_repose_is_permitted(self):
+        """The Arctis allowance, as gate policy: acquiring in place from a "wrong"
+        pose is a harmless watch. A compustage can never need travel, so this row is
+        the only refusable one it has -- and it does not refuse."""
+        from fibsem.fm.microscope import FluorescenceMicroscope
+        from fibsem.structures import DeviceImagingState
+
+        widget = TestTheControlWidgetGuard._widget(
+            FluorescenceMicroscope(), state=DeviceImagingState.NEEDS_REPOSE
+        )
+
+        assert widget._refuse_to_start("image acquisition") is False
 
     def test_every_control_is_set_on_every_path(self):
         """`_update_acquisition_button_states` returned early on a bad pose, setting
@@ -420,14 +440,21 @@ class TestTheControlWidgetWiring:
 
 
 class _StageAt:
-    """The parent microscope, for the two orientation questions the FM forwards."""
+    """The parent microscope, answering the one question the guard asks now."""
 
-    def __init__(self, orientation: str):
-        self._orientation = orientation
-        self.stage_is_compustage = True
+    def __init__(self, state: "DeviceImagingState"):
+        self._state = state
+
+    def get_device_imaging_state(self, device: str, stage_position=None):
+        return self._state
+
+    def describe_device_imaging_state(
+        self, device: str, state=None, stage_position=None
+    ) -> str:
+        return f"described({(state or self._state).value})"
 
     def get_stage_orientation(self, stage_position=None) -> str:
-        return self._orientation
+        return "SEM"
 
 
 class _AliveThread:

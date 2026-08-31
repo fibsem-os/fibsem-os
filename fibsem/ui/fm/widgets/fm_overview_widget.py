@@ -52,7 +52,7 @@ from fibsem.imaging.tiling.progress import (
     TiledStatus,
 )
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures import DeviceImagingState, FibsemStagePosition
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui import utils as ui_utils
 from fibsem.ui.fm.widgets.fm_multi_channel_widget import FluorescenceMultiChannelWidget
@@ -284,6 +284,9 @@ class FMOverviewWidget(QWidget):
         # agrees by construction instead of because two callers happened to poll
         # together. See `_current_stage_position` for why polling is the odd one out.
         self._stage_position: Optional[FibsemStagePosition] = None
+        # The last answer to "can the FM image from here" -- see `_on_stage_moved`,
+        # which re-derives the gate and banner only when this changes.
+        self._last_imaging_state: Optional[DeviceImagingState] = None
         # The objective half of the canvas info bar, cached. Read from hardware only
         # when something may have moved it -- see `_refresh_objective_info`.
         self._objective_info: Optional[str] = None
@@ -553,7 +556,7 @@ class FMOverviewWidget(QWidget):
         # button naming one orientation while going to another is worse than no button.
         self.button_move_to_fm = QPushButton()
         self.button_move_to_fm.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.button_move_to_fm.clicked.connect(self.move_to_fm_orientation)
+        self.button_move_to_fm.clicked.connect(self.move_to_fm_device)
 
         self.orientation_banner = QWidget()
         banner_layout = QHBoxLayout(self.orientation_banner)
@@ -1740,36 +1743,35 @@ class FMOverviewWidget(QWidget):
     # ── stage orientation ────────────────────────────────────────────────
 
     def at_acquisition_orientation(self) -> bool:
-        """Whether the stage is somewhere the objective can image the sample from.
+        """Whether the FM can image the sample from where the stage is.
 
-        `fm.acquisition_orientations`, and not a single pose of our own choosing: a
-        system whose objective sees the sample from more than one orientation says so
-        there, and hard-coding one here would lock the other out.
+        `READY` strictly -- place and pose both right -- because everything asking is
+        about to drive the stage through, or write down, a frame built from the pose:
+        the acquire gate walks a grid and stitches through it, marking writes the pose
+        into a lamella. From a pose the objective cannot image from, nothing has
+        checked those numbers.
 
-        Not `fm.has_valid_orientation()`, which asks the looser question of whether FM
-        *control* is allowed -- true at SEM and MILLING, where a compustage has flipped
-        the sample away from the objective -- and which `ALLOW_UNKNOWN_ORIENTATIONS`
-        answers yes to unconditionally anyway. The canvas frame is built from the pose
-        (see `_posed`), so tiles acquired somewhere the code cannot name are placed
-        against a projection nobody has checked.
+        On an offset mount this used to be unanswerable -- the old predicate returned
+        True everywhere off a compustage by documented design, and its stricter
+        sibling (`== default_orientation`) was never true there, which is why *Add
+        Position Here* declined forever with no error.
         """
-        return self.fm.is_acquisition_orientation()
+        return (
+            self.microscope.get_device_imaging_state("FM") is DeviceImagingState.READY
+        )
 
-    def at_fluorescence_pose(self) -> bool:
-        """Whether the stage is at *the* fluorescence orientation, not merely a workable one.
+    def move_to_fm_device(self) -> None:
+        """Drive the stage to where the FM can image, having asked first.
 
-        Stricter than `at_acquisition_orientation`, and asked only where something is written
-        down. Asked of `fm.default_orientation` because that is the orientation
-        `build_lamella_poses` derives a fluorescence pose *into*: two names for the same
-        thing could drift, one cannot.
-        """
-        return self.microscope.get_stage_orientation() == self.fm.default_orientation
-
-    def move_to_fm_orientation(self) -> None:
-        """Drive the stage to the fluorescence orientation, having asked first.
+        The target is the *device*, not an orientation -- this used to read a variable
+        named `orientation` from `fm.default_orientation` and pass it to a device
+        parameter, which worked only because "FM" happened to name both (FIB-832). On
+        an offset mount the move is a traverse across the chamber, possibly with a
+        re-pose at the beams first; the confirmation describes the actual route, since
+        one button press should not grow into a multi-leg motion silently.
 
         A real stage move, so it gets the same confirmation as the other moves in this
-        widget -- and the same worker, since `move_to_microscope` blocks for as long as
+        widget -- and the same worker, since `move_to_device` blocks for as long as
         the stage takes.
         """
         if self._running or self.fm.is_acquiring:
@@ -1777,30 +1779,29 @@ class FMOverviewWidget(QWidget):
                 "Cannot move the stage during an acquisition.", "warning"
             )
             return
-        orientation = self.fm.default_orientation
         reply = QMessageBox.question(
             self,
             "Confirm Movement",
-            f"Move the stage to the {orientation} orientation?\n\n"
-            f"The stage is currently at {self.microscope.get_stage_orientation()}.",
+            f"Move the stage to the fluorescence microscope?\n\n"
+            f"{self.microscope.describe_device_imaging_state('FM')}",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
         if reply != QMessageBox.Yes:
-            logging.info("Move to FM orientation cancelled by user")
+            logging.info("Move to FM device cancelled by user")
             return
 
-        self.status.setText(f"Moving to {orientation}…")
-        worker = FunctionWorker(self._move_to_orientation_worker, orientation)
+        self.status.setText("Moving to the FM…")
+        worker = FunctionWorker(self._move_to_device_worker, "FM")
         worker.start()
 
-    def _move_to_orientation_worker(self, orientation: str) -> None:
+    def _move_to_device_worker(self, device: str) -> None:
         """Runs off the GUI thread. Only signals may cross back."""
         try:
-            self.microscope.move_to_microscope(orientation)
-            logging.info(f"Moved to {orientation} orientation")
+            self.microscope.move_to_device(device)
+            logging.info(f"Moved to the {device} device")
         except Exception as e:
-            logging.error(f"Failed to move to {orientation} orientation: {e}")
+            logging.error(f"Failed to move to the {device} device: {e}")
         # Not followed by a refresh: the move raises `stage_position_changed`, which
         # arrives at `_on_stage_moved` and re-derives everything the pose feeds.
 
@@ -1823,7 +1824,11 @@ class FMOverviewWidget(QWidget):
         and naming only `default_orientation` would send the user further than they have
         to go.
         """
-        allowed = self.fm.acquisition_orientations
+        allowed = self.microscope.system.stage.devices["FM"].acquisition_orientations
+        if not allowed:
+            # An unconstrained device -- the pose is not what is wrong, so this string
+            # is never shown for one; named defensively all the same.
+            return "a pose the objective can image from"
         if len(allowed) == 1:
             named = allowed[0]
         else:
@@ -1839,7 +1844,10 @@ class FMOverviewWidget(QWidget):
                 f"Stage is at {self._where_the_stage_is()} — an overview needs to be at "
                 f"{self._where_the_stage_needs_to_be()}."
             )
-            self.button_move_to_fm.setText(f"Move to {self.fm.default_orientation}")
+            # The device, by name: the button travels to the FM, whatever pose that
+            # takes on this mounting -- naming an orientation here was half of the
+            # device/orientation mix-up FIB-832 records.
+            self.button_move_to_fm.setText("Move to FM")
 
     def _on_fm_acquiring_signal(self, acquiring: bool) -> None:
         """Called by psygnal, on whichever thread started or stopped. No widgets here."""
@@ -1881,6 +1889,15 @@ class FMOverviewWidget(QWidget):
         reposed = self._pose_changed(position)
         self._stage_position = position
         self._refresh_current_position()
+        # The gate and the banner answer "can the FM image from here", and on an offset
+        # mount that changes with pure *translation* -- the 48.8 mm traverse to the FM
+        # alters no rotation or tilt at all -- so they cannot hide behind `reposed`.
+        # Gating them on it left the acquire button and the banner stale across the
+        # whole traverse. Asked with the polled position, and re-derived only when the
+        # answer actually changes.
+        state = self.microscope.get_device_imaging_state("FM", position)
+        imaging_changed = state is not self._last_imaging_state
+        self._last_imaging_state = state
         # Everything else on the canvas is placed through a frame whose rotation and
         # tilt come from wherever the stage is (see `_posed`), so a re-pose moves all of
         # it. Redrawn only when the pose actually changes: the stage is polled
@@ -1889,8 +1906,7 @@ class FMOverviewWidget(QWidget):
         if reposed:
             self._refresh_positions()
             self._refresh_stage_metadata()
-            # The orientation is read off rotation and tilt, so it can only have changed
-            # when they did -- the same reason the redraws above are gated on it.
+        if reposed or imaging_changed:
             self._refresh_orientation_banner()
             self._apply_enabled_state()
         # The grid follows the stage only when it is not pinned to a target and not
@@ -2011,12 +2027,12 @@ class FMOverviewWidget(QWidget):
     def _may_move(self) -> bool:
         """Whether driving the stage from this tab is allowed right now, and say if not.
 
-        The orientation check here used to be `fm.has_valid_orientation()`, which
-        `ALLOW_UNKNOWN_ORIENTATIONS` answers yes to unconditionally -- so it refused
-        nothing. It now asks the same question with the escape hatch off, which is what
-        it was always meant to mean: a click is a stage move computed through a frame
-        built from the current pose, and from a pose the code cannot name there is
-        nothing that has checked where it would send the stage (FIB-436).
+        The orientation check here used to be a predicate an escape flag answered yes
+        to unconditionally -- so it refused nothing. It now asks the enforced
+        question, which is what it was always meant to mean: a click is a stage move
+        computed through a frame built from the current pose, and from a pose the
+        objective cannot image from there is nothing that has checked where it would
+        send the stage (FIB-436).
         """
         if self.is_acquiring:
             notification_service.show_toast(
@@ -2100,11 +2116,10 @@ class FMOverviewWidget(QWidget):
                 "Cannot mark positions while an acquisition is running.", "warning"
             )
             return None
-        # Stricter than the double-click's check, and deliberately so. Moving needs only
-        # a pose the FM can work from; marking has to survive being written down, since
-        # the position becomes a lamella's *fluorescence* pose -- and one carrying SEM
-        # rotation and tilt is not one, however right it looked on screen.
-        if not self.at_fluorescence_pose():
+        # Marking has to survive being written down: the position becomes a lamella's
+        # *fluorescence* pose, so it must be one the objective actually images from --
+        # however right it looked on screen.
+        if not self.at_acquisition_orientation():
             notification_service.show_toast(
                 f"Move to the fluorescence position before marking on the overview "
                 f"(the stage is at {self.microscope.get_stage_orientation()}).",

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QFormLayout,
     QLabel,
@@ -73,12 +73,10 @@ class FibsemSpotBurnWidget(QWidget):
     ``coordinates``, the form writes current/exposure, and the burn runs the settings.
 
     Progress is driven by ``microscope.spot_burn_progress_signal`` (shared with the
-    status bar). The burn runs directly from the widget's button, or — in a supervised
-    workflow — via ``start_spot_burn_signal`` (mirrors milling's task-orchestrated hook).
+    status bar). The burn runs from the widget's button — in a supervised workflow
+    QtResponder drives ``run_spot_burn_worker`` directly on the GUI thread.
     """
 
-    # emitted by the workflow task to trigger a burn (mirrors milling's start_milling_signal)
-    start_spot_burn_signal = pyqtSignal()
     # emitted when a burn ends, success and failure alike (mirrors milling's
     # finished_milling_signal); listeners take it to mean the widget is idle again
     finished_spot_burn_signal = pyqtSignal()
@@ -167,15 +165,6 @@ class FibsemSpotBurnWidget(QWidget):
             stylesheets.PRIMARY_BUTTON_STYLESHEET
         )
         self.pushButton_run_spot_burn.setEnabled(False)
-
-        # the workflow task drives the burn via start_spot_burn_signal (mirrors milling).
-        # BlockingQueuedConnection: emit() returns only after run_spot_burn_worker has run,
-        # so the burn is then either in progress (is_burning=True) or was refused (no
-        # in-bounds points), in which case the task re-prompts.
-        self.start_spot_burn_signal.connect(
-            self.run_spot_burn_worker,
-            Qt.BlockingQueuedConnection,  # type: ignore
-        )
 
         # coordinate signal
         self.coord_editor.settings_changed.connect(self._refresh_info)

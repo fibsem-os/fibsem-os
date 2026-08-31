@@ -38,9 +38,8 @@ class RecordingUI:
     """
 
     def __init__(self):
-        # update_status_ui still uses the dict signal; _emit_status now reports on
-        # workflow_status_signal. Both record here, into per-channel lists.
-        self.workflow_update_signal = _Recorder()
+        # Everything the workflow says arrives on workflow_status_signal now
+        # (the dict signal is gone).
         self.workflow_status_signal = _Recorder()
         self._task_manager = None  # _check_for_abort reads this
 

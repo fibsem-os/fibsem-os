@@ -77,7 +77,7 @@ def test_the_refusal_names_the_way_out():
     """The route exists; a caller that hits this needs to be told it, not just stopped."""
     microscope = _parked_at_the_fm()
 
-    with pytest.raises(ValueError, match=r"move_to_microscope\('FIBSEM'\)"):
+    with pytest.raises(ValueError, match=r"move_to_device\('FIBSEM'\)"):
         microscope.move_to_orientation("MILLING")
 
 
@@ -156,11 +156,16 @@ def test_a_compustage_is_not_affected():
 
 
 def test_a_system_with_no_fluorescence_microscope_is_not_affected():
-    """Dormant until the connection gate opens.
+    """Dormant on a beam-only system, and now for two reasons rather than one.
 
-    `microscope.fm` is `None` on every non-compustage system today, so nothing can be
-    parked at the FM to begin with -- and a beam-only system must not be told it
-    cannot rotate somewhere it has every right to be.
+    The first is the guard's own: `microscope.fm` is `None`, so it returns before it
+    ever looks at where the stage is. The second is that there is nothing out there to
+    find -- the default FM shares the beams' origin, so a system that never declared a
+    `devices:` block no longer carries a phantom fluorescence microscope 48.8 mm along
+    x, somewhere its stage has every right to be.
+
+    Both halves matter. A beam-only system must not be told it cannot rotate, and it
+    must not be told it is standing at an instrument it does not have.
     """
     microscope = _microscope(cfg.MICROSCOPE_CONFIGURATION_PATH)
     assert microscope.fm is None
@@ -169,7 +174,7 @@ def test_a_system_with_no_fluorescence_microscope_is_not_affected():
     microscope.move_stage_relative(
         FibsemStagePosition(x=48.8e-3, y=0.0, z=0.0, r=0.0, t=0.0)
     )
-    assert microscope.get_current_device() == "FM"
+    assert microscope.get_current_device() is None
 
     microscope.move_to_orientation("MILLING")
 

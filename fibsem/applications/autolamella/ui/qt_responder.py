@@ -13,9 +13,9 @@ widget code escapes a queued slot and PyQt5 aborts the whole process (FIB-329);
 here it re-raises on the workflow thread inside ``wait_for``, where the task's
 error handling already exists.
 
-Handlers are added one request type at a time, as each ``workflow_update_signal``
-site converts; an unhandled type completes the future with a ``TypeError`` rather
-than leaving the caller to its timeout.
+Every interaction has a handler; an unhandled type — a new request nobody wired
+up — completes the future with a ``TypeError`` rather than leaving the caller to
+its timeout.
 
 Questions are the deferred half: their handlers show the prompt and return
 *without* completing the future — the answer arrives from a click, later, through
@@ -44,6 +44,9 @@ from fibsem.applications.autolamella.workflows.interaction import (
     SetImages,
     SetMillingConfig,
     StalePromptError,
+)
+from fibsem.applications.autolamella.workflows.tasks.status import (
+    WorkflowStatusEvent,
 )
 from fibsem.structures import BeamType
 
@@ -379,11 +382,11 @@ class QtResponder(QObject):
         # for converted questions, but the attention button, border and timeline
         # pause still read it.
         self._ui.WAITING_FOR_USER_INTERACTION = True
-        # Reuse the whole existing display path — prompt label, yes/no buttons,
-        # and the main window's waiting indicators — by emitting the payload the
-        # old mechanism showed. We are on the GUI thread, so both windows' slots
-        # run directly, before this returns.
-        self._ui.workflow_update_signal.emit({"msg": msg, "pos": pos, "neg": neg})
+        # We are on the GUI thread that owns the widgets: show the prompt
+        # directly, and ping the status channel (message=None: says nothing
+        # about the prompt) so the main window's waiting chrome refreshes.
+        self._ui.set_instructions_msg(msg, pos, neg)
+        self._ui.workflow_status_signal.emit(WorkflowStatusEvent())
 
     def _confirm(self, request: Confirm, future: "Future") -> None:
         """Show a yes/no prompt; :meth:`answer_confirm` completes the future."""
@@ -518,8 +521,8 @@ class QtResponder(QObject):
     def _start_milling_run(self, request: RunMillingTask, future: "Future") -> None:
         """Run the editor's current config; the finished signal decides what next."""
         self._active_milling = (request, future)
-        self._ui.workflow_update_signal.emit(
-            {"msg": f"Milling {request.config.name}..."}
+        self._ui.workflow_status_signal.emit(
+            WorkflowStatusEvent(message=f"Milling {request.config.name}...")
         )
         # None: the widget builds the config from the editor, so the operator's
         # edits are what actually runs — as the old start_milling_signal path did.
@@ -534,11 +537,11 @@ class QtResponder(QObject):
         request, future = active
         if future.cancelled():
             return
-        self._ui.workflow_update_signal.emit(
-            {
-                "msg": f"Milling {request.config.name} Complete: "
+        self._ui.workflow_status_signal.emit(
+            WorkflowStatusEvent(
+                message=f"Milling {request.config.name} Complete: "
                 f"{len(request.config.stages)} stages completed."
-            }
+            )
         )
         if request.confirm():
             # Same prompt again: Run Milling reruns (after edits), Continue ends —
@@ -578,7 +581,7 @@ class QtResponder(QObject):
                 pair[1].cancel()
         if pending is not None:
             self._ui.WAITING_FOR_USER_INTERACTION = False
-            self._ui.workflow_update_signal.emit({"msg": ""})
+            self._ui.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
             self._emit_question_event(
                 "prompt_cancelled",
                 {"type": type(pending[0]).__name__, "nonce": pending[2]},
@@ -614,7 +617,9 @@ class QtResponder(QObject):
     def _start_spot_burn_run(self, request: RunSpotBurn, future: "Future") -> None:
         """Run the widget's current points; the finished signal re-asks."""
         self._active_spot_burn = (request, future)
-        self._ui.workflow_update_signal.emit({"msg": "Running Spot Burn..."})
+        self._ui.workflow_status_signal.emit(
+            WorkflowStatusEvent(message="Running Spot Burn...")
+        )
         widget = self._ui.spot_burn_widget
         widget.run_spot_burn_worker()
         if not widget.is_burning:
@@ -672,7 +677,7 @@ class QtResponder(QObject):
             # The asker aborted while the prompt stood. The click means nothing
             # beyond taking the stale prompt down — in particular it must not
             # start a mill for a question nobody is waiting on.
-            self._ui.workflow_update_signal.emit({"msg": ""})
+            self._ui.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
             self._emit_question_event(
                 "prompt_cancelled",
                 {"type": type(request).__name__, "nonce": pending[2]},
@@ -701,7 +706,7 @@ class QtResponder(QObject):
             # Run Spot Burn: same shape — the finished signal re-asks.
             self._start_spot_burn_run(request, future)
             return True
-        self._ui.workflow_update_signal.emit({"msg": ""})
+        self._ui.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
         try:
             self._deliver(future, self._answer(request, clicked_yes))
         except Exception as exc:  # noqa: BLE001 - the caller owns the failure

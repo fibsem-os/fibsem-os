@@ -864,7 +864,7 @@ class WorkflowProgressWidget(QWidget):
         self._sync(items)
 
     def update_from_status(self, status: dict) -> None:
-        """Advance the timeline from a workflow_update_signal payload.
+        """Advance the timeline from a task-lifecycle report.
 
         Reads queue_items snapshot to update all row statuses directly.
         """

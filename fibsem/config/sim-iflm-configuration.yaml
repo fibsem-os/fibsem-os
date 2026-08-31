@@ -36,6 +36,7 @@ stage:
             origin:     {x: 0.0}                            # the beams: the chamber origin                         [metres][SPECIFIED]
         FM:
             origin:     {x: 48.8e-3}                        # the FM: offset along x                                [metres][SPECIFIED]
+            acquisition_orientations: [FIB]                 # the objective images the sample in the FIB pose       [SPECIFIED]
 electron:
     enabled:                    true                        # the electron beam is enabled                                  [USER]
     column_tilt:                0                           # the column tilt of the electron beam                          [DERIVED - manufactuer]
