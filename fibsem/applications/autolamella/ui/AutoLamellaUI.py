@@ -642,6 +642,21 @@ class AutoLamellaUI(QMainWindow):
                 self._agent_server_host = AgentServerHost(self)
             self._agent_server_host.start(self.microscope)
 
+    def sync_agent_server_with_preference(self) -> None:
+        """Start or stop the embedded server to match the saved preference.
+
+        Called after preferences are saved, so ticking the box acts now rather
+        than at the next connect. Starting needs a connected microscope (the
+        server wraps it); without one this is a no-op and the connect path
+        picks the preference up as before.
+        """
+        host = self._agent_server_host
+        if fibsem_cfg.load_user_preferences().features.agent_server_enabled:
+            if self.microscope is not None and (host is None or not host.running):
+                self._start_agent_server()
+        elif host is not None and host.running:
+            host.stop()
+
     def disconnect_from_microscope(self):
         if self._agent_server_host is not None:
             self._agent_server_host.stop()
