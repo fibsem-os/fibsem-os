@@ -120,8 +120,9 @@ def run_autofocus(
         >>> best_z = run_autofocus(microscope, roi=roi)
     """
 
-    if not microscope.has_valid_orientation():
-        raise ValueError("Microscope orientation is not valid for autofocus")
+    state = microscope.parent.get_device_imaging_state("FM")
+    if not state.allows_acquisition:
+        raise ValueError(f"Cannot start autofocus: {state.value}.")
 
     # Held for the whole sweep, as a tileset holds it for a whole run. Without it
     # every step took and returned the channel on its own -- measured at 43 scopes

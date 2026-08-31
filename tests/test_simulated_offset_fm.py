@@ -127,17 +127,20 @@ def test_marking_from_the_beam_side_yields_no_fluorescence_pose():
     assert _to_fluorescence(microscope, microscope.get_orientation("MILLING")) is None
 
 
-def test_the_acquisition_guard_cannot_answer_and_says_yes():
-    """`is_acquisition_orientation` returns True unconditionally off a compustage.
+def test_the_acquisition_guard_can_answer_now():
+    """The placeholder guard used to say yes unconditionally off a compustage,
+    because neither axis alone could tell an FM position from a beam one. The
+    predicate asks both axes, so the offset mount finally gets a real answer:
+    not at the FM, and SEM is not a pose the objective images from."""
+    from fibsem.structures import DeviceImagingState
 
-    Refusing would be worse -- it would leave the overview tab permanently dead on
-    every offset system -- so the guard gives up rather than locking out. It is not a
-    guard on this mounting; it is a placeholder for one.
-    """
     microscope = _microscope(IFLM_CONFIG)
 
     microscope.move_to_orientation("SEM")
-    assert microscope.fm.is_acquisition_orientation() is True
+    assert (
+        microscope.get_device_imaging_state("FM")
+        is DeviceImagingState.NEEDS_REPOSE_THEN_TRAVEL
+    )
 
 
 def test_the_traverse_refuses_unless_the_stage_is_already_at_fib():

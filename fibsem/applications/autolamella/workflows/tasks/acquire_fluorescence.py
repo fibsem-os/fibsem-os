@@ -257,9 +257,12 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
                 stage_position=stage_position,
                 target_orientation=self.config.orientation,
             )
-        elif not self.microscope.fm.has_valid_orientation(stage_position):
+        elif not self.microscope.get_device_imaging_state(
+            "FM", stage_position
+        ).allows_acquisition:
             logging.warning(
-                f"Stage Position {self.lamella.name} is not in a valid orientation: {stage_position}, moving to SEM orientation..."
+                f"Stage Position {self.lamella.name} is not one the fluorescence "
+                f"microscope can acquire from: {stage_position}, moving to SEM orientation..."
             )
             stage_position = self.microscope.get_target_position(
                 stage_position=stage_position, target_orientation="SEM"

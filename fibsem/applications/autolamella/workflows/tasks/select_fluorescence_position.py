@@ -57,9 +57,11 @@ class SelectFluorescencePositionTask(AutoLamellaTask):
         else:
             stage_position = self.lamella.stage_position
 
-        if not self.microscope.fm.has_valid_orientation(stage_position):
+        state = self.microscope.get_device_imaging_state("FM", stage_position)
+        if not state.allows_acquisition:
             raise ValueError(
-                f"Stage Position {self.lamella.name} is not in a valid orientation: {stage_position.pretty}, {self.microscope.fm.valid_orientations}"
+                f"Stage Position {self.lamella.name} is not one the fluorescence "
+                f"microscope can acquire from: {stage_position.pretty} ({state.value})"
             )
 
         # Check for cancellation before each position
