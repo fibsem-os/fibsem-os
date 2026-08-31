@@ -95,16 +95,14 @@ def test_absent_workflow_info_shows_the_label_without_rewriting_it(ui):
     assert ui.label_workflow_information.isVisibleTo(ui)
 
 
-def test_a_status_update_releases_a_pending_ui_update_wait(ui):
-    # The defect the move removes, pinned as it stands: the flag is scoped to the
-    # signal, not to a request, so a mere status emit releases whoever is blocked
-    # in a `while WAITING_FOR_UI_UPDATE` loop. Once status moves off this signal,
-    # this inverts: a status update must leave a pending wait alone.
-    ui.WAITING_FOR_UI_UPDATE = True
-
+def test_a_status_update_cannot_release_any_wait(ui):
+    # The defect the move removed: WAITING_FOR_UI_UPDATE was scoped to the
+    # signal, not to a request, so a mere status emit released whoever was
+    # blocked in a `while WAITING_FOR_UI_UPDATE` loop. The flag is gone; every
+    # wait is a future owned by one caller, which a status emit cannot touch.
     ui.handle_workflow_update(_status_payload("Moving stage..."))
 
-    assert ui.WAITING_FOR_UI_UPDATE is False
+    assert not hasattr(ui, "WAITING_FOR_UI_UPDATE")
 
 
 # ── the new channel ──────────────────────────────────────────────────────────────
@@ -148,16 +146,14 @@ def test_a_status_event_writes_the_workflow_information_label(ui):
     assert ui.label_workflow_information.text() == "Task 2/5: Rough Milling"
 
 
-def test_a_status_event_leaves_a_pending_wait_alone(ui):
-    # The inversion of test_a_status_update_releases_a_pending_ui_update_wait, and
-    # the reason the channel exists: a Future-style handshake (and until then, the
-    # flag) belongs to one request, and merely saying something must not complete it.
-    ui.WAITING_FOR_UI_UPDATE = True
+def test_a_status_event_leaves_a_pending_question_alone(ui):
+    # The reason the channel exists: an answer belongs to one request, and merely
+    # saying something must not complete it. The polled flag is gone entirely;
+    # the display state a parked question sets must survive a status emit.
     ui.WAITING_FOR_USER_INTERACTION = True
 
     ui.workflow_status_signal.emit(_status_event("Moving stage..."))
 
-    assert ui.WAITING_FOR_UI_UPDATE is True
     assert ui.WAITING_FOR_USER_INTERACTION is True
-    ui.WAITING_FOR_UI_UPDATE = False
+    assert not hasattr(ui, "WAITING_FOR_UI_UPDATE")
     ui.WAITING_FOR_USER_INTERACTION = False

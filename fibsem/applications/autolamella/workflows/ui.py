@@ -1,20 +1,17 @@
 from __future__ import annotations
 
 import logging
-import time
 from copy import deepcopy
 from typing import TYPE_CHECKING, List, Optional, Sequence
 
 from fibsem import milling
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.workflows.interaction import (
-    ClearSpotBurn,
     Confirm,
     ConfirmDetection,
     EditAlignmentArea,
     PickPOI,
     SetImages,
-    SetSpotBurnSettings,
     ask,
 )
 from fibsem.detection import detection
@@ -32,7 +29,6 @@ from fibsem.structures import (
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
-    from fibsem.imaging.spot import SpotBurnSettings
 
 # Instructions are answered by a machine, so silence past this is a wedged GUI
 # thread, not thinking. Generous because the GUI thread may legitimately be busy
@@ -252,33 +248,3 @@ def update_experiment_ui(
         return
 
     parent_ui.update_experiment_signal.emit(deepcopy(experiment))
-
-
-def update_spot_burn_parameters(
-    parent_ui: "AutoLamellaUI",
-    settings: Optional["SpotBurnSettings"] = None,
-    clear_spots: bool = False,
-):
-    """Push spot-burn settings to the UI (or clear them)."""
-    _check_for_abort(parent_ui)
-
-    abort = lambda: _abort_requested(parent_ui)  # noqa: E731 - two waits, one predicate
-    if settings is not None:
-        ask(
-            parent_ui.ui_responder,
-            SetSpotBurnSettings(settings=settings),
-            abort=abort,
-            timeout=INSTRUCTION_TIMEOUT_S,
-        )
-    if clear_spots:
-        ask(
-            parent_ui.ui_responder,
-            ClearSpotBurn(),
-            abort=abort,
-            timeout=INSTRUCTION_TIMEOUT_S,
-        )
-
-
-def clear_spot_burn_ui(parent_ui: "AutoLamellaUI"):
-    """Clear the spot burn UI."""
-    update_spot_burn_parameters(parent_ui=parent_ui, settings=None, clear_spots=True)

@@ -114,14 +114,14 @@ def test_the_click_answers_with_the_area_from_the_widget(ui, qapp):
 
 
 def test_the_second_handshake_is_gone(ui, qapp):
-    # The old flow set WAITING_FOR_UI_UPDATE for its embedded overlay-clear wait;
-    # the clear now runs inside the click's slot. Nothing may touch the flag.
+    # The old flow set WAITING_FOR_UI_UPDATE for its embedded overlay-clear
+    # wait; the clear runs inside the click's slot and the flag is gone.
     thread, _ = _edit_on_worker_thread(ui, qapp)
 
     ui.pushButton_yes.click()
     _finish(thread, qapp)
 
-    assert ui.WAITING_FOR_UI_UPDATE is False
+    assert not hasattr(ui, "WAITING_FOR_UI_UPDATE")
 
 
 def test_the_rect_survives_the_overlay_coming_down(ui, qapp):

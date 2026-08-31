@@ -32,7 +32,6 @@ from PyQt5.QtCore import QObject, pyqtSignal
 
 from fibsem.applications.autolamella.workflows.interaction import (
     ClearMillingConfig,
-    ClearSpotBurn,
     Confirm,
     ConfirmDetection,
     EditAlignmentArea,
@@ -43,7 +42,6 @@ from fibsem.applications.autolamella.workflows.interaction import (
     SetFluorescenceChannels,
     SetImages,
     SetMillingConfig,
-    SetSpotBurnSettings,
 )
 from fibsem.structures import BeamType
 
@@ -68,8 +66,6 @@ class QtResponder(QObject):
             SetMillingConfig: self._set_milling_config,
             ClearMillingConfig: self._clear_milling_config,
             SetFluorescenceChannels: self._set_fluorescence_channels,
-            SetSpotBurnSettings: self._set_spot_burn_settings,
-            ClearSpotBurn: self._clear_spot_burn,
         }
         # Deferred: the handler shows the prompt and someone else completes the
         # future later. Kept out of _handlers so _dispatch cannot complete these
@@ -193,21 +189,6 @@ class QtResponder(QObject):
         if widget is None:
             return
         widget.channelSettingsWidget.channel_settings = request.channels
-
-    def _set_spot_burn_settings(self, request: SetSpotBurnSettings) -> None:
-        """Load the settings into the spot-burn widget, if there is one."""
-        widget = self._ui.spot_burn_widget
-        if widget is None:
-            return
-        widget.set_settings(request.settings)
-
-    def _clear_spot_burn(self, request: ClearSpotBurn) -> None:
-        """Clear the spot-burn overlay and leave workflow mode, if there is one."""
-        widget = self._ui.spot_burn_widget
-        if widget is None:
-            return
-        widget.clear_points_layer()
-        widget.set_workflow_mode(False)
 
     # --- questions: the answer arrives from a click, later -------------------------
 

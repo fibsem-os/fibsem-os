@@ -78,14 +78,11 @@ def test_a_message_is_still_shown_when_one_is_sent(ui):
     assert ui.pushButton_yes.text() == "Continue"
 
 
-def test_the_handler_releases_the_workflow_thread(ui):
-    """Every emitter sets `WAITING_FOR_UI_UPDATE` and then blocks on it in a
-    `while ... time.sleep(0.5)` loop, so the flag is the workflow thread's only way
-    out of that wait. It is cleared on the last line of the handler -- after the
-    message -- so anything that raises on the way there strands the caller as well
-    as killing the process."""
-    ui.WAITING_FOR_UI_UPDATE = True
-
+def test_the_handler_owes_the_workflow_thread_nothing(ui):
+    """Emitters used to set `WAITING_FOR_UI_UPDATE` and block on it, making the
+    handler's last line the workflow thread's only way out of the wait -- so a
+    raise on the way there stranded the caller as well as killing the process.
+    Every wait is a future owned by one caller now; the flag is gone."""
     ui.handle_workflow_update({"status": {}})
 
-    assert ui.WAITING_FOR_UI_UPDATE is False
+    assert not hasattr(ui, "WAITING_FOR_UI_UPDATE")

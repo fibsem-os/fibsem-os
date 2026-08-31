@@ -61,9 +61,7 @@ from fibsem.applications.autolamella.workflows.ui import (
     INSTRUCTION_TIMEOUT_S,
     _abort_requested,
     ask_user,
-    clear_spot_burn_ui,
     update_alignment_area_ui,
-    update_spot_burn_parameters,
 )
 from fibsem.cancellation import OperationCancelledError
 from fibsem.detection.detection import (
