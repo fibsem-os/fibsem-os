@@ -133,6 +133,7 @@ class PickPOI(Request[Optional["Point"]]):
 
     image: "FibsemImage"
     initial: Optional["Point"] = None
+    message: str = "Select Point of Interest"
 
 
 @dataclass(frozen=True)

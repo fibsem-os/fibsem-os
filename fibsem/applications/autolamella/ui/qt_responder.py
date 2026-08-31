@@ -35,6 +35,7 @@ from fibsem.applications.autolamella.workflows.interaction import (
     Confirm,
     ConfirmDetection,
     EditAlignmentArea,
+    PickPOI,
     Request,
     SetFluorescenceChannels,
     SetImages,
@@ -74,6 +75,7 @@ class QtResponder(QObject):
             Confirm: self._confirm,
             ConfirmDetection: self._confirm_detection,
             EditAlignmentArea: self._edit_alignment_area,
+            PickPOI: self._pick_poi,
         }
         self._pending_question: Optional[Tuple[Request, "Future"]] = None
         self._submitted.connect(self._dispatch)
@@ -232,6 +234,61 @@ class QtResponder(QObject):
         image_widget.toggle_alignment_area(request.initial)
         self._park_question(request, future, request.message, "Continue", None)
 
+    def _view_controller(self):
+        """The main window's quad-view controller, or None standalone."""
+        return getattr(self._ui.parent_widget, "view_controller", None)
+
+    def _pick_poi(self, request: PickPOI, future: "Future") -> None:
+        """Show a draggable POI marker on the FIB canvas; the click answers with it.
+
+        The overlay lives on the main window's quad view. Without one (the
+        standalone embedded window) there is nothing to pick on: the old flow
+        no-oped and delivered None, so answer None immediately rather than
+        putting up a prompt about a marker that is not there.
+        """
+        controller = self._view_controller()
+        if controller is None:
+            future.set_result(None)
+            return
+
+        from fibsem import conversions
+        from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
+
+        image = request.image
+        if request.initial is not None:
+            px = conversions.microscope_image_to_image_coordinates(
+                request.initial, image.data.shape, image.metadata.pixel_size.x
+            )
+            col, row = px.x, px.y
+        else:
+            row = image.data.shape[0] / 2
+            col = image.data.shape[1] / 2
+        controller.set_overlay(
+            BeamType.ION,
+            PointsSpec(
+                id="poi",
+                points=[(col, row)],
+                # Matches the protocol editor's POI, down to the legend entry: same
+                # concept, same marker. Left to the defaults this drew at size 18 with
+                # PointOverlay's 2.0 edge, a cross visibly fatter than the thin one the
+                # editor and the config preview draw, and absent from the legend
+                # (FIB-582). 1.2 keeps it reading like the centre crosshair.
+                color="magenta",
+                selected_color="magenta",
+                marker="+",
+                size=14,
+                edge_width=1.2,
+                legend_label="Point of Interest",
+                add_on_right_click=False,
+                removable=False,
+            ),
+        )
+        # POI owns FIB-canvas input: stage-move + milling menu stand down. The toolbar
+        # toggle lets the user drop to Move and back. (See active-overlay model.)
+        controller.arm_overlay(BeamType.ION, "poi", label="POI", icon="mdi:map-marker")
+        controller.fib_canvas.set_hint("drag to move")
+        self._park_question(request, future, request.message, "Continue", None)
+
     def answer_confirm(self, clicked_yes: bool) -> bool:
         """Complete the pending question from the yes/no click.
 
@@ -275,4 +332,26 @@ class QtResponder(QObject):
             area = deepcopy(image_widget.get_alignment_area())
             image_widget.clear_alignment_area()
             return area
+        if isinstance(request, PickPOI):
+            # Read the marker, convert against the image the request carried (the
+            # one the marker was placed on), and take the overlay down — the old
+            # flow's second handshake plus its SELECTED_POI read-back, all in the
+            # click's slot.
+            from fibsem import conversions
+            from fibsem.structures import Point
+
+            controller = self._view_controller()
+            poi = None
+            if controller is not None:
+                pts = controller.overlay_points(BeamType.ION, "poi")
+                if pts:
+                    col, row = pts[0]
+                    image = request.image
+                    poi = conversions.image_to_microscope_image_coordinates(
+                        Point(x=col, y=row), image.data, image.metadata.pixel_size.x
+                    )
+                controller.arm_overlay(BeamType.ION, None)  # restore Move
+                controller.remove_overlay(BeamType.ION, "poi")
+                controller.fib_canvas.set_hint(None)
+            return poi
         return clicked_yes
