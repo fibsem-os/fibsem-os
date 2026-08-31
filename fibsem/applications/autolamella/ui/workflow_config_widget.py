@@ -70,8 +70,35 @@ class _DraggableTaskList(QListWidget):
         self.reordered.emit(tasks)
 
 
+def _agent_supervision_available() -> bool:
+    """Whether the Agent option exists at all: the agent-server preference is on.
+
+    The preference rather than server-running — protocols are configured before
+    a microscope connects. Without it, the selector is exactly the old
+    two-state toggle and a stored ``supervisor: agent`` displays as plain
+    Supervised (the same hard-gate rule as the window chrome).
+    """
+    import fibsem.config as fibsem_cfg
+
+    try:
+        return bool(fibsem_cfg.load_user_preferences().features.agent_server_enabled)
+    except Exception:
+        return False
+
+
 def _supervise_icon(task: AutoLamellaTaskDescription) -> tuple[str, str, str]:
-    """Return (icon_name, icon_color, tooltip) for the supervised/automated indicator."""
+    """Return (icon_name, icon_color, tooltip) for the supervision indicator."""
+    if (
+        task.supervise
+        and getattr(task, "supervisor", "human") == "agent"
+        and _agent_supervision_available()
+    ):
+        return (
+            "mdi:star-four-points",
+            stylesheets.BORDER_STATE_COLOURS["agent"],
+            "Agent — the connected agent answers this task's questions "
+            "(you can always answer first). Click to change.",
+        )
     if task.supervise:
         return "mdi:account-hard-hat", stylesheets.PRIMARY_COLOR, "Supervised"
     return "mdi:lightning-bolt-circle", stylesheets.AUTOMATED_COLOR, "Automated"
@@ -183,9 +210,27 @@ class WorkflowTaskRowWidget(QWidget):
         self.refresh()
 
     def _on_supervise_clicked(self) -> None:
-        self.task.supervise = not self.task.supervise
+        """Cycle the supervision state: Automated → Supervised → Agent → Automated.
+
+        The Agent step exists only while the agent-server preference is on;
+        without it this is the old two-state toggle. Leaving the agent state
+        resets ``supervisor`` to human so no hidden designation survives the
+        cycle.
+        """
+        task = self.task
+        if not task.supervise:
+            task.supervise = True
+            task.supervisor = "human"
+        elif (
+            getattr(task, "supervisor", "human") != "agent"
+            and _agent_supervision_available()
+        ):
+            task.supervisor = "agent"
+        else:
+            task.supervise = False
+            task.supervisor = "human"
         self.refresh()
-        self.supervised_changed.emit(self.task)
+        self.supervised_changed.emit(task)
 
     def _on_remove_clicked(self) -> None:
         reply = QMessageBox.question(
