@@ -178,6 +178,47 @@ def test_set_supervision_flips_the_live_protocol(experiment):
     assert AgentContext(Host()).set_supervision("x", True)["available"] is False
 
 
+def test_supervisor_designation_round_trips_and_is_settable(experiment):
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskDescription,
+    )
+
+    experiment.task_protocol.workflow_config.tasks.append(
+        AutoLamellaTaskDescription(name="Rough Milling", supervise=True, required=True)
+    )
+    host = Host()
+    host.experiment = experiment
+    ctx = AgentContext(host)
+
+    # Default is human — today's behaviour exactly.
+    task = experiment.task_protocol.workflow_config.tasks[-1]
+    assert task.supervisor == "human"
+    assert experiment.task_protocol.get_supervisor("Rough Milling") == "human"
+    assert ctx.protocol()["tasks"][-1]["supervisor"] == "human"
+
+    # The agent designates itself; the same read the chrome uses sees it.
+    applied = ctx.set_supervision("Rough Milling", True, supervisor="agent")
+    assert applied["applied"] is True
+    assert applied["supervisor"] == "agent"
+    assert experiment.task_protocol.get_supervisor("Rough Milling") == "agent"
+
+    bad = ctx.set_supervision("Rough Milling", True, supervisor="robot overlord")
+    assert bad["applied"] is False
+
+    # Serialization: the field survives a round trip, an old dict without it
+    # defaults to human, and unknown keys from a newer version are ignored.
+    reloaded = AutoLamellaTaskDescription.from_dict(task.to_dict())
+    assert reloaded.supervisor == "agent"
+    legacy = AutoLamellaTaskDescription.from_dict(
+        {"name": "x", "supervise": True, "required": False}
+    )
+    assert legacy.supervisor == "human"
+    future = AutoLamellaTaskDescription.from_dict(
+        {"name": "x", "supervise": True, "required": False, "from_the_future": 1}
+    )
+    assert future.name == "x"
+
+
 def test_requeue_task_reruns_a_completed_pair(experiment, microscope):
     from fibsem.applications.autolamella.structures import (
         AutoLamellaTaskDescription,

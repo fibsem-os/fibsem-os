@@ -348,6 +348,26 @@ BORDER_STATE_COLOURS = {
 
 BORDER_WIDTH_PX = 4
 
+# The agent supervision chip: same colour as the agent border state, one
+# source (BORDER_STATE_COLOURS) — hover/pressed are darkened by hand like the
+# supervised/automated chips above.
+SUPERVISION_STATUS_AGENT_STYLESHEET = f"""
+                QPushButton {{
+                    background-color: {BORDER_STATE_COLOURS["agent"]};
+                    color: white;
+                    border: none;
+                    padding: 5px 12px;
+                    border-radius: 3px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: #a300d9;
+                }}
+                QPushButton:pressed {{
+                    background-color: #8a00b8;
+                }}
+            """
+
 
 def border_stylesheet(object_name: str) -> str:
     """QSS border rules for the frame whose ``objectName`` is *object_name*.
