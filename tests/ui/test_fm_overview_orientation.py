@@ -321,9 +321,13 @@ class TestTheBanner:
 
         assert widget.orientation_banner.isVisibleTo(widget) is False
 
-    def test_the_button_names_where_it_goes(self, widget):
-        """From `default_orientation`, which the control widget can change at runtime --
-        a button naming one orientation while going to another is worse than none."""
+    def test_the_button_names_the_device(self, widget):
+        """ "Move to FM" means the device, on every mounting.
+
+        It used to follow `default_orientation` -- half of the device/orientation
+        mix-up FIB-832 records: the button travels, and on an offset mount what it
+        does is a traverse, not a re-pose, so an orientation name would be wrong
+        exactly where the distinction matters."""
         _pose(widget, "NONE")
 
         assert widget.button_move_to_fm.text() == "Move to FM"
@@ -331,7 +335,7 @@ class TestTheBanner:
         widget.fm.default_orientation = "SEM-ish"
         widget._refresh_orientation_banner()
 
-        assert widget.button_move_to_fm.text() == "Move to SEM-ish"
+        assert widget.button_move_to_fm.text() == "Move to FM"
 
     def test_it_goes_away_again(self, widget):
         _pose(widget, "NONE")
@@ -348,7 +352,7 @@ class TestTheMoveAction:
         _pose(widget, "NONE")
         monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.No)
 
-        widget.move_to_fm_orientation()
+        widget.move_to_fm_device()
 
         assert no_worker == [], "moved the stage without asking"
 
@@ -356,17 +360,17 @@ class TestTheMoveAction:
         _pose(widget, "NONE")
         monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.Yes)
 
-        widget.move_to_fm_orientation()
+        widget.move_to_fm_device()
 
         assert len(no_worker) == 1
         func, args = no_worker[0]
-        assert func == widget._move_to_orientation_worker
+        assert func == widget._move_to_device_worker
         assert args == ("FM",)
 
     def test_the_worker_drives_the_stage(self, widget):
         _pose(widget, "NONE")
 
-        widget._move_to_orientation_worker("FM")
+        widget._move_to_device_worker("FM")
 
         assert widget.microscope.get_stage_orientation() == "FM"
 
@@ -376,9 +380,9 @@ class TestTheMoveAction:
         def _boom(target):
             raise RuntimeError("stage refused")
 
-        monkeypatch.setattr(widget.microscope, "move_to_microscope", _boom)
+        monkeypatch.setattr(widget.microscope, "move_to_device", _boom)
 
-        widget._move_to_orientation_worker("FM")
+        widget._move_to_device_worker("FM")
 
         assert "stage refused" in caplog.text
 
@@ -388,7 +392,7 @@ class TestTheMoveAction:
         monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.Yes)
         widget._set_running(True)
 
-        widget.move_to_fm_orientation()
+        widget.move_to_fm_device()
 
         assert no_worker == []
 

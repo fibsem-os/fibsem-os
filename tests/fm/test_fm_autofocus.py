@@ -191,6 +191,7 @@ def test_run_autofocus_iterations_are_autofocus_iterations():
 def test_run_autofocus_refuses_where_the_fm_cannot_image():
     m = _mock_fm()
     m.parent.get_device_imaging_state.return_value = DeviceImagingState.NEEDS_TRAVEL
+    m.parent.describe_device_imaging_state.return_value = "travel there"
     with pytest.raises(ValueError, match="autofocus"):
         run_autofocus(m)
 
