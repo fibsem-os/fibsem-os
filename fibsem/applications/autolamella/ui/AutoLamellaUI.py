@@ -1895,17 +1895,10 @@ class AutoLamellaUI(QMainWindow):
         # no longer arrive here: they are questions over the Responder seam
         # (QtResponder._confirm_detection, _edit_alignment_area, _pick_poi).
 
-        # spot_burn
-        spot_burn = info.get("spot_burn", None)
-        if spot_burn:
-            self.set_spot_burn_widget_active(True)
-            if self.spot_burn_widget is not None:
-                # hide the widget's own Burn button; the burn is run from the workflow control
-                self.spot_burn_widget.set_workflow_mode(True)
         # Milling config, spot-burn settings and fluorescence channels no longer
         # arrive here: their instructions go through the Responder seam
-        # (QtResponder). The spot_burn key above stays — it is part of the
-        # ask_user question flow, which has not converted yet.
+        # (QtResponder). The spot-burn question converted last (RunSpotBurn), so
+        # no variant payloads remain — only status text below.
 
         # Instruction message. Read with `.get`, not indexed: this signal has no
         # declared contract, and 12 of its 13 emit sites pass an opaque variable, so
