@@ -77,7 +77,7 @@ def test_the_refusal_names_the_way_out():
     """The route exists; a caller that hits this needs to be told it, not just stopped."""
     microscope = _parked_at_the_fm()
 
-    with pytest.raises(ValueError, match=r"move_to_microscope\('FIBSEM'\)"):
+    with pytest.raises(ValueError, match=r"move_to_device\('FIBSEM'\)"):
         microscope.move_to_orientation("MILLING")
 
 

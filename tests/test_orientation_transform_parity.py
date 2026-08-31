@@ -60,6 +60,7 @@ OFFSET_Y = -0.7e-3
 PRESERVE = "preserve"  # x/y come through untouched; only r/t are rewritten
 COMPUCENTRIC = "compucentric"  # x/y go through the compucentric rotation
 RAISES = "raises"  # the conversion is refused
+UNBUILDABLE = "unbuildable"  # the source orientation does not exist on this mounting
 
 # What each (from, to) does today. Read off the implementation and confirmed by running
 # it; see the module docstring for why this is a classification rather than a table of
@@ -86,15 +87,14 @@ COMPUSTAGE_BEHAVIOUR = {
 
 # The offset column is where the branches actually differ.
 #
-# Two entries are worth reading twice, and both are consequences of the FM orientation
-# being a verbatim copy of the FIB one on an offset mount (FIB-830):
-#
-#   FM -> FIB   is PRESERVE, not because a branch says so, but because the source
-#               *classifies as FIB* and `get_target_position` returns early on
-#               `current == target`. It hands back the caller's own position.
-#   FM -> SEM   and FM -> MILLING take the FIB branches for the same reason.
-#
-# Pinned as they are rather than as they ought to be. FIB-830 is where they change.
+# The FM rows used to pin consequences of `orientations["FM"]` being a verbatim copy
+# of the FIB one off a compustage -- FM -> FIB handed back the caller's own position
+# because the source *classified as FIB*, and the other FM sources took the FIB
+# branches the same way. The change this file said "FIB-830 is where they change"
+# about has arrived: the copy is deleted, FM is not an orientation on this mounting
+# at all, and a source position "at the FM orientation" cannot even be built --
+# `get_orientation("FM")` refuses by name. The FM *target* rows still refuse, in
+# `get_target_position` itself.
 OFFSET_BEHAVIOUR = {
     ("SEM", "FIB"): COMPUCENTRIC,
     ("SEM", "MILLING"): PRESERVE,
@@ -105,9 +105,9 @@ OFFSET_BEHAVIOUR = {
     ("MILLING", "SEM"): PRESERVE,
     ("MILLING", "FIB"): COMPUCENTRIC,
     ("MILLING", "FM"): RAISES,
-    ("FM", "SEM"): COMPUCENTRIC,
-    ("FM", "FIB"): PRESERVE,
-    ("FM", "MILLING"): COMPUCENTRIC,
+    ("FM", "SEM"): UNBUILDABLE,
+    ("FM", "FIB"): UNBUILDABLE,
+    ("FM", "MILLING"): UNBUILDABLE,
 }
 
 
@@ -169,6 +169,12 @@ def test_every_pair_keeps_its_current_behaviour(
     """
     microscope = _microscope(compustage)
     expected = behaviour[(source, target)]
+
+    if expected is UNBUILDABLE:
+        with pytest.raises(ValueError, match="not supported"):
+            _position_at(microscope, source)
+        return
+
     position = _position_at(microscope, source)
 
     if expected is RAISES:

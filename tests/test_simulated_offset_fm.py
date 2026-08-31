@@ -88,20 +88,22 @@ def test_the_offset_fm_looks_along_the_ion_column():
 # them by loosening the assertion.
 
 
-def test_the_fm_orientation_is_indistinguishable_from_the_fib_one():
+def test_there_is_no_fm_orientation_on_an_offset_mount():
     """The root of it: on an offset mount the FM is a place, not a pose.
 
-    `_update_orientations` copies the FIB entry, so the two are identical and
-    `get_stage_orientation` -- which checks FIB first -- can never answer "FM".
+    `_update_orientations` used to copy the FIB entry -- a second name for a pose
+    that already had one, which `get_stage_orientation` (FIB matches first) could
+    never return. The copy is gone: asking for the FM *orientation* here is a
+    category error, and the position at the FM classifies as the pose it really is.
     Everything below is downstream of this one fact.
     """
     microscope = _microscope(IFLM_CONFIG)
 
-    fm_pose = microscope.get_orientation("FM")
-    fib_pose = microscope.get_orientation("FIB")
-    assert (fm_pose.r, fm_pose.t) == (fib_pose.r, fib_pose.t)
+    with pytest.raises(ValueError, match="not supported"):
+        microscope.get_orientation("FM")
 
-    assert microscope.get_stage_orientation(fm_pose) == "FIB"
+    fib_pose = microscope.get_orientation("FIB")
+    assert microscope.get_stage_orientation(fib_pose) == "FIB"
 
 
 def test_marking_from_the_fluorescence_view_is_refused():
@@ -113,7 +115,7 @@ def test_marking_from_the_fluorescence_view_is_refused():
     microscope = _microscope(IFLM_CONFIG)
 
     with pytest.raises(ValueError, match="offset mount"):
-        _to_milling(microscope, microscope.get_orientation("FM"))
+        _to_milling(microscope, microscope.get_orientation("FIB"))
 
 
 def test_marking_from_the_beam_side_yields_no_fluorescence_pose():
@@ -143,15 +145,20 @@ def test_the_acquisition_guard_can_answer_now():
     )
 
 
-def test_the_traverse_refuses_unless_the_stage_is_already_at_fib():
-    """Step 2 of the workflow leaves the stage at SEM; step 3 will not accept that.
+def test_the_traverse_re_poses_instead_of_refusing():
+    """Step 2 of the workflow leaves the stage at SEM; step 3 accepts that now.
 
-    A real workflow acquires the beam-side overview at the SEM orientation and then
-    moves to the FM, so this refusal is on the ordinary path, not an edge case. The
-    reorientation is something the software could do itself -- see FIB-832.
+    This used to raise "Cannot move to FM from SEM or MILLING orientation" -- a
+    refusal on the ordinary path, since a real workflow acquires the beam-side
+    overview at SEM and then moves to the FM. `move_to_device` plans the route the
+    message told the user to take by hand: re-pose to FIB at the beams, then travel
+    (FIB-832).
     """
     microscope = _microscope(IFLM_CONFIG)
 
     microscope.move_to_orientation("SEM")
-    with pytest.raises(ValueError, match="Cannot move to FM"):
-        microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
+
+    assert microscope.get_current_device() == "FM"
+    assert microscope.get_stage_orientation() == "FIB"
+    assert microscope.fm.objective.state == "Inserted"
