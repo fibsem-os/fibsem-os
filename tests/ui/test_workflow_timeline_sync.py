@@ -375,16 +375,13 @@ class _ParentUI(QObject):
     matters: a queue edit reaching the wrong signal is what crashed the app.
     """
 
-    workflow_update_signal = pyqtSignal(dict)
     workflow_status_signal = pyqtSignal(object)
     queue_changed_signal = pyqtSignal(dict)
 
     def __init__(self):
         super().__init__()
-        self.workflow_updates = []
         self.status_events = []
         self.queue_changes = []
-        self.workflow_update_signal.connect(self.workflow_updates.append)
         self.workflow_status_signal.connect(self.status_events.append)
         self.queue_changed_signal.connect(self.queue_changes.append)
 
@@ -477,31 +474,26 @@ def test_notify_queue_changed_is_a_noop_headless(tmp_path):
     m.notify_queue_changed()  # must not raise
 
 
-def test_a_queue_edit_never_reaches_the_workflow_update_slot(manager):
-    """Regression: this crashed the app on every queue action.
-
-    workflow_update_signal also drives AutoLamellaUI.handle_workflow_update,
-    which reads info["msg"] with no default — so a payload without it raised
-    KeyError out of a slot, and PyQt5 aborts the process on that. Beyond the
-    missing key, that handler rebuilds the interaction UI and clears
-    WAITING_FOR_UI_UPDATE, none of which a queue edit should touch.
+def test_a_queue_edit_stays_off_the_status_channel(manager):
+    """Regression lineage: a queue edit once crashed the app on every action by
+    landing on the (since-deleted) dict interaction signal. Channels are typed
+    now; what is left to hold is that a queue edit is a queue change and not a
+    status event — the status handler repaints run chrome a queue edit must not
+    touch.
     """
     manager.queue.add("L9", "Polish")
     manager.notify_queue_changed()
 
-    assert manager.parent_ui.workflow_updates == []
+    assert manager.parent_ui.status_events == []
     assert len(manager.parent_ui.queue_changes) == 1
 
 
 def test_task_status_goes_out_on_the_status_signal(manager):
-    """The lifecycle stream has its own channel now: not the interaction signal
-    (whose handler clears WAITING_FOR_UI_UPDATE on every emission), and still
-    not the queue channel."""
+    """The lifecycle stream is a status event, and not a queue change."""
     item = manager.queue.next()
     emit(manager, item, Status.InProgress)
 
     assert len(manager.parent_ui.status_events) == 1
-    assert manager.parent_ui.workflow_updates == []
     assert manager.parent_ui.queue_changes == []
 
 

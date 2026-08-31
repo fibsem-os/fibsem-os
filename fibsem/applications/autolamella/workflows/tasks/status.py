@@ -1,9 +1,8 @@
-"""The typed payload carried on ``workflow_update_signal``'s ``status`` key.
+"""The typed payloads on ``workflow_status_signal``.
 
-Only the *nested* record, deliberately. The envelope around it -- ``{"msg": ...,
-"status": ...}`` -- is untouched, because most of that signal is not a signal at all:
-ten of its thirteen emits are blocking calls built from a shared mutable bool and a
-polling loop, and untangling those is a threading redesign (FIB-826). This record is
+``WorkflowStatusUpdate`` began as the record nested inside the dict
+``workflow_update_signal``'s ``status`` key; that signal is gone (FIB-826), and
+the record now rides inside :class:`WorkflowStatusEvent`. This record is
 independent of that work in both directions and can land before or after it.
 
 Unlike the other progress signals, there was no vocabulary to design here. ``status``
@@ -123,26 +122,27 @@ class WorkflowStatusUpdate:
 class WorkflowStatusEvent:
     """One fire-and-forget status update, on ``workflow_status_signal``.
 
-    The envelope for the notification third of ``workflow_update_signal``'s traffic,
-    on its own channel so that saying something can never release a blocked waiter:
-    ``handle_workflow_update`` ends with an unconditional
-    ``WAITING_FOR_UI_UPDATE = False``, so on the shared signal *any* emission frees
-    *every* waiter. ``queue_changed_signal`` was split out for exactly that reason;
-    this continues the split for the traffic that is genuinely a signal.
+    Everything the workflow says without needing an answer travels as one of
+    these — its own channel, so that saying something can never release a
+    blocked waiter (the defect the deleted dict ``workflow_update_signal`` had:
+    its handler freed *every* waiter on *any* emission). Instructions and
+    questions do not ride a signal at all; they are requests to the responder
+    (``workflows/interaction.py``).
 
     Three text destinations and one structured report, and every field optional
     because the emit sites say different subsets:
 
-    * ``message`` — the instruction label. ``""`` means "no message", which takes
-      the label down (that is how a prompt is cleared today, and an update that
-      says nothing about the prompt must not leave a stale question standing).
+    * ``message`` — the instruction label. ``None`` says nothing about the prompt
+      and leaves it alone — the responder's chrome-refresh events must not take
+      down the question they just put up. ``""`` clears it (how a prompt comes
+      down); any other text replaces it.
     * ``workflow_info`` — the workflow-information label. ``None`` leaves its text
       alone (it still shows the label; pinned behaviour).
     * ``status_bar`` — transient main-window status-bar text.
     * ``report`` — a task-lifecycle report, for the timeline and run controls.
     """
 
-    message: str = ""
+    message: Optional[str] = None
     workflow_info: Optional[str] = None
     status_bar: Optional[str] = None
     report: Optional[WorkflowStatusUpdate] = None

@@ -304,10 +304,9 @@ class TaskManager:
         an edit made between two tasks would otherwise stay invisible until the
         next one began.
 
-        Deliberately its own signal rather than workflow_update_signal: that one
-        also drives AutoLamellaUI.handle_workflow_update, which rebuilds the
-        interaction UI and clears WAITING_FOR_UI_UPDATE every time it fires. A
-        queue edit is not a step in the task lifecycle.
+        Deliberately its own signal rather than the status channel: a queue
+        edit is not a step in the task lifecycle, and the status handler
+        repaints run chrome an edit must not touch.
         """
         if self.parent_ui is None:
             return
@@ -555,10 +554,9 @@ class TaskManager:
     ) -> None:
         """Emit one lifecycle report on workflow_status_signal.
 
-        On the notification channel rather than workflow_update_signal for the same
-        reason notify_queue_changed is: that signal's handler rebuilds the
-        interaction UI and clears WAITING_FOR_UI_UPDATE every time it fires, and a
-        report that a task started is not a step in any request's handshake.
+        Fire-and-forget on the status channel: a report that a task started is
+        not a step in any request's handshake, so it must not be able to touch
+        one — questions and instructions live on the responder's futures.
 
         This stream and the hook stream describe the same lifecycle from two different
         brackets — the manager brackets the task *call*, the task brackets its own

@@ -1723,8 +1723,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Create the AutoLamellaUI widget
         self.autolamella_ui = AutoLamellaUI(parent_ui=self)
 
-        # Connect to workflow update signal from AutoLamellaUI
-        self.autolamella_ui.workflow_update_signal.connect(self._on_workflow_update)
+        # Everything the workflow says without needing an answer arrives here
         self.autolamella_ui.workflow_status_signal.connect(self._on_workflow_status)
         self.autolamella_ui.queue_changed_signal.connect(self._on_queue_changed)
         self.autolamella_ui.step_update_signal.connect(self._on_step_update)
@@ -2623,10 +2622,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_workflow_status(self, event: "WorkflowStatusEvent"):
         """Handle a fire-and-forget status update, from workflow_status_signal.
 
-        The status half of what _on_workflow_update used to do, on the notification
-        channel. The run indicators refresh from both handlers because both kinds of
-        traffic change what they show: a lifecycle report starts or finishes the
-        run, an instruction or question flips the waiting state.
+        The one channel for everything the workflow says without needing an
+        answer — the dict workflow_update_signal is gone. The run indicators
+        refresh on every event because any of them can change what they show: a
+        lifecycle report starts or finishes the run, and the responder pings
+        this signal when a question flips the waiting state.
         """
         # transient status-bar messages (e.g. scheduled-start countdown)
         if event.status_bar is not None and self.status_bar is not None:
@@ -2694,23 +2694,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.lamella_card_container.refresh_all()
             self.autolamella_ui.lamella_list.refresh_all()
         self._on_lamella_card_selected(getattr(self, "_selected_card_lamella", None))
-
-    def _on_workflow_update(self, info: dict):
-        """Handle the remaining workflow_update_signal traffic.
-
-        Status now arrives on workflow_status_signal (_on_workflow_status); what is
-        left on the dict signal is the instructions and questions, plus
-        update_status_ui's payloads until that converts too — hence the status_bar
-        read staying for now.
-        """
-        # transient status-bar messages (e.g. scheduled-start countdown)
-        status_bar_msg = info.get("status_bar", None)
-        if status_bar_msg is not None and self.status_bar is not None:
-            self.status_bar.showMessage(status_bar_msg)
-
-        if self.autolamella_ui is None:
-            return
-        self._refresh_workflow_indicators()
 
     def _refresh_workflow_indicators(self) -> None:
         """Re-read the waiting/supervised/running state into the window chrome."""

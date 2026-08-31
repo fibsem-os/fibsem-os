@@ -142,12 +142,17 @@ def update_status_ui(
 
     _check_for_abort(parent_ui)
 
-    INFO = {
-        "msg": msg,
-        "workflow_info": workflow_info,
-        "status_bar": status_bar,
-    }
-    parent_ui.workflow_update_signal.emit(INFO)
+    # Local import: the tasks package pulls this module in through its manager,
+    # so a top-level import of tasks.status is a cycle.
+    from fibsem.applications.autolamella.workflows.tasks.status import (
+        WorkflowStatusEvent,
+    )
+
+    parent_ui.workflow_status_signal.emit(
+        WorkflowStatusEvent(
+            message=msg, workflow_info=workflow_info, status_bar=status_bar
+        )
+    )
 
 
 def ask_user(
