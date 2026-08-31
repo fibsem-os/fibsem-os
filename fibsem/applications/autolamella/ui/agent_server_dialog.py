@@ -35,6 +35,7 @@ from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import BORDER_STATE_COLOURS
 from fibsem.ui.tokens import (
     BORDER_COLOR,
+    GRAY_ICON_COLOR,
     OK_COLOR,
     PANEL_COLOR,
     TEXT_COLOR,
@@ -136,10 +137,16 @@ class AgentServerDialog(QDialog):
         from PyQt5.QtGui import QFontDatabase
 
         self._token_edit.setFont(QFontDatabase.systemFont(QFontDatabase.FixedFont))
+        # checked-state swap is the widget's own machinery — icons and
+        # colours both, so a toggle can never drop to the black default.
         self._btn_reveal = IconToolButton(
-            icon="mdi:eye-outline", tooltip="Show the token", size=26
+            icon="mdi:eye-outline",
+            checked_icon="mdi:eye-off-outline",
+            tooltip="Show the token",
+            checked_tooltip="Hide the token",
+            checkable=True,
+            size=26,
         )
-        self._btn_reveal.setCheckable(True)
         self._btn_copy = IconToolButton(
             icon="mdi:content-copy", tooltip="Copy the token", size=26
         )
@@ -252,10 +259,6 @@ class AgentServerDialog(QDialog):
 
     def _on_reveal_toggled(self, show: bool) -> None:
         self._token_edit.setEchoMode(QLineEdit.Normal if show else QLineEdit.Password)
-        self._btn_reveal.setIcon(
-            fibsem_icon("mdi:eye-off-outline" if show else "mdi:eye-outline")
-        )
-        self._btn_reveal.setToolTip("Hide the token" if show else "Show the token")
 
     def _on_copy_clicked(self) -> None:
         clipboard = QApplication.clipboard()
@@ -268,7 +271,7 @@ class AgentServerDialog(QDialog):
         QTimer.singleShot(1500, self._restore_copy_button)
 
     def _restore_copy_button(self) -> None:
-        self._btn_copy.setIcon(fibsem_icon("mdi:content-copy"))
+        self._btn_copy.setIcon(fibsem_icon("mdi:content-copy", color=GRAY_ICON_COLOR))
         self._btn_copy.setToolTip("Copy the token")
 
     def _on_control_toggled(self, checked: bool) -> None:
