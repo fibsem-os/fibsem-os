@@ -50,11 +50,18 @@ from fibsem.applications.autolamella.workflows.core import (
     update_detection_ui,
     update_status_ui,
 )
+from fibsem.applications.autolamella.workflows.interaction import (
+    ClearMillingConfig,
+    RunMillingTask,
+    SetFluorescenceChannels,
+    SetMillingConfig,
+    ask,
+)
 from fibsem.applications.autolamella.workflows.ui import (
+    INSTRUCTION_TIMEOUT_S,
+    _abort_requested,
     ask_user,
-    clear_spot_burn_ui,
     update_alignment_area_ui,
-    update_spot_burn_parameters,
 )
 from fibsem.cancellation import OperationCancelledError
 from fibsem.detection.detection import (
@@ -384,7 +391,17 @@ class AutoLamellaTask(ABC):
         msg: str = "Run Milling",
         milling_enabled: bool = True,
     ) -> FibsemMillingTaskConfig:
-        """Update the milling config in the milling widget, and optionally run the milling task."""
+        """Hand the config to the UI to edit and (optionally) run; return it as used.
+
+        One question over the Responder. The whole mill loop — prompt, run on
+        Run Milling, wait for the widget's finished signal, re-prompt, read the
+        editor back and clear it on Continue — runs on the GUI thread that owns
+        it; this thread just blocks on the answer. Replaces the
+        ``start_milling_signal`` BlockingQueuedConnection emit, the ``is_milling``
+        sleep-poll, and the ``get_config()`` read-back across the seam.
+        No timeout: milling takes as long as it takes, and a human may hold the
+        prompt; ``abort`` keeps Stop working throughout.
+        """
         # headless mode
         if self.parent_ui is None:
             if milling_enabled:
@@ -392,60 +409,21 @@ class AutoLamellaTask(ABC):
                 return milling_task.config
             return milling_config
 
-        if self.parent_ui.milling_task_config_widget is None:
-            raise ValueError("Milling task config widget is not set in the parent UI.")
-
-        # set milling config in milling widget
-        self._set_milling_config_ui(milling_config)
-
-        # ask user to confirm milling config
-        pos, neg = "Run Milling", "Continue"
-
-        # we only want the user to confirm the milling patterns, not acatually run them
-        if milling_enabled is False:
-            pos = "Continue"
-            neg = None
-
-        response = True
-        if self.validate:
-            response = ask_user(
-                self.parent_ui, msg=msg, pos=pos, neg=neg, mill=milling_enabled
-            )
-
-        while response and milling_enabled:
-            self.update_status_ui(f"Milling {milling_config.name}...")
-            # BlockingQueuedConnection guarantees run_milling() has returned and
-            # _milling_thread.start() has been called before emit() unblocks.
-            # No need to poll for is_milling to become True — it already is (or
-            # milling finished before we got here, in which case the loop below
-            # exits immediately, which is correct).
-            self.parent_ui.milling_task_config_widget.milling_widget.start_milling_signal.emit()
-
-            # wait for milling to finish
-            logging.info("WAITING FOR MILLING TO FINISH... ")
-            while self.parent_ui.milling_task_config_widget.milling_widget.is_milling:
-                self._check_for_abort()
-                time.sleep(1)
-
-            self.update_status_ui(
-                f"Milling {milling_config.name} Complete: {len(milling_config.stages)} stages completed."
-            )
-
-            response = False
-            if self.validate:
-                response = ask_user(
-                    self.parent_ui, msg=msg, pos=pos, neg=neg, mill=milling_enabled
-                )
-
-        # get milling config from milling widget
-        milling_config = deepcopy(
-            self.parent_ui.milling_task_config_widget.get_config()
+        return ask(
+            self.parent_ui.ui_responder,
+            RunMillingTask(
+                # deepcopy kept from the signal days: the editor's copy must be
+                # the operator's to edit without the task's own moving under it.
+                config=deepcopy(milling_config),
+                enabled=milling_enabled,
+                # live, not a snapshot: validate re-reads the protocol's
+                # supervision each call, so a mid-mill flip takes effect at the
+                # next decision point — as the old loop's re-read did
+                confirm=lambda: self.validate,
+                message=msg,
+            ),
+            abort=lambda: _abort_requested(self.parent_ui),
         )
-
-        # clear milling config from milling widget
-        self.clear_milling_config_ui()
-
-        return milling_config
 
     def _set_milling_config_ui(self, milling_config: FibsemMillingTaskConfig):
         """Set the milling config in the milling widget."""
@@ -454,30 +432,26 @@ class AutoLamellaTask(ABC):
 
         self._check_for_abort()
 
-        info = {
-            "msg": "Updating Milling Config",
-            "milling_config": deepcopy(milling_config),
-        }
-
-        self.parent_ui.WAITING_FOR_UI_UPDATE = True
-        self.parent_ui.workflow_update_signal.emit(info)  # type: ignore
-        while self.parent_ui.WAITING_FOR_UI_UPDATE:
-            time.sleep(0.5)
+        # deepcopy kept from the signal days: the editor's copy must be the
+        # operator's to edit without the task's own config moving under it.
+        ask(
+            self.parent_ui.ui_responder,
+            SetMillingConfig(config=deepcopy(milling_config)),
+            abort=lambda: _abort_requested(self.parent_ui),
+            timeout=INSTRUCTION_TIMEOUT_S,
+        )
 
     def clear_milling_config_ui(self):
         """Clear the milling config from the milling widget."""
         if self.parent_ui is None:
             return
 
-        info = {
-            "msg": "Clearing Milling Config",
-            "clear_milling_config": True,
-        }
-
-        self.parent_ui.WAITING_FOR_UI_UPDATE = True
-        self.parent_ui.workflow_update_signal.emit(info)  # type: ignore
-        while self.parent_ui.WAITING_FOR_UI_UPDATE:
-            time.sleep(0.5)
+        ask(
+            self.parent_ui.ui_responder,
+            ClearMillingConfig(),
+            abort=lambda: _abort_requested(self.parent_ui),
+            timeout=INSTRUCTION_TIMEOUT_S,
+        )
 
     def _align_reference_image(self, filename: str):
         """Align to a reference image."""
@@ -819,15 +793,12 @@ class AutoLamellaTask(ABC):
         if self.parent_ui is None:
             return
 
-        info = {
-            "msg": "Updating Fluorescence Channel Settings",
-            "fluorescence_channel_settings": deepcopy(channel_settings),
-        }
-
-        self.parent_ui.WAITING_FOR_UI_UPDATE = True
-        self.parent_ui.workflow_update_signal.emit(info)  # type: ignore
-        while self.parent_ui.WAITING_FOR_UI_UPDATE:
-            time.sleep(0.5)
+        ask(
+            self.parent_ui.ui_responder,
+            SetFluorescenceChannels(channels=deepcopy(channel_settings)),
+            abort=lambda: _abort_requested(self.parent_ui),
+            timeout=INSTRUCTION_TIMEOUT_S,
+        )
 
 
 def get_task_supervision(

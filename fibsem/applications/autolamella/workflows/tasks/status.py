@@ -117,3 +117,32 @@ class WorkflowStatusUpdate:
             task_names=list(payload.get("task_names") or []),
             lamella_names=list(payload.get("lamella_names") or []),
         )
+
+
+@dataclass(frozen=True)
+class WorkflowStatusEvent:
+    """One fire-and-forget status update, on ``workflow_status_signal``.
+
+    The envelope for the notification third of ``workflow_update_signal``'s traffic,
+    on its own channel so that saying something can never release a blocked waiter:
+    ``handle_workflow_update`` ends with an unconditional
+    ``WAITING_FOR_UI_UPDATE = False``, so on the shared signal *any* emission frees
+    *every* waiter. ``queue_changed_signal`` was split out for exactly that reason;
+    this continues the split for the traffic that is genuinely a signal.
+
+    Three text destinations and one structured report, and every field optional
+    because the emit sites say different subsets:
+
+    * ``message`` — the instruction label. ``""`` means "no message", which takes
+      the label down (that is how a prompt is cleared today, and an update that
+      says nothing about the prompt must not leave a stale question standing).
+    * ``workflow_info`` — the workflow-information label. ``None`` leaves its text
+      alone (it still shows the label; pinned behaviour).
+    * ``status_bar`` — transient main-window status-bar text.
+    * ``report`` — a task-lifecycle report, for the timeline and run controls.
+    """
+
+    message: str = ""
+    workflow_info: Optional[str] = None
+    status_bar: Optional[str] = None
+    report: Optional[WorkflowStatusUpdate] = None
