@@ -10,6 +10,7 @@ from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.workflows.interaction import (
     ClearSpotBurn,
     Confirm,
+    ConfirmDetection,
     SetImages,
     SetSpotBurnSettings,
     ask,
@@ -86,18 +87,15 @@ def update_detection_ui(
     )
 
     if validate and parent_ui is not None:
-        ask_user(
-            parent_ui,
-            msg="Confirm Feature Detection. Press Continue to proceed.",
-            pos="Continue",
-            det=det,
+        # The answer IS the (possibly corrected) feature set, read and saved on
+        # the GUI thread that owns the widget — no _get_detected_features
+        # read-back across the seam, no detection_confirmed_signal round trip.
+        # No timeout: a human answers, and silence means thinking.
+        det = ask(
+            parent_ui.ui_responder,
+            ConfirmDetection(detection=det),
+            abort=lambda: _abort_requested(parent_ui),
         )
-
-        det = parent_ui.det_widget._get_detected_features()
-
-        # I need this to happen in the parent thread for it to work correctly
-        parent_ui.detection_confirmed_signal.emit(True)
-
     else:
         det_utils.save_ml_feature_data(det)
 
@@ -160,7 +158,6 @@ def ask_user(
     pos: str,
     neg: Optional[str] = None,
     mill: Optional[bool] = None,
-    det: Optional[DetectedFeatures] = None,
     spot_burn: Optional[bool] = None,
 ) -> bool:
 
@@ -170,7 +167,7 @@ def ask_user(
         )
         return True
 
-    if mill is None and det is None and spot_burn is None:
+    if mill is None and spot_burn is None:
         # A plain yes/no confirmation: the typed path. The answer arrives on this
         # call's own future when a button is clicked — USER_RESPONSE and the
         # polled flag are not involved. No timeout: a human answers, and silence
@@ -185,7 +182,6 @@ def ask_user(
         "msg": msg,
         "pos": pos,
         "neg": neg,
-        "det": det,
         "milling_enabled": mill,
         "spot_burn": spot_burn,
     }

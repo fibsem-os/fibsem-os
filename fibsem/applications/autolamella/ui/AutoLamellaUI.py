@@ -174,7 +174,6 @@ class AutoLamellaUI(QMainWindow):
     # task lifecycle and must not disturb any of that.
     queue_changed_signal = pyqtSignal(dict)
     step_update_signal = pyqtSignal(str)  # emits human-readable step label
-    detection_confirmed_signal = pyqtSignal(bool)
     _workflow_finished_signal = pyqtSignal(bool)
     experiment_update_signal = pyqtSignal()
     _hook_toast_signal = pyqtSignal(
@@ -351,7 +350,6 @@ class AutoLamellaUI(QMainWindow):
         self.pushButton_no.clicked.connect(self.push_interaction_button)
 
         # signals
-        self.detection_confirmed_signal.connect(self.handle_confirmed_detection_signal)
         self.workflow_update_signal.connect(self.handle_workflow_update)
         self._workflow_finished_signal.connect(self._workflow_finished)  # type: ignore
 
@@ -1790,11 +1788,6 @@ class AutoLamellaUI(QMainWindow):
         if ddict.get("finished", False):
             self.update_lamella_ui()
 
-    def handle_confirmed_detection_signal(self):
-        # TODO: this seem very redundant if we just use the signal directly
-        if self.det_widget is not None:
-            self.det_widget.confirm_button_clicked()
-
     def stop_current_operations(self) -> None:
         """Interrupt whatever the microscope is doing right now.
 
@@ -1904,14 +1897,9 @@ class AutoLamellaUI(QMainWindow):
                 False
             )
 
-        # update milling stages
-        detections = info.get("det", None)
-        if self.det_widget is not None and detections is not None:
-            self.det_widget.set_detected_features(detections)
-            det_idx = self.tabWidget.indexOf(self.det_widget)
-            if det_idx != -1:
-                self.tabWidget.setTabVisible(det_idx, True)
-                self.tabWidget.setCurrentIndex(det_idx)
+        # Detections no longer arrive here: update_detection_ui asks a
+        # ConfirmDetection question through the Responder seam
+        # (QtResponder._confirm_detection).
 
         # update the alignment area
         alignment_area = info.get("alignment_area", None)

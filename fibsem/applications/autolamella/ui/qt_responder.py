@@ -24,7 +24,7 @@ workflow thread blocks on each; a pending future found when the next question
 arrives belonged to a waiter that aborted and unwound, and is cancelled.
 """
 
-from typing import TYPE_CHECKING, Callable, Dict, Optional, Type
+from typing import TYPE_CHECKING, Callable, Dict, Optional, Tuple, Type
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
@@ -32,6 +32,7 @@ from fibsem.applications.autolamella.workflows.interaction import (
     ClearMillingConfig,
     ClearSpotBurn,
     Confirm,
+    ConfirmDetection,
     Request,
     SetFluorescenceChannels,
     SetImages,
@@ -69,8 +70,9 @@ class QtResponder(QObject):
         # with the handler's return value.
         self._deferred_handlers: Dict[Type[Request], Callable] = {
             Confirm: self._confirm,
+            ConfirmDetection: self._confirm_detection,
         }
-        self._pending_confirm: Optional["Future"] = None
+        self._pending_question: Optional[Tuple[Request, "Future"]] = None
         self._submitted.connect(self._dispatch)
 
     def submit(self, request: "Request", future: "Future") -> None:
@@ -169,15 +171,17 @@ class QtResponder(QObject):
 
     # --- questions: the answer arrives from a click, later -------------------------
 
-    def _confirm(self, request: Confirm, future: "Future") -> None:
-        """Show a yes/no prompt; :meth:`answer_confirm` completes the future."""
-        if self._pending_confirm is not None:
+    def _park_question(
+        self, request: Request, future: "Future", msg: str, pos: str, neg: Optional[str]
+    ) -> None:
+        """Hold ``future`` for :meth:`answer_confirm` and put the prompt up."""
+        if self._pending_question is not None:
             # The workflow thread blocks on each question, so a live second
             # question is impossible: a pending future here belonged to a waiter
             # that aborted and unwound without an answer. Cancel it so nobody
             # trips over the corpse.
-            self._pending_confirm.cancel()
-        self._pending_confirm = future
+            self._pending_question[1].cancel()
+        self._pending_question = (request, future)
         # Display state, not a handshake: the workflow no longer polls this flag
         # for converted questions, but the attention button, border and timeline
         # pause still read it.
@@ -186,26 +190,67 @@ class QtResponder(QObject):
         # and the main window's waiting indicators — by emitting the payload the
         # old mechanism showed. We are on the GUI thread, so both windows' slots
         # run directly, before this returns.
-        self._ui.workflow_update_signal.emit(
-            {
-                "msg": request.message,
-                "pos": request.positive,
-                "neg": request.negative,
-            }
+        self._ui.workflow_update_signal.emit({"msg": msg, "pos": pos, "neg": neg})
+
+    def _confirm(self, request: Confirm, future: "Future") -> None:
+        """Show a yes/no prompt; :meth:`answer_confirm` completes the future."""
+        self._park_question(
+            request, future, request.message, request.positive, request.negative
+        )
+
+    def _confirm_detection(self, request: ConfirmDetection, future: "Future") -> None:
+        """Show detected features for correction; the click answers with the set."""
+        det_widget = self._ui.det_widget
+        if det_widget is None:
+            # Detection reached the UI without a detection widget: a defect, not
+            # optional hardware — the model already ran to produce this request.
+            raise RuntimeError("No detection widget available to confirm features.")
+        det_widget.set_detected_features(request.detection)
+        tab_widget = self._ui.tabWidget
+        det_idx = tab_widget.indexOf(det_widget)
+        if det_idx != -1:
+            tab_widget.setTabVisible(det_idx, True)
+            tab_widget.setCurrentIndex(det_idx)
+        self._park_question(
+            request,
+            future,
+            "Confirm Feature Detection. Press Continue to proceed.",
+            "Continue",
+            None,
         )
 
     def answer_confirm(self, clicked_yes: bool) -> bool:
-        """Complete a pending :class:`Confirm` from the yes/no click.
+        """Complete the pending question from the yes/no click.
 
         Returns False when no question is pending, so the caller can fall through
         to the legacy flag path. Clears the prompt and the waiting state first,
-        then delivers the answer — the waiter wakes to a consistent UI.
+        then delivers the answer — the waiter wakes to a consistent UI. Computing
+        the answer can itself fail (it may read widgets); a failure completes the
+        future with the exception, which re-raises on the workflow thread instead
+        of escaping this slot as a process abort.
         """
-        future = self._pending_confirm
-        if future is None:
+        pending = self._pending_question
+        if pending is None:
             return False
-        self._pending_confirm = None
+        request, future = pending
+        self._pending_question = None
         self._ui.WAITING_FOR_USER_INTERACTION = False
         self._ui.workflow_update_signal.emit({"msg": ""})
-        future.set_result(clicked_yes)
+        try:
+            future.set_result(self._answer(request, clicked_yes))
+        except Exception as exc:  # noqa: BLE001 - the caller owns the failure
+            future.set_exception(exc)
         return True
+
+    def _answer(self, request: Request, clicked_yes: bool):
+        """What the click means for this question's asker."""
+        if isinstance(request, ConfirmDetection):
+            # Both the read-back and the save used to straddle threads: the
+            # workflow thread called _get_detected_features across the seam, then
+            # signalled back for confirm_button_clicked. Both now run here, on the
+            # GUI thread that owns the widget, before the waiter wakes.
+            det_widget = self._ui.det_widget
+            detection = det_widget._get_detected_features()
+            det_widget.confirm_button_clicked()
+            return detection
+        return clicked_yes
