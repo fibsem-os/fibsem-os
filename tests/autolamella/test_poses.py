@@ -192,17 +192,19 @@ def test_an_offset_mount_cannot_tell_a_fluorescence_position_apart():
 
     Deriving the orientation from the position works on a compustage, where each
     orientation has its own tilt. On an offset mount the fluorescence position is
-    distinguished by travelling ~48 mm in x, and the tilt is no help: measured on the
-    simulator, FM and FIB share a tilt of 17 degrees and both come back as MILLING.
+    distinguished by travelling ~48 mm in x, which no r/t derivation can see: the
+    stage at the FM holds the FIB pose it was carried out in, and there is no FM
+    orientation there at all any more.
 
     So a caller there cannot rely on the derivation, and this test says so rather than
     leaving the next person to discover it.
     """
     microscope = _microscope(compustage=False)
 
-    fm_orientation = microscope.get_orientation(FLUORESCENCE_ORIENTATION)
+    fib = microscope.get_orientation("FIB")
+    at_the_fm = FibsemStagePosition(x=48.8e-3, y=0.0, z=0.0, r=fib.r, t=fib.t)
 
-    assert microscope.get_stage_orientation(fm_orientation) != FLUORESCENCE_ORIENTATION
+    assert microscope.get_stage_orientation(at_the_fm) != FLUORESCENCE_ORIENTATION
 
 
 def test_marking_from_fluorescence_is_refused_on_an_offset_mount():
@@ -217,9 +219,7 @@ def test_marking_from_fluorescence_is_refused_on_an_offset_mount():
     )
 
     with pytest.raises(ValueError, match="FIB-93"):
-        build_lamella_poses(
-            microscope, fm_position, marked_at=FLUORESCENCE_ORIENTATION
-        )
+        build_lamella_poses(microscope, fm_position, marked_at=FLUORESCENCE_ORIENTATION)
 
 
 def test_a_declared_orientation_wins_over_the_derived_one():
@@ -334,9 +334,7 @@ def test_an_offset_mount_says_so_rather_than_inventing_a_pose():
     microscope = _microscope(compustage=False)
     lamella = _lamella(microscope)
     lamella.fluorescence_pose = deepcopy(lamella.milling_pose)
-    lamella.fluorescence_pose.stage_position = _at(
-        microscope, FLUORESCENCE_ORIENTATION, 1e-6, 2e-6
-    )
+    lamella.fluorescence_pose.stage_position = _at(microscope, "FIB", 1e-6, 2e-6)
     _move_milling_to(microscope, lamella, 400e-6, -200e-6)
 
     assert sync_fluorescence_pose(microscope, lamella) is False

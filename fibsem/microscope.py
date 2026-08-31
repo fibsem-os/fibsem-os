@@ -555,7 +555,8 @@ class FibsemMicroscope(ABC):
             "Cannot rotate the stage while it is at the fluorescence microscope: the "
             "rotation is compucentric about a centre at the beams, so it would swing "
             "the sample across the chamber under the objective. Move to the beams "
-            "first (move_to_microscope('FIBSEM')), re-pose there, and travel back."
+            "first (move_to_device('FIBSEM')), re-pose there, and travel back -- "
+            "or ask move_to_device for the pose and let it order the legs."
         )
 
     def move_to_orientation(self, orientation: str) -> FibsemStagePosition:
@@ -1830,7 +1831,11 @@ class FibsemMicroscope(ABC):
         sem = self.get_orientation("SEM")
         fib = self.get_orientation("FIB")
         milling = self.get_orientation("MILLING")
-        fm = self.get_orientation("FM")
+        # FM is an orientation only on a compustage -- see `_update_orientations`. On
+        # an offset mount there is no FM pose to classify against, and there never
+        # effectively was: the deleted copy was byte-identical to FIB, which matches
+        # first, so no position ever classified as FM off a compustage.
+        fm = self.orientations.get("FM")
         if sem is None or fib is None or milling is None:
             raise ValueError(
                 "SEM, FIB or MILLING orientation not defined in the system."
@@ -1853,7 +1858,7 @@ class FibsemMicroscope(ABC):
         is_fib_rotation = movement.rotation_angle_is_smaller(
             stage_rotation, fib.r, atol=5
         )
-        is_fm_rotation = movement.rotation_angle_is_smaller(
+        is_fm_rotation = fm is not None and movement.rotation_angle_is_smaller(
             stage_rotation, fm.r, atol=5
         )
 
@@ -1861,7 +1866,7 @@ class FibsemMicroscope(ABC):
         is_fib_tilt = np.isclose(stage_tilt, fib.t, atol=0.1)
 
         is_milling_tilt = np.radians(-45) < stage_tilt and not is_sem_tilt
-        is_fm_tilt = np.isclose(stage_tilt, fm.t, atol=0.1)
+        is_fm_tilt = fm is not None and np.isclose(stage_tilt, fm.t, atol=0.1)
 
         if is_sem_rotation and is_sem_tilt:
             return "SEM"
@@ -1912,6 +1917,14 @@ class FibsemMicroscope(ABC):
             ),
         }
 
+        # FM is an orientation only where reaching the FM *is* a re-pose: on a
+        # compustage the objective is under the grid and the stage turns over to face
+        # it. On an offset mount the FM is a place, not a pose -- the stage travels
+        # there holding whatever orientation it was in -- so there is no FM entry to
+        # derive. (There used to be: a `deepcopy` of the FIB pose, a second name for
+        # a pose that already had one. The classifier matched FM last, so the copy
+        # was never returned, and deleting it changes no classification -- it only
+        # stops `get_orientation("FM")` naming a pose that does not exist.)
         if self.stage_is_compustage:
             self.orientations["FIB"].r = np.radians(
                 0
@@ -1922,9 +1935,6 @@ class FibsemMicroscope(ABC):
                 r=np.radians(0),
                 t=np.radians(-180),
             )
-        else:
-            # only x/y translation, no rotation
-            self.orientations["FM"] = deepcopy(self.orientations["FIB"])
 
     def set_milling_angle(self, milling_angle: float) -> None:
         """Set the 'stored' milling angle in the system settings."""
@@ -2520,24 +2530,33 @@ class FibsemMicroscope(ABC):
                 setattr(translation, axis, end - start)
         return translation
 
-    def move_to_microscope(self, target: str) -> None:
-        """Move the stage to the specified microscope (FIBSEM <-> FM)"""
-        self._get_device(target)  # refuses by name if it is not a configured device
+    def move_to_device(self, device: str, orientation: Optional[str] = None) -> None:
+        """Travel to `device`, re-posing on the way when the pose has to change.
+
+        One call that owns the safe order -- retract the objective, re-pose at the
+        beams, travel out -- so a rotation never happens with the stage parked under
+        an objective. The rotation guard (FIB-841) stays underneath as the last-line
+        assert; the route this composes never trips it.
+
+        `orientation` names the pose to arrive in. Omitted, the pose is carried
+        across untouched whenever the target device can image from it -- that is the
+        point of a traverse, and the reason this must not pass the current
+        orientation's *name* through `move_to_orientation`: doing so would snap r and
+        t to nominal and quietly discard a milling angle somebody dialled in. When
+        the pose does have to change (an offset FM images in the FIB pose; asking
+        for it from SEM used to be a refusal), the device's first declared
+        acquisition orientation is used.
+        """
+        target_device = self._get_device(device)  # refuses by name
 
         if self.stage_is_compustage:
-            self.move_to_microscope_compustage(target)
+            self._move_to_device_compustage(device, orientation)
             return
 
-        if not self.fm:
+        if device == "FM" and not self.fm:
             raise ValueError("FM module is not available. Cannot move to FM position.")
 
         stage_position = self.get_stage_position()
-
-        if target == "FM" and self.get_stage_orientation(stage_position) != "FIB":
-            raise ValueError(
-                "Cannot move to FM from SEM or MILLING orientation. Please switch to FIB orientation first."
-            )
-
         source = self.get_current_device(stage_position)
         if source is None:
             raise ValueError(
@@ -2546,55 +2565,86 @@ class FibsemMicroscope(ABC):
                 f"travel from. Position: {stage_position}."
             )
 
-        if source == target:
-            logging.info(f"Already at {target} position, no need to move.")
-        else:
-            # Retracted immediately before the stage travels, and only then. The
-            # objective must not be out over the sample while the stage moves, but
-            # every reason to retract it is the move itself -- so a call that refuses,
-            # or that finds it has nowhere to go, leaves the objective exactly as it
-            # found it rather than pulling it out of the sample for nothing.
-            logging.info(f"Moving to {target} position...")
-            self.fm.objective.retract()
+        # The pose to arrive in. An explicit ask is honoured as asked; otherwise the
+        # pose is carried across, unless the target device cannot image from it --
+        # then its first declared acquisition orientation stands in.
+        desired = orientation
+        allowed = target_device.acquisition_orientations
+        if desired is None and allowed:
+            if self.get_stage_orientation(stage_position) not in allowed:
+                desired = allowed[0]
+                logging.info(
+                    f"The {device} device images from {allowed}; re-posing to "
+                    f"{desired} at the beams before travelling."
+                )
 
-            # No orientation asked for, so the pose comes across untouched. That is
-            # the whole point of the traverse, and the reason this cannot pass the
-            # current orientation's name instead: doing so would snap r and t to
-            # nominal and quietly discard a milling angle somebody dialled in.
-            self.move_stage_relative(self._device_translation(source, target))
+        if desired is None and source == device:
+            logging.info(f"Already at {device} position, no need to move.")
+        else:
+            # Retracted immediately before the stage moves, and only then. The
+            # objective must not be out over the sample while the stage moves, but
+            # every reason to retract it is the motion itself -- so a call that
+            # refuses, or finds it has nowhere to go, leaves the objective exactly
+            # as it found it rather than pulling it out of the sample for nothing.
+            logging.info(f"Moving to {device} position...")
+            if self.fm is not None:
+                self.fm.objective.retract()
+
+            if desired is not None:
+                # The bracketing order: every re-pose happens at the beams, where
+                # the rotation is about the sample rather than a 48.8 mm arm.
+                if source != "FIBSEM":
+                    self.move_stage_relative(self._device_translation(source, "FIBSEM"))
+                self.move_to_orientation(desired)
+                if device != "FIBSEM":
+                    self.move_stage_relative(self._device_translation("FIBSEM", device))
+            else:
+                self.move_stage_relative(self._device_translation(source, device))
 
         # Unconditional, so that the postcondition is the device *and* the objective
         # state together: asking again for a device the stage is already at cannot
         # leave the FM blind.
-        if target == "FM":
+        if device == "FM":
             self.fm.objective.insert()
 
-    def move_to_microscope_compustage(self, target: str) -> None:
-        """Special method to move to the specified microscope (FIBSEM <-> FM) for Compustage microscopes."""
+    def _move_to_device_compustage(
+        self, device: str, orientation: Optional[str] = None
+    ) -> None:
+        """The compustage's devices are one place: reaching either is a re-pose.
 
-        if not self.stage_is_compustage:
-            raise ValueError(
-                "This method is only available for Compustage microscopes."
-            )
-
+        With no `orientation` asked for, FIBSEM lands at SEM -- the pose every
+        caller of the old `move_to_microscope` relied on -- and the FM lands at its
+        own orientation, under the objective.
+        """
         if not self.fm:
             raise ValueError("FM module is not available. Cannot move to FM position.")
 
         self.fm.objective.retract()  # retract objective (safety precaution)
 
-        if target == "FIBSEM":
-            # The same move `move_flat_to_beam(BeamType.ELECTRON)` made -- the
-            # deprecated method's electron branch is `orientations["SEM"]` (measured:
-            # identical r, t and coordinate system on a compustage), and its one
-            # compustage special case applies to the ion beam only. `move_to_orientation`
-            # is now how the FM side reaches a beam pose, and the FM branch below has
-            # always gone through `get_orientation`.
-            self.move_to_orientation("SEM")
+        if device == "FIBSEM":
+            self.move_to_orientation(orientation or "SEM")
 
-        if target == "FM":
-            fm_orientation = self.get_orientation("FM")
-            self.move_stage_absolute(fm_orientation)
+        if device == "FM":
+            if orientation is not None:
+                self.move_to_orientation(orientation)
+            else:
+                self.move_stage_absolute(self.get_orientation("FM"))
             self.fm.objective.insert()  # insert objective
+
+    def move_to_microscope(self, target: str) -> None:
+        """Deprecated name for `move_to_device(target)` -- the last place a device
+        was called a microscope. Kept as a shim for its many callers."""
+        self.move_to_device(target)
+
+    def move_to_microscope_compustage(self, target: str) -> None:
+        """Deprecated name for the compustage half of `move_to_device`."""
+
+        if not self.stage_is_compustage:
+            raise ValueError(
+                "This method is only available for Compustage microscopes."
+            )
+        self._get_device(target)  # refuses by name if it is not a configured device
+        self._move_to_device_compustage(target)
 
     @property
     def current_grid(self) -> str:
