@@ -2,7 +2,7 @@ import logging
 import threading
 from typing import TYPE_CHECKING, Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QGridLayout,
     QProgressBar,
@@ -33,7 +33,6 @@ class FibsemMillingWidget2(QWidget):
     the threading and progress updates.
     """
 
-    start_milling_signal = pyqtSignal()
     finished_milling_signal = pyqtSignal()
 
     def __init__(
@@ -78,8 +77,6 @@ class FibsemMillingWidget2(QWidget):
             stylesheets.PROGRESS_BAR_STYLESHEET
         )
         self.progressBar_milling.setStyleSheet(stylesheets.PROGRESS_BAR_STYLESHEET)
-
-        self.start_milling_signal.connect(self.run_milling, Qt.BlockingQueuedConnection)  # type: ignore
 
         if self.parent_widget._milling_enabled:
             self.microscope.milling_progress_signal.connect(self._on_milling_progress)
