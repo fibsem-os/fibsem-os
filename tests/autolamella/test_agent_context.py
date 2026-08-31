@@ -112,6 +112,17 @@ def test_task_outputs_for_a_real_item_and_a_missing_one(experiment):
     assert payload["final_reference_images"] == []  # nothing has run
     _assert_json_safe(payload)
 
+    # With history: the live-run 500 — the field is `name`, and an empty
+    # history hid the read of a field that doesn't exist.
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+
+    experiment.positions[0].task_history.append(
+        AutoLamellaTaskState(name="Rough Milling")
+    )
+    completed = ctx.task_outputs(name)
+    assert completed["completed_tasks"] == ["Rough Milling"]
+    _assert_json_safe(completed)
+
     missing = ctx.task_outputs("no-such-item")
     assert missing["available"] is False
     assert "no-such-item" in missing["error"]

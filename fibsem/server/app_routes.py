@@ -14,7 +14,7 @@ stays in one place (build_server).
 
 from typing import Any, Dict, List
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 try:  # Protocol is typing-only; keep import robust on the 3.8 floor
     from typing import Protocol
@@ -47,7 +47,7 @@ class AppContext(Protocol):
 
     def pending_prompt(self) -> Dict[str, Any]: ...
 
-    def answer_prompt(self, response: bool) -> Dict[str, Any]: ...
+    def answer_prompt(self, response: bool, nonce: int) -> Dict[str, Any]: ...
 
 
 def build_app_router(context: AppContext) -> APIRouter:
@@ -110,6 +110,30 @@ def build_app_control_router(context: AppContext) -> APIRouter:
 
     @router.post("/prompt/answer")
     def answer_prompt(body: Dict[str, Any]):
-        return context.answer_prompt(bool(body.get("response", False)))
+        # The nonce is mandatory: an answer must name the question it answers
+        # (from GET /app/prompt), never "whatever is pending by the time this
+        # lands" — the prompt can change between the read and the answer.
+        try:
+            nonce = int(body["nonce"])
+        except (KeyError, TypeError, ValueError):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "missing_nonce",
+                    "message": "Echo the integer nonce from GET /app/prompt; "
+                    "an answer must name the question it answers.",
+                },
+            )
+        result = context.answer_prompt(bool(body.get("response", False)), nonce)
+        if result.get("stale"):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error_type": "stale_prompt",
+                    "message": "That question is no longer pending; "
+                    "re-read /app/prompt and answer the current one.",
+                },
+            )
+        return result
 
     return router

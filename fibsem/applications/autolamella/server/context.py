@@ -217,7 +217,7 @@ class AgentContext:
         return {
             "available": True,
             "item_name": item_name,
-            "completed_tasks": [state.task_name for state in history],
+            "completed_tasks": [state.name for state in history],
             "final_reference_images": [
                 str(p) for p in _task_outputs.final_reference_images(lamella, *history)
             ],
@@ -256,25 +256,40 @@ class AgentContext:
         responder = self._responder
         if responder is None:
             return {"available": False, "pending": None}
-        request = responder.pending_question()
+        request, nonce = responder.pending_question_and_nonce()
         if request is None:
             return {"available": True, "pending": None}
         from fibsem.applications.autolamella.server.prompts import serialize_request
 
-        return {"available": True, "pending": serialize_request(request)}
+        payload = serialize_request(request)
+        payload["nonce"] = nonce
+        return {"available": True, "pending": payload}
 
-    def answer_prompt(self, response: bool, timeout: float = 10.0) -> Dict[str, Any]:
+    def answer_prompt(
+        self, response: bool, nonce: int, timeout: float = 10.0
+    ) -> Dict[str, Any]:
         """Answer the pending question as the matching button click would.
 
         Routed through the responder's own GUI-thread path, so agent and human
         answers share one first-writer-wins mechanism; ``applied`` is False when
-        nothing was pending or a human answered first.
+        nothing was pending or a human answered first. The ``nonce`` (from
+        :meth:`pending_prompt`) names the question being answered: if that
+        posting is gone — answered, withdrawn, or replaced — the result is
+        ``stale`` and nothing was clicked.
         """
         responder = self._responder
         if responder is None:
-            return {"available": False, "applied": False}
-        outcome = responder.submit_answer(bool(response))
-        return {"available": True, "applied": bool(outcome.result(timeout=timeout))}
+            return {"available": False, "applied": False, "stale": False}
+        from fibsem.applications.autolamella.workflows.interaction import (
+            StalePromptError,
+        )
+
+        outcome = responder.submit_answer(bool(response), nonce=int(nonce))
+        try:
+            applied = bool(outcome.result(timeout=timeout))
+        except StalePromptError:
+            return {"available": True, "applied": False, "stale": True}
+        return {"available": True, "applied": applied, "stale": False}
 
     # --- events -----------------------------------------------------------------
 
