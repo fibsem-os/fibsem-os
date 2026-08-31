@@ -50,7 +50,14 @@ from fibsem.applications.autolamella.workflows.core import (
     update_detection_ui,
     update_status_ui,
 )
+from fibsem.applications.autolamella.workflows.interaction import (
+    ClearMillingConfig,
+    SetMillingConfig,
+    ask,
+)
 from fibsem.applications.autolamella.workflows.ui import (
+    INSTRUCTION_TIMEOUT_S,
+    _abort_requested,
     ask_user,
     clear_spot_burn_ui,
     update_alignment_area_ui,
@@ -454,30 +461,26 @@ class AutoLamellaTask(ABC):
 
         self._check_for_abort()
 
-        info = {
-            "msg": "Updating Milling Config",
-            "milling_config": deepcopy(milling_config),
-        }
-
-        self.parent_ui.WAITING_FOR_UI_UPDATE = True
-        self.parent_ui.workflow_update_signal.emit(info)  # type: ignore
-        while self.parent_ui.WAITING_FOR_UI_UPDATE:
-            time.sleep(0.5)
+        # deepcopy kept from the signal days: the editor's copy must be the
+        # operator's to edit without the task's own config moving under it.
+        ask(
+            self.parent_ui.ui_responder,
+            SetMillingConfig(config=deepcopy(milling_config)),
+            abort=lambda: _abort_requested(self.parent_ui),
+            timeout=INSTRUCTION_TIMEOUT_S,
+        )
 
     def clear_milling_config_ui(self):
         """Clear the milling config from the milling widget."""
         if self.parent_ui is None:
             return
 
-        info = {
-            "msg": "Clearing Milling Config",
-            "clear_milling_config": True,
-        }
-
-        self.parent_ui.WAITING_FOR_UI_UPDATE = True
-        self.parent_ui.workflow_update_signal.emit(info)  # type: ignore
-        while self.parent_ui.WAITING_FOR_UI_UPDATE:
-            time.sleep(0.5)
+        ask(
+            self.parent_ui.ui_responder,
+            ClearMillingConfig(),
+            abort=lambda: _abort_requested(self.parent_ui),
+            timeout=INSTRUCTION_TIMEOUT_S,
+        )
 
     def _align_reference_image(self, filename: str):
         """Align to a reference image."""

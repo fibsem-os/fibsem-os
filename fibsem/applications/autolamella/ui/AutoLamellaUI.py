@@ -1939,13 +1939,9 @@ class AutoLamellaUI(QMainWindow):
             self.spot_burn_widget.clear_points_layer()
             self.spot_burn_widget.set_workflow_mode(False)
 
-        milling_config = info.get("milling_config", None)
-        if milling_config is not None:
-            self.milling_task_config_widget.update_from_settings(milling_config)
-            self.milling_task_config_widget.setEnabled(True)
-            self.tabWidget.setCurrentWidget(self.milling_task_config_widget)
-        if info.get("clear_milling_config", False):
-            self.milling_task_config_widget.clear()
+        # Milling config no longer arrives here: the task sends SetMillingConfig /
+        # ClearMillingConfig through the Responder seam (QtResponder).
+
         # fluorescence channel settings
         fluorescence_channel_settings = info.get("fluorescence_channel_settings", None)
         if fluorescence_channel_settings is not None and self.fm_control_widget:
