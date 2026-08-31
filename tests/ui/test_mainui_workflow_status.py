@@ -1,10 +1,12 @@
-"""What the main window does with a fire-and-forget status payload, pinned pre-move.
+"""What the main window does with a fire-and-forget status update.
 
-`AutoLamellaSingleWindowUI._on_workflow_update` is the main-window consumer of
-`workflow_update_signal`: transient status-bar text, and the task manager's
-lifecycle reports (timeline feed, the "Workflow: ..." message, run/stop buttons).
-Status is about to move to its own signal, so this pins the observable behaviour
-the move must preserve.
+The main window consumes workflow status twice over: transient status-bar text
+(still on `workflow_update_signal` until `update_status_ui` converts) and the
+task manager's lifecycle reports (timeline feed, the "Workflow: ..." message,
+run/stop buttons), which arrive as `WorkflowStatusEvent` on
+`workflow_status_signal`. Written pinning the dict path before the move; the
+lifecycle tests now hold the same observable behaviour on the new channel, plus
+that the dict channel ignores a straggling status key.
 
 This is the first test to construct the real main window offscreen. The only
 thing that ever prevented it is `add_minimap_tab`, which builds a `napari.Viewer`
@@ -13,12 +15,12 @@ down with SIGSEGV — so the fixture stubs that one method out. Nothing here goe
 near the minimap; every other tab is real. When the minimap tab is deleted
 (#585/#586) the stub can go.
 
-Latent init gap, found by these tests: `_border_state` is first assigned on the
-Run-workflow click, never in `__init__`, and `_on_workflow_update` reads it
-unconditionally — so a status payload arriving without a prior Run click is an
-AttributeError inside a queued slot, which PyQt5 turns into a process abort
-(FIB-329). Production is protected by flow order only; the fixture supplies the
-same precondition explicitly.
+Latent init gap, found by these tests and now fixed: `_border_state` used to be
+first assigned on the Run-workflow click, never in `__init__`, and every workflow
+handler reads it unconditionally — an AttributeError inside a queued slot is a
+process abort (FIB-329). It is initialised in `__init__` now, and this fixture
+deliberately adds no workaround, so any regression fails the first status these
+tests deliver to a fresh window.
 """
 
 import os
@@ -49,11 +51,6 @@ def main_ui(qapp):
     # First connect builds the protocol editor's full UI (its lock path runs on
     # every lifecycle report); Demo, so no hardware.
     window.autolamella_ui.system_widget.connect_to_microscope()
-    # What _on_run_workflow_clicked does before any status can arrive: the
-    # border state exists only from the Run click onward, and the handler under
-    # test reads it unconditionally. A bare window never receives status in
-    # production -- see the latent-init note in the module docstring.
-    window._set_border_state("idle")
     yield window
     if window.autolamella_ui.microscope is not None:
         window.autolamella_ui.microscope.disconnect()
@@ -84,10 +81,14 @@ def test_a_payload_without_status_bar_text_leaves_the_bar_alone(main_ui):
     assert main_ui.status_bar.currentMessage() == "previous message"
 
 
-def test_a_lifecycle_report_shows_the_run_on_the_status_bar(main_ui):
-    # queue_items=None on purpose: "no snapshot" leaves the timeline rows alone,
-    # so this exercises the status-bar half without building a queue. The
-    # timeline half is characterised in test_workflow_timeline_sync.
+def test_a_status_key_on_the_dict_signal_is_ignored(main_ui):
+    # Pre-move, a "status" key here drove the timeline and run controls; those
+    # display assertions live on below against workflow_status_signal. The dict
+    # handler deliberately no longer reads the key, so a straggling emitter
+    # cannot drive the run display through the interaction channel.
+    main_ui.hide_workflow_running()
+    main_ui.status_bar.showMessage("previous message")
+
     report = WorkflowStatusUpdate(
         task_name="Rough Milling",
         item_name="lamella-01",
@@ -96,28 +97,115 @@ def test_a_lifecycle_report_shows_the_run_on_the_status_bar(main_ui):
         queue_total=5,
         queue_items=None,
     )
-
     main_ui._on_workflow_update({"msg": "", "status": report})
 
-    assert (
-        main_ui.status_bar.currentMessage()
-        == "Workflow: Rough Milling | lamella-01 | 2/5"
-    )
-
-
-def test_a_lifecycle_report_flips_the_run_button_to_stop(main_ui):
-    main_ui.hide_workflow_running()
+    assert main_ui.status_bar.currentMessage() == "previous message"
     assert not main_ui.stop_workflow_btn.isVisibleTo(main_ui)
 
-    report = WorkflowStatusUpdate(
-        task_name="Rough Milling",
-        item_name="lamella-01",
-        status=AutoLamellaTaskStatus.InProgress,
-    )
-    main_ui._on_workflow_update({"msg": "", "status": report})
 
+# ── the new channel ──────────────────────────────────────────────────────────────
+# The manager's lifecycle reports now arrive as WorkflowStatusEvent on
+# workflow_status_signal; the dict handler keeps only status_bar (until
+# update_status_ui converts) and the indicator refresh.
+
+
+def test_a_status_event_report_shows_the_run_on_the_status_bar(main_ui):
+    from fibsem.applications.autolamella.workflows.tasks.status import (
+        WorkflowStatusEvent,
+    )
+
+    report = WorkflowStatusUpdate(
+        task_name="Polishing",
+        item_name="lamella-02",
+        status=AutoLamellaTaskStatus.InProgress,
+        queue_position=3,
+        queue_total=4,
+        queue_items=None,
+    )
+
+    # Through the embedded window's signal: a direct connection runs the handler
+    # synchronously, so this also pins that the main window is connected to it.
+    main_ui.autolamella_ui.workflow_status_signal.emit(
+        WorkflowStatusEvent(report=report)
+    )
+
+    assert (
+        main_ui.status_bar.currentMessage() == "Workflow: Polishing | lamella-02 | 3/4"
+    )
     assert main_ui.stop_workflow_btn.isVisibleTo(main_ui)
     assert not main_ui.run_workflow_btn.isVisibleTo(main_ui)
+
+
+def test_a_status_event_carries_transient_status_bar_text(main_ui):
+    from fibsem.applications.autolamella.workflows.tasks.status import (
+        WorkflowStatusEvent,
+    )
+
+    main_ui.autolamella_ui.workflow_status_signal.emit(
+        WorkflowStatusEvent(status_bar="Scheduled start in 4 s")
+    )
+
+    assert main_ui.status_bar.currentMessage() == "Scheduled start in 4 s"
+
+
+def test_a_status_event_snapshot_reaches_the_windows_own_timeline(main_ui):
+    # The tests above use queue_items=None, which tells the timeline to leave its
+    # rows alone — so none of them would notice the handler dropping the
+    # update_from_status call. This one hands over a real snapshot and reads the
+    # window's own timeline rows back.
+    from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
+    from fibsem.applications.autolamella.workflows.tasks.status import (
+        WorkflowStatusEvent,
+    )
+
+    items = [
+        WorkItem(
+            lamella_name="lamella-03",
+            task_name="Trench",
+            status=AutoLamellaTaskStatus.InProgress,
+        ),
+        WorkItem(lamella_name="lamella-04", task_name="Trench"),
+    ]
+    report = WorkflowStatusUpdate(
+        task_name="Trench",
+        item_name="lamella-03",
+        status=AutoLamellaTaskStatus.InProgress,
+        queue_items=items,
+    )
+
+    main_ui.autolamella_ui.workflow_status_signal.emit(
+        WorkflowStatusEvent(report=report)
+    )
+
+    rows = [(i.lamella_name, i.task_name) for i in main_ui.workflow_timeline._items]
+    assert rows == [("lamella-03", "Trench"), ("lamella-04", "Trench")]
+
+    # Reconcile back down to zero rows so the module-scoped window carries no
+    # timeline state into other tests (an empty snapshot means exactly that).
+    main_ui.autolamella_ui.workflow_status_signal.emit(
+        WorkflowStatusEvent(
+            report=WorkflowStatusUpdate(queue_items=[]),
+        )
+    )
+    assert main_ui.workflow_timeline._items == []
+
+
+def test_a_status_event_refreshes_the_waiting_indicators(main_ui):
+    # The attention button is driven by _refresh_workflow_indicators, which must
+    # run from the status handler too: a status event arriving while a question
+    # is pending must not take the waiting chrome down — and one arriving after
+    # the answer must.
+    from fibsem.applications.autolamella.workflows.tasks.status import (
+        WorkflowStatusEvent,
+    )
+
+    main_ui.autolamella_ui.WAITING_FOR_USER_INTERACTION = True
+    main_ui.autolamella_ui.workflow_status_signal.emit(WorkflowStatusEvent())
+    assert main_ui.user_attention_btn.isVisibleTo(main_ui)
+
+    main_ui.autolamella_ui.WAITING_FOR_USER_INTERACTION = False
+    main_ui.autolamella_ui.workflow_status_signal.emit(WorkflowStatusEvent())
+    assert not main_ui.user_attention_btn.isVisibleTo(main_ui)
 
 
 # --- spot burn progress ----------------------------------------------------

@@ -376,13 +376,16 @@ class _ParentUI(QObject):
     """
 
     workflow_update_signal = pyqtSignal(dict)
+    workflow_status_signal = pyqtSignal(object)
     queue_changed_signal = pyqtSignal(dict)
 
     def __init__(self):
         super().__init__()
         self.workflow_updates = []
+        self.status_events = []
         self.queue_changes = []
         self.workflow_update_signal.connect(self.workflow_updates.append)
+        self.workflow_status_signal.connect(self.status_events.append)
         self.queue_changed_signal.connect(self.queue_changes.append)
 
 
@@ -416,8 +419,8 @@ def manager(widget, tmp_path) -> TaskManager:
     """
     experiment = _experiment(tmp_path)
     parent_ui = _ParentUI()
-    parent_ui.workflow_update_signal.connect(
-        lambda info: widget.update_from_status(info["status"])
+    parent_ui.workflow_status_signal.connect(
+        lambda event: widget.update_from_status(event.report)
     )
     parent_ui.queue_changed_signal.connect(
         lambda info: widget.refresh_queue(info["queue_items"])
@@ -490,31 +493,31 @@ def test_a_queue_edit_never_reaches_the_workflow_update_slot(manager):
     assert len(manager.parent_ui.queue_changes) == 1
 
 
-def test_task_status_still_goes_out_on_the_workflow_signal(manager):
-    """The other half of the split: don't quietly reroute the lifecycle stream."""
+def test_task_status_goes_out_on_the_status_signal(manager):
+    """The lifecycle stream has its own channel now: not the interaction signal
+    (whose handler clears WAITING_FOR_UI_UPDATE on every emission), and still
+    not the queue channel."""
     item = manager.queue.next()
     emit(manager, item, Status.InProgress)
 
-    assert len(manager.parent_ui.workflow_updates) == 1
+    assert len(manager.parent_ui.status_events) == 1
+    assert manager.parent_ui.workflow_updates == []
     assert manager.parent_ui.queue_changes == []
 
 
-def test_every_workflow_update_carries_a_message(manager):
-    """The prompt is this signal's main job, so a payload should say what to show.
+def test_every_lifecycle_event_carries_its_report(manager):
+    """Each emission must say what happened, not just that something did.
 
-    This used to be load-bearing against a crash: `handle_workflow_update` indexed
-    `info["msg"]`, and PyQt5 aborts the process on an exception escaping a slot, so
-    an emitter that forgot the key killed the app. That handler now reads it with a
-    default and a payload without one clears the prompt, which is a real outcome
-    rather than a fallback -- see `tests/ui/test_workflow_update_payload.py`.
-
-    Kept because the invariant is still worth holding at this end: every payload
-    *these* emitters put on the signal is about the prompt, and one that silently
-    blanked it would be a bug here rather than a crash there."""
+    The ancestor of this test held `"msg" in info` against a dict payload — first
+    load-bearing against a process abort (`handle_workflow_update` indexed the
+    key), later against silently blanking the prompt. The typed envelope makes
+    message-presence structural, so what is left to hold is the other field: the
+    timeline renders nothing from an event whose report is missing, and an emitter
+    that dropped it would pass every dispatch test while drawing nothing."""
     item = manager.queue.next()
     emit(manager, item, Status.InProgress)
     manager.queue.mark_done(item, Status.Completed)
     emit(manager, item, Status.Completed, task_duration=1.0)
 
-    assert manager.parent_ui.workflow_updates
-    assert all("msg" in info for info in manager.parent_ui.workflow_updates)
+    assert manager.parent_ui.status_events
+    assert all(event.report is not None for event in manager.parent_ui.status_events)
