@@ -148,6 +148,59 @@ def test_no_image_or_no_validation_answers_none(ui):
     assert select_poi_ui(parent_ui=ui, image=_fib_image(ui), validate=False) is None
 
 
+def _pending_prompt_on_worker(ui, qapp):
+    """Read the serialized prompt from a worker thread, as the server does.
+
+    The live-answer peek marshals to the GUI thread, so a read from the test
+    (GUI) thread would deadlock — same shape as the HTTP answer tests.
+    """
+    from fibsem.applications.autolamella.server import AgentContext
+
+    ctx = AgentContext(ui)
+    outcome = {}
+
+    def target():
+        outcome["payload"] = ctx.pending_prompt()
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 10
+    while "payload" not in outcome and time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.01)
+    assert "payload" in outcome, "pending_prompt never returned"
+    return outcome["payload"]
+
+
+def test_the_prompt_mirrors_the_live_marker_not_the_frozen_request(window, ui, qapp):
+    image = _fib_image(ui)
+    initial = Point(x=1e-6, y=2e-6)
+    thread, _ = _pick_on_worker_thread(ui, qapp, image, initial=initial)
+
+    pending = _pending_prompt_on_worker(ui, qapp)["pending"]
+    assert pending["type"] == "PickPOI"
+    px = image.metadata.pixel_size.x
+    assert pending["current"]["x"] == pytest.approx(initial.x, abs=px)
+    assert pending["current"]["y"] == pytest.approx(initial.y, abs=px)
+
+    # The operator drags the marker: the next read shows where it IS.
+    from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
+
+    controller = window.view_controller
+    moved_row = image.data.shape[0] / 4
+    moved_col = image.data.shape[1] / 4
+    controller.set_overlay(
+        BeamType.ION, PointsSpec(id="poi", points=[(moved_col, moved_row)])
+    )
+    moved = _pending_prompt_on_worker(ui, qapp)["pending"]["current"]
+    assert moved != pending["current"]
+    # And the peek disturbed nothing: the marker is still up, the asker waits.
+    assert controller.overlay_points(BeamType.ION, "poi")
+
+    ui.pushButton_yes.click()
+    _finish(thread, qapp)
+
+
 def test_a_stop_interrupts_a_pick_nobody_confirms(ui, qapp):
     thread, outcome = _pick_on_worker_thread(ui, qapp, _fib_image(ui))
 
