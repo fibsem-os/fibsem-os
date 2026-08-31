@@ -258,9 +258,12 @@ def build_sidecar(client, capabilities):
     def get_pending_prompt():
         return _app_get("/app/prompt")
 
-    def answer_prompt(response: bool):
+    def answer_prompt(response: bool, nonce: int):
         data, err = _call(
-            client, "POST", "/app/prompt/answer", {"response": bool(response)}
+            client,
+            "POST",
+            "/app/prompt/answer",
+            {"response": bool(response), "nonce": int(nonce)},
         )
         return err if err else data
 
