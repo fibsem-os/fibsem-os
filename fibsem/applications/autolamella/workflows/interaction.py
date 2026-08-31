@@ -235,8 +235,16 @@ def wait_for(
             return future.result(timeout=_POLL_INTERVAL_S)
         except _FutureTimeoutError:
             if abort is not None and abort():
+                # Cancel before leaving: this tells the responder nobody will
+                # read an answer, so it must not act for this question again —
+                # concretely, a Stop mid-mill must not resurrect the prompt when
+                # the cancelled mill finishes. cancel() always succeeds here
+                # (the future has no runner), and the race where the responder
+                # completes it first is benign: the answer is simply dropped.
+                future.cancel()
                 raise InterruptedError(f"{description} cancelled")
             if deadline is not None and time.monotonic() >= deadline:
+                future.cancel()
                 raise TimeoutError(f"No response to {description} within {timeout} s")
 
 

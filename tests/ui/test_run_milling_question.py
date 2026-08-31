@@ -184,3 +184,64 @@ def test_a_stop_interrupts_the_prompt(ui, qapp):
         ui._workflow_stop_event.clear()
 
     assert isinstance(outcome.get("error"), InterruptedError)
+
+
+def test_a_stop_during_the_mill_does_not_resurrect_the_prompt(ui, qapp):
+    # The bug from bench testing: Stop mid-mill aborted the waiter, but the
+    # responder still held the question — so when the cancelled mill finished,
+    # the prompt reappeared over a cleared editor, for nobody. Two defences now:
+    # an abandoned ask cancels its future (a finished mill drops a cancelled
+    # question), and the workflow-finished sweep abandons whatever the race
+    # still managed to re-park before the cancel landed.
+    request = RunMillingTask(config=_config("stopped-mid-mill"), message=MSG)
+    thread, outcome = _ask_on_worker_thread(ui, qapp, request)
+
+    ui.pushButton_yes.click()  # run
+    ui._workflow_stop_event.set()
+    try:
+        _finish(thread, qapp)
+    finally:
+        ui._workflow_stop_event.clear()
+    assert isinstance(outcome.get("error"), InterruptedError)
+
+    # Let the (still running) stubbed mill finish and its signal land — this is
+    # the window where the resurrect happened.
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.01)
+
+    # What production does next: the workflow worker exits and fires the
+    # finished signal, whose handler abandons anything the run left behind.
+    ui._workflow_finished_signal.emit(True)
+    deadline = time.monotonic() + 0.5
+    while time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.01)
+
+    assert ui.label_instructions.text() != MSG, "the aborted prompt came back"
+    assert ui.WAITING_FOR_USER_INTERACTION is False
+
+
+def test_a_click_after_a_stop_starts_nothing(ui, qapp):
+    # Stop while the prompt stands, then a click lands anyway (the buttons are
+    # still up until the next status arrives). It must only take the stale
+    # prompt down — not start a mill for a question nobody is waiting on.
+    request = RunMillingTask(config=_config("stale-click"), message=MSG)
+    thread, outcome = _ask_on_worker_thread(ui, qapp, request)
+
+    ui._workflow_stop_event.set()
+    try:
+        _finish(thread, qapp)
+    finally:
+        ui._workflow_stop_event.clear()
+    assert isinstance(outcome.get("error"), InterruptedError)
+
+    ui.pushButton_yes.click()  # "Run Milling", but the asker is gone
+    deadline = time.monotonic() + 0.5
+    while time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.01)
+
+    assert ui._mill_runs == []
+    assert ui.label_instructions.text() == ""

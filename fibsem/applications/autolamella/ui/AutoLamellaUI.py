@@ -1810,6 +1810,12 @@ class AutoLamellaUI(QMainWindow):
     def _workflow_finished(self):
         """Handle the completion of the workflow."""
         logging.info("Workflow finished.")
+        # Before the early returns: whatever question the run left behind must
+        # come down even if the widgets below are gone. Covers the abort race
+        # where a finished mill re-parks the prompt in the gap before the
+        # aborting waiter cancels its future — by the time this runs, the
+        # workflow thread has exited, so anything still parked belongs to nobody.
+        self.ui_responder.abandon()
         if self.image_widget is None:
             return
         if self.microscope is None:

@@ -24,6 +24,7 @@ workflow thread blocks on each; a pending future found when the next question
 arrives belonged to a waiter that aborted and unwound, and is cancelled.
 """
 
+from concurrent.futures import InvalidStateError
 from copy import deepcopy
 from typing import TYPE_CHECKING, Callable, Dict, Optional, Tuple, Type
 
@@ -99,7 +100,7 @@ class QtResponder(QObject):
             try:
                 deferred(request, future)
             except Exception as exc:  # noqa: BLE001 - the caller owns the failure
-                future.set_exception(exc)
+                self._fail(future, exc)
             return
         handler = self._handlers.get(type(request))
         try:
@@ -107,9 +108,30 @@ class QtResponder(QObject):
                 raise TypeError(
                     f"QtResponder has no handler for {type(request).__name__}"
                 )
-            future.set_result(handler(request))
+            self._deliver(future, handler(request))
         except Exception as exc:  # noqa: BLE001 - the caller owns the failure
+            self._fail(future, exc)
+
+    # An abandoned ask cancels its future (wait_for, on abort or timeout), and
+    # the cancel runs on the workflow thread — so any GUI-side completion can
+    # find the future already cancelled, including between a cancelled() check
+    # and the set. set_result on a cancelled future is InvalidStateError inside
+    # a Qt slot, i.e. a process abort; these two tolerate it instead. Dropping
+    # the value is correct: cancellation means nobody will read it.
+
+    @staticmethod
+    def _deliver(future: "Future", value) -> None:
+        try:
+            future.set_result(value)
+        except InvalidStateError:
+            pass
+
+    @staticmethod
+    def _fail(future: "Future", exc: Exception) -> None:
+        try:
             future.set_exception(exc)
+        except InvalidStateError:
+            pass
 
     # --- handlers, one per request type ------------------------------------------
 
@@ -256,7 +278,7 @@ class QtResponder(QObject):
         """
         controller = self._view_controller()
         if controller is None:
-            future.set_result(None)
+            self._deliver(future, None)
             return
 
         from fibsem import conversions
@@ -321,7 +343,7 @@ class QtResponder(QObject):
             if request.enabled:
                 self._start_milling_run(request, future)
             else:
-                future.set_result(self._finish_milling_question())
+                self._deliver(future, self._finish_milling_question())
             return
         pos, neg = (
             ("Run Milling", "Continue") if request.enabled else ("Continue", None)
@@ -367,9 +389,9 @@ class QtResponder(QObject):
             )
             return
         try:
-            future.set_result(self._finish_milling_question())
+            self._deliver(future, self._finish_milling_question())
         except Exception as exc:  # noqa: BLE001 - the caller owns the failure
-            future.set_exception(exc)
+            self._fail(future, exc)
 
     def _finish_milling_question(self):
         """The answer: the config as the editor holds it, with the editor cleared."""
@@ -377,6 +399,24 @@ class QtResponder(QObject):
         config = deepcopy(widget.get_config())
         widget.clear()
         return config
+
+    def abandon(self) -> None:
+        """Drop whatever a finished run left behind. GUI thread, workflow end.
+
+        An abort races the GUI: a cancelled mill that finishes quickly re-parks
+        the prompt in the gap before the aborting waiter cancels its future.
+        The run is over when this is called — the workflow thread has exited —
+        so a question still parked, or a run still tracked, belongs to nobody:
+        cancel it and take the prompt down.
+        """
+        pending, self._pending_question = self._pending_question, None
+        active, self._active_milling = self._active_milling, None
+        for pair in (pending, active):
+            if pair is not None:
+                pair[1].cancel()
+        if pending is not None:
+            self._ui.WAITING_FOR_USER_INTERACTION = False
+            self._ui.workflow_update_signal.emit({"msg": ""})
 
     def answer_confirm(self, clicked_yes: bool) -> bool:
         """Complete the pending question from the yes/no click.
@@ -394,6 +434,12 @@ class QtResponder(QObject):
         request, future = pending
         self._pending_question = None
         self._ui.WAITING_FOR_USER_INTERACTION = False
+        if future.cancelled():
+            # The asker aborted while the prompt stood. The click means nothing
+            # beyond taking the stale prompt down — in particular it must not
+            # start a mill for a question nobody is waiting on.
+            self._ui.workflow_update_signal.emit({"msg": ""})
+            return True
         if isinstance(request, RunMillingTask) and clicked_yes and request.enabled:
             # Run Milling: the prompt comes down but the question stays open —
             # the finished signal re-asks or completes. (No {"msg": ""} clear;
@@ -402,9 +448,9 @@ class QtResponder(QObject):
             return True
         self._ui.workflow_update_signal.emit({"msg": ""})
         try:
-            future.set_result(self._answer(request, clicked_yes))
+            self._deliver(future, self._answer(request, clicked_yes))
         except Exception as exc:  # noqa: BLE001 - the caller owns the failure
-            future.set_exception(exc)
+            self._fail(future, exc)
         return True
 
     def _answer(self, request: Request, clicked_yes: bool):
