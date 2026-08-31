@@ -172,6 +172,70 @@ def test_each_posting_gets_a_fresh_nonce(ui, qapp):
     assert outcome2.get("answer") is False
 
 
+def test_question_lifecycle_events_carry_who_answered(ui, qapp):
+    events = []
+    ui.ui_responder.on_question_event = lambda kind, payload: events.append(
+        (kind, payload)
+    )
+    try:
+        # Operator answers via the button path.
+        thread, _ = _ask_on_worker(ui, qapp, Confirm("First?"))
+        ui.ui_responder.answer_confirm(True)
+        thread.join(timeout=5)
+
+        # Agent answers via the marshalled path.
+        thread, _ = _ask_on_worker(ui, qapp, Confirm("Second?"))
+        _, nonce = ui.ui_responder.pending_question_and_nonce()
+        answered = ui.ui_responder.submit_answer(False, nonce=nonce)
+        _spin_until(qapp, answered.done)
+        thread.join(timeout=5)
+    finally:
+        ui.ui_responder.on_question_event = None
+
+    kinds = [k for k, _ in events]
+    assert kinds == [
+        "prompt_raised",
+        "prompt_answered",
+        "prompt_raised",
+        "prompt_answered",
+    ]
+    first_answer, second_answer = events[1][1], events[3][1]
+    assert first_answer["answered_by"] == "operator"
+    assert first_answer["response"] is True
+    assert second_answer["answered_by"] == "agent"
+    assert second_answer["response"] is False
+    # The raise and its answer name the same posting.
+    assert events[0][1]["nonce"] == events[1][1]["nonce"]
+    assert events[2][1]["nonce"] == events[3][1]["nonce"]
+    assert events[2][1]["message"] == "Second?"
+
+
+def test_a_broken_observer_cannot_break_the_click(ui, qapp):
+    def broken(kind, payload):
+        raise RuntimeError("observer fell over")
+
+    ui.ui_responder.on_question_event = broken
+    try:
+        thread, outcome = _ask_on_worker(ui, qapp, Confirm("Continue?"))
+        assert ui.ui_responder.answer_confirm(True) is True
+        thread.join(timeout=5)
+        assert outcome.get("answer") is True  # the click still applied
+    finally:
+        ui.ui_responder.on_question_event = None
+
+
+def test_an_abandoned_question_reports_cancelled(ui, qapp):
+    events = []
+    ui.ui_responder.on_question_event = lambda kind, payload: events.append(kind)
+    try:
+        thread, _ = _ask_on_worker(ui, qapp, Confirm("Continue?"))
+        ui.ui_responder.abandon()
+        thread.join(timeout=5)
+    finally:
+        ui.ui_responder.on_question_event = None
+    assert events == ["prompt_raised", "prompt_cancelled"]
+
+
 def test_aborted_question_reads_as_nothing_pending(ui, qapp):
     thread, outcome = _ask_on_worker(ui, qapp, Confirm("Continue?"))
     # The asker's future is cancelled (abort path); the corpse must not look

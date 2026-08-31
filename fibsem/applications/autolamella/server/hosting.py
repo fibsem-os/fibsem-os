@@ -114,6 +114,18 @@ class AgentServerHost:
         self.lifecycle_hook = make_lifecycle_hook(self.event_buffer)
         self._disposers = attach_microscope_taps(self.event_buffer, microscope)
 
+        # The question-lifecycle feed: prompt_raised / prompt_answered /
+        # prompt_cancelled straight from the responder into the buffer, so a
+        # supervising agent can sleep on the events long-poll instead of
+        # polling /app/prompt, and answers carry who answered them.
+        responder = getattr(self._ui, "ui_responder", None)
+        if responder is not None:
+            buffer = self.event_buffer
+            responder.on_question_event = buffer.append
+            self._disposers.append(
+                lambda: setattr(responder, "on_question_event", None)
+            )
+
         app = build_server(
             microscope,
             app_context=AgentContext(self._ui, event_buffer=self.event_buffer),
