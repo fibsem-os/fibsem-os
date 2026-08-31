@@ -868,6 +868,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _apply_preferences(self):
         """Apply current preferences to UI state."""
+        # The embedded agent server follows its flag immediately: ticking the
+        # box mid-session starts it against the connected microscope (or stops
+        # it), instead of waiting for the next connect.
+        if getattr(self, "autolamella_ui", None) is not None:
+            self.autolamella_ui.sync_agent_server_with_preference()
         d = self._preferences.display
         self._sound_enabled = d.sound_enabled
         self._border_enabled = d.border_enabled
