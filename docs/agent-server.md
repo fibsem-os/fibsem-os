@@ -115,9 +115,9 @@ bearer token — the sidecar is convenience, not a requirement.
 
 - **One token per session**, generated fresh at server start, shown only in
   the dialog. It is the whole key: no token, no access.
-- **Scopes fail closed.** Reading needs a valid token; acting needs the *Act*
-  permission; hardware has no permission at all.
-- **Permissions are session-scoped** — granted by whoever is at the
+- **Access fails closed.** Reading needs a valid token; acting needs the
+  *Act* permission; hardware has no permission at all.
+- **Permissions last one session** — granted by whoever is at the
   microscope, dead when the app closes. There is nothing in any config file
   that arms anything.
 - **Localhost by default.** Out of the box, only processes on the same
