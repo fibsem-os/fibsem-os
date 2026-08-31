@@ -24,6 +24,7 @@ workflow thread blocks on each; a pending future found when the next question
 arrives belonged to a waiter that aborted and unwound, and is cancelled.
 """
 
+import logging
 from concurrent.futures import InvalidStateError
 from copy import deepcopy
 from typing import TYPE_CHECKING, Callable, Dict, Optional, Tuple, Type
@@ -98,9 +99,26 @@ class QtResponder(QObject):
         # Same pair for the spot-burn question.
         self._active_spot_burn: Optional[Tuple[RunSpotBurn, "Future"]] = None
         self._spot_burn_finished_wired: Optional[object] = None
+        # Question-lifecycle observer (prompt_raised / prompt_answered /
+        # prompt_cancelled), set by whoever wants the feed — the agent server's
+        # hosting points it at the event buffer. One optional callable rather
+        # than a signal: there is exactly one feed, and a missing observer must
+        # cost nothing on the click path.
+        self.on_question_event: Optional[Callable[[str, Dict], None]] = None
         self._submitted.connect(self._dispatch)
         self._agent_answered.connect(self._apply_agent_answer)
         self._agent_peeked.connect(self._apply_agent_peek)
+
+    def _emit_question_event(self, kind: str, payload: Dict) -> None:
+        """Tell the observer, if any. An observer failure must never break the
+        click (or the agent answer) that caused the event."""
+        observer = self.on_question_event
+        if observer is None:
+            return
+        try:
+            observer(kind, payload)
+        except Exception:  # noqa: BLE001 - observers are not allowed to matter
+            logging.exception("question-event observer failed; continuing")
 
     def submit(self, request: "Request", future: "Future") -> None:
         """Hand ``request`` to the GUI thread; never blocks. Any thread."""
@@ -174,7 +192,7 @@ class QtResponder(QObject):
                 )
                 return
         try:
-            applied = self.answer_confirm(clicked_yes)
+            applied = self.answer_confirm(clicked_yes, source="agent")
         except Exception as exc:  # noqa: BLE001 - the asker owns the failure
             self._fail(outcome, exc)
             return
@@ -347,6 +365,16 @@ class QtResponder(QObject):
             self._pending_question[1].cancel()
         self._question_seq += 1
         self._pending_question = (request, future, self._question_seq)
+        self._emit_question_event(
+            "prompt_raised",
+            {
+                "type": type(request).__name__,
+                "message": msg,
+                "positive": pos,
+                "negative": neg,
+                "nonce": self._question_seq,
+            },
+        )
         # Display state, not a handshake: the workflow no longer polls this flag
         # for converted questions, but the attention button, border and timeline
         # pause still read it.
@@ -551,6 +579,10 @@ class QtResponder(QObject):
         if pending is not None:
             self._ui.WAITING_FOR_USER_INTERACTION = False
             self._ui.workflow_update_signal.emit({"msg": ""})
+            self._emit_question_event(
+                "prompt_cancelled",
+                {"type": type(pending[0]).__name__, "nonce": pending[2]},
+            )
 
     def _run_spot_burn(self, request: RunSpotBurn, future: "Future") -> None:
         """Place-points-and-burn, mirroring the milling question.
@@ -615,7 +647,7 @@ class QtResponder(QObject):
         widget.set_workflow_mode(False)
         return settings
 
-    def answer_confirm(self, clicked_yes: bool) -> bool:
+    def answer_confirm(self, clicked_yes: bool, source: str = "operator") -> bool:
         """Complete the pending question from the yes/no click.
 
         Returns False when no question is pending, so the caller can fall through
@@ -624,6 +656,11 @@ class QtResponder(QObject):
         the answer can itself fail (it may read widgets); a failure completes the
         future with the exception, which re-raises on the workflow thread instead
         of escaping this slot as a process abort.
+
+        ``source`` says who is answering — ``"operator"`` for the buttons,
+        ``"agent"`` when routed from :meth:`submit_answer`. It rides the one
+        call that applies the answer, so the attribution on the emitted
+        ``prompt_answered`` event can never disagree with what happened.
         """
         pending = self._pending_question
         if pending is None:
@@ -636,7 +673,24 @@ class QtResponder(QObject):
             # beyond taking the stale prompt down — in particular it must not
             # start a mill for a question nobody is waiting on.
             self._ui.workflow_update_signal.emit({"msg": ""})
+            self._emit_question_event(
+                "prompt_cancelled",
+                {"type": type(request).__name__, "nonce": pending[2]},
+            )
             return True
+        logging.info(
+            f"prompt answered: {type(request).__name__} "
+            f"response={clicked_yes} by={source}"
+        )
+        self._emit_question_event(
+            "prompt_answered",
+            {
+                "type": type(request).__name__,
+                "response": bool(clicked_yes),
+                "answered_by": source,
+                "nonce": pending[2],
+            },
+        )
         if isinstance(request, RunMillingTask) and clicked_yes and request.enabled:
             # Run Milling: the prompt comes down but the question stays open —
             # the finished signal re-asks or completes. (No {"msg": ""} clear;

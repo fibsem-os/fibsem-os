@@ -173,6 +173,49 @@ def test_an_answer_without_a_nonce_is_rejected(ui, qapp):
         assert rejected.json()["detail"]["error_type"] == "missing_nonce"
 
 
+def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
+    # Wired the way hosting wires it: responder feeds the same buffer the
+    # events endpoint serves — the long-poll replaces polling /app/prompt.
+    from fibsem.applications.autolamella.server.events import EventBuffer
+
+    buffer = EventBuffer()
+    app = build_server(
+        ui.microscope,
+        app_context=AgentContext(ui, event_buffer=buffer),
+        auth=AuthConfig.generate(arm_control=True, token=TOKEN),
+    )
+    ui.ui_responder.on_question_event = buffer.append
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            thread, outcome = _ask_on_worker(ui, qapp)
+            raised = client.get("/app/events?since=0", headers=AUTH).json()["events"]
+            assert raised[-1]["kind"] == "prompt_raised"
+            nonce = raised[-1]["payload"]["nonce"]
+
+            posted = {}
+
+            def do_post():
+                posted["response"] = client.post(
+                    "/app/prompt/answer",
+                    headers=AUTH,
+                    json={"response": True, "nonce": nonce},
+                )
+
+            poster = threading.Thread(target=do_post, daemon=True)
+            poster.start()
+            _spin_until(qapp, lambda: "response" in posted)
+            assert posted["response"].status_code == 200
+            thread.join(timeout=5)
+
+            events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
+            answered = [e for e in events if e["kind"] == "prompt_answered"][-1]
+            assert answered["payload"]["answered_by"] == "agent"
+            assert answered["payload"]["response"] is True
+            assert answered["payload"]["nonce"] == nonce
+    finally:
+        ui.ui_responder.on_question_event = None
+
+
 def test_stop_workflow_rides_the_read_scope(ui, qapp):
     # The safety action: available without arming, like stop_milling.
     with _client(ui, arm_control=False) as client:
