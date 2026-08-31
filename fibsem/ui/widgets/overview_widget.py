@@ -531,9 +531,10 @@ class FibsemOverviewWidget(QWidget):
     # synchronously on whichever thread emitted -- during a run, the acquisition
     # worker. Touching widgets from there is a cross-thread GUI access; re-emitting as
     # a Qt signal gets it queued onto the GUI thread, because this widget lives there.
-    # `object`, not `dict`: this carries a dict today and a `TiledProgress` once the
-    # producers flip (FIB-402). Both marshal to `PyQt_PyObject` either way, so widening
-    # it changes nothing at the Qt level -- it just stops the declaration lying.
+    # `object`, not `TiledProgress`: the producers have flipped (FIB-402), but psygnal
+    # hands a slot whatever was emitted, and a plugin-loaded producer is not obliged to
+    # emit the typed record. Both marshal to `PyQt_PyObject` either way, so `object` is
+    # the honest declaration rather than a looser one.
     _progress_received = pyqtSignal(object)
     _stage_moved = pyqtSignal(object)
     _acquisition_finished = pyqtSignal(dict)
@@ -3112,7 +3113,7 @@ class FibsemOverviewWidget(QWidget):
 
     # ── progress ─────────────────────────────────────────────────────────
 
-    def _on_progress(self, payload: dict) -> None:
+    def _on_progress(self, payload: TiledProgress) -> None:
         """Called by psygnal, on whichever thread emitted. Touches no widgets."""
         self._progress_received.emit(payload)
 
