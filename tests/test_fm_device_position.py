@@ -30,14 +30,17 @@ from fibsem.structures import (
 )
 
 IFLM_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
+# The other mounting. Its objective is under the grid, and it declares no `devices:`
+# block at all -- so it is also the test of what saying nothing gets you.
+ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
 
 # Between the two windows: past the beams' 20 mm, short of the FM's 28.8 mm.
 # Mid-traverse, and at no device.
 IN_THE_GAP_MM = 24.0
 
 
-def _microscope():
-    microscope, _ = utils.setup_session(config_path=IFLM_CONFIG)
+def _microscope(config_path: str = IFLM_CONFIG):
+    microscope, _ = utils.setup_session(config_path=config_path)
     return microscope
 
 
@@ -64,11 +67,15 @@ def test_the_devices_come_from_the_configuration_file():
     assert microscope.system.stage.device_range.x == pytest.approx(20.0e-3)
 
 
-def test_a_configuration_that_says_nothing_gets_the_chamber_it_had_before():
-    """No existing configuration changes behaviour by not mentioning devices.
+def test_a_configuration_that_says_nothing_gets_the_objective_under_the_grid():
+    """Saying nothing describes the *common* chamber, not the rare one.
 
-    The defaults are the TFS SDB chamber layout the constants described, so a site
-    that never had a reason to think about this keeps exactly what it had.
+    The defaults used to be the TFS SDB layout -- FM 48.8 mm along x -- because they
+    were lifted from constants inlined in `move_to_microscope`, which only ever ran on
+    an offset mount. Since nothing but the offset simulator declares a `devices:`
+    block, every other configuration inherited a fluorescence microscope somewhere its
+    stage never goes. Now the default is the objective under the grid, and a site
+    whose objective is offset says so.
     """
     default, _ = utils.setup_session(config_path=cfg.MICROSCOPE_CONFIGURATION_PATH)
 
@@ -99,6 +106,175 @@ def test_the_configuration_survives_a_round_trip():
 
     assert restored.devices == stage.devices
     assert restored.device_range == stage.device_range
+
+
+# ── the other half of a device: which poses it can image from ────────
+
+
+def _can_see_the_sample(microscope, device: str) -> bool:
+    """The conjunction, spelled out.
+
+    It is written inline here rather than called because it does not exist yet: this
+    file pins the *data* that makes one expression work on both mountings, and the
+    method that asks it lands next (FIB-839). Written out, the two terms and the two
+    remedies stay visible.
+
+    An empty list is vacuously TRUE -- the device does not constrain the pose -- so
+    the place term alone decides. The beams are that case.
+    """
+    orientations = microscope.system.stage.devices[device].acquisition_orientations
+    return microscope.is_at_device(device) and (
+        not orientations or microscope.get_stage_orientation() in orientations
+    )
+
+
+def test_a_device_says_which_poses_it_can_image_from():
+    """A place is only half of a device. The other half is what it can see from there.
+
+    The offset simulator's objective images the sample held in the FIB pose -- not
+    because the ion beam is looking at it, it is 48.8 mm away, but because that is the
+    pose the holder grips it in and the pose is a property of the holder.
+    """
+    microscope = _microscope()
+
+    assert microscope.system.stage.devices["FM"].acquisition_orientations == ["FIB"]
+
+
+def test_the_beams_say_nothing_about_the_pose():
+    """Empty means unconstrained: the orientation term is vacuously true.
+
+    SEM, FIB and MILLING are all views of the sample from the beams, and choosing
+    between them is not the device axis's business -- so the place term alone decides,
+    and the beams can see the sample in every pose. The other reading, "can never
+    image", is deliberately unrepresentable: a device that can never image should not
+    be declared, and an empty list must not silently mean a dead instrument.
+    """
+    microscope = _microscope()
+
+    assert microscope.system.stage.devices["FIBSEM"].acquisition_orientations == []
+    for orientation in ("SEM", "FIB", "MILLING"):
+        microscope.move_to_orientation(orientation)
+        assert _can_see_the_sample(microscope, "FIBSEM") is True
+
+
+def test_a_misspelt_orientation_is_refused_at_load():
+    """A typo here would otherwise be perfectly quiet.
+
+    The conjunction that reads this list would simply never be true, and the
+    instrument would be dead with no error -- undetectable in normal operation,
+    because the load-bearing field on each mounting is the other mounting's inert one.
+    """
+    with pytest.raises(ValueError, match=r"Unknown acquisition orientation.*FIBB"):
+        StageDeviceSettings.from_dict(
+            {"origin": {"x": 48.8e-3}, "acquisition_orientations": ["FIBB"]}
+        )
+
+
+def test_the_fm_object_reads_the_device_declaration():
+    """One source of truth, not two fields with the same name.
+
+    `FluorescenceMicroscope.acquisition_orientations` used to hardcode
+    `[default_orientation]` -- `["FM"]` on every mounting, which on offset names a
+    pose the classifier never returns there. It now reads the device declaration, so
+    the widget gates that consume it can be true at the actual FM.
+    """
+    offset = _microscope()
+    compustage = _microscope(ARCTIS_CONFIG)
+
+    assert offset.fm.acquisition_orientations == ["FIB"]
+    assert compustage.fm.acquisition_orientations == ["FM"]
+
+
+def test_neither_axis_answers_on_both_mountings():
+    """The finding this whole field exists for. Measured, and exact mirror images.
+
+    At the fluorescence microscope on each mounting:
+
+    | | compustage | offset |
+    | -- | -- | -- |
+    | `get_stage_orientation() == "FM"` | True | False -- it reads FIB |
+    | `is_at_device("FM")` | False* | True |
+
+    (*before this change; the compustage FM now shares the beams' origin, which is
+    what makes the row below true rather than accidental.)
+
+    So "replace the orientation check with a device check" breaks the compustage as
+    thoroughly as the orientation check breaks the offset mount.
+    """
+    compustage = _microscope(ARCTIS_CONFIG)
+    compustage.move_to_microscope("FM")
+
+    offset = _at_fib(_microscope())
+    offset.move_to_microscope("FM")
+
+    assert compustage.get_stage_orientation() == "FM"
+    assert offset.get_stage_orientation() == "FIB"
+
+
+def test_the_same_question_answers_at_the_fm_on_both_mountings():
+    """One expression, no `stage_is_compustage`. The mounting lives in configuration.
+
+    Each mounting makes a *different* term trivially true -- the compustage's FM is
+    where the beams are, so the place carries nothing and the pose carries it all; the
+    offset FM images from the pose it was already in, so the pose carries nothing and
+    the place carries it all. Which is why the conjunction discriminates on both.
+    """
+    compustage = _microscope(ARCTIS_CONFIG)
+    compustage.move_to_microscope("FM")
+
+    offset = _at_fib(_microscope())
+    offset.move_to_microscope("FM")
+
+    assert _can_see_the_sample(compustage, "FM") is True
+    assert _can_see_the_sample(offset, "FM") is True
+
+
+def test_the_term_that_fails_names_the_remedy():
+    """A wrong place means travel; a wrong pose means re-pose. Different remedies.
+
+    Today they collapse into one `False`, so a refusal cannot say which. Both rows
+    below are live states an operator reaches by doing something ordinary: the
+    compustage one by looking at the sample with a beam, the offset one by not having
+    travelled yet.
+    """
+    compustage = _microscope(ARCTIS_CONFIG)
+    compustage.move_to_orientation("SEM")
+
+    offset = _at_fib(_microscope())
+
+    # Right place, wrong pose: flip it over.
+    assert compustage.is_at_device("FM") is True
+    assert compustage.get_stage_orientation() == "SEM"
+
+    # Right pose, wrong place: drive it out.
+    assert offset.is_at_device("FM") is False
+    assert offset.get_stage_orientation() == "FIB"
+
+    assert _can_see_the_sample(compustage, "FM") is False
+    assert _can_see_the_sample(offset, "FM") is False
+
+
+def test_the_acquisition_orientations_survive_a_round_trip():
+    """`system.to_dict()` is served over the API and written into image metadata."""
+    devices = _microscope().system.stage.devices
+
+    restored = StageDeviceSettings.from_dict(devices["FM"].to_dict())
+
+    assert restored == devices["FM"]
+    assert restored.acquisition_orientations == ["FIB"]
+
+
+def test_a_configuration_that_says_nothing_can_still_see_the_sample():
+    """The default has to be a working compustage, not an empty list.
+
+    Neither shipped compustage configuration declares a `devices:` block, so if the
+    default said nothing about the pose the conjunction would be false at the one
+    place an Arctis takes fluorescence images.
+    """
+    microscope = _microscope(ARCTIS_CONFIG)
+
+    assert "devices" not in utils.load_yaml(ARCTIS_CONFIG)["stage"]
+    assert microscope.system.stage.devices["FM"].acquisition_orientations == ["FM"]
 
 
 # ── the question nothing could ask ───────────────────────────────────
