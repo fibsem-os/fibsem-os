@@ -756,9 +756,28 @@ class FluorescenceMicroscope(ABC):
         # not, since on a compustage the sample is flipped away from the objective there
         # and on an offset mount it is translated out from under it.
         #
-        # A list rather than `default_orientation` alone: a system whose objective sees
-        # the sample from more than one pose says so here, and has somewhere to say it.
-        self.acquisition_orientations: list[str] = [self.default_orientation]
+        # Read from the device declaration (`stage.devices.FM.acquisition_orientations`)
+        # so there is exactly one source of truth. On a compustage that is `["FM"]` --
+        # what this attribute always held. On an offset mount it is the beam pose the
+        # sample is held in at the FM (`["FIB"]` on the iFLM simulator), which the old
+        # hardcoded `[default_orientation]` got wrong: `"FM"` is a pose the classifier
+        # never returns there. This attribute survives only until its readers move onto
+        # `get_device_imaging_state` (FIB-839), then goes with them.
+        self.acquisition_orientations: list[str] = (
+            self._configured_acquisition_orientations()
+        )
+
+    def _configured_acquisition_orientations(self) -> list[str]:
+        """The FM device's declared imaging orientations, from the stage configuration.
+
+        Falls back to `[default_orientation]` for an FM constructed without a parent
+        microscope (widget tests do this), where there is no configuration to read.
+        """
+        try:
+            devices = self.parent.system.stage.devices
+            return list(devices["FM"].acquisition_orientations)
+        except (AttributeError, KeyError, TypeError):
+            return [self.default_orientation]
 
     def has_valid_orientation(
         self, stage_position: Optional["FibsemStagePosition"] = None

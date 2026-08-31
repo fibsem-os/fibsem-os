@@ -1973,6 +1973,12 @@ class FibsemMillingSettings:
 # `shuttle_pre_tilt` are degrees, converted at use.
 DEVICE_AXES = ("x", "y", "z")
 
+# The named orientations the microscope derives poses for -- see
+# `_update_orientations`. The poses themselves are computed from physical parameters
+# (pre-tilt, column tilt, milling angle); these are the only names a device's
+# `acquisition_orientations` may reference.
+KNOWN_ORIENTATIONS = ("SEM", "FIB", "MILLING", "FM")
+
 
 def device_axes_to_dict(position: FibsemStagePosition) -> dict:
     """The device axes a partial position sets, as a plain dict. Absent axes are absent."""
@@ -2006,9 +2012,40 @@ class StageDeviceSettings:
     travels by the difference between two origins and arrives wherever that puts it.
     Partial, too -- an offset FM is an x location and leaves y, z, r and t free, so an
     axis that is absent does not decide anything.
+
+    A device is therefore described along **both** axes: `origin` says where the stage
+    goes, `acquisition_orientations` says which poses the instrument can see the sample
+    in once it is there. Neither answers on its own -- see `FibsemMicroscope` and
+    FIB-839 -- and which of the two does the discriminating is a fact about the
+    mounting rather than about the code:
+
+    | | origin | acquisition_orientations |
+    | -- | -- | -- |
+    | compustage | shared with the beams, so the term is true everywhere | `["FM"]` -- carries it |
+    | offset mount | 48.8 mm away -- carries it | `["FIB"]`, true wherever the objective reaches |
+
+    So the same conjunction discriminates on both, and the term that *fails* names the
+    remedy: a wrong place means travel, a wrong pose means re-pose.
     """
 
     origin: FibsemStagePosition
+
+    # Named orientations, not poses. The poses themselves stay derived in code from
+    # physical parameters -- pre-tilt, column tilt, milling angle -- so a site cannot
+    # write one that contradicts its own geometry (Patrick, 2026-08-31: "just ship with
+    # code only orientations"). Which *named* orientations an instrument can image
+    # from is a different kind of fact: it is how the device is bolted on, nothing
+    # derives it, and a list of names can only reference the derived poses, never
+    # disagree with them.
+    #
+    # Empty means the device does not constrain the pose: the orientation half of the
+    # question is vacuously TRUE, not false. The beams are that case -- SEM, FIB and
+    # MILLING are all views of the sample from there, and choosing between them is not
+    # this field's business. The other reading, "this device can never image", is
+    # deliberately unrepresentable: a device that can never image should not be
+    # declared, and making the empty list mean that would turn every forgotten key
+    # into a silently dead instrument.
+    acquisition_orientations: List[str] = field(default_factory=list)
 
     def contains(
         self, stage_position: FibsemStagePosition, device_range: FibsemStagePosition
@@ -2061,12 +2098,29 @@ class StageDeviceSettings:
         return True
 
     def to_dict(self) -> dict:
-        return {"origin": device_axes_to_dict(self.origin)}
+        return {
+            "origin": device_axes_to_dict(self.origin),
+            "acquisition_orientations": list(self.acquisition_orientations),
+        }
 
     @staticmethod
     def from_dict(ddict: dict) -> "StageDeviceSettings":
+        orientations = [
+            str(orientation)
+            for orientation in ddict.get("acquisition_orientations") or []
+        ]
+        # Validated here, at the one place configuration enters, because a typo would
+        # otherwise be perfectly quiet: the conjunction that reads this list would
+        # simply never be true, and the instrument would be dead with no error.
+        unknown = [o for o in orientations if o not in KNOWN_ORIENTATIONS]
+        if unknown:
+            raise ValueError(
+                f"Unknown acquisition orientation(s) {unknown}. "
+                f"Known orientations: {list(KNOWN_ORIENTATIONS)}"
+            )
         return StageDeviceSettings(
-            origin=device_axes_from_dict(ddict.get("origin"), "device origin")
+            origin=device_axes_from_dict(ddict.get("origin"), "device origin"),
+            acquisition_orientations=orientations,
         )
 
 
@@ -2076,18 +2130,30 @@ class StageDeviceSettings:
 # per-device windows are how it happened.
 DEFAULT_DEVICE_RANGE = FibsemStagePosition(x=20.0e-3)
 
-# The TFS SDB chamber layout -- piescope, METEOR, iFLM -- which is where every offset
-# fluorescence microscope sits today. The traverse between these two was a constant
-# inlined in `move_to_microscope` (`TRANSLATION_DX`), carrying its own "THIS needs to
-# be configurable" note, with two further constants for the windows it had to agree
-# with. They stay the defaults so that no existing configuration changes behaviour by
-# saying nothing; a site whose chamber differs now has somewhere to say so.
+# **The default is the objective under the grid**: the FM shares the beams' origin, and
+# is told apart by the pose the sample is held in. A site whose objective is offset --
+# piescope, METEOR, iFLM, all in the TFS SDB chamber -- declares the traverse instead,
+# as `sim-iflm-configuration.yaml` does.
 #
-# A compustage never reaches them: its objective is under the grid, so it takes the
-# `move_to_microscope_compustage` branch and does not travel to the FM at all.
+# The default used to be the other way round, with the FM 48.8 mm along x, because
+# these entries were lifted from `move_to_microscope`'s inlined `TRANSLATION_DX` and
+# that function only ever ran on an offset mount. Nothing declares a `devices:` block
+# except the offset simulator, so every other configuration -- Aquilos, Hydra, Arctis,
+# Tescan, Odemis, several with no fluorescence microscope at all -- inherited a phantom
+# FM 48.8 mm away, somewhere their stage never goes. It was invisible because
+# `_device_translation` short-circuits on a compustage; `contains` does not, and reads
+# these origins literally.
+#
+# Getting this the right way round is what lets one question be asked of both mountings
+# instead of each caller branching on the stage type (FIB-839).
 DEFAULT_STAGE_DEVICES: Dict[str, StageDeviceSettings] = {
+    # The beams say nothing about the pose: SEM, FIB and MILLING are all views of the
+    # sample from here, and choosing between them is not this dict's business.
     "FIBSEM": StageDeviceSettings(origin=FibsemStagePosition(x=0.0)),
-    "FM": StageDeviceSettings(origin=FibsemStagePosition(x=48.8e-3)),
+    "FM": StageDeviceSettings(
+        origin=FibsemStagePosition(x=0.0),
+        acquisition_orientations=["FM"],
+    ),
 }
 
 
