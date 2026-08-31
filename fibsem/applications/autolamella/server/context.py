@@ -241,6 +241,41 @@ class AgentContext:
             return {"available": False, "position": None}
         return {"available": True, "position": cached.to_dict()}
 
+    # --- supervision prompts (FIB-851) ------------------------------------------
+
+    @property
+    def _responder(self):
+        return getattr(self._host, "ui_responder", None)
+
+    def pending_prompt(self) -> Dict[str, Any]:
+        """The supervision question currently awaiting an answer, if any.
+
+        The serialized request carries everything needed to answer it — the
+        FIB-826 contract — including context images as agent-sized previews.
+        """
+        responder = self._responder
+        if responder is None:
+            return {"available": False, "pending": None}
+        request = responder.pending_question()
+        if request is None:
+            return {"available": True, "pending": None}
+        from fibsem.applications.autolamella.server.prompts import serialize_request
+
+        return {"available": True, "pending": serialize_request(request)}
+
+    def answer_prompt(self, response: bool, timeout: float = 10.0) -> Dict[str, Any]:
+        """Answer the pending question as the matching button click would.
+
+        Routed through the responder's own GUI-thread path, so agent and human
+        answers share one first-writer-wins mechanism; ``applied`` is False when
+        nothing was pending or a human answered first.
+        """
+        responder = self._responder
+        if responder is None:
+            return {"available": False, "applied": False}
+        outcome = responder.submit_answer(bool(response))
+        return {"available": True, "applied": bool(outcome.result(timeout=timeout))}
+
     # --- events -----------------------------------------------------------------
 
     def events(self, since: int = 0, timeout: float = 0.0) -> Dict[str, Any]:

@@ -119,7 +119,10 @@ def test_sidecar_grows_the_app_tools_from_capabilities(client):
     sidecar = build_sidecar(client, capabilities)
     listed = asyncio.run(sidecar.list_tools())
     names = {t.name for t in getattr(listed, "tools", listed)}
-    assert {t.name for t in CATALOG if t.router == "app"} <= names
+    # Control-scope app tools (answer_prompt) need arming; this server is
+    # read-only, so only the read-scope app tools must appear.
+    assert {t.name for t in CATALOG if t.router == "app" and t.scope == "read"} <= names
+    assert "answer_prompt" not in names
 
     result = asyncio.run(sidecar.call_tool("get_app_status", {}))
     if isinstance(result, tuple):
