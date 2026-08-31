@@ -35,6 +35,7 @@ from fibsem.applications.autolamella.ui.qt_responder import QtResponder
 from fibsem.applications.autolamella.ui.selected_lamella_widget import (
     SelectedLamellaWidget,
 )
+from fibsem.cancellation import OperationCancelledError
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
@@ -1036,6 +1037,12 @@ class AutoLamellaUI(QMainWindow):
             self._task_manager.run(
                 task_names=task_names, required_lamella=lamella_names
             )
+        except (InterruptedError, OperationCancelledError) as e:
+            # A user Stop, not a failure: both cancellation types unwind through
+            # here, and anyone scanning the log for problems (or filtering on
+            # ERROR) must not see one per Stop press. The task layer has already
+            # recorded the outcome as Cancelled; this is the worker's exit note.
+            logging.info(f"Workflow cancelled: {e}")
         except Exception as e:
             logging.error(f"Error during running tasks: {e}")
 
