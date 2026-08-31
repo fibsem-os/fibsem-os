@@ -17,7 +17,7 @@ switch; hardware present but visibly not yet climbable.
 import logging
 from typing import Callable, Optional
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -31,6 +31,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.ui import stylesheets
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import BORDER_STATE_COLOURS
 from fibsem.ui.tokens import (
     BORDER_COLOR,
@@ -40,6 +41,7 @@ from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
+from fibsem.ui.widgets.custom_widgets import IconToolButton
 
 __all__ = ["AgentServerDialog"]
 
@@ -79,12 +81,14 @@ class _ScopeRow(QFrame):
         text_col.setSpacing(1)
         self.name_label = QLabel(name)
         self.name_label.setStyleSheet(
-            f"color: {accent}; font-weight: bold; font-size: 12px; border: none;"
+            f"color: {accent}; font-weight: bold; font-size: 12px; "
+            "border: none; background: transparent;"
         )
         self.detail_label = QLabel(detail)
         self.detail_label.setWordWrap(True)
         self.detail_label.setStyleSheet(
-            f"color: {TEXT_MUTED_COLOR}; font-size: 11px; border: none;"
+            f"color: {TEXT_MUTED_COLOR}; font-size: 11px; "
+            "border: none; background: transparent;"
         )
         text_col.addWidget(self.name_label)
         text_col.addWidget(self.detail_label)
@@ -132,11 +136,13 @@ class AgentServerDialog(QDialog):
         from PyQt5.QtGui import QFontDatabase
 
         self._token_edit.setFont(QFontDatabase.systemFont(QFontDatabase.FixedFont))
-        self._btn_reveal = QPushButton("Show")
+        self._btn_reveal = IconToolButton(
+            icon="mdi:eye-outline", tooltip="Show the token", size=26
+        )
         self._btn_reveal.setCheckable(True)
-        self._btn_reveal.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self._btn_copy = QPushButton("Copy")
-        self._btn_copy.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self._btn_copy = IconToolButton(
+            icon="mdi:content-copy", tooltip="Copy the token", size=26
+        )
         token_row.addWidget(self._token_edit, stretch=1)
         token_row.addWidget(self._btn_reveal)
         token_row.addWidget(self._btn_copy)
@@ -182,8 +188,8 @@ class AgentServerDialog(QDialog):
 
         # --- footer ---------------------------------------------------------
         note = QLabel(
-            "Arming lasts this session only — it never persists. The enable "
-            "switch and the watchdog live in Preferences → Agent."
+            "Permissions last this session only — they never persist. "
+            "Everything else lives in Preferences → Agent."
         )
         note.setWordWrap(True)
         note.setStyleSheet(f"color: {TEXT_MUTED_COLOR}; font-size: 11px;")
@@ -246,14 +252,24 @@ class AgentServerDialog(QDialog):
 
     def _on_reveal_toggled(self, show: bool) -> None:
         self._token_edit.setEchoMode(QLineEdit.Normal if show else QLineEdit.Password)
-        self._btn_reveal.setText("Hide" if show else "Show")
+        self._btn_reveal.setIcon(
+            fibsem_icon("mdi:eye-off-outline" if show else "mdi:eye-outline")
+        )
+        self._btn_reveal.setToolTip("Hide the token" if show else "Show the token")
 
     def _on_copy_clicked(self) -> None:
         clipboard = QApplication.clipboard()
-        if clipboard is not None:
-            clipboard.setText(self._token_edit.text())
-            self._btn_copy.setText("Copied")
-            self._btn_copy.setStyleSheet(stylesheets.CONFIRM_BUTTON_STYLESHEET)
+        if clipboard is None:
+            return
+        clipboard.setText(self._token_edit.text())
+        # A moment of confirmation, then back — the tooltip carries the words.
+        self._btn_copy.setIcon(fibsem_icon("mdi:check", color=OK_COLOR))
+        self._btn_copy.setToolTip("Copied")
+        QTimer.singleShot(1500, self._restore_copy_button)
+
+    def _restore_copy_button(self) -> None:
+        self._btn_copy.setIcon(fibsem_icon("mdi:content-copy"))
+        self._btn_copy.setToolTip("Copy the token")
 
     def _on_control_toggled(self, checked: bool) -> None:
         host = self._host()

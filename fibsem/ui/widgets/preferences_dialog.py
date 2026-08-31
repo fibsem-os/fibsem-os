@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QListWidget,
     QMessageBox,
@@ -78,11 +79,11 @@ _TIP_SCRIPTS = (
     "itself and none of its safety checks — nothing validates what it does."
 )
 _LBL_AGENT_SERVER = "Enable Agent Server"
-_LBL_WATCHDOG = "Watchdog (minutes)"
+_LBL_WATCHDOG = "Hand questions to me after"
 _TIP_WATCHDOG = (
-    "How long a question addressed to the agent may stand unanswered before "
-    "it is handed to you — orange border, attention button, sound. Applies "
-    "only to tasks supervised by the agent."
+    "If the agent leaves a question unanswered this long, it becomes yours — "
+    "orange border, attention button, sound. Applies only to tasks the agent "
+    "supervises."
 )
 _TIP_AGENT_SERVER = (
     "Host a local, token-protected API over this session when a microscope "
@@ -239,7 +240,16 @@ class PreferencesDialog(QDialog):
         self._chk_agent_server.setToolTip(_TIP_AGENT_SERVER)
         self._spin_watchdog = QSpinBox()
         self._spin_watchdog.setRange(1, 120)
+        self._spin_watchdog.setSuffix(" min")
         self._spin_watchdog.setToolTip(_TIP_WATCHDOG)
+        agent_intro = QLabel(
+            "Let an AI agent watch this session — and, with permission you "
+            "grant per session in Tools → Agent Server, act on it — over a "
+            "local, token-protected connection."
+        )
+        agent_intro.setWordWrap(True)
+        agent_intro.setStyleSheet("color: #868e93; font-size: 11px;")
+        agent_form.addRow(agent_intro)
         agent_form.addRow(_LBL_AGENT_SERVER, self._chk_agent_server)
         agent_form.addRow(_LBL_WATCHDOG, self._spin_watchdog)
         self._stack.addWidget(agent_page)
