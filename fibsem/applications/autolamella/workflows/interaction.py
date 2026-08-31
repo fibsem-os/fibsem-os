@@ -74,8 +74,6 @@ __all__ = [
     "SetMillingConfig",
     "ClearMillingConfig",
     "SetFluorescenceChannels",
-    "SetSpotBurnSettings",
-    "ClearSpotBurn",
     "Responder",
     "ask",
     "wait_for",
@@ -197,18 +195,6 @@ class SetFluorescenceChannels(Request[None]):
     """Load these channel settings into the fluorescence widget."""
 
     channels: Sequence["ChannelSettings"]
-
-
-@dataclass(frozen=True)
-class SetSpotBurnSettings(Request[None]):
-    """Load these spot-burn settings into the spot-burn widget."""
-
-    settings: "SpotBurnSettings"
-
-
-@dataclass(frozen=True)
-class ClearSpotBurn(Request[None]):
-    """Clear the spot-burn widget."""
 
 
 # --- transport --------------------------------------------------------------------

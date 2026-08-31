@@ -175,9 +175,9 @@ class AutoLamellaUI(QMainWindow):
     # Carries a WorkflowStatusEvent.
     workflow_status_signal = pyqtSignal(object)
     # Kept separate from workflow_update_signal on purpose: that one drives
-    # handle_workflow_update, which reconfigures the interaction UI and clears
-    # WAITING_FOR_UI_UPDATE on every emission. A queue edit is not a step in the
-    # task lifecycle and must not disturb any of that.
+    # handle_workflow_update, which reconfigures the interaction UI on every
+    # emission. A queue edit is not a step in the task lifecycle and must not
+    # disturb any of that.
     queue_changed_signal = pyqtSignal(dict)
     step_update_signal = pyqtSignal(str)  # emits human-readable step label
     _workflow_finished_signal = pyqtSignal(bool)
@@ -238,12 +238,16 @@ class AutoLamellaUI(QMainWindow):
         if not self._connection_chip_enabled:
             self.tabWidget.insertTab(0, self.system_widget, "Connection")
 
+        # Display state, not a handshake: a question is up and waiting for a
+        # click. QtResponder is the only setter; the attention button, border
+        # and timeline pause read it. The cross-thread flag-poll it used to be
+        # -- and USER_RESPONSE and WAITING_FOR_UI_UPDATE alongside it -- is
+        # gone: every workflow interaction is a typed request on its own future
+        # (workflows/interaction.py).
         self.WAITING_FOR_USER_INTERACTION: bool = False
         # A run is active but nothing is executing -- today only during a
         # scheduled-start wait. Set from the worker thread, read by the border.
         self.WORKFLOW_PENDING: bool = False
-        self.USER_RESPONSE: bool = False
-        self.WAITING_FOR_UI_UPDATE: bool = False
         self._workflow_stop_event: threading.Event = threading.Event()
         self._task_worker_thread: Optional[FunctionWorker] = None
         self._task_manager: Optional[TaskManager] = None
@@ -1782,13 +1786,10 @@ class AutoLamellaUI(QMainWindow):
         self.pushButton_no.setEnabled(False)
 
         clicked_yes = bool(self.sender() == self.pushButton_yes)
-        # A pending Confirm question owns this click; the legacy flag path serves
-        # the questions that have not converted yet (detection, milling, spot burn).
-        if self.ui_responder.answer_confirm(clicked_yes):
-            return
-        # positve / negative response
-        self.USER_RESPONSE = clicked_yes
-        self.WAITING_FOR_USER_INTERACTION = False
+        # The pending question owns this click; with every interaction converted
+        # to the Responder there is no other path. A click with nothing pending
+        # (a stray double-click after the answer landed) means nothing.
+        self.ui_responder.answer_confirm(clicked_yes)
 
     def handle_acquisition_update(self, ddict: dict) -> None:
         if ddict.get("finished", False):
@@ -1941,5 +1942,3 @@ class AutoLamellaUI(QMainWindow):
             info.get("msg", ""), info.get("pos", None), info.get("neg", None)
         )
         self.set_current_workflow_message(info.get("workflow_info", None))
-
-        self.WAITING_FOR_UI_UPDATE = False

@@ -155,7 +155,7 @@ def test_run_then_continue_burns_once_and_answers_the_settings(ui, qapp):
     # The question cleared the widget on its way out.
     assert ui.spot_burn_widget._workflow_mode is False
     assert ui.WAITING_FOR_USER_INTERACTION is False
-    assert ui.WAITING_FOR_UI_UPDATE is False
+    assert not hasattr(ui, "WAITING_FOR_UI_UPDATE")
 
 
 def test_continue_without_running_answers_without_a_burn(ui, qapp):

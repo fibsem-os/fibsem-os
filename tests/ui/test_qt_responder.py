@@ -90,8 +90,6 @@ def test_images_land_in_the_widget_from_a_worker_thread(ui, qapp):
     assert "error" not in outcome
     assert ui.image_widget.eb_image is sem
     assert ui.image_widget.ib_image is fib
-    # The old mechanism must stay untouched: nothing set or cleared the flag.
-    assert ui.WAITING_FOR_UI_UPDATE is False
 
 
 def test_the_widget_update_runs_on_the_gui_thread(ui, qapp):
@@ -230,7 +228,6 @@ def test_a_milling_config_lands_in_the_editor_and_fronts_its_tab(ui, qapp):
     assert "error" not in outcome
     assert ui.milling_task_config_widget.get_config().name == "from-the-workflow"
     assert ui.tabWidget.currentWidget() is ui.milling_task_config_widget
-    assert ui.WAITING_FOR_UI_UPDATE is False
 
 
 def test_clearing_the_milling_config_resets_the_editor(ui, qapp):
@@ -260,35 +257,15 @@ def test_clearing_the_milling_config_resets_the_editor(ui, qapp):
     )
 
 
-# ── fluorescence + spot-burn instructions ───────────────────────────────────────
+# ── fluorescence instruction ────────────────────────────────────────────────────
 
 
-def test_spot_burn_settings_land_in_the_widget(ui, qapp):
-    from fibsem.applications.autolamella.workflows.ui import (
-        update_spot_burn_parameters,
-    )
-    from fibsem.imaging.spot import SpotBurnSettings
-
-    settings = SpotBurnSettings(exposure_time=17.0)
-
-    outcome = _call_on_worker_thread(
-        qapp, lambda: update_spot_burn_parameters(ui, settings=settings)
-    )
-
-    assert "error" not in outcome
-    assert ui.spot_burn_widget.get_settings().exposure_time == 17.0
-    assert ui.WAITING_FOR_UI_UPDATE is False
-
-
-def test_clearing_spot_burn_leaves_workflow_mode(ui, qapp):
-    from fibsem.applications.autolamella.workflows.ui import clear_spot_burn_ui
-
-    ui.spot_burn_widget.set_workflow_mode(True)
-
-    outcome = _call_on_worker_thread(qapp, lambda: clear_spot_burn_ui(ui))
-
-    assert "error" not in outcome
-    assert ui.spot_burn_widget._workflow_mode is False
+def test_the_polled_flags_are_gone(ui):
+    # The retirement pin: every workflow interaction is a typed request on its
+    # own future now. The shared mutables the hand-rolled RPC polled must not
+    # quietly come back.
+    assert not hasattr(ui, "WAITING_FOR_UI_UPDATE")
+    assert not hasattr(ui, "USER_RESPONSE")
 
 
 def test_fluorescence_channels_reach_the_fm_widget(ui, qapp):

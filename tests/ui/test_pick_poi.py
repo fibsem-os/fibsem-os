@@ -133,13 +133,13 @@ def test_the_overlay_comes_down_with_the_answer(window, ui, qapp):
 
 def test_the_second_handshake_is_gone(ui, qapp):
     # The old flow set WAITING_FOR_UI_UPDATE for its embedded clear-and-compute
-    # wait; both now run inside the click's slot. Nothing may touch the flag.
+    # wait; both run inside the click's slot and the flag is gone.
     thread, _ = _pick_on_worker_thread(ui, qapp, _fib_image(ui))
 
     ui.pushButton_yes.click()
     _finish(thread, qapp)
 
-    assert ui.WAITING_FOR_UI_UPDATE is False
+    assert not hasattr(ui, "WAITING_FOR_UI_UPDATE")
 
 
 def test_no_image_or_no_validation_answers_none(ui):

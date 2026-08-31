@@ -95,17 +95,16 @@ def test_the_no_click_answers_false(ui, qapp):
 
 
 def test_the_answer_does_not_travel_through_the_legacy_channel(ui, qapp):
-    # USER_RESPONSE is the shared mutable the typed path exists to retire. Park
-    # it opposite to the answer we will click: if the click still wrote it, or
-    # ask_user still read it, this catches either direction.
-    ui.USER_RESPONSE = False
+    # USER_RESPONSE was the shared mutable the typed path retired; it no longer
+    # exists, so a click writing it (or ask_user reading it) would have to
+    # re-create it — which is exactly what this catches.
     thread, outcome = _ask_on_worker_thread(ui, qapp)
 
     ui.pushButton_yes.click()
     _finish(thread, qapp)
 
     assert outcome.get("answer") is True
-    assert ui.USER_RESPONSE is False
+    assert not hasattr(ui, "USER_RESPONSE")
 
 
 def test_the_prompt_comes_down_with_the_answer(ui, qapp):

@@ -118,8 +118,8 @@ def test_run_then_continue_runs_once_and_answers_the_editor_config(ui, qapp):
     assert isinstance(outcome["config"], FibsemMillingTaskConfig)
     assert outcome["config"].name == "rough-mill"
     assert ui.WAITING_FOR_USER_INTERACTION is False
-    # The old handshakes are gone: nothing touched the polled flags.
-    assert ui.WAITING_FOR_UI_UPDATE is False
+    # The old handshakes are gone, and so is the polled flag.
+    assert not hasattr(ui, "WAITING_FOR_UI_UPDATE")
 
 
 def test_continue_without_running_answers_without_a_mill(ui, qapp):
