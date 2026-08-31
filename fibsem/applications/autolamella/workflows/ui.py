@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, List, Optional, Sequence
 
 from fibsem import milling
 from fibsem.applications.autolamella.structures import Experiment
+from fibsem.applications.autolamella.workflows.interaction import SetImages, ask
 from fibsem.detection import detection
 from fibsem.detection import utils as det_utils
 from fibsem.detection.detection import DetectedFeatures, Feature
@@ -24,32 +25,46 @@ if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
     from fibsem.imaging.spot import SpotBurnSettings
 
+# Instructions are answered by a machine, so silence past this is a wedged GUI
+# thread, not thinking. Generous because the GUI thread may legitimately be busy
+# painting; the real waits are milliseconds.
+INSTRUCTION_TIMEOUT_S = 30
+
+
 # CORE UI FUNCTIONS -> PROBS SEPARATE FILE
-def _check_for_abort(parent_ui: Optional['AutoLamellaUI'], msg: str = "Workflow aborted by user.") -> bool:
-    # headless mode
+def _abort_requested(parent_ui: Optional["AutoLamellaUI"]) -> bool:
+    """Whether the workflow has been asked to stop. Never raises.
+
+    Asks the manager rather than reading its stop event: the same predicate
+    AutoLamellaTask._check_for_abort uses, so the two cannot disagree about what
+    counts as cancelled. Falls back to the legacy UI event for the window before
+    the manager exists. Also the ``abort`` predicate for :func:`interaction.ask`.
+    """
     if parent_ui is None:
         return False
-
-    # Ask the manager whether this task should unwind, rather than reading its
-    # stop event: the same predicate AutoLamellaTask._check_for_abort uses, so
-    # the two cannot disagree about what counts as cancelled. Falls back to the
-    # legacy UI event for the window before the manager exists.
-    task_manager = getattr(parent_ui, '_task_manager', None)
+    task_manager = getattr(parent_ui, "_task_manager", None)
     if task_manager is not None:
-        if task_manager.should_abort:
-            raise InterruptedError(msg)
-    elif parent_ui._workflow_stop_event.is_set():
+        return task_manager.should_abort
+    return parent_ui._workflow_stop_event.is_set()
+
+
+def _check_for_abort(
+    parent_ui: Optional["AutoLamellaUI"], msg: str = "Workflow aborted by user."
+) -> bool:
+    if _abort_requested(parent_ui):
         raise InterruptedError(msg)
     return False
 
+
 def update_detection_ui(
-    microscope: FibsemMicroscope, 
-    image_settings: ImageSettings, # TODO: deprecate
+    microscope: FibsemMicroscope,
+    image_settings: ImageSettings,  # TODO: deprecate
     checkpoint: str,
-    features: Sequence[Feature], 
-    parent_ui: Optional['AutoLamellaUI'] = None, 
-    validate: bool = True, 
-    msg: str = "Lamella", position: Optional[FibsemStagePosition] = None,
+    features: Sequence[Feature],
+    parent_ui: Optional["AutoLamellaUI"] = None,
+    validate: bool = True,
+    msg: str = "Lamella",
+    position: Optional[FibsemStagePosition] = None,
 ) -> DetectedFeatures:
     feat_str = ", ".join([f.name for f in features])
     if len(feat_str) > 15:
@@ -85,14 +100,14 @@ def update_detection_ui(
 
 
 def set_images_ui(
-    parent_ui: Optional['AutoLamellaUI'],
+    parent_ui: Optional["AutoLamellaUI"],
     eb_image: Optional[FibsemImage] = None,
     ib_image: Optional[FibsemImage] = None,
 ):
     # headless mode
     if parent_ui is None:
         return
-    
+
     _check_for_abort(parent_ui)
 
     # TMP: prevent milling images overwriting existing
@@ -101,21 +116,23 @@ def set_images_ui(
     if ib_image is not None:
         ib_image.metadata.image_settings.save = False
 
-    INFO = {
-        "msg": "Updating Images",
-        "sem_image": eb_image,
-        "fib_image": ib_image,
+    # One future per call, owned by this caller — unlike WAITING_FOR_UI_UPDATE,
+    # no other emitter can release it. A GUI-side failure re-raises here, on the
+    # workflow thread, instead of aborting the process out of a queued slot.
+    ask(
+        parent_ui.ui_responder,
+        SetImages(sem_image=eb_image, fib_image=ib_image),
+        abort=lambda: _abort_requested(parent_ui),
+        timeout=INSTRUCTION_TIMEOUT_S,
+    )
 
-    }
-    parent_ui.WAITING_FOR_UI_UPDATE = True
-    parent_ui.workflow_update_signal.emit(INFO)
 
-    while parent_ui.WAITING_FOR_UI_UPDATE:
-        time.sleep(0.5)
-
-def update_status_ui(parent_ui: Optional['AutoLamellaUI'], msg: str,
-                     workflow_info: Optional[str] = None,
-                     status_bar: Optional[str] = None) -> None:
+def update_status_ui(
+    parent_ui: Optional["AutoLamellaUI"],
+    msg: str,
+    workflow_info: Optional[str] = None,
+    status_bar: Optional[str] = None,
+) -> None:
 
     if parent_ui is None:
         logging.info(msg or status_bar or "")
@@ -132,7 +149,7 @@ def update_status_ui(parent_ui: Optional['AutoLamellaUI'], msg: str,
 
 
 def ask_user(
-    parent_ui: Optional['AutoLamellaUI'],
+    parent_ui: Optional["AutoLamellaUI"],
     msg: str,
     pos: str,
     neg: Optional[str] = None,
@@ -142,7 +159,9 @@ def ask_user(
 ) -> bool:
 
     if parent_ui is None:
-        logging.warning(f"User input requested in headless mode: {msg}, always returning True.")
+        logging.warning(
+            f"User input requested in headless mode: {msg}, always returning True."
+        )
         return True
 
     INFO = {
@@ -164,24 +183,32 @@ def ask_user(
     INFO = {
         "msg": "",
     }
-    parent_ui.workflow_update_signal.emit(INFO) # clear the message
+    parent_ui.workflow_update_signal.emit(INFO)  # clear the message
 
     return parent_ui.USER_RESPONSE
 
-def ask_user_continue_workflow(parent_ui, msg: str = "Continue with the next stage?", validate: bool = True):
+
+def ask_user_continue_workflow(
+    parent_ui, msg: str = "Continue with the next stage?", validate: bool = True
+):
 
     ret = True
     if validate:
         ret = ask_user(parent_ui=parent_ui, msg=msg, pos="Continue", neg="Exit")
     return ret
 
-def update_alignment_area_ui(alignment_area: FibsemRectangle, parent_ui: Optional['AutoLamellaUI'],
-        msg: str = "Edit Alignment Area", validate: bool = True) -> FibsemRectangle:
-    """ Update the alignment area in the UI and return the updated alignment area."""
-    
+
+def update_alignment_area_ui(
+    alignment_area: FibsemRectangle,
+    parent_ui: Optional["AutoLamellaUI"],
+    msg: str = "Edit Alignment Area",
+    validate: bool = True,
+) -> FibsemRectangle:
+    """Update the alignment area in the UI and return the updated alignment area."""
+
     _check_for_abort(parent_ui)
 
-    # headless mode, return the alignment area   
+    # headless mode, return the alignment area
     if parent_ui is None or not validate:
         return alignment_area
 
@@ -215,17 +242,25 @@ def update_alignment_area_ui(alignment_area: FibsemRectangle, parent_ui: Optiona
 
     return alignment_area
 
-def select_poi_ui(parent_ui: Optional['AutoLamellaUI'],
-                  msg: str = "Select Point of Interest",
-                  validate: bool = True,
-                  initial_poi: Optional[Point] = None) -> Optional[Point]:
+
+def select_poi_ui(
+    parent_ui: Optional["AutoLamellaUI"],
+    msg: str = "Select Point of Interest",
+    validate: bool = True,
+    initial_poi: Optional[Point] = None,
+) -> Optional[Point]:
     """Display a draggable POI marker on the FIB image; return the selected point in milling coordinates."""
     _check_for_abort(parent_ui)
 
     if parent_ui is None or not validate:
         return None
 
-    INFO = {"msg": msg, "pos": "Continue", "poi_selection": True, "initial_poi": initial_poi}
+    INFO = {
+        "msg": msg,
+        "pos": "Continue",
+        "poi_selection": True,
+        "initial_poi": initial_poi,
+    }
     parent_ui.workflow_update_signal.emit(INFO)
 
     parent_ui.WAITING_FOR_USER_INTERACTION = True
@@ -245,7 +280,10 @@ def select_poi_ui(parent_ui: Optional['AutoLamellaUI'],
 
     return deepcopy(parent_ui.SELECTED_POI)
 
-def update_experiment_ui(parent_ui: Optional['AutoLamellaUI'], experiment: Experiment) -> None:
+
+def update_experiment_ui(
+    parent_ui: Optional["AutoLamellaUI"], experiment: Experiment
+) -> None:
 
     # headless mode
     if parent_ui is None:
@@ -253,9 +291,12 @@ def update_experiment_ui(parent_ui: Optional['AutoLamellaUI'], experiment: Exper
 
     parent_ui.update_experiment_signal.emit(deepcopy(experiment))
 
-def update_spot_burn_parameters(parent_ui: 'AutoLamellaUI',
-                                settings: Optional['SpotBurnSettings'] = None,
-                                clear_spots: bool = False):
+
+def update_spot_burn_parameters(
+    parent_ui: "AutoLamellaUI",
+    settings: Optional["SpotBurnSettings"] = None,
+    clear_spots: bool = False,
+):
     """Push spot-burn settings to the UI (or clear them)."""
     _check_for_abort(parent_ui)
 
@@ -270,6 +311,7 @@ def update_spot_burn_parameters(parent_ui: 'AutoLamellaUI',
     while parent_ui.WAITING_FOR_UI_UPDATE:
         time.sleep(0.5)
 
-def clear_spot_burn_ui(parent_ui: 'AutoLamellaUI'):
+
+def clear_spot_burn_ui(parent_ui: "AutoLamellaUI"):
     """Clear the spot burn UI."""
     update_spot_burn_parameters(parent_ui=parent_ui, settings=None, clear_spots=True)

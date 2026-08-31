@@ -32,6 +32,7 @@ from fibsem import conversions
 from fibsem.applications.autolamella.ui.lamella_name_list_widget import (
     LamellaNameListWidget,
 )
+from fibsem.applications.autolamella.ui.qt_responder import QtResponder
 from fibsem.applications.autolamella.ui.selected_lamella_widget import (
     SelectedLamellaWidget,
 )
@@ -188,6 +189,10 @@ class AutoLamellaUI(QMainWindow):
 
         self._setup_ui()
         self.parent_widget = parent_ui
+
+        # The Qt side of the workflow's Responder seam: workflow code is handed
+        # this one-method object, never the window itself.
+        self.ui_responder = QtResponder(self)
 
         self._protocol_lock = threading.RLock()
 
@@ -1883,24 +1888,8 @@ class AutoLamellaUI(QMainWindow):
                 "No milling task config widget available. Please create a milling task config widget first."
             )
 
-        # update the image viewer
-        sem_image: FibsemImage = info.get("sem_image", None)  # type: ignore
-        if sem_image is not None:
-            self.image_widget.eb_image = sem_image
-            self.image_widget._on_acquire(sem_image)
-            self.image_widget.set_ui_from_settings(
-                image_settings=sem_image.metadata.image_settings,  # type: ignore
-                beam_type=BeamType.ELECTRON,
-            )
-
-        fib_image: FibsemImage = info.get("fib_image", None)  # type: ignore
-        if fib_image is not None:
-            self.image_widget.ib_image = fib_image
-            self.image_widget._on_acquire(fib_image)
-            self.image_widget.set_ui_from_settings(
-                image_settings=fib_image.metadata.image_settings,  # type: ignore
-                beam_type=BeamType.ION,
-            )
+        # Images no longer arrive here: set_images_ui sends a SetImages request
+        # through the Responder seam (QtResponder._set_images).
 
         # what?
         enable_milling = info.get("milling_enabled", None)
