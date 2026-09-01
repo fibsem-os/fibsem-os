@@ -25,7 +25,7 @@ from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
 
 class FibsemImageSettingsWidget(QtWidgets.QWidget):
-    viewer_update_signal = pyqtSignal()             # when the viewer is updated
+    viewer_update_signal = pyqtSignal()  # when the viewer is updated
     acquisition_progress_signal = pyqtSignal(dict)  # TODO: add progress indicator
     alignment_area_updated = pyqtSignal(FibsemRectangle)
 
@@ -39,12 +39,23 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
         self.parent = parent
         self.microscope = microscope
-        # generate initial blank images
-        self.eb_image = FibsemImage.generate_blank_image(resolution=image_settings.resolution, hfw=image_settings.hfw)
-        self.ib_image = FibsemImage.generate_blank_image(resolution=image_settings.resolution, hfw=image_settings.hfw)
+        # generate initial blank images, labelled with their slot's beam type:
+        # generate_blank_image defaults both to ELECTRON, and _on_acquire routes
+        # by metadata — acquisition_finished replaying a mislabelled ION blank
+        # would clobber eb_image with it.
+        self.eb_image = FibsemImage.generate_blank_image(
+            resolution=image_settings.resolution, hfw=image_settings.hfw
+        )
+        self.eb_image.metadata.image_settings.beam_type = BeamType.ELECTRON
+        self.ib_image = FibsemImage.generate_blank_image(
+            resolution=image_settings.resolution, hfw=image_settings.hfw
+        )
+        self.ib_image.metadata.image_settings.beam_type = BeamType.ION
 
         self.is_acquiring: bool = False
-        self._live_beam: Optional[BeamType] = None  # beam currently live (canvas LIVE badge)
+        self._live_beam: Optional[BeamType] = (
+            None  # beam currently live (canvas LIVE badge)
+        )
         self._overlay_edited_wired = False  # subscribed to controller.overlay_edited
 
         self._setup_ui()
@@ -109,8 +120,13 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self.gridLayout_2 = QtWidgets.QGridLayout(self.scrollAreaWidgetContents)
 
         self.gridLayout_2.addItem(
-            QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding),
-            10, 0, 1, 2,
+            QtWidgets.QSpacerItem(
+                20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding
+            ),
+            10,
+            0,
+            1,
+            2,
         )
 
         self.scrollArea.setWidget(self.scrollAreaWidgetContents)
@@ -122,7 +138,9 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self.pushButton_take_all_images = QtWidgets.QPushButton("Acquire All Images")
         self.pushButton_run_autocontrast = QtWidgets.QPushButton("Run AutoContrast")
         self.pushButton_run_autofocus = QtWidgets.QPushButton("Run AutoFocus")
-        self.checkBox_save_with_selected_lamella = QtWidgets.QCheckBox("Save with Selected Lamella")
+        self.checkBox_save_with_selected_lamella = QtWidgets.QCheckBox(
+            "Save with Selected Lamella"
+        )
 
         # Spinner (hidden until acquiring / auto-function running)
         self._spinner = _SpinnerLabel(parent=self)
@@ -191,35 +209,61 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         # save image with selected lamella control
         show_lamella_controls = hasattr(self.parent, "experiment")
         self.checkBox_save_with_selected_lamella.setVisible(show_lamella_controls)
-        self.checkBox_save_with_selected_lamella.toggled.connect(self.update_ui_saving_settings)
+        self.checkBox_save_with_selected_lamella.toggled.connect(
+            self.update_ui_saving_settings
+        )
         self.checkBox_save_with_selected_lamella.setToolTip(
             "Save images to the path of the currently selected lamella position in the experiment."
         )
-        self.image_settings_widget.save_image_check.toggled.connect(self.update_ui_saving_settings)
+        self.image_settings_widget.save_image_check.toggled.connect(
+            self.update_ui_saving_settings
+        )
         try:
-            self.parent.lamella_list.lamella_selected.connect(self._on_current_lamella_changed)
+            self.parent.lamella_list.lamella_selected.connect(
+                self._on_current_lamella_changed
+            )
         except Exception as e:
             logging.debug(f"Error connecting to lamella selection changes: {e}")
 
         # image advanced toggle
-        self._btn_advanced_image.toggled.connect(self.image_settings_widget.set_show_advanced)
+        self._btn_advanced_image.toggled.connect(
+            self.image_settings_widget.set_show_advanced
+        )
 
         # signals
-        self.acquisition_progress_signal.connect(self.handle_acquisition_progress_update)
+        self.acquisition_progress_signal.connect(
+            self.handle_acquisition_progress_update
+        )
 
         # auto functions
         self.pushButton_run_autocontrast.clicked.connect(self.run_autocontrast)
         self.pushButton_run_autofocus.clicked.connect(self.run_autofocus)
 
         # set ui stylesheets
-        self.pushButton_acquire_sem_image.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
-        self.pushButton_acquire_fib_image.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
-        self.pushButton_take_all_images.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
-        self.pushButton_run_autocontrast.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.pushButton_run_autofocus.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_acquire_sem_image.setStyleSheet(
+            stylesheets.PRIMARY_BUTTON_STYLESHEET
+        )
+        self.pushButton_acquire_fib_image.setStyleSheet(
+            stylesheets.PRIMARY_BUTTON_STYLESHEET
+        )
+        self.pushButton_take_all_images.setStyleSheet(
+            stylesheets.PRIMARY_BUTTON_STYLESHEET
+        )
+        self.pushButton_run_autocontrast.setStyleSheet(
+            stylesheets.SECONDARY_BUTTON_STYLESHEET
+        )
+        self.pushButton_run_autofocus.setStyleSheet(
+            stylesheets.SECONDARY_BUTTON_STYLESHEET
+        )
 
-        self.pushButton_run_autocontrast.setIcon(fibsem_icon("mdi:contrast-circle", color=stylesheets.GRAY_ICON_COLOR))
-        self.pushButton_run_autofocus.setIcon(fibsem_icon("mdi:image-filter-center-focus", color=stylesheets.GRAY_ICON_COLOR))
+        self.pushButton_run_autocontrast.setIcon(
+            fibsem_icon("mdi:contrast-circle", color=stylesheets.GRAY_ICON_COLOR)
+        )
+        self.pushButton_run_autofocus.setIcon(
+            fibsem_icon(
+                "mdi:image-filter-center-focus", color=stylesheets.GRAY_ICON_COLOR
+            )
+        )
 
         self.acquisition_buttons: List[QtWidgets.QPushButton] = [
             self.pushButton_take_all_images,
@@ -228,7 +272,9 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         ]
 
         # live acquisition
-        self.pushButton_start_acquisition.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_start_acquisition.setStyleSheet(
+            stylesheets.SECONDARY_BUTTON_STYLESHEET
+        )
         self.microscope.sem_acquisition_signal.connect(self._on_acquire)
         self.microscope.fib_acquisition_signal.connect(self._on_acquire)
         self.pushButton_start_acquisition.clicked.connect(self.toggle_live_acquisition)
@@ -265,8 +311,12 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         # for teardown (else a reconnect leaks onto a dead widget). Loop-safe: set_selected
         # no-ops on re-select and setChecked emits no toggled when already set.
         controller.view_selected.connect(self._on_view_selected)
-        self._view_sync_connections.append((controller.view_selected, self._on_view_selected))
-        self._on_view_selected(controller.selected_view)  # align radio to current selection
+        self._view_sync_connections.append(
+            (controller.view_selected, self._on_view_selected)
+        )
+        self._on_view_selected(
+            controller.selected_view
+        )  # align radio to current selection
         self.dual_beam_widget.sem_radio.toggled.connect(self._on_beam_radio_toggled)
         self._view_sync_connections.append(
             (self.dual_beam_widget.sem_radio.toggled, self._on_beam_radio_toggled)
@@ -294,14 +344,19 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         """Update the display from the main thread."""
         try:
             if image.metadata is None:
-                raise ValueError("Image metadata is None, cannot update the display without beam type information.")
+                raise ValueError(
+                    "Image metadata is None, cannot update the display without beam type information."
+                )
 
-            # update images references
-            if self.microscope.is_acquiring:
-                if image.metadata.beam_type is BeamType.ELECTRON:
-                    self.eb_image = image
-                elif image.metadata.beam_type is BeamType.ION:
-                    self.ib_image = image
+            # update image references for every acquisition, not just the live
+            # stream: workflow one-shots (post-mill inspect, spot burn,
+            # coincidence) also emit on these signals, and eb_image/ib_image
+            # must match what the canvas below shows — click-to-move and the
+            # agent server's /app/images read these references.
+            if image.metadata.beam_type is BeamType.ELECTRON:
+                self.eb_image = image
+            elif image.metadata.beam_type is BeamType.ION:
+                self.ib_image = image
 
             controller = self._view_controller()
             if controller is not None:
@@ -317,11 +372,16 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             self.microscope.stop_acquisition()
             self._set_live_indicator(None)  # clear the green border + LIVE badge
             self.pushButton_start_acquisition.setText("Start Acquisition")
-            self.pushButton_start_acquisition.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+            self.pushButton_start_acquisition.setStyleSheet(
+                stylesheets.SECONDARY_BUTTON_STYLESHEET
+            )
             for btn in self.acquisition_buttons:
                 btn.setEnabled(True)
                 btn.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
-            for btn in [self.pushButton_run_autocontrast, self.pushButton_run_autofocus]:
+            for btn in [
+                self.pushButton_run_autocontrast,
+                self.pushButton_run_autofocus,
+            ]:
                 btn.setEnabled(True)
             self.image_group.setEnabled(True)
             self._spinner.stop()
@@ -339,15 +399,23 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
         beam_type = self.dual_beam_widget.beam_type
         self.microscope.start_acquisition(beam_type)
-        self._set_live_indicator(beam_type)  # green border + LIVE badge on the live view
+        self._set_live_indicator(
+            beam_type
+        )  # green border + LIVE badge on the live view
         self.pushButton_start_acquisition.setText("Stop Acquisition")
-        self.pushButton_start_acquisition.setStyleSheet(stylesheets.DANGER_BUTTON_STYLESHEET)
+        self.pushButton_start_acquisition.setStyleSheet(
+            stylesheets.DANGER_BUTTON_STYLESHEET
+        )
 
     def _set_live_indicator(self, beam_type: Optional[BeamType]) -> None:
         """Drive the quad-view live indicator (green border + 'LIVE' badge): pass the live beam,
         or None to clear. Also clears a previously-live beam (on stop or a beam switch)."""
         controller = self._view_controller()
-        if self._live_beam is not None and self._live_beam is not beam_type and controller is not None:
+        if (
+            self._live_beam is not None
+            and self._live_beam is not beam_type
+            and controller is not None
+        ):
             controller.set_live(self._live_beam, False)
         self._live_beam = beam_type
         if beam_type is not None and controller is not None:
@@ -358,21 +426,30 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         beam_type = self.dual_beam_widget.beam_type
         self._toggle_interactions(enable=False)
         worker = self._autocontrast_worker(beam_type)
-        worker.finished.connect(lambda: self._on_auto_function_finished("AutoContrast", beam_type=beam_type))
+        worker.finished.connect(
+            lambda: self._on_auto_function_finished("AutoContrast", beam_type=beam_type)
+        )
         worker.start()
 
     def run_autofocus(self) -> None:
         """Run autofocus for the selected beam type."""
         beam_type = self.dual_beam_widget.beam_type
-        notification_service.show_toast(f"Running AutoFocus on {beam_type.name} beam...")
+        notification_service.show_toast(
+            f"Running AutoFocus on {beam_type.name} beam..."
+        )
         self._toggle_interactions(enable=False)
         worker = self._autofocus_worker(beam_type)
-        worker.finished.connect(lambda: self._on_auto_function_finished("AutoFocus", beam_type=beam_type))
+        worker.finished.connect(
+            lambda: self._on_auto_function_finished("AutoFocus", beam_type=beam_type)
+        )
         worker.start()
 
     @thread_worker
     def _autocontrast_worker(self, beam_type: BeamType):
-        self.microscope.autocontrast(beam_type, reduced_area=FibsemRectangle(left=0.25, top=0.25, width=0.5, height=0.5))
+        self.microscope.autocontrast(
+            beam_type,
+            reduced_area=FibsemRectangle(left=0.25, top=0.25, width=0.5, height=0.5),
+        )
 
     @thread_worker
     def _autofocus_worker(self, beam_type: BeamType):
@@ -381,6 +458,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             FocusSweepPass,
             run_auto_focus,
         )
+
         settings = AutoFocusSettings(
             method="tenengrad",
             passes=[
@@ -388,7 +466,8 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
                 FocusSweepPass(search_range=100e-6, step_size=10e-6),
             ],
             reduced_area=FibsemRectangle(0.25, 0.25, 0.5, 0.5),
-            use_autocontrast=True)
+            use_autocontrast=True,
+        )
         result = run_auto_focus(
             self.microscope,
             beam_type=beam_type,
@@ -398,11 +477,17 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
     def _on_auto_function_finished(self, name: str, beam_type: BeamType) -> None:
         self._toggle_interactions(enable=True)
-        beam_widget = self.dual_beam_widget.sem_widget if beam_type is BeamType.ELECTRON else self.dual_beam_widget.fib_widget
+        beam_widget = (
+            self.dual_beam_widget.sem_widget
+            if beam_type is BeamType.ELECTRON
+            else self.dual_beam_widget.fib_widget
+        )
         beam_widget.sync_from_microscope()
         if name == "AutoFocus":
             wd = beam_widget.beam_settings_widget.working_distance_spinbox.value()
-            notification_service.show_toast(f"AutoFocus Complete ({beam_type.name}). Best WD: {wd:.2f}mm")
+            notification_service.show_toast(
+                f"AutoFocus Complete ({beam_type.name}). Best WD: {wd:.2f}mm"
+            )
         if name == "AutoContrast":
             notification_service.show_toast("AutoContrast Complete.")
 
@@ -431,7 +516,11 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
     ) -> None:
         """Update the ui from the image, beam and detector settings"""
         self._set_image_settings_to_ui(image_settings)
-        beam_widget = self.dual_beam_widget.sem_widget if beam_type is BeamType.ELECTRON else self.dual_beam_widget.fib_widget
+        beam_widget = (
+            self.dual_beam_widget.sem_widget
+            if beam_type is BeamType.ELECTRON
+            else self.dual_beam_widget.fib_widget
+        )
         if beam_settings is not None:
             beam_widget.beam_settings_widget.update_from_settings(beam_settings)
         if detector_settings is not None:
@@ -444,13 +533,23 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
     def _set_beam_settings_to_ui(self, beam_settings: BeamSettings) -> None:
         """Set the beam settings to the ui components"""
-        beam_widget = self.dual_beam_widget.sem_widget if beam_settings.beam_type is BeamType.ELECTRON else self.dual_beam_widget.fib_widget
+        beam_widget = (
+            self.dual_beam_widget.sem_widget
+            if beam_settings.beam_type is BeamType.ELECTRON
+            else self.dual_beam_widget.fib_widget
+        )
         beam_widget.beam_settings_widget.update_from_settings(beam_settings)
 
-    def _set_detector_settings_to_ui(self, detector_settings: FibsemDetectorSettings) -> None:
+    def _set_detector_settings_to_ui(
+        self, detector_settings: FibsemDetectorSettings
+    ) -> None:
         """Set the detector settings to the UI components."""
         beam_type = self.dual_beam_widget.beam_type
-        beam_widget = self.dual_beam_widget.sem_widget if beam_type is BeamType.ELECTRON else self.dual_beam_widget.fib_widget
+        beam_widget = (
+            self.dual_beam_widget.sem_widget
+            if beam_type is BeamType.ELECTRON
+            else self.dual_beam_widget.fib_widget
+        )
         beam_widget.detector_settings_widget.update_from_settings(detector_settings)
 
     def update_ui_saving_settings(self) -> None:
@@ -464,7 +563,9 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         save_image = self.image_settings_widget.save_image_check.isChecked()
 
         save_with_lamella = self.checkBox_save_with_selected_lamella.isChecked()
-        self.image_settings_widget.path_edit.setEnabled(save_image and not save_with_lamella)
+        self.image_settings_widget.path_edit.setEnabled(
+            save_image and not save_with_lamella
+        )
 
         if save_with_lamella:
             try:
@@ -473,22 +574,38 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             except Exception as e:
                 logging.debug(f"Error setting image path from selected lamella: {e}")
         else:
-            if hasattr(self.parent, "experiment") and self.parent.experiment is not None:
-                self.image_settings_widget.path_edit.setText(str(self.parent.experiment.path))
+            if (
+                hasattr(self.parent, "experiment")
+                and self.parent.experiment is not None
+            ):
+                self.image_settings_widget.path_edit.setText(
+                    str(self.parent.experiment.path)
+                )
 
     def _on_current_lamella_changed(self, lamella):
         """Update the image path when the selected lamella changes"""
         try:
-            if self.checkBox_save_with_selected_lamella.isChecked() and lamella is not None:
+            if (
+                self.checkBox_save_with_selected_lamella.isChecked()
+                and lamella is not None
+            ):
                 self.image_settings_widget.path_edit.setText(str(lamella.path))
-                self.checkBox_save_with_selected_lamella.setText(f"Save with Selected Lamella ({lamella.name})")
+                self.checkBox_save_with_selected_lamella.setText(
+                    f"Save with Selected Lamella ({lamella.name})"
+                )
         except Exception as e:
             logging.debug(f"Error updating image path from selected lamella: {e}")
 
-    def _toggle_interactions(self, enable: bool, caller: str = None, imaging: bool = False):
+    def _toggle_interactions(
+        self, enable: bool, caller: str = None, imaging: bool = False
+    ):
         for btn in self.acquisition_buttons:
             btn.setEnabled(enable)
-        for btn in [self.pushButton_run_autocontrast, self.pushButton_run_autofocus, self.pushButton_start_acquisition]:
+        for btn in [
+            self.pushButton_run_autocontrast,
+            self.pushButton_run_autofocus,
+            self.pushButton_start_acquisition,
+        ]:
             btn.setEnabled(enable)
         self.image_group.setEnabled(enable)
         self.dual_beam_widget.setEnabled(enable)
@@ -544,7 +661,9 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         """Acquire both SEM and FIB images with the current settings."""
         self.start_acquisition(both=True)
 
-    def start_acquisition(self, both: bool = False, beam_type: Optional[BeamType] = None) -> None:
+    def start_acquisition(
+        self, both: bool = False, beam_type: Optional[BeamType] = None
+    ) -> None:
         """Start the image acquisition process"""
         # disable interactions
         self.is_acquiring = True
@@ -579,7 +698,9 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self.acquisition_progress_signal.emit({"msg": msg})
 
         if both:
-            self.eb_image, self.ib_image = acquire.take_reference_images(self.microscope, image_settings)
+            self.eb_image, self.ib_image = acquire.take_reference_images(
+                self.microscope, image_settings
+            )
         else:
             image = acquire.acquire_image(self.microscope, image_settings)
             if image_settings.beam_type is BeamType.ELECTRON:
@@ -589,7 +710,12 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
         self.acquisition_progress_signal.emit({"finished": True})
 
-        logging.debug({"msg": "acquisition_worker", "image_settings": self.image_settings.to_dict()})
+        logging.debug(
+            {
+                "msg": "acquisition_worker",
+                "image_settings": self.image_settings.to_dict(),
+            }
+        )
 
     def closeEvent(self, event: QEvent):
         self._teardown_connections()
@@ -605,7 +731,9 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             controller = self._view_controller()
             if controller is not None:
                 try:
-                    controller.overlay_edited.disconnect(self._on_controller_overlay_edited)
+                    controller.overlay_edited.disconnect(
+                        self._on_controller_overlay_edited
+                    )
                 except (TypeError, RuntimeError):
                     pass
             self._overlay_edited_wired = False
@@ -618,7 +746,10 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             except (TypeError, RuntimeError):
                 pass
         self._wd_scroll_connections = []
-        for beam_widget in (self.dual_beam_widget.sem_widget, self.dual_beam_widget.fib_widget):
+        for beam_widget in (
+            self.dual_beam_widget.sem_widget,
+            self.dual_beam_widget.fib_widget,
+        ):
             try:
                 beam_widget.beam_settings_widget._execute_wd_wheel_move.cancel()
             except Exception:
@@ -648,7 +779,9 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         if controller is not None:
             controller.set_alignment_edit(BeamType.ION, None, editing=False)
 
-    def toggle_alignment_area(self, reduced_area: FibsemRectangle, editable: bool = True):
+    def toggle_alignment_area(
+        self, reduced_area: FibsemRectangle, editable: bool = True
+    ):
         """Display the editable alignment area on the FIB canvas."""
         controller = self._view_controller()
         if controller is not None:

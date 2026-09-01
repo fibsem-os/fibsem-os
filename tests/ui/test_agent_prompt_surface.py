@@ -164,6 +164,35 @@ def test_display_images_are_served_read_scope(ui, qapp):
             assert body[beam]["image_b64_jpeg"]
 
 
+def test_display_images_follow_a_one_shot_acquisition(ui, qapp):
+    """The post-mill inspect image reaches /app/images, pixels AND acquired_at.
+
+    A milling task's inspect acquisition is a one-shot emit on
+    fib_acquisition_signal with no live stream running. On the 2026-08-31
+    supervised run, /app/images kept serving the pre-mill reference through
+    the whole inspect prompt — the supervising agent refuses images whose
+    acquired_at predates the mill, so staleness here blocks supervision."""
+    from datetime import datetime
+
+    from fibsem.structures import BeamType, FibsemImage, MicroscopeState
+
+    inspect_image = FibsemImage.generate_blank_image(
+        resolution=(1536, 1024), hfw=100e-6, random=True
+    )
+    inspect_image.metadata.image_settings.beam_type = BeamType.ION
+    stamp = datetime(2026, 9, 1, 12, 34, 56)
+    inspect_image.metadata.microscope_state = MicroscopeState(
+        timestamp=stamp.timestamp()
+    )
+
+    with _client(ui, arm_control=False) as client:
+        assert not ui.microscope.is_acquiring, "this test pins the one-shot path"
+        ui.microscope.fib_acquisition_signal.emit(inspect_image)
+        qapp.processEvents()
+        fib = client.get("/app/images", headers=AUTH).json()["fib"]
+        assert fib["acquired_at"] == stamp.isoformat()
+
+
 def test_an_answer_without_a_nonce_is_rejected(ui, qapp):
     with _client(ui, arm_control=True) as client:
         rejected = client.post(
