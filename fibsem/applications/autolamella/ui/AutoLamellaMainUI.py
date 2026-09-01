@@ -737,6 +737,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
         dev_menu.addAction(self.action_open_coincidence_viewer)
 
+        self.action_ensure_coincidence = QAction("Run SEM/FIB Coincidence Alignment", self)
+        self.action_ensure_coincidence.setToolTip(
+            "Measure the SEM/FIB coincidence at the current position and "
+            "correct it with vertical moves until within tolerance (FIB-868)"
+        )
+        self.action_ensure_coincidence.triggered.connect(self._on_ensure_coincidence)
+        dev_menu.addAction(self.action_ensure_coincidence)
+
         self._dev_menu = dev_menu
         self._dev_menu.menuAction().setVisible(self.dev_mode)
 
@@ -1197,6 +1205,52 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Save the current fluorescence microscope configuration."""
         if self.autolamella_ui is not None:
             self.autolamella_ui.export_fm_configuration()
+
+    def _on_ensure_coincidence(self) -> None:
+        """Run the coincidence align loop at the current position (dev tool).
+
+        The loop acquires its own image pairs and may move the stage
+        vertically several times; runs off the GUI thread, reports by toast.
+        """
+        microscope = getattr(self.autolamella_ui, "microscope", None)
+        if microscope is None:
+            self.show_toast("Not connected to a microscope.", "warning")
+            return
+        self.action_ensure_coincidence.setEnabled(False)
+        self.show_toast("Measuring coincidence…", "info")
+        worker = self._ensure_coincidence_worker()
+        worker.returned.connect(self._on_ensure_coincidence_finished)
+        worker.finished.connect(lambda: self.action_ensure_coincidence.setEnabled(True))
+        worker.start()
+
+    def _ensure_coincidence_worker(self):
+        from fibsem.ui.qt.threading import thread_worker
+
+        microscope = self.autolamella_ui.microscope
+
+        @thread_worker
+        def _run():
+            from fibsem.alignment.coincidence import ensure_coincident
+
+            return ensure_coincident(microscope)
+
+        return _run()
+
+    def _on_ensure_coincidence_finished(self, result) -> None:
+        final_dz = result.final.dz * 1e6
+        if result.converged:
+            self.show_toast(
+                f"Coincident: residual {final_dz:+.2f} um after "
+                f"{result.moves_applied} corrective move(s).",
+                "success",
+            )
+        else:
+            self.show_toast(
+                f"Not coincident: {result.reason} "
+                f"(last measured dz {final_dz:+.2f} um, "
+                f"{result.moves_applied} move(s) applied).",
+                "warning",
+            )
 
     def _open_coincidence_milling_viewer(self):
         """Open the Coincidence Milling Viewer dialog."""
