@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AutoLamella Dashboard</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%231e2027'/%3E%3Cpath d='M16 6v20M6 16h20' stroke='%2350a6ff' stroke-width='2.5'/%3E%3Ccircle cx='16' cy='16' r='6.5' fill='none' stroke='%2350a6ff' stroke-width='2'/%3E%3C/svg%3E">
+<style>
+  /* napari-dark, from fibsem/ui/tokens.py — the dashboard is a second window
+     of the same app, so it commits to the app's single dark theme. */
+  :root {
+    --surface:#262930; --panel:#1e2027; --row-alt:#2b2f38; --canvas:#1e2124;
+    --border:#3d4251; --text:#d6d6d6; --strong:#f0f1f2; --muted:#868e93;
+    --accent:#50a6ff; --primary:#007ACC; --ok:#4caf50; --warn:#e0a030;
+    --err:#d04040; --agent:#9d78e8;
+    --mono:ui-monospace,"SF Mono",Consolas,"Cascadia Mono",monospace;
+  }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--surface); color:var(--text);
+    font-family:system-ui,"Segoe UI",sans-serif; font-size:12.5px; line-height:1.45;
+    min-height:100vh; padding:12px 14px 16px; }
+  .ok { color:var(--ok); } .err { color:var(--err); } .muted { color:var(--muted); }
+  .warn { color:var(--warn); }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:3px; }
+
+  header { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; padding:8px 12px; }
+  header .exp { font-size:14px; font-weight:600; color:var(--strong); }
+  header .meta, header .right { font-size:11.5px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  header .right { margin-left:auto; color:var(--text); }
+
+  .ladder { display:flex; gap:8px; padding:10px 12px 8px; margin-top:10px; }
+  .rung { flex:1; min-width:0; }
+  .rung-bar { height:4px; background:var(--row-alt); border-radius:1px; }
+  .rung.done .rung-bar { background:var(--ok); }
+  .rung.active .rung-bar { background:var(--primary); }
+  .rung-name { margin-top:5px; font-size:11.5px; color:var(--muted); white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis; }
+  .rung.done .rung-name, .rung.active .rung-name { color:var(--text); }
+  .rung-time { font-size:10.5px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .sup-agent { color:var(--agent); } .sup-human { color:var(--muted); }
+
+  .main { display:grid; grid-template-columns:1fr 300px; gap:10px; margin-top:10px; }
+  @media (max-width:900px) { .main { grid-template-columns:1fr; } }
+  .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr));
+    gap:10px; align-content:start; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:3px; }
+  .card-head { display:flex; justify-content:space-between; align-items:baseline; padding:6px 10px; }
+  .card-head .name { font-weight:600; color:var(--strong); }
+  .card-head .state { font-size:11px; font-variant-numeric:tabular-nums; }
+  .frame { position:relative; background:var(--canvas); min-height:60px; }
+  .frame img { display:block; width:100%; height:auto; }
+  .frame-tag { position:absolute; left:0; bottom:0;
+    font-size:10px; color:var(--muted); background:rgba(20,21,24,.8); padding:1px 6px; }
+  .frame .none { display:block; padding:24px 10px;
+    font-size:11px; color:var(--muted); text-align:center; }
+  .segs { display:flex; gap:3px; padding:8px 10px 2px; }
+  .seg { flex:1; height:4px; background:var(--row-alt); border-radius:1px; }
+  .seg.done { background:var(--ok); }
+  .seg.active { background:var(--primary); }
+  .review { padding:6px 10px 2px; display:flex; flex-direction:column; gap:4px; }
+  .rhead { display:flex; gap:3px; }
+  .rhead span { flex:1; font-size:10px; letter-spacing:0.05em;
+    color:var(--muted); }
+  .rrow { display:flex; gap:3px; position:relative; }
+  .rrow .lbl { position:absolute; left:0; bottom:0; z-index:1; max-width:100%;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    font-size:10px; color:var(--muted);
+    background:rgba(20,21,24,.8); padding:0 5px; }
+  .rrow .im { flex:1; min-width:0; }
+  .rrow img { display:block; width:100%; aspect-ratio:3/2; object-fit:cover;
+    background:var(--canvas); }
+
+  .side { display:flex; flex-direction:column; gap:10px; min-width:0; }
+  .queue-body { font-size:12px; padding:4px 0; max-height:30vh; overflow-y:auto; }
+  .qrow { padding:2.5px 12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .qrow .mark { display:inline-block; width:14px; }
+  .qrow.active { color:var(--strong); background:var(--row-alt); }
+
+  .facts { width:100%; border-collapse:collapse; font-size:11.5px; margin-top:4px; }
+  .facts td { padding:2.5px 10px; border-top:1px solid var(--border); }
+  .facts td:first-child { color:var(--muted); }
+  .facts td:last-child { text-align:right; font-variant-numeric:tabular-nums; }
+
+  .feed { display:flex; flex-direction:column; max-height:78vh; }
+  .feed-head { padding:6px 12px; border-bottom:1px solid var(--border); font-size:11px; color:var(--muted); }
+  .feed-body { overflow-y:auto; font-size:12px; padding:4px 0; }
+  .ln { padding:2.5px 12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ln:hover { background:var(--row-alt); }
+  .ts { color:var(--muted); margin-right:8px; font-variant-numeric:tabular-nums; }
+  .who-agent { color:var(--agent); } .who-op { color:var(--warn); }
+  .kind { color:var(--accent); }
+
+  footer { margin-top:10px; padding:0 2px; font-size:11px; color:var(--muted); }
+
+  .gate { max-width:420px; margin:18vh auto 0; padding:16px; }
+  .gate h1 { font-size:14px; color:var(--strong); margin-bottom:8px; }
+  .gate p { color:var(--muted); margin-bottom:10px; }
+  .gate input { width:100%; padding:6px 8px; font-family:var(--mono); font-size:12px;
+    background:var(--canvas); color:var(--text); border:1px solid var(--border); border-radius:3px; }
+  .gate button { margin-top:8px; padding:6px 14px; background:var(--primary); color:#fff;
+    border:0; border-radius:3px; font-size:12px; cursor:pointer; }
+  .gate button:focus-visible, .gate input:focus-visible { outline:2px solid var(--accent); }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+"use strict";
+/* Read-only monitor over the agent-server API. The token arrives in the URL
+   fragment (never sent to the server or its logs), is stashed for the tab's
+   session, and stripped from the address bar. */
+
+const $app = document.getElementById("app");
+let TOKEN = null;
+let latestSeq = 0;
+let itemNames = [];
+let protocolTasks = [];
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+function takeToken() {
+  const m = location.hash.match(/token=([A-Za-z0-9._~-]+)/);
+  if (m) {
+    try { sessionStorage.setItem("fibsem_dashboard_token", m[1]); } catch (e) {}
+    history.replaceState(null, "", location.pathname);
+    return m[1];
+  }
+  try { return sessionStorage.getItem("fibsem_dashboard_token"); } catch (e) { return null; }
+}
+
+async function api(path) {
+  const r = await fetch(path, { headers: { Authorization: "Bearer " + TOKEN } });
+  if (!r.ok) throw new Error(path + " -> " + r.status);
+  return r.json();
+}
+
+function gate(message) {
+  $app.innerHTML = `
+    <div class="gate panel">
+      <h1>AutoLamella Dashboard</h1>
+      <p>${esc(message)}</p>
+      <input id="tok" type="password" placeholder="session token" autocomplete="off">
+      <button id="go">Connect</button>
+    </div>`;
+  document.getElementById("go").onclick = () => {
+    TOKEN = document.getElementById("tok").value.trim();
+    try { sessionStorage.setItem("fibsem_dashboard_token", TOKEN); } catch (e) {}
+    boot();
+  };
+}
+
+function hm(iso) { return iso && iso.includes("T") ? iso.split("T")[1].slice(0, 8) : ""; }
+function ep(ts) {
+  if (typeof ts !== "number") return "";
+  const d = new Date(ts * 1000);
+  return d.toTimeString().slice(0, 8);
+}
+function um(v) { return (v * 1e6 >= 0 ? "+" : "") + (v * 1e6).toFixed(2); }
+
+/* ── header + workflow ladder ──────────────────────────────────────── */
+
+function renderHeader(status) {
+  const exp = status.experiment;
+  const wf = status.workflow;
+  const state = wf.running
+    ? `<span class="ok">&#9679; running</span>` : `<span class="muted">&#9675; idle</span>`;
+  const where = wf.current_task
+    ? ` <span class="muted">·</span> ${esc(wf.current_task)} · ${esc(wf.current_item || "")}` : "";
+  document.getElementById("hdr").innerHTML = exp ? `
+    <span class="exp">${esc(exp.name)}</span>
+    <span class="meta">${esc(String(exp.num_items))} items</span>
+    <span class="right">${state}${where}</span>`
+    : `<span class="exp">No experiment loaded</span>`;
+}
+
+function renderLadder(protocol, runSummary, status) {
+  const ran = {};
+  for (const row of runSummary.items || []) {
+    if (row.task_status === "Completed") ran[row.task_name] = row;
+  }
+  const current = status.workflow.current_task;
+  document.getElementById("ladder").innerHTML = (protocol.tasks || []).map(t => {
+    const cls = t.name === current ? "active" : (ran[t.name] ? "done" : "");
+    const sup = t.supervisor === "agent"
+      ? `<span class="sup-agent">&#10022;</span>`
+      : (t.supervise ? `<span class="sup-human">&#8857;</span>` : "");
+    const dur = ran[t.name] ? `${Math.round(ran[t.name].duration)} s`
+      : (t.name === current ? "running" : "&mdash;");
+    return `<div class="rung ${cls}"><div class="rung-bar"></div>
+      <div class="rung-name">${esc(t.name)} ${sup}</div>
+      <div class="rung-time">${dur}</div></div>`;
+  }).join("");
+}
+
+/* ── item cards ────────────────────────────────────────────────────── */
+
+async function renderCard(name) {
+  const el = document.getElementById("card-" + name);
+  if (!el) return;
+  const [item, outputs] = await Promise.all([
+    api("/app/items/" + encodeURIComponent(name)),
+    api("/app/task_outputs/" + encodeURIComponent(name)),
+  ]);
+  const done = new Set(outputs.completed_tasks || []);
+  const segs = protocolTasks.map(t =>
+    `<span class="seg ${done.has(t.name) ? "done" : ""}" title="${esc(t.name)}"></span>`).join("");
+  const nDone = protocolTasks.filter(t => done.has(t.name)).length;
+  const next = protocolTasks.find(t => !done.has(t.name));
+  const state = item.is_failure
+    ? `<span class="state err">failed</span>`
+    : `<span class="state muted">${nDone} / ${protocolTasks.length} tasks</span>`;
+  const poi = item.poi ? `${um(item.poi.x)}, ${um(item.poi.y)} µm` : "—";
+  const aa = item.alignment_area
+    ? `${item.alignment_area.width.toFixed(2)} × ${item.alignment_area.height.toFixed(2)}` : "—";
+  const angle = item.milling_angle != null ? item.milling_angle.toFixed(1) + "°" : "—";
+
+  // Images are fetched with the auth header (an <img src> cannot carry one)
+  // and shown via object URLs. SEM on the left, FIB on the right — the
+  // pairing every other surface in the app uses.
+  const byTask = {};
+  for (const t of outputs.tasks || []) byTask[t.name] = t; // later run wins
+  const reviewOrder = protocolTasks.length
+    ? protocolTasks.map(t => t.name).filter(n => byTask[n])
+    : Object.keys(byTask);
+  const pairOf = taskName => {
+    const files = byTask[taskName].files || {};
+    return {
+      sem: (files.final_sem || []).slice(-1)[0],
+      fib: (files.final_fib || []).slice(-1)[0],
+    };
+  };
+  // Review rows: every completed task's final pair, protocol order — the
+  // review tab in miniature.
+  const review = reviewOrder.map(taskName => {
+    const p = pairOf(taskName);
+    if (!p.sem && !p.fib) return "";
+    const im = f => f
+      ? `<div class="im"><img data-src="${esc(f)}" alt="" title="${esc(taskName)}"></div>`
+      : `<div class="im"></div>`;
+    return `<div class="rrow"><span class="lbl" title="${esc(taskName)}">${esc(taskName)}</span>${im(p.sem)}${im(p.fib)}</div>`;
+  }).join("");
+
+  el.innerHTML = `
+    <div class="card-head"><span class="name">${esc(name)}</span>${state}</div>
+    <div class="segs">${segs}</div>
+    ${review
+      ? `<div class="review"><div class="rhead"><span>sem</span><span>fib</span></div>${review}</div>`
+      : `<div class="frame"><span class="none">no recorded images yet</span></div>`}
+    <table class="facts">
+      <tr><td>next</td><td>${esc(next ? next.name : "—")}</td></tr>
+      <tr><td>poi</td><td>${esc(poi)}</td></tr>
+      <tr><td>alignment</td><td>${esc(aa)}</td></tr>
+      <tr><td>milling angle</td><td>${esc(angle)}</td></tr>
+    </table>`;
+  for (const img of el.querySelectorAll("img[data-src]")) {
+    try {
+      const r = await fetch(
+        "/app/items/" + encodeURIComponent(name) + "/outputs/" +
+        encodeURIComponent(img.dataset.src),
+        { headers: { Authorization: "Bearer " + TOKEN } });
+      if (r.ok) img.src = URL.createObjectURL(await r.blob());
+    } catch (e) { /* thumbnails are a nicety; the card stands without them */ }
+  }
+}
+
+/* ── workflow queue ────────────────────────────────────────────────── */
+
+async function refreshQueue() {
+  const q = await api("/app/queue");
+  const panel = document.getElementById("queue");
+  const items = q.available ? (q.items || []) : [];
+  if (!items.length) { panel.style.display = "none"; return; }
+  panel.style.display = "";
+  document.getElementById("queue-body").innerHTML = items.map(i => {
+    const status = i.status || "";
+    const active = status === "InProgress";
+    const mark = status === "Completed" ? `<span class="mark ok">✓</span>`
+      : active ? `<span class="mark" style="color:var(--accent)">▶</span>`
+      : status === "Failed" ? `<span class="mark err">✕</span>`
+      : `<span class="mark muted">·</span>`;
+    return `<div class="qrow ${active ? "active" : ""}">${mark}${esc(i.task_name)} · ${esc(i.item_name)}</div>`;
+  }).join("");
+}
+
+/* ── event feed ────────────────────────────────────────────────────── */
+
+function eventLine(e) {
+  const k = e.kind, p = e.payload || {}, ts = ep(e.timestamp);
+  if (k === "prompt_answered") {
+    const who = p.answered_by || "?";
+    const cls = who === "agent" ? "who-agent" : "who-op";
+    const adj = p.adjusted ? ` <span class="who-agent">adjusted</span>` : "";
+    return `<span class="ts">${ts}</span><span class="${cls}">${esc(who)}</span> answered ${esc(p.type)} · ${p.response ? "yes" : "no"}${adj}`;
+  }
+  if (k === "prompt_raised")
+    return `<span class="ts">${ts}</span><span class="kind">?</span> ${esc(p.type)} <span class="muted">n${esc(p.nonce)}</span>`;
+  if (k === "prompt_cancelled")
+    return `<span class="ts">${ts}</span><span class="muted">withdrawn</span> ${esc(p.type)}`;
+  if (["task_started", "task_completed", "task_failed", "task_skipped"].includes(k)) {
+    const verb = k.split("_")[1];
+    const cls = { failed: "err", completed: "ok" }[verb] || "muted";
+    return `<span class="ts">${ts}</span><span class="${cls}">${verb}</span> ${esc(p.task_name)} · ${esc(p.item_name)}`;
+  }
+  if (["workflow_started", "workflow_completed", "workflow_stopped"].includes(k))
+    return `<span class="ts">${ts}</span><span class="kind">${k.replace("_", " ")}</span>`;
+  return null;
+}
+
+function appendEvents(events) {
+  const body = document.getElementById("feed");
+  for (const e of events) {
+    const line = eventLine(e);
+    if (!line) continue;
+    const div = document.createElement("div");
+    div.className = "ln";
+    div.innerHTML = line;
+    body.prepend(div);
+  }
+  while (body.children.length > 200) body.removeChild(body.lastChild);
+}
+
+/* ── refresh + live loop ───────────────────────────────────────────── */
+
+async function refreshTop() {
+  const [status, protocol, runSummary] = await Promise.all([
+    api("/app/status"), api("/app/protocol"), api("/app/run_summary"),
+  ]);
+  protocolTasks = protocol.tasks || [];
+  renderHeader(status);
+  document.getElementById("ladder").style.display = protocolTasks.length ? "" : "none";
+  renderLadder(protocol, runSummary, status);
+}
+
+async function refreshCards() {
+  const summary = await api("/app/experiment_summary");
+  itemNames = (summary.items || [])
+    .map(r => r.lamella_name || r.item_name || r.name).filter(Boolean);
+  const cards = document.getElementById("cards");
+  const wanted = new Set(itemNames.map(n => "card-" + n));
+  for (const name of itemNames) {
+    if (!document.getElementById("card-" + name)) {
+      const el = document.createElement("div");
+      el.className = "card";
+      el.id = "card-" + name;
+      cards.appendChild(el);
+    }
+  }
+  for (const el of [...cards.children]) if (!wanted.has(el.id)) el.remove();
+  await Promise.all(itemNames.map(renderCard));
+}
+
+const REFRESHING = { top: false, cards: false, queue: false };
+async function throttled(kind, fn) {
+  if (REFRESHING[kind]) return;
+  REFRESHING[kind] = true;
+  try { await fn(); } finally { REFRESHING[kind] = false; }
+}
+
+async function liveLoop() {
+  for (;;) {
+    try {
+      const body = await api("/app/events?since=" + latestSeq + "&timeout=25");
+      if (!body.available) { await new Promise(r => setTimeout(r, 5000)); continue; }
+      const oldest = body.oldest_available;
+      if (oldest != null && oldest > latestSeq + 1) {
+        // Fell behind the ring buffer: reseed everything rather than pretend.
+        latestSeq = body.latest_seq || latestSeq;
+        await throttled("top", refreshTop);
+        await throttled("cards", refreshCards);
+        continue;
+      }
+      latestSeq = Math.max(latestSeq, body.latest_seq || 0);
+      const events = body.events || [];
+      if (events.length) {
+        appendEvents(events);
+        await throttled("top", refreshTop);
+        if (events.some(e => e.kind.startsWith("task_") || e.kind.startsWith("workflow_"))) {
+          await throttled("cards", refreshCards);
+          await throttled("queue", refreshQueue);
+        }
+        if (events.some(e => e.kind === "workflow_completed" || e.kind === "workflow_stopped"))
+          // The event lands before the worker clears its running flag; a
+          // status read right now races it, so read again once it has settled.
+          setTimeout(() => throttled("top", refreshTop), 2500);
+      }
+    } catch (e) {
+      await new Promise(r => setTimeout(r, 5000));
+    }
+  }
+}
+
+/* ── boot ──────────────────────────────────────────────────────────── */
+
+async function boot() {
+  if (!TOKEN) { gate("Paste the session token from Tools → Agent Server."); return; }
+  let caps;
+  try { caps = await api("/capabilities"); }
+  catch (e) { gate("That token was refused — copy a fresh one from Tools → Agent Server."); return; }
+  if (!caps.routers || !caps.routers.app) {
+    $app.innerHTML = `<div class="gate panel"><h1>AutoLamella Dashboard</h1>
+      <p>This server hosts no application (bench mode) — there is no session to show.</p></div>`;
+    return;
+  }
+  $app.innerHTML = `
+    <header class="panel" id="hdr"></header>
+    <div class="ladder panel" id="ladder"></div>
+    <div class="main">
+      <div class="cards" id="cards"></div>
+      <div class="side">
+        <div class="queue panel" id="queue" style="display:none">
+          <div class="feed-head">workflow queue</div>
+          <div class="queue-body" id="queue-body"></div>
+        </div>
+        <div class="feed panel">
+          <div class="feed-head">events · live</div>
+          <div class="feed-body" id="feed"></div>
+        </div>
+      </div>
+    </div>
+    <footer>read-only · answer questions in AutoLamella</footer>`;
+  const seed = await api("/app/events?since=0&timeout=0");
+  latestSeq = seed.available ? (seed.latest_seq || 0) : 0;
+  if (seed.available) appendEvents(seed.events || []);
+  await refreshTop();
+  await refreshCards();
+  await refreshQueue();
+  liveLoop();
+}
+
+TOKEN = takeToken();
+boot();
+</script>
+</body>
+</html>

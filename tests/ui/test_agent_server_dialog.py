@@ -55,8 +55,18 @@ def test_no_server_disables_everything(qapp):
     dialog = AgentServerDialog(lambda: None)
     assert not dialog._chk_control.isEnabled()
     assert not dialog._token_edit.isEnabled()
+    assert not dialog._btn_dashboard.isEnabled()
     assert dialog._token_edit.text() == ""
     assert "Not running" in dialog._status_label.text()
+    dialog.deleteLater()
+
+
+def test_dashboard_url_puts_the_token_in_the_fragment(qapp, host):
+    # The fragment never leaves the browser — no server log, no referrer —
+    # which is the whole reason the button can carry the token at all.
+    dialog = AgentServerDialog(lambda: host)
+    assert dialog._btn_dashboard.isEnabled()
+    assert dialog.dashboard_url(host) == "http://127.0.0.1:8001/dashboard#token=tok"
     dialog.deleteLater()
 
 

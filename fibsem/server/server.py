@@ -176,6 +176,22 @@ def build_server(
         # Unauthenticated liveness probe; everything informative lives in /capabilities.
         return {"status": "ok"}
 
+    @app.get("/dashboard")
+    def dashboard():
+        # The monitor page. Served unauthenticated like /health — the file is
+        # static and carries no session data; every API call the page makes
+        # needs the bearer token, which reaches it via the URL fragment (never
+        # sent to the server) or a paste. Renders app panels only when
+        # /capabilities says an application is hosted.
+        import pkgutil
+
+        from fastapi.responses import HTMLResponse
+
+        page = pkgutil.get_data("fibsem.server", "dashboard.html")
+        if page is None:  # pragma: no cover - packaging defect, not runtime state
+            raise HTTPException(status_code=404, detail="dashboard.html not packaged")
+        return HTMLResponse(page.decode("utf-8"))
+
     @read.get("/capabilities")
     def capabilities():
         return {

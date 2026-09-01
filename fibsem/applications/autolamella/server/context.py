@@ -203,7 +203,15 @@ class AgentContext:
         }
 
     def task_outputs(self, item_name: str) -> Dict[str, Any]:
-        """The files an item's completed tasks produced, existence-checked."""
+        """The files an item's completed tasks produced, existence-checked.
+
+        ``tasks`` keeps the per-run grouping the flat lists erase — one entry
+        per history entry, in run order, each with its recorded files by role
+        (basenames, servable through :meth:`output_image`). That is the review
+        story: which task produced which image.
+        """
+        import os
+
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "item_name": item_name}
@@ -215,10 +223,23 @@ class AgentContext:
                 "error": f"No item named {item_name!r} in this experiment.",
             }
         history = list(lamella.task_history)
+        tasks = []
+        for state in history:
+            files: Dict[str, List[str]] = {}
+            for role, relpaths in dict(state.outputs).items():
+                names = [
+                    os.path.basename(rp)
+                    for rp in relpaths
+                    if os.path.isfile(os.path.join(lamella.path, rp))
+                ]
+                if names:
+                    files[role] = names
+            tasks.append({"name": state.name, "files": files})
         return {
             "available": True,
             "item_name": item_name,
             "completed_tasks": [state.name for state in history],
+            "tasks": tasks,
             "final_reference_images": [
                 str(p) for p in _task_outputs.final_reference_images(lamella, *history)
             ],

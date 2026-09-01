@@ -121,6 +121,7 @@ namespaces = true
 
 [tool.setuptools.package-data]
 "*" = ["*.yaml"]
+"fibsem.server" = ["dashboard.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

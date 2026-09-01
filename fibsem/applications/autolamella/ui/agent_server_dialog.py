@@ -203,6 +203,13 @@ class AgentServerDialog(QDialog):
         layout.addWidget(note)
 
         footer = QHBoxLayout()
+        self._btn_dashboard = QPushButton("Open Dashboard")
+        self._btn_dashboard.setToolTip(
+            "A read-only monitor page in your browser — item progress, the "
+            "workflow, and the live event feed."
+        )
+        self._btn_dashboard.clicked.connect(self._on_dashboard_clicked)
+        footer.addWidget(self._btn_dashboard)
         footer.addStretch(1)
         self._btn_close = QPushButton("Close")
         self._btn_close.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
@@ -257,7 +264,12 @@ class AgentServerDialog(QDialog):
         """Re-read the session's server into the dialog."""
         host = self._host()
         running = host is not None
-        for widget in (self._token_edit, self._btn_reveal, self._btn_copy):
+        for widget in (
+            self._token_edit,
+            self._btn_reveal,
+            self._btn_copy,
+            self._btn_dashboard,
+        ):
             widget.setEnabled(running)
         self._chk_control.setEnabled(running)
         if not running:
@@ -285,6 +297,22 @@ class AgentServerDialog(QDialog):
         self._chk_control.blockSignals(False)
 
     # --- actions --------------------------------------------------------------
+
+    @staticmethod
+    def dashboard_url(host) -> str:
+        """The dashboard address with the token in the URL *fragment* — the
+        one part of a URL a browser never sends anywhere, so it reaches the
+        page's own script and nothing else (no server log, no referrer)."""
+        return f"{host.url}/dashboard#token={host.auth.token}"
+
+    def _on_dashboard_clicked(self) -> None:
+        host = self._host()
+        if host is None:
+            return
+        from PyQt5.QtCore import QUrl
+        from PyQt5.QtGui import QDesktopServices
+
+        QDesktopServices.openUrl(QUrl(self.dashboard_url(host)))
 
     def _on_reveal_toggled(self, show: bool) -> None:
         self._token_edit.setEchoMode(QLineEdit.Normal if show else QLineEdit.Password)
