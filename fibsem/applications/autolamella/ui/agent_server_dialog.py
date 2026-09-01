@@ -214,6 +214,14 @@ class AgentServerDialog(QDialog):
         self._btn_copy.clicked.connect(self._on_copy_clicked)
         self._chk_control.toggled.connect(self._on_control_toggled)
 
+        # Keep the status line live while the dialog is open: "last heard
+        # from" is only useful if it ticks. Status text only — a full
+        # refresh() would rewrite the token field under the user.
+        self._status_timer = QTimer(self)
+        self._status_timer.setInterval(2000)
+        self._status_timer.timeout.connect(self._update_status_line)
+        self._status_timer.start()
+
         self.refresh()
 
     # --- live state -----------------------------------------------------------
@@ -223,6 +231,27 @@ class AgentServerDialog(QDialog):
         if host is None or not getattr(host, "running", False):
             return None
         return host
+
+    @staticmethod
+    def _status_text(host) -> str:
+        """The status line: where it's running, and when an agent was last
+        heard from — the human-readable face of the presence signal."""
+        text = f"Running on {host.url}"
+        try:
+            age = host.agent_seconds_since_seen()
+        except Exception:
+            return text
+        if age is None:
+            return text + " · nothing has connected yet"
+        if age < 60:
+            return text + f" · last heard from {int(age)} s ago"
+        return text + f" · last heard from {int(age // 60)} min ago"
+
+    def _update_status_line(self) -> None:
+        """Timer tick: refresh only the status text, never the token field."""
+        host = self._host()
+        if host is not None:
+            self._status_label.setText(self._status_text(host))
 
     def refresh(self) -> None:
         """Re-read the session's server into the dialog."""
@@ -246,7 +275,7 @@ class AgentServerDialog(QDialog):
         from fibsem.server.auth import Scope
 
         self._status_dot.setStyleSheet(f"color: {OK_COLOR};")
-        self._status_label.setText(f"Running on {host.url}")
+        self._status_label.setText(self._status_text(host))
         self._status_label.setStyleSheet(f"color: {TEXT_STRONG_COLOR};")
         self._token_edit.setText(host.auth.token)
         # Reflect without re-arming: setChecked fires toggled, which would log

@@ -15,6 +15,7 @@ supply one), and only ``read`` is armed unless the hosting says otherwise.
 import hmac
 import secrets
 import threading
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import FrozenSet, Iterable, Optional
@@ -44,6 +45,24 @@ class AuthConfig:
 
     token: str
     armed: FrozenSet[Scope] = field(default_factory=frozenset)
+    # Monotonic time of the last request that presented the valid token; None
+    # until one arrives. The connected agent's proof of life: its event
+    # long-poll alone touches the server every half-minute, so staleness here
+    # means nobody is on the other end (used to hand a parked question to the
+    # operator without waiting out the full hand-over time).
+    last_seen_monotonic: Optional[float] = None
+
+    def mark_seen(self) -> None:
+        """Record that the token holder just made a request. Any thread —
+        a float rebind is atomic, and readers only ever want 'roughly now'."""
+        self.last_seen_monotonic = time.monotonic()
+
+    def seconds_since_seen(self) -> Optional[float]:
+        """Seconds since the token holder was last heard from, or None if never."""
+        seen = self.last_seen_monotonic
+        if seen is None:
+            return None
+        return max(0.0, time.monotonic() - seen)
 
     def set_armed(self, scope: Scope, armed: bool) -> None:
         """Arm or disarm one scope, effective for the next request."""
@@ -99,6 +118,9 @@ def require_scope(scope: Scope):
                     "message": "Missing or invalid bearer token.",
                 },
             )
+        # A valid token is proof of life whatever happens next — a scope
+        # refusal below is still the agent talking.
+        auth.mark_seen()
         if not auth.is_armed(scope):
             raise HTTPException(
                 status_code=403,

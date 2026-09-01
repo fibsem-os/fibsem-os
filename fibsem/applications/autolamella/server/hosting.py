@@ -64,6 +64,15 @@ class AgentServerHost:
     def running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
+    def agent_seconds_since_seen(self) -> Optional[float]:
+        """Seconds since the agent's token last made a request, or None if the
+        server isn't running or nothing has connected yet. A live supervising
+        agent long-polls the event stream, so this stays small while one is
+        attached — staleness means nobody is on the other end."""
+        if not self.running or self.auth is None:
+            return None
+        return self.auth.seconds_since_seen()
+
     @property
     def url(self) -> str:
         return f"http://{self._host}:{self._port}"

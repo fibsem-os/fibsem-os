@@ -91,7 +91,12 @@ enabled). A task set to *Agent* raises its questions to the connected agent:
   (Preferences → Agent, default 5 minutes), the question becomes yours: the
   ordinary orange border, attention button, and sound, plus a message saying
   why. This hand-over runs inside AutoLamella, so it works even if the agent's
-  own process has died.
+  own process has died;
+- and the app knows whether anyone is actually out there: a watching agent is
+  in touch with the server every half-minute, so if it hasn't been heard from
+  — it never connected, or its session died — a question is handed to you
+  right away instead of waiting out the timer. The Agent Server dialog shows
+  when the agent was last heard from.
 
 You can always answer any question yourself, whoever it is addressed to.
 

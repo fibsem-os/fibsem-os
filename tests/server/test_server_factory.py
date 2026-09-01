@@ -117,6 +117,31 @@ def test_stop_milling_allowed_with_read_scope(read_client):
     assert resp.status_code == 200
 
 
+def test_valid_requests_stamp_last_seen(microscope):
+    """The presence signal: any request bearing the valid token marks the
+    agent as heard from — including a scope refusal, which is still the agent
+    talking. An invalid token marks nothing."""
+    auth = AuthConfig(token=TOKEN)
+    app = build_server(microscope, auth=auth)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        assert auth.seconds_since_seen() is None
+
+        client.get("/stage_position", headers=AUTH)
+        age = auth.seconds_since_seen()
+        assert age is not None and age < 5.0
+
+        auth.last_seen_monotonic = None
+        refused = client.post(
+            "/move_stage_relative", headers=AUTH, json={"dx": 0, "dy": 0, "dz": 0}
+        )
+        assert refused.status_code == 403  # hardware not armed
+        assert auth.seconds_since_seen() is not None
+
+        auth.last_seen_monotonic = None
+        client.get("/stage_position", headers={"Authorization": "Bearer wrong"})
+        assert auth.seconds_since_seen() is None
+
+
 def test_hardware_route_works_when_armed(armed_client):
     resp = armed_client.get("/stage_position", headers=AUTH)
     start = resp.json()["position"]

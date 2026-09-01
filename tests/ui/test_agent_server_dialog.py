@@ -75,3 +75,26 @@ def test_the_token_starts_hidden(qapp, host):
     dialog._btn_reveal.setChecked(True)
     assert dialog._token_edit.echoMode() == QLineEdit.Normal
     dialog.deleteLater()
+
+
+def test_status_text_reports_when_the_agent_was_last_heard_from():
+    """The presence signal's face: the status line says when the agent's
+    token last made a request, in units a human reads at a glance."""
+    from fibsem.applications.autolamella.ui.agent_server_dialog import (
+        AgentServerDialog,
+    )
+
+    class _Host:
+        url = "http://127.0.0.1:8001"
+
+        def __init__(self, age):
+            self._age = age
+
+        def agent_seconds_since_seen(self):
+            return self._age
+
+    assert AgentServerDialog._status_text(_Host(None)).endswith(
+        "nothing has connected yet"
+    )
+    assert "last heard from 5 s ago" in AgentServerDialog._status_text(_Host(5.4))
+    assert "last heard from 3 min ago" in AgentServerDialog._status_text(_Host(200))
