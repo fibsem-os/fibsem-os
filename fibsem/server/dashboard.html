@@ -57,16 +57,14 @@
   .seg { flex:1; height:4px; background:var(--row-alt); border-radius:1px; }
   .seg.done { background:var(--ok); }
   .seg.active { background:var(--primary); }
-  .pair { display:flex; gap:2px; background:var(--canvas); }
-  .pair .half { flex:1; min-width:0; position:relative; }
-  .pair img { display:block; width:100%; aspect-ratio:3/2; object-fit:cover; }
-  .pair .beam { position:absolute; left:0; top:0; font-family:var(--mono);
-    font-size:10px; color:var(--muted); background:rgba(20,21,24,.8); padding:1px 6px; }
-
   .review { padding:6px 10px 2px; display:flex; flex-direction:column; gap:4px; }
-  .rrow { display:flex; gap:3px; align-items:center; }
-  .rrow .lbl { flex:0 0 58px; font-family:var(--mono); font-size:10px;
-    color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .rhead { display:flex; gap:3px; }
+  .rhead span { flex:1; font-family:var(--mono); font-size:9.5px;
+    color:var(--muted); }
+  .rrow { display:flex; gap:3px; position:relative; }
+  .rrow .lbl { position:absolute; left:0; bottom:0; z-index:1;
+    font-family:var(--mono); font-size:9.5px; color:var(--muted);
+    background:rgba(20,21,24,.8); padding:0 5px; }
   .rrow .im { flex:1; min-width:0; }
   .rrow img { display:block; width:100%; aspect-ratio:3/2; object-fit:cover;
     background:var(--canvas); }
@@ -241,21 +239,6 @@ async function renderCard(name) {
       fib: (files.final_fib || []).slice(-1)[0],
     };
   };
-  const half = (file, beam) => file
-    ? `<div class="half"><img data-src="${esc(file)}" alt=""><span class="beam">${beam}</span></div>`
-    : `<div class="half"><span class="none">no ${beam}</span></div>`;
-
-  // Main pair: the most recent task that recorded any image.
-  const latest = [...reviewOrder].reverse()
-    .find(n => pairOf(n).sem || pairOf(n).fib);
-  let frame = `<span class="none">no recorded images yet</span>`;
-  let tag = "";
-  if (latest) {
-    const p = pairOf(latest);
-    frame = `<div class="pair">${half(p.sem, "sem")}${half(p.fib, "fib")}</div>`;
-    tag = `<span class="frame-tag">${esc(shortTask(latest))}</span>`;
-  }
-
   // Review rows: every completed task's final pair, protocol order — the
   // review tab in miniature.
   const review = reviewOrder.map(taskName => {
@@ -269,9 +252,10 @@ async function renderCard(name) {
 
   el.innerHTML = `
     <div class="card-head"><span class="name">${esc(name)}</span>${state}</div>
-    <div class="frame">${frame}${tag}</div>
     <div class="segs">${segs}</div>
-    ${review ? `<div class="review">${review}</div>` : ""}
+    ${review
+      ? `<div class="review"><div class="rhead"><span>sem</span><span>fib</span></div>${review}</div>`
+      : `<div class="frame"><span class="none">no recorded images yet</span></div>`}
     <table class="facts">
       <tr><td>next</td><td>${esc(next ? shortTask(next.name) : "—")}</td></tr>
       <tr><td>poi</td><td>${esc(poi)}</td></tr>
