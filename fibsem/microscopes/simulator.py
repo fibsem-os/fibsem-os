@@ -666,13 +666,17 @@ class DemoMicroscope(FibsemMicroscope):
 
         # shared-scene projection takes precedence when enabled (FIB-874)
         if self._coincidence_scene is not None:
+            from fibsem.projection import BeamStageProjection
+
+            projection = BeamStageProjection.from_microscope(
+                self, beam_type=effective_beam_type
+            )
             image.data = self._coincidence_scene.render(
                 beam_type=effective_beam_type,
                 stage_position=self.get_stage_position(),
                 hfw=effective_image_settings.hfw,
                 resolution=effective_image_settings.resolution,
-                pretilt=np.deg2rad(self.system.stage.shuttle_pre_tilt),
-                column_tilt=np.deg2rad(self.system.ion.column_tilt),
+                projection=projection,
             )
         # generate the next image from the sequence iterator
         elif self.use_image_sequence:

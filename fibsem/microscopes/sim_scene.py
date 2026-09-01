@@ -28,17 +28,18 @@ for workflow/UI simulation.
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 import numpy as np
 
+from fibsem.projection import BeamStageProjection, surface_foreshortening
 from fibsem.structures import BeamType, FibsemStagePosition
-from fibsem.transformations import convert_stage_tilt_to_milling_angle
 
-# Keep the projection well-defined at any stage tilt: outside this range the
-# flat-surface foreshortening model degenerates (grazing or edge-on views).
-MIN_GLANCING_ANGLE = np.deg2rad(2.0)
+# Keep the render well-defined at any pose: below this foreshortening the
+# view is a degenerate grazing projection (features smear to infinity).
+MIN_FORESHORTENING = 0.035  # ~ sin(2 deg)
 
 FIDUCIAL_ARM_LENGTH = 8e-6  # m, half-length of each fiducial cross arm
 FIDUCIAL_POINT_SPACING = 0.5e-6  # m
@@ -85,9 +86,10 @@ class CoincidenceScene:
     # grids never load perfectly straight; drawn from +/- this range per seed
     grid_rotation: Optional[float] = None  # rad; random when None
     grid_rotation_range: float = np.deg2rad(45.0)
-    # reference stage (y, z) captured on first render; the height error is
-    # measured relative to this, in the stage-carried surface frame
-    reference_stage_yz: Optional[Tuple[float, float]] = None
+    # the coincident stage position, captured on first render (current
+    # position with z offset by coincidence_offset); every view is rendered
+    # as the beam projection of the scene relative to this reference
+    reference_position: Optional[FibsemStagePosition] = None
     features: List[SceneFeature] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -130,20 +132,23 @@ class CoincidenceScene:
         stage_position: FibsemStagePosition,
         hfw: float,
         resolution: Tuple[int, int],
-        pretilt: float,
-        column_tilt: float,
+        projection: BeamStageProjection,
         rng: Optional[np.random.Generator] = None,
     ) -> np.ndarray:
         """Render one beam's view of the scene at the current stage position.
 
+        All world-to-view mapping goes through the supplied BeamStageProjection
+        - the same machinery the minimap/overview and click handlers use - so
+        navigation, tiled stitching, reprojection, scan rotation, and the
+        per-beam projection of a height error (the coincidence displacement)
+        are all consistent with the app by construction.
+
         Args:
-            beam_type: ELECTRON (top-down) or ION (foreshortened + displaced).
-            stage_position: current stage position; x/y centre the view, z
-                drives the coincidence displacement, t the foreshortening.
+            beam_type: which beam's view to render.
+            stage_position: current stage position.
             hfw: horizontal field width in metres.
             resolution: (width, height) in pixels.
-            pretilt: shuttle pre-tilt in RADIANS.
-            column_tilt: ion column tilt in RADIANS.
+            projection: the beam's stage projection (from the live geometry).
             rng: noise source; a fresh default generator when omitted.
 
         Returns:
@@ -152,57 +157,36 @@ class CoincidenceScene:
         width, height = int(resolution[0]), int(resolution[1])
         pixel_size = hfw / width
         cx, cy = width / 2, height / 2
-        sx = stage_position.x or 0.0
-        sy = stage_position.y or 0.0
-        sz = stage_position.z or 0.0
-        tilt = stage_position.t or 0.0
 
-        if self.reference_stage_yz is None:
-            self.reference_stage_yz = (sy, sz)
+        if self.reference_position is None:
+            reference = deepcopy(stage_position)
+            reference.z = (reference.z or 0.0) - self.coincidence_offset
+            self.reference_position = reference
             logging.info(
                 {
                     "msg": "coincidence_scene_init",
-                    "reference_stage_yz": self.reference_stage_yz,
+                    "reference_position": reference.to_dict(),
                     "coincidence_offset": self.coincidence_offset,
                 }
             )
 
-        # Stage y/z axes tilt with the stage, and stable moves follow the
-        # pre-tilted sample surface (dz = -dy*tan(pretilt)), so:
-        # - the view centre in the sample plane is the chamber-lateral
-        #   position, y*cos(t) - z*sin(t)  (verified against stable_move:
-        #   a requested image dy lands exactly dy in this frame)
-        # - the height error is measured against the stage-carried surface,
-        #   so surface-following moves leave it unchanged and z-only moves
-        #   (vertical_move) change it one-to-one
-        y0, z0 = self.reference_stage_yz
-        height_error = (sz - z0) + (sy - y0) * np.tan(pretilt) + self.coincidence_offset
-        vy = sy * np.cos(tilt) - sz * np.sin(tilt)
-        vy0 = y0 * np.cos(tilt) - z0 * np.sin(tilt)
-        view_y = vy - vy0
+        # where the current stage sits in the reference view's plane: carries
+        # the lateral travel, the per-beam projection of the height error
+        # (zero in the SEM view, sin(view_tilt) per metre in the FIB view),
+        # and the scan-rotation/manufacturer conventions
+        ox, oy = projection.to_plane(stage_position, self.reference_position)
 
-        if beam_type is BeamType.ION:
-            milling_angle = convert_stage_tilt_to_milling_angle(
-                stage_tilt=tilt, pretilt=pretilt, column_tilt=column_tilt
-            )
-            milling_angle = float(
-                np.clip(
-                    milling_angle, MIN_GLANCING_ANGLE, column_tilt - MIN_GLANCING_ANGLE
-                )
-            )
-            stretch = np.sin(column_tilt - milling_angle) / np.sin(milling_angle)
-            dy_px = height_error * np.sin(column_tilt) / pixel_size
-        else:
-            stretch = 1.0
-            dy_px = 0.0
+        fs = max(surface_foreshortening(projection, stage_position), MIN_FORESHORTENING)
+        flip = -1.0 if np.isclose(projection.scan_rotation, np.pi) else 1.0
 
         canvas = np.zeros((height, width), dtype=np.float32)
 
-        # grid mesh bars: computed in world coordinates per pixel row/column,
-        # through the same view transform as the features (hole at the origin)
-        xs_world = (np.arange(width, dtype=np.float32) - cx) * pixel_size + sx
-        v_sem_rows = (np.arange(height, dtype=np.float32) - cy - dy_px) * stretch + cy
-        ys_world = (v_sem_rows - cy) * pixel_size + view_y
+        # grid mesh bars: world (sample-plane) coordinates per pixel, through
+        # the inverse of the same mapping the features use
+        xs_world = flip * ((np.arange(width, dtype=np.float32) - cx) * pixel_size + ox)
+        ys_world = (
+            flip * ((np.arange(height, dtype=np.float32) - cy) * pixel_size + oy) / fs
+        )
 
         def _near_bar(w: np.ndarray) -> np.ndarray:
             return (
@@ -221,11 +205,10 @@ class CoincidenceScene:
         canvas[bar_mask] += self.grid_intensity
 
         for f in self.features:
-            u = (f.x - sx) / pixel_size + cx
-            v_sem = cy + (f.y - view_y) / pixel_size
-            v = cy + (v_sem - cy) / stretch + dy_px
+            u = cx + (flip * f.x - ox) / pixel_size
+            v = cy + (flip * f.y * fs - oy) / pixel_size
             sigma_x = f.sigma / pixel_size
-            sigma_y = sigma_x / stretch
+            sigma_y = sigma_x * fs
             self._stamp_blob(canvas, u, v, sigma_x, sigma_y, f.intensity, f.sharpness)
 
         if rng is None:
