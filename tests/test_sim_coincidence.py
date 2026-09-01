@@ -215,8 +215,10 @@ def test_views_share_the_scene_but_not_the_contrast():
 
 def test_measures_configured_offset(microscope):
     """The measurement and the scene now share BeamStageProjection, so the
-    configured boot offset is recovered exactly."""
-    _enable_projection(microscope)
+    configured boot offset is recovered exactly. Noise off: the oracle is
+    about geometry, and per-acquisition random noise made it flake near the
+    band-agreement tolerance on some CI platforms."""
+    _enable_projection(microscope, noise_sigma=0.0, noise_fraction=0.0)
     settings = _image_settings(BeamType.ELECTRON, hfw=100e-6)
     sem_image = microscope.acquire_image(image_settings=settings)
     settings.beam_type = BeamType.ION
@@ -228,8 +230,9 @@ def test_measures_configured_offset(microscope):
 
 def test_known_z_move_changes_measurement_by_that_amount(microscope):
     """The offline oracle: apply a known stage-z move, the measured dz must
-    change by exactly that amount."""
-    _enable_projection(microscope)
+    change by exactly that amount. Noise off - see
+    test_measures_configured_offset."""
+    _enable_projection(microscope, noise_sigma=0.0, noise_fraction=0.0)
 
     def measure():
         settings = _image_settings(BeamType.ELECTRON, hfw=100e-6)
