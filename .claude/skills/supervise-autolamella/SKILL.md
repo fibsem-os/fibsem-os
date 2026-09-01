@@ -14,14 +14,28 @@ ever lost by waiting.
 
 ## Connect
 
-The running app advertises itself in a discovery file:
+**Prefer the native MCP tools.** If `mcp__fibsem__*` tools are available in
+your session (the repo's `.mcp.json` registers the `fibsem-mcp` sidecar),
+use them for everything below — `get_capabilities`, `get_events`,
+`get_pending_prompt`, `answer_prompt`, `start_workflow`, and the rest map
+one-to-one onto the HTTP surface, and they avoid shell-permission friction
+entirely.
+
+Fallback is plain HTTP; the running app advertises itself in a discovery
+file:
 
 ```bash
 TOKEN=$(python3 -c "import json;print(json.load(open('$HOME/.fibsem/agent-server.json'))['token'])")
 curl -s "http://127.0.0.1:8001/capabilities" -H "Authorization: Bearer $TOKEN"
 ```
 
-Check the response before doing anything else:
+Note for the curl path: your own harness may gate state-changing commands.
+In an interactive session that is a permission prompt for the operator to
+approve; running autonomously it can be a hard denial. Treat a harness
+denial exactly like a server 403 — stop and ask; never repackage the call
+to slip past it.
+
+Check the capabilities response before doing anything else:
 - `routers.app` must be true (an application is hosted, not just a bench server);
 - `scopes.control` true means you may answer and act. If it is false you can
   only watch — say so, and ask the operator to grant *Act* in
@@ -33,18 +47,21 @@ ways in.
 
 ## Watch
 
-Sleep on the events long-poll; never poll `/app/prompt` on a timer:
+Sleep on the events long-poll; never poll `/app/prompt` on a timer. **Run
+the bundled watcher as a background monitor** — do not write your own (the
+first fresh agent to try matched the wrong JSON key and slept through a
+question), and do not run it in the foreground: each line it prints is your
+wake-up call, and a foreground watcher blocks you from acting on what it
+sees.
 
 ```
-GET /app/events?since=<last_seq>&timeout=25
+python .claude/skills/supervise-autolamella/watch_events.py
 ```
 
-Wake and act on: `prompt_raised` (a question is standing — its payload carries
-the nonce), `prompt_answered` (someone answered — check `answered_by`; if it
-was the operator, your read of that question is stale), `task_started` /
-`task_completed` / `task_failed` / `task_cancelled`, `workflow_completed` /
-`workflow_cancelled` (report and stop watching). Run the watch as a background
-monitor and act per event; do not busy-wait.
+Wake and act on its lines: `PROMPT` (a question is standing, with its
+nonce), `ANSWERED` (check who — if the operator answered, your read of that
+question is stale), task lifecycle `EVENT` lines, and `RUN ENDED` (report
+and stop watching).
 
 ## Answer — the rules that are never optional
 
