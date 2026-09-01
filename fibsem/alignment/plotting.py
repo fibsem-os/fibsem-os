@@ -214,14 +214,11 @@ def plot_coincidence_measurement(
     from matplotlib.figure import Figure
     from scipy import ndimage as ndi
 
-    from fibsem.alignment.coincidence import (
-        _stretch_y,
-        fib_view_y_stretch,
-        geometry_from_metadata,
-    )
+    from fibsem.alignment.coincidence import _stretch_y, geometry_from_images
 
-    pixel_size, milling_angle, column_tilt = geometry_from_metadata(sem_image)
-    stretch = fib_view_y_stretch(milling_angle, column_tilt)
+    geometry = geometry_from_images(sem_image, fib_image)
+    pixel_size = geometry.pixel_size
+    stretch = geometry.y_stretch
     fib_stretched = _stretch_y(fib_image.data.astype(np.float32), stretch)
     dy_px = measurement.dy / pixel_size * stretch
     dx_px = measurement.dx / pixel_size

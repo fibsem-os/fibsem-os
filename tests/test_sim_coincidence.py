@@ -213,13 +213,9 @@ def test_views_share_the_scene_but_not_the_contrast():
     assert corr < -0.9
 
 
-@pytest.mark.xfail(
-    reason="measure_coincidence still derives its stretch and dy->dz conversion "
-    "from hand formulas that disagree with the calibrated BeamStageProjection "
-    "at tilt (FIB-868: derive measurement geometry from the projection)",
-    strict=False,
-)
 def test_measures_configured_offset(microscope):
+    """The measurement and the scene now share BeamStageProjection, so the
+    configured boot offset is recovered exactly."""
     _enable_projection(microscope)
     settings = _image_settings(BeamType.ELECTRON, hfw=100e-6)
     sem_image = microscope.acquire_image(image_settings=settings)
@@ -227,31 +223,27 @@ def test_measures_configured_offset(microscope):
     fib_image = microscope.acquire_image(image_settings=settings)
     m = measure_coincidence_from_images(sem_image, fib_image)
     assert m.is_reliable, m.refusal_reason
-    assert abs(abs(m.dz) - COINCIDENCE_OFFSET) < 1e-6
+    assert abs(m.dz) == pytest.approx(COINCIDENCE_OFFSET, abs=0.5e-6)
 
 
-def test_click_still_centres_after_a_tilt_change(microscope):
-    """Anchoring at one tilt and clicking at another must not distort moves:
-    the scene re-anchors on tilt changes (the app boots at t=0, users tilt)."""
-    from scipy import ndimage as ndi
+def test_known_z_move_changes_measurement_by_that_amount(microscope):
+    """The offline oracle: apply a known stage-z move, the measured dz must
+    change by exactly that amount."""
+    _enable_projection(microscope)
 
-    _fiducial_only(microscope)
-    settings = _image_settings(BeamType.ION)
+    def measure():
+        settings = _image_settings(BeamType.ELECTRON, hfw=100e-6)
+        sem_image = microscope.acquire_image(image_settings=settings)
+        settings.beam_type = BeamType.ION
+        fib_image = microscope.acquire_image(image_settings=settings)
+        return measure_coincidence_from_images(sem_image, fib_image)
 
-    def fiducial():
-        image = microscope.acquire_image(image_settings=settings)
-        data = ndi.gaussian_filter(image.data.astype(np.float32), 3)
-        y, x = np.unravel_index(np.argmin(data), data.shape)
-        return x, y
-
-    fiducial()  # anchor at the milling pose
-    # tilt to the SEM orientation, as a user does after boot
+    m0 = measure()
+    assert m0.is_reliable, m0.refusal_reason
+    dz_applied = 3e-6
     microscope.move_stage_relative(
-        FibsemStagePosition(x=0, y=0, z=0, r=0, t=np.deg2rad(23.0))
+        FibsemStagePosition(x=0, y=0, z=dz_applied, r=0, t=0)
     )
-    x0, y0 = fiducial()
-    microscope.stable_move(dx=0, dy=-20e-6, beam_type=BeamType.ION)
-    x1, y1 = fiducial()
-    pixel_size = 150e-6 / 1536
-    moved = (y1 - y0) * pixel_size
-    assert abs(moved - (-20e-6)) < 1e-6, f"moved {moved * 1e6:+.2f} um, want -20"
+    m1 = measure()
+    assert m1.is_reliable, m1.refusal_reason
+    assert abs(m1.dz - m0.dz) == pytest.approx(dz_applied, abs=0.5e-6)

@@ -38,7 +38,6 @@ from scipy import ndimage as ndi
 from scipy.signal import fftconvolve
 
 from fibsem.structures import FibsemImage
-from fibsem.transformations import convert_stage_tilt_to_milling_angle
 
 DEFAULT_FIB_COLUMN_TILT = np.deg2rad(52.0)
 
@@ -77,37 +76,93 @@ class CoincidenceMeasurement:
     method: str = "crossbeam-xcorr"
 
 
-def fib_view_y_stretch(
-    milling_angle: float, column_tilt: float = DEFAULT_FIB_COLUMN_TILT
-) -> float:
-    """Foreshortening ratio mapping the FIB view onto the SEM projection.
+@dataclass
+class CoincidenceGeometry:
+    """The three numbers the measurement needs, derived per image pair.
 
-    For a locally flat surface at the given milling angle (FIB glancing
-    angle), the two views of the surface differ by a y-only scale of
-    sin(column_tilt - milling_angle) / sin(milling_angle).
-
-    Args:
-        milling_angle: angle between the FIB beam and the sample surface, in
-            RADIANS.
-        column_tilt: angle between the SEM and FIB columns, in RADIANS.
+    Derived from BeamStageProjection - the calibrated stage/view model the
+    app's movement, overview and reprojection code share - rather than from
+    standalone trigonometry. The earlier hand formulas (a sin ratio for the
+    stretch, sin(column_tilt) for dz) disagreed with the calibrated model at
+    tilt: stage axes tilt with the stage, and each beam has its own
+    foreshortening.
     """
-    if not 0 < milling_angle < column_tilt:
+
+    pixel_size: float  # m/px, shared by the pair
+    y_stretch: float  # multiply FIB-view y by this to reach the SEM projection
+    dz_per_dy: float  # stage-z error per metre of measured FIB-plane dy
+
+
+_Z_PROBE = 1.0e-6  # m; the projections are linear, any probe length works
+
+
+def geometry_from_images(
+    sem_image: FibsemImage, fib_image: FibsemImage
+) -> CoincidenceGeometry:
+    """Derive the measurement geometry from an image pair's own metadata.
+
+    Pixel size is per-image (hfw varies between workflow stages - never share
+    one value across a dataset). The stretch is the ratio of the two beams'
+    surface foreshortenings, and dz_per_dy inverts how a stage-z move
+    projects into the two views (it moves both: the FIB view by its view
+    tilt, and the SEM view by the sin(tilt) stage-axis leak), all read from
+    the projections the images record - so a saved pair is self-sufficient,
+    usable offline with no microscope connection.
+
+    Raises:
+        ValueError: when the pair's metadata cannot supply the projections,
+            or the stage rotation is nearer the flipped (rotation_180 /
+            FIB-orientation) side than the reference side - unvalidated
+            territory where the measurement should refuse rather than
+            silently mis-scale (FIB-868 follow-up).
+    """
+    from copy import deepcopy
+
+    from fibsem.movement import angle_difference
+    from fibsem.projection import BeamStageProjection, surface_foreshortening
+
+    md = sem_image.metadata
+    pixel_size = md.pixel_size.x
+    stage_position = md.microscope_state.stage_position
+
+    stage_rotation = stage_position.r or 0.0
+    rotation_reference = np.deg2rad(md.hardware_geometry.rotation_reference)
+    rotation_180 = np.deg2rad(md.hardware_geometry.rotation_180)
+    if angle_difference(stage_rotation, rotation_180) < angle_difference(
+        stage_rotation, rotation_reference
+    ):
         raise ValueError(
-            f"milling_angle must be in (0, column_tilt) radians, "
-            f"got {milling_angle}. (Degrees passed by mistake?)"
+            "Stage rotation is on the flipped (FIB-orientation) side; "
+            "coincidence measurement there is not validated yet (FIB-868)."
         )
-    return np.sin(column_tilt - milling_angle) / np.sin(milling_angle)
 
+    sem_projection = BeamStageProjection.from_image(sem_image)
+    fib_projection = BeamStageProjection.from_image(fib_image)
+    if sem_projection is None or fib_projection is None:
+        raise ValueError(
+            "Image metadata does not carry the beam geometry needed to "
+            "derive the coincidence measurement projections."
+        )
 
-def height_error_from_fib_shift(
-    dy: float, column_tilt: float = DEFAULT_FIB_COLUMN_TILT
-) -> float:
-    """Convert a FIB-view vertical residual (m) to a height error (m).
+    fs_sem = surface_foreshortening(sem_projection, stage_position)
+    fs_fib = surface_foreshortening(fib_projection, stage_position)
+    y_stretch = fs_sem / fs_fib
 
-    A chamber-vertical displacement dz appears in the FIB view displaced by
-    dz * sin(column_tilt) along image-y, and is invisible to a vertical SEM.
-    """
-    return dy / np.sin(column_tilt)
+    probed = deepcopy(stage_position)
+    probed.z = (probed.z or 0.0) + _Z_PROBE
+    k_fib = fib_projection.to_plane(probed, stage_position)[1] / _Z_PROBE
+    k_sem = sem_projection.to_plane(probed, stage_position)[1] / _Z_PROBE
+    # the measured dy is FIB-plane displacement RELATIVE to the SEM view;
+    # a stage-z error moves both views, the SEM part seen through the stretch
+    k_relative = k_fib - k_sem / y_stretch
+    if abs(k_relative) < 1e-6:
+        raise ValueError(
+            "Degenerate pose: a stage-z move is invisible to the pair, so "
+            "no height error can be inferred here."
+        )
+    return CoincidenceGeometry(
+        pixel_size=pixel_size, y_stretch=y_stretch, dz_per_dy=1.0 / k_relative
+    )
 
 
 def _local_normalise(image: np.ndarray, sigma: float = 32) -> np.ndarray:
@@ -167,8 +222,8 @@ def measure_coincidence(
     sem: np.ndarray,
     fib: np.ndarray,
     pixel_size: float,
-    milling_angle: float,
-    column_tilt: float = DEFAULT_FIB_COLUMN_TILT,
+    y_stretch: float,
+    dz_per_dy: float,
     prior: Optional[Tuple[float, float]] = None,
     capture_range: float = DEFAULT_CAPTURE_RANGE,
     agreement_tolerance: float = DEFAULT_AGREEMENT_TOLERANCE,
@@ -181,8 +236,10 @@ def measure_coincidence(
         sem: SEM (electron) image, 2D.
         fib: FIB (ion) image of the same scene, 2D, same shape and pixel size.
         pixel_size: metres per pixel (shared by both images).
-        milling_angle: FIB-beam-to-surface angle in RADIANS.
-        column_tilt: SEM-to-FIB column angle in RADIANS.
+        y_stretch: foreshortening ratio mapping FIB-view y onto the SEM
+            projection (see geometry_from_images).
+        dz_per_dy: stage-z error per metre of measured dy (see
+            geometry_from_images).
         prior: expected (dx, dy) residual in metres, e.g. the previous
             measurement at this site. Centres the search window.
         capture_range: half-width of the search window in metres. Keep well
@@ -199,7 +256,7 @@ def measure_coincidence(
     if sem.shape != fib.shape:
         raise ValueError(f"image shapes differ: {sem.shape} vs {fib.shape}")
 
-    stretch = fib_view_y_stretch(milling_angle, column_tilt)
+    stretch = y_stretch
     fib_stretched = _stretch_y(fib.astype(np.float32), stretch)
 
     if prior is not None:
@@ -222,7 +279,7 @@ def measure_coincidence(
     disagreement = np.hypot((dy_a - dy_b) / stretch, dx_a - dx_b) * pixel_size
     dy = ((dy_a + dy_b) / 2 / stretch) * pixel_size
     dx = ((dx_a + dx_b) / 2) * pixel_size
-    dz = height_error_from_fib_shift(dy, column_tilt)
+    dz = dy * dz_per_dy
 
     refusal: Optional[str] = None
     if on_edge_any:
@@ -254,73 +311,28 @@ def measure_coincidence(
     return measurement
 
 
-def geometry_from_metadata(image: FibsemImage) -> Tuple[float, float, float]:
-    """Extract (pixel_size, milling_angle, column_tilt) from image metadata.
-
-    Pixel size is per-image (hfw varies between workflow stages - never share
-    one value across a dataset). The milling angle is derived from the
-    recorded stage tilt plus the hardware geometry (shuttle pre-tilt, ion
-    column tilt), so a saved pair is self-sufficient - usable offline with no
-    microscope connection.
-
-    Raises:
-        ValueError: when the stage rotation is nearer the flipped
-            (rotation_180 / FIB-orientation) side than the reference side.
-            The milling-angle formula only models the reference rotation; on
-            the flipped side it returns a plausible-but-wrong angle, so the
-            measurement would silently mis-scale rather than refuse.
-            FIB-orientation support (the foreshortening roles swap) is a
-            follow-up on FIB-868.
-    """
-    from fibsem.movement import angle_difference
-
-    md = image.metadata
-    pixel_size = md.pixel_size.x
-    column_tilt = np.deg2rad(md.hardware_geometry.fib_column_tilt)
-    pretilt = np.deg2rad(md.hardware_geometry.shuttle_pre_tilt)
-    stage_position = md.microscope_state.stage_position
-
-    stage_rotation = stage_position.r or 0.0
-    rotation_reference = np.deg2rad(md.hardware_geometry.rotation_reference)
-    rotation_180 = np.deg2rad(md.hardware_geometry.rotation_180)
-    if angle_difference(stage_rotation, rotation_180) < angle_difference(
-        stage_rotation, rotation_reference
-    ):
-        raise ValueError(
-            "Stage rotation is on the flipped (FIB-orientation) side; the "
-            "milling-angle derivation only supports the reference rotation. "
-            "Coincidence measurement at the FIB orientation is not supported "
-            "yet (FIB-868)."
-        )
-
-    milling_angle = convert_stage_tilt_to_milling_angle(
-        stage_tilt=stage_position.t, pretilt=pretilt, column_tilt=column_tilt
-    )
-    return pixel_size, milling_angle, column_tilt
-
-
 def measure_coincidence_from_images(
     sem_image: FibsemImage,
     fib_image: FibsemImage,
-    milling_angle: Optional[float] = None,
-    column_tilt: Optional[float] = None,
+    geometry: Optional[CoincidenceGeometry] = None,
     prior: Optional[Tuple[float, float]] = None,
     capture_range: float = DEFAULT_CAPTURE_RANGE,
     agreement_tolerance: float = DEFAULT_AGREEMENT_TOLERANCE,
 ) -> CoincidenceMeasurement:
     """measure_coincidence for a FibsemImage pair.
 
-    Pixel size, milling angle, and column tilt default to values derived from
-    the SEM image's metadata (see geometry_from_metadata); pass milling_angle
-    or column_tilt (RADIANS) only to override the recorded geometry.
+    The geometry defaults to values derived from the pair's own metadata
+    (see geometry_from_images); pass one explicitly only to override the
+    recorded geometry.
     """
-    pixel_size, md_milling_angle, md_column_tilt = geometry_from_metadata(sem_image)
+    if geometry is None:
+        geometry = geometry_from_images(sem_image, fib_image)
     return measure_coincidence(
         sem=sem_image.data,
         fib=fib_image.data,
-        pixel_size=pixel_size,
-        milling_angle=md_milling_angle if milling_angle is None else milling_angle,
-        column_tilt=md_column_tilt if column_tilt is None else column_tilt,
+        pixel_size=geometry.pixel_size,
+        y_stretch=geometry.y_stretch,
+        dz_per_dy=geometry.dz_per_dy,
         prior=prior,
         capture_range=capture_range,
         agreement_tolerance=agreement_tolerance,
