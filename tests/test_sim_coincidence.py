@@ -228,3 +228,30 @@ def test_measures_configured_offset(microscope):
     m = measure_coincidence_from_images(sem_image, fib_image)
     assert m.is_reliable, m.refusal_reason
     assert abs(abs(m.dz) - COINCIDENCE_OFFSET) < 1e-6
+
+
+def test_click_still_centres_after_a_tilt_change(microscope):
+    """Anchoring at one tilt and clicking at another must not distort moves:
+    the scene re-anchors on tilt changes (the app boots at t=0, users tilt)."""
+    from scipy import ndimage as ndi
+
+    _fiducial_only(microscope)
+    settings = _image_settings(BeamType.ION)
+
+    def fiducial():
+        image = microscope.acquire_image(image_settings=settings)
+        data = ndi.gaussian_filter(image.data.astype(np.float32), 3)
+        y, x = np.unravel_index(np.argmin(data), data.shape)
+        return x, y
+
+    fiducial()  # anchor at the milling pose
+    # tilt to the SEM orientation, as a user does after boot
+    microscope.move_stage_relative(
+        FibsemStagePosition(x=0, y=0, z=0, r=0, t=np.deg2rad(23.0))
+    )
+    x0, y0 = fiducial()
+    microscope.stable_move(dx=0, dy=-20e-6, beam_type=BeamType.ION)
+    x1, y1 = fiducial()
+    pixel_size = 150e-6 / 1536
+    moved = (y1 - y0) * pixel_size
+    assert abs(moved - (-20e-6)) < 1e-6, f"moved {moved * 1e6:+.2f} um, want -20"

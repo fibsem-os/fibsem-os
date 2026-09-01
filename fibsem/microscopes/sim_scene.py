@@ -158,6 +158,25 @@ class CoincidenceScene:
         pixel_size = hfw / width
         cx, cy = width / 2, height / 2
 
+        if self.reference_position is not None:
+            # A tilt or rotation change redefines the view geometry: the
+            # projection's coefficients are evaluated at the reference pose,
+            # so keeping an old anchor renders every later move with stale
+            # trig (moves visibly under-shoot). Re-anchor instead - each
+            # pose is then self-consistent, at the cost of resetting the
+            # height error to the boot offset on such changes.
+            tilt_changed = abs(
+                (stage_position.t or 0.0) - (self.reference_position.t or 0.0)
+            ) > np.deg2rad(1.0)
+            rotation_changed = abs(
+                (stage_position.r or 0.0) - (self.reference_position.r or 0.0)
+            ) > np.deg2rad(2.0)
+            if tilt_changed or rotation_changed:
+                logging.info(
+                    "coincidence scene re-anchored after a tilt/rotation change"
+                )
+                self.reference_position = None
+
         if self.reference_position is None:
             reference = deepcopy(stage_position)
             reference.z = (reference.z or 0.0) - self.coincidence_offset
