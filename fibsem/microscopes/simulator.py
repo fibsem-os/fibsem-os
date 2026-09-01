@@ -496,6 +496,7 @@ class DemoMicroscope(FibsemMicroscope):
         self._last_imaging_settings: ImageSettings = ImageSettings()
         self.milling_channel: BeamType = BeamType.ION
         self._image_cache: dict = {}
+        self._setup_coincidence_projection()
         logging.debug(
             {
                 "msg": "create_microscope_client",
@@ -663,8 +664,22 @@ class DemoMicroscope(FibsemMicroscope):
             random=True,
         )
 
+        # shared-scene projection takes precedence when enabled (FIB-874)
+        if self._coincidence_scene is not None:
+            from fibsem.projection import BeamStageProjection
+
+            projection = BeamStageProjection.from_microscope(
+                self, beam_type=effective_beam_type
+            )
+            image.data = self._coincidence_scene.render(
+                beam_type=effective_beam_type,
+                stage_position=self.get_stage_position(),
+                hfw=effective_image_settings.hfw,
+                resolution=effective_image_settings.resolution,
+                projection=projection,
+            )
         # generate the next image from the sequence iterator
-        if self.use_image_sequence:
+        elif self.use_image_sequence:
             image.data = self._generate_next_image(
                 beam_type=effective_beam_type,
                 output_shape=image.data.shape,
@@ -710,6 +725,38 @@ class DemoMicroscope(FibsemMicroscope):
         logging.debug({"msg": "acquire_image", "metadata": image.metadata.to_dict()})
 
         return image
+
+    def _setup_coincidence_projection(self) -> None:
+        """Opt-in shared-scene projection rendering (FIB-874), default off.
+
+        When `sim: coincidence_projection: true`, both beams image one
+        synthetic scene, with the FIB view foreshortened and displaced by the
+        current height error - so SEM/FIB coincidence can be measured and
+        corrected on the simulator. `sim: coincidence_offset` (metres) sets
+        how far off-coincidence the simulator boots (default 10e-6).
+        """
+        from fibsem.microscopes.sim_scene import CoincidenceScene
+
+        self._coincidence_scene: Optional[CoincidenceScene] = None
+        if not self.system.sim.get("coincidence_projection", False):
+            return
+        offset = float(self.system.sim.get("coincidence_offset", 10e-6))
+        self._coincidence_scene = CoincidenceScene(coincidence_offset=offset)
+        try:
+            # anchor the world NOW, at the connect pose - so moving straight
+            # to a saved position and acquiring shows that position's
+            # surroundings rather than anchoring the world there
+            self._coincidence_scene.anchor(self.get_stage_position())
+        except Exception as e:
+            logging.warning(
+                "Could not anchor the coincidence scene at connect (%s); "
+                "it will anchor at the first acquisition instead.",
+                e,
+            )
+        logging.info(
+            "Simulator coincidence projection enabled (initial offset: %.2f um)",
+            offset * 1e6,
+        )
 
     def _generate_next_image(
         self,
@@ -1038,18 +1085,28 @@ class DemoMicroscope(FibsemMicroscope):
         return ThermoMicroscope.stable_move(self, dx, dy, beam_type, static_wd)
 
     def vertical_move(
-        self, dy: float, dx: float = 0.0, beam_type: BeamType = BeamType.ION
+        self,
+        dy: float,
+        dx: float = 0.0,
+        beam_type: BeamType = BeamType.ION,
+        relaxation: float = 1.0,
     ) -> FibsemStagePosition:
         """Restore the coincidence point from an offset measured in one beam view."""
-        return ThermoMicroscope.vertical_move(self, dy, dx, beam_type)
+        return ThermoMicroscope.vertical_move(self, dy, dx, beam_type, relaxation)
 
     def _vertical_move_from_fib(
-        self, dy: float, dx: float = 0.0
+        self, dy: float, dx: float = 0.0, relaxation: float = 1.0
     ) -> FibsemStagePosition:
-        return ThermoMicroscope._vertical_move_from_fib(self, dy=dy, dx=dx)
+        return ThermoMicroscope._vertical_move_from_fib(
+            self, dy=dy, dx=dx, relaxation=relaxation
+        )
 
-    def _vertical_move_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
-        return ThermoMicroscope._vertical_move_from_sem(self, dx=dx, dy=dy)
+    def _vertical_move_from_sem(
+        self, dx: float, dy: float, relaxation: float = 1.0
+    ) -> FibsemStagePosition:
+        return ThermoMicroscope._vertical_move_from_sem(
+            self, dx=dx, dy=dy, relaxation=relaxation
+        )
 
     def _y_corrected_stage_movement(
         self, expected_y: float, beam_type: BeamType
