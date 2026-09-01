@@ -70,6 +70,14 @@ nonce), `ANSWERED` (check who — if the operator answered, your read of that
 question is stale), task lifecycle `EVENT` lines, and `RUN ENDED` (report
 and stop watching).
 
+If your harness cannot keep a background process alive while you are idle
+(spawned subagents usually cannot — the watcher dies with your turn, and no
+line will ever wake you), do not go idle expecting one. Hold the watch in
+the foreground of a single bounded command instead: run the watcher with
+your tool timeout as the cap, act on whatever lines it printed when the
+command returns, and run it again. A stalled watch looks exactly like a
+quiet run — when in doubt, read `/app/prompt` directly.
+
 ## Answer — the rules that are never optional
 
 1. **Name the question.** Read `GET /app/prompt`, take its `nonce`, echo it in
@@ -141,14 +149,21 @@ The argument selects a variation on the same loop:
 
 - **collaborative** (default): the ladder above, operator in the loop for
   firsts and placements. Report progress as tasks complete.
-- **exemplar**: the operator handles the first item end to end; you record
-  what they accepted as the reference, then handle the remaining items,
-  comparing each inspect against the exemplar. Divergence from the exemplar
-  is a first-of-class: escalate. Record from durable state, not the live
-  prompt: after an `ANSWERED by=operator` line, read
+- **exemplar**: the operator handles the first item end to end; you extract
+  what made their answers acceptable, then handle the remaining items. The
+  exemplar is an *example*, not a template: generalize each acceptance into
+  the criterion behind it, and judge later items by the criteria against
+  their own recorded config — never by literal match. The alignment area
+  does not have to sit where item 1's sat; it has to cover *this item's*
+  fiducial, stay clear of *this item's* POI, and be in bounds at a sensible
+  size. One mill pass sufficed on the exemplar means one pass with a fresh
+  image is acceptable — not that the pixels must match. Record from durable
+  state, not the live prompt: after an `ANSWERED by=operator` line, read
   `GET /app/items/{item_name}` — the accepted POI, alignment area, and
   milling angle are there — and pair it with the display image. Never race
-  the operator for the prompt's `current` value.
+  the operator for the prompt's `current` value. Escalate when a criterion
+  is violated, when you cannot evaluate one, or when a question type the
+  exemplar never showed appears.
 - **batch-review**: supervision is off or minimal; let the run complete, then
   present the outputs (`/app/run_summary`, `/app/task_outputs/{item}`, final
   images) and act on the operator's verdicts — `requeue_task` for the items
