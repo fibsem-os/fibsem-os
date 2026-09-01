@@ -11,9 +11,13 @@ exist in the code; if you need one, open an issue first.
 
 ```
 fibsem/                     the instrument library (no app logic)
-  microscope.py             FibsemMicroscope — the ABC every microscope implements
-  microscopes/              implementations: autoscript (TFS), tescan, odemis,
-                            simulator (DemoMicroscope — the reference)
+  microscope.py             FibsemMicroscope — the ABC every microscope
+                            implements (plus, historically, the TFS
+                            implementation itself — ThermoMicroscope lives
+                            in this file, not in microscopes/)
+  microscopes/              tescan, odemis, simulator (DemoMicroscope — the
+                            reference); autoscript.py is TFS helper
+                            subsystems, not the microscope class
   structures.py             the shared vocabulary: FibsemImage, Point,
                             FibsemRectangle, stage positions, settings
   milling/, imaging/        beam operations built on the ABC
@@ -58,18 +62,33 @@ QT_QPA_PLATFORM=offscreen python -m pytest tests/ui/test_something.py -q
 ## "I want to support my microscope"
 
 The seam is `FibsemMicroscope` (`fibsem/microscope.py`) — an ABC covering
-acquisition, movement, milling, and state. Implement it and everything
-above (workflows, UI, server) works unchanged.
+acquisition, movement, milling, and state. Once implemented **and
+registered** (below), everything above — workflows, UI, server — works
+unchanged.
 
 - **Template**: `DemoMicroscope` in `fibsem/microscopes/simulator.py` is
   the reference implementation — complete, hardware-free, and the shape to
   copy. `fibsem/microscopes/tescan.py` shows a real vendor SDK behind the
-  same interface.
+  same interface. (`microscopes/zeiss.py` is an empty placeholder awaiting
+  a SerialFIB migration — if Zeiss is your goal, fill it in rather than
+  starting a new file.)
+- **Register it** — implementing the ABC alone is not enough; the
+  manufacturer dispatch is hardcoded in a few places, and missing one
+  gives `NotImplementedError` at connect, not at import:
+  `fibsem/manufacturers.py` (the constant and alias — Zeiss already has
+  one), `fibsem/utils.py` `setup_session()` (the if/elif that constructs
+  your class), `fibsem/configuration.py` (the generator's accepted
+  manufacturers), and the manufacturer gates in
+  `fibsem/ui/widgets/microscope_config_widget.py`.
 - **Configuration**: microscopes are described by a configuration YAML
-  (see `fibsem/config/`); `fibsem-generate-config` scaffolds one.
-- **Verify**: point `utils.setup_session()` at your implementation and run
-  the same imaging/movement calls the Demo tests exercise; then connect
-  through the app.
+  (see `fibsem/config/`); `fibsem-generate-config` scaffolds one — for a
+  manufacturer it does not know yet, scaffold a Demo config and hand-edit.
+- **Verify**: connect via `utils.setup_session()` and run the tests that
+  exercise Demo through the same interface (`tests/test_acquire.py`,
+  `tests/test_movement.py`, `tests/test_microscope.py`); then connect
+  through the app. You do not need all ~45 abstract methods working to
+  start — get acquisition and stage movement right first and let the rest
+  raise until their subsystem's turn.
 
 ## "I want to automate something" (three tiers)
 
