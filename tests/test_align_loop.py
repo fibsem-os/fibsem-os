@@ -61,8 +61,11 @@ def test_already_coincident_moves_nothing(microscope):
 
 
 def test_refusal_stops_the_loop(microscope):
-    # an absurdly small capture range forces a window-edge/agreement refusal
-    result = ensure_coincident(microscope, tolerance=1e-6, capture_range=0.3e-6)
+    # an absurdly small capture range forces a window-edge/agreement refusal;
+    # coarse escalation disabled so the refusal is terminal
+    result = ensure_coincident(
+        microscope, tolerance=1e-6, capture_range=0.3e-6, coarse_hfw=None
+    )
 
     assert not result.converged
     assert result.reason not in (REASON_CONVERGED, REASON_MAX_ITERATIONS)
@@ -81,3 +84,41 @@ def test_under_relaxed_loop_hits_the_iteration_limit(microscope):
     assert result.moves_applied == 1
     # but it did make progress, honestly recorded
     assert abs(result.final.dz) < abs(result.measurements[0].dz)
+
+
+@pytest.mark.parametrize("offset", [40e-6, 80e-6])
+def test_coarse_pass_rescues_errors_beyond_the_fine_window(microscope, offset):
+    """Errors past the fine capture range refuse at fine FOV, escalate to
+    the coarse pass, and still converge - up to ~100 um of height error."""
+    microscope._coincidence_scene.coincidence_offset = offset
+    microscope._coincidence_scene.reference_position = None
+    microscope._coincidence_scene.anchor(microscope.get_stage_position())
+
+    result = ensure_coincident(microscope, tolerance=1e-6)
+
+    assert result.converged, result.reason
+    assert result.coarse_used
+    assert abs(result.final.dz) <= 1e-6
+    assert not result.measurements[0].is_reliable  # fine pass refused first
+
+
+@pytest.mark.xfail(
+    reason="on a purely periodic mesh, correlation cannot distinguish true "
+    "coincidence from a grid-pitch alias: with the error beyond ~one pitch "
+    "both bands agree on the alias and the loop converges onto it (FIB-711 "
+    "taken to its logical end - real physics, same on hardware over bare "
+    "mesh). Defences are contextual: bound the plausible error from 'how "
+    "far since last aligned', or anchor on aperiodic features. FIB-868.",
+    strict=False,
+)
+def test_error_beyond_the_coarse_window_does_not_claim_success(microscope):
+    """The desired property - never claim success on an aliased lock -
+    cannot be guaranteed by correlation alone on a periodic scene."""
+    microscope._coincidence_scene.coincidence_offset = 250e-6
+    microscope._coincidence_scene.reference_position = None
+    microscope._coincidence_scene.anchor(microscope.get_stage_position())
+
+    result = ensure_coincident(microscope, tolerance=1e-6)
+
+    assert not result.converged
+    assert result.coarse_used  # it tried

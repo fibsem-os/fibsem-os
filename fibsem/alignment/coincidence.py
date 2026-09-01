@@ -348,6 +348,18 @@ DEFAULT_ALIGNMENT_RESOLUTION = (1536, 1024)
 DEFAULT_TOLERANCE = 1e-6  # m, height error below which the pair is coincident
 DEFAULT_MAX_ITERATIONS = 3
 
+# The coarse (establish) pass: a wide view buys capture range at the cost of
+# precision. Its search window must stay well under one grid pitch - the mesh
+# is periodic, and rival correlation peaks sit exactly one pitch apart
+# (FIB-711 by construction).
+# Sized for height errors up to ~100 um: the FIB-view displacement of a
+# height error, stretched into the correlation space, must still fit the
+# frame - and the search window must stay under one grid pitch (125 um),
+# where the mesh's rival correlation peaks sit.
+DEFAULT_COARSE_HFW = 900e-6  # m
+DEFAULT_COARSE_CAPTURE_RANGE = 100e-6  # m, just under one 125 um grid pitch
+DEFAULT_COARSE_AGREEMENT_TOLERANCE = 2e-6  # m, looser: coarse pixels are ~4x bigger
+
 REASON_CONVERGED = "converged"
 REASON_MAX_ITERATIONS = "max-iterations"
 
@@ -366,6 +378,7 @@ class CoincidenceAlignment:
     measurements: List["CoincidenceMeasurement"]
     converged: bool
     reason: str  # REASON_CONVERGED, REASON_MAX_ITERATIONS, or a refusal_reason
+    coarse_used: bool = False
 
     @property
     def final(self) -> "CoincidenceMeasurement":
@@ -426,13 +439,26 @@ def ensure_coincident(
     capture_range: float = DEFAULT_CAPTURE_RANGE,
     agreement_tolerance: float = DEFAULT_AGREEMENT_TOLERANCE,
     relaxation: float = 1.0,
+    coarse_hfw: Optional[float] = DEFAULT_COARSE_HFW,
+    coarse_capture_range: float = DEFAULT_COARSE_CAPTURE_RANGE,
+    coarse_agreement_tolerance: float = DEFAULT_COARSE_AGREEMENT_TOLERANCE,
 ) -> CoincidenceAlignment:
     """Measure the SEM/FIB coincidence and correct it until within tolerance.
 
     The loop: measure -> vertical move by the measured residual -> re-measure,
     stopping when a FRESH measurement is within tolerance, an iteration limit
-    is reached, or a measurement refuses. It never reports success from
-    having moved: convergence is always a measured fact.
+    is reached, or the measurement chain refuses. It never reports success
+    from having moved: convergence is always a measured fact.
+
+    When the fine measurement refuses - typically because the error is
+    outside its capture range - the loop escalates ONCE per refusal to a
+    coarse pass: the same measurement at a much wider field of view, whose
+    window buys capture range at the cost of precision. A reliable coarse
+    measurement drives a corrective move that only needs to land within the
+    fine pass's reach; the next fine measurement takes over. If the coarse
+    pass refuses too, the loop stops without moving - the escalation beyond
+    this point (spot burn, operator) is a policy decision that does not
+    belong in here.
 
     dx is never corrected here - a persistent lateral offset is not a height
     error (beam misalignment, FIB-873) and correcting it belongs to a
@@ -444,46 +470,74 @@ def ensure_coincident(
         tolerance: height error (m) below which the views count as coincident.
         max_iterations: maximum number of corrective moves.
         image_settings: per-acquisition settings; a low-dose default when omitted.
-        capture_range: search half-width (m) for the first measurement; later
-            iterations search a window this size seeded at the expected
-            (dx, ~0) residual.
-        agreement_tolerance: band-agreement gate for each measurement.
+        capture_range: fine search half-width (m); later iterations search a
+            window this size seeded at the expected (dx, ~0) residual.
+        agreement_tolerance: band-agreement gate for fine measurements.
         relaxation: under-relaxation passed to vertical_move; 1.0 is exact.
+        coarse_hfw: field width (m) for the coarse escalation; None disables
+            it, making a fine refusal terminal.
+        coarse_capture_range: coarse search half-width (m). Keep well under
+            one grid pitch: the mesh is periodic and rival peaks sit one
+            pitch apart.
+        coarse_agreement_tolerance: band-agreement gate for the coarse pass
+            (looser: its pixels are ~4x larger).
 
     Returns:
-        CoincidenceAlignment with the full measurement history.
+        CoincidenceAlignment with the full measurement history (coarse
+        measurements included) and whether the coarse pass was needed.
     """
+    from copy import deepcopy
+
     measurements: List[CoincidenceMeasurement] = []
+    coarse_used = False
 
-    measurement = check_coincidence(
-        microscope,
-        image_settings=image_settings,
-        capture_range=capture_range,
-        agreement_tolerance=agreement_tolerance,
-    )
-    measurements.append(measurement)
-
-    reason = REASON_MAX_ITERATIONS
-    for _ in range(max_iterations):
-        if not measurement.is_reliable:
-            reason = measurement.refusal_reason or REFUSAL_BAND_DISAGREEMENT
-            break
-        if abs(measurement.dz) <= tolerance:
-            reason = REASON_CONVERGED
-            break
-
-        microscope.vertical_move(dy=measurement.dy, dx=0, relaxation=relaxation)
-
+    def fine_check(prior: Optional[Tuple[float, float]] = None):
         measurement = check_coincidence(
             microscope,
             image_settings=image_settings,
-            # after a correction the residual should be near zero in y;
-            # dx is uncorrected and persists, so seed the window there
-            prior=(measurement.dx, 0.0),
+            prior=prior,
             capture_range=capture_range,
             agreement_tolerance=agreement_tolerance,
         )
         measurements.append(measurement)
+        return measurement
+
+    def coarse_check():
+        settings = deepcopy(image_settings or _default_image_settings())
+        settings.hfw = coarse_hfw
+        measurement = check_coincidence(
+            microscope,
+            image_settings=settings,
+            capture_range=coarse_capture_range,
+            agreement_tolerance=coarse_agreement_tolerance,
+        )
+        measurements.append(measurement)
+        return measurement
+
+    measurement = fine_check()
+
+    reason = REASON_MAX_ITERATIONS
+    for _ in range(max_iterations):
+        if measurement.is_reliable and abs(measurement.dz) <= tolerance:
+            reason = REASON_CONVERGED
+            break
+
+        if not measurement.is_reliable:
+            if coarse_hfw is None:
+                reason = measurement.refusal_reason or REFUSAL_BAND_DISAGREEMENT
+                break
+            coarse_used = True
+            measurement = coarse_check()
+            if not measurement.is_reliable:
+                reason = measurement.refusal_reason or REFUSAL_BAND_DISAGREEMENT
+                break
+            # a coarse move only needs to land within the fine pass's reach
+
+        microscope.vertical_move(dy=measurement.dy, dx=0, relaxation=relaxation)
+
+        # after a correction the residual should be near zero in y; dx is
+        # uncorrected and persists, so seed the fine window there
+        measurement = fine_check(prior=(measurement.dx, 0.0))
     else:
         # loop exhausted: the final measurement still decides the verdict
         if measurement.is_reliable and abs(measurement.dz) <= tolerance:
@@ -495,6 +549,7 @@ def ensure_coincident(
         measurements=measurements,
         converged=reason == REASON_CONVERGED,
         reason=reason,
+        coarse_used=coarse_used,
     )
     logging.info(
         {
@@ -502,6 +557,7 @@ def ensure_coincident(
             "converged": result.converged,
             "reason": result.reason,
             "moves_applied": result.moves_applied,
+            "coarse_used": result.coarse_used,
             "final_dz": result.final.dz,
             "final_dx": result.final.dx,
             "tolerance": tolerance,
