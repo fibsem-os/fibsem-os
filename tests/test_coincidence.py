@@ -254,3 +254,15 @@ def test_measure_from_images_and_diagnostic_plot(tmp_path):
     assert fig is not None
     pngs = list(tmp_path.glob("*coincidence*.png"))
     assert len(pngs) == 1
+
+
+def test_flipped_rotation_is_rejected():
+    from fibsem.alignment.coincidence import geometry_from_metadata
+
+    image = _image_with_metadata(np.zeros(SHAPE, dtype=np.uint8), PIXEL_SIZE)
+    # stage rotated to the flipped (FIB-orientation) side: the milling-angle
+    # derivation would silently mis-scale, so it must refuse loudly instead
+    image.metadata.microscope_state.stage_position.r = np.deg2rad(180.0)
+
+    with pytest.raises(ValueError, match="FIB-orientation"):
+        geometry_from_metadata(image)

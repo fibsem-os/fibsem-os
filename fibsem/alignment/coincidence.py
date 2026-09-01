@@ -262,14 +262,39 @@ def geometry_from_metadata(image: FibsemImage) -> Tuple[float, float, float]:
     recorded stage tilt plus the hardware geometry (shuttle pre-tilt, ion
     column tilt), so a saved pair is self-sufficient - usable offline with no
     microscope connection.
+
+    Raises:
+        ValueError: when the stage rotation is nearer the flipped
+            (rotation_180 / FIB-orientation) side than the reference side.
+            The milling-angle formula only models the reference rotation; on
+            the flipped side it returns a plausible-but-wrong angle, so the
+            measurement would silently mis-scale rather than refuse.
+            FIB-orientation support (the foreshortening roles swap) is a
+            follow-up on FIB-868.
     """
+    from fibsem.movement import angle_difference
+
     md = image.metadata
     pixel_size = md.pixel_size.x
     column_tilt = np.deg2rad(md.hardware_geometry.fib_column_tilt)
     pretilt = np.deg2rad(md.hardware_geometry.shuttle_pre_tilt)
-    stage_tilt = md.microscope_state.stage_position.t
+    stage_position = md.microscope_state.stage_position
+
+    stage_rotation = stage_position.r or 0.0
+    rotation_reference = np.deg2rad(md.hardware_geometry.rotation_reference)
+    rotation_180 = np.deg2rad(md.hardware_geometry.rotation_180)
+    if angle_difference(stage_rotation, rotation_180) < angle_difference(
+        stage_rotation, rotation_reference
+    ):
+        raise ValueError(
+            "Stage rotation is on the flipped (FIB-orientation) side; the "
+            "milling-angle derivation only supports the reference rotation. "
+            "Coincidence measurement at the FIB orientation is not supported "
+            "yet (FIB-868)."
+        )
+
     milling_angle = convert_stage_tilt_to_milling_angle(
-        stage_tilt=stage_tilt, pretilt=pretilt, column_tilt=column_tilt
+        stage_tilt=stage_position.t, pretilt=pretilt, column_tilt=column_tilt
     )
     return pixel_size, milling_angle, column_tilt
 
