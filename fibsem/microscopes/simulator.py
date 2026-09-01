@@ -496,6 +496,7 @@ class DemoMicroscope(FibsemMicroscope):
         self._last_imaging_settings: ImageSettings = ImageSettings()
         self.milling_channel: BeamType = BeamType.ION
         self._image_cache: dict = {}
+        self._setup_coincidence_projection()
         logging.debug(
             {
                 "msg": "create_microscope_client",
@@ -663,8 +664,18 @@ class DemoMicroscope(FibsemMicroscope):
             random=True,
         )
 
+        # shared-scene projection takes precedence when enabled (FIB-874)
+        if self._coincidence_scene is not None:
+            image.data = self._coincidence_scene.render(
+                beam_type=effective_beam_type,
+                stage_position=self.get_stage_position(),
+                hfw=effective_image_settings.hfw,
+                resolution=effective_image_settings.resolution,
+                pretilt=np.deg2rad(self.system.stage.shuttle_pre_tilt),
+                column_tilt=np.deg2rad(self.system.ion.column_tilt),
+            )
         # generate the next image from the sequence iterator
-        if self.use_image_sequence:
+        elif self.use_image_sequence:
             image.data = self._generate_next_image(
                 beam_type=effective_beam_type,
                 output_shape=image.data.shape,
@@ -710,6 +721,27 @@ class DemoMicroscope(FibsemMicroscope):
         logging.debug({"msg": "acquire_image", "metadata": image.metadata.to_dict()})
 
         return image
+
+    def _setup_coincidence_projection(self) -> None:
+        """Opt-in shared-scene projection rendering (FIB-874), default off.
+
+        When `sim: coincidence_projection: true`, both beams image one
+        synthetic scene, with the FIB view foreshortened and displaced by the
+        current height error - so SEM/FIB coincidence can be measured and
+        corrected on the simulator. `sim: coincidence_offset` (metres) sets
+        how far off-coincidence the simulator boots (default 10e-6).
+        """
+        from fibsem.microscopes.sim_scene import CoincidenceScene
+
+        self._coincidence_scene: Optional[CoincidenceScene] = None
+        if not self.system.sim.get("coincidence_projection", False):
+            return
+        offset = float(self.system.sim.get("coincidence_offset", 10e-6))
+        self._coincidence_scene = CoincidenceScene(coincidence_offset=offset)
+        logging.info(
+            "Simulator coincidence projection enabled (initial offset: %.2f um)",
+            offset * 1e6,
+        )
 
     def _generate_next_image(
         self,
