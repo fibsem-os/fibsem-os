@@ -670,6 +670,18 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             parent=self,
         )
 
+        # Session controls for the embedded agent server: status, token, and
+        # scope arming (arming is per-session consent; the durable policy is in
+        # Preferences -> Agent). Visible only with the feature enabled, next to
+        # Scripts — its future Automation-menu sibling (FIB-863).
+        self.action_agent_server = QAction("Agent Server...", self)
+        self.action_agent_server.setMenuRole(QAction.NoRole)
+        self.action_agent_server.setToolTip(
+            "Session status, access token, and what the connected agent may do"
+        )
+        self.action_agent_server.triggered.connect(self._on_agent_server_dialog)
+        tools_menu.addAction(self.action_agent_server)
+
         # Below the separator because these act on the install rather than on the
         # experiment. The wizard needs a home here as well as on the connection tab:
         # the callout there appears once and is dismissible, so without this entry a
@@ -914,6 +926,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.scripts_menu.menuAction().setVisible(
             self._preferences.features.scripts_enabled
             or self.script_menu_controller.runner.is_running
+        )
+        # Same rule as the rest of the agent chrome: invisible unless enabled.
+        self.action_agent_server.setVisible(
+            self._preferences.features.agent_server_enabled
         )
         # getattr because this also runs from the preferences dialog, and the tab it
         # reaches into is built by AutoLamellaUI rather than here.
@@ -2760,12 +2776,34 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui.lamella_list.refresh_all()
         self._on_lamella_card_selected(getattr(self, "_selected_card_lamella", None))
 
+    def _on_agent_server_dialog(self) -> None:
+        """Open the session dialog: status, token, and scope arming."""
+        from fibsem.applications.autolamella.ui.agent_server_dialog import (
+            AgentServerDialog,
+        )
+
+        dialog = AgentServerDialog(
+            host_provider=lambda: getattr(
+                self.autolamella_ui, "_agent_server_host", None
+            ),
+            parent=self,
+        )
+        dialog.exec_()
+
+    def _watchdog_ms(self) -> int:
+        """The watchdog deadline, from Preferences → Agent (constant fallback)."""
+        try:
+            minutes = fibsem_cfg.load_user_preferences().agent.watchdog_minutes
+            return max(1, int(minutes)) * 60 * 1000
+        except Exception:
+            return AGENT_WATCHDOG_MS
+
     def _on_question_event(self, kind: str, payload: dict) -> None:
         """GUI thread, from the responder: arm/disarm the agent watchdog."""
         if kind == "prompt_raised":
             self._agent_watchdog_expired = False
             if self._agent_supervision_active(self._current_task_name):
-                self._agent_watchdog.start(AGENT_WATCHDOG_MS)
+                self._agent_watchdog.start(self._watchdog_ms())
             else:
                 self._agent_watchdog.stop()
         elif kind in ("prompt_answered", "prompt_cancelled"):
@@ -2778,7 +2816,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if not self.autolamella_ui.WAITING_FOR_USER_INTERACTION:
             return  # the answer raced the timer; nothing is standing
         self._agent_watchdog_expired = True
-        minutes = max(1, AGENT_WATCHDOG_MS // 60000)
+        minutes = max(1, self._watchdog_ms() // 60000)
         notification_service.show_toast(
             f"The agent hasn't answered in {minutes} minutes — "
             "this question is now yours.",
