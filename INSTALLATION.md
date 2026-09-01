@@ -95,6 +95,12 @@ This resolves the same dependencies from `pyproject.toml` as `pip`, just faster.
 No lockfile or additional configuration is required.
 
 ### Create a desktop shortcut
+The easiest way: launch the application once (`fibsem-autolamella-ui`) and select
+**Tools → Create Desktop Shortcut...** — it locates the entry point in the current
+environment and writes the shortcut to a location you choose, defaulting to your
+Desktop (Windows `.lnk`, Linux `.desktop`, macOS `.command`).
+
+To create one manually instead:
 1. Create a script file:
     Activate the environment then run the following command to create the script:
     - **Windows**
