@@ -526,7 +526,11 @@ class AgentContext:
             return None
 
     def answer_prompt(
-        self, response: bool, nonce: int, timeout: float = 10.0
+        self,
+        response: bool,
+        nonce: int,
+        value: Optional[Dict[str, Any]] = None,
+        timeout: float = 10.0,
     ) -> Dict[str, Any]:
         """Answer the pending question as the matching button click would.
 
@@ -536,6 +540,17 @@ class AgentContext:
         :meth:`pending_prompt`) names the question being answered: if that
         posting is gone — answered, withdrawn, or replaced — the result is
         ``stale`` and nothing was clicked.
+
+        ``value`` optionally carries adjusted geometry for the two questions
+        answered from live widget state: an alignment area
+        (``{"left", "top", "width", "height"}``, fractions of the frame) for
+        ``EditAlignmentArea``, or a point (``{"x", "y"}``, metres in microscope
+        image coordinates, origin centre, +y up) for ``PickPOI``. The value is
+        validated here — in bounds, non-degenerate, the right shape for the
+        pending question — and refused as ``invalid_value`` without clicking
+        anything when it is not. A valid value is placed into the widget as if
+        the operator had dragged it there, then the ordinary click path accepts
+        it, so attribution and first-writer-wins hold unchanged.
         """
         responder = self._responder
         if responder is None:
@@ -544,12 +559,98 @@ class AgentContext:
             StalePromptError,
         )
 
-        outcome = responder.submit_answer(bool(response), nonce=int(nonce))
+        parsed = None
+        if value is not None:
+            parsed, refusal = self._parse_answer_value(responder, int(nonce), value)
+            if refusal is not None:
+                return refusal
+
+        outcome = responder.submit_answer(
+            bool(response), nonce=int(nonce), value=parsed
+        )
         try:
             applied = bool(outcome.result(timeout=timeout))
         except StalePromptError:
             return {"available": True, "applied": False, "stale": True}
-        return {"available": True, "applied": applied, "stale": False}
+        result = {"available": True, "applied": applied, "stale": False}
+        if parsed is not None:
+            result["adjusted"] = True
+        return result
+
+    @staticmethod
+    def _parse_answer_value(responder, nonce: int, value: Any):
+        """Turn a wire ``value`` into the domain object for the pending question.
+
+        Returns ``(parsed, None)`` on success or ``(None, refusal)`` — the
+        refusal already shaped for :meth:`answer_prompt` to return. Validation
+        happens against the frozen pending request; the responder's own nonce
+        check on the GUI thread still guards the actual apply, so a question
+        swap between here and there is refused as stale, never mis-applied.
+        """
+
+        def _refuse(message: str) -> Dict[str, Any]:
+            return {
+                "available": True,
+                "applied": False,
+                "stale": False,
+                "invalid_value": message,
+            }
+
+        request, pending_nonce = responder.pending_question_and_nonce()
+        if request is None or pending_nonce != nonce:
+            return None, {"available": True, "applied": False, "stale": True}
+        type_name = type(request).__name__
+        if not isinstance(value, dict):
+            return None, _refuse("value must be a JSON object.")
+
+        if type_name == "EditAlignmentArea":
+            from fibsem.structures import FibsemRectangle
+
+            try:
+                rect = FibsemRectangle.from_dict(value)
+            except Exception:
+                return None, _refuse(
+                    "an EditAlignmentArea value needs numeric left, top, "
+                    "width, height — fractions of the frame, origin top-left."
+                )
+            if not rect.is_valid_reduced_area:
+                return None, _refuse(
+                    "alignment area out of bounds: left/top must be >= 0, "
+                    "width/height > 0, and the rectangle must fit inside "
+                    "the frame (left+width <= 1, top+height <= 1)."
+                )
+            return rect, None
+
+        if type_name == "PickPOI":
+            from fibsem.structures import Point
+
+            try:
+                point = Point.from_dict(value)
+            except Exception:
+                return None, _refuse(
+                    "a PickPOI value needs numeric x, y — metres in "
+                    "microscope image coordinates, origin centre, +y up."
+                )
+            image = getattr(request, "image", None)
+            try:
+                half_width = image.data.shape[1] / 2 * image.metadata.pixel_size.x
+                half_height = image.data.shape[0] / 2 * image.metadata.pixel_size.x
+            except Exception:
+                return None, _refuse(
+                    "the pending question's image is missing its scale; "
+                    "the point cannot be validated."
+                )
+            if abs(point.x) > half_width or abs(point.y) > half_height:
+                return None, _refuse(
+                    f"point ({point.x:.3e}, {point.y:.3e}) m is outside the "
+                    f"image: |x| <= {half_width:.3e}, |y| <= {half_height:.3e}."
+                )
+            return point, None
+
+        return None, _refuse(
+            f"{type_name} answers cannot carry a value; "
+            "only EditAlignmentArea and PickPOI can."
+        )
 
     # --- events -----------------------------------------------------------------
 

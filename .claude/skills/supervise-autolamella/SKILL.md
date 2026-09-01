@@ -117,12 +117,20 @@ placement, that is the operator's decision (see the ladder).
 FIB view). Sanity-check against the image: in bounds, non-degenerate size,
 covering the fiducial, consistent with previous items. Yes accepts it as
 shown. In a fiducial task this prompt arrives at the task's *end*, not its
-start.
+start. An answer may carry a **corrected rectangle**:
+`{"response": true, "nonce": N, "value": {"left", "top", "width", "height"}}`
+(fractions of the frame, origin top-left). The server validates it and
+places it on the operator's screen through the same widget they would drag,
+then accepts it — use this for a small correction you can justify from your
+criteria, never to invent an area from scratch (that is an escalation).
 
 **`PickPOI`** — a placement. The payload carries the image and the live
 `current` marker (microscope image coordinates, +y up, origin centre). In
 collaborative mode this is **held for the operator**: report it, show where
-the marker is, and wait.
+the marker is, and wait. Where placement has been delegated (exemplar mode,
+or an explicit "you place the rest"), the answer may carry the point:
+`"value": {"x", "y"}` in the payload's stated coordinates — validated
+against the image bounds, and landed on screen before acceptance.
 
 **`ConfirmDetection`** — feature positions. Held for the operator in
 collaborative mode.
@@ -161,9 +169,12 @@ The argument selects a variation on the same loop:
   state, not the live prompt: after an `ANSWERED by=operator` line, read
   `GET /app/items/{item_name}` — the accepted POI, alignment area, and
   milling angle are there — and pair it with the display image. Never race
-  the operator for the prompt's `current` value. Escalate when a criterion
-  is violated, when you cannot evaluate one, or when a question type the
-  exemplar never showed appears.
+  the operator for the prompt's `current` value. A small drift against a
+  criterion you can state is a correction, not an escalation: answer with a
+  `value` carrying the fixed geometry (the alignment rectangle nudged off
+  the POI, the point moved onto the feature) — the operator sees it land.
+  Escalate when you cannot state the correction, when you cannot evaluate a
+  criterion, or when a question type the exemplar never showed appears.
 - **batch-review**: supervision is off or minimal; let the run complete, then
   present the outputs (`/app/run_summary`, `/app/task_outputs/{item}`,
   `/app/items/{item}`, final images) and act on the verdicts —

@@ -255,6 +255,58 @@ def test_alignment_prompt_carries_the_fib_display_frame(ui, qapp):
     assert "error" not in outcome
 
 
+def test_a_value_on_a_valueless_question_is_refused(ui, qapp):
+    """Only EditAlignmentArea and PickPOI answers can carry a value; a value on
+    anything else — or a value that is not an object — is a 422 refusal that
+    clicks nothing, and the question stands."""
+    with _client(ui, arm_control=True) as client:
+        thread, outcome = _ask_on_worker(ui, qapp)
+        nonce = client.get("/app/prompt", headers=AUTH).json()["pending"]["nonce"]
+
+        malformed = client.post(
+            "/app/prompt/answer",
+            headers=AUTH,
+            json={"response": True, "nonce": nonce, "value": [1, 2]},
+        )
+        assert malformed.status_code == 422
+        assert malformed.json()["detail"]["error_type"] == "invalid_value"
+
+        posted = {}
+
+        def do_post():
+            posted["response"] = client.post(
+                "/app/prompt/answer",
+                headers=AUTH,
+                json={"response": True, "nonce": nonce, "value": {"x": 0, "y": 0}},
+            )
+
+        poster = threading.Thread(target=do_post, daemon=True)
+        poster.start()
+        _spin_until(qapp, lambda: "response" in posted)
+        refused = posted["response"]
+        assert refused.status_code == 422
+        assert refused.json()["detail"]["error_type"] == "invalid_value"
+        assert "Confirm" in refused.json()["detail"]["message"]
+
+        # The refusals clicked nothing: the same nonce still answers.
+        posted.clear()
+
+        def do_plain_post():
+            posted["response"] = client.post(
+                "/app/prompt/answer",
+                headers=AUTH,
+                json={"response": True, "nonce": nonce},
+            )
+
+        poster = threading.Thread(target=do_plain_post, daemon=True)
+        poster.start()
+        _spin_until(qapp, lambda: "response" in posted)
+        assert posted["response"].status_code == 200
+        _spin_until(qapp, lambda: "answer" in outcome or "error" in outcome)
+        thread.join(timeout=5)
+        assert outcome.get("answer") is True
+
+
 def test_an_answer_without_a_nonce_is_rejected(ui, qapp):
     with _client(ui, arm_control=True) as client:
         rejected = client.post(
